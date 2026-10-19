@@ -1838,8 +1838,8 @@ fail "review-box-bug as temp loan", "cannot reassign `h` while it is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H2
     r: ^R?
@@ -1877,8 +1877,8 @@ fail "review-box-p01", "cannot reassign `o` while it is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   if !o as x
@@ -1894,8 +1894,8 @@ test "review-box-p02", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   if !o as x
@@ -1907,8 +1907,8 @@ fail "review-box-p04", "cannot move `o` while a read loan is live"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   if ?o as x
@@ -1919,8 +1919,8 @@ fail "review-box-p06", "cannot reassign `h` while it is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
@@ -1940,8 +1940,8 @@ test "review-box-p07", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
@@ -1960,8 +1960,8 @@ fail "review-box-p08", "cannot assign to `h.r` while `h` is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
@@ -1976,8 +1976,8 @@ fail "review-box-p09", "cannot lend `o` to read while a write loan is live"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   if !o as x
@@ -2015,8 +2015,8 @@ test "review-box-p100", '''
     v: List[Int]
     arr: [3]Int
 
-    fun vr(?self) -> ?List[Int]
-      ?self.v
+    fun vr(?@) -> ?List[Int]
+      ?@v
 
   obj S
     b: ^P
@@ -2051,8 +2051,8 @@ test "review-box-p101", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun rd(o: ?R?) -> Int
     if o as x
@@ -2082,8 +2082,8 @@ test "review-box-p107", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(b: ^R)
     print("eat", b.n)
@@ -2166,8 +2166,8 @@ fail "review-box-p117", "bare use of loop view `x` in binding would carry the vi
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[^R] = List()
   !v.push(^R(n: 1))
@@ -2235,8 +2235,8 @@ test "review-box-p123", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = none
   p: R? = R(n: 5)
@@ -2262,25 +2262,25 @@ test "review-box-p124", '''
     v: Int
     next: ^Node?
 
-    fun sum(?self) -> Int
-      if ?self.next as n
-        self.v + n.sum()
+    fun sum(?@) -> Int
+      if ?@next as n
+        @v + n.sum()
       else
-        self.v
+        @v
 
-    sub add(!self, k: Int)
-      self.v += k
-      if !self.next as n
+    sub add(!@, k: Int)
+      @v += k
+      if !@next as n
         !n.add(k)
 
-    sub append(!self, v: Int)
-      if !self.next as n
+    sub append(!@, v: Int)
+      if !@next as n
         !n.append(v)
       else
-        self.next = ^Node(v: v, next: none)
+        @next = ^Node(v: v, next: none)
 
-    fun len(?self) -> Int
-      if ?self.next as n
+    fun len(?@) -> Int
+      if ?@next as n
         1 + n.len()
       else
         1
@@ -2329,8 +2329,8 @@ test "review-box-p127", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun has[T](o: ?T?) -> Bool
     if o as _
@@ -2368,8 +2368,8 @@ test "review-box-p128", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun peek[T](b: ?^T) -> ?T
     ?b
@@ -2443,9 +2443,9 @@ test "review-box-p133", '''
     a: ^Q?
     s: *Q2?
 
-    drop(!self)
-      if self.k % 100000 == 0
-        print("drop q", self.k)
+    drop(!@)
+      if @k % 100000 == 0
+        print("drop q", @k)
 
   obj Q2
     q: ^Q?

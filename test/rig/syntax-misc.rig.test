@@ -29,8 +29,8 @@ test "as chain", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun get(k: Int) -> Int?
     k if k > 0 else none
@@ -101,8 +101,8 @@ fail "as chain scope", "17:4: use of unbound name `y`", "22:9: use of unbound na
   obj Res
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   fun get(k: Int) -> Int?
     k if k > 0 else none
@@ -558,51 +558,40 @@ test "drop decl body", '''
   0
   7
 '''
-  # A struct's `drop(!self)` body runs at scope exit and can read
-  # `self`'s fields.
+  # A struct's `drop(!@)` body runs at scope exit and can read
+  # `@`'s fields.
 
   obj File
     fd: Int
 
-    drop(!self)
-      print(self.fd)
+    drop(!@)
+      print(@fd)
 
   f: File = File(fd: 7)
   print(0)
   # scope exit runs the drop body, which prints the fd
 
-test "drop decl long receiver", '''
-  3
-  b 2
-  a 1
-'''
-  # A `drop` receiver may be spelled as a method's is: `drop(!self)` or
-  # `drop(self: !Self)`, which may name the struct.
+fail "drop decl typed receiver", "7:8: the receiver `@` takes no type: write `?@`, `!@`, or `<@`"
+  # A `drop` receiver is written as a method's is, `drop(!@)`, with no
+  # type.
 
   obj A
     n: Int
 
-    drop(self: !Self)
-      print("a", self.n)
-
-  obj B
-    n: Int
-
-    drop(self: !B)
-      print("b", self.n)
+    drop(@: !Self)
+      print("a", @n)
 
   a = A(n: 1)
-  b = B(n: 2)
-  print(a.n + b.n)
+  print(a.n)
 
-fail "drop receiver without parens", "6:8: a drop body takes its receiver in parentheses: `drop(!self)`"
+fail "drop receiver without parens", "6:8: a drop body takes its receiver in parentheses: `drop(!@)`"
   # A `drop` body takes its receiver in parentheses, like a method.
 
   obj File
     fd: Int
 
-    drop self: !Self
-      print(self.fd)
+    drop !@
+      print(@fd)
 
 fail "drop statement lend", "11:1: this expression does nothing as a statement: `<?a` moves a view nowhere, and a view owns nothing to drop", "12:1: this expression does nothing as a statement: `<!a` moves a view nowhere, and a view owns nothing to drop", errors: 2
   # A statement `<?a` or `<!a` moves a view nowhere. A view owns nothing,
@@ -611,8 +600,8 @@ fail "drop statement lend", "11:1: this expression does nothing as a statement: 
   obj F
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   a = F(n: 1)
   <?a
@@ -817,10 +806,10 @@ test "for bare", release: true, '''
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      self.lo += 1
-      self.lo - 1
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      @lo += 1
+      @lo - 1
 
   fun upto(n: Int) -> Count
     Count(lo: 0, hi: n)
@@ -927,7 +916,7 @@ test "for iterator", release: true, '''
   took 2
   6
 '''
-  # `for x in it`, where `it` has `next(!self) -> T?`, is
+  # `for x in it`, where `it` has `next(!@) -> T?`, is
   # `while (!it).next() as x`: the loop advances `it` where it stands, so
   # an iterator a `break` leaves is still there to resume. A source made
   # there (`upto(3)`), or a place the loop takes (`<it`), is held in a
@@ -938,10 +927,10 @@ test "for iterator", release: true, '''
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      self.lo += 1
-      self.lo - 1
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      @lo += 1
+      @lo - 1
 
   fun upto(n: Int) -> Count
     Count(lo: 0, hi: n)
@@ -989,29 +978,29 @@ test "for iterator", release: true, '''
     s += n
   print(s)
 
-fail "for iterator signature", "31:10: cannot iterate over `Reads`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes `?self`", "34:10: cannot iterate over `Wants`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes more than `self`", "37:10: cannot iterate over `Plain`: a `for` walks a type with `next(!self) -> T?`, but its `next` does not give an optional", "40:10: cannot iterate over `Free`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes no `self`", "42:10: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)", errors: 5
-  # A `for` walks a type whose `next` is `next(!self) -> T?`: a `next`
-  # that takes `?self`, takes more, or gives no optional is not one, and
+fail "for iterator signature", "31:10: cannot iterate over `Reads`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes `?@`", "34:10: cannot iterate over `Wants`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes more than `@`", "37:10: cannot iterate over `Plain`: a `for` walks a type with `next(!@) -> T?`, but its `next` does not give an optional", "40:10: cannot iterate over `Free`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes no receiver `@`", "42:10: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!@) -> T?`)", errors: 5
+  # A `for` walks a type whose `next` is `next(!@) -> T?`: a `next`
+  # that takes `?@`, takes more, or gives no optional is not one, and
   # a loop over such a type says why. Plain `List`, array and `?String`
   # sources keep their own meaning.
 
   obj Reads
     n: Int
 
-    fun next(?self) -> Int?
+    fun next(?@) -> Int?
       none
 
   obj Wants
     n: Int
 
-    fun next(!self, step: Int) -> Int?
+    fun next(!@, step: Int) -> Int?
       none
 
   obj Plain
     n: Int
 
-    fun next(!self) -> Int
-      self.n
+    fun next(!@) -> Int
+      @n
 
   obj Free
     n: Int
@@ -1045,10 +1034,10 @@ fail "for iterator source", "29:10: a `for` advances an iterator named by a name
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      self.lo += 1
-      self.lo - 1
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      @lo += 1
+      @lo - 1
 
   obj Pair
     a: Count
@@ -1117,29 +1106,29 @@ test "for lent made iterator", '''
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   obj Count
     n: Int
 
-    fun next(!self) -> Int?
-      return none if self.n == 0
-      self.n -= 1
-      self.n
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
 
   obj Bag
     xs: List[Int]
 
-    fun drain(!self) -> Count
-      n = self.xs.len
-      !self.xs.clear()
+    fun drain(!@) -> Count
+      n = @xs.len
+      !@xs.clear()
       Count(n: n)
 
-    fun each(?self) -> Cur from self
-      Cur(xs: ?self.xs, i: 0)
+    fun each(?@) -> Cur from @
+      Cur(xs: ?@xs, i: 0)
 
   obj Shelf
     bag: Bag
@@ -1231,38 +1220,38 @@ test "function markers", release: true, '''
     n: Int
     inline: Int
 
-    inline fun get(?self) -> Int
-      self.n + self.inline
+    inline fun get(?@) -> Int
+      @n + @inline
 
-    rarely sub reset(!self)
-      self.n = 0
+    rarely sub reset(!@)
+      @n = 0
 
-    called fun total(?self) -> Int
-      self.n * 100 + self.inline
+    called fun total(?@) -> Int
+      @n * 100 + @inline
 
-    fun rarely(?self) -> Int
-      self.inline * 10
+    fun rarely(?@) -> Int
+      @inline * 10
 
-  inline fun Counter.bumped(?self, by: Int) -> Int
-    self.n + by
+  inline fun Counter.bumped(?@, by: Int) -> Int
+    @n + by
 
-  rarely sub Counter.clear(!self)
-    self.inline = 0
+  rarely sub Counter.clear(!@)
+    @inline = 0
 
-  called fun Counter.half(?self) -> Int
-    self.n / 2
+  called fun Counter.half(?@) -> Int
+    @n / 2
 
   obj Wrap[T]
     value: T
 
-    inline fun get(?self) -> T
-      self.value
+    inline fun get(?@) -> T
+      @value
 
-  rarely fun Wrap[T].peek(?self) -> T
-    self.value
+  rarely fun Wrap[T].peek(?@) -> T
+    @value
 
-  called fun Wrap[T].same(?self) -> T
-    self.value
+  called fun Wrap[T].same(?@) -> T
+    @value
 
   inline fun larger[T](a: T, b: T) -> T
     a if a > b else b
@@ -1657,8 +1646,8 @@ fail "keyword as function outside members", "10:5: unexpected keyword `type`"
   obj S
     x: Int
 
-    fun test(?self) -> Int
-      self.x
+    fun test(?@) -> Int
+      @x
 
   fun type(s: ?S) -> Int
     s.test()
@@ -1690,7 +1679,7 @@ test "keywords as member names", '''
 '''
   # A keyword may name a field, a method, or a payload field: after `.`,
   # before `:` inside ( ), and in a member list before `:` or after `fun`
-  # / `sub`. `drop(!self)` is still the drop body; `drop:` is a field.
+  # / `sub`. `drop(!@)` is still the drop body; `drop:` is a field.
 
   obj Token
     type: Int
@@ -1698,23 +1687,23 @@ test "keywords as member names", '''
     drop: Bool
     in: Int
 
-    fun test(?self) -> Int
-      self.type + self.in
+    fun test(?@) -> Int
+      @type + @in
 
-    fun match(?self, n: Int) -> Int
-      self.type * n
+    fun match(?@, n: Int) -> Int
+      @type * n
 
-    sub use(!self)
-      self.in += 1
+    sub use(!@)
+      @in += 1
 
-    drop(!self)
-      print("dropping", self.type)
+    drop(!@)
+      print("dropping", @type)
 
   obj Wrap[T]
     type: T
 
-    fun error(?self) -> T
-      self.type
+    fun error(?@) -> T
+      @type
 
   enum Ev
     key(type: Int, match: Bool)
@@ -1782,122 +1771,122 @@ test "keywords as members", '''
     where: Int
     yield: Int
 
-    fun fun2(?self) -> Int
-      self.fun
+    fun fun2(?@) -> Int
+      @fun
 
-    fun sub2(?self) -> Int
-      self.sub
+    fun sub2(?@) -> Int
+      @sub
 
-    fun enum2(?self) -> Int
-      self.enum
+    fun enum2(?@) -> Int
+      @enum
 
-    fun error2(?self) -> Int
-      self.error
+    fun error2(?@) -> Int
+      @error
 
-    fun type2(?self) -> Int
-      self.type
+    fun type2(?@) -> Int
+      @type
 
-    fun use2(?self) -> Int
-      self.use
+    fun use2(?@) -> Int
+      @use
 
-    fun pub2(?self) -> Int
-      self.pub
+    fun pub2(?@) -> Int
+      @pub
 
-    fun extern2(?self) -> Int
-      self.extern
+    fun extern2(?@) -> Int
+      @extern
 
-    fun test2(?self) -> Int
-      self.test
+    fun test2(?@) -> Int
+      @test
 
-    fun drop2(?self) -> Int
-      self.drop
+    fun drop2(?@) -> Int
+      @drop
 
-    fun const2(?self) -> Int
-      self.const
+    fun const2(?@) -> Int
+      @const
 
-    fun else2(?self) -> Int
-      self.else
+    fun else2(?@) -> Int
+      @else
 
-    fun while2(?self) -> Int
-      self.while
+    fun while2(?@) -> Int
+      @while
 
-    fun for2(?self) -> Int
-      self.for
+    fun for2(?@) -> Int
+      @for
 
-    fun in2(?self) -> Int
-      self.in
+    fun in2(?@) -> Int
+      @in
 
-    fun match2(?self) -> Int
-      self.match
+    fun match2(?@) -> Int
+      @match
 
-    fun break2(?self) -> Int
-      self.break
+    fun break2(?@) -> Int
+      @break
 
-    fun continue2(?self) -> Int
-      self.continue
+    fun continue2(?@) -> Int
+      @continue
 
-    fun return2(?self) -> Int
-      self.return
+    fun return2(?@) -> Int
+      @return
 
-    fun defer2(?self) -> Int
-      self.defer
+    fun defer2(?@) -> Int
+      @defer
 
-    fun errdefer2(?self) -> Int
-      self.errdefer
+    fun errdefer2(?@) -> Int
+      @errdefer
 
-    fun pass2(?self) -> Int
-      self.pass
+    fun pass2(?@) -> Int
+      @pass
 
-    fun and2(?self) -> Int
-      self.and
+    fun and2(?@) -> Int
+      @and
 
-    fun or2(?self) -> Int
-      self.or
+    fun or2(?@) -> Int
+      @or
 
-    fun not2(?self) -> Int
-      self.not
+    fun not2(?@) -> Int
+      @not
 
-    fun as2(?self) -> Int
-      self.as
+    fun as2(?@) -> Int
+      @as
 
-    fun catch2(?self) -> Int
-      self.catch
+    fun catch2(?@) -> Int
+      @catch
 
-    fun true2(?self) -> Int
-      self.true
+    fun true2(?@) -> Int
+      @true
 
-    fun false2(?self) -> Int
-      self.false
+    fun false2(?@) -> Int
+      @false
 
-    fun raw2(?self) -> Int
-      self.raw
+    fun raw2(?@) -> Int
+      @raw
 
-    fun zig2(?self) -> Int
-      self.zig
+    fun zig2(?@) -> Int
+      @zig
 
-    fun try2(?self) -> Int
-      self.try
+    fun try2(?@) -> Int
+      @try
 
-    fun async2(?self) -> Int
-      self.async
+    fun async2(?@) -> Int
+      @async
 
-    fun await2(?self) -> Int
-      self.await
+    fun await2(?@) -> Int
+      @await
 
-    fun impl2(?self) -> Int
-      self.impl
+    fun impl2(?@) -> Int
+      @impl
 
-    fun trait2(?self) -> Int
-      self.trait
+    fun trait2(?@) -> Int
+      @trait
 
-    fun when2(?self) -> Int
-      self.when
+    fun when2(?@) -> Int
+      @when
 
-    fun where2(?self) -> Int
-      self.where
+    fun where2(?@) -> Int
+      @where
 
-    fun yield2(?self) -> Int
-      self.yield
+    fun yield2(?@) -> Int
+      @yield
 
   enum P
     pp(fun: Int, sub: Int, enum: Int, error: Int, type: Int, use: Int, pub: Int, extern: Int, test: Int, drop: Int, const: Int, else: Int, while: Int, for: Int, in: Int, match: Int, break: Int, continue: Int, return: Int, defer: Int, errdefer: Int, pass: Int, and: Int, or: Int, not: Int, as: Int, catch: Int, true: Int, false: Int, raw: Int, zig: Int, try: Int, async: Int, await: Int, impl: Int, trait: Int, when: Int, where: Int, yield: Int)
@@ -2122,11 +2111,11 @@ test "leading dot chain", release: true, '''
   obj B
     n: Int
 
-    fun add(?self, k: Int) -> B
-      B(n: self.n + k)
+    fun add(?@, k: Int) -> B
+      B(n: @n + k)
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   fun total(b: B) -> Int
     return b
@@ -2172,11 +2161,11 @@ test "leading dot chain gaps", release: true, '''
   obj B
     n: Int
 
-    fun add(?self, k: Int) -> B
-      B(n: self.n + k)
+    fun add(?@, k: Int) -> B
+      B(n: @n + k)
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   r = B(n: 0)
     .add(1)
@@ -2206,8 +2195,8 @@ test "line joining", '''
   obj Counter
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   fun add3(a: Int, b: Int, c: Int) -> Int
     a + b + c
@@ -2692,8 +2681,8 @@ test "match guards and alternatives", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Shape
     circle(r: Int)
@@ -2775,11 +2764,11 @@ test "methods outside body", "3 8"
   fun Point.origin() -> Self
     Point(x: 0, y: 0)
 
-  sub Point.shift(!self, dx: Int)
-    self.x += dx
+  sub Point.shift(!@, dx: Int)
+    @x += dx
 
-  fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]
-    Wrap(v: f(self.v))
+  fun Wrap[T].map[U](?@, f: fun(T) -> U) -> Wrap[U]
+    Wrap(v: f(@v))
 
   fun double(n: Int) -> Int
     2 * n
@@ -2824,8 +2813,8 @@ fail "minus statement negates", "14:3: this expression does nothing as a stateme
   obj P
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   sub tail()
     -f()
@@ -3154,8 +3143,8 @@ test "not scope", '''
   obj Bag
     items: List[Int]
 
-    fun is_empty(?self) -> Bool
-      self.items.len == 0
+    fun is_empty(?@) -> Bool
+      @items.len == 0
 
   done = false
   bag = Bag(items: List())
@@ -3351,10 +3340,10 @@ test "pass statement", '''
   obj Countdown
     n: Int
 
-    fun next(!self) -> Int?
-      return none if self.n == 0
-      self.n -= 1
-      self.n
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
 
   sub nothing()
     pass
@@ -3393,8 +3382,8 @@ test "pass statement", '''
   pass if i > 1
   defer pass
 
-fail "pin sigil reserved", "`@` is reserved"
-  # `@` is reserved: an `@` is a lexical error.
+fail "receiver outside a method", "4:5: use of unbound name `@`; `@` is the receiver of a method that declares one: `(?@)`, `(!@)`, or `(<@)`"
+  # `@` is a method's receiver: outside a method it names nothing.
 
   x = 42
   p = @x
@@ -3471,8 +3460,8 @@ fail "pub drop", "6:3: a `drop` body is never called by name, so it takes no `pu
   obj S
     n: Int
 
-    pub drop(!self)
-      print(self.n)
+    pub drop(!@)
+      print(@n)
 
   print(S(n: 1).n)
 
@@ -3546,11 +3535,11 @@ test "read receiver sigil", '''
   obj Point
     x: Int
 
-    fun shifted(?self, d: Int) -> Point
-      Point(x: self.x + d)
+    fun shifted(?@, d: Int) -> Point
+      Point(x: @x + d)
 
-    sub show(?self, label: ?String)
-      print(label, self.x)
+    sub show(?@, label: ?String)
+      print(label, @x)
 
   obj Line
     a: Point
@@ -3583,11 +3572,11 @@ fail "read receiver sigil on writer", "21:1: `bump` writes its receiver: write `
   obj Counter
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun done(<self) -> Int
-      self.n
+    fun done(<@) -> Int
+      @n
 
     fun make() -> Counter
       Counter(n: 0)
@@ -3606,33 +3595,33 @@ test "receiver move sigil", '''
   7
   1
 '''
-  # `<self` is the short form of `self: Self`: the method consumes its
-  # receiver, as `?self` reads it and `!self` writes it. The caller writes
+  # `<@` declares that the method consumes its receiver, as `?@`
+  # declares that it reads it and `!@` that it writes it. The caller writes
   # the move (`<c.close()`), or calls it on a temporary.
 
   obj Conn
     name: ?String
 
-    fun close(<self) -> Int
-      self.name.len
+    fun close(<@) -> Int
+      @name.len
 
-    fun renamed(<self, name: ?String) -> Conn
-      c = <self
+    fun renamed(<@, name: ?String) -> Conn
+      c = <@
       c.name = name
       <c
 
   obj Wrap[T]
     v: T
 
-    fun unwrap(<self) -> T
-      self.v
+    fun unwrap(<@) -> T
+      @v
 
   enum Shape
     circle(r: Int)
     square
 
-    fun area(<self) -> Int
-      match self
+    fun area(<@) -> Int
+      match @
         .circle(r) => 3 * r * r
         .square => 1
 
@@ -3667,35 +3656,34 @@ test "receiver sigils", '''
 
   obj Cell2
     n: Int
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj Bag
     items: List[Int]
-    sub add(!self, k: Int)
-      !self.items.push(k)
-    fun take(!self) -> Int!
-      return Empty.none_left if self.items.len == 0
-      (!self.items).pop() ?? 0
-    fun with(!self, k: Int) -> !Bag
-      !self.items.push(k)
-      self
+    sub add(!@, k: Int)
+      !@items.push(k)
+    fun take(!@) -> Int!
+      return Empty.none_left if @items.len == 0
+      (!@items).pop() ?? 0
+    fun with(!@, k: Int) -> !Bag
+      !@items.push(k)
+      @
 
   obj Conn
     name: ?String
-    fun close(<self) -> Int
-      self.name.len
+    fun close(<@) -> Int
+      @name.len
 
   obj Builder
     parts: List[Int]
-    # `self: Self` is the long form of `<self`.
-    fun with(self: Self, k: Int) -> Builder
-      b = <self
+    fun with(<@, k: Int) -> Builder
+      b = <@
       !b.parts.push(k)
       <b
-    fun finish(<self) -> Int
+    fun finish(<@) -> Int
       total = 0
-      for p in ?self.parts
+      for p in ?@parts
         total += p
       total
 
@@ -3803,11 +3791,11 @@ test "reserved words as member names", '''
     const: Bool
     where: ?String
 
-    fun yield(?self) -> Int
-      self.when * 2
+    fun yield(?@) -> Int
+      @when * 2
 
-    fun await(?self) -> Bool
-      self.const
+    fun await(?@) -> Bool
+      @const
 
   enum Ev
     at(when: Int, async: Bool)
@@ -3840,10 +3828,10 @@ test "results as", '''
     ks: List[String]
     i: Int
 
-    fun next(!self) -> (Int, String)?
-      return none if self.i >= self.ks.len
-      self.i += 1
-      return self.i, +self.ks[self.i - 1]
+    fun next(!@) -> (Int, String)?
+      return none if @i >= @ks.len
+      @i += 1
+      return @i, +@ks[@i - 1]
 
   t = String("key=value")
   if cut(?t, 61) as key, value and key.len > 0
@@ -4126,16 +4114,16 @@ test "sigils before calls", '''
     x: Int
     fun origin() -> Point
       Point(x: 0)
-    fun shifted(?self, d: Int) -> Point
-      Point(x: self.x + d)
+    fun shifted(?@, d: Int) -> Point
+      Point(x: @x + d)
 
   obj Leaf
     n: Int
 
   obj Tree
     leaf: *Leaf
-    fun first(?self) -> ?*Leaf
-      ?self.leaf
+    fun first(?@) -> ?*Leaf
+      ?@leaf
 
   obj Pair
     v: List[Int]
@@ -4528,8 +4516,8 @@ fail "unbalanced spacing", "23:16: `maybe(n) ?`: a postfix `?` touches what it f
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   fun maybe(n: Int) -> Int?
     n if n > 0 else none
@@ -4597,8 +4585,8 @@ test "unique is a name", "3 6 true true true 3 8"
   obj Flags
     unique: Bool
 
-    fun only(?self, unique: Bool) -> Bool
-      self.unique and unique
+    fun only(?@, unique: Bool) -> Bool
+      @unique and unique
 
   enum Mode
     unique
@@ -4646,8 +4634,8 @@ fail "untyped closure last line", "17:5: so `<q` here is no drop, and this closu
   obj F
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   go = ||
     q = F(n: 1)
@@ -4761,8 +4749,8 @@ test "whitespace insensitive", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   fun twice(n: Int) -> Int
     n * 2

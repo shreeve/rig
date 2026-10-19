@@ -244,8 +244,8 @@ test "block tail moves out", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun fail(c: Bool) -> R!
     return E.bad if c
@@ -307,8 +307,8 @@ test "block tail shadows outer", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   c = true
   r = R(n: 7)

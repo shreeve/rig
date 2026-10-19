@@ -25,14 +25,14 @@ fail "generic bare type", "generic type `Wrap` requires type arguments"
 
 fail "generic body arith string", "11:4: `Wrap[?String]` cannot use `T = ?String`: the generic body applies `+` to `T`, which `?String` does not support"
   # A generic body's operations on `T` are requirements on every
-  # instantiation: `self.value + 1` needs a numeric `T`, so `Wrap[?String]` is
+  # instantiation: `@value + 1` needs a numeric `T`, so `Wrap[?String]` is
   # rejected.
 
   obj Wrap[T]
     value: T
 
-    fun bump(?self) -> T
-      self.value + 1
+    fun bump(?@) -> T
+      @value + 1
 
   b: Wrap[?String] = Wrap(value: "a")
   print(b.bump())
@@ -48,16 +48,16 @@ fail "generic body copies resource", "`Keeper[*B]` cannot use `T = *B`: the gene
   obj Keeper[T]
     v: T
 
-    fun id(?self, x: T) -> T
+    fun id(?@, x: T) -> T
       <x
 
-    sub run(?self, x: T)
-      self.id(<x)
+    sub run(?@, x: T)
+      @id(<x)
 
   obj Counter[T]
     v: T
 
-    fun count(?self, x: T) -> Int
+    fun count(?@, x: T) -> Int
       f = |+x| 1
       f()
 
@@ -78,22 +78,22 @@ fail "generic body copies resource ownership", "`Wrap[*B]` cannot use `T = *B`: 
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   enum Opt[T]
     some(v: T)
     nothing
 
-    fun copy_out(?self, d: T) -> T
-      match self
+    fun copy_out(?@, d: T) -> T
+      match @
         .some(v) => v
         .nothing => <d
 
   obj Holder[T]
     v: T
 
-    fun peek(?self, x: T, d: T) -> Int
+    fun peek(?@, x: T, d: T) -> Int
       o: Opt[T] = .some(v: <x)
       c = o.copy_out(<d)
       1
@@ -109,8 +109,8 @@ fail "generic body method on param", "a generic parameter `T` has no methods"
   obj Wrap[T]
     value: T
 
-    fun show(?self) -> Int
-      self.value.len()
+    fun show(?@) -> Int
+      @value.len()
 
   print(1)
 
@@ -137,15 +137,15 @@ fail "generic catch all copy of cell holder", "19:5: a value of `C` holds a Cell
   print(hit(?w.o))
 
 fail "generic cell element per instance", "instantiates `Cell[fun(Int) -> Int]`: `Cell[T]` requires `T` to be a value that copies"
-  # A built-in generic constructed in a generic body (`Cell(self.v)` in
+  # A built-in generic constructed in a generic body (`Cell(@v)` in
   # `Wrap[T]`) is checked for each instance: `Cell[fun(Int) -> Int]` holds
   # a function, which is neither plain data nor has drop glue.
 
   obj Wrap[T]
     v: T
 
-    fun peek(?self) -> Int
-      c = Cell(self.v)
+    fun peek(?@) -> Int
+      c = Cell(@v)
       _ = c
       1
 
@@ -198,8 +198,8 @@ test "generic closure args", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
     i = 1
@@ -269,8 +269,8 @@ fail "generic compare concrete", "cannot compare `T` with `Int`"
   obj Acc[T]
     total: T
 
-    fun is(?self, n: Int) -> Bool
-      self.total == n
+    fun is(?@, n: Int) -> Bool
+      @total == n
 
   a: Acc[Float] = Acc(total: 1.5)
   print(a.is(1))
@@ -318,8 +318,8 @@ test "generic enum method", '''
     some(value: T)
     nothing
 
-    fun is_some(?self) -> Bool
-      match self
+    fun is_some(?@) -> Bool
+      match @
         .some => true
         .nothing => false
 
@@ -465,8 +465,8 @@ fail "generic equality owning", "24:7: `same[Res]` cannot use `T = Res`: the gen
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Tagged
     id: Int
@@ -502,8 +502,8 @@ fail "generic fallible of error set", "19:5: `id[E]` cannot use `T = E`: a retur
   obj Slot[T]
     v: T
 
-    fun get(?self) -> T!
-      self.v
+    fun get(?@) -> T!
+      @v
 
   print(id(1) catch 0)
   e: E = E.bad
@@ -523,11 +523,11 @@ test "generic float division", '''
   obj Acc[T]
     total: T
 
-    fun div(?self, x: T) -> T
-      self.total / x
+    fun div(?@, x: T) -> T
+      @total / x
 
-    fun half(?self) -> T
-      self.total / 2
+    fun half(?@) -> T
+      @total / 2
 
   f = Acc(total: 5.0)
   print(f.div(2.0))
@@ -542,8 +542,8 @@ fail "generic float literal equality", "`Acc[Int]` cannot use `T = Int`: the gen
 
   obj Acc[T]
     t: T
-    fun is(?self) -> Bool
-      self.t == 1.5
+    fun is(?@) -> Bool
+      @t == 1.5
 
   a = Acc(t: 1)
   print(a.is())
@@ -595,8 +595,8 @@ fail "generic fn copies owning", "18:5: `twice[Res]` cannot use `T = Res`: the g
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Pair[A, B]
     first: A
@@ -783,8 +783,8 @@ test "generic fn expected type", '''
   obj Wrap[T]
     v: T
 
-    fun pick[U](?self, a: U, b: U) -> U
-      a if self.v > 0 else b
+    fun pick[U](?@, a: U, b: U) -> U
+      a if @v > 0 else b
 
   obj Pair[T, U]
     first: T
@@ -937,8 +937,8 @@ test "generic fn handles", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun clone_of[T](h: ?*T) -> *T
     +h
@@ -1114,8 +1114,8 @@ fail "generic fn method on param", "12:5: a generic parameter `T` has no methods
   obj P
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   fun call_get[T](x: ?T) -> Int
     x.get()
@@ -1149,8 +1149,8 @@ test "generic fn methods", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Pair[A, B]
     first: A
@@ -1159,8 +1159,8 @@ test "generic fn methods", '''
   obj Tagger
     label: ?String
 
-    sub show[T](?self, x: T)
-      print(self.label, x)
+    sub show[T](?@, x: T)
+      print(@label, x)
 
     fun either[T](a: T, b: T, first: Bool) -> T
       if first
@@ -1170,13 +1170,13 @@ test "generic fn methods", '''
   obj Wrap[T]
     v: T
 
-    fun with[U](?self, u: U) -> Pair[T, U]
-      Pair(first: self.v, second: <u)
+    fun with[U](?@, u: U) -> Pair[T, U]
+      Pair(first: @v, second: <u)
 
   obj Cup[T]
     v: T
 
-    fun into[U](self: Cup[T], u: U) -> Cup[U]
+    fun into[U](<@, u: U) -> Cup[U]
       Cup(v: <u)
 
   t = Tagger(label: "tag")
@@ -1232,8 +1232,8 @@ test "generic fn nested", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Pair[A, B]
     first: A
@@ -1290,8 +1290,8 @@ test "generic fn owning", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Wrap[T]
     v: T
@@ -1364,7 +1364,7 @@ fail "generic fn param names", "10:7: generic parameter `Int` has the name of a 
   obj Wrap[T]
     v: T
 
-    fun e[T](?self, x: T) -> Int
+    fun e[T](?@, x: T) -> Int
       1
 
   print(1)
@@ -1500,8 +1500,8 @@ test "generic fn viewed operands", '''
   obj Acc[T]
     total: T
 
-    fun plus(?self, x: ?T) -> T
-      self.total + x
+    fun plus(?@, x: ?T) -> T
+      @total + x
 
   x = 3
   y = 4
@@ -1655,15 +1655,15 @@ test "generic inference", '''
     fun make(a: A, b: B) -> Pair[A, B]
       Pair(first: a, second: b)
 
-    fun swap(?self) -> Pair[B, A]
-      Pair(first: self.second, second: self.first)
+    fun swap(?@) -> Pair[B, A]
+      Pair(first: @second, second: @first)
 
   enum Option[T]
     some(value: T)
     nothing
 
-    fun unwrap_or(?self, fallback: T) -> T
-      match self
+    fun unwrap_or(?@, fallback: T) -> T
+      match @
         .some(v) => v
         .nothing => fallback
 
@@ -1674,8 +1674,8 @@ test "generic inference", '''
   obj Wrap
     n: Int
 
-    drop(!self)
-      print("drop box", self.n)
+    drop(!@)
+      print("drop box", @n)
 
   p = Pair(first: 1, second: "one")
   q = ?p.swap()
@@ -1709,8 +1709,8 @@ fail "generic inference checks", "cannot infer `T` for `Same` from the arguments
   obj Adder[T]
     v: T
 
-    fun next(?self) -> T
-      self.v + 1
+    fun next(?@) -> T
+      @v + 1
 
   obj Plain
     n: Int
@@ -1745,21 +1745,21 @@ test "generic literal division", '''
   obj Wrap[T]
     v: T
 
-    fun half(?self) -> T
-      self.v + 1 / 2
+    fun half(?@) -> T
+      @v + 1 / 2
 
-    fun mix(?self) -> T
-      self.v + 7 % 4 * 3 / 2
+    fun mix(?@) -> T
+      @v + 7 % 4 * 3 / 2
 
-    fun more(?self) -> T
-      y = self.v - 7 / 2
+    fun more(?@) -> T
+      y = @v - 7 / 2
       y * (1 + 1) / 4 + -(3 / 2) % 2
 
   obj Scale[T]
     v: T
 
-    fun scale(?self) -> T
-      self.v * 3 / 2
+    fun scale(?@) -> T
+      @v * 3 / 2
 
   print(Wrap(v: 3).half(), Wrap(v: 3).mix(), Wrap(v: 3).more())
   print(Scale(v: 3.0).scale(), Scale(v: U8(3)).scale())
@@ -1770,23 +1770,23 @@ fail "generic literal must fit", "`Half[Int]` cannot use `T = Int`: the generic 
 
   obj Half[T]
     v: T
-    fun get(?self) -> T
-      self.v * 1.5
+    fun get(?@) -> T
+      @v * 1.5
 
   obj Big[T]
     v: T
-    fun get(?self) -> T
-      self.v + 300
+    fun get(?@) -> T
+      @v + 300
 
   obj Neg[T]
     v: T
-    fun get(?self) -> T
-      -self.v
+    fun get(?@) -> T
+      -@v
 
   obj Wide[T]
     v: T
-    fun get(?self) -> T
-      self.v << 9
+    fun get(?@) -> T
+      @v << 9
 
   a: Half[Int] = Half(v: 1)
   b: Big[U8] = Big(v: 1)
@@ -1805,21 +1805,21 @@ test "generic literal operands", '''
   obj Acc[T]
     total: T
 
-    fun bumped(?self) -> T
-      self.total + 1
+    fun bumped(?@) -> T
+      @total + 1
 
-    fun negated(?self) -> T
-      -self.total
+    fun negated(?@) -> T
+      -@total
 
-    sub add(!self, x: T)
-      self.total += x
-      self.total -= 1
+    sub add(!@, x: T)
+      @total += x
+      @total -= 1
 
   obj Bits[T]
     v: T
 
-    fun doubled(?self) -> T
-      self.v << 1
+    fun doubled(?@) -> T
+      @v << 1
 
   a: Acc[Int] = Acc(total: 5)
   f: Acc[Float] = Acc(total: 2.5)
@@ -1876,26 +1876,26 @@ test "generic methods over resources", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Wrap[T]
     v: T
 
-    sub put(!self, x: T)
-      self.v = <x
+    sub put(!@, x: T)
+      @v = <x
 
-    sub ignore(self: Wrap[T], extra: T)
+    sub ignore(<@, extra: T)
       print("ignored")
 
-    fun keep(self: Wrap[T], x: T) -> T
+    fun keep(<@, x: T) -> T
       y = <x
       if true
         z = <y
         return <z
       <y
 
-    sub juggle(self: Wrap[T], x: T, y: T)
+    sub juggle(<@, x: T, y: T)
       a = <x
       a = <y
       print("replaced")
@@ -1906,8 +1906,8 @@ test "generic methods over resources", '''
     some(v: T)
     nothing
 
-    fun or_else(self: Opt[T], d: T) -> T
-      match <self
+    fun or_else(<@, d: T) -> T
+      match <@
         .some(v) => v
         .nothing => <d
 
@@ -2053,13 +2053,13 @@ fail "generic param names", "generic parameter `Item` has the same name as the m
   obj Own[T]
     v: T
 
-    fun T(?self) -> Int
+    fun T(?@) -> Int
       1
 
   obj Uses[U]
     v: U
 
-    fun f(?self, U: Int) -> Int
+    fun f(?@, U: Int) -> Int
       U = 3
       U
 
@@ -2077,18 +2077,18 @@ test "generic param only in own type", '''
     on
     off
 
-    fun flip(?self) -> Tag[T]
-      .off if self == .on else .on
+    fun flip(?@) -> Tag[T]
+      .off if @ == .on else .on
 
-    fun is_on(?self) -> Bool
+    fun is_on(?@) -> Bool
       on = Tag[T].on
-      self == .on and on == .on
+      @ == .on and on == .on
 
   obj Marker[T]
     n: Int
 
-    fun next(?self) -> Marker[T]
-      m: Marker[T] = Marker(n: self.n + 1)
+    fun next(?@) -> Marker[T]
+      m: Marker[T] = Marker(n: @n + 1)
       m
 
   t: Tag[Int] = .off
@@ -2455,8 +2455,8 @@ fail "generic polymorphic recursion", "`Wrap[*B]` leads to ever deeper instances
   obj Wrap[T]
     v: T
 
-    fun wrap(self: Wrap[T]) -> Wrap[Wrap[T]]
-      Wrap(v: <self)
+    fun wrap(<@) -> Wrap[Wrap[T]]
+      Wrap(v: <@)
 
   b: Wrap[*B] = Wrap(v: *B(n: 1))
 
@@ -2500,8 +2500,8 @@ test "generic struct holds read view", '''
   obj Hold[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   obj Pair[A, B]
     a: A
@@ -2526,8 +2526,8 @@ test "generic struct method", "42"
   obj Wrap[T]
     value: T
 
-    fun get(?self) -> T
-      self.value
+    fun get(?@) -> T
+      @value
 
   b: Wrap[Int] = Wrap(value: 42)
   print(b.get())
@@ -2563,7 +2563,7 @@ fail "generic symbolic body type", "type mismatch: expected `T`, got `Static`"
   obj Wrap[T]
     value: T
 
-    fun bad(?self) -> Self
+    fun bad(?@) -> Self
       b: Self = Wrap(value: "hello")
       b
 
@@ -2580,8 +2580,8 @@ fail "generic type method polymorphic recursion", "13:6: `Wrap[Int]` leads to ev
   obj Wrap[T]
     v: T
 
-    fun rewrap(self: Wrap[T]) -> Wrap[Wrap[T]]
-      keep(Wrap(v: <self))
+    fun rewrap(<@) -> Wrap[Wrap[T]]
+      keep(Wrap(v: <@))
 
   d = <Wrap(v: 1).rewrap()
   print(d.v.v)
@@ -2604,7 +2604,7 @@ fail "generic type param called", "5:3: `T` is a type parameter; it cannot be ca
   obj Wrap[T]
     v: T
 
-    fun make(?self, x: Int) -> Int
+    fun make(?@, x: Int) -> Int
       y = T(x)
       2
 
@@ -2662,12 +2662,12 @@ test "generic value param", '''
     fun new(x: T) -> Ring[T, n]
       Ring[T, n](items: [n of x], log: List[Int]())
 
-    sub put(!self, x: T)
-      self.items[self.head % n] = x
-      self.head += 1
-      !self.log.push(self.head)
+    sub put(!@, x: T)
+      @items[@head % n] = x
+      @head += 1
+      !@log.push(@head)
 
-    fun cap(?self) -> Int
+    fun cap(?@) -> Int
       n
 
   obj Pool[T, m: Int]
@@ -2799,11 +2799,11 @@ test "generic vec field", "2 1"
   obj Stack[T]
     items: List[T]
 
-    sub push(!self, x: T)
-      !self.items.push(<x)
+    sub push(!@, x: T)
+      !@items.push(<x)
 
-    fun size(?self) -> Int
-      self.items.len
+    fun size(?@) -> Int
+      @items.len
 
   s: Stack[Int] = Stack(items: List())
   !s.push(3)
@@ -2845,7 +2845,7 @@ fail "generic whole division", "11:7: `Wrap[Float]` cannot use `T = Float`: the 
   obj Wrap[T]
     v: T
 
-    fun half(?self) -> T
-      self.v + 1 / 2
+    fun half(?@) -> T
+      @v + 1 / 2
 
   print(Wrap(v: 3.0).half(), Wrap(v: 3).half())

@@ -2092,8 +2092,8 @@ test "frameowners-drop-pile", '''
   obj Res
     n: Int
 
-    drop(!self)
-      i = self.n
+    drop(!@)
+      i = @n
       s = 0
       s += w(i + 0) + w(i + 1) + w(i + 2) + w(i + 3) + w(i + 4) + w(i + 5) + w(i + 6) + w(i + 7) + w(i + 8) + w(i + 9)
       s += w(i + 10) + w(i + 11) + w(i + 12) + w(i + 13) + w(i + 14) + w(i + 15) + w(i + 16) + w(i + 17) + w(i + 18) + w(i + 19)
@@ -2290,13 +2290,13 @@ test "h1-p", '''
   print(n, m)
 
 test "hf6-generic-read-view-rebound", "5"
-  # A generic method `left(?self, other: ?T) -> ?T` at `T = Int`, its result
+  # A generic method `left(?@, other: ?T) -> ?T` at `T = Int`, its result
   # bound to a name that held a lend of a place.
   obj Pair[T]
     x: T
 
-    fun left(?self, other: ?T) -> ?T
-      ?self.x
+    fun left(?@, other: ?T) -> ?T
+      ?@x
 
   p = Pair(x: 5)
   q = ?p.x
@@ -2387,8 +2387,8 @@ test "optwrite-ok03-ifas-param", "new"
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?, v: ?String) keeps v
     if <w as x
@@ -2408,8 +2408,8 @@ test "optwrite-ok05-local-copy", '''
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2427,8 +2427,8 @@ test "optwrite-ok07-own-field", "outer"
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     if <w as x
@@ -2443,8 +2443,8 @@ test "optwrite-ok08-returned", "y"
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   fun set(w: (!H)?) -> (!H)?
     x = <w ?? return none
@@ -2461,8 +2461,8 @@ test "optwrite-ok10-closure-param-view", "new"
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?, v: ?String) keeps v
     f = |<w, ?v| (w ?? return).s = v
@@ -2478,8 +2478,8 @@ test "optwrite-ok11-closure-unwrapped-param-view", "new"
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?, v: ?String) keeps v
     x = <w ?? return
@@ -2496,8 +2496,8 @@ test "optwrite-ok12-closure-static", "static"
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?, v: ?String)
     f = |<w| (w ?? return).s = "static"
@@ -2513,8 +2513,8 @@ fail "optwrite-p01-closure-capture", "cannot let this call store a view of `d` i
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: !H)
     d = String("local")
@@ -2530,8 +2530,8 @@ fail "optwrite-p02-local-lend-on", "cannot store a view of `d` through `y`: `w` 
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: !H)
     d = String("local")
@@ -2547,8 +2547,8 @@ fail "optwrite-p03-swap", "cannot let this call store a view of `d` in `w`: `w` 
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: !H)
     d = String("local")
@@ -2564,8 +2564,8 @@ fail "optwrite-r02b-fallible-bang", "cannot store a view of `d` through `must(<w
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   error E
     bad
@@ -2587,8 +2587,8 @@ fail "optwrite-r03-nullish", "cannot store a view of `d` through `w ?? return`: 
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2603,8 +2603,8 @@ fail "optwrite-r04-catch", "cannot store a view of `d` through `must(<w) catch r
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   error E
     bad
@@ -2647,8 +2647,8 @@ fail "optwrite-r06c-store-in-arm", "cannot store a view of `d` through `w ?? ret
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2698,8 +2698,8 @@ fail "optwrite-r08b-method-nullish", "cannot let this call store a view of `d` i
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2714,8 +2714,8 @@ fail "optwrite-r08c-method-ifas", "cannot let this call store a view of `d` in `
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2757,8 +2757,8 @@ fail "optwrite-r11-closure-capture", "cannot let this call store a view of `d` i
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2774,8 +2774,8 @@ fail "optwrite-r11b-closure-unwrapped", "cannot let this call store a view of `d
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2792,8 +2792,8 @@ fail "optwrite-r11c-closure-param", "cannot store a view of `v` through captured
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2810,8 +2810,8 @@ fail "optwrite-r13-local-opt", "cannot store a view of `d` through `x ?? return`
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2827,8 +2827,8 @@ fail "optwrite-r13b-local-opt-prop-ifas", "cannot store a view of `d` in `y.s`: 
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2845,8 +2845,8 @@ fail "optwrite-r18-call-stores", "cannot let this call store a view of `d` in `w
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub put(w: (!H)?, v: ?String) keeps v
     (w ?? return).s = v
@@ -2864,8 +2864,8 @@ fail "optwrite-r19-call-stores-unwrapped", "cannot let this call store a view of
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub put(w: !H, v: ?String) keeps v
     w.s = v
@@ -2883,8 +2883,8 @@ fail "optwrite-r20-method-on-moved", "cannot let this call store a view of `d` i
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -2899,8 +2899,8 @@ fail "optwrite-r21-caller-sees-store", "`u` does not live long enough"
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?, v: ?String) keeps v
     (w ?? return).s = v
@@ -2916,8 +2916,8 @@ fail "optwrite-r22-caller-sees-store-write", "cannot lend `u` to write while a r
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?, v: ?String) keeps v
     (w ?? return).s = v
@@ -2945,8 +2945,8 @@ fail "optwrite-relax-p02-for-write", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   t = String("outer")
   l: List[K] = List()
@@ -2960,8 +2960,8 @@ fail "optwrite-relax-p03-for-write-chain", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   t = String("outer")
   l: List[K] = List()
@@ -2976,8 +2976,8 @@ fail "optwrite-relax-p04-match-write-chain", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   enum E
     one(k: K)
@@ -2999,8 +2999,8 @@ fail "optwrite-relax-p05-match-via-view", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   enum E
     one(k: K)
@@ -3033,8 +3033,8 @@ fail "optwrite-relax-p06-closure-capture-binding", "`d` does not live long enoug
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   enum E
     one(k: K)
@@ -3081,8 +3081,8 @@ fail "optwrite-relax-p10-headers", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   t = String("outer")
   o: K? = K(a: ?t)
@@ -3113,8 +3113,8 @@ fail "optwrite-relax-p12-closure-body", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   t = String("outer")
   k = K(a: ?t)
@@ -3149,8 +3149,8 @@ test "optwrite-relax-p13-accept-mix", '''
     a: ?String
     b: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.b = v
+    sub put(!@, v: ?String) keeps v
+      @b = v
 
   fun mk(w: !H) -> K
     K(a: w.s, b: "")
@@ -3202,8 +3202,8 @@ test "optwrite-relax-p14-view-of-copy", '''
     a: ?String
     b: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.b = v
+    sub put(!@, v: ?String) keeps v
+      @b = v
 
   sub ok(p: !H)
     d = String("local")

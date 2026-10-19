@@ -65,15 +65,15 @@ fun take(a: [40000]Int) -> Int
 obj Big
   n: Int
 
-  drop(!self)
-    a = [40000 of self.n]
+  drop(!@)
+    a = [40000 of @n]
     print(take(a) + take(a) + take(a))
 
 obj Small
   n: Int
 
-  drop(!self)
-    print(self.n)
+  drop(!@)
+    print(@n)
 
 fun run(i: Int) -> Int
   f = |+i|

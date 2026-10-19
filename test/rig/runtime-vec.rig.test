@@ -17,8 +17,8 @@ test "vec clear drops", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   keep = *B(n: 1)
   v: List[*B] = List()
@@ -94,8 +94,8 @@ test "vec insert remove", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[Int] = List()
   !v.insert(0, 3)
@@ -245,8 +245,8 @@ test "vec pop resource", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[*B] = List()
   for i in 0..4

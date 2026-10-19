@@ -59,17 +59,16 @@ BINDING = {"none": NONE, "_": UNDERSCORE, "type": KEYWORD, "drop": KEYWORD, "pan
 REJECTED = {
     "local": {**BINDING},
     "flag": {**BINDING},
-    "method": {**BINDING, "self": "self"},
+    "method": {**BINDING},
     "field": {},
     "variant": {"none": "none", "from_int": "from_int", "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD},
     "error": {"none": "none", "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD},
-    "tparam": {**BINDING, "_": None, "self": "self", "Self": "built-in type"},
-    "type": {**BINDING, "self": "self", "new": "new", "main": DUPLICATE},
+    "tparam": {**BINDING, "_": None, "Self": "built-in type"},
+    "type": {**BINDING, "new": "new", "main": DUPLICATE},
     "root_const": {**BINDING, "main": DUPLICATE},
     "root_fun": {**BINDING, "main": DUPLICATE},
     "static": {"from_int": "from_int"},
-    # A module-level `self` is hidden by every method's receiver.
-    "module": {**BINDING, "_": None, "from_int": "from_int", "self": "module-level declaration `self`", "main": "cyclic import",
+    "module": {**BINDING, "_": None, "from_int": "from_int", "main": "cyclic import",
                **{n: "reserved for the compiler" for n in NAMES if n.startswith("__rig")}},
     "alias": {**BINDING, "_": None, "main": "`main` is a declaration of this module"},
 }
@@ -148,33 +147,33 @@ def method(n, i):
     return f"""obj M{i}
   v: Int
 
-  fun {n}(?self) -> Int
-    self.v
+  fun {n}(?@) -> Int
+    @v
 
-  fun b(?self) -> Int
-    {n} = self.v + 1
-    {n} + self.{n}()
+  fun b(?@) -> Int
+    {n} = @v + 1
+    {n} + @{n}()
 
-  fun c(?self, {n}: Int) -> Int
-    {n} + self.{n}()
+  fun c(?@, {n}: Int) -> Int
+    {n} + @{n}()
 
-  fun d(?self) -> Int
-    g = |?self|
-      {n} = self.v + 2
+  fun d(?@) -> Int
+    g = |?@|
+      {n} = @v + 2
       {n}
     g()
 
-  sub {n}2(!self)
-    self.v += 1
+  sub {n}2(!@)
+    @v += 1
 
 obj GM{i}[T]
   v: T
 
-  fun {n}(?self) -> Int
+  fun {n}(?@) -> Int
     1
 
-  fun b(?self, {n}: Int) -> Int
-    {n} + self.{n}()
+  fun b(?@, {n}: Int) -> Int
+    {n} + @{n}()
 
 sub t{i}()
   m = M{i}(v: 1)
@@ -202,8 +201,8 @@ enum Q{i}
 obj W{i}
   {n}: String
 
-  drop(!self)
-    print("drop", self.{n})
+  drop(!@)
+    print("drop", @{n})
 
 fun pv{i}(p: P{i}) -> Int
   match p
@@ -317,8 +316,8 @@ def tparam(n, i):
     return f"""obj GT{i}[{n}]
   x: {n}
 
-  fun first(?self) -> {n}
-    self.x
+  fun first(?@) -> {n}
+    @x
 
 enum HT{i}[{n}]
   one(v: {n})
@@ -344,8 +343,8 @@ def type_(n, i):
     return f"""obj {n}
   v: Int
 
-  fun get2(?self) -> Int
-    self.v
+  fun get2(?@) -> Int
+    @v
 
 enum {n}E
   a
@@ -402,15 +401,15 @@ def static(n, i):
 fun PS{i}.{n}() -> PS{i}
   PS{i}(x: 4)
 
-sub PS{i}.{n}2(!self)
-  self.x += 1
+sub PS{i}.{n}2(!@)
+  @x += 1
 
 enum KS{i}
   a
   b
 
-  fun {n}(?self) -> Int
-    Int(self) + 7
+  fun {n}(?@) -> Int
+    Int(@) + 7
 
 fun KS{i}.{n}3() -> KS{i}
   .b
@@ -439,8 +438,8 @@ pub obj Box{i}
   pub k: K{i} = .{n}
   pub {n}: Int = 4
 
-  pub fun {n}2(?self) -> Int
-    self.{n} + 1
+  pub fun {n}2(?@) -> Int
+    @{n} + 1
 
 pub error E{i}
   zz
@@ -567,9 +566,24 @@ def rejected_of(site):
 
 def check_group(rig_bin, work, sites):
     names = {site: [n for n in NAMES if n not in rejected_of(site)] for site in sites}
+    # A module is a file named after it, and on a file system that ignores
+    # case `self.rig` and `Self.rig` are one file: a name whose module
+    # file another name's would be is checked in a program of its own.
+    later = {n for site in sites if site == "module" for i, n in enumerate(names[site])
+             if n.lower() in {m.lower() for m in names[site][:i]}}
+    if not later:
+        return check_names(rig_bin, os.path.join(work, sites[0]), sites, names)
+    bad, count = [], 0
+    for k, part in enumerate([[n for n in NAMES if n not in later], sorted(later)]):
+        b, c = check_names(rig_bin, os.path.join(work, f"{sites[0]}{k}"), sites, {site: [n for n in ns if n in part] for site, ns in names.items()})
+        bad += b
+        count += c
+    return bad, count
+
+
+def check_names(rig_bin, d, sites, names):
     files, want, spans = program(sites, names)
     label = "+".join(sites)
-    d = os.path.join(work, sites[0])
     path = write(d, files)
     bad = []
     # `rig run` checks the program first; a rejection names the blocks

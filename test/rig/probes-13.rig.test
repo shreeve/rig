@@ -92,14 +92,14 @@ test "r3-s36-containers-br x10 split ifas", '''
     sep: ?String
     done: Bool
 
-    fun next(!self) -> (?String)?
-      return none if self.done
-      if text.find(self.rest, self.sep) as at
-        part = self.rest[..at]
-        self.rest = self.rest[at + self.sep.len..]
+    fun next(!@) -> (?String)?
+      return none if @done
+      if text.find(@rest, @sep) as at
+        part = @rest[..at]
+        @rest = @rest[at + @sep.len..]
         return part
-      self.done = true
-      self.rest
+      @done = true
+      @rest
 
   t = String("a,b,c")
   s = Split(rest: ?t, sep: ",", done: false)
@@ -112,8 +112,8 @@ test "r3-s36-containers-br x11 parse bool bare", "true false"
 fail "r3-s36-containers-f02 field take", "`h.d` owns a `D`, which can't be copied by `=`: write `?h.d` to view it"
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     d: D
@@ -137,8 +137,8 @@ test "r3-s36-containers-f03 field owner ok", '''
 '''
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     d: D
@@ -277,9 +277,9 @@ test "r3-s36-containers-o02 order more", '''
     x: Int
     v: List[Int]
 
-    sub set(!self)
-      self.v[ix(0, "self-vec")] = val(1, "self-vec")
-      self.x += val(1, "self-compound")
+    sub set(!@)
+      @v[ix(0, "self-vec")] = val(1, "self-vec")
+      @x += val(1, "self-compound")
 
   enum E
     a(n: Int)
@@ -459,8 +459,8 @@ test "r3-s36-docs-p02 return bare moves", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun make(n: Int) -> Res
     r = Res(n: n)
@@ -477,8 +477,8 @@ fail "r3-s36-docs-p10 star bare name", "`x` owns an `S`, which can't be copied i
   obj S
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   x = S(n: 1)
   h = *x
@@ -527,8 +527,8 @@ test "r3-s36-docs-p19 print ternary owners", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   a = R(n: 1)
   b = R(n: 2)
@@ -545,8 +545,8 @@ test "r3-s36-docs-p20 print nullish owner", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   print(o ?? R(n: 9))
@@ -572,8 +572,8 @@ test "r3-s36-docs-p24 take optional element", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[*B?] = List()
   !v.push(*B(n: 1))
@@ -673,8 +673,8 @@ test "r3-s36-emit-f13 main fail", exit: 1, '''
 
   obj N
     id: Int
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun g() -> Int!
     return E.bad
@@ -738,10 +738,10 @@ test "r3-s36-emit-g06 method", '''
 
   obj S
     n: Int
-    fun take(!self) -> Int!
-      return E.bad if self.n == 0
-      self.n -= 1
-      self.n
+    fun take(!@) -> Int!
+      return E.bad if @n == 0
+      @n -= 1
+      @n
 
   s = S(n: 1)
   print((!s).take() catch -1)
@@ -773,8 +773,8 @@ test "r3-s36-kinds-k06 clone handle", '''
   obj N
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   h = *N(n: 1)
   g = +h
@@ -918,8 +918,8 @@ fail "r3-s36-loans-a13 fallible view result", "cannot drop `x` while it is lent"
 
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun pick(a: ?R, ok: Bool) -> (?R)!
     return E.bad if not ok
@@ -943,8 +943,8 @@ test "r3-s36-loans-c01 share struct with view", '''
   # may not go in.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -956,8 +956,8 @@ test "r3-s36-loans-c01 share struct with view", '''
 fail "r3-s36-loans-c02 share escapes scope", "`a` does not live long enough"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -994,8 +994,8 @@ fail "r3-s36-loans-c12 shared view weak upgrade", "`a` does not live long enough
   # value's scope ended.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1016,8 +1016,8 @@ fail "r3-s36-loans-c12 shared view weak upgrade", "`a` does not live long enough
 fail "r3-s36-loans-c13 shared view in vec", "`a` does not live long enough"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1043,8 +1043,8 @@ fail "r3-s36-loans-c14 owned closure captures shared view", "an owned closure ca
 fail "r3-s36-loans-c16 shared view through fn", "`a` does not live long enough"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1067,8 +1067,8 @@ fail "r3-s36-loans-f01 coalesce return keeps loan", "cannot drop `r` while it is
   # before it must stay in force after.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun f(o: Int?) -> Int
     r = R(n: 1)
@@ -1085,8 +1085,8 @@ fail "r3-s36-loans-f02 labeled break stores inner view", "`inner` does not live 
   # in it, stored into an outer var before the break, must be reported.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1106,8 +1106,8 @@ fail "r3-s36-loans-f03 continue stores body view", "`inner` does not live long e
   # an outer var is used on the next iteration.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1129,8 +1129,8 @@ fail "r3-s36-loans-f04 catch handler view", "`inner` does not live long enough"
 
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1150,8 +1150,8 @@ fail "r3-s36-loans-f07 while as view escapes", "`r` does not live long enough"
   # `while … as` binding's view stored outward then the iteration ends.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1174,8 +1174,8 @@ fail "r3-s36-loans-f08 defer stores later local", "`a` does not live long enough
   # A defer that stores a view of a local declared after it.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     r: ?R
@@ -1197,8 +1197,8 @@ test "r3-s36-loans-f12 and rhs move", '''
   # emitted code drop `x` when the move did not happen?
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun take(r: R) -> Bool
     print("take", r.n)
@@ -1335,7 +1335,7 @@ test "r3-s36-loans-r02 overlend int param", "a 1"
   print(e.name, i)
 
 test "r3-s36-loans-r03 overlend method arg", "a 1"
-  # A `?self` method whose result can only view self still views
+  # A `?@` method whose result can only view self still views
   # every viewed argument.
   obj Entry
     name: ?String
@@ -1346,8 +1346,8 @@ test "r3-s36-loans-r03 overlend method arg", "a 1"
   obj Table
     rows: [2]Entry
 
-    fun get(?self, p: ?Pick) -> ?Entry
-      ?self.rows[p.which]
+    fun get(?@, p: ?Pick) -> ?Entry
+      ?@rows[p.which]
 
   t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
   p = Pick(which: 0)

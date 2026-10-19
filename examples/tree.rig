@@ -15,15 +15,15 @@ obj Tree[T]
   root: ^Node[T]?
   size: Int
 
-  sub add(!self, key: T)
-    if place(!self.root, key)
-      self.size += 1
+  sub add(!@, key: T)
+    if place(!@root, key)
+      @size += 1
 
-  fun has(?self, key: T) -> Bool
-    find(?self.root, key) != none
+  fun has(?@, key: T) -> Bool
+    find(?@root, key) != none
 
-  fun height(?self) -> Int
-    depth(?self.root)
+  fun height(?@) -> Int
+    depth(?@root)
 
 # Count `key` in the subtree at `slot`: true when it is new.
 fun place[T](slot: !^Node[T]?, key: T) -> Bool

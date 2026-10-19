@@ -54,8 +54,8 @@ test "seams-surface-f06 receiver sigils", "-4 4 4 3 none"
   obj P
     v: List[Int]
     f: Int?
-    fun first(?self) -> Int
-      self.v[0]
+    fun first(?@) -> Int
+      @v[0]
 
   p = P(v: List(), f: 3)
   !p.v.push(4)
@@ -113,8 +113,8 @@ test "seams-temps-m1", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -170,8 +170,8 @@ test "stdlib-probe-g2", '''
 '''
   obj B
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[*B] = List()
   !v.push(*B(n: 1))
@@ -184,14 +184,14 @@ test "stdlib-probe-g7", '''
   obj Wrap[T]
     items: List[T]
 
-    fun get(?self, i: Int) -> (?T)?
-      return none if i >= self.items.len
-      ?self.items[i]
+    fun get(?@, i: Int) -> (?T)?
+      return none if i >= @items.len
+      ?@items[i]
 
   obj B
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   w = Wrap[*B](items: List())
   !w.items.push(*B(n: 4))
@@ -206,17 +206,17 @@ test "stdlib-probe-h2", "3 none"
   obj Map[K, V]
     slots: List[Pair[K, V]]
 
-    fun get(?self, k: K) -> V?
-      for p in ?self.slots
+    fun get(?@, k: K) -> V?
+      for p in ?@slots
         return p.v if p.k == k
       none
 
-    sub put(!self, k: K, v: V)
-      for p in !self.slots
+    sub put(!@, k: K, v: V)
+      for p in !@slots
         if p.k == k
           p.v = v
           return
-      !self.slots.push(Pair(k: k, v: v))
+      !@slots.push(Pair(k: k, v: v))
 
   m = Map[?String, Int](slots: List())
   !m.put("a", 1)
@@ -259,10 +259,10 @@ test "stdlib-probe-i1", '''
     xs: []T
     i: Int = 0
 
-    fun next(!self) -> T?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> T?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   a = [1, 2, 3]
   it = Iter(xs: ?a[..])
@@ -279,14 +279,14 @@ test "stdlib-probe-i2", '''
     s: ?String
     i: Int = 0
 
-    fun next(!self) -> (?String)?
-      while self.i < self.s.len and self.s[self.i] == 32
-        self.i += 1
-      return none if self.i >= self.s.len
-      start = self.i
-      while self.i < self.s.len and self.s[self.i] != 32
-        self.i += 1
-      self.s[start..self.i]
+    fun next(!@) -> (?String)?
+      while @i < @s.len and @s[@i] == 32
+        @i += 1
+      return none if @i >= @s.len
+      start = @i
+      while @i < @s.len and @s[@i] != 32
+        @i += 1
+      @s[start..@i]
 
   w = Words(s: "  the quick  fox ")
   n = 0
@@ -299,15 +299,15 @@ test "stdlib-probe-i3", "13 91"
   obj Random
     s: U64
 
-    fun next(!self) -> U64
-      self.s = self.s +% 0x9E3779B97F4A7C15
-      z = self.s
+    fun next(!@) -> U64
+      @s = @s +% 0x9E3779B97F4A7C15
+      z = @s
       z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9
       z = (z ^ (z >> 27)) *% 0x94D049BB133111EB
       z ^ (z >> 31)
 
-    fun below(!self, n: U64) -> U64
-      (!self).next() % n
+    fun below(!@, n: U64) -> U64
+      (!@).next() % n
 
   r = Random(s: 42)
   print((!r).below(100), (!r).below(100))
@@ -401,10 +401,10 @@ test "stdlib-rig-g18 hashfn", "0 none"
     keys: List[K]
     vals: List[V]
 
-    pub fun find(?self, k: K, h: ?fun(K) -> U64) -> Int?
+    pub fun find(?@, k: K, h: ?fun(K) -> U64) -> Int?
       hk = h(k)
       i = 0
-      for x in ?self.keys
+      for x in ?@keys
         if h(x) == hk and x == k
           return i
         i += 1
@@ -424,8 +424,8 @@ test "stdlib-rig-g22b", "1"
 
   obj Chain[T]
     items: List[T]
-    fun at(?self, i: Int) -> ?T
-      ?self.items[i]
+    fun at(?@, i: Int) -> ?T
+      ?@items[i]
 
   l = Chain[*P](items: List())
   !l.items.push(*P(x: 1))
@@ -527,8 +527,8 @@ test "stdlib-rig-g4 shared as read", '''
 test "stdlib-rig-g4b shared method", "5 5 5 1"
   obj U
     n: Int
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   fun peek2(u: ?*U) -> Int
     u.n
@@ -594,8 +594,8 @@ fail "step3-adv1-rej", "method `new_stack` of `lib.Stack` is private to module `
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Loop
     s: lib.Stack[Loop]
@@ -619,18 +619,18 @@ fail "step3-adv1-rej", "method `new_stack` of `lib.Stack` is private to module `
       fun new_stack() -> Self
         Stack(items: List())
 
-      sub push(!self, x: T, note: ?String = "pushed")
-        !self.items.push(<x)
+      sub push(!@, x: T, note: ?String = "pushed")
+        !@items.push(<x)
         print(note)
 
-      fun size(?self) -> Int
-        self.items.len
+      fun size(?@) -> Int
+        @items.len
 
     pub obj Slot[T]
       c: Cell[T]
 
-      fun swap(!self, x: T) -> T
-        (!self.c).replace(<x)
+      fun swap(!@, x: T) -> T
+        (!@c).replace(<x)
 
     pub fun wrap[T](x: T, label: ?String = "w") -> Stack[T]
       s = Stack[T].new_stack()
@@ -654,8 +654,8 @@ fail "step3-bagt", "only module `bag` can construct `bag.Bag`: its field `items`
     pub obj Bag[T]
       items: List[T]
 
-      sub add(!self, x: T)
-        !self.items.push(<x)
+      sub add(!@, x: T)
+        !@items.push(<x)
 
     pub fun largest[T](b: ?Bag[T], start: T) -> T
       t = start
@@ -697,11 +697,11 @@ test "syntax-review-complete-b1", '''
   obj Bag
     items: List[P]
 
-    fun at(?self, i: Int) -> ?P
-      ?self.items[i]
+    fun at(?@, i: Int) -> ?P
+      ?@items[i]
 
-    fun at_mut(!self, i: Int) -> !P
-      !self.items[i]
+    fun at_mut(!@, i: Int) -> !P
+      !@items[i]
 
   b = Bag(items: List())
   !b.items.push(P(x: 1))
@@ -789,15 +789,15 @@ test "syntax-review-complete-bt4", "three none"
     fun leaf() -> Self
       Node(keys: List(), vals: List(), kids: List())
 
-    fun find(?self, k: K) -> V?
+    fun find(?@, k: K) -> V?
       i = 0
-      while i < self.keys.len and self.keys[i] < k
+      while i < @keys.len and @keys[i] < k
         i += 1
-      if i < self.keys.len and self.keys[i] == k
-        return self.vals[i]
-      return none if self.kids.len == 0
+      if i < @keys.len and @keys[i] == k
+        return @vals[i]
+      return none if @kids.len == 0
       j = 0
-      for c in ?self.kids
+      for c in ?@kids
         if j == i
           return c.find(k)
         j += 1
@@ -817,14 +817,14 @@ test "syntax-review-complete-by1", '''
     buf: [4096]U8
     used: Int
 
-    sub put(!self, at: Int, key: U64)
-      !self.buf.write[U64, .little](at, key)
+    sub put(!@, at: Int, key: U64)
+      !@buf.write[U64, .little](at, key)
 
-    fun key(?self, at: Int) -> U64
-      self.buf.read[U64, .little](at)
+    fun key(?@, at: Int) -> U64
+      @buf.read[U64, .little](at)
 
-    fun bytes(?self, a: Int, b: Int) -> []U8
-      ?self.buf[a..b]
+    fun bytes(?@, a: Int, b: Int) -> []U8
+      ?@buf[a..b]
 
   p = Page(buf: [4096 of 0], used: 0)
   !p.put(8, 77)
@@ -843,11 +843,11 @@ test "syntax-review-complete-by2", "4 9"
   obj Page
     buf: List[U8]
 
-    fun bytes(?self, a: Int, b: Int) -> []U8
-      ?self.buf[a..b]
+    fun bytes(?@, a: Int, b: Int) -> []U8
+      ?@buf[a..b]
 
-    fun wbytes(!self, a: Int, b: Int) -> ![]U8
-      !self.buf[a..b]
+    fun wbytes(!@, a: Int, b: Int) -> ![]U8
+      !@buf[a..b]
 
   p = Page(buf: List())
   for _ in 0..16
@@ -860,8 +860,8 @@ test "syntax-review-complete-by3", "9"
   obj Page
     buf: [16]U8
 
-    fun wbytes(!self, a: Int, b: Int) -> ![]U8
-      !self.buf[a..b]
+    fun wbytes(!@, a: Int, b: Int) -> ![]U8
+      !@buf[a..b]
 
   p = Page(buf: [16 of 0])
   w = (!p).wbytes(0, 4)
@@ -887,9 +887,9 @@ test "syntax-review-complete-df1", '''
     a: List[Int]
     b: Int
 
-    sub go(!self)
-      for x in ?self.a
-        self.b += x
+    sub go(!@)
+      for x in ?@a
+        @b += x
 
   s = S(a: List(), b: 0)
   !s.a.push(3)
@@ -959,8 +959,8 @@ fail "syntax-review-complete-g1", "cannot return a view of `e`, which this funct
   obj Map
     es: List[Entry]
 
-    fun get(?self, k: ?String) -> (?Int)?
-      for e in ?self.es
+    fun get(?@, k: ?String) -> (?Int)?
+      for e in ?@es
         if e.k == k
           return ?e.v
       none
@@ -1006,17 +1006,17 @@ test "syntax-review-complete-g2", '''
   obj Map
     es: List[Entry]
 
-    fun get(?self, k: ?String) -> (?Entry)?
-      for e, i in self.es
+    fun get(?@, k: ?String) -> (?Entry)?
+      for e, i in @es
         if e.k == k
-          return ?self.es[i]
+          return ?@es[i]
       none
 
-    fun get_mut(!self, k: ?String) -> (!Entry)?
+    fun get_mut(!@, k: ?String) -> (!Entry)?
       i = 0
-      while i < self.es.len : i += 1
-        if self.es[i].k == k
-          return !self.es[i]
+      while i < @es.len : i += 1
+        if @es[i].k == k
+          return !@es[i]
       none
 
   m = Map(es: List())
@@ -1030,20 +1030,20 @@ test "syntax-review-complete-g2", '''
 fail "syntax-review-complete-g3", "cannot return a view of `e`, which this function was not lent"
   obj Val
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Map
     es: List[^Val]
 
-    fun find(?self, n: Int) -> (?Val)?
-      for e in ?self.es
+    fun find(?@, n: Int) -> (?Val)?
+      for e in ?@es
         if e.n == n
           return ?e
       none
 
-    fun find_mut(!self, n: Int) -> (!Val)?
-      for e in !self.es
+    fun find_mut(!@, n: Int) -> (!Val)?
+      for e in !@es
         if e.n == n
           return !e
       none
@@ -1067,10 +1067,10 @@ test "syntax-review-complete-g4", '''
   obj Map
     es: List[Entry]
 
-    fun get(?self, k: ?String) -> (?Entry)?
-      for e, i in self.es
+    fun get(?@, k: ?String) -> (?Entry)?
+      for e, i in @es
         if e.k == k
-          return ?self.es[i]
+          return ?@es[i]
       none
 
   fun lookup(m: ?Map, k: ?String) -> Int?
@@ -1088,8 +1088,8 @@ test "syntax-review-complete-g6", '''
 '''
   obj Val
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Slot
     v: Val?
@@ -1098,11 +1098,11 @@ test "syntax-review-complete-g6", '''
     slots: List[^Slot]
     one: Val?
 
-    fun first(?self) -> ?Val?
-      ?self.one
+    fun first(?@) -> ?Val?
+      ?@one
 
-    fun val(?self) -> (?Val)?
-      if ?self.one as v
+    fun val(?@) -> (?Val)?
+      if ?@one as v
         return v
       none
 
@@ -1115,14 +1115,14 @@ test "syntax-review-complete-g6", '''
 fail "syntax-review-complete-g7", "bare use of loop view `e` in return value would carry the viewed handle past the loop; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
   obj Val
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Map
     es: List[^Val]
 
-    fun find(?self, n: Int) -> (?^Val)?
-      for e in ?self.es
+    fun find(?@, n: Int) -> (?^Val)?
+      for e in ?@es
         if e.n == n
           return e
       none
@@ -1172,15 +1172,15 @@ test "syntax-review-complete-gb3", '''
   obj Holder[V]
     one: V?
 
-    fun val(!self) -> (!V)?
-      if !self.one as v
+    fun val(!@) -> (!V)?
+      if !@one as v
         return v
       none
 
   obj N
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   h = Holder[N](one: N(n: 1))
   if (!h).val() as v
@@ -1203,26 +1203,26 @@ test "syntax-review-complete-gm1", '''
   obj Map[K, V]
     es: List[^Entry[K, V]]
 
-    sub put(!self, k: K, v: V)
-      for e in !self.es
+    sub put(!@, k: K, v: V)
+      for e in !@es
         if e.k == k
           e.v = <v
           return
-      !self.es.push(^Entry(k: k, v: <v))
+      !@es.push(^Entry(k: k, v: <v))
 
-    sub each(?self, f: ?sub(?K, ?V))
-      for e in ?self.es
+    sub each(?@, f: ?sub(?K, ?V))
+      for e in ?@es
         f(?e.k, ?e.v)
 
-    fun has(?self, k: ?K) -> Bool
-      for e in ?self.es
+    fun has(?@, k: ?K) -> Bool
+      for e in ?@es
         return true if e.k == k
       false
 
   obj Node
     id: Int
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   m = Map[?String, *Node](es: List())
   !m.put("a", *Node(id: 1))
@@ -1240,8 +1240,8 @@ test "syntax-review-complete-h3", "5"
     fun new(h: fun(?K) -> U64) -> Self
       Map(keys: List(), vals: List(), hash: h)
 
-    fun slot(?self, k: ?K) -> Int
-      h = self.hash(k)
+    fun slot(?@, k: ?K) -> Int
+      h = @hash(k)
       Int(h % 16)
 
   fun hash_int(k: ?Int) -> U64
@@ -1276,30 +1276,30 @@ test "syntax-review-complete-hm6", "11 2 none 2"
         !m.vals.push(none)
       m
 
-    fun find(?self, k: ?K) -> Int?
-      cap = self.keys.len
-      i = Int(self.hash(k) % U64(cap))
+    fun find(?@, k: ?K) -> Int?
+      cap = @keys.len
+      i = Int(@hash(k) % U64(cap))
       for _ in 0..cap
-        if self.keys[i] as kk
+        if @keys[i] as kk
           return i if kk == k
         else
           return none
         i = (i + 1) % cap
       none
 
-    fun get(?self, k: ?K) -> (?V)?
-      i = self.find(k)?
-      ?self.vals[i]
+    fun get(?@, k: ?K) -> (?V)?
+      i = @find(k)?
+      ?@vals[i]
 
-    sub put(!self, k: K, v: V)
-      cap = self.keys.len
-      f = self.hash
+    sub put(!@, k: K, v: V)
+      cap = @keys.len
+      f = @hash
       i = Int(f(?k) % U64(cap))
-      while self.keys[i] != none and self.keys[i] != k
+      while @keys[i] != none and @keys[i] != k
         i = (i + 1) % cap
-      self.len += 1 if self.keys[i] == none
-      self.keys[i] = k
-      self.vals[i] = <v
+      @len += 1 if @keys[i] == none
+      @keys[i] = k
+      @vals[i] = <v
 
   fun hash_str(s: ?String) -> U64
     h: U64 = 5381
@@ -1322,8 +1322,8 @@ test "syntax-review-complete-it2", '''
   obj Bag
     items: List[Int]
 
-    fun slice(?self) -> []Int
-      ?self.items[..]
+    fun slice(?@) -> []Int
+      ?@items[..]
 
   b = Bag(items: List())
   !b.items.push(1)
@@ -1342,10 +1342,10 @@ test "syntax-review-complete-it3", '''
     i: Int
     n: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.n
-      self.i += 1
-      self.i - 1
+    fun next(!@) -> Int?
+      return none if @i >= @n
+      @i += 1
+      @i - 1
 
   it = Iter(i: 0, n: 3)
   while (!it).next() as x
@@ -1361,8 +1361,8 @@ test "syntax-review-complete-it4", '''
   obj Bag
     items: List[*Node]
 
-    fun at(?self, i: Int) -> ?*Node
-      ?self.items[i]
+    fun at(?@, i: Int) -> ?*Node
+      ?@items[i]
 
   b = Bag(items: List())
   !b.items.push(*Node(v: 1))
@@ -1431,7 +1431,7 @@ test "syntax-review-complete-p3", '''
 '''
   obj P
     x: Int
-    fun show(?self) -> ?String
+    fun show(?@) -> ?String
       "P"
 
   p = P(x: 1)
@@ -1444,8 +1444,8 @@ test "syntax-review-complete-pg", "0"
   obj Page
     buf: [4096]U8
 
-    fun key(?self, at: Int) -> U64
-      self.buf.read[U64, .little](at)
+    fun key(?@, at: Int) -> U64
+      @buf.read[U64, .little](at)
 
   p = Page(buf: [4096 of 0])
   print(p.key(8))
@@ -1534,8 +1534,8 @@ test "syntax-review-complete-vo2", '''
 '''
   obj Node
     id: Int
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj Slot[V]
     v: V?
@@ -1553,17 +1553,17 @@ test "syntax-review-complete-vw1", '''
   obj Bag[T]
     items: List[T]
 
-    fun iter(?self) -> BagIter[T]
-      BagIter(bag: self, i: 0)
+    fun iter(?@) -> BagIter[T]
+      BagIter(bag: @, i: 0)
 
   obj BagIter[T]
     bag: ?Bag[T]
     i: Int
 
-    fun next(!self) -> T?
-      return none if self.i >= self.bag.items.len
-      self.i += 1
-      self.bag.items[self.i - 1]
+    fun next(!@) -> T?
+      return none if @i >= @bag.items.len
+      @i += 1
+      @bag.items[@i - 1]
 
   b = Bag[Int](items: List())
   !b.items.push(4)
@@ -1579,18 +1579,18 @@ fail "syntax-review-complete-vw2", "bare use of loop view `x` in return value wo
   obj Bag
     items: List[*Node]
 
-    fun iter(?self) -> BagIter
-      BagIter(bag: self, i: 0)
+    fun iter(?@) -> BagIter
+      BagIter(bag: @, i: 0)
 
   obj BagIter
     bag: ?Bag
     i: Int
 
-    fun next(!self) -> (?*Node)?
+    fun next(!@) -> (?*Node)?
       j = 0
-      for x in ?self.bag.items
-        if j == self.i
-          self.i += 1
+      for x in ?@bag.items
+        if j == @i
+          @i += 1
           return x
         j += 1
       none

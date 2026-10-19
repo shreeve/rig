@@ -653,8 +653,8 @@ test "review-step45-r2-f06 readview elem forms", "20"
     t: String
     n: Int
 
-    fun len(?self) -> Int
-      self.t.len + self.n
+    fun len(?@) -> Int
+      @t.len + @n
 
   fun tl(s: ?String) -> Int
     s.len
@@ -962,17 +962,17 @@ test "review-subctor-a1", '''
   obj Acc
     n: Int
 
-    sub bump(!self, k: Int)!
+    sub bump(!@, k: Int)!
       return Bad.neg if k < 0
-      self.n += k
+      @n += k
 
-    sub show(?self)!
-      return Bad.neg if self.n < 0
-      print("acc", self.n)
+    sub show(?@)!
+      return Bad.neg if @n < 0
+      print("acc", @n)
 
-    sub eat(<self)!
-      return Bad.neg if self.n > 100
-      print("ate", self.n)
+    sub eat(<@)!
+      return Bad.neg if @n > 100
+      print("ate", @n)
 
   a = Acc(n: 1)
   !a.bump(2)!
@@ -1065,13 +1065,13 @@ test "review-subctor-aa", '''
   obj Acc
     n: Int
 
-    sub bump(!self, k: Int)!
+    sub bump(!@, k: Int)!
       return Bad.neg if k < 0
-      self.n += k
+      @n += k
 
-    sub show(?self)!
-      return Bad.neg if self.n < 0
-      print("acc", self.n)
+    sub show(?@)!
+      return Bad.neg if @n < 0
+      print("acc", @n)
 
   b = ^Acc(1)
   !b.bump(2)!
@@ -1184,9 +1184,9 @@ test "review-subctor-e1", '''
   obj R
     items: List[Int]
 
-    fun total(?self) -> Int
+    fun total(?@) -> Int
       t = 0
-      for x in ?self.items
+      for x in ?@items
         t += x
       t
 
@@ -1239,14 +1239,14 @@ test "review-subctor-i1", '''
   obj Wrap[T]
     item: T
 
-    fun rewrap(?self) -> Wrap[T]
-      Wrap(self.item)
+    fun rewrap(?@) -> Wrap[T]
+      Wrap(@item)
 
   obj M
     v: Int
 
-    fun twice(?self) -> M
-      M(self.v * 2)
+    fun twice(?@) -> M
+      M(@v * 2)
 
   fun mk[T](x: T) -> Wrap[T]
     Wrap(x)
@@ -1389,9 +1389,9 @@ fail "review-subctor-m1", "only module `lib` can construct `lib.M`: its field `v
     pub obj M
       v: Int
 
-      sub bump(!self, k: Int)!
+      sub bump(!@, k: Int)!
         return Bad.neg if k < 0
-        self.v += k
+        @v += k
 
     pub obj W[T]
       item: T

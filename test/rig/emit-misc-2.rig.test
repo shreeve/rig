@@ -46,8 +46,8 @@ test "method named like function", '''
   obj S
     n: Int
 
-    fun helper(?self) -> Int
-      self.n + helper()
+    fun helper(?@) -> Int
+      @n + helper()
 
   s = S(n: 2)
   print(s.helper())
@@ -97,8 +97,8 @@ test "named args source order", release: true, '''
   obj Acc
     total: Int
 
-    sub put(!self, s: ?String, n: Int)
-      self.total += n + s.len
+    sub put(!@, s: ?String, n: Int)
+      @total += n + s.len
 
   obj P
     x: Int
@@ -165,8 +165,8 @@ test "optional binding discard", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   m: Int? = 3
   if m as _
@@ -234,8 +234,8 @@ test "optional view from branch", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun pick(a: ?D, k: Int) -> (?D)?
     ?a if k == 0 else none
@@ -263,8 +263,8 @@ test "optional view from branch", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self, k: Int) -> (?T)?
-      ?self.v if k == 0 else none
+    fun get(?@, k: Int) -> (?T)?
+      ?@v if k == 0 else none
 
   d = D(n: 7)
   if pick(?d, 0) as r
@@ -315,8 +315,8 @@ test "owning param names", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub kw(var: List[Int])
     print(var.len)
@@ -334,7 +334,7 @@ test "owning param names", '''
   obj S
     v: List[Int]
 
-    sub consume(<self)
+    sub consume(<@)
       f = || print("consume")
       f()
 
@@ -463,19 +463,19 @@ test "print reads cell vec after later args", '''
   print(c.len)
 
 test "print reads self cell after later args", "Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]) 5"
-  # Inside a `?self` method, `print(self.c, (!other).grow())` reads the
+  # Inside a `?@` method, `print(@c, (!other).grow())` reads the
   # Cell when `print` is called, after `grow` has grown its List through
   # another handle.
   obj S
     c: Cell[List[Int]]
 
-    fun grow(!self) -> Int
+    fun grow(!@) -> Int
       for i in 0..20
-        !self.c.push(i)
+        !@c.push(i)
       5
 
-    sub show(?self, other: !S)
-      print(self.c, (!other).grow())
+    sub show(?@, other: !S)
+      print(@c, (!other).grow())
 
   s = *S(c: Cell(List()))
   !s.c.push(42)
@@ -549,8 +549,8 @@ test "qualified variant of payload enum", "0 .point"
     circle(radius: Int)
     point
 
-    fun area(?self) -> Int
-      match self
+    fun area(?@) -> Int
+      match @
         .circle(r) => 3 * r * r
         .point => 0
 
@@ -658,12 +658,12 @@ test "read view of plain data rebound", '''
     x: T
     r: ?T
 
-    fun left(?self, other: ?T) -> ?T
-      ?self.x
+    fun left(?@, other: ?T) -> ?T
+      ?@x
 
-    fun pick(?self, other: ?T, first: Bool) -> ?T
+    fun pick(?@, other: ?T, first: Bool) -> ?T
       if first
-        ?self.x
+        ?@x
       else
         other
 
@@ -743,8 +743,8 @@ test "read view rebound to call", '''
   obj Pair[T]
     x: T
 
-    fun left(?self, other: ?T) -> ?T
-      ?self.x
+    fun left(?@, other: ?T) -> ?T
+      ?@x
 
   fun pick(a: ?Int, b: ?Int) -> ?Int
     a
@@ -849,7 +849,7 @@ test "renamed local names", '''
   obj G[get_1]
     v: get_1
 
-    fun get(?self) -> Int
+    fun get(?@) -> Int
       get = 5
       get + 1
 
@@ -857,7 +857,7 @@ test "renamed local names", '''
     aa(v: T)
     bb
 
-    fun get(?self) -> Int
+    fun get(?@) -> Int
       get = 5
       get + get_1
 
@@ -915,8 +915,8 @@ test "return param through match", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   enum Pick
     keep
@@ -1365,8 +1365,8 @@ test "view result values", '''
   obj P
     n: Int
 
-    fun get(!self) -> !Int
-      !self.n
+    fun get(!@) -> !Int
+      !@n
 
   fun wr(a: !Int) -> !Int
     a
@@ -1635,13 +1635,13 @@ test "while step nested jumps", '''
   leaves()
 
 test "write self receiver", "2"
-  # A `!self` method mutates the receiver in place.
+  # A `!@` method mutates the receiver in place.
 
   obj Bag
     items: List[Int]
 
-    sub add(!self, x: Int)
-      !self.items.push(x)
+    sub add(!@, x: Int)
+      !@items.push(x)
 
   v: List[Int] = List()
   b = Bag(items: <v)
@@ -1662,8 +1662,8 @@ test "write view copy element", '''
   obj S
     n: Int
 
-    fun get(!self) -> !Int
-      !self.n
+    fun get(!@) -> !Int
+      !@n
 
   m = 3
   q = !m

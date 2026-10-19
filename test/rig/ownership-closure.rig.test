@@ -82,14 +82,14 @@ test "closure capture views", '''
 '''
   # `|?x|` captures a read view and `|!x|` a write view, held while the
   # closure lives. Through a captured write view the body writes fields,
-  # calls `!self` methods, and assigns the whole value, which writes
+  # calls `!@` methods, and assigns the whole value, which writes
   # through; after the closure's last call, the value is free again.
 
   obj Wrap
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub grow(w: !Wrap, by: Int)
     inc = |!w, +by| w.n += by
@@ -152,7 +152,7 @@ fail "closure holds view", "cannot drop `a` while it is lent"
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   a = Wrap(payload: 1)
@@ -232,8 +232,8 @@ test "closure passes captured view", "31"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 10
+    sub bump(!@)
+      @n += 10
 
   sub poke(b: !Wrap)
     b.n += 5
@@ -285,8 +285,8 @@ test "closure result takes tail", '''
   obj D
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk(id: Int) -> D
     D(id: id)

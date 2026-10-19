@@ -202,11 +202,11 @@ obj Account
   owner: ?String
   balance: Int
 
-  fun can_pay(?self, amount: Int) -> Bool
-    self.balance >= amount
+  fun can_pay(?@, amount: Int) -> Bool
+    @balance >= amount
 
-  sub pay(!self, amount: Int)
-    self.balance -= amount
+  sub pay(!@, amount: Int)
+    @balance -= amount
 
 sub main()
   a = Account(owner: "ada", balance: 100)
@@ -219,7 +219,7 @@ sub main()
 ada 70
 ```
 
-`?self` reads the receiver and `!self` writes it. The call site says
+`?@` reads the receiver and `!@` writes it. The call site says
 the same: a read is implicit (`a.can_pay(30)`), but a write is always
 spelled out, `!a.pay(30)`, so every mutation is visible, a change to a
 shared `Cell` included: `!count.set(5)`, which lends the handle `count`
@@ -234,8 +234,8 @@ A read is written when its view is kept: `xs = ?b.all()` and
 obj File
   name: ?String
 
-  drop(!self)
-    print("closing", self.name)
+  drop(!@)
+    print("closing", @name)
 
 sub archive(f: File)
   print("archiving", f.name)
@@ -352,7 +352,7 @@ support file.
 | result views one argument | `fn f<'a>(a: &'a T, b: &T) -> &'a T` | (no check) | `fun f(a: ?T, b: ?T) -> ?T from a` |
 | call | `f(a)` | `f(a)` | `f(a)` |
 | object literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
-| method receiver | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?self`, `!self`, `<self` |
+| method receiver | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?@`, `!@`, `<@` |
 | mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
 | enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)`, or `.circle(2)` for one field |
 | match | `match x { A => .., _ => .. }` | `switch (x) { .a => .., else => .. }` | `match x` / `.a => ..` / `_ => ..` |
@@ -373,7 +373,7 @@ support file.
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | closure argument | `f: &dyn Fn(i64) -> i64` | a context pointer and a function | `f: ?fun(Int) -> Int` |
 | drop early | `drop(x)` | `x.deinit()` | `<x` alone on a line |
-| destructor | `impl Drop` | `deinit` + `defer` | `drop(!self)` |
+| destructor | `impl Drop` | `deinit` + `defer` | `drop(!@)` |
 | cleanup | a scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
 | unsafe | `unsafe { }` | (everything) | a `raw` block |
 | logic | `&&`, `\|\|`, `!` | `and`, `or`, `!` | `and`, `or`, `not` |
@@ -406,7 +406,7 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
 | generic type | `obj Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `obj Wrap[T]` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `List[Int]()` |
-| generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` |
+| generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?@, f: fun(T) -> U) -> Wrap[U]` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
 | its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
 | an array of it | `fn sum<const N: usize>(xs: [i64; N])` | `fn sum(comptime n: usize, xs: [n]i64)` | `fun sum[n: Int](xs: [n]Int)` |
@@ -481,7 +481,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | counting loop | `for (i = 0; i < n; i++)` | `for i in range(n)` / `n.times` | `for i := 0; i < n; i++` | `for i in 0..n` |
 | index and element | by hand | `for i, x in enumerate(xs)` | `for i, x := range xs` | `for x, i in xs` (element first) |
 | class | `struct` + functions | `class` | `class` / `struct` + methods | `obj` with methods |
-| `this` / `self` | a pointer argument | `self` (implicit in Ruby) | `this` / a receiver | `self`, always written |
+| `this` / `@` | a pointer argument | `@` (implicit in Ruby) | `this` / a receiver | `@`, always written |
 | switch | `switch` | `match` / `case` | `switch` | `match` |
 | a name as a value | an `enum` | a string / `:width` | a string constant | `:width`, a `Symbol` ([SPEC](SPEC.md#symbols)); `f(width: 3)` names an argument |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
@@ -622,17 +622,17 @@ Rig has no `++`; write `x += 1`
 ```
 
 **Other languages' names.** The absent value is `none`, booleans are
-lowercase, the receiver is `self` and always written, and a line is
+lowercase, the receiver is `@` and always written, and a line is
 printed with `print`:
 
 ```rig reject
 obj Counter
   n: Int
 
-  fun get(?self) -> Int
+  fun get(?@) -> Int
     this.n
 
-  fun twice(?self) -> Int
+  fun twice(?@) -> Int
     n * 2
 
 sub main()
@@ -642,8 +642,8 @@ sub main()
 ```
 
 ```error
-use of unbound name `this`; a method's receiver is `self`
-use of unbound name `n`; did you mean `self.n`?
+use of unbound name `this`; a method's receiver is `@`
+use of unbound name `n`; did you mean `@n`?
 use of unbound name `null`; Rig's absent value is `none`
 use of unbound name `True`; Rig writes `true`
 use of unbound name `println`; Rig prints a line with `print(...)`
@@ -699,8 +699,8 @@ a value you own (Rust writes `v.push(x)`):
 obj Counter
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
 sub main()
   c = Counter(n: 0)
@@ -720,8 +720,8 @@ declares it); anywhere else the error names the fix:
 obj Res
   n: Int
 
-  drop(!self)
-    print("released", self.n)
+  drop(!@)
+    print("released", @n)
 
 sub eat(r: Res)
   print(r.n)

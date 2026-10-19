@@ -455,8 +455,8 @@ fail "review-payload-loan-4-e18 method call", "cannot reassign `h` while it is l
   obj H
     e: E
 
-    fun ge(!self) -> !E
-      !self.e
+    fun ge(!@) -> !E
+      !@e
 
   h = H(e: mk(1))
   match (!h).ge()
@@ -1482,9 +1482,9 @@ test "review-place-b10-y007 temp cell method on shared field", '''
   obj P
     c: Cell[Int]
 
-    sub hit(!self)
-      !self.c.set(self.c.get() + 1)
-      print(self.c.get())
+    sub hit(!@)
+      !@c.set(@c.get() + 1)
+      print(@c.get())
 
   obj Q
     p: *P
@@ -1686,9 +1686,9 @@ test "review-place-b3-r036 self write", "0"
   obj P
     x: Int
 
-    sub inc(!self)
-      self.x += 1
-      self = P(x: 0)
+    sub inc(!@)
+      @x += 1
+      @ = P(x: 0)
 
   p = P(x: 1)
   !p.inc()
@@ -1698,8 +1698,8 @@ test "review-place-b3-r046 self write field of box", "2"
   obj P
     x: Int
 
-    sub inc(!self)
-      self.x += 1
+    sub inc(!@)
+      @x += 1
 
   b = ^P(x: 1)
   !b.inc()
@@ -1709,14 +1709,14 @@ test "review-place-b3-r048 self write in self write", "2"
   obj Q
     n: Int
 
-    sub inc(!self)
-      self.n += 1
+    sub inc(!@)
+      @n += 1
 
   obj P
     q: Q
 
-    sub go(!self)
-      !self.q.inc()
+    sub go(!@)
+      !@q.inc()
 
   p = P(q: Q(n: 1))
   !p.go()
@@ -1877,8 +1877,8 @@ fail "review-place-b9-x009 generic field T wb", "`n` is assigned but never read;
   obj W[T]
     v: T
 
-    sub set(!self, x: T)
-      self.v = x
+    sub set(!@, x: T)
+      @v = x
 
   n = 0
   w = W[Int](v: 1)

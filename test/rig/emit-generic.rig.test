@@ -35,8 +35,8 @@ test "generic closure calls fun with capture", "4"
     n: Int
     t: String
 
-    fun len(?self) -> Int
-      self.t.len
+    fun len(?@) -> Int
+      @t.len
 
   fun gen[T](w: !T, f: fun(?T) -> Int) -> Int
     h = |?w, ?f| f(w) + f(w)
@@ -120,8 +120,8 @@ test "generic enum drop glue", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   n = *Noisy(id: 6)
   m: Maybe[*Noisy] = .some(value: <n)
@@ -235,7 +235,7 @@ test "generic local lent implicitly", '''
   print(direct(P(t: String("p"))), hoisted(P(t: String("q"))))
 
 test "generic match switches in place", "1 1 0 11 11 10"
-  # A `match` on a generic read view a name holds (`?self` of a generic
+  # A `match` on a generic read view a name holds (`?@` of a generic
   # type) switches on the value the view reaches, where it is: a binding
   # captured by pointer views that value, in every instance.
 
@@ -243,13 +243,13 @@ test "generic match switches in place", "1 1 0 11 11 10"
     some(v: T)
     nothing
 
-    fun get(?self) -> Int
-      match self
+    fun get(?@) -> Int
+      match @
         .some(v) => size(?v)
         .nothing => 0
 
-    fun all(?self) -> Int
-      match self
+    fun all(?@) -> Int
+      match @
         x => x.get() + 10
 
   fun size[T](v: ?T) -> Int
@@ -301,35 +301,35 @@ test "generic read view instances", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> ?T
-      ?self.v
+    fun get(?@) -> ?T
+      ?@v
 
-    fun echo(?self, x: ?T) -> ?T
+    fun echo(?@, x: ?T) -> ?T
       x
 
-    fun same(?self, other: ?Self) -> Bool
+    fun same(?@, other: ?Self) -> Bool
       s = other.get()
-      t = self.echo(s)
-      u = self.echo(?other.v)
+      t = @echo(s)
+      u = @echo(?other.v)
       print(t, u)
       true
 
-    sub show(?self)
-      r = self.get()
+    sub show(?@)
+      r = @get()
       print(r)
 
   obj Num[T]
     v: T
 
-    fun copy(?self) -> T
-      r = ?self.v
+    fun copy(?@) -> T
+      r = ?@v
       +r
 
   obj Ref[T]
     r: ?T
 
-    fun val(?self) -> ?T
-      self.r
+    fun val(?@) -> ?T
+      @r
 
   enum Opt[T]
     some(v: ?T)
@@ -381,11 +381,11 @@ test "generic read view of vec element", '''
   obj Bag[T]
     items: List[T]
 
-    fun first(?self) -> ?T
-      ?self.items[0]
+    fun first(?@) -> ?T
+      ?@items[0]
 
-    fun at(?self, i: Int) -> ?T
-      ?self.items[i]
+    fun at(?@, i: Int) -> ?T
+      ?@items[i]
 
   a: Bag[Int] = Bag(items: List())
   !a.items.push(4)
@@ -413,8 +413,8 @@ test "generic struct drop glue", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   n = *Noisy(id: 6)
   h: Holder[*Noisy] = Holder(value: <n, id: 1)
@@ -436,20 +436,20 @@ test "generic temporary receiver", '''
   obj Wrap[T]
     v: T
 
-    fun plus(?self, k: Int) -> Int
+    fun plus(?@, k: Int) -> Int
       k + 1
 
-    fun get(?self, a: Int, b: Int) -> Int
+    fun get(?@, a: Int, b: Int) -> Int
       a * 10 + b
 
-    fun twice(?self) -> Wrap[T]
-      Wrap(v: self.v)
+    fun twice(?@) -> Wrap[T]
+      Wrap(v: @v)
 
-    fun again(?self) -> Int
-      self.twice().plus(side(2))
+    fun again(?@) -> Int
+      @twice().plus(side(2))
 
-    fun order(?self) -> Int
-      self.twice().get(b: side(3), a: side(4))
+    fun order(?@) -> Int
+      @twice().get(b: side(3), a: side(4))
 
   b = Wrap(v: 1)
   print(b.again(), b.order())
@@ -464,11 +464,11 @@ test "generic type beside module self", "3 W(v: 1)"
   obj W[T]
     v: T
 
-    fun get(?self) -> Int
+    fun get(?@) -> Int
       Self()
 
-    fun same(?self) -> W[T]
-      W(v: self.v)
+    fun same(?@) -> W[T]
+      W(v: @v)
 
   w = W(v: 1)
   print(w.get(), w.same())

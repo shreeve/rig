@@ -139,8 +139,8 @@ many readers or one writer at a time, never both.
 obj File
   name: ?String
 
-  drop(!self)
-    print("closing", self.name)
+  drop(!@)
+    print("closing", @name)
 
 sub archive(f: File)
   print("archiving", f.name)
@@ -171,7 +171,7 @@ happens at a point you can see.
 obj Config
   level: Int
 
-  drop(!self)
+  drop(!@)
     print("config released")
 
 sub main()

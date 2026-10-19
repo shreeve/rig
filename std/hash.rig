@@ -41,16 +41,16 @@ obj Table
 
   # Point a free slot at entry `j`, whose key hashes to `h`. The table
   # is never full, so the probe always finds one.
-  sub place(!self, j: Int, h: U64)
-    i = self.free_slot(h)
-    self.tags[i] = tag_of(h)
-    self.at[i] = U32(j)
+  sub place(!@, j: Int, h: U64)
+    i = @free_slot(h)
+    @tags[i] = tag_of(h)
+    @at[i] = U32(j)
 
   # The first free slot from the one `h` names. Each pass is a loop
   # whose test is the bounds test, so a step reads a tag with no other
   # check; past both, -1 would fail the caller's bounds check.
-  fun free_slot(?self, h: U64) -> Int
-    ts = ?self.tags[..]
+  fun free_slot(?@, h: U64) -> Int
+    ts = ?@tags[..]
     i = Int(h & U64(ts.len - 1))
     for _ in 0..2
       while 0 <= i and i < ts.len
@@ -63,30 +63,30 @@ obj Table
   # each slot after it that would otherwise no longer be found from where
   # its key hashes to; `hs` holds every entry's hash, so no key is
   # hashed again.
-  sub unlink(!self, j: Int, h: U64, hs: ?List[U64])
-    mask = self.tags.len - 1
+  sub unlink(!@, j: Int, h: U64, hs: ?List[U64])
+    mask = @tags.len - 1
     hole = Int(h & U64(mask))
-    while self.tags[hole] == 0 or self.at[hole] != U32(j)
+    while @tags[hole] == 0 or @at[hole] != U32(j)
       hole = (hole + 1) & mask
     s = (hole + 1) & mask
-    while 0 <= s and s < self.tags.len and self.tags[s] != 0
-      home = Int(hs[Int(self.at[s])] & U64(mask))
+    while 0 <= s and s < @tags.len and @tags[s] != 0
+      home = Int(hs[Int(@at[s])] & U64(mask))
       if ((s - home) & mask) >= ((s - hole) & mask)
-        self.tags[hole] = self.tags[s]
-        self.at[hole] = self.at[s]
+        @tags[hole] = @tags[s]
+        @at[hole] = @at[s]
         hole = s
       s = (s + 1) & mask
-    self.tags[hole] = 0
+    @tags[hole] = 0
 
   # Empty the table, as `n` free slots.
-  sub reset(!self, n: Int)
-    !self.tags.clear()
-    !self.at.clear()
-    !self.tags.reserve(n)
-    !self.at.reserve(n)
+  sub reset(!@, n: Int)
+    !@tags.clear()
+    !@at.clear()
+    !@tags.reserve(n)
+    !@at.reserve(n)
     for _ in 0..n
-      !self.tags.push(0)
-      !self.at.push(0)
+      !@tags.push(0)
+      !@at.push(0)
 
 # `hash.Map[K, V]()` is an empty Map, which allocates nothing until the
 # first `put`.
@@ -105,142 +105,142 @@ pub obj Map[K, V]
 
   # Make room for `n` more entries at once: the entries and the table
   # are sized for them, so the next `n` puts of new keys grow neither.
-  pub sub reserve(!self, n: Int)
-    !self.es.reserve(n)
-    !self.hs.reserve(n)
-    want = self.es.len + n
+  pub sub reserve(!@, n: Int)
+    !@es.reserve(n)
+    !@hs.reserve(n)
+    want = @es.len + n
     if want > SMALL
-      size = table_size(want, self.table.tags.len)
-      !self.rebuild(size) if size > self.table.tags.len
+      size = table_size(want, @table.tags.len)
+      !@rebuild(size) if size > @table.tags.len
 
   # Whether the Map holds the key `k`.
-  pub fun has(?self, k: ?K) -> Bool
-    self.find(k, k.hash()) != none
+  pub fun has(?@, k: ?K) -> Bool
+    @find(k, k.hash()) != none
 
   # The value of the key `k`, viewed where the Map holds it, or `none`.
-  pub fun get(?self, k: ?K) -> (?V)? from self
-    if self.find(k, k.hash()) as j
-      return ?self.es[j].value
+  pub fun get(?@, k: ?K) -> (?V)? from @
+    if @find(k, k.hash()) as j
+      return ?@es[j].value
     none
 
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
-  pub fun edit(!self, k: ?K) -> (!V)? from self
-    if self.find(k, k.hash()) as j
-      if !self.es[j].value as v
+  pub fun edit(!@, k: ?K) -> (!V)? from @
+    if @find(k, k.hash()) as j
+      if !@es[j].value as v
         return v
     none
 
   # Put `v` under `k`, inserting or overwriting; the old value is
   # dropped. A key already there keeps its place, and `k` is dropped.
-  pub sub put(!self, k: K, v: V)
-    old = (!self).replace(<k, <v)
+  pub sub put(!@, k: K, v: V)
+    old = (!@).replace(<k, <v)
     <old
 
   # Put `v` under `k`, inserting or overwriting, and hand back the old
   # value, or `none` when `k` is new.
-  pub fun replace(!self, k: K, v: V) -> V?
+  pub fun replace(!@, k: K, v: V) -> V?
     h = k.hash()
-    if self.find(?k, h) as j
+    if @find(?k, h) as j
       <k
-      return replace(!self.es[j].value, <v)
-    !self.add_entry(<k, <v, h)
+      return replace(!@es[j].value, <v)
+    !@add_entry(<k, <v, h)
     none
 
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
   # `k` and `v` are dropped.
-  pub fun put_new(!self, k: K, v: V) -> Bool
+  pub fun put_new(!@, k: K, v: V) -> Bool
     h = k.hash()
-    if self.find(?k, h) != none
+    if @find(?k, h) != none
       <k
       <v
       return false
-    !self.add_entry(<k, <v, h)
+    !@add_entry(<k, <v, h)
     true
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
-  pub fun ensure(!self, k: K, v: V) -> !V from self, k, v
+  pub fun ensure(!@, k: K, v: V) -> !V from @, k, v
     h = k.hash()
     j = 0
-    if self.find(?k, h) as at
+    if @find(?k, h) as at
       <k
       <v
       j = at
     else
-      j = (!self).add_new(<k, <v, h)
+      j = (!@).add_new(<k, <v, h)
     # The entry at `j` holds a value, so the loop returns at once; it
     # stands where an unwrap that traps would (TODO.md).
     while true
-      if !self.es[j].value as w
+      if !@es[j].value as w
         return w
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
-  pub fun ensure_added(!self, k: K, v: V) -> (!V, Bool) from self, k, v
+  pub fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     h = k.hash()
     j = 0
     added = false
-    if self.find(?k, h) as at
+    if @find(?k, h) as at
       <k
       <v
       j = at
     else
-      j = (!self).add_new(<k, <v, h)
+      j = (!@).add_new(<k, <v, h)
       added = true
     # As in `ensure`, the entry at `j` holds a value.
     while true
-      if !self.es[j].value as w
+      if !@es[j].value as w
         return w, added
 
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k keeps make
+  pub fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
     h = k.hash()
     j = 0
-    if self.find(?k, h) as at
+    if @find(?k, h) as at
       <k
       j = at
     else
-      j = (!self).add_made(<k, make, h)
+      j = (!@).add_made(<k, make, h)
     # As in `ensure`, the entry at `j` holds a value.
     while true
-      if !self.es[j].value as w
+      if !@es[j].value as w
         return w
 
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
   # value `make(k)`, and give its index; out of line, as `add_new`.
-  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
+  rarely fun add_made(!@, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
     v = make(?k)
-    !self.insert(<k, <v, h)
-    self.es.len - 1
+    !@insert(<k, <v, h)
+    @es.len - 1
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`, and give
   # its index; out of line, so a lookup that finds its key stays short.
-  rarely fun add_new(!self, k: K, v: V, h: U64) -> Int
-    !self.insert(<k, <v, h)
-    self.es.len - 1
+  rarely fun add_new(!@, k: K, v: V, h: U64) -> Int
+    !@insert(<k, <v, h)
+    @es.len - 1
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`: what
   # `put`, `replace` and `put_new` call when the key is new; out of
   # line, so a write inlined into its caller is the lookup and, on a hit,
   # the overwrite, and hot, as a loop that puts new keys calls it each time.
-  called sub add_entry(!self, k: K, v: V, h: U64)
-    !self.insert(<k, <v, h)
+  called sub add_entry(!@, k: K, v: V, h: U64)
+    !@insert(<k, <v, h)
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
   # to read and its value to write, in order, and an entry it rejects is
   # dropped then, not left for compaction as `take` leaves a key. The
   # entries stay in the Lists the Map has, so they keep their room.
-  pub sub retain(!self, f: ?fun(?K, !V) -> Bool)
-    back: List[Entry[K, V]] = List(capacity: self.es.len)
-    back_hs: List[U64] = List(capacity: self.es.len)
-    while (!self.es).pop() as e
+  pub sub retain(!@, f: ?fun(?K, !V) -> Bool)
+    back: List[Entry[K, V]] = List(capacity: @es.len)
+    back_hs: List[U64] = List(capacity: @es.len)
+    while (!@es).pop() as e
       !back.push(<e)
-      !back_hs.push((!self.hs).pop() ?? 0)
-    self.len = 0
+      !back_hs.push((!@hs).pop() ?? 0)
+    @len = 0
     while (!back).pop() as popped
       new e = <popped
       h = (!back_hs).pop() ?? 0
@@ -248,90 +248,90 @@ pub obj Map[K, V]
       if !e.value as v
         keep = f(?e.key, !v)
       if keep
-        !self.es.push(<e)
-        !self.hs.push(h)
-        self.len += 1
+        !@es.push(<e)
+        !@hs.push(h)
+        @len += 1
       else
         <e
-    !self.rebuild(self.table.tags.len) if self.table.tags.len > 0
+    !@rebuild(@table.tags.len) if @table.tags.len > 0
 
   # Take the entry of the key `k` out: its value is handed back. Its key
   # is dropped when the entries are next compacted, as the Map grows,
   # or with the Map. `none` when the Map has no such key.
-  pub fun take(!self, k: ?K) -> V?
+  pub fun take(!@, k: ?K) -> V?
     h = k.hash()
-    if self.find(k, h) as j
-      self.len -= 1
-      !self.table.unlink(j, h, ?self.hs) if self.table.tags.len > 0
-      return <self.es[j].value
+    if @find(k, h) as j
+      @len -= 1
+      !@table.unlink(j, h, ?@hs) if @table.tags.len > 0
+      return <@es[j].value
     none
 
   # Drop every entry. The Map keeps the memory it has.
-  pub sub clear(!self)
-    !self.es.clear()
-    !self.hs.clear()
-    !self.table.tags.clear()
-    !self.table.at.clear()
-    self.len = 0
+  pub sub clear(!@)
+    !@es.clear()
+    !@hs.clear()
+    !@table.tags.clear()
+    !@table.at.clear()
+    @len = 0
 
   # The entry at index `i` in the order the keys were first put in: its
   # key and its value, each viewed where the Map holds it, or `none` when
   # `i` is not below `len`. One step while no entry has been taken since
   # the entries were last compacted, as the Map grows; until then, it
   # counts the entries before it.
-  pub fun at(?self, i: Int) -> (?K, ?V)? from self
-    return none if i < 0 or i >= self.len
+  pub fun at(?@, i: Int) -> (?K, ?V)? from @
+    return none if i < 0 or i >= @len
     j = i
-    if self.len < self.es.len
+    if @len < @es.len
       j = 0
       n = 0
-      while j < self.es.len
-        if self.es[j].value != none
+      while j < @es.len
+        if @es[j].value != none
           break if n == i
           n += 1
         j += 1
-    v: (?V)? = ?self.es[j].value
+    v: (?V)? = ?@es[j].value
     if v as vv
-      return ?self.es[j].key, vv
+      return ?@es[j].key, vv
     none
 
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.
-  pub fun items(?self) -> Items[K, V] from self
-    Items(map: ?self, next_at: 0)
+  pub fun items(?@) -> Items[K, V] from @
+    Items(map: ?@, next_at: 0)
 
   # The keys, in order, each viewed where the Map holds it.
-  pub fun keys(?self) -> Keys[K, V] from self
-    Keys(map: ?self, next_at: 0)
+  pub fun keys(?@) -> Keys[K, V] from @
+    Keys(map: ?@, next_at: 0)
 
   # The values, in order, each viewed where the Map holds it.
-  pub fun values(?self) -> Values[K, V] from self
-    Values(map: ?self, next_at: 0)
+  pub fun values(?@) -> Values[K, V] from @
+    Values(map: ?@, next_at: 0)
 
   # Call `f` with each key, in order, and its value lent to write. Each
   # value is out of its entry while `f` has it.
-  pub sub update(!self, f: ?sub(?K, !V))
-    for j in 0..self.es.len
-      held = <self.es[j].value
+  pub sub update(!@, f: ?sub(?K, !V))
+    for j in 0..@es.len
+      held = <@es[j].value
       if !held as v
-        f(?self.es[j].key, !v)
-      old = replace(!self.es[j].value, <held)
+        f(?@es[j].key, !v)
+      old = replace(!@es[j].value, <held)
       <old
 
   # The entry of the key `k`, whose hash is `h`, or `none`: in a small
   # Map, by the stored hashes in turn; in a larger one, by a probe of
   # its table from the slot `h` names to the end, then from the start,
   # each pass a loop whose test is the bounds test.
-  fun find(?self, k: ?K, h: U64) -> Int?
-    if self.table.tags.len == 0
-      hs = ?self.hs[..]
+  fun find(?@, k: ?K, h: U64) -> Int?
+    if @table.tags.len == 0
+      hs = ?@hs[..]
       j = 0
       while 0 <= j and j < hs.len
-        if hs[j] == h and self.es[j].value != none
-          return j if self.es[j].key == k
+        if hs[j] == h and @es[j].value != none
+          return j if @es[j].key == k
         j += 1
       return none
-    ts = ?self.table.tags[..]
+    ts = ?@table.tags[..]
     tag = tag_of(h)
     i = Int(h & U64(ts.len - 1))
     for _ in 0..2
@@ -339,55 +339,55 @@ pub obj Map[K, V]
         t = ts[i]
         return none if t == 0
         if t == tag
-          j = Int(self.table.at[i])
-          return j if self.es[j].key == k
+          j = Int(@table.at[i])
+          return j if @es[j].key == k
         i += 1
       i = 0
     none
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`: the body
   # of `add_new` and `add_made`.
-  sub insert(!self, k: K, v: V, h: U64)
-    if self.table.tags.len == 0
-      !self.grow() if self.es.len >= SMALL
-    else if (self.es.len + 1) * 5 > self.table.tags.len * 4
-      !self.grow()
-    !self.es.push(Entry(key: <k, value: <v))
-    !self.hs.push(h)
-    self.len += 1
-    !self.table.place(self.es.len - 1, h) if self.table.tags.len > 0
+  sub insert(!@, k: K, v: V, h: U64)
+    if @table.tags.len == 0
+      !@grow() if @es.len >= SMALL
+    else if (@es.len + 1) * 5 > @table.tags.len * 4
+      !@grow()
+    !@es.push(Entry(key: <k, value: <v))
+    !@hs.push(h)
+    @len += 1
+    !@table.place(@es.len - 1, h) if @table.tags.len > 0
 
   # Make room for one more entry: drop the entries taken, and build the
   # table, or double it, when the entries left would fill more than two
   # fifths of it. A Map that has not held more than `SMALL` entries
   # keeps no table.
-  rarely sub grow(!self)
-    !self.compact() if self.len < self.es.len
-    return if self.table.tags.len == 0 and self.len < SMALL
-    !self.rebuild(table_size(self.len + 1, self.table.tags.len))
+  rarely sub grow(!@)
+    !@compact() if @len < @es.len
+    return if @table.tags.len == 0 and @len < SMALL
+    !@rebuild(table_size(@len + 1, @table.tags.len))
 
   # Drop the entries taken, keeping the rest in order: every entry is
   # popped off the end and the live ones pushed back the other way, so
   # each moves whole.
-  sub compact(!self)
-    back: List[Entry[K, V]] = List(capacity: self.es.len)
-    back_hs: List[U64] = List(capacity: self.es.len)
-    while (!self.es).pop() as e
-      h = (!self.hs).pop() ?? 0
+  sub compact(!@)
+    back: List[Entry[K, V]] = List(capacity: @es.len)
+    back_hs: List[U64] = List(capacity: @es.len)
+    while (!@es).pop() as e
+      h = (!@hs).pop() ?? 0
       if e.value != none
         !back.push(<e)
         !back_hs.push(h)
     while (!back).pop() as e
-      !self.es.push(<e)
-      !self.hs.push((!back_hs).pop() ?? 0)
+      !@es.push(<e)
+      !@hs.push((!back_hs).pop() ?? 0)
 
   # The table built anew with `n` slots, once the entries taken are
   # dropped, each entry's slot placed again from its stored hash.
-  sub rebuild(!self, n: Int)
-    !self.compact() if self.len < self.es.len
-    !self.table.reset(n)
-    for j in 0..self.hs.len
-      !self.table.place(j, self.hs[j])
+  sub rebuild(!@, n: Int)
+    !@compact() if @len < @es.len
+    !@table.reset(n)
+    for j in 0..@hs.len
+      !@table.place(j, @hs[j])
 
 # A set of keys, kept in the order they were first added. Its keys are
 # held as a Map's entries are, each a `K?` that is `none` once taken.
@@ -409,80 +409,80 @@ pub obj Set[K]
 
   # Make room for `n` more keys at once: the keys and the table are
   # sized for them, so the next `n` adds of new keys grow neither.
-  pub sub reserve(!self, n: Int)
-    !self.ks.reserve(n)
-    !self.hs.reserve(n)
-    want = self.ks.len + n
+  pub sub reserve(!@, n: Int)
+    !@ks.reserve(n)
+    !@hs.reserve(n)
+    want = @ks.len + n
     if want > SMALL
-      size = table_size(want, self.table.tags.len)
-      !self.rebuild(size) if size > self.table.tags.len
+      size = table_size(want, @table.tags.len)
+      !@rebuild(size) if size > @table.tags.len
 
   # Whether the Set holds the key `k`.
-  pub fun has(?self, k: ?K) -> Bool
-    self.find(k, k.hash()) != none
+  pub fun has(?@, k: ?K) -> Bool
+    @find(k, k.hash()) != none
 
   # Add the key `k`: true when it is new; otherwise `k` is dropped.
-  pub fun add(!self, k: K) -> Bool
+  pub fun add(!@, k: K) -> Bool
     h = k.hash()
-    return false if self.find(?k, h) != none
-    !self.add_new(<k, h)
+    return false if @find(?k, h) != none
+    !@add_new(<k, h)
     true
 
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
-  pub fun take(!self, k: ?K) -> K?
+  pub fun take(!@, k: ?K) -> K?
     h = k.hash()
-    if self.find(k, h) as j
-      self.len -= 1
-      !self.table.unlink(j, h, ?self.hs) if self.table.tags.len > 0
-      return <self.ks[j]
+    if @find(k, h) as j
+      @len -= 1
+      !@table.unlink(j, h, ?@hs) if @table.tags.len > 0
+      return <@ks[j]
     none
 
   # Keep the keys for which `f` is true, in order; a key it rejects is
   # dropped then. The keys stay in the Lists the Set has, so they keep
   # their room.
-  pub sub retain(!self, f: ?fun(?K) -> Bool)
-    back: List[K] = List(capacity: self.len)
-    back_hs: List[U64] = List(capacity: self.len)
-    while (!self.ks).pop() as slot
-      h = (!self.hs).pop() ?? 0
+  pub sub retain(!@, f: ?fun(?K) -> Bool)
+    back: List[K] = List(capacity: @len)
+    back_hs: List[U64] = List(capacity: @len)
+    while (!@ks).pop() as slot
+      h = (!@hs).pop() ?? 0
       if <slot as k
         !back.push(<k)
         !back_hs.push(h)
-    self.len = 0
+    @len = 0
     while (!back).pop() as k
       h = (!back_hs).pop() ?? 0
       if f(?k)
-        !self.ks.push(<k)
-        !self.hs.push(h)
-        self.len += 1
+        !@ks.push(<k)
+        !@hs.push(h)
+        @len += 1
       else
         <k
-    !self.rebuild(self.table.tags.len) if self.table.tags.len > 0
+    !@rebuild(@table.tags.len) if @table.tags.len > 0
 
   # Drop every key. The Set keeps the memory it has.
-  pub sub clear(!self)
-    !self.ks.clear()
-    !self.hs.clear()
-    !self.table.tags.clear()
-    !self.table.at.clear()
-    self.len = 0
+  pub sub clear(!@)
+    !@ks.clear()
+    !@hs.clear()
+    !@table.tags.clear()
+    !@table.at.clear()
+    @len = 0
 
   # The keys, in the order they were first added, each viewed where the
   # Set holds it.
-  pub fun items(?self) -> Members[K] from self
-    Members(set: ?self, next_at: 0)
+  pub fun items(?@) -> Members[K] from @
+    Members(set: ?@, next_at: 0)
 
-  fun find(?self, k: ?K, h: U64) -> Int?
-    if self.table.tags.len == 0
-      hs = ?self.hs[..]
+  fun find(?@, k: ?K, h: U64) -> Int?
+    if @table.tags.len == 0
+      hs = ?@hs[..]
       j = 0
       while 0 <= j and j < hs.len
         if hs[j] == h
-          return j if self.ks[j] == k
+          return j if @ks[j] == k
         j += 1
       return none
-    ts = ?self.table.tags[..]
+    ts = ?@table.tags[..]
     tag = tag_of(h)
     i = Int(h & U64(ts.len - 1))
     for _ in 0..2
@@ -490,51 +490,51 @@ pub obj Set[K]
         t = ts[i]
         return none if t == 0
         if t == tag
-          j = Int(self.table.at[i])
-          return j if self.ks[j] == k
+          j = Int(@table.at[i])
+          return j if @ks[j] == k
         i += 1
       i = 0
     none
 
   # Add the key `k`, which is new and hashes to `h`; out of line and hot,
   # as a Map's `add_new` is.
-  called sub add_new(!self, k: K, h: U64)
-    if self.table.tags.len == 0
-      !self.grow() if self.ks.len >= SMALL
-    else if (self.ks.len + 1) * 5 > self.table.tags.len * 4
-      !self.grow()
-    !self.ks.push(<k)
-    !self.hs.push(h)
-    self.len += 1
-    !self.table.place(self.ks.len - 1, h) if self.table.tags.len > 0
+  called sub add_new(!@, k: K, h: U64)
+    if @table.tags.len == 0
+      !@grow() if @ks.len >= SMALL
+    else if (@ks.len + 1) * 5 > @table.tags.len * 4
+      !@grow()
+    !@ks.push(<k)
+    !@hs.push(h)
+    @len += 1
+    !@table.place(@ks.len - 1, h) if @table.tags.len > 0
 
-  rarely sub grow(!self)
-    !self.compact() if self.len < self.ks.len
-    return if self.table.tags.len == 0 and self.len < SMALL
-    !self.rebuild(table_size(self.len + 1, self.table.tags.len))
+  rarely sub grow(!@)
+    !@compact() if @len < @ks.len
+    return if @table.tags.len == 0 and @len < SMALL
+    !@rebuild(table_size(@len + 1, @table.tags.len))
 
   # Drop the keys taken, keeping the rest in order, in the Lists the Set
   # has, so they keep the room they have: every key is popped off the
   # end and the live ones pushed back the other way.
-  sub compact(!self)
-    back: List[K] = List(capacity: self.len)
-    back_hs: List[U64] = List(capacity: self.len)
-    while (!self.ks).pop() as slot
-      h = (!self.hs).pop() ?? 0
+  sub compact(!@)
+    back: List[K] = List(capacity: @len)
+    back_hs: List[U64] = List(capacity: @len)
+    while (!@ks).pop() as slot
+      h = (!@hs).pop() ?? 0
       if <slot as k
         !back.push(<k)
         !back_hs.push(h)
     while (!back).pop() as k
-      !self.ks.push(<k)
-      !self.hs.push((!back_hs).pop() ?? 0)
+      !@ks.push(<k)
+      !@hs.push((!back_hs).pop() ?? 0)
 
   # The table built anew with `n` slots, once the keys taken are
   # dropped, each key's slot placed again from its stored hash.
-  sub rebuild(!self, n: Int)
-    !self.compact() if self.len < self.ks.len
-    !self.table.reset(n)
-    for j in 0..self.ks.len
-      !self.table.place(j, self.hs[j])
+  sub rebuild(!@, n: Int)
+    !@compact() if @len < @ks.len
+    !@table.reset(n)
+    for j in 0..@ks.len
+      !@table.place(j, @hs[j])
 
 # A set of strings, each with a dense `U32` id from 0, in the order it
 # was first interned. Their text lives in one String, end to end, so
@@ -551,52 +551,52 @@ pub obj Symbols
 
   # The id of `s`: the one it was given, or a new one, the next after the
   # last, when `s` is new, whose text is then copied in.
-  pub fun intern(!self, s: ?String) -> U32
+  pub fun intern(!@, s: ?String) -> U32
     h = s.hash()
-    if self.find(s, h) as id
+    if @find(s, h) as id
       return id
-    id = U32(self.len)
-    !self.bytes.add(s)
-    !self.ends.push(U32(self.bytes.len))
-    !self.hs.push(h)
-    self.len += 1
+    id = U32(@len)
+    !@bytes.add(s)
+    !@ends.push(U32(@bytes.len))
+    !@hs.push(h)
+    @len += 1
     # A rebuilt table places every id, the new one too.
-    if self.table.tags.len > 0 and self.len * 5 <= self.table.tags.len * 4
-      !self.table.place(Int(id), h)
-    else if self.table.tags.len > 0 or self.len > SMALL
-      !self.rebuild(table_size(self.len, self.table.tags.len))
+    if @table.tags.len > 0 and @len * 5 <= @table.tags.len * 4
+      !@table.place(Int(id), h)
+    else if @table.tags.len > 0 or @len > SMALL
+      !@rebuild(table_size(@len, @table.tags.len))
     id
 
   # The id of `s`, or `none` when it was never interned.
-  pub fun id(?self, s: ?String) -> U32?
-    self.find(s, s.hash())
+  pub fun id(?@, s: ?String) -> U32?
+    @find(s, s.hash())
 
   # The text of the id `id`, viewed where the table holds it.
-  pub fun text(?self, id: U32) -> ?String from self
+  pub fun text(?@, id: U32) -> ?String from @
     i = Int(id)
-    start = 0 if i == 0 else Int(self.ends[i - 1])
-    ?self.bytes[start..Int(self.ends[i])]
+    start = 0 if i == 0 else Int(@ends[i - 1])
+    ?@bytes[start..Int(@ends[i])]
 
   # Make room for `n` more strings whose text takes `bytes` bytes in all.
-  pub sub reserve(!self, n: Int, bytes: Int = 0)
-    !self.ends.reserve(n)
-    !self.hs.reserve(n)
-    !self.bytes.reserve(bytes) if bytes > 0
-    want = self.len + n
+  pub sub reserve(!@, n: Int, bytes: Int = 0)
+    !@ends.reserve(n)
+    !@hs.reserve(n)
+    !@bytes.reserve(bytes) if bytes > 0
+    want = @len + n
     if want > SMALL
-      size = table_size(want, self.table.tags.len)
-      !self.rebuild(size) if size > self.table.tags.len
+      size = table_size(want, @table.tags.len)
+      !@rebuild(size) if size > @table.tags.len
 
-  fun find(?self, s: ?String, h: U64) -> U32?
-    if self.table.tags.len == 0
-      hs = ?self.hs[..]
+  fun find(?@, s: ?String, h: U64) -> U32?
+    if @table.tags.len == 0
+      hs = ?@hs[..]
       j = 0
       while 0 <= j and j < hs.len
         if hs[j] == h
-          return U32(j) if self.text(U32(j)) == s
+          return U32(j) if @text(U32(j)) == s
         j += 1
       return none
-    ts = ?self.table.tags[..]
+    ts = ?@table.tags[..]
     tag = tag_of(h)
     i = Int(h & U64(ts.len - 1))
     for _ in 0..2
@@ -604,16 +604,16 @@ pub obj Symbols
         t = ts[i]
         return none if t == 0
         if t == tag
-          id = self.table.at[i]
-          return id if self.text(id) == s
+          id = @table.at[i]
+          return id if @text(id) == s
         i += 1
       i = 0
     none
 
-  sub rebuild(!self, n: Int)
-    !self.table.reset(n)
-    for j in 0..self.hs.len
-      !self.table.place(j, self.hs[j])
+  sub rebuild(!@, n: Int)
+    !@table.reset(n)
+    for j in 0..@hs.len
+      !@table.place(j, @hs[j])
 
 # The slots a table needs to hold `want` entries at most two fifths
 # full: a power of two, at least 16, and at least `now`.
@@ -638,13 +638,13 @@ pub obj Items[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!self) -> Item[?K, ?V]?
-    while self.next_at < self.map.es.len
-      j = self.next_at
-      self.next_at += 1
-      v: (?V)? = ?self.map.es[j].value
+  pub fun next(!@) -> Item[?K, ?V]?
+    while @next_at < @map.es.len
+      j = @next_at
+      @next_at += 1
+      v: (?V)? = ?@map.es[j].value
       if v as vv
-        return Item(key: ?self.map.es[j].key, value: vv)
+        return Item(key: ?@map.es[j].key, value: vv)
     none
 
 # The keys of a Map, in order (`Map.keys`).
@@ -652,11 +652,11 @@ pub obj Keys[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!self) -> (?K)?
-    while self.next_at < self.map.es.len
-      j = self.next_at
-      self.next_at += 1
-      return ?self.map.es[j].key if self.map.es[j].value != none
+  pub fun next(!@) -> (?K)?
+    while @next_at < @map.es.len
+      j = @next_at
+      @next_at += 1
+      return ?@map.es[j].key if @map.es[j].value != none
     none
 
 # The values of a Map, in order (`Map.values`).
@@ -664,11 +664,11 @@ pub obj Values[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!self) -> (?V)?
-    while self.next_at < self.map.es.len
-      j = self.next_at
-      self.next_at += 1
-      v: (?V)? = ?self.map.es[j].value
+  pub fun next(!@) -> (?V)?
+    while @next_at < @map.es.len
+      j = @next_at
+      @next_at += 1
+      v: (?V)? = ?@map.es[j].value
       if v as vv
         return vv
     none
@@ -678,11 +678,11 @@ pub obj Members[K]
   set: ?Set[K]
   next_at: Int
 
-  pub fun next(!self) -> (?K)?
-    while self.next_at < self.set.ks.len
-      j = self.next_at
-      self.next_at += 1
-      k: (?K)? = ?self.set.ks[j]
+  pub fun next(!@) -> (?K)?
+    while @next_at < @set.ks.len
+      j = @next_at
+      @next_at += 1
+      k: (?K)? = ?@set.ks[j]
       if k as kk
         return kk
     none

@@ -23,8 +23,8 @@ test "frames every owner", ''', whole: true
   obj Res
     n: Int
 
-    drop(!self)
-      print(v(self.n) + v(self.n + 1) + v(self.n + 2))
+    drop(!@)
+      print(v(@n) + v(@n + 1) + v(@n + 2))
 
   called fun plain(i: Int) -> Int
     v(i) + v(i + 1) + v(i + 2)
@@ -89,7 +89,7 @@ test "frames inline callers", ''', whole: true
   obj G[T]
     v: T
 
-    inline fun deep(?self, i: Int) -> Int
+    inline fun deep(?@, i: Int) -> Int
       t = [60000 of 0]
       for k in 0..60000
         t[k] = k - i
@@ -98,13 +98,13 @@ test "frames inline callers", ''', whole: true
   obj Count
     n: Int
 
-    inline fun next(!self) -> Int?
+    inline fun next(!@) -> Int?
       t = [40000 of 0]
       for k in 0..40000
-        t[k] = k + self.n
-      self.n += 1
-      return none if self.n > 2
-      t[(self.n * 13) % 40000]
+        t[k] = k + @n
+      @n += 1
+      return none if @n > 2
+      t[(@n * 13) % 40000]
 
   # Unmarked: the rule must not inline them, since the marked functions
   # they hold land in their callers.

@@ -291,8 +291,8 @@ a deep copy of a type declared in another module, or of one holding a
 obj File
   name: ?String
 
-  drop(!self)
-    print("closing", self.name)
+  drop(!@)
+    print("closing", @name)
 
 sub main()
   a = File(name: "a.txt")
@@ -384,9 +384,9 @@ sub main()
 obj Counter
   n: Int
 
-  fun next(!self) -> Int
-    self.n += 1
-    self.n
+  fun next(!@) -> Int
+    @n += 1
+    @n
 
 fun start() -> Counter
   Counter(n: 41)
@@ -455,8 +455,8 @@ sub main()
 obj Guard
   items: []Int
 
-  drop(!self)
-    print(self.items.len)
+  drop(!@)
+    print(@items.len)
 
 sub main()
   a = [1, 2, 3]
@@ -484,7 +484,7 @@ the holder. What a call stores in what a write view lent to it sees
 carries, in the same way, the loans of the arguments whose types could
 hold it; for a lent parameter (a view, an optional of one, or the
 receiver), a declared function narrows this to the parameters its
-signature names in `keeps` (`sub watch(!self, s: ?String) keeps s`). A
+signature names in `keeps` (`sub watch(!@, s: ?String) keeps s`). A
 kept loan lasts while the holder is used, though the holder's own write
 lend ends as the call returns; a lend the call does not keep lasts no
 longer than the call and its result. A function called as a value is
@@ -515,9 +515,9 @@ obj Cursor
   items: ?List[Item]
   i: Int
 
-  fun next(!self) -> ?Item
-    self.i += 1
-    ?self.items[self.i - 1]
+  fun next(!@) -> ?Item
+    @i += 1
+    ?@items[@i - 1]
 
 sub main()
   v: List[Item] = List()
@@ -593,12 +593,12 @@ obj Parser
   src: ?String
   errors: Int
 
-  sub watch(!self, s: ?String) keeps s
-    self.src = s
+  sub watch(!@, s: ?String) keeps s
+    @src = s
 
-  sub note(!self, msg: ?String)
-    if msg.len > self.src.len
-      self.errors += 1
+  sub note(!@, msg: ?String)
+    if msg.len > @src.len
+      @errors += 1
 
 sub main()
   p = Parser(src: "", errors: 0)
@@ -618,8 +618,8 @@ let x 1
 obj Parser
   src: ?String
 
-  sub watch(!self, s: ?String) keeps s
-    self.src = s
+  sub watch(!@, s: ?String) keeps s
+    @src = s
 
 sub main()
   p = Parser(src: "")
@@ -640,15 +640,15 @@ the store:
 obj Binder
   src: ?String
 
-  sub set_src(!self, s: ?String)
-    self.src = s
+  sub set_src(!@, s: ?String)
+    @src = s
 
 sub main()
   pass
 ```
 
 ```error
-`set_src` stores a view of `s` in `self`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`
+`set_src` stores a view of `s` in `@`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`
 ```
 
 **Several results.** A function may give several results, `-> (A, B)`,
@@ -674,9 +674,9 @@ obj Counter
   n: Int
   m: Int
 
-  fun bump(!self, k: Int) -> (!Int, Bool)
-    self.n += k
-    return !self.m, self.n > 3
+  fun bump(!@, k: Int) -> (!Int, Bool)
+    @n += k
+    return !@m, @n > 3
 
 sub main()
   c = Counter(n: 0, m: 0)
@@ -916,7 +916,7 @@ a
 - **Taking:** a binding, an argument to a parameter that owns it,
   `return`, a stored field or element, or `<`.
 - **Reading:** a `print` or `String(...)` argument, an `==` operand, `?e`,
-  `+e`, a `?self` receiver, a field or element read, or the value a
+  `+e`, a `?@` receiver, a field or element read, or the value a
   call calls.
 
 Reading never moves a name, whatever form reads it: `print(a if c else
@@ -1173,15 +1173,15 @@ part of `p` is rejected. *(built)*
 obj Arena
   names: List[String]
 
-  sub add(!self, t: ?String)
-    !self.names.push(String(t))
+  sub add(!@, t: ?String)
+    !@names.push(String(t))
 
 obj Parser
   a: Arena
   t: String
 
-  sub step(!self)
-    (!self.a).add(self.t)
+  sub step(!@)
+    (!@a).add(@t)
 
 sub main()
   p = Parser(a: Arena(names: List()), t: String("id"))
@@ -1199,8 +1199,8 @@ obj P
   name: String
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
 sub main()
   p = P(name: String("a"), n: 0)
@@ -1311,7 +1311,7 @@ sub main()
 **A container written in Rig follows its signatures.** `hash.Map[K,
 V]` and `hash.Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns
-a `(?V)?` view `from self`, which carries the loan on `m` and not on
+a `(?V)?` view `from @`, which carries the loan on `m` and not on
 `k` (sentence 7); `(!m).edit(k)` returns a `(!V)?` that carries a write
 loan on `m`; and
 `(!m).take(k)` hands the value back owned and drops the key. *(built)*
@@ -1499,8 +1499,8 @@ obj Checker
   n: Int
   hook: *sub(!Checker)
 
-  sub run(!self)
-    self.hook(!self)
+  sub run(!@)
+    @hook(!@)
 
 sub main()
   bump: *sub(!Checker) = *|k| k.n += 1
@@ -1509,7 +1509,7 @@ sub main()
 ```
 
 ```error
-cannot lend `self` to write while the callee's read of `self.hook` is in use
+cannot lend `@` to write while the callee's read of `@hook` is in use
 ```
 
 A value made to be called is a temporary of its statement (§3):
@@ -1584,10 +1584,10 @@ sub main()
 obj Seen
   items: List[Int]
 
-  fun insert(!self, k: Int) -> Bool
-    for x in ?self.items
+  fun insert(!@, k: Int) -> Bool
+    for x in ?@items
       return false if x == k
-    !self.items.push(k)
+    !@items.push(k)
     true
 
 sub main()

@@ -48,8 +48,8 @@ test "review-step3-m01 held match break", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: Res)
@@ -92,8 +92,8 @@ test "review-step3-m02 held guard", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: Res)
@@ -118,8 +118,8 @@ test "review-step3-m03 held value pos", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: Res)
@@ -188,8 +188,8 @@ test "review-step3-m06 held nested", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: Res)
@@ -216,8 +216,8 @@ fail "review-step3-m07 held ifas res", "a view of the temporary `mk(1)` outlives
     n: Int
     t: String
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Bag
     o: Res?
@@ -971,8 +971,8 @@ test "review-step3-r2-n15 take match", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: Res, s: Res)
@@ -1744,8 +1744,8 @@ test "review-step45-e10 arrayiter drop body", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   a = [D(n: 1), D(n: 2), D(n: 3)]
   for x in <a

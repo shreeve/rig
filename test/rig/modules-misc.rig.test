@@ -129,9 +129,9 @@ test "box across modules", '''
       key: Int
       pub kids: List[^Tree]
 
-      pub fun total(?self) -> Int
-        t = self.key
-        for k in ?self.kids
+      pub fun total(?@) -> Int
+        t = @key
+        for k in ?@kids
           t += k.total()
         t
 
@@ -141,8 +141,8 @@ test "box across modules", '''
     pub obj Ticket
       n: Int
 
-      pub fun redeem(<self) -> Int
-        self.n
+      pub fun redeem(<@) -> Int
+        @n
 
     pub fun ticket(n: Int) -> ^Ticket
       ^Ticket(n: n)
@@ -158,7 +158,7 @@ test "builtin type args", "16 16 8 1 2 Bool 2"
     x: I64
     y: I64
 
-    fun size(?self) -> Int
+    fun size(?@) -> Int
       $size(Self)
 
   type P2 = P
@@ -166,7 +166,7 @@ test "builtin type args", "16 16 8 1 2 Bool 2"
   obj Wrap[T]
     v: T
 
-    fun size(?self) -> Int
+    fun size(?@) -> Int
       $size(T)
 
   sub main()
@@ -222,8 +222,8 @@ test "closure args across modules", '''
     pub obj Bag
       pub items: List[Int]
 
-      pub sub each(?self, f: ?sub(Int))
-        for x in ?self.items
+      pub sub each(?@, f: ?sub(Int))
+        for x in ?@items
           f(x)
 
 test "comptime params across modules", '''
@@ -300,7 +300,7 @@ test "const generics across modules", '''
     pub obj Ring[T, n: Int]
       pub items: [n]T
 
-      pub fun cap(?self) -> Int
+      pub fun cap(?@) -> Int
         n
 
 fail "constant as pattern", "8:5: `lib.DEF` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.DEF =>`", "12:5: `lib.RED` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.RED =>`", errors: 2
@@ -420,8 +420,8 @@ test "cross module method kwargs", "12 19"
       pub w: Int
       pub h: Int
 
-      pub fun scaled(?self, by: Int = 2, plus: Int = 0) -> Int
-        self.w * self.h * by + plus
+      pub fun scaled(?@, by: Int = 2, plus: Int = 0) -> Int
+        @w * @h * by + plus
 
 test "cross module read lend", "42"
   # `a.log_box` takes a read view `?Wrap`; a bare `Wrap` argument is lent
@@ -463,8 +463,8 @@ test "cross module struct", '''
       pub x: Int
       pub y: Int
 
-      pub fun sum(?self) -> Int
-        self.x + self.y
+      pub fun sum(?@) -> Int
+        @x + @y
 
     pub fun origin() -> Point
       Point(x: 0, y: 0)
@@ -625,9 +625,9 @@ test "default constants", '''
     top: U8 = U8.max
     far: Int = lib.LIMIT
 
-    sub push(!self, x: Int)
-      !self.items.push(x)
-      self.hits += 1
+    sub push(!@, x: Int)
+      !@items.push(x)
+      @hits += 1
 
   fun pad(s: ?String, width: Int = MAX, fill: Int = lib.LIMIT) -> Int
     s.len + width + fill
@@ -690,14 +690,14 @@ test "directory module", "3"
     pub obj Checker
       pub depth: Int
 
-      pub fun expr(?self, n: Int) -> Int
-        0 if n == 0 else self.stmt(n - 1)
+      pub fun expr(?@, n: Int) -> Int
+        0 if n == 0 else @stmt(n - 1)
 
   file "checker/stmt.rig"
     use checker.binder
 
-    pub fun Checker.stmt(?self, n: Int) -> Int
-      binder.bump(self.expr(n))
+    pub fun Checker.stmt(?@, n: Int) -> Int
+      binder.bump(@expr(n))
 
   file "checker/binder/bump.rig"
     pub fun bump(n: Int) -> Int
@@ -719,8 +719,8 @@ test "directory module names", "21 4"
       pub y: Int
 
   file "geo/sum.rig"
-    pub fun Point.sum(?self) -> Int
-      self.x + self.y
+    pub fun Point.sum(?@) -> Int
+      @x + @y
 
   file "geo/util/twice.rig"
     pub fun twice(n: Int) -> Int
@@ -747,7 +747,7 @@ test "directory module names", "21 4"
   file "m/c.rig"
     BASE = 5
 
-    pub fun Ring[T, n].cap(?self) -> Int
+    pub fun Ring[T, n].cap(?@) -> Int
       n
 
     pub fun ring() -> Ring[Int, 4]
@@ -792,23 +792,23 @@ test "empty constructor", '''
       label: String = String()
       pub limit: Int = 3
 
-      pub sub add(!self, n: Int)
-        !self.items.push(n) if self.items.len < self.limit
+      pub sub add(!@, n: Int)
+        !@items.push(n) if @items.len < @limit
 
-      pub fun total(?self) -> Int
+      pub fun total(?@) -> Int
         sum = 0
-        for n in ?self.items
+        for n in ?@items
           sum += n
         sum
 
     pub obj Pile[T]
       items: List[T] = List()
 
-      pub sub put(!self, x: T)
-        !self.items.push(<x)
+      pub sub put(!@, x: T)
+        !@items.push(<x)
 
-      pub fun count(?self) -> Int
-        self.items.len
+      pub fun count(?@) -> Int
+        @items.len
 
 fail "empty constructor needs defaults", "9:17: `lib.Half()` is a default only when every field of `lib.Half` has one, and `size` has none", "12:11: `lib.Half()` makes a `lib.Half` from its fields' defaults, and `size` has no default; its fields `items`, `size` are private to module `lib`, which alone can set them", "13:11: only module `lib` can construct `lib.Bag`: its field `items` is private"
   # `T()` makes a value only from defaults for every field, as a local or
@@ -1259,10 +1259,10 @@ test "for iterator across modules", release: true, '''
       n: Int
       at: Int
 
-      pub fun next(!self) -> Int?
-        return none if self.at >= self.n
-        self.at += 1
-        self.at
+      pub fun next(!@) -> Int?
+        return none if @at >= @n
+        @at += 1
+        @at
 
     pub fun span(n: Int) -> Span
       Span(n: n, at: 0)
@@ -1313,8 +1313,8 @@ test "foreign builtin element", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     print(lib.keep(1), lib.keep(Res(n: 1)))
@@ -1382,25 +1382,25 @@ test "foreign constant methods", '''
       some(value: T)
       nothing
 
-      pub fun or(?self, d: T) -> T
-        match self
+      pub fun or(?@, d: T) -> T
+        match @
           .some(value) => value
           .nothing => d
 
-      pub fun is_none(?self) -> Bool
-        match self
+      pub fun is_none(?@) -> Bool
+        match @
           .some(value) => false
           .nothing => true
 
-      pub fun pick(?self, a: Int, b: Int) -> Int
-        a if self.is_none() else b
+      pub fun pick(?@, a: Int, b: Int) -> Int
+        a if @is_none() else b
 
     pub enum Color
       red
       green
 
-      pub fun pick(?self, a: Int, b: Int) -> Int
-        match self
+      pub fun pick(?@, a: Int, b: Int) -> Int
+        match @
           .red => a
           .green => b
 
@@ -1430,8 +1430,8 @@ fail "foreign constant write", "9:3: cannot assign to constant `geo.KP`", "10:9:
       pub y: Int
       pub o: Int?
 
-      pub sub bump(!self)
-        self.x += 1
+      pub sub bump(!@)
+        @x += 1
 
     pub KP = [1, 2, 3]
     pub LIMIT = 10
@@ -1457,13 +1457,13 @@ fail "foreign instance names", "9:13: `conv[Bool]` cannot use `U = Bool`", "9:13
     obj Wrap[T]
       v: T
 
-      fun conv[U](?self, u: U) -> U
+      fun conv[U](?@, u: U) -> U
         u + u
 
     pub obj Plain
       x: Int
 
-      fun sq[U](?self, u: U) -> U
+      fun sq[U](?@, u: U) -> U
         u * u
 
     pub fun conv(n: Int) -> Int
@@ -1487,8 +1487,8 @@ fail "foreign instance ownership", "16:11: `lib.twice[Res]` cannot use `T = Res`
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     r = Res(n: 1)
@@ -1510,8 +1510,8 @@ fail "foreign instance ownership", "16:11: `lib.twice[Res]` cannot use `T = Res`
     pub obj Wrap[T]
       pub v: T
 
-      fun get(?self) -> ?T
-        ?self.v
+      fun get(?@) -> ?T
+        ?@v
 
 fail "foreign instance requirement", "11:13: `lib.max[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support", "2:8: `>` used on `T` here (ordering comparison)"
   # An instance of another module's generic function is checked where it
@@ -1569,8 +1569,8 @@ fail "foreign polymorphic recursion", "9:13: `walk[Int]` leads to ever deeper in
     obj Walker
       n: Int
 
-      fun walk[U](?self, x: U) -> Int
-        self.walk(Wrap(v: x))
+      fun walk[U](?@, x: U) -> Int
+        @walk(Wrap(v: x))
 
     pub obj Outer
       w: Walker
@@ -1676,8 +1676,8 @@ test "generic fn across modules", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     print(lib.max(3, 7), lib.max[Float](1, 2))
@@ -1799,19 +1799,19 @@ test "generic method own param", '''
     pub obj Chain[T]
       pub items: List[T]
 
-      pub fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]
+      pub fun zip[U](?@, other: ?Chain[U]) -> Chain[Pair[T, U]]
         out: List[Pair[T, U]] = List()
         i = 0
-        while i < self.items.len and i < other.items.len
-          !out.push(Pair(a: self.items[i], b: other.items[i]))
+        while i < @items.len and i < other.items.len
+          !out.push(Pair(a: @items[i], b: other.items[i]))
           i += 1
         Chain(items: <out)
 
     obj Wrap[T]
       v: T
 
-      fun tag[U](?self, u: U) -> Wrap[Pair[T, U]]
-        Wrap(v: Pair(a: self.v, b: u))
+      fun tag[U](?@, u: U) -> Wrap[Pair[T, U]]
+        Wrap(v: Pair(a: @v, b: u))
 
     pub fun tagged[T](x: T) -> Int
       w = Wrap(v: x)
@@ -1843,8 +1843,8 @@ test "generic methods across modules", '''
     pub obj Tagger
       pub label: ?String
 
-      pub sub show[T](?self, x: T)
-        print(self.label, x)
+      pub sub show[T](?@, x: T)
+        print(@label, x)
 
     fun local[T](x: T) -> T
       x
@@ -1852,7 +1852,7 @@ test "generic methods across modules", '''
     obj Inner
       n: Int
 
-      pub fun same[U](?self, x: U) -> U
+      pub fun same[U](?@, x: U) -> U
         x
 
     pub obj Outer
@@ -1914,11 +1914,11 @@ test "generic type across modules", '''
       pub fun make(v: T) -> Self
         Wrap(v: v)
 
-      pub fun get(?self) -> T
-        self.v
+      pub fun get(?@) -> T
+        @v
 
-      pub fun with[U](?self, u: U) -> Pair[T, U]
-        Pair(first: self.v, second: u)
+      pub fun with[U](?@, u: U) -> Pair[T, U]
+        Pair(first: @v, second: u)
 
     pub obj Pair[A, B]
       pub first: A
@@ -1928,8 +1928,8 @@ test "generic type across modules", '''
       some(value: T)
       nothing
 
-      pub fun or(?self, d: T) -> T
-        match self
+      pub fun or(?@, d: T) -> T
+        match @
           .some(value) => value
           .nothing => d
 
@@ -2029,11 +2029,11 @@ test "keeps across modules", "let x 9"
       pub src: ?String
       pub notes: Int
 
-      pub sub watch(!self, s: ?String) keeps s
-        self.src = s
+      pub sub watch(!@, s: ?String) keeps s
+        @src = s
 
-      pub sub note(!self, msg: ?String)
-        self.notes += msg.len
+      pub sub note(!@, msg: ?String)
+        @notes += msg.len
 
 test "limit defaults across modules", "true 255 true true"
   # A number type's limit, named through the type or a local alias of it,
@@ -2086,7 +2086,7 @@ fail "marker frame across", "7:5: `generic` keeps", "10:5: `nested` keeps", "13:
     pub obj G[T]
       pub v: T
 
-      pub inline fun huge(?self, i: Int) -> Int
+      pub inline fun huge(?@, i: Int) -> Int
         t = [1000000 of i]
         t[i % 1000000]
 
@@ -2190,14 +2190,14 @@ test "marker generic member across", release: true, '''
       pub a: T
       pub b: T
 
-      pub inline fun first(?self) -> ?T
-        ?self.a
+      pub inline fun first(?@) -> ?T
+        ?@a
 
-      pub inline fun both(?self, f: ?fun(?T) -> Int) -> Int
-        f(?self.a) + f(?self.b)
+      pub inline fun both(?@, f: ?fun(?T) -> Int) -> Int
+        f(?@a) + f(?@b)
 
-      pub inline sub set(!self, a: T)
-        self.a = <a
+      pub inline sub set(!@, a: T)
+        @a = <a
 
 fail "marker inline value across", "9:19: `lib.next` is `inline`, inlined at every call, so it can only be called, not used as a value", errors: 1
   # Another module's `inline` function is only called, as this module's is.
@@ -2230,8 +2230,8 @@ test "markers across modules", release: true, '''
   obj Box
     p: lib.Point
 
-    inline fun sum(?self) -> Int
-      self.p.sum() * 10
+    inline fun sum(?@) -> Int
+      @p.sum() * 10
 
   inline fun twice(n: Int) -> Int
     lib.twice(n) + 1
@@ -2246,8 +2246,8 @@ test "markers across modules", release: true, '''
       pub x: Int
       pub y: Int
 
-      pub inline fun sum(?self) -> Int
-        self.x + self.y
+      pub inline fun sum(?@) -> Int
+        @x + @y
 
     pub inline fun scale(n: Int, k: Int) -> Int
       n * k
@@ -2269,10 +2269,10 @@ test "method named like module", "15"
   obj S
     n: Int
 
-    fun lib(?self) -> Int
+    fun lib(?@) -> Int
       p: lib.P = lib.P(x: 2)
       q = lib.P(x: 3)
-      self.n + lib.limit + lib.twice(1) + p.x + q.x
+      @n + lib.limit + lib.twice(1) + p.x + q.x
 
   sub main()
     s = S(n: 1)
@@ -2298,25 +2298,25 @@ fail "method owner", "11:5: methods of `geo.Point` are declared in module `geo`,
   obj Wrap[T]
     v: T
 
-  fun geo.Point.a(?self) -> Int
+  fun geo.Point.a(?@) -> Int
     1
 
   fun Nope.b() -> Int
     1
 
-  fun P.c(?self) -> Int
+  fun P.c(?@) -> Int
     1
 
-  fun List.d(?self) -> Int
+  fun List.d(?@) -> Int
     1
 
-  fun Wrap.e(?self) -> T
-    self.v
+  fun Wrap.e(?@) -> T
+    @v
 
-  fun Point.x2(?self) -> Int
+  fun Point.x2(?@) -> Int
     1
 
-  fun Point.x2(?self) -> Int
+  fun Point.x2(?@) -> Int
     2
 
   sub main()
@@ -2337,8 +2337,8 @@ fail "method private", "method `norm` of `geo.Point` is private to module `geo`"
     pub obj Point
       pub x: Int
 
-    fun Point.norm(?self) -> Int
-      self.x
+    fun Point.norm(?@) -> Int
+      @x
 
 fail "missing module", "2:1: cannot read module `nope`", "2:1: no such file", errors: 1, file: "main.rig"
   # `use nope` names a module file that does not exist.
@@ -2559,18 +2559,18 @@ fail "private members", "8:5: field `count` of `lib.Counter` is private to modul
       fun fresh() -> Counter
         Counter(label: "f", count: 0)
 
-      fun value(?self) -> Int
-        self.count
+      fun value(?@) -> Int
+        @count
 
-      sub reset(!self)
-        self.count = 0
+      sub reset(!@)
+        @count = 0
 
     pub obj Pair[T]
       pub a: T
       b: T
 
-      fun second(?self) -> T
-        self.b
+      fun second(?@) -> T
+        @b
 
     pub fun pair(a: Int, b: Int) -> Pair[Int]
       Pair(a: a, b: b)
@@ -2578,7 +2578,7 @@ fail "private members", "8:5: field `count` of `lib.Counter` is private to modul
     pub enum Shape
       dot
 
-      fun size(?self) -> Int
+      fun size(?@) -> Int
         0
 
     pub fun boxed() -> ^Counter
@@ -2621,8 +2621,8 @@ fail "private method of generic type", "25:21: method `make` of `lib.Wrap` is pr
       fun make(v: T) -> Self
         Wrap(v: v)
 
-      sub show(?self)
-        print(self.v)
+      sub show(?@)
+        print(@v)
 
 test "pub fun private type", "42"
   # A `pub fun` may return a private struct: the importer holds the value
@@ -2659,8 +2659,8 @@ fail "pub generic method self nesting", "7:7: `walk[U]` leads to ever deeper ins
     pub obj Walker
       n: Int
 
-      fun walk[U](?self, x: U) -> Int
-        self.walk(Wrap(v: x))
+      fun walk[U](?@, x: U) -> Int
+        @walk(Wrap(v: x))
 
 fail "pub generic self nesting", "4:9: `nest[T]` leads to ever deeper instances of generic functions (through `nest[Wrap[T]]`); a generic function cannot call itself with its own type parameters nested deeper"
   # A public generic function that calls itself with its type parameter
@@ -2728,29 +2728,29 @@ test "pub members", '''
       pub fun make(label: ?String) -> Counter
         Counter(label: label, count: 0)
 
-      pub fun value(?self) -> Int
-        self.count
+      pub fun value(?@) -> Int
+        @count
 
-      pub sub bump(!self)
-        self.count += self.step
-        self.note()
+      pub sub bump(!@)
+        @count += @step
+        @note()
 
-      sub note(?self)
-        print("bumped", self.label, self.count)
+      sub note(?@)
+        print("bumped", @label, @count)
 
     pub obj Pair[T]
       pub a: T
       pub b: T
 
-      pub fun first(?self) -> T
-        self.a
+      pub fun first(?@) -> T
+        @a
 
     pub enum Shape
       circle(r: Int)
       dot
 
-      pub fun size(?self) -> Int
-        match self
+      pub fun size(?@) -> Int
+        match @
           .circle(r) => r
           .dot => 0
 
@@ -2788,8 +2788,8 @@ test "public surface generic instances", '''
     obj Wrap[T]
       pub v: T
 
-      pub fun get(?self) -> T
-        self.v
+      pub fun get(?@) -> T
+        @v
 
     pub obj Holder
       pub b: Wrap[Int]
@@ -2883,8 +2883,8 @@ test "qualified imported members", '''
       pub fun at(x: Int, y: Int) -> P
         P(x: x, y: y)
 
-      pub fun sum(?self) -> Int
-        self.x + self.y
+      pub fun sum(?@) -> Int
+        @x + @y
 
     pub obj Q
       pub n: Int
@@ -2918,8 +2918,8 @@ test "qualified type annotations", '''
       pub x: Int
       pub y: Int
 
-      pub fun sum(self: ?Point) -> Int
-        self.x + self.y
+      pub fun sum(?@) -> Int
+        @x + @y
 
     pub type Meters = Int
 
@@ -3011,12 +3011,12 @@ test "read only field", '''
       pub ?last: Int? = none
       pub note: Int = 0
 
-      pub sub bump(!self, tag: Int)
-        self.count += 1
-        !self.tags.push(tag)
-        self.inner.n += tag
-        self.mode = Mode.busy
-        self.last = tag
+      pub sub bump(!@, tag: Int)
+        @count += 1
+        !@tags.push(tag)
+        @inner.n += tag
+        @mode = Mode.busy
+        @last = tag
 
     pub fun fresh() -> Tally
       t = Tally()
@@ -3121,12 +3121,12 @@ fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` 
       pub ?last: Int? = none
       pub note: Int = 0
 
-      pub sub bump(!self, tag: Int)
-        self.count += 1
-        !self.tags.push(tag)
-        self.inner.n += tag
-        self.mode = Mode.busy
-        self.last = tag
+      pub sub bump(!@, tag: Int)
+        @count += 1
+        !@tags.push(tag)
+        @inner.n += tag
+        @mode = Mode.busy
+        @last = tag
 
     pub fun fresh() -> Tally
       t = Tally()
@@ -3217,8 +3217,8 @@ test "simd across modules", '''
     pub obj Lexer
       pub ahead: Block
 
-      pub fun first(?self) -> U8
-        self.ahead[0]
+      pub fun first(?@) -> U8
+        @ahead[0]
 
     pub fun ones() -> Block
       Block.splat(1)
@@ -3377,11 +3377,11 @@ test "transitive type", '''
     pub obj B
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
-      pub fun get(?self) -> Int
-        self.n
+      pub fun get(?@) -> Int
+        @n
 
     pub enum Slot
       full(b: *B)
@@ -3414,11 +3414,11 @@ fail "transitive type alias", "`p` owns a `a.B`, which can't be copied by `=`: w
     pub obj B
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
-      fun get(?self) -> Int
-        self.n
+      fun get(?@) -> Int
+        @n
 
     pub enum Slot
       full(b: *B)
@@ -3483,8 +3483,8 @@ test "use as", "3 5 10 30"
       pub fun at(x: Int, y: Int) -> Point
         Point(x: x, y: y)
 
-      pub fun sum(?self) -> Int
-        self.x + self.y
+      pub fun sum(?@) -> Int
+        @x + @y
 
     pub fun scaled(n: Int, by: Int = LIMIT) -> Int
       n * by
@@ -3623,9 +3623,9 @@ test "write lend made by module", '''
   obj U
     n: Int
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
     fun make() -> U
       U(n: 1)
@@ -3646,9 +3646,9 @@ test "write lend made by module", '''
     pub obj T
       pub n: Int
 
-      pub fun bump(!self) -> Int
-        self.n += 1
-        self.n
+      pub fun bump(!@) -> Int
+        @n += 1
+        @n
 
       pub fun make() -> T
         T(n: 1)
@@ -3667,9 +3667,9 @@ fail "write lend through module", "26:9: `!` here reaches `lib`, a module, not t
   obj U
     n: Int
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
     fun make() -> U
       U(n: 1)
@@ -3693,9 +3693,9 @@ fail "write lend through module", "26:9: `!` here reaches `lib`, a module, not t
     pub obj T
       pub n: Int
 
-      pub fun bump(!self) -> Int
-        self.n += 1
-        self.n
+      pub fun bump(!@) -> Int
+        @n += 1
+        @n
 
       pub fun make() -> T
         T(n: 1)

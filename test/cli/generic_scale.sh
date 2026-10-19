@@ -11,7 +11,7 @@ source "$ROOT/test/cli/_lib.sh"
   done
   printf '\npub obj S0[T]\n  pub v: T\n'
   for ((i = 1; i < 400; i++)); do
-    printf '\npub obj S%d[T]\n  pub v: T\n\n  pub fun get(?self) -> Int\n    s: S%d[T]? = none\n    1 if s == none else 0\n' $i $((i - 1))
+    printf '\npub obj S%d[T]\n  pub v: T\n\n  pub fun get(?@) -> Int\n    s: S%d[T]? = none\n    1 if s == none else 0\n' $i $((i - 1))
   done
 } >lib.rig
 printf 'use lib\n\nsub main()\n  s = lib.S399(v: 2)\n  print(lib.f1199(1, 2), s.get())\n' >main.rig

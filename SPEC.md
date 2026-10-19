@@ -1521,9 +1521,9 @@ obj Counter
   n: Int
   m: Int
 
-  fun bump(!self, k: Int) -> (!Int, Bool)
-    self.n += k
-    return !self.m, self.n > 3
+  fun bump(!@, k: Int) -> (!Int, Bool)
+    @n += k
+    return !@m, @n > 3
 
 sub main()
   c = Counter(n: 0, m: 0)
@@ -1540,12 +1540,12 @@ true 10
 obj M
   a: Int
 
-  fun two(!self) -> (!Int, ?Int)
-    return !self.a, ?self.a
+  fun two(!@) -> (!Int, ?Int)
+    return !@a, ?@a
 ```
 
 ```error
-`two` gives a write view and another result, `?Int`, that could both view `self`
+`two` gives a write view and another result, `?Int`, that could both view `@`
 ```
 
 ```rig reject
@@ -1735,33 +1735,39 @@ sub main()
 3 anon 5 1 0 2
 ```
 
-A method whose first parameter is `self` is an instance method;
+A method whose first parameter is `@` is an instance method;
 without one it is an associated function, called through the type
 (`Point.origin()`). `Self` names the enclosing type. The receiver says
 how the method uses the value, and the call site says the same thing:
 
 | Receiver | Meaning | Call |
 |---|---|---|
-| `?self` (= `self: ?Self`) | reads the value | `p.m()`, or `?p.m()`: the read view may be left implicit |
-| `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
-| `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary; `p.m()` takes a copy of a value that copies |
+| `?@` | reads the value | `p.m()`, or `?p.m()`: the read view may be left implicit |
+| `!@` | modifies the value | `!p.m()` |
+| `<@` | consumes the value | `<p.m()`, or on a temporary; `p.m()` takes a copy of a value that copies |
+
+The receiver is written with its sigil and no type; `@: Self` is
+rejected. In a method's body `@` is the receiver, and `@name` its
+member `name`, the name touching the `@` (`@n`, `@bump()`); `@.n` is
+rejected. A method without a receiver, or a function, has no `@`, and
+nothing else is named `@`.
 
 A write lend and a move are always written ([§7](#lending)), so
-calling a `!self` method as `p.m()` is an error, also on a binding that
-already holds a write view (a `!T` parameter, `self` in a `!self`
+calling a `!@` method as `p.m()` is an error, also on a binding that
+already holds a write view (a `!T` parameter, `@` in a `!@`
 method, a local `w = !p`), which lends it on visibly: `!w.m()`,
-`!self.m()`. A held read view is lent on bare.
+`!@m()`. A held read view is lent on bare.
 
 ```rig reject
 obj Counter
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
-  sub twice(!self)
-    !self.bump()
-    self.bump()
+  sub twice(!@)
+    !@bump()
+    @bump()
 
 sub main()
   c = Counter(n: 0)
@@ -1769,16 +1775,16 @@ sub main()
 ```
 
 ```error
-write `!self.bump()`: the call writes `self`
+write `!@bump()`: the call writes `@`
 ```
 
 A `?`, `!`, or `<` before a place and a method call marks the receiver:
 `!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](SYNTAX.md#receiver-sigils)).
 Writing `?` is optional, since a read receiver is lent without it. The
 short form is checked against the method: `!` before a method that
-does not take `!self` is rejected (it reads as negation, which is
-`not`), `<` before one that does not take `<self`, `?` before one that
-takes `!self` or `<self`, and any of them before a function with no
+does not take `!@` is rejected (it reads as negation, which is
+`not`), `<` before one that does not take `<@`, `?` before one that
+takes `!@` or `<@`, and any of them before a function with no
 receiver (`Point.origin()`). A
 write call whose value is used, whatever its type, is written in the
 long form, `(!set).insert(k)`, wherever the value goes (a condition, an
@@ -1793,15 +1799,15 @@ statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`, and
 obj Tally
   seen: List[Int]
 
-  fun insert(!self, k: Int) -> Bool
-    for x in ?self.seen
+  fun insert(!@, k: Int) -> Bool
+    for x in ?@seen
       return false if x == k
-    !self.seen.push(k)
+    !@seen.push(k)
     true
 
-  fun total(<self) -> Int
+  fun total(<@) -> Int
     sum = 0
-    for x in ?self.seen
+    for x in ?@seen
       sum += x
     sum
 
@@ -1823,8 +1829,8 @@ true false
 obj Queue
   items: List[Int]
 
-  fun is_empty(?self) -> Bool
-    self.items.len == 0
+  fun is_empty(?@) -> Bool
+    @items.len == 0
 
 sub main()
   q = Queue(items: List())
@@ -1840,8 +1846,8 @@ sub main()
 obj Stack
   items: List[Int]
 
-  fun top(?self) -> Int?
-    self.items.get(0)
+  fun top(?@) -> Int?
+    @items.get(0)
 
 sub main()
   s = Stack(items: List())
@@ -1856,8 +1862,8 @@ sub main()
 obj Tally
   seen: List[Int]
 
-  fun insert(!self, k: Int) -> Bool
-    !self.seen.push(k)
+  fun insert(!@, k: Int) -> Bool
+    !@seen.push(k)
     true
 
 sub main()
@@ -1886,10 +1892,10 @@ write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses
 obj Set
   items: List[Int]
 
-  fun insert(!self, k: Int) -> Bool
-    for x in ?self.items
+  fun insert(!@, k: Int) -> Bool
+    for x in ?@items
       return false if x == k
-    !self.items.push(k)
+    !@items.push(k)
     true
 
 sub main()
@@ -1911,12 +1917,12 @@ true
 obj Counter
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
-  sub bump_twice(!self)
-    !self.bump()
-    !self.bump()
+  sub bump_twice(!@)
+    !@bump()
+    !@bump()
 
 sub add_three(c: !Counter)
   !c.bump()
@@ -1933,9 +1939,9 @@ sub main()
 4
 ```
 
-Inside a `!self` method, `self.field = v` and
-`self = v` write through to the caller's value. The sigil shorthand
-`?self` / `!self` is only for `self`; other parameters put the sigil on
+Inside a `!@` method, `@field = v` and
+`@ = v` write through to the caller's value. The sigil shorthand
+`?@` / `!@` is only for `@`; other parameters put the sigil on
 the type (`other: ?Point`).
 
 A method named through its type, `Type.method`, is a function value
@@ -1949,11 +1955,11 @@ named as values.
 obj Counter
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
-  fun get(?self) -> Int
-    self.n
+  fun get(?@) -> Int
+    @n
 
 sub twice(f: sub(!Counter), c: !Counter)
   f(!c)
@@ -1976,7 +1982,7 @@ A method may also be declared outside its type's body, in any file of
 the type's module ([§14](#directory-modules)): `fun T.m(...)` or `sub
 T.m(...)`, written as it is called. It is the member it names, the same
 declaration written as `T`'s last member: `pub` exports it, `Self` is
-`T`, and `?self`, `!self`, and `<self` mean what they mean in the body.
+`T`, and `?@`, `!@`, and `<@` mean what they mean in the body.
 A generic type's method names the type's parameters exactly as its
 declaration does (`Wrap[T]` for `obj Wrap[T]`, `Ring[T, n]` for `obj
 Ring[T, n: Int]`), and any of its own follow its name. A `drop` body
@@ -1993,11 +1999,11 @@ obj Wrap[T]
 fun Point.origin() -> Self
   Point(x: 0, y: 0)
 
-sub Point.shift(!self, dx: Int)
-  self.x += dx
+sub Point.shift(!@, dx: Int)
+  @x += dx
 
-fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]
-  Wrap(v: f(self.v))
+fun Wrap[T].map[U](?@, f: fun(T) -> U) -> Wrap[U]
+  Wrap(v: f(@v))
 
 fun double(n: Int) -> Int
   2 * n
@@ -2023,10 +2029,10 @@ obj Point
 
 type P = Point
 
-fun P.norm(?self) -> Int
-  self.x
+fun P.norm(?@) -> Int
+  @x
 
-fun List.first2(?self) -> Int
+fun List.first2(?@) -> Int
   0
 
 sub main()
@@ -2279,7 +2285,7 @@ enum Shape
 enum Color
   red
 
-  fun text(?self) -> Static
+  fun text(?@) -> Static
     "red"
 
 sub main()
@@ -2457,8 +2463,8 @@ obj Pair[T, U]
   fun make(a: T, b: U) -> Pair[T, U]
     Pair(first: a, second: b)
 
-  fun left(?self) -> T
-    self.first
+  fun left(?@) -> T
+    @first
 
 enum Option[T]
   some(value: T)
@@ -2495,11 +2501,11 @@ obj Ring[T, n: Int]
   items: [n]T
   head: Int = 0
 
-  sub put(!self, x: T)
-    self.items[self.head % n] = x
-    self.head += 1
+  sub put(!@, x: T)
+    @items[@head % n] = x
+    @head += 1
 
-  fun cap(?self) -> Int
+  fun cap(?@) -> Int
     n
 
 sub main()
@@ -2532,7 +2538,7 @@ A type parameter among a function's compile-time parameters
 ([§16](#16-compile-time-parameters)) makes it generic:
 `fun max[T](a: T, b: T) -> T`. A `sub`, a method, and an associated
 function take them too, and a method's own sit after its type's: a
-method `fun map[U](?self, u: U)` of `Wrap[T]` has both.
+method `fun map[U](?@, u: U)` of `Wrap[T]` has both.
 
 A call gives every compile-time argument in brackets
 (`max[Float](1, 2)`), or none. With none, they are inferred in this
@@ -2595,13 +2601,13 @@ local one is ([§14](#14-modules)).
 obj Res
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 obj Wrap[T]
   v: T
 
-  fun with[U](?self, u: U) -> U
+  fun with[U](?@, u: U) -> U
     u
 
 fun max[T](a: T, b: T) -> T
@@ -2801,17 +2807,17 @@ handle of a function: an owned closure is held as a `T`, with
 obj Track
   title: ?String
 
-  drop(!self)
-    print("free", self.title)
+  drop(!@)
+    print("free", @title)
 
 obj Shelf[T]
   items: List[T]
 
-  sub add(!self, x: T)
-    !self.items.push(<x)
+  sub add(!@, x: T)
+    !@items.push(<x)
 
-  fun take(!self) -> T?
-    (!self.items).pop()
+  fun take(!@) -> T?
+    (!@items).pop()
 
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first
@@ -2876,8 +2882,8 @@ sub main()
 obj Res
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 obj Pair[A, B]
   first: A
@@ -3294,8 +3300,8 @@ a `![]T` (a `![]T`'s elements are: `all(!v)[0] = 5`), and not `?` or
 obj Bag
   items: List[Int]
 
-  fun first(!self) -> !Int
-    !self.items[0]
+  fun first(!@) -> !Int
+    !@items[0]
 
 fun slot(v: !List[String], i: Int) -> !String from v
   !v[i]
@@ -3443,7 +3449,7 @@ silently be `3.0`. A float literal makes it a float division:
 `7.0 / 2` is `3.5`. In arithmetic over a type parameter `T`, integer
 literals take `T`'s type in each instance, and an instance whose `T` is
 a float is rejected where the body gives a `T` a whole-number division
-(`self.v + 1 / 2`). Unsigned values cannot be negated.
+(`@v + 1 / 2`). Unsigned values cannot be negated.
 
 ```rig
 sub main()
@@ -3893,8 +3899,8 @@ walks, which `<` rejects.
 obj F
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 obj S
   f: F?
@@ -4177,8 +4183,8 @@ source sigils change that:
 obj B
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 sub keep(b: *B)
   print("kept", b.n)
@@ -4242,7 +4248,7 @@ cannot lend `a if a.len > 0 else b`: it may be `a`, a value a name holds, which 
 a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first
 ```
 
-An iterator is a value whose type declares `next(!self) -> T?`. A
+An iterator is a value whose type declares `next(!@) -> T?`. A
 `for` over one is the loop `while (!it).next() as x`, so each `x` is
 what `as` binds over the `T?` the call gives, the loop ends when `next`
 gives `none`, and `else`, `break` values, labels, and loop values
@@ -4259,8 +4265,8 @@ written decides what the loop does with it:
 | `?b.each()`: a method call whose `?` reaches its receiver, as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent to read while the loop holds `h` |
 | `?it` | rejected: reading an iterator cannot advance it |
 
-A type with a `next` of another shape (`next(?self)`, one that takes
-more than `self`, or one that gives no optional) is not an iterator, and
+A type with a `next` of another shape (`next(?@)`, one that takes
+more than `@`, or one that gives no optional) is not an iterator, and
 a `for` over it is rejected with the shape to write. An element
 (`xs[i]`), whose index the body could change, is bound to a name first.
 An iterator has no index binding. The `List`, array, slice, `?String`, and range sources
@@ -4273,10 +4279,10 @@ obj Count
   lo: Int
   hi: Int
 
-  fun next(!self) -> Int?
-    return none if self.lo >= self.hi
-    self.lo += 1
-    self.lo - 1
+  fun next(!@) -> Int?
+    return none if @lo >= @hi
+    @lo += 1
+    @lo - 1
 
 fun upto(n: Int) -> Count
   Count(lo: 0, hi: n)
@@ -4316,16 +4322,16 @@ obj Cur
   xs: ?List[Int]
   i: Int
 
-  fun next(!self) -> Int?
-    return none if self.i >= self.xs.len
-    self.i += 1
-    self.xs[self.i - 1]
+  fun next(!@) -> Int?
+    return none if @i >= @xs.len
+    @i += 1
+    @xs[@i - 1]
 
 obj Bag
   xs: List[Int]
 
-  fun each(?self) -> Cur from self
-    Cur(xs: ?self.xs, i: 0)
+  fun each(?@) -> Cur from @
+    Cur(xs: ?@xs, i: 0)
 
 sub main()
   b = Bag(xs: List())
@@ -4347,13 +4353,13 @@ sub main()
 obj Reads
   n: Int
 
-  fun next(?self) -> Int?
+  fun next(?@) -> Int?
     none
 
 obj Count
   lo: Int
 
-  fun next(!self) -> Int?
+  fun next(!@) -> Int?
     none
 
 sub main()
@@ -4368,7 +4374,7 @@ sub main()
 ```
 
 ```error
-cannot iterate over `Reads`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes `?self`
+cannot iterate over `Reads`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes `?@`
 `for x in ?c` would only read an iterator, which `next` cannot advance; write `for x in !c` to advance it in place
 write `for x in !c`: the loop advances `c`
 ```
@@ -4619,8 +4625,8 @@ in the header, whose temporaries end with it.
 obj B
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 enum Slot
   full(b: *B, uses: Int)
@@ -4654,8 +4660,8 @@ end
 obj B
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 enum Slot
   full(b: *B)
@@ -4846,7 +4852,7 @@ use of `n` after move
 An expression either **takes** its value or only **reads** it. A
 binding, an argument to a parameter that owns it, `return`, a stored
 field or element, and `<` take. A `print` or `String(...)` argument, an
-`==` operand, `?e`, a `?self` receiver, and a field or element read
+`==` operand, `?e`, a `?@` receiver, and a field or element read
 only read. Reading never moves a name, whatever form reads it: a read
 passes through `a if c else b`, `??`, `catch`, `e!`, and `e?` to their
 operands, so `print(a if c else b)` reads `a` or `b` where it is and
@@ -4919,8 +4925,8 @@ After a move the name cannot be used until it is reassigned.
 obj Packet
   id: Int
 
-  drop(!self)
-    print("released", self.id)
+  drop(!@)
+    print("released", @id)
 
 sub send(p: Packet)
   print("sent", p.id)
@@ -4948,7 +4954,7 @@ released 2
 obj Packet
   payload: Int
 
-  drop(!self)
+  drop(!@)
     print("released")
 
 sub send(p: Packet)
@@ -5060,8 +5066,8 @@ it carries.
 obj Noisy
   id: Int
 
-  drop(!self)
-    print("drop", self.id)
+  drop(!@)
+    print("drop", @id)
 
 sub run(early: Bool)
   a = Noisy(id: 1)
@@ -5098,7 +5104,7 @@ A lend hands over a view of a value without giving it up, and view
 parameter types say the same thing: `b: ?Wrap` reads, `b: !Wrap`
 writes. `?` promises that nothing changes: no field, element, or
 `Cell` changes through a read view, and a method that changes a `Cell`
-takes `!self` ([Changes and shared storage](#changes-and-shared-storage),
+takes `!@` ([Changes and shared storage](#changes-and-shared-storage),
 [§10](#cell)). A write lend is always written. A read lend may go unwritten
 where its view lasts only for the use: an argument to a view parameter
 (`balance_of(acct)` is `balance_of(?acct)`, and a slice is lent the
@@ -5301,9 +5307,9 @@ copy, which the change would miss, so it is rejected: lend each branch,
 obj Wrap
   n: Int
 
-  fun next(!self) -> Int
-    self.n += 1
-    self.n
+  fun next(!@) -> Int
+    @n += 1
+    @n
 
 sub grow(b: !Wrap)
   b.n += 1
@@ -5459,8 +5465,8 @@ also end the view.
 obj Wrap
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
 obj View
   box: ?Wrap
@@ -5486,8 +5492,8 @@ sub main()
 obj Wrap
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
 sub main()
   x = Wrap(n: 1)
@@ -5668,7 +5674,7 @@ the checker tracks where every one came from.
   body of `for x in head(!v)`, and the arms of a `match` on such a call. A result that is a write view (`-> !Int`, `-> (!Int)?`)
   keeps the argument lent to write.
 - A result may say which parameters it views: `-> ?Item from a` (also
-  `from a, b`, `from self`, and `from static`, for only what lives for
+  `from a, b`, `from @`, and `from static`, for only what lives for
   the whole program). The result then views from those arguments
   alone, and the compiler checks the body against the clause: a body
   that returns a view of a parameter it does not name is rejected. A
@@ -5679,10 +5685,10 @@ the checker tracks where every one came from.
   not what holds it: `?c.items[0]`, with `items: ?List[Item]`, views
   the List, not `c`.
 - A call keeps only what its signature shows. A view lent to it (a
-  `?T`, `!T`, `[]T`, `![]T`, `?String`, an optional of one, or a `?self`
-  or `!self` receiver) it keeps only when the signature names that
-  parameter in `keeps`: `sub watch(!self, s: ?String) keeps s` (also
-  `keeps s, t` and `keeps self`, after the result type and any `from`).
+  `?T`, `!T`, `[]T`, `![]T`, `?String`, an optional of one, or a `?@`
+  or `!@` receiver) it keeps only when the signature names that
+  parameter in `keeps`: `sub watch(!@, s: ?String) keeps s` (also
+  `keeps s, t` and `keeps @`, after the result type and any `from`).
   It may then store what the view sees in what its write receiver and
   write arguments lead to, and the loan lasts while that holder is used;
   every other lend ends when the call returns. A value passed by value
@@ -5692,7 +5698,7 @@ the checker tracks where every one came from.
   were named, and so does a method of a built-in generic (`!v.push(x)`,
   a Cell's `set`). The compiler checks each body against its `keeps`: a body
   that stores a lent parameter where its caller reaches it, on any path
-  (into `self`, a write argument, or through a call that keeps it),
+  (into `@`, a write argument, or through a call that keeps it),
   without naming it, is rejected at the store with the clause to write.
   `keeps` names lent parameters, each once, that something the function
   writes could hold. A place lent to a kept parameter is lent with `?`
@@ -5734,7 +5740,7 @@ sub main()
 obj Wrap
   payload: Int
 
-  drop(!self)
+  drop(!@)
     print("drop")
 
 fun first(a: ?Wrap, b: ?Wrap) -> ?Wrap
@@ -5757,9 +5763,9 @@ obj Bag
   items: List[Int]
   taken: Int
 
-  fun take(!self) -> []Int
-    self.taken += 1
-    ?self.items[..1]
+  fun take(!@) -> []Int
+    @taken += 1
+    ?@items[..1]
 
 sub main()
   b = Bag(items: List(), taken: 0)
@@ -5801,8 +5807,8 @@ never a temporary: it lives only behind a shared handle
 obj B
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 fun size(s: ?String) -> Int
   s.len
@@ -5832,8 +5838,8 @@ the arm's bindings are still in scope, so it may view them.
 obj Tag
   n: ?Int
 
-  drop(!self)
-    print("drop tag", self.n)
+  drop(!@)
+    print("drop tag", @n)
 
 fun show(t: ?Tag) -> Int
   t.n + 1
@@ -5858,8 +5864,8 @@ after 1
 obj Log
   lines: List[Int]
 
-  fun count(?self) -> Int
-    self.lines.len
+  fun count(?@) -> Int
+    @lines.len
 
 fun make() -> Log
   Log(lines: List())
@@ -5872,7 +5878,7 @@ sub main()
 0 0
 ```
 
-A `!self` method called on a temporary, or on a field or element of
+A `!@` method called on a temporary, or on a field or element of
 one, lends it to write, and every change is marked by `!`: without one
 the call is rejected, with the hint to add it. `!Counter(n: 1).bump()`
 is `(!Counter(n: 1)).bump()` ([SYNTAX §5](SYNTAX.md#receiver-sigils)).
@@ -5883,8 +5889,8 @@ may be used, or not:
 obj Counter
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
 sub main()
   Counter(n: 1).bump()
@@ -5899,13 +5905,13 @@ obj Counter
   n: Int
   log: List[Int]
 
-  fun bump(!self) -> Int
-    self.n += 1
-    !self.log.push(self.n)
-    self.n
+  fun bump(!@) -> Int
+    @n += 1
+    !@log.push(@n)
+    @n
 
-  fun at(!self) -> !Int
-    !self.n
+  fun at(!@) -> !Int
+    !@n
 
 fun counter() -> Counter
   Counter(n: 1, log: List())
@@ -6026,11 +6032,11 @@ sub main()
 this header binds a copy of its subject, since a temporary it makes ends with the header
 ```
 
-A `?self` or `!self` receiver is lent as `?e` or `!e` would be when the
+A `?@` or `!@` receiver is lent as `?e` or `!e` would be when the
 method may keep a view of it, in its result or through a write
 argument. A temporary receiver, plain data included, then lives until
 its statement ends, so the view may be used there and nowhere after (a
-`!self` method's temporary receiver is written `!e`:
+`!@` method's temporary receiver is written `!e`:
 [Temporaries](#temporaries)). A
 receiver that branches lends each leaf where it is:
 `(a if c else b).name()` keeps a loan on `a` and on `b`, so neither may
@@ -6040,8 +6046,8 @@ change while the view lives.
 obj S
   t: String
 
-  fun name(?self) -> ?String
-    ?self.t
+  fun name(?@) -> ?String
+    ?@t
 
 sub main()
   a = S(t: String("aa"))
@@ -6058,8 +6064,8 @@ aa cc
 obj S
   t: String
 
-  fun name(?self) -> ?String
-    ?self.t
+  fun name(?@) -> ?String
+    ?@t
 
 sub main()
   a = S(t: String("aa"))
@@ -6082,11 +6088,11 @@ the value that name shares:
 obj Counter
   hits: Cell[Int]
 
-  drop(!self)
-    print("drop", self.hits.get())
+  drop(!@)
+    print("drop", @hits.get())
 
-  sub hit(!self)
-    !self.hits.set(self.hits.get() + 1)
+  sub hit(!@)
+    !@hits.set(@hits.get() + 1)
 
 fun fresh(n: Int) -> *Counter
   *Counter(hits: Cell(n))
@@ -6149,23 +6155,23 @@ obj Node
 obj Stack
   top: ^Node?
 
-  sub push(!self, v: Int)
-    self.top = ^Node(value: v, next: <self.top)
+  sub push(!@, v: Int)
+    @top = ^Node(value: v, next: <@top)
 
-  fun pop(!self) -> Int?
-    if <self.top as n
-      self.top = <n.next
+  fun pop(!@) -> Int?
+    if <@top as n
+      @top = <n.next
       return n.value
     none
 
-  sub reverse(!self)
-    cur = <self.top
+  sub reverse(!@)
+    cur = <@top
     prev: ^Node? = none
     while <cur as n
       cur = <n.next
       n.next = <prev
       prev = <n
-    self.top = <prev
+    @top = <prev
 
 sub main()
   s = Stack(top: none)
@@ -6185,7 +6191,7 @@ sub main()
 
 A place is named by a **path**: a name and the fields after it. The
 path goes on through a struct's fields, through what a write view the
-name holds sees (`self.a` in a `!self` method, `p.a` of `p: !P`), and
+name holds sees (`@a` in a `!@` method, `p.a` of `p: !P`), and
 through a box (`b.a` of `b: ^T`, which has one owner). It stops at an
 element (`p.items[i]` is a place of `p.items`: an index is a value the
 program computes, and a push may move the buffer), a handle (`p.h.a`
@@ -6206,10 +6212,10 @@ obj Scanner
   text: String
   flags: Int
 
-  sub tag(!self)
-    t = ?self.text[0..2]
-    self.flags |= 1
-    print(t, self.flags)
+  sub tag(!@)
+    t = ?@text[0..2]
+    @flags |= 1
+    print(t, @flags)
 
 sub main()
   s = Scanner(text: String("abcd"), flags: 0)
@@ -6220,9 +6226,9 @@ sub main()
 ab 1
 ```
 
-A method lends all of its receiver: its signature says `!self`, and a
+A method lends all of its receiver: its signature says `!@`, and a
 caller does not look into its body. To lend only the fields a step
-writes, lend them, `(!self.ast).add(...)`, or make the step a function
+writes, lend them, `(!@ast).add(...)`, or make the step a function
 of those fields, which a caller gives disjoint paths:
 
 ```rig reject
@@ -6230,11 +6236,11 @@ obj Parser
   value: String
   count: Int
 
-  sub bump(!self, t: ?String)
-    self.count += t.len
+  sub bump(!@, t: ?String)
+    @count += t.len
 
-  sub step(!self)
-    (!self).bump(self.value)
+  sub step(!@)
+    (!@).bump(@value)
 
 sub main()
   p = Parser(value: String("id"), count: 0)
@@ -6242,7 +6248,7 @@ sub main()
 ```
 
 ```error
-cannot lend `self` to write while a read loan on `self.value` is live
+cannot lend `@` to write while a read loan on `@value` is live
 lend the fields it writes
 ```
 
@@ -6254,8 +6260,8 @@ obj Parser
   value: String
   count: Int
 
-  sub step(!self)
-    bump(!self.count, self.value)
+  sub step(!@)
+    bump(!@count, @value)
 
 sub main()
   p = Parser(value: String("id"), count: 0)
@@ -6275,8 +6281,8 @@ view, or by a call that stores its argument, is rejected.
 obj Holder
   t: ?String
 
-  sub keep(!self, t: ?String) keeps t
-    self.t = t
+  sub keep(!@, t: ?String) keeps t
+    @t = t
 
 obj P
   a: Holder
@@ -6294,7 +6300,7 @@ cannot let this call store a view of `p.b` in `p.a`: a value never holds a view 
 
 A method's view result carries a loan on all of its receiver, where
 the receiver's type could hold what it views (here `value`). Saying
-which part of the receiver it views (`-> ?String from self.text`) is
+which part of the receiver it views (`-> ?String from @text`) is
 planned, and would let the caller write the receiver's other fields
 while the result lives:
 
@@ -6304,16 +6310,16 @@ obj Scanner
   pos: Int
   value: String
 
-  fun digits(!self) -> ?String
-    start = self.pos
-    while self.pos < self.text.len and self.text[self.pos] >= 0x30 and self.text[self.pos] <= 0x39
-      self.pos += 1
-    self.text[start..self.pos]
+  fun digits(!@) -> ?String
+    start = @pos
+    while @pos < @text.len and @text[@pos] >= 0x30 and @text[@pos] <= 0x39
+      @pos += 1
+    @text[start..@pos]
 
-  sub number(!self)
-    whole = (!self).digits()
-    self.pos += 1
-    frac = (!self).digits()
+  sub number(!@)
+    whole = (!@).digits()
+    @pos += 1
+    frac = (!@).digits()
     print(whole, frac)
 
 sub main()
@@ -6414,14 +6420,14 @@ closure accept only values that carry no loan ([§10](#string),
 
 An object may declare one `drop` body, which runs when a value of the
 type is released. It takes exactly one parameter, its receiver
-lent to write, spelled as a method's: `drop(!self)`, or `drop(self: !Self)`.
+lent to write, spelled as a method's: `drop(!@)`.
 
 ```rig
 obj File
   fd: Int
 
-  drop(!self)
-    print("closing", self.fd)
+  drop(!@)
+    print("closing", @fd)
 
 sub main()
   f = File(fd: 3)
@@ -6444,14 +6450,14 @@ order of declarations in the file.
 obj Noisy
   id: Int
 
-  drop(!self)
-    print("noisy", self.id)
+  drop(!@)
+    print("noisy", @id)
 
 obj Pair
   a: *Noisy
   b: *Noisy
 
-  drop(!self)
+  drop(!@)
     print("pair")
 
 sub main()
@@ -6466,10 +6472,10 @@ noisy 2
 noisy 1
 ```
 
-A drop body may read and assign fields, call methods on `self`
-(including `!self` methods), and use `raw`. It may not move, drop, or
-reassign `self` directly, since a replaced `self` would be dropped,
-running the body again. A `!self` method that replaces its receiver
+A drop body may read and assign fields, call methods on `@`
+(including `!@` methods), and use `raw`. It may not move, drop, or
+reassign `@` directly, since a replaced `@` would be dropped,
+running the body again. A `!@` method that replaces its receiver
 recurses the same way, as it would in Rust. No field can be moved out,
 because the fields are released after the body returns.
 `drop` bodies are only for non-generic objects; enums and generic
@@ -6493,8 +6499,8 @@ strong handle goes.
 obj User
   name: ?String
 
-  drop(!self)
-    print("released", self.name)
+  drop(!@)
+    print("released", @name)
 
 sub main()
   a = *User(name: "ada")
@@ -6521,13 +6527,13 @@ a shared handle (`*a` with `a: *T`, or the type `*(*T)`) is rejected;
 clone it instead.
 
 **Access is read-only.** Field reads, element reads (`h[i]` of a
-`*[N]T`, `*List[T]`, or `*?String`), and `?self` methods reach through a
+`*[N]T`, `*List[T]`, or `*?String`), and `?@` methods reach through a
 handle automatically, including through fields and loop elements. `?h`
 lends the value's read views ([§7](#lending)), a `?Shape` of a `*Shape`
 and a `?String` of a `*String`, with the loan on `h`, so `h` may not be
 dropped, moved, or reassigned while the view is used. `!h` lends only
 the handle itself (a `!*T`), never a write view of the value. Writing a
-field, calling a `!self` method, or consuming the value through a handle
+field, calling a `!@` method, or consuming the value through a handle
 is rejected, because other handles share it, so `!h.push(x)` through a
 `*List[T]` is rejected too. Shared state that changes goes in a `Cell`
 ([§10](#cell)): a shared List is a `*Cell[List[T]]`.
@@ -6560,8 +6566,8 @@ held in a box or behind a handle is lent out first (`u: ?~T = ?c`, then
 obj Node
   id: Int
 
-  drop(!self)
-    print("drop", self.id)
+  drop(!@)
+    print("drop", @id)
 
 sub show(w: ?~Node)
   if *w as n
@@ -6680,8 +6686,8 @@ with `pop`, or by taking the whole List out with `replace`.
 
 Every call that changes a Cell is marked: `set`, `replace`, `push`,
 `pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
-and `subscribe`. They take `!self`, so the receiver-sigil rule enforces
-the mark, and a read view (`?Cell[T]`, a `?self` method of an object
+and `subscribe`. They take `!@`, so the receiver-sigil rule enforces
+the mark, and a read view (`?Cell[T]`, a `?@` method of an object
 holding one) cannot change a Cell. `!c` where `c` is a handle lends the
 handle: `bump(!local)` with `local: *Cell[Int]`, and `bump(!k.hits)` with
 `k: *Counter`. A closure or a `Signal` subscriber marks the handle it
@@ -6759,8 +6765,8 @@ type mismatch: expected `!*C`, got `!C`
 obj Counter
   hits: Cell[Int]
 
-  sub hit(!self)
-    !self.hits.set(self.hits.get() + 1)
+  sub hit(!@)
+    !@hits.set(@hits.get() + 1)
 
 sub bump(c: !Cell[Int])
   !c.set(c.get() + 10)
@@ -6845,8 +6851,8 @@ the first `k` bytes of `v` ([String](#string)): a rewind saves
 obj Step
   name: String
 
-  drop(!self)
-    print("undo", self.name)
+  drop(!@)
+    print("undo", @name)
 
 sub main()
   steps: List[Step] = List()
@@ -6971,8 +6977,8 @@ obj P
 obj B
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 sub main()
   ps: List[P] = List()
@@ -7018,7 +7024,7 @@ optional box, and a box of an optional is `^(Node?)`.
 
 The box is reached as it is held: through an owned box or a `!^T`
 its value can be written, through a `?^T` only read. A consuming
-(`<self`) method of the value, `<b.m()`, takes the value out of the box
+(`<@`) method of the value, `<b.m()`, takes the value out of the box
 first. `T` may be a read view (`^?v`, a `^?List[Int]`): the box keeps
 `v` lent while it is used. `T` holds no write view. A box has no field
 of its own: `b.value` of a `^Int` names nothing, and the number is lent
@@ -7466,7 +7472,7 @@ it was for the next call, and a plain `n` copies it. A captured view
 may be passed to a call, which views it for the call. A captured read view may be the
 closure's value, and a call's result then views what the closure
 captured. Through a captured write view the body can write fields,
-call `!self` methods (`!w.push(x)`), lend it on for a
+call `!@` methods (`!w.push(x)`), lend it on for a
 call (`!w`), and assign the whole value (`w = v`, `w += 1`), which
 writes through to what it views. Nothing the closure owns or receives
 as a parameter may be stored through it: those last one call at most,
@@ -7540,8 +7546,8 @@ names are parameters, so `|+count, a|` still captures `count`.
 obj Gone
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 sub each(f: ?sub(Int, Gone))
   f(1, Gone(n: 2))
@@ -7665,8 +7671,8 @@ allocates nothing.
 obj Res
   id: Int
 
-  drop(!self)
-    print("drop", self.id)
+  drop(!@)
+    print("drop", @id)
 
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
   f(x)
@@ -7775,7 +7781,7 @@ sub main()
 An owned closure is a method on its own environment: `*|<a, +b, p, q|`
 checked against `*fun(P, !Q) -> R` is a value `*Env(a: <a, b: +b)` of
 a type whose fields are the captures and whose one method is
-`fun invoke(?self, p: P, q: !Q) -> R`, and `h(x, !y)` is
+`fun invoke(?@, p: P, q: !Q) -> R`, and `h(x, !y)` is
 `h.invoke(x, !y)`. So the body reads its captures, and a re-entrant
 call is one more read of them. Its parameters and result are any a
 function's may be, and follow a function's rules
@@ -7797,9 +7803,9 @@ obj Checker
   calls: Int
   mappers: List[Mapper]
 
-  fun map(!self, m: Int, t: Int) -> Int
-    f = +self.mappers[m].f
-    f(!self, t)
+  fun map(!@, m: Int, t: Int) -> Int
+    f = +@mappers[m].f
+    f(!@, t)
 
 sub main()
   c = Checker(calls: 0, mappers: List())
@@ -7816,9 +7822,9 @@ sub main()
 ```
 
 Calling a closure reads what holds it until the call returns, so a
-closure held in `self` is not called with `!self`: the call could
+closure held in `@` is not called with `!@`: the call could
 replace it there and free the environment it runs in. Clone the handle
-first, as `map` does above, `f = +self.mappers[m].f`, which adds one
+first, as `map` does above, `f = +@mappers[m].f`, which adds one
 count.
 
 State that changes between calls lives in a captured `*Cell`, and
@@ -7828,8 +7834,8 @@ what the closure owns it captures with `<`:
 obj Checker
   lookups: Int
 
-  fun global_type(!self, name: ?String) -> Int
-    self.lookups += 1
+  fun global_type(!@, name: ?String) -> Int
+    @lookups += 1
     name.len
 
 fun resolver(name: ?String) -> *fun(!Checker) -> Int
@@ -7976,8 +7982,8 @@ a resource it holds, so `?` and `??` reject one.
 obj Res
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 sub grow(o: !Res?)
   if !o as r
@@ -8807,8 +8813,8 @@ pub obj Point
   pub fun at(x: Int, y: Int) -> Point
     Point(x: x, y: y)
 
-  pub fun sum(?self) -> Int
-    self.x + self.y
+  pub fun sum(?@) -> Int
+    @x + @y
 
 pub enum Dir
   north
@@ -8878,8 +8884,8 @@ take or return a private type: importers can hold the value and use its
 `pub` fields and methods, though they cannot name the type.
 
 A field or method is private to its module unless it is declared `pub`:
-`pub x: Int`, `pub x: Int = 0`, `pub fun sum(?self) -> Int`,
-`pub sub push(!self, x: Int)`. Inside the declaring module every member
+`pub x: Int`, `pub x: Int = 0`, `pub fun sum(?@) -> Int`,
+`pub sub push(!@, x: Int)`. Inside the declaring module every member
 is visible; another module that reads or writes a private field, or
 calls a private method or associated function, is rejected, whichever
 way it reaches the member: through a view, a `*T` handle, a `^T`, or
@@ -8914,11 +8920,11 @@ pub obj Account
   pub owner: ?String
   balance: Int
 
-  pub fun total(?self) -> Int
-    self.balance
+  pub fun total(?@) -> Int
+    @balance
 
-  sub audit(?self)
-    print("audit", self.balance)
+  sub audit(?@)
+    print("audit", @balance)
 
 pub fun open(owner: ?String) -> Account
   Account(owner: owner, balance: 100)
@@ -8943,11 +8949,11 @@ pub obj Account
   pub owner: ?String
   balance: Int
 
-  pub fun total(?self) -> Int
-    self.balance
+  pub fun total(?@) -> Int
+    @balance
 
-  sub audit(?self)
-    print("audit", self.balance)
+  sub audit(?@)
+    print("audit", @balance)
 ```
 
 ```rig reject
@@ -8970,9 +8976,9 @@ pub obj Tally
   pub ?count: Int = 0
   marks: List[Int] = List()
 
-  pub sub add(!self, n: Int)
-    !self.marks.push(n)
-    self.count += 1
+  pub sub add(!@, n: Int)
+    !@marks.push(n)
+    @count += 1
 ```
 
 ```rig
@@ -9027,8 +9033,8 @@ use as they do a private type.
 pub obj Wrap[T]
   pub v: T
 
-  pub fun get(?self) -> T
-    self.v
+  pub fun get(?@) -> T
+    @v
 
 pub fun larger[T](a: T, b: T) -> T
   a if a > b else b
@@ -9101,15 +9107,15 @@ rest of its scope with `new ast = ...`.
 pub obj Checker
   pub depth: Int
 
-  pub fun expr(?self, n: Int) -> Int
-    0 if n == 0 else self.stmt(n - 1)
+  pub fun expr(?@, n: Int) -> Int
+    0 if n == 0 else @stmt(n - 1)
 ```
 
 ```rig file=checker/stmt.rig
 use checker.binder
 
-pub fun Checker.stmt(?self, n: Int) -> Int
-  binder.bump(self.expr(n))
+pub fun Checker.stmt(?@, n: Int) -> Int
+  binder.bump(@expr(n))
 ```
 
 ```rig file=checker/binder/bump.rig

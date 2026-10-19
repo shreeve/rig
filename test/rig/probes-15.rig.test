@@ -79,8 +79,8 @@ test "r3-s45-b-b01", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   i = 0
   x = while i < 3
@@ -100,8 +100,8 @@ test "r3-s45-b-b02", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[R] = List()
   !v.push(R(n: 1))
@@ -116,8 +116,8 @@ fail "r3-s45-b-b03", "use of `r` after move"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   i = 0
   x = while i < 3
@@ -139,8 +139,8 @@ test "r3-s45-b-b04", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   i = 0
   x = while i < 3
@@ -269,8 +269,8 @@ test "r3-s45-r-r14 drop once", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[D] = List()
   !v.push(D(n: 1))
@@ -854,8 +854,8 @@ fail "r3-step2-r05 consume nullish recv", "`o` owns a `Bag?`, which can't be cop
   obj Bag
     items: List[Int]
 
-    fun total(<self) -> Int
-      self.items.len
+    fun total(<@) -> Int
+      @items.len
 
   b = Bag(items: List())
   !b.items.push(3)
@@ -869,8 +869,8 @@ test "r3-step2-r08 consume ternary moved ok", "1"
   obj Bag
     items: List[Int]
 
-    fun total(<self) -> Int
-      self.items.len
+    fun total(<@) -> Int
+      @items.len
 
   a = Bag(items: List())
   b = Bag(items: List())
@@ -886,8 +886,8 @@ test "r3-step2-r09 read recv mixed", '''
   obj Bag
     items: List[Int]
 
-    fun total(?self) -> Int
-      self.items.len
+    fun total(?@) -> Int
+      @items.len
 
   fun mk() -> Bag
     b = Bag(items: List())
@@ -910,8 +910,8 @@ test "r3-step2-r10 read recv mixed index", '''
   obj Bag
     items: List[Int]
 
-    fun at(?self, i: Int) -> Int
-      self.items[i]
+    fun at(?@, i: Int) -> Int
+      @items[i]
 
   fun mk() -> Bag
     b = Bag(items: List())
@@ -938,8 +938,8 @@ test "r3-step2-r12 read recv catch owner", '''
   obj Bag
     items: List[Int]
 
-    fun total(?self) -> Int
-      self.items.len
+    fun total(?@) -> Int
+      @items.len
 
   fun mk(ok: Bool) -> Bag!
     if not ok
@@ -3524,8 +3524,8 @@ test "rev203-e09 failing guard between", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Hd
     d: D
@@ -3645,19 +3645,19 @@ fail "rev206-b09 chain", "cannot lend `b.xs` to write while a read loan on `b` i
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
-    fun skip1(<self) -> C2 from self
-      C2(xs: self.xs, i: self.i + 1)
+    fun skip1(<@) -> C2 from @
+      C2(xs: @xs, i: @i + 1)
 
   obj CBag
     xs: List[Int]
 
-    fun each(?self) -> C2 from self
-      C2(xs: ?self.xs, i: 0)
+    fun each(?@) -> C2 from @
+      C2(xs: ?@xs, i: 0)
 
   b = CBag(xs: List())
   for _ in 0..3
@@ -3671,10 +3671,10 @@ fail "rev206-d08 defer slice cond only", "cannot lend `v` to write while a read 
     xs: []Int
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   fun smk(v: ?List[Int]) -> SCur from v
     SCur(xs: ?v[0..v.len], i: 0)
@@ -3698,10 +3698,10 @@ fail "rev206-f01 fallible each", "cannot lend `b.xs` to write while a read loan 
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   fun mk(v: ?List[Int]) -> Cur from v
     Cur(xs: v, i: 0)
@@ -3709,8 +3709,8 @@ fail "rev206-f01 fallible each", "cannot lend `b.xs` to write while a read loan 
   obj Bag
     xs: List[Int]
 
-    fun each(?self) -> Cur from self
-      Cur(xs: ?self.xs, i: 0)
+    fun each(?@) -> Cur from @
+      Cur(xs: ?@xs, i: 0)
 
   sub fill(v: !List[Int])
     for _ in 0..3
@@ -3722,9 +3722,9 @@ fail "rev206-f01 fallible each", "cannot lend `b.xs` to write while a read loan 
   obj FB
     xs: List[Int]
 
-    fun each(?self) -> Cur! from self
-      return E.bad if self.xs.len == 0
-      Cur(xs: ?self.xs, i: 0)
+    fun each(?@) -> Cur! from @
+      return E.bad if @xs.len == 0
+      Cur(xs: ?@xs, i: 0)
 
   fun go(b: !FB) -> Int!
     for x in ?b.each()!
@@ -3740,10 +3740,10 @@ fail "rev206-x09 lent drop break", "cannot lend `b.xs` to write while a read loa
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   fun mk(v: ?List[Int]) -> Cur from v
     Cur(xs: v, i: 0)
@@ -3751,8 +3751,8 @@ fail "rev206-x09 lent drop break", "cannot lend `b.xs` to write while a read loa
   obj Bag
     xs: List[Int]
 
-    fun each(?self) -> Cur from self
-      Cur(xs: ?self.xs, i: 0)
+    fun each(?@) -> Cur from @
+      Cur(xs: ?@xs, i: 0)
 
   sub fill(v: !List[Int])
     for _ in 0..3
@@ -3762,13 +3762,13 @@ fail "rev206-x09 lent drop break", "cannot lend `b.xs` to write while a read loa
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
-    drop(!self)
-      print("drop", self.xs[0])
+    drop(!@)
+      print("drop", @xs[0])
 
   fun dmk(v: ?List[Int]) -> DCur from v
     DCur(xs: v, i: 0)
@@ -3776,8 +3776,8 @@ fail "rev206-x09 lent drop break", "cannot lend `b.xs` to write while a read loa
   obj Bag2
     xs: List[Int]
 
-    fun each(?self) -> DCur from self
-      DCur(xs: ?self.xs, i: 0)
+    fun each(?@) -> DCur from @
+      DCur(xs: ?@xs, i: 0)
 
   b = Bag2(xs: List())
   fill(!b.xs)
@@ -3811,8 +3811,8 @@ fail "rev210-c15 wa reads wb", "cannot store in `p.a` a view of `p.b`: a value n
   obj Holder
     t: ?String
 
-    sub keep(!self, t: ?String) keeps t
-      self.t = t
+    sub keep(!@, t: ?String) keeps t
+      @t = t
 
   obj P
     a: Holder
@@ -3862,11 +3862,11 @@ fail "rev210-f13 read beside write arg", "cannot lend `p.a` to write while a rea
     t: ?String
     s: String
 
-    sub add(!self, x: ?String)
-      !self.s.add(x)
+    sub add(!@, x: ?String)
+      !@s.add(x)
 
-    fun view(!self) -> ?String from self
-      ?self.s[0..1]
+    fun view(!@) -> ?String from @
+      ?@s[0..1]
 
   obj P
     a: Holder
@@ -3890,11 +3890,11 @@ fail "rev210-f16 print grow same", "cannot lend `p.a` to write while an earlier 
     t: ?String
     s: String
 
-    sub add(!self, x: ?String)
-      !self.s.add(x)
+    sub add(!@, x: ?String)
+      !@s.add(x)
 
-    fun view(!self) -> ?String from self
-      ?self.s[0..1]
+    fun view(!@) -> ?String from @
+      ?@s[0..1]
 
   obj P
     a: Holder

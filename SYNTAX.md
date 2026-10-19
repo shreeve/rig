@@ -124,8 +124,8 @@ sub main()
 obj Acc
   n: Int
 
-  fun add(?self, k: Int) -> Acc
-    Acc(n: self.n + k)
+  fun add(?@, k: Int) -> Acc
+    Acc(n: @n + k)
 
 sub main()
   acc = Acc(n: 0)
@@ -211,7 +211,7 @@ mistaken for the keyword: an `obj` field, a method, or a payload field.
 It reads as a name right after `.` (`t.type`, `t.error()`), before `:`
 inside parentheses (a keyword argument or payload field,
 `Token(type: 1)`), and in a member list before `:` (a field) or after
-`fun` / `sub` (a method). `drop(!self)` is still a drop body, and
+`fun` / `sub` (a method). `drop(!@)` is still a drop body, and
 `drop: Bool` a field. `if` names no member: after a value it starts a
 guard or a ternary (`x if c else y`).
 
@@ -229,8 +229,8 @@ obj Token
   in: Bool
   drop: Bool
 
-  fun error(?self) -> Bool
-    self.type < 0
+  fun error(?@) -> Bool
+    @type < 0
 
 sub main()
   t = Token(type: -1, in: true, drop: false)
@@ -271,7 +271,7 @@ where it separates a fill literal's count from its element
 parameters (`obj Random unique`). `from` is a keyword only after a
 function's result type (`-> ?Item from a`), and `static` only right
 after that `from`; `keeps` only at the end of a function's header
-(`sub watch(!self, s: ?String) keeps s`); a parameter or a local may be
+(`sub watch(!@, s: ?String) keeps s`); a parameter or a local may be
 named any of them.
 `inline`, `called`, and `rarely` are keywords only at the start of a
 declaration (after any `pub`), right before its `fun` or `sub`
@@ -479,7 +479,7 @@ reaches `lib`: the checker says so, and the call in parentheses,
 | Long form | Short form | Meaning |
 |---|---|---|
 | `(!v).push(x)` | `!v.push(x)` | lend `v` to write, then push |
-| `(!self.items).push(k)` | `!self.items.push(k)` | a field of `self` in a `!self` method |
+| `(!@items).push(k)` | `!@items.push(k)` | a field of `@` in a `!@` method |
 | `(!c).set(5)` | `!c.set(5)` | a shared `Cell` changes only by a marked call; the mark lends the handle `c` |
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `(!v).put[2](x)` | `!v.put[2](x)` | a method with compile-time arguments |
@@ -491,7 +491,7 @@ reaches `lib`: the checker says so, and the call in parentheses,
 | `(?p).dist(q)` | `?p.dist(q)` | lend `p` to read; the same as `p.dist(q)` |
 
 Only `?`, `!`, and `<` reach the receiver, since they are the modes a
-method declares (`?self`, `!self`, `<self`). Every other prefix, and
+method declares (`?@`, `!@`, `<@`). Every other prefix, and
 `?`, `!`, or `<` with no method call after the place, applies to the
 whole expression: `*Point.origin()` shares the new `Point`, `-a.len`
 negates the length, `!x.v` lends the field, `<p.f` takes the optional
@@ -510,15 +510,15 @@ where the value is discarded: a statement, alone or under `!`, `?`, or
 obj Stack
   items: List[Int]
 
-  sub push(!self, k: Int)
-    !self.items.push(k)
+  sub push(!@, k: Int)
+    !@items.push(k)
 
-  fun pop(!self) -> Int?
-    (!self.items).pop()
+  fun pop(!@) -> Int?
+    (!@items).pop()
 
-  fun total(<self) -> Int
+  fun total(<@) -> Int
     sum = 0
-    for k in ?self.items
+    for k in ?@items
       sum += k
     sum
 
@@ -704,10 +704,10 @@ sign -1
   as a whole: `-> (A, B)!`, `-> (A, B)?`.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
-  self`, or `-> ?String from static` for only what lives for the whole
+  @`, or `-> ?String from static` for only what lives for the whole
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - A function that keeps a lent parameter names it last on its header:
-  `sub watch(!self, s: ?String) keeps s`, `fun bind(!self, s: ?String)
+  `sub watch(!@, s: ?String) keeps s`, `fun bind(!@, s: ?String)
   -> ?String from s keeps s`, `sub save(p: !Page, s: ?String)!
   keeps s` ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
@@ -720,7 +720,7 @@ sign -1
   Int` says it is rarely called, so it stays out of the code that calls
   it ([SPEC §3](SPEC.md#function-markers)). A function takes one
   marker, and a method takes one as any function does
-  (`inline fun Point.norm(?self) -> Int`).
+  (`inline fun Point.norm(?@) -> Int`).
 
 A definition without its parameter list is rejected, with the header
 to write:
@@ -748,14 +748,14 @@ obj Point
   fun origin() -> Self
     Point(x: 0)
 
-  fun length2(?self) -> Int
-    self.x * self.x + self.y * self.y
+  fun length2(?@) -> Int
+    @x * @x + @y * @y
 
-  fun plus(?self, other: ?Point) -> Point
-    Point(x: self.x + other.x, y: self.y + other.y)
+  fun plus(?@, other: ?Point) -> Point
+    Point(x: @x + other.x, y: @y + other.y)
 
-  sub shift(!self, dx: Int)
-    self.x += dx
+  sub shift(!@, dx: Int)
+    @x += dx
 
 sub main()
   p = Point.origin()
@@ -773,17 +773,22 @@ A method whose first parameter is the receiver is an instance method;
 one without is an associated function, called through the type
 (`Point.origin()`). `Self` names the enclosing type.
 
-| Receiver | Long form | Called as |
-|---|---|---|
-| `?self` | `self: ?Self` | `p.m()`, or `?p.m()` |
-| `!self` | `self: !Self` | `!p.m()` |
-| `<self` | `self: Self` | `<p.m()`, or on a temporary |
-| (none) | | `Point.origin()` |
+The receiver is `@`. Its member is `@name`, the name touching the `@`:
+`@x` is the field `x`, and `@norm()` calls the method `norm`. `@` alone
+is the receiver itself, as in `!out.push(@)`. A name with no `@` is a
+local or parameter, never a member.
 
-The sigil shorthand is only for `self`; other parameters put the sigil
-on the type (`other: ?Point`). A drop body is written like a method
-with the receiver `!self` and no name: `drop(!self)`. `pub` before a
-field or method exports it: `pub x: Int`, `pub fun sum(?self) -> Int`.
+| Receiver | Called as |
+|---|---|
+| `?@` | `p.m()`, or `?p.m()` |
+| `!@` | `!p.m()` |
+| `<@` | `<p.m()`, or on a temporary |
+| (none) | `Point.origin()` |
+
+Only the receiver takes its sigil before it, and no type; other
+parameters put the sigil on the type (`other: ?Point`). A drop body is written like a method
+with the receiver `!@` and no name: `drop(!@)`. `pub` before a
+field or method exports it: `pub x: Int`, `pub fun sum(?@) -> Int`.
 `pub ?x: Int` (or `pub ?x: Int = 0`) exports a field to read only: the
 read sigil before the name says other modules get a read view, and
 only the declaring module writes it ([SPEC §14](SPEC.md#14-modules)).
@@ -791,11 +796,11 @@ It is not an optional type, which is written after the type:
 `pub x: Int?`.
 
 A method may be declared outside the body, at module level in the
-type's module, written as it is called: `fun Point.length(?self) ->
-Int`, `sub Point.shift(!self, dx: Int)`, `pub fun Point.origin() ->
+type's module, written as it is called: `fun Point.length(?@) ->
+Int`, `sub Point.shift(!@, dx: Int)`, `pub fun Point.origin() ->
 Self`. After a name, `[]` is compile time: a generic type's method
 repeats the type's parameters as its declaration names them, then
-gives its own, `fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]`.
+gives its own, `fun Wrap[T].map[U](?@, f: fun(T) -> U) -> Wrap[U]`.
 It is the same member written in the body ([SPEC
 §3](SPEC.md#methods-outside-the-body)); a `drop` body stays in the
 body.
@@ -805,11 +810,11 @@ obj Point
   x: Int
   y: Int
 
-fun Point.length2(?self) -> Int
-  self.x * self.x + self.y * self.y
+fun Point.length2(?@) -> Int
+  @x * @x + @y * @y
 
-sub Point.shift(!self, dx: Int)
-  self.x += dx
+sub Point.shift(!@, dx: Int)
+  @x += dx
 
 sub main()
   p = Point(x: 3, y: 4)
@@ -855,8 +860,8 @@ enum Shape
   rect(w: Int, h: Int)
   point
 
-  fun area(?self) -> Int
-    match self
+  fun area(?@) -> Int
+    match @
       .circle(r) => 3 * r * r
       .rect(w, h) => w * h
       .point => 0
@@ -932,7 +937,7 @@ value. There is no `<T>` and no `comptime` keyword.
 |---|---|---|
 | generic type | `obj Pair[T, U]`, `enum Option[T]` | `Pair[Int, ?String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
-| generic method | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
+| generic method | `fun map[U](?@, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
 | both | `sub rep[T, n: Int](x: T)` | `rep[?String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
@@ -949,8 +954,8 @@ call: `sub show[n: Int]()` is called `show[3]()`.
 obj Wrap[T]
   v: T
 
-  fun map[U](?self, f: fun(T) -> U) -> Wrap[U]
-    Wrap(v: f(self.v))
+  fun map[U](?@, f: fun(T) -> U) -> Wrap[U]
+    Wrap(v: f(@v))
 
 fun max[T](a: T, b: T) -> T
   a if a > b else b
@@ -1172,7 +1177,7 @@ iteration. An `else` block runs when the loop ends without `break`.
 
 `for x in source` walks a range `a..b`, an array, a slice, a `?String`
 (its bytes), a `List`, or an iterator, a value whose type has
-`next(!self) -> T?` (`for x in !it` is `while (!it).next() as x`).
+`next(!@) -> T?` (`for x in !it` is `while (!it).next() as x`).
 `for x, i in xs` also binds the index, after the element (not for an
 iterator). A sigil on the source says how the loop holds it.
 
@@ -1473,8 +1478,8 @@ fun apply(f: fun(Int) -> Int, x: Int) -> Int
 obj Counter
   n: Int
 
-  sub bump(!self)
-    self.n += 1
+  sub bump(!@)
+    @n += 1
 
 sub main()
   g = twice
@@ -1644,7 +1649,7 @@ the same sigil means the same thing in every position:
 |---|---|---|---|---|---|
 | expression | `?x` | `!x` | `<x` | `+x` | `~x` |
 | type | `?T` | `!T` | | | `~T` |
-| receiver | `?self` | `!self` | `<self` | | |
+| receiver | `?@` | `!@` | `<@` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in v` | `for x in !v` | `for x in <v` | | |
 | `match` subject | `match e` | `match !e` | `match <e` | | |
@@ -1778,7 +1783,7 @@ is generated from. `[x]` is optional, `x*` repeats, `x, ...` is a
 comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
-needs `->`, a `drop` body takes `!self`, a module-level binding
+needs `->`, a `drop` body takes `!@`, a module-level binding
 takes no `=!`, a label goes only on a loop, `match`, or `raw`
 block, and a method outside the body names a type of its module. The grammar also parses a definition without its parameter list,
 so that the rejection can show the header with it.
@@ -1796,7 +1801,7 @@ sub       = "sub" [owner "."] name [tparams] params ["!"] [keeps] block
 owner     = name ["[" name, ... "]"] | name "." name   # the last parses only to be rejected
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
-param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
+param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "@"
 obj       = "obj" name [tparams] ["unique"] INDENT member* DEDENT
 enum      = "enum" name [tparams] INDENT member* DEDENT
 member    = ["pub"] (field | fun | sub) | "pub" "?" field | variant | "drop" params block

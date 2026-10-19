@@ -1350,7 +1350,7 @@ on Rig's inlining of single-call functions. The instruction guard
 start-up, then in the timed loop. With one call, LLVM inlines the whole
 parser into the benchmark's `main` and keeps the Doc's fields in
 registers; with two, `document` stays a function and reaches the Doc
-through `self`, as in a program that parses from more than one place.
+through `@`, as in a program that parses from more than one place.
 The guard (`bench/json/guard.py`) was re-baselined on this driver.
 
 Rig main of 2026-10-13, on the Mac, one quiet window, fastest of 15
@@ -1365,7 +1365,7 @@ interleaved runs; MB/s:
 | gsoc-2018 | 8493 | 8242 | 3% slower | 7% more |
 | github_events | 4293 | 4098 | 5% slower | 10% more |
 
-The likely cause is docs/RIG-NOTES.md, entry 8: through `self`, every
+The likely cause is docs/RIG-NOTES.md, entry 8: through `@`, every
 push to the tape loads its length and capacity and stores the length
 back.
 
@@ -1460,7 +1460,7 @@ change is against main's `json.rig` built with the same compiler:
 | github_events | 3107 | 3389 | 9.1% faster |
 
 The same run timed `document` holding the tape in a local while it
-parses (taken out with `replace(!self.tape, List())` and put back on
+parses (taken out with `replace(!@tape, List())` and put back on
 every way out), so its length and capacity could stay in registers. On
 the Mac that was up to 3.5% faster (twitter 3.5%, citm_catalog 3.3%),
 none slower; on x86 it is 6.5% slower on citm_catalog, 4.8% on

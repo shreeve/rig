@@ -24,8 +24,8 @@ test "match capture generated names", '''
 
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Sh
     c(r: R, k: Int)
@@ -245,7 +245,7 @@ test "match payload move disarms scrutinee", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   enum Slot
@@ -341,8 +341,8 @@ test "match subject evaluated once", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B, c: *B)

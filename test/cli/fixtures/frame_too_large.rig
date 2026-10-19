@@ -6,7 +6,7 @@
 obj Ring[T, n: Int]
   items: [n]T
 
-  fun spread(?self) -> Int
+  fun spread(?@) -> Int
     a = [n of 0]
     b = [n of 1]
     c = [n of 2]

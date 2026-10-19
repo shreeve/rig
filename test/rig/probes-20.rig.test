@@ -2748,13 +2748,13 @@ test "review-copies-2-q07f-method-fallible-view", '''
     p: P
     n: Int
 
-    fun pick(?self, ok: Bool) -> (?P)!
+    fun pick(?@, ok: Bool) -> (?P)!
       return Bad.oops if not ok
-      ?self.p
+      ?@p
 
-    fun wpick(!self, ok: Bool) -> (!P)!
+    fun wpick(!@, ok: Bool) -> (!P)!
       return Bad.oops if not ok
-      !self.p
+      !@p
 
   fun get(r: ?P, ok: Bool) -> (?P)!
     return Bad.oops if not ok

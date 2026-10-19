@@ -14,8 +14,8 @@ test "review-sc5-c6", '''
 
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   fun parse(s: ?String) -> Int!
     if s.len == 0
@@ -259,8 +259,8 @@ test "review-sc5-pd", "12 22"
     pub obj T
       pub v: Int = other.K
 
-      pub fun g(?self, k: Int = other.K) -> Int
-        self.v + k
+      pub fun g(?@, k: Int = other.K) -> Int
+        @v + k
 
   file "other.rig"
     pub K = 11
@@ -298,21 +298,21 @@ test "review-sc5-pub1", '''
       pub fun make(label: ?String) -> Counter
         Counter(label: label, count: SECRET)
 
-      fun peek(?self) -> Int
-        self.count
+      fun peek(?@) -> Int
+        @count
 
-      pub fun twice[T](?self, t: T) -> Int
-        self.peek() * 2
+      pub fun twice[T](?@, t: T) -> Int
+        @peek() * 2
 
     pub obj Pair[T]
       pub a: T
       b: T
 
-      pub fun both(?self) -> T
-        self.second()
+      pub fun both(?@) -> T
+        @second()
 
-      fun second(?self) -> T
-        self.b
+      fun second(?@) -> T
+        @b
 
     pub fun pair[T](a: T, b: T) -> Pair[T]
       Pair(a: a, b: b)
@@ -350,11 +350,11 @@ test "review-sc5-pub4", '''
       pub n: Int
       secret: Int = 9
 
-      drop(!self)
-        self.log()
+      drop(!@)
+        @log()
 
-      sub log(?self)
-        print("drop", self.n, self.secret)
+      sub log(?@)
+        print("drop", @n, @secret)
 
     pub fun mk(n: Int) -> Res
       Res(n: n)
@@ -363,10 +363,10 @@ test "review-sc5-pub4", '''
       pub v: T
       hidden: Int = 0
 
-      pub fun peek(?self) -> Int
-        self.hidden + self.bump()
+      pub fun peek(?@) -> Int
+        @hidden + @bump()
 
-      fun bump(?self) -> Int
+      fun bump(?@) -> Int
         1
 
     pub fun hold[T](v: T) -> Holder[T]
@@ -630,24 +630,24 @@ test "review-seam2-a01 generic id", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -679,11 +679,11 @@ test "review-seam2-a01b generic id clobber", '''
     n: Int
     big: [8]Int
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun rd(?self) -> ?Int
-      ?self.n
+    fun rd(?@) -> ?Int
+      ?@n
 
   fun mk(n: Int) -> S
     S(n: n, big: [n, n, n, n, n, n, n, n])
@@ -714,8 +714,8 @@ test "review-seam2-a01c generic id read", '''
     n: Int
     big: [8]Int
 
-    fun rd(?self) -> ?Int
-      ?self.n
+    fun rd(?@) -> ?Int
+      ?@n
 
   fun mk(n: Int) -> S
     S(n: n, big: [n, n, n, n, n, n, n, n])
@@ -749,24 +749,24 @@ test "review-seam2-a02 generic holder", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -798,24 +798,24 @@ fail "review-seam2-a05 closure capture", "`w` is assigned but never read; use it
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -852,24 +852,24 @@ test "review-seam2-a07 defer", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -901,24 +901,24 @@ fail "review-seam2-a08 propagate view", "a view of the temporary `mk(1)` outlive
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -959,24 +959,24 @@ test "review-seam2-a09 propagate ok", '''
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1013,24 +1013,24 @@ fail "review-seam2-a10 catch view", "a view of the temporary `mk(1)` outlives it
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1062,24 +1062,24 @@ fail "review-seam2-a11 optional view", "a view of the temporary `mk(1)` outlives
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1110,24 +1110,24 @@ fail "review-seam2-a12 optional header", "a view of the temporary `mk(1)` outliv
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1161,24 +1161,24 @@ fail "review-seam2-a13 optional prop", "a view of the temporary `mk(1)` outlives
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1211,24 +1211,24 @@ fail "review-seam2-a14 match header", "this `match` reads the view its subject r
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1267,24 +1267,24 @@ test "review-seam2-a15 catch ok in stmt", '''
     n: Int
     items: List[Int]
 
-    fun tryat(!self, ok: Bool) -> (!Int)!
+    fun tryat(!@, ok: Bool) -> (!Int)!
       return E.bad if not ok
-      !self.n
+      !@n
 
-    fun trypop(!self, ok: Bool) -> Int!
-      self.n += 1
+    fun trypop(!@, ok: Bool) -> Int!
+      @n += 1
       return E.bad if not ok
-      self.n
+      @n
 
-    fun maybe(!self, ok: Bool) -> (!Int)?
+    fun maybe(!@, ok: Bool) -> (!Int)?
       return none if not ok
-      !self.n
+      !@n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1335,24 +1335,24 @@ test "review-seam2-b01 nested", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1396,24 +1396,24 @@ fail "review-seam2-b02 nested escape", "a view of the temporary `mk(1)` outlives
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1456,24 +1456,24 @@ test "review-seam2-b03 kwargs hoist", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1487,13 +1487,13 @@ test "review-seam2-b03 kwargs hoist", '''
   obj T
     k: Int
 
-    fun two(!self, a: !Int, b: Int) -> Int
+    fun two(!@, a: !Int, b: Int) -> Int
       a += b
-      self.k += a
-      self.k
+      @k += a
+      @k
 
-    drop(!self)
-      print("dropT", self.k)
+    drop(!@)
+      print("dropT", @k)
 
   fun mkt(k: Int) -> T
     T(k: k)
@@ -1517,20 +1517,20 @@ test "review-seam2-c01 steal", '''
     n: Int
     items: List[Int]
 
-    fun steal(!self) -> List[Int]
-      replace(!self.items, List())
+    fun steal(!@) -> List[Int]
+      replace(!@items, List())
 
-    fun into(<self) -> Int
-      self.n
+    fun into(<@) -> Int
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun rd(?self) -> Int
-      self.n
+    fun rd(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n, self.items)
+    drop(!@)
+      print("drop", @n, @items)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1553,20 +1553,20 @@ fail "review-seam2-c03 move lent", "a view of the temporary `mk(1)` outlives its
     n: Int
     items: List[Int]
 
-    fun steal(!self) -> List[Int]
-      replace(!self.items, List())
+    fun steal(!@) -> List[Int]
+      replace(!@items, List())
 
-    fun into(<self) -> Int
-      self.n
+    fun into(<@) -> Int
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun rd(?self) -> Int
-      self.n
+    fun rd(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n, self.items)
+    drop(!@)
+      print("drop", @n, @items)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1587,11 +1587,11 @@ fail "review-seam2-c07 move whole while lent", "cannot move `s` while a write lo
     n: Int
     items: List[Int]
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    drop(!self)
-      print("drop", self.n, self.items)
+    drop(!@)
+      print("drop", @n, @items)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1637,12 +1637,12 @@ test "review-seam2-d01 branch types", '''
   obj S
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
   sub inc(v: !Int)
     v += 100
@@ -1723,12 +1723,12 @@ test "review-seam2-g01 wrap view recv", '''
   obj S
     n: Int
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
   fun wrap(s: !S) -> !S
     s
@@ -1754,17 +1754,17 @@ fail "review-seam2-h07 store via view recv bang", "`s` does not live long enough
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap"))
@@ -1789,14 +1789,14 @@ fail "review-seam2-h08 push into temp field", "a view of the temporary `mk(1)` i
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap"))
@@ -1836,24 +1836,24 @@ test "review-seam2-i01 early exit", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1903,24 +1903,24 @@ test "review-seam2-k03 for range", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -1959,24 +1959,24 @@ test "review-seam2-l01 branch move", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -2013,24 +2013,24 @@ fail "review-seam2-l02 branch move use", "use of `s` after move"
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -2081,15 +2081,15 @@ test "review-seam2-m01 text", '''
     t: String
     ts: List[String]
 
-    fun tv(!self) -> !String
-      !self.t
+    fun tv(!@) -> !String
+      !@t
 
-    fun show(!self) -> Int
-      print(self.t, self.ts)
-      self.t.len
+    fun show(!@) -> Int
+      print(@t, @ts)
+      @t.len
 
-    drop(!self)
-      print("dropH", self.t)
+    drop(!@)
+      print("dropH", @t)
 
   fun mkh(s: ?String) -> H
     h = H(t: String(s), ts: List())
@@ -2170,8 +2170,8 @@ fail "review-seam2-n01 parse meaning", "`x` is assigned but never read; use it, 
   obj S
     n: Int
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
   fun wrap(s: !S) -> !S
     s
@@ -2198,9 +2198,9 @@ test "review-seam2-n04 opt chain hint", '''
   obj S
     n: Int
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
   fun mkopt(n: Int) -> S?
     return none if n == 0
@@ -2250,12 +2250,12 @@ test "review-seam2-o01 write place leak", '''
   obj S
     n: Int
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     S(n: n)
@@ -2302,14 +2302,14 @@ test "review-seam2-o02 hoisted branch", '''
     n: Int
     t: String
 
-    fun pick(!self, x: Int, y: Int) -> Int
-      self.n += x * 10 + y
-      !self.t.add("!")
-      print(self.t)
-      self.n
+    fun pick(!@, x: Int, y: Int) -> Int
+      @n += x * 10 + y
+      !@t.add("!")
+      print(@t)
+      @n
 
-    drop(!self)
-      print("drop", self.n, self.t)
+    drop(!@)
+      print("drop", @n, @t)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("t", n))
@@ -2338,11 +2338,11 @@ test "review-seam2-p01 handles", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mkh() -> *S
     *S(n: 1, items: List())
@@ -2377,24 +2377,24 @@ test "review-seam2-q01 tail return", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -2442,24 +2442,24 @@ test "review-seam2-q02 stmt", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -2490,24 +2490,24 @@ fail "review-seam2-r01 repoint", "a view of the temporary `mk(5)` outlives its s
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -2539,24 +2539,24 @@ fail "review-seam2-r02 repoint slice", "a view of the temporary `mk(5)` outlives
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -2588,24 +2588,24 @@ fail "review-seam2-r04 repoint whole", "a view of the temporary `mk(5)` outlives
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -2634,8 +2634,8 @@ fail "review-seam2-r2-w15 branch temp lends", "cannot move out of `(!mk(1) if c 
     o: List[Int]?
     b: ^List[Int]
 
-    drop(!self)
-      print("drop", self.n, self.items, self.o)
+    drop(!@)
+      print("drop", @n, @items, @o)
 
   fun mk(n: Int) -> S
     v: List[Int] = List()
@@ -2675,34 +2675,34 @@ fail "review-seam2-r2-x01 bracket named", "`s` does not live long enough"
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -2751,34 +2751,34 @@ fail "review-seam2-r2-x04 kwargs hoist", "a view of the temporary `mk(2)` is hel
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -2824,34 +2824,34 @@ fail "review-seam2-r2-x05 branch recv", "a view of the temporary `mk(1)` is held
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -2897,34 +2897,34 @@ fail "review-seam2-r2-x06 branch named recv", "`s` does not live long enough"
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -2976,34 +2976,34 @@ fail "review-seam2-r2-x07 opt recv", "a view of the temporary `mk(1)` is held by
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3052,34 +3052,34 @@ fail "review-seam2-r2-x11 me chain", "a view of the temporary `mk(1)` is held by
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3125,34 +3125,34 @@ fail "review-seam2-r2-x12 wrap temp", "a view of the temporary `mk(1)` is held b
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3198,34 +3198,34 @@ fail "review-seam2-r2-x13 named me chain", "`s` does not live long enough"
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3279,34 +3279,34 @@ test "review-seam2-r2-x14 order safe", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3355,34 +3355,34 @@ fail "review-seam2-r2-x15 named vec elem", "`s` does not live long enough"
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3433,34 +3433,34 @@ fail "review-seam2-r2-x16 named view binding", "`s` does not live long enough"
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, a: ?String, b: ?String) keeps a, b
-      !self.rs.push(a)
-      !self.rs.push(b)
+    sub keep2(!@, a: ?String, b: ?String) keeps a, b
+      !@rs.push(a)
+      !@rs.push(b)
 
-    sub keepg[T](!self, r: ?String, k: T) keeps r
-      !self.rs.push(r)
+    sub keepg[T](!@, r: ?String, k: T) keeps r
+      !@rs.push(r)
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj HH
     inner: H
     hs: List[H]
 
-    fun in(!self) -> !H
-      !self.inner
+    fun in(!@) -> !H
+      !@inner
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3503,17 +3503,17 @@ fail "review-seam2-r2-y04 generic method body", "a view of the temporary `mk(1)`
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap"))
@@ -3539,22 +3539,22 @@ fail "review-seam2-r2-y05 generic recv named", "`s` does not live long enough"
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj W[V]
     h: H
     xs: List[V]
 
-    sub put(!self, r: ?String, v: V) keeps r
-      !self.h.rs.push(r)
-      !self.xs.push(v)
+    sub put(!@, r: ?String, v: V) keeps r
+      !@h.rs.push(r)
+      !@xs.push(v)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap"))
@@ -3581,22 +3581,22 @@ fail "review-seam2-r2-y06 generic fn recv", "a view of the temporary `mk(1)` is 
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     rs: List[?String]
 
-    drop(!self)
-      print("dropH sees", self.rs)
+    drop(!@)
+      print("dropH sees", @rs)
 
   obj W[V]
     h: H
     xs: List[V]
 
-    sub put(!self, r: ?String, v: V) keeps r
-      !self.h.rs.push(r)
-      !self.xs.push(v)
+    sub put(!@, r: ?String, v: V) keeps r
+      !@h.rs.push(r)
+      !@xs.push(v)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap"))
@@ -3627,18 +3627,18 @@ test "review-seam2-r2-z01 assign through view", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3665,18 +3665,18 @@ fail "review-seam2-r2-z02 assign through view named", "`s` does not live long en
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3710,18 +3710,18 @@ test "review-seam2-r2-z06 elem assign", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -3754,18 +3754,18 @@ test "review-seam2-r2-z07 me assign", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))

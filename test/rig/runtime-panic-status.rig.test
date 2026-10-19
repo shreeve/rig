@@ -9,8 +9,8 @@ bomb "panic status list past the end", "panic: index out of bounds", prints: "be
 
   obj Res
     name: ?String
-    drop(!self)
-      print("dropping", self.name)
+    drop(!@)
+      print("dropping", @name)
 
   sub main()
     r = Res(name: "r")

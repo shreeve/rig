@@ -8,8 +8,8 @@ test "audit-ownership-j06 generic swap", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -39,8 +39,8 @@ test "audit-ownership-j07 generic replace", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -70,8 +70,8 @@ test "audit-ownership-j08 generic struct owning", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -88,11 +88,11 @@ test "audit-ownership-j08 generic struct owning", '''
   obj Stack[T]
     items: List[T]
 
-    sub push(!self, x: T)
-      !self.items.push(<x)
+    sub push(!@, x: T)
+      !@items.push(<x)
 
-    fun pop(!self) -> T?
-      (!self.items).pop()
+    fun pop(!@) -> T?
+      (!@items).pop()
 
   s = Stack[*Tok](items: List())
   !s.push(*Tok(n: 1))
@@ -105,8 +105,8 @@ fail "audit-ownership-j10 generic box list", "cannot move out of `n.v`: `n` woul
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -127,12 +127,12 @@ fail "audit-ownership-j10 generic box list", "cannot move out of `n.v`: `n` woul
   obj Chain[T]
     head: ^Node[T]?
 
-    sub push(!self, v: T)
-      self.head = ^Node[T](v: <v, next: <self.head)
+    sub push(!@, v: T)
+      @head = ^Node[T](v: <v, next: <@head)
 
-    fun pop(!self) -> T?
-      if <self.head as n
-        self.head = <n.next
+    fun pop(!@) -> T?
+      if <@head as n
+        @head = <n.next
         return <n.v
       none
 
@@ -151,8 +151,8 @@ test "audit-ownership-j11 generic for move", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -190,8 +190,8 @@ test "audit-ownership-j12 generic optional unwrap", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -223,8 +223,8 @@ test "audit-ownership-j13 generic optional coalesce", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -258,8 +258,8 @@ test "audit-ownership-k06 vec of boxes pop", '''
     left: ^Node?
     right: ^Node?
 
-    drop(!self)
-      print("drop", self.key)
+    drop(!@)
+      print("drop", @key)
 
   sub insert(slot: !^Node?, key: Int)
     if !slot as n
@@ -296,8 +296,8 @@ test "audit-ownership-k07 vec of boxes write elem", '''
     left: ^Node?
     right: ^Node?
 
-    drop(!self)
-      print("drop", self.key)
+    drop(!@)
+      print("drop", @key)
 
   sub insert(slot: !^Node?, key: Int)
     if !slot as n
@@ -332,8 +332,8 @@ test "audit-ownership-k08 vec boxes for move", '''
     left: ^Node?
     right: ^Node?
 
-    drop(!self)
-      print("drop", self.key)
+    drop(!@)
+      print("drop", @key)
 
   sub insert(slot: !^Node?, key: Int)
     if !slot as n
@@ -371,8 +371,8 @@ test "audit-ownership-k11 box in loop reassign", '''
     left: ^Node?
     right: ^Node?
 
-    drop(!self)
-      print("drop", self.key)
+    drop(!@)
+      print("drop", @key)
 
   sub insert(slot: !^Node?, key: Int)
     if !slot as n
@@ -401,8 +401,8 @@ test "audit-ownership-k12 box match write", "9"
     left: ^Node?
     right: ^Node?
 
-    drop(!self)
-      print("drop", self.key)
+    drop(!@)
+      print("drop", @key)
 
   sub insert(slot: !^Node?, key: Int)
     if !slot as n
@@ -445,8 +445,8 @@ test "audit-ownership-k13 box match write replace subtree", "5"
     left: ^Node?
     right: ^Node?
 
-    drop(!self)
-      print("drop", self.key)
+    drop(!@)
+      print("drop", @key)
 
   sub insert(slot: !^Node?, key: Int)
     if !slot as n
@@ -527,8 +527,8 @@ test "audit-ownership-l02 errdefer reads moved", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -563,8 +563,8 @@ fail "audit-ownership-l04 defer view later var", "deferred code reads `y` throug
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -604,8 +604,8 @@ test "audit-ownership-l05 defer in loop break", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -638,8 +638,8 @@ fail "audit-ownership-l07 defer nested scope return", "cannot move out of `b.n`:
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -682,8 +682,8 @@ test "audit-ownership-l08 propagate in loop with move", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -723,8 +723,8 @@ test "audit-ownership-l14 errdefer moves into outer", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -762,8 +762,8 @@ test "audit-ownership-m01 print move", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -789,8 +789,8 @@ test "audit-ownership-m02 print clone", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -815,8 +815,8 @@ test "audit-ownership-m03 stmt move", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -841,8 +841,8 @@ test "audit-ownership-m04 discard clone", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -870,8 +870,8 @@ test "audit-ownership-m06 drop body move field via replace", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -888,8 +888,8 @@ test "audit-ownership-m06 drop body move field via replace", '''
   obj R
     t: *Tok
 
-    drop(!self)
-      old = replace(!self.t, *Tok(n: 99))
+    drop(!@)
+      old = replace(!@t, *Tok(n: 99))
       eat(<old)
 
   r = R(t: *Tok(n: 1))
@@ -903,8 +903,8 @@ test "audit-ownership-m07 drop body stash self view", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -924,8 +924,8 @@ test "audit-ownership-m07 drop body stash self view", '''
   obj R
     t: *Tok
 
-    drop(!self)
-      k = Keep(r: ?self)
+    drop(!@)
+      k = Keep(r: ?@)
       print("keep", k.r.t.n)
 
   r = R(t: *Tok(n: 1))
@@ -939,8 +939,8 @@ test "audit-ownership-m08 drop body push self clone to global cell", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -958,8 +958,8 @@ test "audit-ownership-m08 drop body push self clone to global cell", '''
     t: *Tok
     sink: *Cell[List[*Tok]]
 
-    drop(!self)
-      !self.sink.push(+self.t)
+    drop(!@)
+      !@sink.push(+@t)
 
   sink: *Cell[List[*Tok]] = *Cell(List())
   if true
@@ -977,8 +977,8 @@ test "audit-ownership-m09 drop for write elem", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -1007,8 +1007,8 @@ test "audit-ownership-m15 consuming method on box", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -1025,8 +1025,8 @@ test "audit-ownership-m15 consuming method on box", '''
   obj R
     t: *Tok
 
-    sub done(<self)
-      print("done", self.t.n)
+    sub done(<@)
+      print("done", @t.n)
 
   b = ^R(t: *Tok(n: 1))
   <b.done()
@@ -1036,8 +1036,8 @@ test "audit-ownership-n07 if as then return store"
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -1102,8 +1102,8 @@ fail "audit-ownership-o13 array of handles copy", "`a` owns a `[2]*Tok`, which c
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -1125,8 +1125,8 @@ fail "audit-ownership-o13b array of handles index move", "cannot move out of `a[
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -1173,9 +1173,9 @@ test "audit-ownership-p01 cell set reentrant", '''
     n: Int
     home: ~Cell[*Obj?]
 
-    drop(!self)
-      print("drop", self.n)
-      if *self.home as h
+    drop(!@)
+      print("drop", @n)
+      if *@home as h
         !h.set(none)
 
   c: *Cell[*Obj?] = *Cell(none)
@@ -1201,10 +1201,10 @@ test "audit-ownership-p02 cell replace reentrant vec", '''
     n: Int
     home: ~Cell[List[*Obj]]
 
-    drop(!self)
-      print("drop", self.n)
-      if *self.home as h
-        !h.push(*Obj(n: self.n + 100, home: ~h))
+    drop(!@)
+      print("drop", @n)
+      if *@home as h
+        !h.push(*Obj(n: @n + 100, home: ~h))
         print("len in drop", h.len)
 
   c: *Cell[List[*Obj]] = *Cell(List())
@@ -1228,9 +1228,9 @@ test "audit-ownership-p03 cell pop drop reenter", '''
     n: Int
     home: ~Cell[List[*Obj]]
 
-    drop(!self)
-      print("drop", self.n)
-      if *self.home as h
+    drop(!@)
+      print("drop", @n)
+      if *@home as h
         if h.len > 0
           _ = !h.pop()
 
@@ -1257,9 +1257,9 @@ test "audit-ownership-p05 rc drop reenters parent", "drop child 1"
     n: Int
     parent: ~Cell[*Child?]
 
-    drop(!self)
-      print("drop child", self.n)
-      if *self.parent as p
+    drop(!@)
+      print("drop child", @n)
+      if *@parent as p
         old = (!p).replace(none)
         print("old none", old == none)
 
@@ -2966,8 +2966,8 @@ fail "audit-ownership-q02", "`lib.Holder[*Tok]` cannot use `T = *Tok`: the gener
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     h = lib.Holder[*Tok](x: *Tok(n: 1))
@@ -2981,8 +2981,8 @@ fail "audit-ownership-q02", "`lib.Holder[*Tok]` cannot use `T = *Tok`: the gener
     pub obj Holder[T]
       pub x: T
 
-      pub fun peek(?self) -> T
-        self.x
+      pub fun peek(?@) -> T
+        @x
 
     pub fun pick[T](a: ?T, b: ?T) -> ?T
       a
@@ -3002,8 +3002,8 @@ test "audit-ownership-s02 opt propagate after move", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3047,8 +3047,8 @@ test "audit-ownership-s03 ctor propagate", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3091,8 +3091,8 @@ test "audit-ownership-s05 push fallible arg", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3131,8 +3131,8 @@ test "audit-ownership-s06 consume recv fallible arg", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3156,8 +3156,8 @@ test "audit-ownership-s06 consume recv fallible arg", '''
   obj R
     t: *Tok
 
-    sub done(<self, n: Int)
-      print("done", self.t.n, n)
+    sub done(<@, n: Int)
+      print("done", @t.n, n)
 
   fun run(k: Int) -> Int!
     r = R(t: *Tok(n: 1))
@@ -3177,8 +3177,8 @@ test "audit-ownership-s07 box ctor propagate", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3224,8 +3224,8 @@ test "audit-ownership-s08 take coalesce loop", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3268,8 +3268,8 @@ test "audit-ownership-s09 catch return after owning arg", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3308,8 +3308,8 @@ test "audit-ownership-s10 match temp arm return", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3353,8 +3353,8 @@ test "audit-ownership-s11 if temp as return", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3396,8 +3396,8 @@ test "audit-ownership-s13 for move break", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3436,8 +3436,8 @@ test "audit-ownership-s14 for move return", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3480,8 +3480,8 @@ test "audit-ownership-s15 for move propagate", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3527,8 +3527,8 @@ test "audit-ownership-s16 for move continue outer", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3567,8 +3567,8 @@ test "audit-ownership-s17 while as temp break", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3610,8 +3610,8 @@ fail "audit-ownership-t01 vec of holders order", "`x` is dropped before `v`, who
   obj Holder
     b: ?Big
 
-    drop(!self)
-      print("holder reads", self.b.v[0])
+    drop(!@)
+      print("holder reads", @b.v[0])
 
   v: List[*Holder] = List()
   x = mk(1)
@@ -3631,8 +3631,8 @@ fail "audit-ownership-t03 holder via wb param", "`x` is dropped before `h`, whos
   obj Holder
     b: ?Big
 
-    drop(!self)
-      print("holder reads", self.b.v[0])
+    drop(!@)
+      print("holder reads", @b.v[0])
 
   sub set(h: !Holder, b: ?Big) keeps b
     h.b = b
@@ -3655,8 +3655,8 @@ fail "audit-ownership-t05 holder shared clone outer", "`x` is dropped before `ke
   obj Holder
     b: ?Big
 
-    drop(!self)
-      print("holder reads", self.b.v[0])
+    drop(!@)
+      print("holder reads", @b.v[0])
 
   keep: *Holder? = none
   x = mk(1)
@@ -3676,8 +3676,8 @@ fail "audit-ownership-t06 holder optional outer assign", "`x` is dropped before 
   obj Holder
     b: ?Big
 
-    drop(!self)
-      print("holder reads", self.b.v[0])
+    drop(!@)
+      print("holder reads", @b.v[0])
 
   keep: Holder? = none
   x = mk(1)
@@ -3696,8 +3696,8 @@ fail "audit-ownership-t08 holder box", "`x` is dropped before `e`, whose `drop` 
   obj Holder
     b: ?Big
 
-    drop(!self)
-      print("holder reads", self.b.v[0])
+    drop(!@)
+      print("holder reads", @b.v[0])
 
   e: ^Holder? = none
   x = mk(1)
@@ -3712,8 +3712,8 @@ test "audit-ownership-u01 coalesce move both", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3739,8 +3739,8 @@ test "audit-ownership-u02 coalesce move both none", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3767,8 +3767,8 @@ test "audit-ownership-u03 ternary moves", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3795,8 +3795,8 @@ test "audit-ownership-u04 and moves", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3828,8 +3828,8 @@ test "audit-ownership-u06 catch value move", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3863,8 +3863,8 @@ test "audit-ownership-u07 match value moves some arms", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3893,8 +3893,8 @@ test "audit-ownership-u08 or move temp", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3925,8 +3925,8 @@ test "audit-ownership-v01 wb local assign whole", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3954,8 +3954,8 @@ test "audit-ownership-v02 wb moved local reassign", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3984,8 +3984,8 @@ test "audit-ownership-v04 wb view store ok", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -4013,8 +4013,8 @@ fail "audit-ownership-v05 wb to param store", "cannot store a view of `y` throug
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -4139,8 +4139,8 @@ test "audit-sema-up1", '''
   obj Q
     n: Int
 
-    fun upgrade(?self) -> Int
-      self.n + 1
+    fun upgrade(?@) -> Int
+      @n + 1
 
   sub main()
     q = *Q(n: 1)
@@ -4152,5 +4152,5 @@ test "audit-sema-up1", '''
     pub obj P
       pub n: Int
 
-      pub fun upgrade(?self) -> Int
-        self.n + 1
+      pub fun upgrade(?@) -> Int
+        @n + 1

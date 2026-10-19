@@ -6355,7 +6355,7 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
         } else {
             if (std.mem.eql(u8, text, "static")) {
                 try ctx.errAt(n, "`static` stands alone (`from static`): a result may always view what lives for the whole program, so a list names only parameters", .{});
-            } else try ctx.errAt(n, "`{s}` has no parameter `{s}`; `from` names parameters, `self`, or `static` alone", .{ name, text });
+            } else try ctx.errAt(n, "`{s}` has no parameter `{s}`; `from` names parameters, `@`, or `static` alone", .{ name, text });
             continue;
         };
         if (i < f.params.len and try reachTargets(ctx, a, f.params[i], results, .views) == .none) {
@@ -6386,7 +6386,7 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
             const i = for (d.params.items(), 0..) |p, i| {
                 if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
             } else {
-                try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names lent parameters, `self` among them", .{ name, text });
+                try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names lent parameters, `@` among them", .{ name, text });
                 continue;
             };
             if (i >= f.params.len) continue;
@@ -7549,6 +7549,13 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
 /// binds is `SemContext.payloadBindings`.
 pub fn bindingName(b: Sexp) Sexp {
     return if (b.isKind(.kwarg)) ir.Kwarg.value(b) else b;
+}
+
+/// The member `name` of `object`, as Rig writes it: `object.name`, or
+/// `@name` on the receiver, `@`.
+pub fn memberText(a: std.mem.Allocator, object: []const u8, name: []const u8) std.mem.Allocator.Error![]const u8 {
+    if (std.mem.eql(u8, object, "@")) return a.print("@{s}", .{name});
+    return a.print("{s}.{s}", .{ object, name });
 }
 
 pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
@@ -9356,8 +9363,8 @@ test "facts: captures, parameters, and self resolve to their symbols" {
         \\obj P
         \\  n: Int
         \\
-        \\  fun get(?self) -> Int
-        \\    self.n
+        \\  fun get(?@) -> Int
+        \\    @n
         \\
         \\sub main()
         \\  s =! "hi"
@@ -9369,8 +9376,8 @@ test "facts: captures, parameters, and self resolve to their symbols" {
         \\
     );
     defer r.deinit();
-    const self_decl = r.sym("self", 0).?;
-    try std.testing.expectEqual(self_decl, r.sym("self", 1).?);
+    const self_decl = r.sym("@", 0).?;
+    try std.testing.expectEqual(self_decl, r.sym("@n", 0).?);
     try std.testing.expectEqual(SymbolKind.param, r.ctx.symbols.items[self_decl].kind);
     const cap = r.sym("s", 1).?;
     try std.testing.expectEqual(SymbolKind.capture, r.ctx.symbols.items[cap].kind);
@@ -9436,8 +9443,8 @@ test "facts: declaration names carry their function type" {
         \\obj P
         \\  n: Int
         \\
-        \\  fun get(?self) -> Int
-        \\    self.n
+        \\  fun get(?@) -> Int
+        \\    @n
         \\
         \\fun twice(x: Int) -> Int
         \\  x * 2
@@ -9638,8 +9645,8 @@ test "facts: a checked call records what fills each parameter" {
         \\obj Acc
         \\  n: Int
         \\
-        \\  fun add(?self, k: Int, by: Int = 1) -> Int
-        \\    self.n + k * by
+        \\  fun add(?@, k: Int, by: Int = 1) -> Int
+        \\    @n + k * by
         \\
         \\fun scaled(n: Int, by: Int = 10) -> Int
         \\  n * by
@@ -9750,8 +9757,8 @@ test "declarations: struct fields, methods, and enum variants" {
         \\  name: ?String
         \\  age: Int
         \\
-        \\  fun greet(?self) -> ?String
-        \\    self.name
+        \\  fun greet(?@) -> ?String
+        \\    @name
         \\
         \\enum Shape
         \\  circle(radius: Int)
@@ -10125,7 +10132,7 @@ const Coverage = struct {
         const text = rig.leafText(self.r.source, leaf.src);
         if (text.len == 0) return;
         if (isBuiltinCallName(text) or std.mem.eql(u8, text, "_")) return;
-        if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_') return;
+        if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_' and !std.mem.eql(u8, text, "@")) return;
         if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false") or std.mem.eql(u8, text, "none")) return;
         if (self.r.ctx.symbolOf(leaf) == null) {
             std.debug.print("no symbol for `{s}` at {d}\n", .{ text, leaf.src.pos });
@@ -10228,11 +10235,11 @@ test "facts: every name and expression in a program has a fact" {
         \\  owner: ?String
         \\  balance: Int
         \\
-        \\  fun doubled(?self) -> Int
-        \\    self.balance * 2
+        \\  fun doubled(?@) -> Int
+        \\    @balance * 2
         \\
-        \\  sub deposit(!self, n: Int)
-        \\    self.balance += n
+        \\  sub deposit(!@, n: Int)
+        \\    @balance += n
         \\
         \\enum Shape
         \\  circle(radius: Int)
@@ -10241,8 +10248,8 @@ test "facts: every name and expression in a program has a fact" {
         \\obj Wrap[T]
         \\  value: T
         \\
-        \\  fun get(?self) -> T
-        \\    self.value
+        \\  fun get(?@) -> T
+        \\    @value
         \\
         \\fun balance_of(a: ?Account) -> Int
         \\  a.balance

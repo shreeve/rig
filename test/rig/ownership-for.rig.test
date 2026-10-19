@@ -8,10 +8,10 @@ fail "for bare iterator not writable", "14:8: cannot lend to write through a rea
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      self.lo += 1
-      self.lo - 1
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      @lo += 1
+      @lo - 1
 
   sub scan(it: ?Count)
     for !it
@@ -53,8 +53,8 @@ test "for consuming iteration", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(b: *B)
     print("eat", b.n)
@@ -133,16 +133,16 @@ fail "for held iterator keeps lent", "23:5: cannot lend `v` to write while a rea
     xs: []Int
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   obj Bag
     xs: List[Int]
 
-    fun each(?self) -> Cur from self
-      Cur(xs: ?self.xs[0..self.xs.len], i: 0)
+    fun each(?@) -> Cur from @
+      Cur(xs: ?@xs[0..@xs.len], i: 0)
 
   sub made(v: !List[Int])
     for x in Cur(xs: ?v[0..v.len], i: 0)
@@ -179,10 +179,10 @@ fail "for iterator bare place", "19:10: write `for n in !c`: the loop advances `
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      n = self.lo
-      self.lo += 1
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      n = @lo
+      @lo += 1
       n
 
   fun mk() -> Count
@@ -207,16 +207,16 @@ test "for iterator bound view", '''
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   obj Bag
     xs: List[Int]
 
-    fun each(?self) -> Cur from self
-      Cur(xs: ?self.xs, i: 0)
+    fun each(?@) -> Cur from @
+      Cur(xs: ?@xs, i: 0)
 
   b = Bag(xs: List())
   !b.xs.push(4)
@@ -260,13 +260,13 @@ test "for iterator exits", release: true, '''
     id: Int
     left: Int
 
-    fun next(!self) -> Int?
-      return none if self.left == 0
-      self.left -= 1
-      self.id * 10 + self.left
+    fun next(!@) -> Int?
+      return none if @left == 0
+      @left -= 1
+      @id * 10 + @left
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun tracked(id: Int, n: Int) -> Tracked
     Tracked(id: id, left: n)
@@ -324,10 +324,10 @@ test "for iterator hidden name", release: true, '''
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      self.lo += 1
-      self.lo - 1
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      @lo += 1
+      @lo - 1
 
   fun upto(n: Int) -> Count
     Count(lo: 0, hi: n)
@@ -355,10 +355,10 @@ fail "for iterator kept view", "26:5: `for iterator` does not live long enough",
     buf: List[Item]
     at: Int
 
-    fun next(!self) -> (?Item)?
-      return none if self.at >= self.buf.len
-      self.at += 1
-      ?self.buf[self.at - 1]
+    fun next(!@) -> (?Item)?
+      return none if @at >= @buf.len
+      @at += 1
+      ?@buf[@at - 1]
 
   fun mkbuf() -> Buf
     v: List[Item] = List()
@@ -420,28 +420,28 @@ fail "for iterator made view", "37:10: `b.each()` keeps `b` lent while the loop 
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   obj Count
     n: Int
 
-    fun next(!self) -> Int?
-      return none if self.n == 0
-      self.n -= 1
-      self.n
+    fun next(!@) -> Int?
+      return none if @n == 0
+      @n -= 1
+      @n
 
   obj Bag
     xs: List[Int]
 
-    fun each(?self) -> Cur from self
-      Cur(xs: ?self.xs, i: 0)
+    fun each(?@) -> Cur from @
+      Cur(xs: ?@xs, i: 0)
 
-    fun drain(!self) -> Count
-      n = self.xs.len
-      !self.xs.clear()
+    fun drain(!@) -> Count
+      n = @xs.len
+      !@xs.clear()
       Count(n: n)
 
   b = Bag(xs: List())
@@ -462,10 +462,10 @@ fail "for iterator not writable", "15:13: cannot lend to write through a read vi
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      self.lo += 1
-      self.lo - 1
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      @lo += 1
+      @lo - 1
 
   sub scan(it: ?Count)
     for n in !it
@@ -496,11 +496,11 @@ fail "for iterator view loan", "21:3: cannot lend `items` to write while a read 
     items: ?List[Item]
     at: Int
 
-    fun next(!self) -> (?Item)?
-      return none if self.at >= self.items.len
-      i = self.at
-      self.at += 1
-      ?self.items[i]
+    fun next(!@) -> (?Item)?
+      return none if @at >= @items.len
+      i = @at
+      @at += 1
+      ?@items[i]
 
   items: List[Item] = List()
   !items.push(Item(n: 1))
@@ -546,11 +546,11 @@ test "for iterator views", release: true, '''
     items: ?List[Item]
     at: Int
 
-    fun next(!self) -> (?Item)?
-      return none if self.at >= self.items.len
-      i = self.at
-      self.at += 1
-      ?self.items[i]
+    fun next(!@) -> (?Item)?
+      return none if @at >= @items.len
+      i = @at
+      @at += 1
+      ?@items[i]
 
   fun walk(items: ?List[Item]) -> Walk from items
     Walk(items: items, at: 0)
@@ -559,13 +559,13 @@ test "for iterator views", release: true, '''
     id: Int
     left: Int
 
-    fun next(!self) -> Int?
-      return none if self.left == 0
-      self.left -= 1
-      self.id * 10 + self.left
+    fun next(!@) -> Int?
+      return none if @left == 0
+      @left -= 1
+      @id * 10 + @left
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun tracked(id: Int, n: Int) -> Tracked
     Tracked(id: id, left: n)
@@ -646,16 +646,16 @@ fail "for lent iterator write", "23:3: cannot lend", "25:8: cannot move", errors
     xs: ?List[Int]
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   obj Bag
     xs: List[Int]
 
-    fun each(?self) -> Cur from self
-      Cur(xs: ?self.xs, i: 0)
+    fun each(?@) -> Cur from @
+      Cur(xs: ?@xs, i: 0)
 
   b = Bag(xs: List())
   !b.xs.push(4)
@@ -793,8 +793,8 @@ test "for takes array of owners", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk() -> [2]String
     [String("a"), String("b")]

@@ -320,8 +320,8 @@ test "R3c1-t07 retview", '''
   obj Bag
     items: List[P]
 
-    fun first(?self) -> ?P
-      ?self.items[0]
+    fun first(?@) -> ?P
+      ?@items[0]
 
   fun pick(a: ?P, b: ?P, f: Bool) -> ?P
     a if f else b
@@ -397,8 +397,8 @@ test "R3c1-t12 ctx2", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum A
     v(items: List[Int])
@@ -417,8 +417,8 @@ test "R3c1-t13 drop", "1"
   obj R
     n: Int
 
-    sub drop(!self)
-      print("drop", self.n)
+    sub drop(!@)
+      print("drop", @n)
 
   enum D
     r(res: R)
@@ -436,8 +436,8 @@ test "R3c1-t13b", '''
   obj R
     n: Int
 
-    sub drop(!self)
-      print("drop", self.n)
+    sub drop(!@)
+      print("drop", @n)
 
   enum D
     r(res: R)
@@ -2989,8 +2989,8 @@ test "R3c1-t31 ring", '''
     items: [n]T
     len: Int
 
-    fun same(?self, o: ?Self) -> Bool
-      self == o and self.items == o.items
+    fun same(?@, o: ?Self) -> Bool
+      @ == o and @items == o.items
 
   enum Res[T, E]
     ok(v: T)
@@ -3031,7 +3031,7 @@ test "R3c1-t36b", "false true"
   obj P
     x: Int
 
-    fun eq(?self, o: ?P) -> Bool
+    fun eq(?@, o: ?P) -> Bool
       true
 
   a = P(x: 1)
@@ -3483,8 +3483,8 @@ test "audit-docs-p-q8", "some"
 test "audit-docs-p-q9", "3"
   obj T
     n: Int
-    fun total(<self) -> Int
-      self.n
+    fun total(<@) -> Int
+      @n
 
   print(T(n: 3).total())
 
@@ -3624,14 +3624,14 @@ test "audit-emit-aa1", '''
     x: Big
     y: Big
 
-    fun pick(?self, first: Bool) -> ?Big
-      ?self.x if first else ?self.y
+    fun pick(?@, first: Bool) -> ?Big
+      ?@x if first else ?@y
 
-    fun pickw(!self, first: Bool) -> !Big
+    fun pickw(!@, first: Bool) -> !Big
       if first
-        !self.x
+        !@x
       else
-        !self.y
+        !@y
 
   fun total(b: ?Big) -> Int
     b.a + b.b + b.c
@@ -3832,8 +3832,8 @@ test "audit-emit-dd1", '''
   obj W[T]
     v: T
 
-    fun with(?self, f: ?fun(?T) -> Int) -> Int
-      f(?self.v)
+    fun with(?@, f: ?fun(?T) -> Int) -> Int
+      f(?@v)
 
   fun apply[T](xs: []T, f: ?fun(?T) -> Int) -> Int
     t = 0
@@ -3876,7 +3876,7 @@ test "audit-emit-ee2", "3"
   obj W[T]
     v: T
 
-    fun get(?self) -> Int
+    fun get(?@) -> Int
       Self = 3
       Self
 
@@ -3932,8 +3932,8 @@ test "audit-emit-f1", '''
 
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     cb: *fun(Int) -> Int
@@ -4004,20 +4004,20 @@ test "audit-emit-g1", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   obj Node
     v: Int
     r: R
     next: ^Node?
 
-    sub bump(!self)
-      self.v += 1
+    sub bump(!@)
+      @v += 1
 
-    fun total(?self) -> Int
-      t = self.v
-      if ?self.next as n
+    fun total(?@) -> Int
+      t = @v
+      if ?@next as n
         t += n.total()
       t
 
@@ -4030,8 +4030,8 @@ test "audit-emit-g1", '''
   obj W[T]
     item: T
 
-    fun get(?self) -> ?T
-      ?self.item
+    fun get(?@) -> ?T
+      ?@item
 
   fun first[T](w: ?W[T]) -> ?T
     w.get()
@@ -4069,8 +4069,8 @@ test "audit-emit-h1", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   obj S
     a: ^R
@@ -4100,8 +4100,8 @@ test "audit-emit-h1", '''
 fail "audit-emit-i1", "`a` owns an `R`, which can't be copied out by `break`: write `<a` to move it"
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   a = R(n: 1)
   r = for i in 0..3
@@ -4114,8 +4114,8 @@ fail "audit-emit-i1", "`a` owns an `R`, which can't be copied out by `break`: wr
 fail "audit-emit-i3", "`a` owns an `R`, which can't be copied out by `break`: write `<a` to move it"
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   a = R(n: 1)
   r = while true
@@ -4134,8 +4134,8 @@ test "audit-emit-i4", '''
 
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   fun mk(k: Int) -> R!
     return E.bad if k < 0
@@ -4168,8 +4168,8 @@ fail "audit-emit-ii", "use of `v` after move"
 fail "audit-emit-ii2", "a `defer` body cannot move or drop `r`; it runs when the scope exits"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun f() -> R
     r = R(n: 1)
@@ -4329,8 +4329,8 @@ test "audit-emit-mm", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Sh
     c(r: R, k: Int)
@@ -4395,8 +4395,8 @@ test "audit-emit-mod", '''
       pub a: T
       pub b: T
 
-      pub fun sum(?self) -> T
-        self.a + self.b
+      pub fun sum(?@) -> T
+        @a + @b
 
 test "audit-emit-mod3", "-3.4028235e38 1.7976931348623157e308"
   use lib
@@ -4425,13 +4425,13 @@ test "audit-emit-nn", '''
     ok(v: T)
     err(code: Int)
 
-    fun get_or(?self, d: T) -> T
-      match self
+    fun get_or(?@, d: T) -> T
+      match @
         .ok(v) if v != d => v
         _ => d
 
-    fun code_of(?self) -> Int
-      match self
+    fun code_of(?@) -> Int
+      match @
         .err(c) if c > 3 => c
         .err(c) => -c
         .ok(_) => 0
@@ -4494,20 +4494,20 @@ test "audit-emit-p1", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   obj Stack[T]
     items: List[T]
 
-    sub push(!self, x: T)
-      !self.items.push(<x)
+    sub push(!@, x: T)
+      !@items.push(<x)
 
-    fun pop(!self) -> T?
-      (!self.items).pop()
+    fun pop(!@) -> T?
+      (!@items).pop()
 
-    fun size(?self) -> Int
-      self.items.len
+    fun size(?@) -> Int
+      @items.len
 
   fun keep[T](x: T) -> T
     x
@@ -4556,8 +4556,8 @@ test "audit-emit-q1", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   fun mk(k: Int) -> R?
     return none if k < 0

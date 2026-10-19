@@ -23,11 +23,11 @@ test "syntax-review-designer-p15 ret elem", "9"
   obj Bag
     items: List[P]
 
-    fun first(?self) -> ?P
-      ?self.items[0]
+    fun first(?@) -> ?P
+      ?@items[0]
 
-    fun first_mut(!self) -> !P
-      !self.items[0]
+    fun first_mut(!@) -> !P
+      !@items[0]
 
   b = Bag(items: List())
   !b.items.push(P(x: 1))
@@ -48,11 +48,11 @@ test "syntax-review-designer-p16 view iter", '''
     bag: ?Bag
     i: Int
 
-    fun next(!self) -> Int?
-      if self.i >= 4
+    fun next(!@) -> Int?
+      if @i >= 4
         return none
-      self.i += 1
-      self.bag.items[self.i - 1]
+      @i += 1
+      @bag.items[@i - 1]
 
   fun iter(b: ?Bag) -> Iter
     Iter(bag: b, i: 0)
@@ -125,8 +125,8 @@ test "syntax-review-designer-p31 over", "7"
   obj Bag
     items: List[P]
 
-    fun find(?self, key: ?Key) -> ?P
-      ?self.items[key.k]
+    fun find(?@, key: ?Key) -> ?P
+      ?@items[key.k]
 
   b = Bag(items: List())
   !b.items.push(P(x: 7))
@@ -164,15 +164,15 @@ test "syntax-review-designer-p34 generic eq fn", "1 none"
     keys: List[K]
     vals: List[V]
 
-    fun get(?self, k: K) -> V?
-      for key, i in self.keys
+    fun get(?@, k: K) -> V?
+      for key, i in @keys
         if key == k
-          return self.vals[i]
+          return @vals[i]
       none
 
-    sub put(!self, k: K, v: V)
-      !self.keys.push(k)
-      !self.vals.push(v)
+    sub put(!@, k: K, v: V)
+      !@keys.push(k)
+      !@vals.push(v)
 
   m = Map[?String, Int](keys: List(), vals: List())
   !m.put("a", 1)
@@ -218,8 +218,8 @@ test "syntax-review-designer-p37 or", "warm"
 test "syntax-review-designer-p38 setbool", "3"
   obj S
     n: Int
-    fun add(!self, k: Int) -> Bool
-      self.n += k
+    fun add(!@, k: Int) -> Bool
+      @n += k
       true
 
   s = S(n: 0)
@@ -238,11 +238,11 @@ test "syntax-review-readability-closures", '''
     label: ?String
     handlers: List[*sub(Int)]
 
-    sub on_click(!self, h: *sub(Int))
-      !self.handlers.push(<h)
+    sub on_click(!@, h: *sub(Int))
+      !@handlers.push(<h)
 
-    sub click(?self, times: Int)
-      for h in ?self.handlers
+    sub click(?@, times: Int)
+      for h in ?@handlers
         h(times)
 
   fun count_if(xs: []Int, keep: ?fun(Int) -> Bool) -> Int
@@ -293,33 +293,33 @@ test "syntax-review-readability-list", '''
     head: ^Node? = none
     len: Int = 0
 
-    sub push(!self, v: Int)
-      self.head = ^Node(value: v, next: <self.head)
-      self.len += 1
+    sub push(!@, v: Int)
+      @head = ^Node(value: v, next: <@head)
+      @len += 1
 
-    fun pop(!self) -> Int?
-      if <self.head as n
-        self.head = <n.next
-        self.len -= 1
+    fun pop(!@) -> Int?
+      if <@head as n
+        @head = <n.next
+        @len -= 1
         return n.value
       none
 
-    fun sum(?self) -> Int
+    fun sum(?@) -> Int
       total = 0
-      cur = ?self.head
+      cur = ?@head
       while cur as n
         total += n.value
         cur = ?n.next
       total
 
-    sub each(?self, f: ?sub(Int))
-      cur = ?self.head
+    sub each(?@, f: ?sub(Int))
+      cur = ?@head
       while cur as n
         f(n.value)
         cur = ?n.next
 
-    sub bump_all(!self, by: Int)
-      bump(!self.head, by)
+    sub bump_all(!@, by: Int)
+      bump(!@head, by)
 
   sub bump(slot: !^Node?, by: Int)
     if !slot as n
@@ -359,8 +359,8 @@ test "syntax-review-symmetry-p as while qo as x", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   while ?o as x
@@ -373,8 +373,8 @@ test "syntax-review-symmetry-p as while wo as x", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   while !o as x
@@ -441,8 +441,8 @@ test "syntax-review-symmetry-p discard move", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   r = R(n: 1)
   _ = <r
@@ -552,8 +552,8 @@ test "syntax-review-symmetry-p last neg sub", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun f(r: R) -> Int
     <r
@@ -567,8 +567,8 @@ test "syntax-review-symmetry-p match box write", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     full(r: R)
@@ -598,8 +598,8 @@ test "syntax-review-symmetry-p match me", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     full(r: R)
@@ -623,8 +623,8 @@ test "syntax-review-symmetry-p match qe", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     full(r: R)
@@ -643,8 +643,8 @@ test "syntax-review-symmetry-p match we", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     full(r: R)
@@ -662,8 +662,8 @@ test "syntax-review-symmetry-p match write payload", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     full(r: R)
@@ -890,20 +890,20 @@ test "syntax-review-ux-c3", '''
     head: Int = 0
     tail: Int = 0
 
-    fun empty(?self) -> Bool
-      self.head == self.tail
+    fun empty(?@) -> Bool
+      @head == @tail
 
-    fun push(!self, b: U8) -> Bool
-      next = (self.tail + 1) % n
-      return false if next == self.head
-      self.buf[self.tail] = b
-      self.tail = next
+    fun push(!@, b: U8) -> Bool
+      next = (@tail + 1) % n
+      return false if next == @head
+      @buf[@tail] = b
+      @tail = next
       true
 
-    fun pop(!self) -> U8?
-      return none if self.empty()
-      b = self.buf[self.head]
-      self.head = (self.head + 1) % n
+    fun pop(!@) -> U8?
+      return none if @empty()
+      b = @buf[@head]
+      @head = (@head + 1) % n
       b
 
   fun popcount(x: U32) -> Int
@@ -1164,22 +1164,22 @@ test "syntax-review-ux-rs4", '''
     head: ^Node?
     len: Int = 0
 
-    sub push(!self, v: Int)
-      old = <self.head
-      self.head = ^Node(val: v, next: <old)
-      self.len += 1
+    sub push(!@, v: Int)
+      old = <@head
+      @head = ^Node(val: v, next: <old)
+      @len += 1
 
-    fun pop(!self) -> Int?
-      if <self.head as b
+    fun pop(!@) -> Int?
+      if <@head as b
         n = <b.unbox()
-        self.head = <n.next
-        self.len -= 1
+        @head = <n.next
+        @len -= 1
         return n.val
       none
 
-    fun sum(?self) -> Int
+    fun sum(?@) -> Int
       total = 0
-      cur = ?self.head
+      cur = ?@head
       while cur as n
         total += n.val
         cur = ?n.next
@@ -1247,8 +1247,8 @@ test "syntax-review-ux-rs7", '''
 '''
   obj Job
     id: Int
-    drop(!self)
-      print("free", self.id)
+    drop(!@)
+      print("free", @id)
 
   jobs: List[*Job] = List()
   !jobs.push(*Job(id: 1))
@@ -1334,11 +1334,11 @@ test "t-m1", '''
     a: List[Int]
     b: Int
 
-    fun count(?self, n: Int) -> Int
-      self.a.len + n
+    fun count(?@, n: Int) -> Int
+      @a.len + n
 
-    sub add(!self, n: Int)
-      !self.a.push(n)
+    sub add(!@, n: Int)
+      !@a.push(n)
 
   fun grow(v: !List[Int]) -> Int
     !v.push(7)
@@ -1368,8 +1368,8 @@ fail "t-m2", "cannot lend `s.a` to write while a read loan on `s` is live"
     a: List[Int]
     b: Int
 
-    fun count(?self, n: Int) -> Int
-      self.a.len + n
+    fun count(?@, n: Int) -> Int
+      @a.len + n
 
   fun grow(v: !List[Int]) -> Int
     !v.push(7)

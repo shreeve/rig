@@ -238,15 +238,15 @@ fail "optwrite-review-d15-call-result-view", "cannot return a view of `x`, which
   set(!h)
   print(h.inner.s)
 
-fail "optwrite-review-d18-byvalue-self", "cannot store a view of `self` through `w ?? return`: `w` outlives it"
+fail "optwrite-review-d18-byvalue-self", "cannot store a view of `@` through `w ?? return`: `w` outlives it"
   obj H
     s: ?String
 
   obj Src
     n: String
 
-    sub give(<self, w: (!H)?)
-      (w ?? return).s = ?self.n
+    sub give(<@, w: (!H)?)
+      (w ?? return).s = ?@n
 
   t = String("outer")
   h = H(s: ?t)
@@ -365,8 +365,8 @@ test "optwrite-review-f05-reads-ok", '''
     s: ?String
     n: Int
 
-    fun len(?self) -> Int
-      self.n
+    fun len(?@) -> Int
+      @n
 
   sub set(w: (!H)?, v: ?String) keeps v
     if w as r
@@ -420,8 +420,8 @@ fail "optwrite-review-g03-method-param-caller", "`src` does not live long enough
   obj Src
     n: String
 
-    sub give(?self, w: (!H)?) keeps self
-      (w ?? return).s = ?self.n
+    sub give(?@, w: (!H)?) keeps @
+      (w ?? return).s = ?@n
 
   t = String("outer")
   h = H(s: ?t)
@@ -437,8 +437,8 @@ test "optwrite-review-g04-method-param-ok", "src"
   obj Src
     n: String
 
-    sub give(?self, w: (!H)?) keeps self
-      (w ?? return).s = ?self.n
+    sub give(?@, w: (!H)?) keeps @
+      (w ?? return).s = ?@n
 
   src = Src(n: String("src"))
   t = String("outer")
@@ -658,8 +658,8 @@ test "optwrite-review-k01-read-then-local-store-ok", '''
     a: ?String
     b: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.b = v
+    sub put(!@, v: ?String) keeps v
+      @b = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -685,8 +685,8 @@ test "optwrite-review-k03-local-holds-param-ok", '''
     a: ?String
     b: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.b = v
+    sub put(!@, v: ?String) keeps v
+      @b = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -712,8 +712,8 @@ test "optwrite-review-k03b-plain-local-holds-ok", '''
     a: ?String
     b: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.b = v
+    sub put(!@, v: ?String) keeps v
+      @b = v
 
   sub set(w: !H)
     d = String("local")
@@ -771,8 +771,8 @@ test "optwrite-review-l01-self-copy-ok", "a a a a"
     s: ?String
     t: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.t = v
+    sub keep(!@, v: ?String) keeps v
+      @t = v
 
   sub set(w: (!H)?, g: (!H)?) keeps w
     x = <w ?? return
@@ -1071122,8 +1071122,8 @@ test "p-co", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun maybe(k: Int) -> N?
     N(id: k) if k > 0 else none
@@ -1071186,28 +1071186,28 @@ test "p-it", '''
     sep: ?String
     done: Bool
 
-    fun next(!self) -> (?String)?
-      return none if self.done
-      at = find(self.rest, self.sep) ?? -1
+    fun next(!@) -> (?String)?
+      return none if @done
+      at = find(@rest, @sep) ?? -1
       if at < 0
-        self.done = true
-        return self.rest
-      part = self.rest[..at]
-      self.rest = self.rest[at + self.sep.len..]
+        @done = true
+        return @rest
+      part = @rest[..at]
+      @rest = @rest[at + @sep.len..]
       part
 
   obj Lines
     rest: ?String
 
-    fun next(!self) -> (?String)?
-      return none if self.rest.len == 0
-      end = find(self.rest, "\n") ?? -1
+    fun next(!@) -> (?String)?
+      return none if @rest.len == 0
+      end = find(@rest, "\n") ?? -1
       if end < 0
-        line = self.rest
-        self.rest = ""
+        line = @rest
+        @rest = ""
         return line
-      line = self.rest[..end]
-      self.rest = self.rest[end + 1..]
+      line = @rest[..end]
+      @rest = @rest[end + 1..]
       strip_suffix(line, "\r") ?? line
 
   obj Cut
@@ -1071251,10 +1071251,10 @@ fail "p-it2", "cannot lend `t` to write while a read loan is live"
   obj Split
     rest: ?String
 
-    fun next(!self) -> (?String)?
-      return none if self.rest.len == 0
-      part = self.rest[..1]
-      self.rest = self.rest[1..]
+    fun next(!@) -> (?String)?
+      return none if @rest.len == 0
+      part = @rest[..1]
+      @rest = @rest[1..]
       part
 
   obj Cut
@@ -1071368,8 +1071368,8 @@ test "purity-designer-q02 drop tail sub", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub g(r: R)
     <r
@@ -1071380,10 +1071380,10 @@ test "purity-designer-q02 drop tail sub", '''
 test "purity-designer-q09 self typed", "1 1"
   obj P
     x: Int
-    fun get(self: ?Self) -> Int
-      self.x
-    fun get2(self: Self) -> Int
-      self.x
+    fun get(?@) -> Int
+      @x
+    fun get2(<@) -> Int
+      @x
 
   p = P(x: 1)
   print(p.get(), <p.get2())
@@ -1071424,7 +1071424,7 @@ test "purity-designer-r07 vec index owning", '''
 '''
   obj R
     n: Int
-    drop(!self)
+    drop(!@)
       print("d")
 
   v: List[*R] = List()
@@ -1071458,7 +1071458,7 @@ test "purity-designer-s04 vec write elem", '''
 '''
   obj R
     n: Int
-    drop(!self)
+    drop(!@)
       print("d")
 
   v: List[^R] = List()
@@ -1071483,7 +1071483,7 @@ test "purity-designer-s15 owned closure owning", '''
 '''
   obj R
     n: Int
-    drop(!self)
+    drop(!@)
       print("d")
 
   f: *sub(R) = *|r| print(r.n)
@@ -1071505,8 +1071505,8 @@ test "purity-designer-t02 generic filter", "1"
 test "purity-designer-t09 nested generic pub", "6"
   obj W[T]
     v: T
-    fun map[U](?self, f: ?fun(T) -> U) -> W[U]
-      W(v: f(self.v))
+    fun map[U](?@, f: ?fun(T) -> U) -> W[U]
+      W(v: f(@v))
 
   w = W(v: 2)
   print(w.map(|x| x * 3).v)
@@ -1071547,7 +1071547,7 @@ test "purity-designer-x02 match owning bare", '''
 '''
   obj R
     n: Int
-    drop(!self)
+    drop(!@)
       print("d")
 
   enum S
@@ -1071593,15 +1071593,15 @@ test "purity-newbie-bank", '''
     owner: ?String
     balance: Int = 0
 
-    sub deposit(!self, amount: Int)!
+    sub deposit(!@, amount: Int)!
       if amount <= 0
         return BankError.invalid_amount
-      self.balance += amount
+      @balance += amount
 
-    sub withdraw(!self, amount: Int)!
-      if amount > self.balance
+    sub withdraw(!@, amount: Int)!
+      if amount > @balance
         return BankError.insufficient_funds
-      self.balance -= amount
+      @balance -= amount
 
   acct = Account(owner: "Ada")
   !acct.deposit(100)!
@@ -1071623,12 +1071623,12 @@ test "purity-newbie-bank2", '''
     owner: ?String
     balance: Int = 0
 
-    sub deposit(!self, amount: Int)
-      self.balance += amount
+    sub deposit(!@, amount: Int)
+      @balance += amount
 
-    sub withdraw(!self, amount: Int)!
-      return BankError.insufficient_funds if amount > self.balance
-      self.balance -= amount
+    sub withdraw(!@, amount: Int)!
+      return BankError.insufficient_funds if amount > @balance
+      @balance -= amount
 
   sub transfer(from: !Account, to: !Account, amount: Int)!
     !from.withdraw(amount)!

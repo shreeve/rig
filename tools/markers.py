@@ -29,14 +29,14 @@ called fun tiny(a: Int) -> Int
 obj Wrap[T]
   value: T
 
-  inline fun get(?self) -> T
-    self.value
+  inline fun get(?@) -> T
+    @value
 
-  rarely fun peek(?self) -> T
-    self.value
+  rarely fun peek(?@) -> T
+    @value
 
-  called fun same(?self) -> T
-    self.value
+  called fun same(?@) -> T
+    @value
 
 inline fun larger[T](a: T, b: T) -> T
   a if a > b else b

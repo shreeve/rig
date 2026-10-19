@@ -7,7 +7,7 @@
 obj Acc[T]
   v: T
 
-  fun bump(?self, n: Int) -> Int
+  fun bump(?@, n: Int) -> Int
     m = n
     m += 1
     m

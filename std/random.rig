@@ -18,42 +18,42 @@ pub obj Random unique
     Random(state: entropy())
 
   # The next 64 random bits.
-  pub fun next(!self) -> U64
-    self.state = self.state +% 0x9e3779b97f4a7c15
-    z = self.state
+  pub fun next(!@) -> U64
+    @state = @state +% 0x9e3779b97f4a7c15
+    z = @state
     z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9
     z = (z ^ (z >> 27)) *% 0x94d049bb133111eb
     z ^ (z >> 31)
 
   # A new generator, seeded from this one's next number.
-  pub fun fork(!self) -> Random
-    Random(state: (!self).next())
+  pub fun fork(!@) -> Random
+    Random(state: (!@).next())
 
   # An `Int` from `lo` up to but not including `hi`, each equally
   # likely. Panics unless `lo < hi`.
-  pub fun int(!self, lo: Int, hi: Int) -> Int
+  pub fun int(!@, lo: Int, hi: Int) -> Int
     check_range(lo, hi)
     # The number of values, which fits a `U64` even for the widest range.
     n = as_u64(hi -% lo)
     # Rejecting the few smallest values leaves a whole number of runs
     # of `n`, so every result is equally likely.
     t = (0 -% n) % n
-    x = (!self).next()
+    x = (!@).next()
     while x < t
-      x = (!self).next()
+      x = (!@).next()
     # `lo` plus less than `n` is below `hi`, so it fits an `Int`.
     lo +% as_int(x % n)
 
   # A `Float` from 0 up to but not including 1.
-  pub fun float(!self) -> Float
-    Float((!self).next() >> 11) / 9007199254740992.0
+  pub fun float(!@) -> Float
+    Float((!@).next() >> 11) / 9007199254740992.0
 
   # Put the elements of `xs` in a random order, each order equally
   # likely (Fisher-Yates).
-  pub sub shuffle[T](!self, xs: ![]T)
+  pub sub shuffle[T](!@, xs: ![]T)
     i = xs.len - 1
     while i > 0 : i -= 1
-      !xs.swap(i, (!self).int(0, i + 1))
+      !xs.swap(i, (!@).int(0, i + 1))
 
 # The same 64 bits as the other type.
 fun as_u64(n: Int) -> U64

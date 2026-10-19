@@ -3,8 +3,8 @@
 test "review-revamp-rest-p6-g04", "8"
   obj W[T]
     v: T
-    fun apply(?self, f: ?fun(T) -> T) -> T
-      f(self.v)
+    fun apply(?@, f: ?fun(T) -> T) -> T
+      f(@v)
 
   fun dbl(x: Int) -> Int
     x * 2
@@ -81,8 +81,8 @@ test "review-revamp-rest-p7-n2", '''
 test "review-revamp-rest-p8-c1", "42"
   obj P
     n: Int
-    fun plus(?self, k: Int) -> Int
-      self.n + k
+    fun plus(?@, k: Int) -> Int
+      @n + k
 
   fun grow(c: !*Cell[List[P]]) -> Int
     for i in 0..1000
@@ -100,8 +100,8 @@ test "review-revamp-rest-p8-c3", "42"
 
   obj P
     n: Int
-    fun plus(?self, k: Int) -> Int
-      self.n + k
+    fun plus(?@, k: Int) -> Int
+      @n + k
 
   fun grow(c: !*Cell[List[P]]) -> Int!
     for i in 0..10000
@@ -119,8 +119,8 @@ test "review-revamp-rest-p8-c3", "42"
 fail "review-revamp-rest-p8-c4", "cannot lend `v` to write while a read loan is live"
   obj P
     n: Int
-    fun plus(?self, k: Int) -> Int
-      self.n + k
+    fun plus(?@, k: Int) -> Int
+      @n + k
 
   fun grow(v: !List[P]) -> Int?
     for i in 0..10000
@@ -140,8 +140,8 @@ test "review-revamp-rest-p8-c5", "43"
 
   obj P
     n: Int
-    fun use(?self, a: List[Int], b: List[Int]) -> Int
-      self.n + a.len + b.len
+    fun use(?@, a: List[Int], b: List[Int]) -> Int
+      @n + a.len + b.len
 
   fun mk(c: !*Cell[List[P]]) -> List[Int]!
     for i in 0..10000
@@ -164,9 +164,9 @@ test "review-revamp-rest-p8-c7", "4 2 2"
 
   obj P
     n: Int
-    fun use(!self, a: List[Int], b: List[Int]) -> Int
-      self.n += 1
-      self.n + a.len + b.len
+    fun use(!@, a: List[Int], b: List[Int]) -> Int
+      @n += 1
+      @n + a.len + b.len
 
   fun mk(n: Int) -> List[Int]!
     return E.bad if n < 0
@@ -378,8 +378,8 @@ test "review-rule2-cell-handle-module", '''
     pub obj Box[T]
       pub c: *Cell[T]
 
-      pub sub put(?self, v: T)
-        h = +self.c
+      pub sub put(?@, v: T)
+        h = +@c
         (!h).set(v)
 
     pub sub put(c: *Cell[List[Int]], v: Int)
@@ -506,7 +506,7 @@ test "review-rule2-name-module", '''
     pub obj Box[T]
       pub v: T
 
-      pub fun self_name(?self) -> ?String
+      pub fun self_name(?@) -> ?String
         $name(Self?)
 
     pub fun nm[T](x: T) -> ?String
@@ -690,8 +690,8 @@ test "review-sc3-c1", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun p(k: Int) -> Int!
     return E.bad if k == 0
@@ -741,8 +741,8 @@ test "review-sc3-c2", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun make(k: Int) -> Res?
     Res(id: k) if k > 0 else none
@@ -825,8 +825,8 @@ test "review-sc3-dr14", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj H
     r: Res
@@ -880,17 +880,17 @@ test "review-sc3-ei", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj Node
     next: Res?
     alt: Res?
 
-    fun take2(!self) -> Int
-      if <self.next as a and <self.alt as b
+    fun take2(!@) -> Int
+      if <@next as a and <@alt as b
         a.id + b.id
-      else if <self.alt as c and c.id > 0
+      else if <@alt as c and c.id > 0
         c.id
       else
         -1
@@ -926,8 +926,8 @@ test "review-sc3-fb", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun get(k: Int) -> Int?
     k if k != 2 else none
@@ -983,8 +983,8 @@ test "review-sc3-j2", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun get(k: Int) -> Int?
     k if k > 0 else none
@@ -1039,8 +1039,8 @@ fail "review-sc3-j4", "use of `r` after move"
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun get(k: Int) -> Int?
     k if k > 0 else none
@@ -1108,8 +1108,8 @@ test "review-sc3-j6", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun parse(r: ?Res) -> Int!
     return E.bad if r.id == 2
@@ -1204,10 +1204,10 @@ test "review-sc3-n1", '''
 '''
   obj Set
     items: List[Int]
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
 
   fun get(k: Int) -> Int?
@@ -1227,8 +1227,8 @@ test "review-sc3-ng10", "-3.5"
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   x = 3.5
   print(-x)
@@ -1237,8 +1237,8 @@ test "review-sc3-ng12", "-3"
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   x = 3
   v = while true
@@ -1249,8 +1249,8 @@ test "review-sc3-ng2", "drop 1"
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   a = Res(id: 1)
   <a
@@ -1259,8 +1259,8 @@ test "review-sc3-ng4", "-3"
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun f(x: Int, c: Bool) -> Int
     if c
@@ -1274,8 +1274,8 @@ test "review-sc3-ng5", "-1"
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun f(x: Int) -> Int
     match x
@@ -1296,8 +1296,8 @@ fail "review-sc3-oo", "`o` owns an `N?`, which can't be copied by `=`: write `<o
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub t(k: Int)
     o: N? = N(id: k) if k > 0 else none
@@ -1321,8 +1321,8 @@ test "review-sc3-oo2", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun make(k: Int) -> N?
     N(id: k) if k > 0 else none
@@ -1349,8 +1349,8 @@ test "review-sc3-pp", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub f(o: ?(Res?), p: !(Res?))
     if o as a and !p as b and a.id < b.id
@@ -1406,8 +1406,8 @@ test "review-sc3-sl", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj Pair
     a: Res
@@ -1480,11 +1480,11 @@ test "review-sc3-tp", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
-    fun val(?self, k: Int) -> Int?
-      self.id if k > 0 else none
+    fun val(?@, k: Int) -> Int?
+      @id if k > 0 else none
 
   fun mkv(k: Int) -> List[Int]
     v: List[Int] = List()
@@ -1537,8 +1537,8 @@ test "review-sc4-a1b", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun next(b: ?B) -> B
     B(n: b.n + 1)
@@ -1588,8 +1588,8 @@ test "review-sc4-bx", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B, k: Int)
@@ -1650,8 +1650,8 @@ test "review-sc4-c1", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Pair
     two(a: *B, b: *B)
@@ -1699,8 +1699,8 @@ test "review-sc4-cw", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     n: Int
@@ -1725,8 +1725,8 @@ fail "review-sc4-d2", "`eat` takes ownership of a `*B`, and `o` can't be copied:
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -1746,8 +1746,8 @@ fail "review-sc4-dg", "`b` does not live long enough"
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: B)
@@ -1764,8 +1764,8 @@ fail "review-sc4-dg2", "`v` does not live long enough"
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: B, v: List[Int])
@@ -1782,8 +1782,8 @@ fail "review-sc4-dg3", "`b` does not live long enough"
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj V
     b: ?B
@@ -1836,8 +1836,8 @@ fail "review-sc4-f1", "cannot move out of `h.s`: `h` would still drop it (partia
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -1870,8 +1870,8 @@ test "review-sc4-gen1", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Opt[T]
     some(v: T)
@@ -1922,8 +1922,8 @@ test "review-sc4-k1", "1 11"
   obj Counter
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   sub bump(c: !Counter)
     !c.bump()
@@ -1957,8 +1957,8 @@ test "review-sc4-k3", "3"
   obj Counter
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   v: List[Counter] = List()
   !v.push(Counter(n: 1))
@@ -1981,8 +1981,8 @@ test "review-sc4-lp", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -2030,8 +2030,8 @@ test "review-sc4-q1", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Inner
     one(b: *B)
@@ -2083,14 +2083,14 @@ test "review-sc4-r2", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun twin(?self) -> B
-      B(n: self.n * 2)
+    fun twin(?@) -> B
+      B(n: @n * 2)
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   sub show_b(b: ?B)
     print("b", b.n)
@@ -2144,8 +2144,8 @@ test "review-sc4-sa", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = B(n: 1)
   w = !b
@@ -2161,8 +2161,8 @@ test "review-sc4-sa2", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = B(n: 1)
   c = B(n: 2)
@@ -2182,25 +2182,25 @@ test "review-sc4-sf", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
     empty
 
-    fun take(<self, d: *B) -> *B
-      match <self
+    fun take(<@, d: *B) -> *B
+      match <@
         .full(b) if b.n > 0 => b
         _ => <d
 
-    sub bump(!self)
-      match !self
+    sub bump(!@)
+      match !@
         .full(b) if b.n < 10 => b = *B(n: b.n + 10)
         _ => print("big")
 
-    fun peek(?self) -> Int
-      match self
+    fun peek(?@) -> Int
+      match @
         .full(b) if b.n > 0 => b.n
         _ => 0
 
@@ -2221,8 +2221,8 @@ test "review-sc4-t1", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -2253,8 +2253,8 @@ test "review-sc4-t2", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -2292,8 +2292,8 @@ fail "review-sc4-tr", "`r` is bound but never read; name it `_` to ignore the va
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Tree
     leaf(b: *B)
@@ -2439,8 +2439,8 @@ fail "review-sc4-w3", "cannot reassign `s` while it is lent"
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -2473,8 +2473,8 @@ test "review-sc5-c2", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   fun first(s: ?String) -> U8?
     s.get(0)

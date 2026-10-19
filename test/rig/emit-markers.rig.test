@@ -43,14 +43,14 @@ code "markers each shape", "pub inline fn big(__rig_in_a: i64) i64 {", "pub inli
   obj Wrap[T]
     value: T
 
-    inline fun get(?self) -> T
-      self.value
+    inline fun get(?@) -> T
+      @value
 
-    rarely fun peek(?self) -> T
-      self.value
+    rarely fun peek(?@) -> T
+      @value
 
-    called fun same(?self) -> T
-      self.value
+    called fun same(?@) -> T
+      @value
 
   inline fun larger[T](a: T, b: T) -> T
     a if a > b else b
@@ -97,14 +97,14 @@ code "markers none, the compiler's rule decides", "pub fn big(a: i64) i64 {", "p
   obj Wrap[T]
     value: T
 
-    fun get(?self) -> T
-      self.value
+    fun get(?@) -> T
+      @value
 
-    fun peek(?self) -> T
-      self.value
+    fun peek(?@) -> T
+      @value
 
-    fun same(?self) -> T
-      self.value
+    fun same(?@) -> T
+      @value
 
   fun larger[T](a: T, b: T) -> T
     a if a > b else b
@@ -149,14 +149,14 @@ test "markers change no meaning", "5230176601 3 2 2 2 2 4", release: true
   obj Wrap[T]
     value: T
 
-    inline fun get(?self) -> T
-      self.value
+    inline fun get(?@) -> T
+      @value
 
-    rarely fun peek(?self) -> T
-      self.value
+    rarely fun peek(?@) -> T
+      @value
 
-    called fun same(?self) -> T
-      self.value
+    called fun same(?@) -> T
+      @value
 
   inline fun larger[T](a: T, b: T) -> T
     a if a > b else b
@@ -201,14 +201,14 @@ test "markers none change no meaning", "5230176601 3 2 2 2 2 4", release: true
   obj Wrap[T]
     value: T
 
-    fun get(?self) -> T
-      self.value
+    fun get(?@) -> T
+      @value
 
-    fun peek(?self) -> T
-      self.value
+    fun peek(?@) -> T
+      @value
 
-    fun same(?self) -> T
-      self.value
+    fun same(?@) -> T
+      @value
 
   fun larger[T](a: T, b: T) -> T
     a if a > b else b

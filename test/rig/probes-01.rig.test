@@ -5,7 +5,7 @@ test "R11a-P2 unused type param", "true"
     on
     off
 
-    fun flip(?self) -> Tag[T]
+    fun flip(?@) -> Tag[T]
       .on
 
   t: Tag[Int] = .off
@@ -17,8 +17,8 @@ fail "R11a-a2", "only module `lib` can construct `lib.Wrap`: its field `v` is pr
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     w = lib.Wrap(v: Res(n: 1))
@@ -30,16 +30,16 @@ fail "R11a-a2", "only module `lib` can construct `lib.Wrap`: its field `v` is pr
     pub obj Wrap[T]
       v: T
 
-      fun get(?self) -> T
-        self.v
+      fun get(?@) -> T
+        @v
 
     pub obj Keep[T]
       items: List[T]
 
-      fun peek(?self) -> T
-        for x in ?self.items
+      fun peek(?@) -> T
+        for x in ?@items
           return <x
-        self.items[0]
+        @items[0]
 
 fail "R11a-a4", "only module `lib` can construct `lib.Wrap`: its field `c` is private; declare every field `pub` there, or make the value with a `pub` function of `lib`"
   use lib
@@ -48,8 +48,8 @@ fail "R11a-a4", "only module `lib` can construct `lib.Wrap`: its field `c` is pr
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     w = lib.Wrap(c: util.Cell2(v: Res(n: 1)))
@@ -66,8 +66,8 @@ fail "R11a-a4", "only module `lib` can construct `lib.Wrap`: its field `c` is pr
     pub obj Ord[T]
       v: T
 
-      fun bigger(?self, o: ?Self) -> Bool
-        util.big(self.v, o.v) == self.v
+      fun bigger(?@, o: ?Self) -> Bool
+        util.big(@v, o.v) == @v
 
   file "util.rig"
     pub fun big[T](a: T, b: T) -> T
@@ -80,8 +80,8 @@ fail "R11a-a4", "only module `lib` can construct `lib.Wrap`: its field `c` is pr
     pub obj Cell2[T]
       v: T
 
-      fun get(?self) -> T
-        self.v
+      fun get(?@) -> T
+        @v
 
     pub fun deep[T](x: T) -> Bool
       x == x
@@ -120,8 +120,8 @@ fail "R11a-d4", "only module `lib` can construct `lib.Bag`: its fields `items`, 
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun run() -> Int!
     a = lib.check(Res(n: 1), true)!
@@ -164,23 +164,23 @@ fail "R11a-d4", "only module `lib` can construct `lib.Bag`: its fields `items`, 
       items: List[T]
       name: ?String = "bag"
 
-      sub push(!self, x: T)
-        !self.items.push(<x)
+      sub push(!@, x: T)
+        !@items.push(<x)
 
-      fun take(!self) -> List[T]
+      fun take(!@) -> List[T]
         out = List[T]()
-        while self.items.len > 0
-          if (!self.items).pop() as x
+        while @items.len > 0
+          if (!@items).pop() as x
             !out.push(<x)
         out
 
-      fun size(?self) -> Int
-        self.items.len
+      fun size(?@) -> Int
+        @items.len
 
     pub obj Holder[T]
       v: T
 
-      fun done(self: Self) -> Int
+      fun done(<@) -> Int
         7
 
 fail "R11a-d5", "field `first` of `lib.Pair` is private to module `lib`; declare it `pub first: ...` there to use it from here"
@@ -189,8 +189,8 @@ fail "R11a-d5", "field `first` of `lib.Pair` is private to module `lib`; declare
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     r = Res(n: 1)
@@ -230,13 +230,13 @@ fail "R11a-e1", "only module `lib` can construct `lib.Wrap`: its fields `v`, `n`
       n: Int = 5
       c: Color = .green
 
-      fun add(?self, k: Int = 5) -> Int
-        self.n + k
+      fun add(?@, k: Int = 5) -> Int
+        @n + k
 
-      fun more[U](?self, u: U, k: Int = 300) -> Int
+      fun more[U](?@, u: U, k: Int = 300) -> Int
         k
 
-      fun col(?self, c: Color = .red) -> Bool
+      fun col(?@, c: Color = .red) -> Bool
         c == .red
 
     pub fun f[T](x: T, k: Int = 7) -> Int
@@ -260,7 +260,7 @@ fail "R11a-e2", "method `make` of `lib.Wrap` is private to module `lib`; declare
       fun make(v: T, tag: ?String = "tagdefault", k: Int = 12345) -> ?String
         tag
 
-      fun with[U](?self, u: U, tag: ?String = "withdefault") -> ?String
+      fun with[U](?@, u: U, tag: ?String = "withdefault") -> ?String
         tag
 
 fail "R11a-h5", "compile-time argument 2 of `lib.Ring` is a value of type `Int`, not a type"
@@ -298,7 +298,7 @@ fail "R11a-h5", "compile-time argument 2 of `lib.Ring` is a value of type `Int`,
     pub obj Ring[T, n: Int]
       items: [n]T
 
-      fun cap(?self) -> Int
+      fun cap(?@) -> Int
         n
 
     pub fun make(x: Int) -> Wrap[Int]
@@ -336,15 +336,15 @@ fail "R11a-j7", "`lib.max` takes compile-time parameters, so it can only be call
     pub obj W[T]
       v: T
 
-      fun get(?self) -> T
-        self.v
+      fun get(?@) -> T
+        @v
 
 test "R11a-l1-util", "3 2"
   pub obj Box[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   pub fun big[T](a: T, b: T) -> T
     a if a > b else b
@@ -386,8 +386,8 @@ fail "R11a-p2", "only module `lib` can construct `lib.Two`: its fields `a`, `b` 
       a: A
       b: B
 
-      sub show(?self, pre: ?String = ">", post: ?String = "<")
-        print(pre, self.a, self.b, post)
+      sub show(?@, pre: ?String = ">", post: ?String = "<")
+        print(pre, @a, @b, post)
 
 test "R11a-q2", '''
   drop 3
@@ -399,8 +399,8 @@ test "R11a-q2", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     print(lib.cap3(Res(n: 3)))
@@ -425,8 +425,8 @@ test "R11a-s5l", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun f[T](x: T) -> Int
     v = List[Wrap[T]]()
@@ -459,8 +459,8 @@ test "R11a-s8", '''
       on
       off
 
-      fun flip(?self) -> Self
-        .off if self == .on else .on
+      fun flip(?@) -> Self
+        .off if @ == .on else .on
 
     pub fun tag[T](x: T) -> Tag[T]
       .on
@@ -513,14 +513,14 @@ fail "R11b-cases-nest fp", "only module `lib` can construct `lib.Chain`: its fie
     pub obj Chain[T]
       items: List[T]
 
-      fun map[U](?self, f: fun(T) -> U) -> Chain[U]
+      fun map[U](?@, f: fun(T) -> U) -> Chain[U]
         out: List[U] = List()
-        for x in self.items
+        for x in @items
           !out.push(f(x))
         Chain(items: <out)
 
-      fun count(?self) -> Int
-        self.items.len
+      fun count(?@) -> Int
+        @items.len
 
     pub fun countdown[T](x: T, n: Int) -> Int
       if n == 0
@@ -553,7 +553,7 @@ test "R11b-cases-nest fp3", "3"
   obj Wrap[T]
     v: T
 
-    fun tag[U](?self, u: U) -> Wrap[Wrap[U]]
+    fun tag[U](?@, u: U) -> Wrap[Wrap[U]]
       Wrap(v: Wrap(v: u))
 
   fun make[T](x: T) -> Int
@@ -571,8 +571,8 @@ test "R11b-cases-nest fp4-main2", "1 x"
   obj Wrap[T]
     v: T
 
-    fun tag[U](?self, u: U) -> Wrap[Pair[T, U]]
-      Wrap(v: Pair(a: self.v, b: u))
+    fun tag[U](?@, u: U) -> Wrap[Pair[T, U]]
+      Wrap(v: Pair(a: @v, b: u))
 
   fun make[T](x: T) -> Int
     w = Wrap(v: x)
@@ -603,16 +603,16 @@ test "R11b-cases-nest fp pubsingle", "1"
   pub obj Chain[T]
     items: List[T]
 
-    fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]
+    fun zip[U](?@, other: ?Chain[U]) -> Chain[Pair[T, U]]
       out: List[Pair[T, U]] = List()
       i = 0
-      while i < self.items.len and i < other.items.len
-        !out.push(Pair(a: self.items[i], b: other.items[i]))
+      while i < @items.len and i < other.items.len
+        !out.push(Pair(a: @items[i], b: other.items[i]))
         i += 1
       Chain(items: <out)
 
-    fun count(?self) -> Int
-      self.items.len
+    fun count(?@) -> Int
+      @items.len
 
   v: List[Int] = List()
   !v.push(1)
@@ -625,8 +625,8 @@ fail "R11b-cases-ownchain", "`util.firsts[Res]` cannot use `T = Res`: the generi
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     r = lib.f(Res(n: 1))
@@ -670,8 +670,8 @@ fail "R11b-cases-recursive", "only module `lib` can construct `lib.Node`: its fi
       v: T
       next: (*Node[T])?
 
-      fun val(?self) -> T
-        self.v
+      fun val(?@) -> T
+        @v
 
     pub obj Tree[T]
       kids: List[Tree[T]]
@@ -813,8 +813,8 @@ fail "R11b-perf-p1-u12", "method `get` of `lib.Wrap` is private to module `lib`;
     pub obj Wrap[T]
       v: T
 
-      fun get(?self) -> T
-        self.v
+      fun get(?@) -> T
+        @v
 
     pub fun f0[T](a: T, b: T) -> Int
       if a > b
@@ -2019,22 +2019,22 @@ fail "R11b-perf-p1-u12", "method `get` of `lib.Wrap` is private to module `lib`;
     pub fun g199[T](x: T) -> Wrap[T]
       Wrap(v: x)
 
-fail "R13-s-m-lib", "cannot move `v` out of `self`: `match self` reads `self`; write `match <self` to take its fields"
+fail "R13-s-m-lib", "cannot move `v` out of `@`: `match @` reads `@`; write `match <@` to take its fields"
   pub obj Bag
     items: List[Int]
 
     fun new() -> Bag
       Bag(items: List[Int]())
 
-    fun count(<self) -> Int
-      self.items.len
+    fun count(<@) -> Int
+      @items.len
 
   pub enum Opt[T]
     some(v: T)
     no
 
-    fun or(<self, d: T) -> T
-      match self
+    fun or(<@, d: T) -> T
+      match @
         .some(v) => v
         .no => d
 
@@ -2244,8 +2244,8 @@ fail "R15-p-aa8", "`loc` does not live long enough"
 fail "R15-p-ab1", "use of `b.v` while a write loan on `b` is live"
   obj B
     v: List[Int]
-    fun items(!self) -> ![]Int
-      !self.v[..]
+    fun items(!@) -> ![]Int
+      !@v[..]
 
   b = B(v: List())
   !b.v.push(1)
@@ -2395,8 +2395,8 @@ bomb "R15-p-ah2", "index out of bounds"
 
   obj P
     x: Int
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   a = [P(x: 1)]
   w = !a[..]
@@ -2483,9 +2483,9 @@ fail "R15-p-b1", "cannot lend `b.a` to write while a read loan on `b` is live"
   # method with !self and a ![]T param from the same object
   obj B
     a: [4]Int
-    sub go(!self, s: ![]Int)
+    sub go(!@, s: ![]Int)
       s[0] = 1
-      self.a[0] = 2
+      @a[0] = 2
       print(s[0])
 
   b = B(a: [0, 0, 0, 0])
@@ -2495,8 +2495,8 @@ fail "R15-p-b2", "cannot lend `b.a` to write while a read loan on `b` is live"
   # copy between param write slice and self field
   obj B
     a: [4]Int
-    sub go(!self, s: ![]Int)
-      !s.copy(?self.a[..])
+    sub go(!@, s: ![]Int)
+      !s.copy(?@a[..])
 
   b = B(a: [1, 2, 3, 4])
   !b.go(!b.a[..])
@@ -2782,8 +2782,8 @@ test "R15-p-h5", "[1, 3] [1]"
 test "R15-p-h6", "[9, 2, 3] 1"
   obj P
     x: Int
-    sub set(!self, s: []Int)
-      self.x = s[0]
+    sub set(!@, s: []Int)
+      @x = s[0]
 
   a = [1, 2, 3]
   p = P(x: 0)

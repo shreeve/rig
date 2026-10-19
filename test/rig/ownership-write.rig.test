@@ -99,8 +99,8 @@ fail "write lend branch part of temp", "25:3: cannot lend `mkpair(3).a if c else
   obj S
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj Pair
     a: S
@@ -141,8 +141,8 @@ test "write lend branching part", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -150,8 +150,8 @@ test "write lend branching part", '''
     arr: [3]Int
     kk: K2
 
-    drop(!self)
-      print("drop", self.n, self.t, self.arr, self.kk.n)
+    drop(!@)
+      print("drop", @n, @t, @arr, @kk.n)
 
   error Bad
     no
@@ -203,11 +203,11 @@ test "write lend kept", release: true, '''
   obj S
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun get(!self) -> !Int
-      !self.n
+    fun get(!@) -> !Int
+      !@n
 
   fun through[T](x: !T) -> !T
     x
@@ -304,9 +304,9 @@ test "write lend read result", '''
     items: List[Item]
     count: Int
 
-    fun first(!self) -> ?Item
-      self.count += 1
-      ?self.items[0]
+    fun first(!@) -> ?Item
+      @count += 1
+      ?@items[0]
 
   obj Counter
     n: Int
@@ -438,8 +438,8 @@ fail "write lend read result is rejected", "43:3: cannot lend `v` to write while
     items: List[Item]
     count: Int
 
-    fun first(!self) -> ?Item
-      ?self.items[0]
+    fun first(!@) -> ?Item
+      ?@items[0]
 
   fun first(v: !List[Item]) -> ?Item
     ?v[0]
@@ -563,43 +563,43 @@ test "write lend temporary", '''
   obj P
     k: Int
 
-    sub bump(!self)
-      self.k += 1
+    sub bump(!@)
+      @k += 1
 
-    fun pop(!self) -> Int
-      self.k += 1
-      self.k
+    fun pop(!@) -> Int
+      @k += 1
+      @k
 
-    fun at(!self) -> !Int
-      !self.k
+    fun at(!@) -> !Int
+      !@k
 
   obj Bag
     n: Int
     items: List[Int]
     p: P
 
-    sub bump(!self)
-      self.n += 1
-      print("bumped", self.n)
+    sub bump(!@)
+      @n += 1
+      print("bumped", @n)
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun take(!self) -> List[Int]
-      r = +self.items
-      !r.push(self.n)
+    fun take(!@) -> List[Int]
+      r = +@items
+      !r.push(@n)
       r
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun pick(!self, x: Int, y: Int) -> !Int
-      self.n += x * 10 + y
-      !self.n
+    fun pick(!@, x: Int, y: Int) -> !Int
+      @n += x * 10 + y
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> Bag
     b = Bag(n: n, items: List(), p: P(k: n))
@@ -663,21 +663,21 @@ test "write lend temporary assign", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    sub set(!self, r: ?String) keeps r
-      self.r = r
+    sub set(!@, r: ?String) keeps r
+      @r = r
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("text ", n))
@@ -717,23 +717,23 @@ test "write lend temporary branches", '''
   obj P
     k: Int
 
-    sub bump(!self)
-      self.k += 1
+    sub bump(!@)
+      @k += 1
 
-    fun next(!self) -> Int
-      self.k += 1
-      self.k
+    fun next(!@) -> Int
+      @k += 1
+      @k
 
   obj S
     n: Int
     p: P
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun next(!self) -> Int
-      self.n += 1
-      self.n
+    fun next(!@) -> Int
+      @n += 1
+      @n
 
   error Bad
     no
@@ -789,15 +789,15 @@ test "write lend temporary headers", '''
     items: List[Int]
     o: Int?
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun opt(!self) -> Int?
-      self.o
+    fun opt(!@) -> Int?
+      @o
 
   fun mk() -> B
     b = B(n: 1, items: List(), o: 5)
@@ -836,12 +836,12 @@ test "write lend temporary hoisted", '''
     o: Int?
     arr: [3]Int
 
-    fun pick(!self, x: Int, y: Int) -> !Int
-      self.n += x * 10 + y
-      !self.n
+    fun pick(!@, x: Int, y: Int) -> !Int
+      @n += x * 10 + y
+      !@n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     S(n: n, o: n, arr: [3, 1, 2])
@@ -889,16 +889,16 @@ test "write lend temporary kinds", '''
   obj P
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj Seen
     items: List[Int]
 
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
 
   fun mkh() -> *P
@@ -958,14 +958,14 @@ fail "write lend temporary outlives", "25:5: cannot return a view of `mk()`, whi
     n: Int
     arr: [2]Int
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk() -> S
     S(n: 1, arr: [1, 2])
@@ -999,11 +999,11 @@ fail "write lend temporary rejected", "36:1: `push` changes its receiver, a temp
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
   fun mk() -> S
     S(n: 1, items: List())
@@ -1055,7 +1055,7 @@ test "write lend temporary siblings", '''
   drop 51
 '''
   # `!` lends any temporary to write (Core sentence 4) wherever a write
-  # lend goes: the receiver of a generic type's `!self` method, also in a
+  # lend goes: the receiver of a generic type's `!@` method, also in a
   # generic body, and of a plain struct's; a Text; an array or List lent
   # whole or sliced as a `![]T`; a generic function's `!List[T]`; a call
   # followed by `?` or `!`, or under `catch`; a receiver whose method
@@ -1067,47 +1067,47 @@ test "write lend temporary siblings", '''
   obj Wrap[V]
     v: V
 
-    sub set(!self, v: V)
-      self.v = v
+    sub set(!@, v: V)
+      @v = v
 
-    fun swap_in(!self, v: V) -> V
-      old = self.v
-      self.v = v
+    fun swap_in(!@, v: V) -> V
+      old = @v
+      @v = v
       old
 
-    fun twice(?self) -> Wrap[V]
-      Wrap(v: self.v)
+    fun twice(?@) -> Wrap[V]
+      Wrap(v: @v)
 
-    sub again(?self)
-      !(self.twice()).set(self.v)
+    sub again(?@)
+      !(@twice()).set(@v)
 
   obj C
     c: Int
 
-    sub bump(!self)
-      self.c += 1
+    sub bump(!@)
+      @c += 1
 
-    fun pop(!self) -> Int
-      self.c += 10
-      self.c
+    fun pop(!@) -> Int
+      @c += 10
+      @c
 
   obj B
     n: Int
     items: List[Int]
 
-    sub each(!self, f: ?sub(Int))
-      self.n += 1
-      for x in self.items
+    sub each(!@, f: ?sub(Int))
+      @n += 1
+      for x in @items
         f(x)
 
-    fun tryit(!self) -> Int!
-      self.n += 1
-      if self.n > 100
+    fun tryit(!@) -> Int!
+      @n += 1
+      if @n > 100
         return Bad.big
-      self.n
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   error Bad
     big
@@ -1196,8 +1196,8 @@ test "write lend temporary store ok", '''
   obj PR
     r: ?String
 
-    sub set(!self, r: ?String) keeps r
-      self.r = r
+    sub set(!@, r: ?String) keeps r
+      @r = r
 
   obj S
     t: String
@@ -1211,11 +1211,11 @@ test "write lend temporary store ok", '''
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    drop(!self)
-      print("drop", self.rs)
+    drop(!@)
+      print("drop", @rs)
 
   fun mkh() -> H
     H(rs: List())
@@ -1243,11 +1243,11 @@ fail "write lend temporary stores", "33:16: a view of the temporary `mk(1)` is h
   obj H
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    drop(!self)
-      print(self.rs)
+    drop(!@)
+      print(@rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("t"), items: List())
@@ -1301,14 +1301,14 @@ test "write lend temporary view", '''
   obj S
     n: Int
 
-    fun twin(?self) -> S
-      S(n: self.n)
+    fun twin(?@) -> S
+      S(n: @n)
 
   obj P
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun make() -> S
     S(n: 1)
@@ -1367,8 +1367,8 @@ fail "write method while lent", "cannot lend `u` to write while a read loan is l
   obj User
     age: Int
 
-    sub bump(!self, by: Int)
-      self.age = self.age + by
+    sub bump(!@, by: Int)
+      @age = @age + by
 
   u = User(age: 1)
   r = ?u
@@ -1392,8 +1392,8 @@ test "write param read copy then local store", '''
     a: ?String
     b: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.b = v
+    sub put(!@, v: ?String) keeps v
+      @b = v
 
   sub plain(w: !H)
     d = String("local")
@@ -1433,11 +1433,11 @@ fail "write receiver note", "20:21: cannot lend `b` to write while a read loan i
   obj Bag
     items: List[Item]
 
-    fun first(!self) -> ?Item
-      ?self.items[0]
+    fun first(!@) -> ?Item
+      ?@items[0]
 
-    fun consume(!self, it: ?Item) -> Int
-      !self.items.push(Item(n: 0))
+    fun consume(!@, it: ?Item) -> Int
+      !@items.push(Item(n: 0))
       it.n
 
   b = Bag(items: List())
@@ -1454,12 +1454,12 @@ fail "write receiver outer bang", "25:4: `pop` changes its receiver, a temporary
     n: Int
     items: List[Int]
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
   fun mk(n: Int) -> S
     S(n: n, items: List())
@@ -1475,8 +1475,8 @@ fail "write receiver outer bang", "25:4: `pop` changes its receiver, a temporary
   for x in !mk(1).vs()
     x += 1
 
-fail "write receiver temporary", "41:5: `bump` changes its receiver, a temporary no name holds; add `!`: `!(self.twice()).bump()`", "48:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().bump()`", "49:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`", "50:7: `next` changes its receiver, a temporary no name holds; add `!`: `(!mk()).next()`", "51:2: `bump` changes its receiver, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`", "52:2: `bump` changes its receiver, a temporary no name holds; add `!`: `!(+s).bump()`", "53:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().inner.bump()`", "54:1: `bump` changes its receiver, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`", "55:7: `at` changes its receiver, a temporary no name holds; add `!`: `(!mk()).at()`", errors: 9
-  # A `!self` method changes its receiver, and every change is marked by
+fail "write receiver temporary", "41:5: `bump` changes its receiver, a temporary no name holds; add `!`: `!(@twice()).bump()`", "48:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().bump()`", "49:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`", "50:7: `next` changes its receiver, a temporary no name holds; add `!`: `(!mk()).next()`", "51:2: `bump` changes its receiver, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`", "52:2: `bump` changes its receiver, a temporary no name holds; add `!`: `!(+s).bump()`", "53:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().inner.bump()`", "54:1: `bump` changes its receiver, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`", "55:7: `at` changes its receiver, a temporary no name holds; add `!`: `(!mk()).at()`", errors: 9
+  # A `!@` method changes its receiver, and every change is marked by
   # `!` (Core sentences 4 and 9): called on a value made in place, which no
   # name holds, with no `!`, it is rejected, with the hint to add one. The
   # same holds for a part of such a value, a field or an element, for a
@@ -1490,33 +1490,33 @@ fail "write receiver temporary", "41:5: `bump` changes its receiver, a temporary
     n: Int
     inner: T
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun next(!self) -> Int
-      self.n += 1
-      self.n
+    fun next(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
   obj T
     k: Int
 
-    sub bump(!self)
-      self.k += 1
+    sub bump(!@)
+      @k += 1
 
   obj Wrap[V]
     v: V
 
-    sub bump(!self)
+    sub bump(!@)
       pass
 
-    fun twice(?self) -> Wrap[V]
-      Wrap(v: self.v)
+    fun twice(?@) -> Wrap[V]
+      Wrap(v: @v)
 
-    sub again(?self)
-      self.twice().bump()
+    sub again(?@)
+      @twice().bump()
 
   fun mk() -> S
     S(n: 1, inner: T(k: 0))
@@ -1548,37 +1548,37 @@ test "write receiver temporary lent", '''
     n: Int
     inner: T
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun next(!self) -> Int
-      self.n += 1
-      self.n
+    fun next(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
   obj T
     k: Int
 
-    sub bump(!self)
-      self.k += 1
+    sub bump(!@)
+      @k += 1
 
-    fun next(!self) -> Int
-      self.k += 1
-      self.k
+    fun next(!@) -> Int
+      @k += 1
+      @k
 
   obj Wrap[V]
     v: V
 
-    sub bump(!self)
+    sub bump(!@)
       pass
 
-    fun twice(?self) -> Wrap[V]
-      Wrap(v: self.v)
+    fun twice(?@) -> Wrap[V]
+      Wrap(v: @v)
 
-    sub again(?self)
-      !(self.twice()).bump()
+    sub again(?@)
+      !(@twice()).bump()
 
   fun mk() -> S
     S(n: 1, inner: T(k: 0))
@@ -1605,8 +1605,8 @@ test "write receiver through returned view", "2 11"
   obj S
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   fun slot(s: !S) -> !S
     s
@@ -1728,8 +1728,8 @@ test "write through local view", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj In
     n: Int
@@ -2130,24 +2130,24 @@ test "write view lent as copied read", '''
   g: [2]?Int = [wn, wk]
   print(g[0], g[1])
 
-fail "write view lent bare", "13:5: write `!self.bump()`: the call writes `self`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`", "33:17: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
+fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`", "33:17: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
   # Lending a write view always shows its sigil: a held write view (a
-  # `!T` parameter, `self` in a `!self` method, a local) is lent to a `!T`
-  # parameter, a `!self` receiver, or an element method as `!w`. A held
+  # `!T` parameter, `@` in a `!@` method, a local) is lent to a `!T`
+  # parameter, a `!@` receiver, or an element method as `!w`. A held
   # read view is lent on bare.
 
   obj Counter
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    sub twice(!self)
-      self.bump()
-      !self.bump()
+    sub twice(!@)
+      @bump()
+      !@bump()
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   sub bump(c: !Counter)
     !c.bump()
@@ -2371,13 +2371,13 @@ fail "write view temporary handle", "14:6: cannot lend `o?` to write: it may be 
 fail "write view through read view", "cannot lend to write through a read view", "cannot write-iterate through a read view"
   # A read view cannot be upgraded to a write view of a part of the
   # value: a field reached through `?T` cannot be lent to write, given to
-  # a `!self` method, or write-iterated.
+  # a `!@` method, or write-iterated.
 
   obj Counter
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj Holder
     c: Counter

@@ -71,8 +71,8 @@ obj Q
   a: A
   b: Int
 
-  fun get(self: Q, k: Int) -> Int
-    self.a[k] + self.b
+  fun get(<@, k: Int) -> Int
+    @a[k] + @b
 
 enum T
   one(v: A)

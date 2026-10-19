@@ -333,9 +333,9 @@ test "text find any", release: true, '''
   obj Rand
     x: Int
 
-    fun next(!self) -> Int
-      self.x = self.x *% 6364136223846793005 +% 1442695040888963407
-      (self.x >> 33) & 0x7FFFFFFF
+    fun next(!@) -> Int
+      @x = @x *% 6364136223846793005 +% 1442695040888963407
+      (@x >> 33) & 0x7FFFFFFF
 
   # The first index from `i` whose byte is in `set`, or -1.
   fun plain(s: ?String, set: ?String, i: Int) -> Int

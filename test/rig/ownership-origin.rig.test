@@ -21,8 +21,8 @@ test "origin from", '''
   obj Env
     entries: List[Entry]
 
-    fun get(?self, key: ?String) -> (?String)? from self
-      for e in ?self.entries
+    fun get(?@, key: ?String) -> (?String)? from @
+      for e in ?@entries
         if e.key == key
           return e.value
       none
@@ -110,7 +110,7 @@ fail "origin from body exceeds", "5:3: `tail` returns a view of `b`, but its sig
 
   pass
 
-fail "origin from body forms", "17:5: `get` returns a view of `other`, but its signature says it views only `self`", "20:3: `arm` returns a view of `b`", "29:3: `loop` returns a view of `b`", "33:12: `unwrap` returns a view of `b`", "38:3: `field` returns a view of `b`", "41:3: `payload` returns a view of `b`", errors: 6
+fail "origin from body forms", "17:5: `get` returns a view of `other`, but its signature says it views only `@`", "20:3: `arm` returns a view of `b`", "29:3: `loop` returns a view of `b`", "33:12: `unwrap` returns a view of `b`", "38:3: `field` returns a view of `b`", "41:3: `payload` returns a view of `b`", errors: 6
   # More forms a body returns a view through, each checked against its
   # `from` clause: a match arm, a loop's `break` value, `if … as`, a field
   # of a local struct, a payload of a parameter, and a method's argument.
@@ -126,7 +126,7 @@ fail "origin from body forms", "17:5: `get` returns a view of `other`, but its s
   obj Table
     rows: List[Int]
 
-    fun get(?self, other: ?List[Int]) -> ?List[Int] from self
+    fun get(?@, other: ?List[Int]) -> ?List[Int] from @
       other
 
   fun arm(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int] from a
@@ -217,10 +217,10 @@ fail "origin holder owns target", "22:6: cannot lend `c` to write while a read l
     scratch: List[Item]
     i: Int
 
-    fun next(!self) -> ?Item
-      k = self.i
-      self.i += 1
-      ?self.items[k]
+    fun next(!@) -> ?Item
+      k = @i
+      @i += 1
+      ?@items[k]
 
   v: List[Item] = List()
   !v.push(Item(n: 1))
@@ -248,13 +248,13 @@ test "origin key not kept", '''
   obj Table
     items: [4]Item
 
-    fun get(?self, k: ?Int) -> ?Item
-      ?self.items[k]
+    fun get(?@, k: ?Int) -> ?Item
+      ?@items[k]
 
-    fun find(?self, key: ?Key) -> (?Item)?
+    fun find(?@, key: ?Key) -> (?Item)?
       for i in 0..4
-        if self.items[i].n == key.id
-          return ?self.items[i]
+        if @items[i].n == key.id
+          return ?@items[i]
       none
 
   fun at(v: ?[4]Item, k: !Int) -> ?Item
@@ -303,8 +303,8 @@ test "origin read receiver keeps nothing", '''
   obj Box2
     label: ?String
 
-    fun show(?self, s: ?String) -> Int
-      print(self.label, s)
+    fun show(?@, s: ?String) -> Int
+      print(@label, s)
       s.len
 
   b = Box2(label: "x")
@@ -324,8 +324,8 @@ fail "origin receiver stored in argument", "18:2: cannot drop `s` while it is le
   obj Src
     items: List[Int]
 
-    sub put(?self, out: !Holder) keeps self
-      out.r = ?self.items[..]
+    sub put(?@, out: !Holder) keeps @
+      out.r = ?@items[..]
 
   x = [1, 2]
   h = Holder(r: ?x[..])
@@ -346,8 +346,8 @@ test "origin receiver stores into argument", "[1, 2, 3] 2"
   obj Counter
     n: Int
 
-    sub stash(!self, v: !View, ys: []Int) keeps ys
-      self.n += 1
+    sub stash(!@, v: !View, ys: []Int) keeps ys
+      @n += 1
       v.xs = ys
 
   b = [9]
@@ -408,7 +408,7 @@ test "origin store by type", '''
 
 fail "origin stores before result", "`w` does not live long enough"
   # A call stores before its result is handed back: `next` re-points
-  # `self.items` at `extra`, so its result views `w`, which ends first.
+  # `@items` at `extra`, so its result views `w`, which ends first.
 
   obj Item
     n: Int
@@ -416,9 +416,9 @@ fail "origin stores before result", "`w` does not live long enough"
   obj Cursor
     items: ?List[Item]
 
-    fun next(!self, extra: ?List[Item]) -> ?Item keeps extra
-      self.items = extra
-      ?self.items[0]
+    fun next(!@, extra: ?List[Item]) -> ?Item keeps extra
+      @items = extra
+      ?@items[0]
 
   v: List[Item] = List()
   !v.push(Item(n: 1))
@@ -446,10 +446,10 @@ test "origin view through view", '''
     items: ?List[Item]
     i: Int
 
-    fun next(!self) -> ?Item
-      k = self.i
-      self.i += 1
-      ?self.items[k]
+    fun next(!@) -> ?Item
+      k = @i
+      @i += 1
+      ?@items[k]
 
   obj Pair
     a: ?List[Int]

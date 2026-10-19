@@ -86,9 +86,9 @@ fail "review-header-paths-1-o01 store readview of self into arg", "cannot reassi
     n: Int
     v: List[Int]
 
-    sub put(!self, dst: !List[?List[Int]]) keeps self
-      !self.v.push(1)
-      !dst.push(?self.v)
+    sub put(!@, dst: !List[?List[Int]]) keeps @
+      !@v.push(1)
+      !dst.push(?@v)
 
   v: List[Int] = List()
   h = H(n: 1, v: <v)
@@ -1101,7 +1101,7 @@ test "review-lang4-q3", "3"
   obj S
     n: Int
 
-    sub hook(!self, k: Int)
+    sub hook(!@, k: Int)
       pass
 
   sub f()!
@@ -1126,24 +1126,24 @@ test "review-lend-base-2-p-a09", "[1, 7]"
   obj Set
     items: List[Int]
 
-    fun insert(!self, k: Int) -> Bool
-      !self.items.push(k)
+    fun insert(!@, k: Int) -> Bool
+      !@items.push(k)
       true
 
-    fun count(?self) -> Int
-      self.items.len
+    fun count(?@) -> Int
+      @items.len
 
-    sub put[k: Int](!self, x: Int)
-      !self.items.push(x * k)
+    sub put[k: Int](!@, x: Int)
+      !@items.push(x * k)
 
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   obj P
     x: Int
@@ -1184,8 +1184,8 @@ test "review-lend-base-2-p-g02", "5 1"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1217,8 +1217,8 @@ test "review-lend-base-2-p-g03", "[1, 7] [6, 2]"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1251,8 +1251,8 @@ test "review-lend-base-2-p-g04", "1"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1284,8 +1284,8 @@ test "review-lend-base-2-p-g07", "1 5"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1321,8 +1321,8 @@ test "review-lend-base-2-p-g09", "3 none"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1354,8 +1354,8 @@ test "review-lend-base-2-p-g10", "[4]"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1387,8 +1387,8 @@ fail "review-lend-base-2-p-g13", "cannot lend `q` to write while a write loan is
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1418,8 +1418,8 @@ test "review-lend-base-2-p-h01", "[8, none]"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1447,8 +1447,8 @@ test "review-lend-base-2-p-h02", '''
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1473,8 +1473,8 @@ test "review-lend-base-2-p-h03", "3 [none, none]"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1498,8 +1498,8 @@ test "review-lend-base-2-p-h07", "1"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1522,8 +1522,8 @@ test "review-lend-base-2-p-h08", "2"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1546,8 +1546,8 @@ test "review-lend-base-2-p-h09", "101 2"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1570,8 +1570,8 @@ test "review-lend-base-2-p-h12", "4"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1598,8 +1598,8 @@ fail "review-lend-base-2-p-h15", "cannot lend `p.v` to write while a read loan i
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1623,8 +1623,8 @@ test "review-lend-base-2-p-h17", "[1]"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1648,8 +1648,8 @@ test "review-lend-base-2-p-h18", "[4, 2]"
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -1692,8 +1692,8 @@ test "review-lend-base-3-j-j01", "11 2 1 2"
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1709,8 +1709,8 @@ test "review-lend-base-3-j-j02", "1 3 1 2"
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1726,8 +1726,8 @@ test "review-lend-base-3-j-j03", "1 2 2 2"
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1743,8 +1743,8 @@ test "review-lend-base-3-j-j04", "1 2 1 9"
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1763,8 +1763,8 @@ test "review-lend-base-3-j-j05", '''
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1781,8 +1781,8 @@ test "review-lend-base-3-j-j07", "5 2 1 2"
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1801,8 +1801,8 @@ test "review-lend-base-3-j-j08", '''
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1819,8 +1819,8 @@ test "review-lend-base-3-j-j09", "1 2 1 2"
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -1840,8 +1840,8 @@ test "review-lend-base-3-j-j14", '''
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1

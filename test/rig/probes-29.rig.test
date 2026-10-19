@@ -20,18 +20,18 @@ fail "review-seam2-r2-z08 view local assign", "a view of the temporary `mkh()` o
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -59,18 +59,18 @@ fail "review-seam2-r2-z10 elem temp assign", "`s` does not live long enough"
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -105,18 +105,18 @@ fail "review-seam2-r2-z13 arg part temp", "a view of the temporary `mk(1)` is he
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -150,18 +150,18 @@ test "review-seam2-r2-z15 swap temp", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("dropS", self.n)
+    drop(!@)
+      print("dropS", @n)
 
   obj H
     r: ?String
     rs: List[?String]
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello world, long enough to be on the heap ", n))
@@ -206,24 +206,24 @@ test "review-seam2-s01 two same", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -258,9 +258,9 @@ test "review-seam2-t01 generic body", "1 1 1 1 0"
     v: T
     n: Int
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
   fun mkb[T](v: T) -> Box2[T]
     Box2(v: <v, n: 0)
@@ -304,24 +304,24 @@ test "review-seam2-u01 conditional temps", '''
     n: Int
     items: List[Int]
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    fun pop(!self) -> Int
-      self.n += 1
-      self.n
+    fun pop(!@) -> Int
+      @n += 1
+      @n
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun all(!self) -> !S
-      self
+    fun all(!@) -> !S
+      @
 
-    fun vs(!self) -> ![]Int
-      !self.items[..]
+    fun vs(!@) -> ![]Int
+      !@items[..]
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> S
     s = S(n: n, items: List())
@@ -370,12 +370,12 @@ test "review-seam2b-fixes-diag-d11 paren ok", '''
   obj U
     n: Int
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    fun me(!self) -> !U
-      self
+    fun me(!@) -> !U
+      @
 
     fun make() -> U
       U(n: 1)
@@ -383,7 +383,7 @@ test "review-seam2b-fixes-diag-d11 paren ok", '''
   obj Wrap[T]
     v: T
 
-    fun bump(!self) -> Int
+    fun bump(!@) -> Int
       1
 
     fun make(v: T) -> Wrap[T]
@@ -413,12 +413,12 @@ test "review-seam2b-fixes-diag-d11 paren ok", '''
     pub obj T
       pub n: Int
 
-      pub fun bump(!self) -> Int
-        self.n += 1
-        self.n
+      pub fun bump(!@) -> Int
+        @n += 1
+        @n
 
-      pub fun me(!self) -> !T
-        self
+      pub fun me(!@) -> !T
+        @
 
       pub fun make() -> T
         T(n: 1)
@@ -471,12 +471,12 @@ test "review-seam2b-fixes-emit-e01 swap two temps", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -487,21 +487,21 @@ test "review-seam2b-fixes-emit-e01 swap two temps", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -600,12 +600,12 @@ test "review-seam2b-fixes-emit-e02 prop head", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -616,21 +616,21 @@ test "review-seam2b-fixes-emit-e02 prop head", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -734,12 +734,12 @@ test "review-seam2b-fixes-emit-e03 opt head", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -750,21 +750,21 @@ test "review-seam2b-fixes-emit-e03 opt head", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -861,12 +861,12 @@ test "review-seam2b-fixes-emit-e04 generic body", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -877,21 +877,21 @@ test "review-seam2b-fixes-emit-e04 generic body", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -988,12 +988,12 @@ test "review-seam2b-fixes-emit-e07 kwargs branch arg", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -1004,21 +1004,21 @@ test "review-seam2b-fixes-emit-e07 kwargs branch arg", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -1114,12 +1114,12 @@ test "review-seam2b-fixes-emit-e10 elem of branch arr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -1130,21 +1130,21 @@ test "review-seam2b-fixes-emit-e10 elem of branch arr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -1236,12 +1236,12 @@ test "review-seam2b-fixes-emit-e17 box branch", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -1252,21 +1252,21 @@ test "review-seam2b-fixes-emit-e17 box branch", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -1365,12 +1365,12 @@ test "review-seam2b-fixes-emit-e18 whole array branch", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -1381,21 +1381,21 @@ test "review-seam2b-fixes-emit-e18 whole array branch", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -1509,12 +1509,12 @@ test "review-seam2b-fixes-emit-e19 generic branch", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -1525,21 +1525,21 @@ test "review-seam2b-fixes-emit-e19 generic branch", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -1649,8 +1649,8 @@ test "review-seam2b-fixes-fuzz-p-branch2  fillarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -1661,21 +1661,21 @@ test "review-seam2b-fixes-fuzz-p-branch2  fillarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -1770,8 +1770,8 @@ test "review-seam2b-fixes-fuzz-p-branch2  replace", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -1782,21 +1782,21 @@ test "review-seam2b-fixes-fuzz-p-branch2  replace", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -1891,8 +1891,8 @@ test "review-seam2b-fixes-fuzz-p-branch  meb", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -1903,21 +1903,21 @@ test "review-seam2b-fixes-fuzz-p-branch  meb", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2012,8 +2012,8 @@ test "review-seam2b-fixes-fuzz-p-branch  swapitems", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2024,21 +2024,21 @@ test "review-seam2b-fixes-fuzz-p-branch  swapitems", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2136,8 +2136,8 @@ test "review-seam2b-fixes-fuzz-p-brelem2  sortitems", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2148,21 +2148,21 @@ test "review-seam2b-fixes-fuzz-p-brelem2  sortitems", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2261,8 +2261,8 @@ test "review-seam2b-fixes-fuzz-p-brelem  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2273,21 +2273,21 @@ test "review-seam2b-fixes-fuzz-p-brelem  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2386,8 +2386,8 @@ test "review-seam2b-fixes-fuzz-p-brpart  replarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2398,21 +2398,21 @@ test "review-seam2b-fixes-fuzz-p-brpart  replarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2505,8 +2505,8 @@ test "review-seam2b-fixes-fuzz-p-call  cond", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2517,21 +2517,21 @@ test "review-seam2b-fixes-fuzz-p-call  cond", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2626,8 +2626,8 @@ test "review-seam2b-fixes-fuzz-p-call  push", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2638,21 +2638,21 @@ test "review-seam2b-fixes-fuzz-p-call  push", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2747,8 +2747,8 @@ test "review-seam2b-fixes-fuzz-p-call  swapkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2759,21 +2759,21 @@ test "review-seam2b-fixes-fuzz-p-call  swapkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2870,8 +2870,8 @@ test "review-seam2b-fixes-fuzz-p-catch0  swap", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -2882,21 +2882,21 @@ test "review-seam2b-fixes-fuzz-p-catch0  swap", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -2993,8 +2993,8 @@ test "review-seam2b-fixes-fuzz-p-catch  bump", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3005,21 +3005,21 @@ test "review-seam2b-fixes-fuzz-p-catch  bump", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3111,8 +3111,8 @@ test "review-seam2b-fixes-fuzz-p-catch  sortarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3123,21 +3123,21 @@ test "review-seam2b-fixes-fuzz-p-catch  sortarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3230,8 +3230,8 @@ test "review-seam2b-fixes-fuzz-p-coal0  hoist", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3242,21 +3242,21 @@ test "review-seam2b-fixes-fuzz-p-coal0  hoist", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3348,8 +3348,8 @@ test "review-seam2b-fixes-fuzz-p-coal0  setg", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3360,21 +3360,21 @@ test "review-seam2b-fixes-fuzz-p-coal0  setg", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3469,8 +3469,8 @@ test "review-seam2b-fixes-fuzz-p-coal  replitems", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3481,21 +3481,21 @@ test "review-seam2b-fixes-fuzz-p-coal  replitems", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3589,8 +3589,8 @@ test "review-seam2b-fixes-fuzz-p-nest  defer", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3601,21 +3601,21 @@ test "review-seam2b-fixes-fuzz-p-nest  defer", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3711,8 +3711,8 @@ test "review-seam2b-fixes-fuzz-p-nest  putkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3723,21 +3723,21 @@ test "review-seam2b-fixes-fuzz-p-nest  putkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3832,8 +3832,8 @@ test "review-seam2b-fixes-fuzz-p-nest  swapt", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3844,21 +3844,21 @@ test "review-seam2b-fixes-fuzz-p-nest  swapt", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -3957,8 +3957,8 @@ test "review-seam2b-fixes-fuzz-p-nestcoal  swaparr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
   obj S
     n: Int
@@ -3969,21 +3969,21 @@ test "review-seam2b-fixes-fuzz-p-nestcoal  swaparr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4076,12 +4076,12 @@ test "review-seam2b-fixes-fuzz-pc-and  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4092,21 +4092,21 @@ test "review-seam2b-fixes-fuzz-pc-and  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4197,12 +4197,12 @@ test "review-seam2b-fixes-fuzz-pc-and  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4213,21 +4213,21 @@ test "review-seam2b-fixes-fuzz-pc-and  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4318,12 +4318,12 @@ test "review-seam2b-fixes-fuzz-pc-and  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4334,21 +4334,21 @@ test "review-seam2b-fixes-fuzz-pc-and  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4439,12 +4439,12 @@ test "review-seam2b-fixes-fuzz-pc-cassign  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4455,21 +4455,21 @@ test "review-seam2b-fixes-fuzz-pc-cassign  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4563,12 +4563,12 @@ test "review-seam2b-fixes-fuzz-pc-defer  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4579,21 +4579,21 @@ test "review-seam2b-fixes-fuzz-pc-defer  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4687,12 +4687,12 @@ test "review-seam2b-fixes-fuzz-pc-defer  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4703,21 +4703,21 @@ test "review-seam2b-fixes-fuzz-pc-defer  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4811,12 +4811,12 @@ test "review-seam2b-fixes-fuzz-pc-defer  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4827,21 +4827,21 @@ test "review-seam2b-fixes-fuzz-pc-defer  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -4933,12 +4933,12 @@ test "review-seam2b-fixes-fuzz-pc-elif  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -4949,21 +4949,21 @@ test "review-seam2b-fixes-fuzz-pc-elif  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5060,12 +5060,12 @@ test "review-seam2b-fixes-fuzz-pc-for  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5076,21 +5076,21 @@ test "review-seam2b-fixes-fuzz-pc-for  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5185,12 +5185,12 @@ test "review-seam2b-fixes-fuzz-pc-for  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5201,21 +5201,21 @@ test "review-seam2b-fixes-fuzz-pc-for  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5310,12 +5310,12 @@ test "review-seam2b-fixes-fuzz-pc-for  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5326,21 +5326,21 @@ test "review-seam2b-fixes-fuzz-pc-for  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5432,12 +5432,12 @@ test "review-seam2b-fixes-fuzz-pc-idx  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5448,21 +5448,21 @@ test "review-seam2b-fixes-fuzz-pc-idx  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5555,12 +5555,12 @@ test "review-seam2b-fixes-fuzz-pc-ifcond  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5571,21 +5571,21 @@ test "review-seam2b-fixes-fuzz-pc-ifcond  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5677,12 +5677,12 @@ test "review-seam2b-fixes-fuzz-pc-ifcond  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5693,21 +5693,21 @@ test "review-seam2b-fixes-fuzz-pc-ifcond  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5799,12 +5799,12 @@ test "review-seam2b-fixes-fuzz-pc-ifcond  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5815,21 +5815,21 @@ test "review-seam2b-fixes-fuzz-pc-ifcond  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -5921,12 +5921,12 @@ test "review-seam2b-fixes-fuzz-pc-kw  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -5937,21 +5937,21 @@ test "review-seam2b-fixes-fuzz-pc-kw  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6042,12 +6042,12 @@ test "review-seam2b-fixes-fuzz-pc-match  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6058,21 +6058,21 @@ test "review-seam2b-fixes-fuzz-pc-match  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6165,12 +6165,12 @@ test "review-seam2b-fixes-fuzz-pc-match  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6181,21 +6181,21 @@ test "review-seam2b-fixes-fuzz-pc-match  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6288,12 +6288,12 @@ test "review-seam2b-fixes-fuzz-pc-match  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6304,21 +6304,21 @@ test "review-seam2b-fixes-fuzz-pc-match  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6411,12 +6411,12 @@ test "review-seam2b-fixes-fuzz-pc-nested  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6427,21 +6427,21 @@ test "review-seam2b-fixes-fuzz-pc-nested  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6532,12 +6532,12 @@ test "review-seam2b-fixes-fuzz-pc-or  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6548,21 +6548,21 @@ test "review-seam2b-fixes-fuzz-pc-or  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6653,12 +6653,12 @@ test "review-seam2b-fixes-fuzz-pc-or  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6669,21 +6669,21 @@ test "review-seam2b-fixes-fuzz-pc-or  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6774,12 +6774,12 @@ test "review-seam2b-fixes-fuzz-pc-or  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6790,21 +6790,21 @@ test "review-seam2b-fixes-fuzz-pc-or  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -6895,12 +6895,12 @@ test "review-seam2b-fixes-fuzz-pc-stmt  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -6911,21 +6911,21 @@ test "review-seam2b-fixes-fuzz-pc-stmt  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7016,12 +7016,12 @@ test "review-seam2b-fixes-fuzz-pc-tern2  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7032,21 +7032,21 @@ test "review-seam2b-fixes-fuzz-pc-tern2  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7137,12 +7137,12 @@ test "review-seam2b-fixes-fuzz-pc-tern2  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7153,21 +7153,21 @@ test "review-seam2b-fixes-fuzz-pc-tern2  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7258,12 +7258,12 @@ test "review-seam2b-fixes-fuzz-pc-tern2  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7274,21 +7274,21 @@ test "review-seam2b-fixes-fuzz-pc-tern2  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7379,12 +7379,12 @@ test "review-seam2b-fixes-fuzz-pc-tern  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7395,21 +7395,21 @@ test "review-seam2b-fixes-fuzz-pc-tern  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7502,12 +7502,12 @@ test "review-seam2b-fixes-fuzz-pc-two  branch  at", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7518,21 +7518,21 @@ test "review-seam2b-fixes-fuzz-pc-two  branch  at", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7625,12 +7625,12 @@ test "review-seam2b-fixes-fuzz-pc-two  call  incrarr", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7641,21 +7641,21 @@ test "review-seam2b-fixes-fuzz-pc-two  call  incrarr", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7748,12 +7748,12 @@ test "review-seam2b-fixes-fuzz-pc-two  catch  repl", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7764,21 +7764,21 @@ test "review-seam2b-fixes-fuzz-pc-two  catch  repl", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7868,12 +7868,12 @@ test "review-seam2b-fixes-fuzz-pc-while  coal0  replkk", '''
   obj K2
     n: Int
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun put2v(!self, a: Int, b: Int) -> Int
-      self.n = a * 10 + b
-      self.n
+    fun put2v(!@, a: Int, b: Int) -> Int
+      @n = a * 10 + b
+      @n
 
   obj S
     n: Int
@@ -7884,21 +7884,21 @@ test "review-seam2b-fixes-fuzz-pc-while  coal0  replkk", '''
     oi: Int?
     e: Sh
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
-    sub put2(!self, a: Int, b: Int)
-      self.n = a * 10 + b
+    sub put2(!@, a: Int, b: Int)
+      @n = a * 10 + b
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun me(!self) -> !S
-      self
+    fun me(!@) -> !S
+      @
 
-    drop(!self)
-      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+    drop(!@)
+      print("dropS", @n, @t, @items, @arr, @kk.n, @oi, @e)
 
   obj Pair
     a: S
@@ -7996,8 +7996,8 @@ fail "review-std-b11", "cannot let this call store a view of `a` in `v`: `v` out
   obj View
     xs: []Int
 
-    sub point(!self, ys: []Int) keeps ys
-      self.xs = ys
+    sub point(!@, ys: []Int) keeps ys
+      @xs = ys
 
   sub f(v: !View)
     a = [1, 2, 3]
@@ -8012,8 +8012,8 @@ fail "review-std-b14", "`a` does not live long enough"
   obj Counter
     n: Int
 
-    fun keep(!self, xs: []Int) -> []Int
-      self.n += 1
+    fun keep(!@, xs: []Int) -> []Int
+      @n += 1
       xs
 
   c = Counter(n: 0)
@@ -8031,8 +8031,8 @@ fail "review-std-b16", "`a` does not live long enough"
   obj Counter
     n: Int
 
-    sub stash(!self, v: !View, ys: []Int) keeps ys
-      self.n += 1
+    sub stash(!@, v: !View, ys: []Int) keeps ys
+      @n += 1
       v.xs = ys
 
   b = [9]
@@ -8050,8 +8050,8 @@ fail "review-std-b8", "`a` does not live long enough"
   obj Holder
     b: ^View
 
-    sub put(!self, ys: []Int) keeps ys
-      self.b.xs = ys
+    sub put(!@, ys: []Int) keeps ys
+      @b.xs = ys
 
   q = [9]
   h = Holder(b: ^View(xs: ?q))
@@ -8064,8 +8064,8 @@ fail "review-std-b9", "`a` does not live long enough"
   obj Holder
     v: List[[]Int]
 
-    sub put(!self, ys: []Int) keeps ys
-      !self.v.push(ys)
+    sub put(!@, ys: []Int) keeps ys
+      !@v.push(ys)
 
   h = Holder(v: List())
   if true
@@ -8086,8 +8086,8 @@ test "review-std-e defer", exit: 7, '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun main() -> Int
     r = R(n: 1)
@@ -8110,8 +8110,8 @@ test "review-std-e fail", "drop 1", exit: 1
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun f(x: Int) -> Int!
     return E.bad if x > 0
@@ -8163,8 +8163,8 @@ test "review-std-o1"
   obj Keep
     a: []?String
 
-    drop(!self)
-      print("drop sees", self.a.len, self.a[self.a.len - 1])
+    drop(!@)
+      print("drop sees", @a.len, @a[@a.len - 1])
 
   sub main()
     k = Keep(a: os.args())
@@ -8282,8 +8282,8 @@ test "review-std-v1", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v = List[*Res]()
   !v.push(*Res(n: 1))
@@ -8303,8 +8303,8 @@ bomb "review-std-v2", "index out of bounds", prints: "1 1"
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v = List[^Res]()
   !v.push(^Res(n: 1))
@@ -8349,8 +8349,8 @@ fail "review-std-v8", "cannot lend `v` to write while a read loan is live"
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v = List[^Res]()
   !v.push(^Res(n: 1))

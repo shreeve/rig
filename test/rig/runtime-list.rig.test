@@ -36,8 +36,8 @@ test "list clear reuse", release: true, '''
     id: Int
     log: *Cell[Int]
 
-    drop(!self)
-      !self.log.set(self.log.get() * 10 + self.id)
+    drop(!@)
+      !@log.set(@log.get() * 10 + @id)
 
   sub fill(v: !List[Int], n: Int)
     i = 0
@@ -159,8 +159,8 @@ test "list keep cell", release: true, '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   c: *Cell[List[Int]] = *Cell(List())
   for i in 1..8
@@ -220,11 +220,11 @@ test "list keep cell reenter keep", release: true, '''
     clears: Bool
     h: ~Holder
 
-    drop(!self)
-      if *self.h as h
-        print("drop", self.id, "sees", h.items.len)
-        if self.id == 3
-          if self.clears
+    drop(!@)
+      if *@h as h
+        print("drop", @id, "sees", h.items.len)
+        if @id == 3
+          if @clears
             !h.items.clear()
           else
             !h.items.keep(0)
@@ -262,10 +262,10 @@ test "list keep cell reentrant", '''
     id: Int
     owner: ~Cell[List[*Item]]
 
-    drop(!self)
-      if *self.owner as cell
-        print("drop", self.id, "sees", cell.len)
-        (!cell).push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
+    drop(!@)
+      if *@owner as cell
+        print("drop", @id, "sees", cell.len)
+        (!cell).push(*Item(id: @id * 10, owner: +@owner)) if @id < 10
 
   items: *Cell[List[*Item]] = *Cell(List())
   !items.push(*Item(id: 1, owner: ~items))
@@ -299,8 +299,8 @@ test "list keep drop body", release: true, '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   bs: List[B] = List()
   for i in 1..8
@@ -339,8 +339,8 @@ test "list keep handles", release: true, '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   boxes: List[^B] = List()
   for i in 1..5

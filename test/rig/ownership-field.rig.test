@@ -60,8 +60,8 @@ test "field closure read capture writes nothing", "7"
   # A closure's body may store what one capture views through another
   # capture's write view, so making it lets what the write captures lead
   # to hold the captures' loans; a read capture leads nowhere, though its
-  # value carries `self`'s own write loan. So the closure stores nothing in
-  # `self` through `?hv`.
+  # value carries `@`'s own write loan. So the closure stores nothing in
+  # `@` through `?hv`.
 
   obj Holder
     n: Int
@@ -74,13 +74,13 @@ test "field closure read capture writes nothing", "7"
     scanner: Scanner
     h: ?Holder
 
-    sub go(!self)
-      hv = self.h
-      sc = !self.scanner
+    sub go(!@)
+      hv = @h
+      sc = !@scanner
       g = |!sc, ?hv|
         sc.end = hv.n
       g()
-      print(self.scanner.end)
+      print(@scanner.end)
 
   k = Holder(n: 7)
   p = Parser(scanner: Scanner(text: "", end: 0), h: ?k)
@@ -99,8 +99,8 @@ test "field drop body struct", '''
     name: String
     uses: Int
 
-    drop(!self)
-      print("close", self.name, self.uses)
+    drop(!@)
+      print("close", @name, @uses)
 
   f = File(name: String("a.ts"), uses: 0)
   r = ?f.name
@@ -120,8 +120,8 @@ fail "field drop order view into sibling", "17:1: cannot store in `p.v` a view o
     s: String
     v: ?String
 
-    drop(!self)
-      print(self.v)
+    drop(!@)
+      print(@v)
 
   p = P(s: String("abc"), v: "")
   p.v = ?p.s[0..1]
@@ -186,9 +186,9 @@ test "field fill from other field", "2 9"
     scanner: Scanner
     directives: List[Directive]
 
-    sub finish(!self)
-      for d in self.scanner.directives
-        !self.directives.push(Directive(pos: d.pos))
+    sub finish(!@)
+      for d in @scanner.directives
+        !@directives.push(Directive(pos: d.pos))
 
   s = Scanner(directives: List())
   !s.directives.push(Directive(pos: 3))
@@ -288,11 +288,11 @@ fail "field loop carried", "17:3: cannot lend `p.items` to write while a read lo
     !p.items.push(i)
     prev = ?p.items[..]
 
-fail "field loop push into iterated", "14:7: cannot lend `self.items` to write while a read loan is live", errors: 1
+fail "field loop push into iterated", "14:7: cannot lend `@items` to write while a read loan is live", errors: 1
   # Pushing to the list a `for` walks may move its buffer under the loop;
   # Go's range evaluates the slice once and never sees the appends, which
   # Rig can't promise. The paths are equal.
-  # Rule: the `for` lends `self.items` for the loop; the body's push lends
+  # Rule: the `for` lends `@items` for the loop; the body's push lends
   # the same path to write.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/reject/field_loop_push_into_iterated.rig).
@@ -300,9 +300,9 @@ fail "field loop push into iterated", "14:7: cannot lend `self.items` to write w
   obj C
     items: List[Int]
 
-    sub grow(!self)
-      for x in ?self.items
-        !self.items.push(x + 1)
+    sub grow(!@)
+      for x in ?@items
+        !@items.push(x + 1)
 
   c = C(items: List())
   !c.items.push(1)
@@ -323,10 +323,10 @@ test "field match arm writes other", "13"
     tok: Tok
     count: Int
 
-    sub step(!self)
-      match ?self.tok
-        .word(text) => self.count += text.len
-        .num(n) => self.count += n
+    sub step(!@)
+      match ?@tok
+        .word(text) => @count += text.len
+        .num(n) => @count += n
 
   l = Lexer(tok: .word(text: String("abc")), count: 0)
   !l.step()
@@ -355,9 +355,9 @@ test "field match write arms write other", "3"
   print(p.b)
 
 test "field method result on field", "2 true"
-  # A method called on a field (`self.ast.text(id)`) lends that field, so
-  # its view result carries a loan on `self.ast` only, and other fields
-  # (`self.imports`, `self.uses_node`) may be written while it lives.
+  # A method called on a field (`@ast.text(id)`) lends that field, so
+  # its view result carries a loan on `@ast` only, and other fields
+  # (`@imports`, `@uses_node`) may be written while it lives.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_method_result_on_field.rig).
 
@@ -365,20 +365,20 @@ test "field method result on field", "2 true"
   obj Ast
     texts: List[String]
 
-    fun text(?self, id: Int) -> ?String
-      ?self.texts[id]
+    fun text(?@, id: Int) -> ?String
+      ?@texts[id]
 
   obj Parser
     ast: Ast
     imports: List[Int]
     uses_node: Bool
 
-    sub collect(!self, id: Int)
-      name = ?self.ast.text(id)
+    sub collect(!@, id: Int)
+      name = ?@ast.text(id)
       if name.len > 0
-        !self.imports.push(id)
+        !@imports.push(id)
         if text.starts_with(name, "node:")
-          self.uses_node = true
+          @uses_node = true
 
   a = Ast(texts: List())
   !a.texts.push(String("fs"))
@@ -515,10 +515,10 @@ test "field range writes other", "7 2"
     total: Int
     seen: List[Int]
 
-    sub sum(!self)
-      for x in ?self.items
-        self.total += x.n
-        !self.seen.push(x.n)
+    sub sum(!@)
+      for x in ?@items
+        @total += x.n
+        !@seen.push(x.n)
 
   c = Checker(items: List(), total: 0, seen: List())
   !c.items.push(Item(n: 2))
@@ -542,21 +542,21 @@ fail "field read view field carries source", "12:1: cannot lend `src` to write w
   print(t)
 
 test "field read view field no holder loan", "ab 1"
-  # A path ends where a read view begins: a slice of `self.text`, itself a
-  # `?String`, carries the loans of that view, not a loan on `self`, so
-  # even a call that lends all of `self` may run while it lives.
+  # A path ends where a read view begins: a slice of `@text`, itself a
+  # `?String`, carries the loans of that view, not a loan on `@`, so
+  # even a call that lends all of `@` may run while it lives.
 
   obj Scanner
     text: ?String
     pos: Int
 
-    sub advance(!self)
-      self.pos += 1
+    sub advance(!@)
+      @pos += 1
 
-    sub scan(!self)
-      t = self.text[0..2]
-      !self.advance()
-      print(t, self.pos)
+    sub scan(!@)
+      t = @text[0..2]
+      !@advance()
+      print(t, @pos)
 
   src = String("abcd")
   s = Scanner(text: ?src, pos: 0)
@@ -616,7 +616,7 @@ fail "field self view", "15:1: cannot store in `p.v` a view of `p.s`: a value ne
   # oracle: main reject C9
 
 fail "field self view through call", "19:2: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself", errors: 1
-  # `keep` stores its argument in `self`; lending `p.b` to
+  # `keep` stores its argument in `@`; lending `p.b` to
   # `(!p.a).keep(...)` would put in `p.a` a view of `p.b`, a value holding
   # a view of itself.
   # Rule: a value never holds a view of itself; a stored argument's loan
@@ -626,8 +626,8 @@ fail "field self view through call", "19:2: cannot let this call store a view of
   obj Holder
     t: ?String
 
-    sub keep(!self, t: ?String) keeps t
-      self.t = t
+    sub keep(!@, t: ?String) keeps t
+      @t = t
 
   obj P
     a: Holder
@@ -748,9 +748,9 @@ test "field slice then write other", '''
     text: String
     flags: Int
 
-    sub tag(!self)
-      t = ?self.text[0..2]
-      self.flags |= 1
+    sub tag(!@)
+      t = ?@text[0..2]
+      @flags |= 1
       print(t)
 
   s = Scanner(text: String("abcd"), flags: 0)
@@ -818,32 +818,32 @@ test "field store through read only argument", '''
   2
   4
 '''
-  # A `?String` read out of `self` carries the parameter's own write loan
-  # on `self`, but it writes nothing: a call lends it no way into `self`,
-  # so `!self.scanner.set_text(t)` stores nothing of `self.scanner` in
-  # `self`. From Trig's JSDoc parser (src/parser/jsdoc.rig).
+  # A `?String` read out of `@` carries the parameter's own write loan
+  # on `@`, but it writes nothing: a call lends it no way into `@`,
+  # so `!@scanner.set_text(t)` stores nothing of `@scanner` in
+  # `@`. From Trig's JSDoc parser (src/parser/jsdoc.rig).
 
   obj Scanner
     text: ?String
     end: Int
 
-    sub set_text(!self, text: ?String) keeps text
-      self.text = text
-      self.end = text.len
+    sub set_text(!@, text: ?String) keeps text
+      @text = text
+      @end = text.len
 
   obj Parser
     scanner: Scanner
     source_text: ?String
 
-    sub narrow(!self)
-      save = self.source_text
+    sub narrow(!@)
+      save = @source_text
       t = save[0..2]
-      self.source_text = t
-      !self.scanner.set_text(t)
-      print(self.scanner.end)
-      self.source_text = save
-      !self.scanner.set_text(save)
-      print(self.scanner.end)
+      @source_text = t
+      !@scanner.set_text(t)
+      print(@scanner.end)
+      @source_text = save
+      !@scanner.set_text(save)
+      print(@scanner.end)
 
   src = String("abcd")
   p = Parser(scanner: Scanner(text: "", end: 0), source_text: ?src)
@@ -899,8 +899,8 @@ fail "field through whole receiver method", "18:1: cannot lend `p` to write whil
     name: String
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   p = P(name: String("a"), n: 0)
   r = ?p.name
@@ -920,8 +920,8 @@ test "field through write param", "toktok"
   obj Arena
     bytes: String
 
-    sub add(!self, text: ?String)
-      !self.bytes.add(text)
+    sub add(!@, text: ?String)
+      !@bytes.add(text)
 
   obj Parser
     scanner: Scanner
@@ -941,8 +941,8 @@ test "field token value to arena", '''
   1
   2 abcde
 '''
-  # A use touches the path it names; `!self.ast` and `self.scanner.value`
-  # are disjoint paths of `self`, so the write lend of one and the read of
+  # A use touches the path it names; `!@ast` and `@scanner.value`
+  # are disjoint paths of `@`, so the write lend of one and the read of
   # the other may overlap (Core sentence 5, "A field is a place of its
   # own").
   # From Trig's acceptance tests
@@ -955,17 +955,17 @@ test "field token value to arena", '''
     bytes: String
     count: Int
 
-    fun add(!self, text: ?String) -> Int
-      !self.bytes.add(text)
-      self.count += 1
-      self.count
+    fun add(!@, text: ?String) -> Int
+      !@bytes.add(text)
+      @count += 1
+      @count
 
   obj Parser
     scanner: Scanner
     ast: Arena
 
-    fun literal(!self) -> Int
-      (!self.ast).add(self.scanner.value)
+    fun literal(!@) -> Int
+      (!@ast).add(@scanner.value)
 
   p = Parser(scanner: Scanner(value: String("abc")), ast: Arena(bytes: String(), count: 0))
   print((!p).literal())
@@ -975,7 +975,7 @@ test "field token value to arena", '''
   # oracle: Parser.literal accept
 
 fail "field view escapes by method result", "18:1: cannot assign to `p.n` while `p` is lent", errors: 1
-  # A `!self` method's view result carries a loan on all of `self`;
+  # A `!@` method's view result carries a loan on all of `@`;
   # without a path in the signature the caller cannot know which field the
   # result views, so writing any field while it lives is rejected.
   # Rule: a method's result carries its receiver (proposal-field-loans §7,
@@ -987,8 +987,8 @@ fail "field view escapes by method result", "18:1: cannot assign to `p.n` while 
     name: String
     n: Int
 
-    fun first(?self) -> ?String
-      ?self.name
+    fun first(?@) -> ?String
+      ?@name
 
   p = P(name: String("abc"), n: 0)
   r = (?p).first()
@@ -1000,7 +1000,7 @@ test "field view local across arms", '''
   8 s:x;n:x;
 '''
   # A local view carries the loan on the path it was lent from
-  # (`?self.scanner.value`), and writes of another path (`self.ast`) may
+  # (`?@scanner.value`), and writes of another path (`@ast`) may
   # happen while it lives.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_view_local_across_arms.rig).
@@ -1016,19 +1016,19 @@ test "field view local across arms", '''
   obj Arena
     bytes: String
 
-    fun add(!self, tag: ?String, text: ?String) -> Int
-      !self.bytes.add(tag, text, ";")
-      self.bytes.len
+    fun add(!@, tag: ?String, text: ?String) -> Int
+      !@bytes.add(tag, text, ";")
+      @bytes.len
 
   obj Parser
     scanner: Scanner
     ast: Arena
 
-    fun literal(!self) -> Int
-      text = ?self.scanner.value
-      match self.scanner.kind
-        .Str => (!self.ast).add("s:", text)
-        .Num => (!self.ast).add("n:", text)
+    fun literal(!@) -> Int
+      text = ?@scanner.value
+      match @scanner.kind
+        .Str => (!@ast).add("s:", text)
+        .Num => (!@ast).add("n:", text)
 
   p = Parser(scanner: Scanner(value: String("x"), kind: .Str), ast: Arena(bytes: String()))
   print((!p).literal())

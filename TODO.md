@@ -12,7 +12,7 @@ started:
 - A String API for part-word appends and windowed writes.
 - A known over-strict rejection: what a call stores from a view reached
   through a lent read view should carry that view's loans, not a loan
-  on the holder (Core sentence 7). `hold(!self, c: ?Cursor)` storing
+  on the holder (Core sentence 7). `hold(!@, c: ?Cursor)` storing
   `c.items` must say `keeps c`, and then keeps `c` itself lent while the
   holder is used, though only `c.items`' loans need to last. Narrowing
   it needs a new reach fact (what a lent parameter's own view target is,

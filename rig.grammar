@@ -34,6 +34,9 @@
 #     of its own over the block it names), the `:` as LABEL_COLON, and
 #     after `break` or `continue` (`break $outer (x)`); a `$` touching a
 #     name that touches a `(` is a builtin call (`$size(T)`), anywhere;
+#   * reads `@`, the receiver, as a name, and an `@` touching a name as
+#     the receiver's member, with a `.` between them (`@hits` is the
+#     member access `@ . hits`);
 #   * classifies the tokens the parser cannot tell apart by its own
 #     state, by position, never by spacing:
 #
@@ -147,7 +150,7 @@ tokens
     lshift          # <<
     lshift_wrap     # <<%  wrapping left shift
     rshift          # >>
-    at              # @   reserved
+    at              # @   the receiver, a name: `@`, and `@name` its member
     dollar          # $   a builtin call (`$size(T)`)
     assign          # =
     fixed_assign    # =!  a binding that never changes (`x =! e`)
@@ -536,9 +539,9 @@ tokens
     keyword.control     ("break" | "continue") [ \t]+ label:('$' [A-Za-z_] [A-Za-z0-9_]*)
     label               '$' [A-Za-z_] [A-Za-z0-9_]* ':'
     function.builtin    '$' [A-Za-z_]+ after '('
-    storage.modifier    '*' not before [A-Za-z0-9_)\]] after '<' [A-Za-z_(\[]
-    storage.modifier    [<?!+^*~] not before [A-Za-z0-9_)\]] after [A-Za-z_(\[]
-    storage.modifier    [!?] before [A-Za-z0-9_)\]] not after [A-Za-z0-9_(\[=?]
+    storage.modifier    '*' not before [A-Za-z0-9_)\]] after '<' [A-Za-z_(\[@]
+    storage.modifier    [<?!+^*~] not before [A-Za-z0-9_)\]@] after [A-Za-z_(\[@]
+    storage.modifier    [!?] before [A-Za-z0-9_)\]@] not after [A-Za-z0-9_(\[=?@]
     variable.parameter  [A-Za-z_] [A-Za-z0-9_]* after ':' not before [A-Za-z0-9_.]
     type                [A-Z] [A-Za-z0-9_]* not before [A-Za-z0-9_]
     constant.symbol     ':' [A-Za-z_] [A-Za-z0-9_]* (('-' | '.') [A-Za-z0-9_]+)* not before [A-Za-z0-9_)\]]
@@ -550,7 +553,7 @@ tokens
     keyword             ctx
     keyword.operator    "and" "or" "not"
     constant            "true" "false" "none"
-    variable.special    "self"
+    variable.special    '@'
     constant.numeric    INTEGER REAL
     string              STRING_DQ STRING_SQ
     string.escape       '\\' [^\x00-\x1f\x7f] within STRING_DQ
@@ -561,14 +564,14 @@ tokens
     operator            "+" "-" "*" "/" "%" "+%" "-%" "*%" "+|" "-|" "==" "!=" "<" ">" "<=" ">="
                         "!" "?" "??" "|" "&" "^" "~" "<<" "<<%" ">>" "=" "=!" "+=" "-=" "*=" "/=" "%="
                         "&=" "|=" "^=" "<<=" "<<%=" ">>=" "+%=" "-%=" "*%=" "+|=" "-|=" "->" "=>"
-    punctuation         "(" ")" "[" "]" "," ":" "." ".." "@"
+    punctuation         "(" ")" "[" "]" "," ":" "." ".."
 
 # `unique`, `from`, `static` and `keeps` lex as names, and the parser
 # reads one as a keyword where its state takes the keyword: `unique` after
 # an obj header's name or type parameters (`obj Random unique`), `from`
 # after a function's result type (`-> ?Item from a`), `static` right after
 # that `from`, and `keeps` at the end of a function's header (`sub
-# watch(!self, s: ?String) keeps s`). Everywhere else each is a name.
+# watch(!@, s: ?String) keeps s`). Everywhere else each is a name.
 @keywords
     ctx  unique from static keeps
 
@@ -684,7 +687,7 @@ sub      = [mark:mark] SUB name:name [tparams:tparams] [params:params] [keeps:ke
          | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" [keeps:keeps] body:block → (sub fails:fails)  # `sub save(p: Page)!`
 
 # A method declared outside its type's body, in the type's module:
-# `fun Point.norm(?self) -> Float`, `fun Wrap[T].map[U](...)`, with the
+# `fun Point.norm(?@) -> Float`, `fun Wrap[T].map[U](...)`, with the
 # type's parameters named as its declaration names them. The Parser
 # wrapper moves it into the body (`attachMethods`). A qualified owner,
 # `fun geo.Point.m()`, parses only to be rejected.
@@ -700,7 +703,7 @@ qowner   = object:name "." name:name                → (member)
 returns  = "->" type                                → 2
 
 # What a function's result views, after its type: some of its
-# parameters (`-> ?Item from a, b`, `-> String from self`), or only what
+# parameters (`-> ?Item from a, b`, `-> String from @`), or only what
 # lives for the whole program (`-> String from static`).
 origins  = FROM onames                              → (...2)
          | FROM STATIC                              → ()
@@ -710,8 +713,8 @@ onames   = name                                     → (1)
 
 # The lent parameters a function may keep, at the end of its header: it
 # may store what each views in what its write receiver and write
-# parameters lead to (`sub watch(!self, s: ?String) keeps s`; `keeps
-# self` names the receiver).
+# parameters lead to (`sub watch(!@, s: ?String) keeps s`; `keeps
+# @` names the receiver).
 keeps    = KEEPS onames                             → 2
 
 params   = "(" fields ![","] ")"                     → (...2)
@@ -736,9 +739,9 @@ fields   = field                                    → (1)
 field    = fname
          | name:fname ":" type:type                 → (:)
          | name:fname ":" type:type "=" value:expr  → (default)
-         | "?" operand:fname                        → (read)       # `?self`
-         | "!" operand:fname                        → (write)      # `!self`
-         | "<" operand:fname                        → (move)       # `<self`
+         | "?" operand:fname                        → (read)       # `?@`
+         | "!" operand:fname                        → (write)      # `!@`
+         | "<" operand:fname                        → (move)       # `<@`
 
 # Inside ( ) the rewriter turns a name followed by `:` into KWARG_NAME.
 fname    = name | KWARG_NAME
@@ -766,7 +769,7 @@ member   = field
          | name:name params:params                  → (variant)    # `circle(r: Int)`
          | fun
          | sub
-         | DROP params:params body:block            → (drop_decl)  # `drop(!self)`
+         | DROP params:params body:block            → (drop_decl)  # `drop(!@)`
          | PUB decl:member                          → (pub)        # `pub len: Int`
          | "?" fname ":" type                       → (read operand:(: name:2 type:4))  # `pub ?len: Int`
          | "?" fname ":" type "=" expr              → (read operand:(default name:2 type:4 value:6))

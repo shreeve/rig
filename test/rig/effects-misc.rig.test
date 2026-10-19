@@ -183,7 +183,7 @@ fail "errdefer cannot fail", "6:3: `errdefer` runs only when the function fails,
   obj D
     n: Int
 
-    drop(!self)
+    drop(!@)
       errdefer print("never")
 
   fun later() -> Int!
@@ -551,7 +551,7 @@ fail "fallible instance method without bang", "must be wrapped with `!` (propaga
   obj User
     name: ?String
 
-    fun check(?self) -> Int!
+    fun check(?@) -> Int!
       1
 
   u = User(name: "x")
@@ -587,8 +587,8 @@ fail "joined while step bindings", "18:45: the loop step reads `x`, a binding of
   obj Res
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   fun get(k: Int) -> Int?
     k if k > 0 else none
@@ -636,8 +636,8 @@ test "jump as fallback", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun find(xs: ?List[Int], k: Int) -> Int?
     for x, i in xs
@@ -884,8 +884,8 @@ fail "propagate in drop", "a `drop` body cannot propagate failure; handle it wit
   obj P
     n: Int
 
-    drop(!self)
-      print(check(self.n)!)
+    drop(!@)
+      print(check(@n)!)
 
   p = P(n: 1)
   print(p.n)
@@ -904,8 +904,8 @@ fail "propagate in method main", "use of `!` propagation requires the enclosing 
   obj P
     n: Int
 
-    sub main(?self)
-      print(check(self.n)!)
+    sub main(?@)
+      print(check(@n)!)
 
   p = P(n: 1)
   p.main()

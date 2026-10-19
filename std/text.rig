@@ -162,14 +162,14 @@ pub obj Split
   done: Bool
 
   # The next part, or `none` after the last.
-  pub fun next(!self) -> (?String)?
-    return none if self.done
-    at = find(self.rest, self.sep) ?? -1
+  pub fun next(!@) -> (?String)?
+    return none if @done
+    at = find(@rest, @sep) ?? -1
     if at < 0
-      self.done = true
-      return self.rest
-    part = self.rest[..at]
-    self.rest = self.rest[at + self.sep.len..]
+      @done = true
+      return @rest
+    part = @rest[..at]
+    @rest = @rest[at + @sep.len..]
     part
 
 # The parts of `s` between the occurrences of `sep`, left to right:
@@ -186,15 +186,15 @@ pub obj Lines
   rest: ?String
 
   # The next line, without its line ending, or `none` after the last.
-  pub fun next(!self) -> (?String)?
-    return none if self.rest.len == 0
-    end = find(self.rest, "\n") ?? -1
+  pub fun next(!@) -> (?String)?
+    return none if @rest.len == 0
+    end = find(@rest, "\n") ?? -1
     if end < 0
-      line = self.rest
-      self.rest = ""
+      line = @rest
+      @rest = ""
       return line
-    line = self.rest[..end]
-    self.rest = self.rest[end + 1..]
+    line = @rest[..end]
+    @rest = @rest[end + 1..]
     strip_suffix(line, "\r") ?? line
 
 # The lines of `s`: the parts between line endings, `\n` or `\r\n`,
@@ -210,13 +210,13 @@ pub obj Words
   rest: ?String
 
   # The next word, or `none` after the last.
-  pub fun next(!self) -> (?String)?
-    s = trim_start(self.rest)
+  pub fun next(!@) -> (?String)?
+    s = trim_start(@rest)
     return none if s.len == 0
     end = 0
     while end < s.len and not is_space(s[end])
       end += 1
-    self.rest = s[end..]
+    @rest = s[end..]
     s[..end]
 
 # The words of `s`: the nonempty runs of bytes between ASCII whitespace.
@@ -231,11 +231,11 @@ pub obj Chars
   rest: ?String
 
   # The next char, or `none` after the last.
-  pub fun next(!self) -> (?String)?
-    return none if self.rest.len == 0
-    end = char_end(self.rest, 0)
-    c = self.rest[..end]
-    self.rest = self.rest[end..]
+  pub fun next(!@) -> (?String)?
+    return none if @rest.len == 0
+    end = char_end(@rest, 0)
+    c = @rest[..end]
+    @rest = @rest[end..]
     c
 
 # The chars of `s`, each a `?String` viewing its bytes in `s`.

@@ -303,7 +303,7 @@ test "enum order places", '''
   true
 '''
   # A plain enum orders wherever a value does: in its own methods beside
-  # `self`, in a module constant, through read and write views, in a
+  # `@`, in a module constant, through read and write views, in a
   # generic body, a comparator closure, a match guard, and a loop
   # condition, and under `not`; an enum of one variant too.
 
@@ -312,11 +312,11 @@ test "enum order places", '''
     es5 = 5
     es2020 = 2020
 
-    fun modern(?self) -> Bool
-      self >= .es2015
+    fun modern(?@) -> Bool
+      @ >= .es2015
 
-    fun before(?self, o: Target) -> Bool
-      self < o
+    fun before(?@, o: Target) -> Bool
+      @ < o
 
   enum One
     only
@@ -409,8 +409,8 @@ test "enum payload bare variant value", '''
     c(r: Int)
     d
 
-    fun area(?self) -> Int
-      match self
+    fun area(?@) -> Int
+      match @
         .c(r) => r * r
         .d => 0
 
@@ -627,7 +627,7 @@ fail "enum text rules", "11:3: `from_text` is built into every plain enum", "13:
     red
     from_text
 
-    fun text(?self) -> Static
+    fun text(?@) -> Static
       "red"
 
   enum Mode

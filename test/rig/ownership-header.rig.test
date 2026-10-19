@@ -240,8 +240,8 @@ test "header branch read alternatives", release: true, '''
   obj H
     w: E
 
-    fun gw(!self) -> !E
-      !self.w
+    fun gw(!@) -> !E
+      !@w
 
   fun mk(n: Int) -> E
     v: List[Int] = List()
@@ -350,7 +350,7 @@ test "header branch takes cell holder", '''
   # A branching value in a `for` or `match` header (`if`, `catch`, `??`,
   # `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5): with
   # `<` on each name, every leaf is the header's own, so each element or
-  # payload is the body's own `*Counter` handle, through which a `?self`
+  # payload is the body's own `*Counter` handle, through which a `?@`
   # method changes a Cell (Core s9).
   #
   # oracle: loops accept
@@ -360,8 +360,8 @@ test "header branch takes cell holder", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   enum E
     a(c: *Counter)
@@ -605,7 +605,7 @@ test "header made cell holder owned", '''
 '''
   # A value a `for`, `if … as`, or `match` header makes is taken, and so is
   # the made value the subject is a part of (Core §3): each element or
-  # payload is the body's own `*Counter` handle, through which a `?self`
+  # payload is the body's own `*Counter` handle, through which a `?@`
   # method changes a Cell (Core s9), and `<k` moves it out.
   #
   # oracle: loops accept
@@ -614,8 +614,8 @@ test "header made cell holder owned", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   obj H
     o: (*Counter)?
@@ -799,7 +799,7 @@ test "header place reads cell holder", '''
 '''
   # A `match` or `for` whose subject is a place reads it where it stands
   # (Core s1, §3): each payload or element is a view of the place, so a
-  # `!self` method changes the Cell its `*Counter` handle reaches (Core
+  # `!@` method changes the Cell its `*Counter` handle reaches (Core
   # s9). Parentheses do not make a place a made value. `for k in <a` takes
   # the array, and its elements are the loop's own.
   #
@@ -810,8 +810,8 @@ test "header place reads cell holder", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   enum E
     a(c: *Counter)
@@ -880,8 +880,8 @@ fail "header plain part temporary", "27:12: this header binds a copy of its subj
     n: Int
     t: String
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: ?Res)
@@ -1160,8 +1160,8 @@ test "header reads in place", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Tok unique
     n: Int
@@ -1274,8 +1274,8 @@ test "header takes made branches", '''
     id: Int
     t: String
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum Shape
     dot
@@ -1353,8 +1353,8 @@ test "header temporaries end with header", '''
     id: Int
     v: List[Int]
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   error Bad
     no

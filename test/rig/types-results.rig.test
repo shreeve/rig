@@ -52,10 +52,10 @@ fail "results for iterator", "a `for` binds one value each step, and this iterat
   obj It
     i: Int
 
-    fun next(!self) -> (Int, Int)?
-      return none if self.i >= 2
-      self.i += 1
-      return self.i, self.i * 10
+    fun next(!@) -> (Int, Int)?
+      return none if @i >= 2
+      @i += 1
+      return @i, @i * 10
 
   it = It(i: 0)
   for k in !it
@@ -118,8 +118,8 @@ fail "results two write views", "at most one of a function's results is a write 
     a: Int
     b: Int
 
-    fun both(!self) -> (!Int, !Int)
-      return !self.a, !self.b
+    fun both(!@) -> (!Int, !Int)
+      return !@a, !@b
 
 fail "results type arg", "`(Int, Int)` is a function's results, not a type a value can have: name an object for a stored pair"
   xs: List[(Int, Int)] = List()

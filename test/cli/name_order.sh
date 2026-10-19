@@ -26,7 +26,7 @@ lambda) printf 'fun site() -> Int\n  f = |Thing: Int| Thing\n  f(1)\n';;
 ifas) printf 'fun site(o: Int?) -> Int\n  if o as Thing\n    return Thing\n  1\n';;
 catch) printf 'error E\n  bad\n\nfun p() -> Int!\n  return E.bad\n\nfun site() -> Int\n  n = p() catch |Thing| 3\n  n\n';;
 test) printf 'test "t"\n  Thing = 1\n  print(Thing)\n';;
-method) printf 'obj Foo\n  v: Int\n\nfun Foo.m(?self, Thing: Int) -> Int\n  Thing\n';;
+method) printf 'obj Foo\n  v: Int\n\nfun Foo.m(?@, Thing: Int) -> Int\n  Thing\n';;
 esac; }
 main() { printf 'sub main()\n  print(1)\n'; }
 

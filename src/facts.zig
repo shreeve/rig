@@ -897,8 +897,8 @@ test "Facts reads the leaf walk the storage plan decided" {
         \\obj R unique
         \\  n: Int
         \\
-        \\  fun get(?self) -> Int
-        \\    self.n
+        \\  fun get(?@) -> Int
+        \\    @n
         \\
         \\fun mkr(n: Int) -> R
         \\  R(n: n)

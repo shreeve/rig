@@ -40,8 +40,8 @@ test "review-while-step-w41-joined-drop-binding-step-grows-ok", '''
   # oracle: mkd accept
   obj D
     s: []Int
-    drop(!self)
-      print("drop", self.s[0])
+    drop(!@)
+      print("drop", @s[0])
 
   fun mkd(w: ?List[Int], i: Int) -> D?
     if i < 3
@@ -537,18 +537,18 @@ fail "review258-p132 summary fallible", "`go` stores a view of `u` in `v`, which
   <u
   print(v[0].s)
 
-fail "review258-p134 summary method", "`set` stores a view of `u` in `self`, which its caller reaches, but its signature does not keep `u`; say so: `keeps u`"
+fail "review258-p134 summary method", "`set` stores a view of `u` in `@`, which its caller reaches, but its signature does not keep `u`; say so: `keeps u`"
   obj H
     s: ?String
 
   obj Bag
     items: List[H]
 
-    fun first(!self) -> !H
-      !self.items[0]
+    fun first(!@) -> !H
+      !@items[0]
 
-    sub set(!self, u: ?String)
-      (!self).first() = H(s: u)
+    sub set(!@, u: ?String)
+      (!@).first() = H(s: u)
 
   t = String("t")
   b = Bag(items: List())
@@ -806,8 +806,8 @@ test "review258-p33 temp method", "ok"
   obj H
     s: String
 
-    fun me(!self) -> !String
-      !self.s
+    fun me(!@) -> !String
+      !@s
 
   fun make() -> H
     H(s: String("tmp"))
@@ -1305,8 +1305,8 @@ fail "review258-p87 method self param", "cannot store a view of `d` through `(!h
   obj H
     s: ?String
 
-    fun me(!self) -> !H
-      self
+    fun me(!@) -> !H
+      @
 
   sub put(h: !H)
     d = String("d")
@@ -1459,8 +1459,8 @@ test "review258-p98 drop order", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> D
     print("make", n)
@@ -1488,15 +1488,15 @@ test "rt-a", '''
     sep: ?String
     done: Bool
 
-    pub fun next(!self) -> (?String)?
-      if self.done
+    pub fun next(!@) -> (?String)?
+      if @done
         return none
-      i = find(self.rest, self.sep) ?? -1
+      i = find(@rest, @sep) ?? -1
       if i < 0
-        self.done = true
-        return self.rest
-      part = self.rest[0..i]
-      self.rest = self.rest[i + self.sep.len..]
+        @done = true
+        return @rest
+      part = @rest[0..i]
+      @rest = @rest[i + @sep.len..]
       part
 
   fun find(s: ?String, pat: ?String) -> Int?
@@ -1526,8 +1526,8 @@ fail "rust164250-repoint-declared-first", "cannot drop `l` while it is lent"
   obj Q
     f: ?String
 
-    drop(!self)
-      print(self.f)
+    drop(!@)
+      print(@f)
 
   l = String("inner")
   s = String("outer")
@@ -1542,8 +1542,8 @@ fail "rust164250-repoint-drop-local", "cannot drop `l` while it is lent"
   obj Q
     f: ?String
 
-    drop(!self)
-      print(self.f)
+    drop(!@)
+      print(@f)
 
   s = String("outer")
   q = Q(f: ?s)
@@ -1559,8 +1559,8 @@ fail "rust164250-repoint-scope-end", "`l` does not live long enough"
   obj Q
     f: ?String
 
-    drop(!self)
-      print(self.f)
+    drop(!@)
+      print(@f)
 
   s = String("outer")
   q = Q(f: ?s)
@@ -2825,8 +2825,8 @@ test "sb-adv2", '''
   obj P
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1

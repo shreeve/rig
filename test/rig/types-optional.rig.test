@@ -264,8 +264,8 @@ fail "optional method without unwrap", "cannot call `get` on optional `U?`"
   obj U
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   fun f(u: U?) -> Int
     u.get()

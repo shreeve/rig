@@ -9,15 +9,15 @@ test "review-box-p135", '''
     a(n: Int)
     b
 
-    fun get(?self) -> Int
-      match self
+    fun get(?@) -> Int
+      match @
         .a(n) => n
         .b => 0
 
-    sub set(!self, k: Int)
-      self = .a(n: k)
+    sub set(!@, k: Int)
+      @ = .a(n: k)
 
-    fun eat(<self) -> Int
+    fun eat(<@) -> Int
       3
 
   fun g(e: ?^E) -> Int
@@ -34,8 +34,8 @@ test "review-box-p136", "5 4 5"
     value: Int
     take: Int
 
-    fun init(?self) -> Int
-      self.value
+    fun init(?@) -> Int
+      @value
 
   b = ^P(value: 3, take: 4)
   b.value = 5
@@ -51,8 +51,8 @@ test "review-box-p138", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun rd(r: ?R) -> Int
     r.n
@@ -123,8 +123,8 @@ fail "review-box-p142", "bare use of loop view `x` in binding would carry the vi
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[^R] = List()
   !v.push(^R(n: 1))
@@ -171,8 +171,8 @@ fail "review-box-p149", "use of `b` after move"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(b: ^R)
     print("eat", b.n)
@@ -190,8 +190,8 @@ test "review-box-p150", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: ^R? = ^R(n: 5)
   if !o as x
@@ -207,14 +207,14 @@ test "review-box-p151", '''
   obj W[T]
     v: T
 
-    fun eat(<self) -> Int
+    fun eat(<@) -> Int
       3
 
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^W(v: 3)
   print(<b.eat())
@@ -233,8 +233,8 @@ test "review-box-p153", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   error E
     bad
@@ -257,8 +257,8 @@ fail "review-box-p155", "cannot reassign `h` while it is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H2
     r: R?
@@ -266,11 +266,11 @@ fail "review-box-p155", "cannot reassign `h` while it is lent"
   obj H
     h2: H2
 
-    fun inner(!self) -> !H2
-      !self.h2
+    fun inner(!@) -> !H2
+      !@h2
 
-    fun rinner(?self) -> ?H2
-      ?self.h2
+    fun rinner(?@) -> ?H2
+      ?@h2
 
   h = H(h2: H2(r: R(n: 1)))
   if ?h.rinner().r as x
@@ -281,8 +281,8 @@ fail "review-box-p158", "`h.rinner().r` owns a `^R?`, which can't be copied by `
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H2
     r: ^R?
@@ -290,8 +290,8 @@ fail "review-box-p158", "`h.rinner().r` owns a `^R?`, which can't be copied by `
   obj H
     h2: H2
 
-    fun rinner(?self) -> ?H2
-      ?self.h2
+    fun rinner(?@) -> ?H2
+      ?@h2
 
   fun rin(h: ?H) -> ?H2
     ?h.h2
@@ -311,8 +311,8 @@ fail "review-box-p160", "cannot reassign `h` while it is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H2
     r: R?
@@ -336,8 +336,8 @@ test "review-box-p163", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub f(p: !R?)
     if ?p as x
@@ -385,8 +385,8 @@ test "review-box-p165", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun rs(r: ?*R) -> Int
     r.n
@@ -414,8 +414,8 @@ test "review-box-p166", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[^R] = List()
   !v.push(^R(n: 1))
@@ -431,8 +431,8 @@ fail "review-box-p167", "`o` owns a `^R?`, which can't be copied by `=`: write `
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun isnil(o: ?^R?) -> Bool
     o == none
@@ -461,8 +461,8 @@ test "review-box-p169", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: ^R? = ^R(n: 1)
   if !o as x
@@ -475,8 +475,8 @@ fail "review-box-p171", "cannot move `b` while a read loan is live"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub g(r: ?R, b: ^R)
     print(r.n, b.n)
@@ -498,11 +498,11 @@ test "review-box-p24", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   fun mk() -> ^R
     ^R(n: 4)
@@ -515,11 +515,11 @@ fail "review-box-p25", "cannot move out of `s.b`: `s` would still drop it (parti
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun eat(<self) -> Int
-      self.n
+    fun eat(<@) -> Int
+      @n
 
   obj S
     b: ^R
@@ -531,11 +531,11 @@ fail "review-box-p28", "use of `b` after move"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun eat(<self) -> Int
-      self.n
+    fun eat(<@) -> Int
+      @n
 
   b = ^R(n: 1)
   print(<b.eat())
@@ -549,8 +549,8 @@ test "review-box-p35", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     empty
@@ -577,8 +577,8 @@ test "review-box-p36", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     empty
@@ -632,8 +632,8 @@ fail "review-box-p46", "cannot move `b` while a write loan is live"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^R(n: 1)
   r: !R = !b
@@ -648,8 +648,8 @@ test "review-box-p48", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun pick(b: !^R) -> !R
     !b
@@ -667,8 +667,8 @@ test "review-box-p49", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^R(n: 1)
   r: ?R = ?b
@@ -681,8 +681,8 @@ fail "review-box-p50", "cannot lend `b` to read while a write loan is live"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^R(n: 1)
   s: !R = !b
@@ -697,8 +697,8 @@ test "review-box-p51", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^R(n: 1)
   s: !R = !b
@@ -712,8 +712,8 @@ test "review-box-p52", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun pick(b: !^R) -> !R
     !b
@@ -737,8 +737,8 @@ test "review-box-p54", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^R(n: 1)
   c = ^R(n: 2)
@@ -750,8 +750,8 @@ test "review-box-p55", "2"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^1
   r: ?Int = ?b
@@ -765,8 +765,8 @@ test "review-box-p56", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun rd(r: ?R) -> Int
     r.n
@@ -788,8 +788,8 @@ test "review-box-p58", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[^R] = List()
   !v.push(^R(n: 1))
@@ -803,8 +803,8 @@ fail "review-box-p59", "`x` is bound but never read; name it `_` to ignore the v
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[^R] = List()
   !v.push(^R(n: 1))
@@ -815,8 +815,8 @@ fail "review-box-p61", "`v[0]` owns a `^R`, which can't be copied by `=`: write 
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[^R] = List()
   !v.push(^R(n: 1))
@@ -832,8 +832,8 @@ test "review-box-p62", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[^R] = List()
   !v.push(^R(n: 1))
@@ -852,8 +852,8 @@ test "review-box-p64", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: R? = R(n: 1)
   if !o as x
@@ -872,8 +872,8 @@ fail "review-box-p65", "an owned closure cannot capture a view of `x`: it can be
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(o: ?R?) -> *fun() -> Int
     if o as x
@@ -890,8 +890,8 @@ fail "review-box-p66", "an owned closure cannot capture a view of `b`: it can be
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = ^R(n: 5)
   f = *|?b| b.n
@@ -902,8 +902,8 @@ fail "review-box-p76", "cannot drop `t` while it is lent"
   obj Leaf
     n: Int
 
-    drop(!self)
-      print("drop leaf", self.n)
+    drop(!@)
+      print("drop leaf", @n)
 
   enum Ex
     lit(l: Leaf)
@@ -920,14 +920,14 @@ fail "review-box-p82", "cannot assign to `h.r` while `h` is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
 
-    fun get(?self) -> ?R?
-      ?self.r
+    fun get(?@) -> ?R?
+      ?@r
 
   h = H(r: R(n: 1))
   if h.get() as x
@@ -938,8 +938,8 @@ fail "review-box-p83", "cannot assign to `h.r` while `h` is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
@@ -954,8 +954,8 @@ fail "review-box-p84", "cannot assign to `a[0]` while `a` is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   a: [2]R? = [R(n: 1), R(n: 2)]
   i = 0
@@ -970,14 +970,14 @@ test "review-box-p85", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
 
-    fun get(!self) -> !R?
-      !self.r
+    fun get(!@) -> !R?
+      !@r
 
   h = H(r: R(n: 1))
   if (!h).get() as x
@@ -991,14 +991,14 @@ test "review-box-p87", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
 
-    fun get(!self) -> !R?
-      !self.r
+    fun get(!@) -> !R?
+      !@r
 
   h = H(r: R(n: 1))
   g = (!h).get()
@@ -1013,8 +1013,8 @@ test "review-box-p88", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun get(h: !R?) -> !R?
     !h
@@ -1028,8 +1028,8 @@ fail "review-box-p90", "cannot drop `t` while it is lent"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: ^R?
@@ -1050,8 +1050,8 @@ test "review-box-p91", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: R?
@@ -1072,11 +1072,11 @@ test "review-box-p92", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun eat(<self) -> Int
-      self.n
+    fun eat(<@) -> Int
+      @n
 
   b = ^R(n: 1)
   print(<b.eat())
@@ -1090,19 +1090,19 @@ test "review-box-p97", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     b: ^R
     o: ^R?
 
-    drop(!self)
-      print("S drop", self.b.n)
-      self.b.n = 50
-      if !self.o as x
+    drop(!@)
+      print("S drop", @b.n)
+      @b.n = 50
+      if !@o as x
         x.n = 60
-      self.o = none
+      @o = none
 
   s = S(b: ^R(n: 1), o: ^R(n: 2))
   print(s.b.n)
@@ -1131,8 +1131,8 @@ test "review-box-p98", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   error Bad
     oops
@@ -1181,8 +1181,8 @@ test "review-box-p99", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mkopt(k: Int) -> ^R?
     return none if k > 1
@@ -1221,8 +1221,8 @@ test "review-box-repro-m3 bad as diag", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun get(h: !R?) -> !R?
     !h
@@ -1424,9 +1424,9 @@ test "review-cell-mark-1-p43 holder qself method cellmark", "5"
   obj H
     n: Cell[Int]
 
-    sub show(?self, other: !*H)
+    sub show(?@, other: !*H)
       !other.n.set(5)
-      print(self.n.get())
+      print(@n.get())
 
   h = *H(n: Cell(1))
   g = +h
@@ -1437,9 +1437,9 @@ test "review-cell-mark-1-p63 recv capture", "1"
     n: Cell[Int]
     log: Cell[List[Int]]
 
-    sub hit(!self)
-      !self.n.set(self.n.get() + 1)
-      !self.log.push(self.n.get())
+    sub hit(!@)
+      !@n.set(@n.get() + 1)
+      !@log.push(@n.get())
 
   obj S
     h: *C
@@ -1454,9 +1454,9 @@ test "review-cell-mark-1-p68 recv fixed field shared", "2"
     n: Cell[Int]
     log: Cell[List[Int]]
 
-    sub hit(!self)
-      !self.n.set(self.n.get() + 1)
-      !self.log.push(self.n.get())
+    sub hit(!@)
+      !@n.set(@n.get() + 1)
+      !@log.push(@n.get())
 
   obj S
     h: *C
@@ -1499,8 +1499,8 @@ test "review-cell-temp-x02 oracle opt view coalesce text", '''
     t: String
     n: Int
 
-    fun opt(?self) -> (?T)?
-      self
+    fun opt(?@) -> (?T)?
+      @
 
   fun mkt(n: Int) -> T
     T(t: String("x"), n: n)
@@ -1617,15 +1617,15 @@ test "review-cell-temp2-2-q12 arm binding view drop", '''
     v: ?Int
     t: String
 
-    drop(!self)
-      print("drop hi", self.v)
+    drop(!@)
+      print("drop hi", @v)
 
   obj HP
     v: ?P
     t: String
 
-    drop(!self)
-      print("drop hp", self.v.n)
+    drop(!@)
+      print("drop hp", @v.n)
 
   enum Bx
     has(p: P)
@@ -1684,7 +1684,7 @@ test "review-cell-temp2-p21 unique named leaf", '''
 '''
   # A `unique` type without a Cell: a read lend of a branch beside a name's
   # value (rejected now: it would copy the unique value into the slot), a
-  # `?self` method on such a branch, and a read of a field.
+  # `?@` method on such a branch, and a read of a field.
   #
   # oracle: R.get accept
   # oracle: mkr accept
@@ -1694,8 +1694,8 @@ test "review-cell-temp2-p21 unique named leaf", '''
   obj R unique
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   fun mkr(n: Int) -> R
     R(n: n)

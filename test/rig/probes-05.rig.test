@@ -257,8 +257,8 @@ test "audit-fuzz-pf2-accepted-7a44573bdc", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
   obj P
     a: R
@@ -337,17 +337,17 @@ test "audit-fuzz-pf2-accepted-7a44573bdc", '''
     first: T
     second: U
 
-    fun left(?self) -> ?T
-      ?self.first
+    fun left(?@) -> ?T
+      ?@first
 
   obj Shelf[T]
     items: List[T]
 
-    sub add(!self, x: T)
-      !self.items.push(<x)
+    sub add(!@, x: T)
+      !@items.push(<x)
 
-    fun take(!self) -> T?
-      (!self.items).pop()
+    fun take(!@) -> T?
+      (!@items).pop()
 
   enum Maybe[T]
     just(v: T)
@@ -629,8 +629,8 @@ fail "audit-fuzz-pf2-accepted-92f228c2c3", "`a` is bound but never read; name it
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum S
     one(a: *B, k: Int)
@@ -701,12 +701,12 @@ test "audit-fuzz-pf2-accepted-93a212d1be", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -724,16 +724,16 @@ test "audit-fuzz-pf2-accepted-93a212d1be", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -938,8 +938,8 @@ test "audit-fuzz-pf2-accepted-9baaf7ea0a", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
   obj P
     a: R
@@ -1018,17 +1018,17 @@ test "audit-fuzz-pf2-accepted-9baaf7ea0a", '''
     first: T
     second: U
 
-    fun left(?self) -> ?T
-      ?self.first
+    fun left(?@) -> ?T
+      ?@first
 
   obj Shelf[T]
     items: List[T]
 
-    sub add(!self, x: T)
-      !self.items.push(<x)
+    sub add(!@, x: T)
+      !@items.push(<x)
 
-    fun take(!self) -> T?
-      (!self.items).pop()
+    fun take(!@) -> T?
+      (!@items).pop()
 
   enum Maybe[T]
     just(v: T)
@@ -1303,12 +1303,12 @@ test "audit-fuzz-pf2-accepted-a4356ecaae", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -1326,16 +1326,16 @@ test "audit-fuzz-pf2-accepted-a4356ecaae", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -1511,8 +1511,8 @@ test "audit-fuzz-pf2-accepted-b300870132", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun find(xs: ?List[Int], k: Int) -> Int?
     for x, i in xs
@@ -1607,12 +1607,12 @@ test "audit-fuzz-pf2-accepted-c157353cf4", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -1631,16 +1631,16 @@ test "audit-fuzz-pf2-accepted-c157353cf4", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -1999,16 +1999,16 @@ test "audit-fuzz-pf2-accepted-f977b401b0", '''
     v: Int
     next: ^Node?
 
-    drop(!self)
-      cur = <self.next
+    drop(!@)
+      cur = <@next
       while <cur as n
         cur = <n.next
 
   obj W[T]
     x: T?
 
-    fun grab(!self) -> T?
-      <self.x
+    fun grab(!@) -> T?
+      <@x
 
   elements()
   head: ^Node? = none
@@ -2067,24 +2067,24 @@ bomb "audit-fuzz-pf2-accepted-fc50cbcf57", "index out of bounds"
     fun open(name: ?String) -> Self
       Acct2(owner: name)
 
-    fun can_pay(?self, amount: Int) -> Bool
-      not self.frozen and self.balance >= amount
+    fun can_pay(?@, amount: Int) -> Bool
+      not @frozen and @balance >= amount
 
-    sub pay(!self, amount: Int)
-      self.balance -= amount
+    sub pay(!@, amount: Int)
+      @balance -= amount
 
-    sub freeze(!self)
-      self.frozen = true
+    sub freeze(!@)
+      @frozen = true
 
-    fun close(<self) -> Int
-      self.balance
+    fun close(<@) -> Int
+      @balance
 
   obj Pt2
     x: Int
     y: Int = 0
 
-    fun plus(?self, o: ?Pt2) -> Pt2
-      Pt2(x: self.x + o.x, y: self.y + o.y)
+    fun plus(?@, o: ?Pt2) -> Pt2
+      Pt2(x: @x + o.x, y: @y + o.y)
 
   sub main()
     v0: List[?String] = List()
@@ -2186,8 +2186,8 @@ fail "audit-ownership-a02 viewed handle owned closure", "an owned closure cannot
   obj Bx
     n: Int
 
-    drop(!self)
-      print("drop box", self.n)
+    drop(!@)
+      print("drop box", @n)
 
   h = *Bx(n: 7)
   r = ?h
@@ -2353,8 +2353,8 @@ fail "audit-ownership-d03 match reassign while payload", "cannot reassign `s` wh
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2379,8 +2379,8 @@ fail "audit-ownership-d04 match drop while payload", "cannot drop `s` while it i
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2405,8 +2405,8 @@ fail "audit-ownership-d05 match write payload then use root", "cannot reassign `
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2436,8 +2436,8 @@ test "audit-ownership-d06 match write payload ok", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2469,8 +2469,8 @@ test "audit-ownership-d07 match clone payload store", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2504,8 +2504,8 @@ test "audit-ownership-d08 match consume tail value", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2533,8 +2533,8 @@ fail "audit-ownership-d09 match view tail value", "`a` is bound but never read; 
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2567,8 +2567,8 @@ test "audit-ownership-d12 match consume binding whole", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2599,8 +2599,8 @@ test "audit-ownership-d14 match consume guard reads", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2633,8 +2633,8 @@ test "audit-ownership-d15 match in loop consume", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2666,8 +2666,8 @@ test "audit-ownership-e04 take through write loop elem", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2696,8 +2696,8 @@ fail "audit-ownership-e05 take while field lent", "cannot lend `h.o` to write wh
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2727,8 +2727,8 @@ test "audit-ownership-e08 take via capture", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2757,8 +2757,8 @@ fail "audit-ownership-e15 take elem vec in loop over it", "`x` is bound but neve
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2783,8 +2783,8 @@ fail "audit-ownership-f01 closure read then mutate", "cannot lend `v` to write w
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2809,8 +2809,8 @@ fail "audit-ownership-f02 closure write then read", "use of `v` while a write lo
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2834,8 +2834,8 @@ fail "audit-ownership-f03 closure store param through capture", "cannot store a 
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2864,8 +2864,8 @@ fail "audit-ownership-f04 closure store capture through capture", "`y` does not 
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2895,8 +2895,8 @@ fail "audit-ownership-f06 nested closure store", "`y` does not live long enough"
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2927,8 +2927,8 @@ fail "audit-ownership-f07 lent closure stores", "`y` does not live long enough"
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2959,8 +2959,8 @@ fail "audit-ownership-f08 closure returns capture view", "`f` is assigned but ne
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -2981,8 +2981,8 @@ fail "audit-ownership-f09 closure returns view of local", "cannot drop `x` while
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3010,8 +3010,8 @@ test "audit-ownership-f12 closure capture weak", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3039,8 +3039,8 @@ test "audit-ownership-f15 closure assign whole captured wb", "1 7"
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3071,8 +3071,8 @@ test "audit-ownership-f16 closure param stored into capture vec", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3099,8 +3099,8 @@ test "audit-ownership-f19 stack closure lent call returns", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3126,8 +3126,8 @@ fail "audit-ownership-f20 closure cap write while arg read", "cannot lend `v` to
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3154,8 +3154,8 @@ fail "audit-ownership-g01 view field inner scope", "`y` does not live long enoug
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3183,8 +3183,8 @@ fail "audit-ownership-g02 view via local wb inner", "`y` does not live long enou
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3213,8 +3213,8 @@ fail "audit-ownership-g04 view array of views", "cannot drop `b` while it is len
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3238,8 +3238,8 @@ fail "audit-ownership-g06 view returned from fn", "cannot drop `x` while it is l
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3268,8 +3268,8 @@ fail "audit-ownership-g08 method returns self view", "cannot lend `b.items` to w
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3286,8 +3286,8 @@ fail "audit-ownership-g08 method returns self view", "cannot lend `b.items` to w
   obj Bag
     items: List[*Tok]
 
-    fun first(?self) -> ?*Tok
-      ?self.items[0]
+    fun first(?@) -> ?*Tok
+      ?@items[0]
 
   b = Bag(items: List())
   !b.items.push(*Tok(n: 1))
@@ -3299,8 +3299,8 @@ fail "audit-ownership-g09 nested view", "cannot drop `x` while it is lent"
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3330,8 +3330,8 @@ fail "audit-ownership-g17 vec view elem", "cannot drop `x` while it is lent"
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3358,8 +3358,8 @@ fail "audit-ownership-g19 struct view field reassign outer", "cannot reassign `x
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3387,8 +3387,8 @@ fail "audit-ownership-h01 labeled break move", "`i` is bound but never read; nam
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3423,8 +3423,8 @@ test "audit-ownership-h02 labeled continue reassign", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3456,8 +3456,8 @@ test "audit-ownership-h04 loop else value", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3492,8 +3492,8 @@ test "audit-ownership-h05 break value moves local", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3522,8 +3522,8 @@ test "audit-ownership-h06 while as moves each iter", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3558,8 +3558,8 @@ test "audit-ownership-h08 loop view carried", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3586,8 +3586,8 @@ fail "audit-ownership-h09 loop view carried2", "cannot reassign `a` while it is 
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3632,8 +3632,8 @@ test "audit-ownership-i03 field assign through local wb", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3665,8 +3665,8 @@ test "audit-ownership-i04 replace clone other field", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3696,8 +3696,8 @@ test "audit-ownership-i05 swap nested paths", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3731,8 +3731,8 @@ test "audit-ownership-i06 swap through wb same root", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3761,8 +3761,8 @@ fail "audit-ownership-i07 swap alias via local wb", "cannot lend `p.b` to write 
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3792,8 +3792,8 @@ test "audit-ownership-i08 replace moves self", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3818,8 +3818,8 @@ fail "audit-ownership-i09 replace whole var", "cannot lend `t` to write while a 
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3847,8 +3847,8 @@ test "audit-ownership-i12 swap elems", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3878,8 +3878,8 @@ test "audit-ownership-j01 generic pick drop other", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)
@@ -3912,8 +3912,8 @@ test "audit-ownership-j05 generic push moved", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(t: *Tok)

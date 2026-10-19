@@ -814,11 +814,11 @@ test "symbols: an object with fields and methods, an enum, a method outside its 
         \\  x: Int
         \\  pub y: Int
         \\
-        \\  fun norm(?self) -> Int
-        \\    self.x
+        \\  fun norm(?@) -> Int
+        \\    @x
         \\
-        \\fun Point.twice(?self) -> Int
-        \\  self.x * 2
+        \\fun Point.twice(?@) -> Int
+        \\  @x * 2
         \\
         \\enum Color
         \\  red
@@ -835,11 +835,11 @@ test "symbols: an object with fields and methods, an enum, a method outside its 
     var out: std.Io.Writer.Allocating = .init(a);
     try writeSymbols(&out.writer, source, try symbols(a, &parsed), 0);
     try testing.expectEqualStrings(
-        \\struct Point [1:1-6:11] obj
+        \\struct Point [1:1-6:7] obj
         \\  field x [2:3-2:9] Int
         \\  field y [3:3-3:13] Int
-        \\  method norm [5:3-6:11] fun
-        \\method Point.twice [8:1-9:13] fun
+        \\  method norm [5:3-6:7] fun
+        \\method Point.twice [8:1-9:9] fun
         \\enum Color [11:1-13:8] enum
         \\  enum_member red [12:3-12:6]
         \\  enum_member green [13:3-13:8]

@@ -4,8 +4,8 @@ test "review-lend-base-3-j-j16", "1 2 42 2"
   obj Q
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1
@@ -242,12 +242,12 @@ test "review-lend-base-3-n-n01", "6 3"
     items: List[T]
     n: Int
 
-    sub add(!self, x: T)
-      (!self.items).push(<x)
-      self.n += 1
+    sub add(!@, x: T)
+      (!@items).push(<x)
+      @n += 1
 
-    fun count(?self) -> Int
-      self.items.len + self.n
+    fun count(?@) -> Int
+      @items.len + @n
 
   sub fill[T](b: !Bag[T], x: T, y: T)
     (!b).add(<x)
@@ -280,17 +280,17 @@ test "review-lend-base-3-n-n06", "1 2"
   obj Bag[T]
     items: List[T]
 
-    sub add(!self, x: T)
-      (!self).addraw(<x)
+    sub add(!@, x: T)
+      (!@).addraw(<x)
 
-    sub addraw(!self, x: T)
-      !self.items.push(<x)
+    sub addraw(!@, x: T)
+      !@items.push(<x)
 
-    fun size(?self) -> Int
-      (?self).count()
+    fun size(?@) -> Int
+      (?@).count()
 
-    fun count(?self) -> Int
-      self.items.len
+    fun count(?@) -> Int
+      @items.len
 
   v = List[String]()
   put(!v, String("a"))
@@ -401,8 +401,8 @@ test "review-loop-lowering-b01-value-loop-break-in-step", '''
   # rejected by both main and the branch.
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun nxt(i: Int) -> Int?
     i + 1 if i < 3 else none
@@ -463,8 +463,8 @@ test "review-loop-lowering-b02-return-in-step-and-cond", '''
   # oracle: main accept
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun nxt(i: Int) -> Int?
     i + 1 if i < 2 else none
@@ -599,8 +599,8 @@ test "review-loop-lowering-b03-propagate-from-step-cond-body", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun nx(i: Int, bad: Int) -> Int!
     return E.bad if i == bad
@@ -694,8 +694,8 @@ test "review-loop-lowering-b04-step-moves-repoints", '''
   # oracle: lim accept
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mv(d: D, c: Int) -> D
     print("step", d.n, c)
@@ -909,8 +909,8 @@ test "review-loop-lowering-e01-jump-in-for-source", '''
   # oracle: main accept
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun opt(i: Int) -> Int?
     none if i == 1 else i
@@ -987,8 +987,8 @@ test "review-loop-lowering-e02-value-loop-owned-break", '''
   # oracle: main accept
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mkvec(n: Int) -> List[D]
     v: List[D] = List()
@@ -1147,8 +1147,8 @@ test "review-loop-lowering-gen5-s11-0001", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -1279,8 +1279,8 @@ test "review-loop-lowering-gen5-s11-0186", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -1400,8 +1400,8 @@ test "review-loop-lowering-gen5-s11-0550", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -1546,8 +1546,8 @@ test "review-loop-lowering-gen5-s11-0582", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -1694,8 +1694,8 @@ test "review-loop-lowering-gen5-s11-1103", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -1880,8 +1880,8 @@ test "review-loop-lowering-gen5-s11-1162", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -2040,8 +2040,8 @@ test "review-loop-lowering-gen5-s23-d3-0000", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -2215,8 +2215,8 @@ test "review-loop-lowering-gen5-s23-d3-1250", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun st(n: Int, c: Int) -> Int
     print("s", n, c)
@@ -2325,8 +2325,8 @@ fail "review-move-done-2-e05 take args order", "cannot lend `s.o` to write while
   obj S
     o: List[Int]?
 
-    sub set(!self, x: List[Int]?)
-      self.o = <x
+    sub set(!@, x: List[Int]?)
+      @o = <x
 
   fun mkv(n: Int) -> List[Int]
     xs: List[Int] = List()
@@ -2446,11 +2446,11 @@ test "review-move-done-2-grid drop brlend.paren.ret", '''
   obj D
     v: Int
 
-    drop(!self)
-      print("drop", self.v)
+    drop(!@)
+      print("drop", @v)
 
-    fun into(<self) -> Int
-      self.v
+    fun into(<@) -> Int
+      @v
 
   error E
     bad
@@ -2776,8 +2776,8 @@ test "review-move-done-2-m05 recv copy param views", "4 4 4 4 4"
   obj P
     v: Int
 
-    fun into(<self) -> Int
-      self.v
+    fun into(<@) -> Int
+      @v
 
   obj S
     p: P
@@ -3392,8 +3392,8 @@ fail "review-move-done-p54 match subject", "cannot move out of `s.e`: `s` would 
   obj D
     v: List[Int]
 
-    fun into(<self) -> Int
-      self.v.len
+    fun into(<@) -> Int
+      @v.len
 
   obj H
     d: D
@@ -3448,8 +3448,8 @@ test "review-move-done-p70 consume receiver copy", "2 3"
   obj P
     x: Int
 
-    fun into(<self) -> Int
-      self.x
+    fun into(<@) -> Int
+      @x
 
   obj S
     p: P
@@ -3466,8 +3466,8 @@ fail "review-move-done-p71 consume receiver copy lt", "cannot move out of `s.p`:
   obj P
     x: Int
 
-    fun into(<self) -> Int
-      self.x
+    fun into(<@) -> Int
+      @x
 
   obj S
     p: P
@@ -3484,8 +3484,8 @@ test "review-move-done-p72 consume receiver workarounds", "2 2 2"
   obj P
     x: Int
 
-    fun into(<self) -> Int
-      self.x
+    fun into(<@) -> Int
+      @x
 
   obj S
     p: P
@@ -3634,8 +3634,8 @@ test "review-needs50-generic-view", '''
   obj Box[T]
     x: T
 
-  fun Box[T].same(?self, y: ?T) -> Bool
-    self.x == y
+  fun Box[T].same(?@, y: ?T) -> Bool
+    @x == y
 
   fun count[T](xs: ?List[T], x: ?T) -> Int
     n = 0
@@ -3739,8 +3739,8 @@ test "review-needs50-module", '''
     pub obj R
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
     pub enum E
       A(r: R)
@@ -3838,8 +3838,8 @@ test "review-needs50-payload-kinds", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum H
     Sh(p: *N)
@@ -3911,8 +3911,8 @@ test "review-needs50-positions", '''
   fun apply(f: ?fun(?Val) -> Int) -> Int
     f(.Table(m: three()))
 
-  fun Bag.size(?self, v: ?Val, extra: Int = 0) -> Int
-    size(v) + extra + self.n
+  fun Bag.size(?@, v: ?Val, extra: Int = 0) -> Int
+    size(v) + extra + @n
 
   defer print("defer", size(.Table(m: three())))
   c = true
@@ -3999,8 +3999,8 @@ test "review-never-data-1-a11 generic struct cell", "7"
   obj W[T]
     c: Cell[T]
 
-    sub put(!self, x: T)
-      !self.c.set(x)
+    sub put(!@, x: T)
+      !@c.set(x)
 
   sub bump[T](w: !W[T], x: T)
     !w.put(x)
@@ -4015,8 +4015,8 @@ test "review-never-data-1-a12 weak", "1"
   obj Counter
     hits: Cell[Int] = Cell(0)
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   k = *Counter()
   w = ~k
@@ -4042,8 +4042,8 @@ test "review-never-data-1-a15 nested field struct method", "7 1"
   obj Counter
     hits: Cell[Int] = Cell(0)
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   obj Outer
     a: Counter
@@ -4060,8 +4060,8 @@ test "review-never-data-1-a17 match payload view", "1"
   obj Counter
     hits: Cell[Int] = Cell(0)
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   enum E
     a(k: Counter)
@@ -4241,8 +4241,8 @@ test "review-never-data-1-e11 branch readview method cell", "2 0"
   obj Counter
     hits: Cell[Int] = Cell(0)
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   obj O
     k: Counter
@@ -4258,9 +4258,9 @@ test "review-never-data-1-g01 branch push", "52 0"
   obj S
     c: Cell[List[Int]]
 
-    sub grow(!self)
+    sub grow(!@)
       for i in 0..50
-        !self.c.push(i)
+        !@c.push(i)
 
   obj O
     s: S
@@ -4280,9 +4280,9 @@ test "review-never-data-1-g06 branch in arg then change", "1 0 true 2"
   obj S
     c: Cell[List[Int]]
 
-    sub grow(!self)
+    sub grow(!@)
       for i in 0..50
-        !self.c.push(i)
+        !@c.push(i)
 
   obj O
     s: S
@@ -4306,9 +4306,9 @@ test "review-never-data-1-g08 branch cell pop", '''
   obj S
     c: Cell[List[Int]]
 
-    sub grow(!self)
+    sub grow(!@)
       for i in 0..50
-        !self.c.push(i)
+        !@c.push(i)
 
   obj O
     s: S
@@ -4327,9 +4327,9 @@ test "review-never-data-1-g09 branch set vec", "0 0"
   obj S
     c: Cell[List[Int]]
 
-    sub grow(!self)
+    sub grow(!@)
       for i in 0..50
-        !self.c.push(i)
+        !@c.push(i)
 
   obj O
     s: S

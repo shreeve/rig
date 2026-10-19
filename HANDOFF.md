@@ -46,7 +46,7 @@ from).
     names are module-wide, and each module emits one Zig file. Modules
     still may not import each other in a cycle. A method may be
     declared outside its type's body in the type's module
-    (`fun Point.norm(?self)`, `fun Wrap[T].map[U](...)`), which
+    (`fun Point.norm(?@)`, `fun Wrap[T].map[U](...)`), which
     desugars to the member. Module constants fold in dependency order,
     and one that depends on itself is rejected. A directory's
     `_test.rig` files belong to its module only as the root of `rig test`
@@ -263,7 +263,7 @@ and run the suite after.
 - **Addresses of Zig rvalues.** `emitLeafPtr`'s `&@as(T, value)` and a
   temporary array lent to a call are the storage fact `zig_temp`. Emit
   still takes the address of two kinds of Zig rvalue no fact names: a
-  `?self` method on a made value no slot keeps, or on a branching value
+  `?@` method on a made value no slot keeps, or on a branching value
   with a made leaf, and labeled value blocks' yields (docs/INTERNALS.md,
   Emit, "Addresses of Zig temporaries"). They are latent: the checker
   keeps each view within its statement, and Zig keeps the rvalue's slot
@@ -317,7 +317,7 @@ and run the suite after.
     (`x = r` with `r: ?Point` binds a `?Point`). Where a type is
     expected, every value that copies is copied out (`sema.copies`).
   - The oracle accepts two shapes the Core rejects (the compiler
-    rejects both): a `?self` result reaching an owned field beside a
+    rejects both): a `?@` result reaching an owned field beside a
     held view (`x77`), and re-pointing a write view a closure has lent
     (`x68`). Add them as `# oracle:` tests when the oracle learns them.
   - Whether an expression is a view is not one fact yet (CORE §9,

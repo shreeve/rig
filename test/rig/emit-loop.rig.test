@@ -604,8 +604,8 @@ test "loop step after body drop", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(v: ?List[Int], i: Int) -> S?
     if i < 2
@@ -729,8 +729,8 @@ test "loop step order nested match value", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(v: ?List[Int], i: Int) -> S?
     if i < 4

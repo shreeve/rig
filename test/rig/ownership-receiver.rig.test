@@ -9,8 +9,8 @@ fail "receiver branch view keeps leaf loans", "17:3: cannot assign to `a.t` whil
   obj S
     t: String
 
-    fun inner(?self) -> ?String
-      ?self.t
+    fun inner(?@) -> ?String
+      ?@t
 
   sub branch()
     a = S(t: String("aa"))
@@ -58,25 +58,25 @@ test "receiver by what it hands over", '''
 '''
   # A method's receiver, by what it hands over: a place, a value made
   # there, a branching value that may be a name's, and one whose every
-  # branch is made there (`<a if c else <b`). A `?self` method reads any of
-  # them in place; a `!self` method writes a place it is lent (`!p.m()`);
-  # a `<self` method takes a value made there.
+  # branch is made there (`<a if c else <b`). A `?@` method reads any of
+  # them in place; a `!@` method writes a place it is lent (`!p.m()`);
+  # a `<@` method takes a value made there.
 
   obj D
     id: Int
     t: String
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
-    fun look(?self) -> Int
-      self.id
+    fun look(?@) -> Int
+      @id
 
-    sub bump(!self)
-      self.id += 10
+    sub bump(!@)
+      @id += 10
 
-    fun take(<self) -> Int
-      self.id
+    fun take(<@) -> Int
+      @id
 
   fun mk(id: Int) -> D
     D(id: id, t: String("d"))
@@ -126,8 +126,8 @@ fail "receiver plain struct later write", "16:18: cannot lend `a` to write while
   obj P
     x: Int
 
-    fun show(?self, n: Int) -> Int
-      print(self.x, n)
+    fun show(?@, n: Int) -> Int
+      print(@x, n)
       n
 
   fun bump(p: !P) -> Int
@@ -144,8 +144,8 @@ fail "receiver read then moved", "21:34: cannot move `a` while the receiver's re
   obj P
     v: List[Int]
 
-    fun sum(?self, k: Int) -> Int
-      self.v[0] + k
+    fun sum(?@, k: Int) -> Int
+      @v[0] + k
 
   fun mk(k: Int) -> P
     v: List[Int] = List()
@@ -168,10 +168,10 @@ fail "receiver read then written", "21:29: cannot lend `a` to write while the re
   obj P
     v: List[Int]
 
-    fun peek(?self, other: !P) -> Int
+    fun peek(?@, other: !P) -> Int
       for i in 0..100
         !other.v.push(i)
-      self.v[0]
+      @v[0]
 
   fun mk(k: Int) -> P
     v: List[Int] = List()
@@ -208,14 +208,14 @@ fail "receiver stored in argument siblings", "48:11: cannot let this call store 
   obj Src
     items: List[Int]
 
-    sub put(?self, out: !Holder) keeps self
-      out.r = ?self.items[..]
+    sub put(?@, out: !Holder) keeps @
+      out.r = ?@items[..]
 
-    sub putw(!self, out: !Holder) keeps self
-      out.r = ?self.items[..]
+    sub putw(!@, out: !Holder) keeps @
+      out.r = ?@items[..]
 
-    sub me(?self, out: !VH) keeps self
-      out.s = self
+    sub me(?@, out: !VH) keeps @
+      out.s = @
 
   obj Outer
     b: Src
@@ -223,14 +223,14 @@ fail "receiver stored in argument siblings", "48:11: cannot let this call store 
   obj P
     xs: [2]Int
 
-    sub put(?self, out: !Holder) keeps self
-      out.r = ?self.xs[..]
+    sub put(?@, out: !Holder) keeps @
+      out.r = ?@xs[..]
 
   obj HV
     r: []Int
 
-    sub give(<self, out: !Holder)
-      out.r = self.r
+    sub give(<@, out: !Holder)
+      out.r = @r
 
   fun mk() -> Src
     s = Src(items: List())
@@ -305,15 +305,15 @@ fail "receiver temporary view outlives statement", "36:5: a view of the temporar
   obj P
     xs: [4]Int
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   obj Q
     c: Cell[Int]
     n: Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
   obj H
     q: Q
@@ -338,7 +338,7 @@ fail "receiver temporary view outlives statement", "36:5: a view of the temporar
   print(r, s.n, t, mk().arr()[0])
 
 fail "receiver view of branch lends it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while `a` is lent", "68:1: cannot lend `vs` to write while a read loan is live", errors: 3
-  # A `?self` method whose result may keep a view of its receiver lends the
+  # A `?@` method whose result may keep a view of its receiver lends the
   # receiver, as `?e` does. A receiver that branches lends each leaf it may
   # be, where it is: whether the branch is the receiver itself, the value a
   # field or element of it is read from, or `??`, `catch`, or `o?`. So a
@@ -351,14 +351,14 @@ fail "receiver view of branch lends it", "60:6: a view of the temporary `fails(f
     t: String
     xs: [4]Int
 
-    fun inner(?self) -> ?String
-      ?self.t
+    fun inner(?@) -> ?String
+      ?@t
 
-    fun name(?self) -> ?String
-      ?self.t
+    fun name(?@) -> ?String
+      ?@t
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   obj W
     s: S
@@ -366,8 +366,8 @@ fail "receiver view of branch lends it", "60:6: a view of the temporary `fails(f
   obj P
     xs: [4]Int
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   error E
     bad
@@ -417,7 +417,7 @@ test "receiver view of branch lends leaves", '''
   [1, 2, 3, 4] a text long enough to live on the heap: oo
   42
 '''
-  # A `?self` method whose result may keep a view of a receiver that
+  # A `?@` method whose result may keep a view of a receiver that
   # branches lends each leaf the receiver may be, where it is: the view
   # points into that leaf, and keeps a loan on every name a leaf names, so
   # it may be used after the statement, while those names live unchanged.
@@ -430,14 +430,14 @@ test "receiver view of branch lends leaves", '''
     t: String
     xs: [4]Int
 
-    fun inner(?self) -> ?String
-      ?self.t
+    fun inner(?@) -> ?String
+      ?@t
 
-    fun name(?self) -> ?String
-      ?self.t
+    fun name(?@) -> ?String
+      ?@t
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   obj W
     s: S
@@ -445,8 +445,8 @@ test "receiver view of branch lends leaves", '''
   obj P
     xs: [4]Int
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   fun maybe(c: Bool) -> S?
     if c
@@ -496,11 +496,11 @@ fail "receiver view of temporary leaves tail", "21:3: cannot return a view of `m
     n: Int
     m: Int
 
-    fun me(?self) -> ?S
-      self
+    fun me(?@) -> ?S
+      @
 
-    fun rd(?self) -> ?Int
-      ?self.n
+    fun rd(?@) -> ?Int
+      ?@n
 
   fun mk(k: Int) -> S
     S(n: k, m: 6)
@@ -535,7 +535,7 @@ fail "receiver view of temporary leaves tail", "21:3: cannot return a view of `m
   print(tail(?w).n, ret(?v).n, read_tail(?z), r.n, a.n, m.n, b.n, f())
 
 fail "receiver view of temporary outlives statement", "31:5: a view of the temporary `mk()` outlives its statement", "32:5: a view of the temporary `mkh()` outlives its statement", "33:5: a view of the temporary `mkh()` outlives its statement", "37:6: a view of the temporary `ps if c else qs` outlives its statement", errors: 4
-  # A `?self` method whose result may keep a view of a temporary receiver
+  # A `?@` method whose result may keep a view of a temporary receiver
   # lends the temporary, which lives until its statement ends, plain data
   # too: the view may be used within the statement, and nowhere after.
   # So does a field or element of a temporary, a Cell-holding part
@@ -544,15 +544,15 @@ fail "receiver view of temporary outlives statement", "31:5: a view of the tempo
   obj P
     xs: [4]Int
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   obj Q
     c: Cell[Int]
     n: Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
   obj H
     q: Q
@@ -575,7 +575,7 @@ fail "receiver view of temporary outlives statement", "31:5: a view of the tempo
   print(r, s.n, t, u)
 
 fail "receiver view stored in argument", "36:3: cannot reassign `h` while it is lent", "44:4: use of `h.v` while a write loan on `h` is live", "53:6: use of `h.v` while a write loan on `h` is live", "63:6: use of `h.v` while a write loan on `h` is live", errors: 4
-  # A `!self` method may store a view of its receiver in another `!`
+  # A `!@` method may store a view of its receiver in another `!`
   # argument, which keeps the receiver lent while the argument holds it
   # (SPEC "Second-class views"): reassigning the receiver, growing what
   # the view sees, or using it otherwise is rejected while the argument
@@ -590,17 +590,17 @@ fail "receiver view stored in argument", "36:3: cannot reassign `h` while it is 
     n: Int
     v: List[Int]
 
-    sub put(!self, dst: !List[?List[Int]]) keeps self
-      !self.v.push(1)
-      !dst.push(?self.v)
+    sub put(!@, dst: !List[?List[Int]]) keeps @
+      !@v.push(1)
+      !dst.push(?@v)
 
-    sub puts(!self, dst: !List[[]Int]) keeps self
-      !self.v.push(1)
-      !dst.push(?self.v[..])
+    sub puts(!@, dst: !List[[]Int]) keeps @
+      !@v.push(1)
+      !dst.push(?@v[..])
 
-    sub putf(!self, dst: !Slot) keeps self
-      !self.v.push(1)
-      dst.s = ?self.v[..]
+    sub putf(!@, dst: !Slot) keeps @
+      !@v.push(1)
+      dst.s = ?@v[..]
 
   obj Slot
     s: []Int
@@ -649,7 +649,7 @@ test "receiver view used in statement", '''
   1001
   aa
 '''
-  # A view a `?self` method returns of a temporary receiver, plain data
+  # A view a `?@` method returns of a temporary receiver, plain data
   # included, or of a value that branches through data only, is used within
   # its statement, where its statement keeps the receiver. A method whose
   # result keeps no view reads a value that branches as before, and one
@@ -658,17 +658,17 @@ test "receiver view used in statement", '''
   obj P
     xs: [4]Int
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   obj S
     t: String
 
-    fun inner(?self) -> ?String
-      ?self.t
+    fun inner(?@) -> ?String
+      ?@t
 
-    fun size(?self) -> Int
-      self.t.len
+    fun size(?@) -> Int
+      @t.len
 
   fun mk(n: Int) -> P
     P(xs: [n, n, n, n])
@@ -702,9 +702,9 @@ fail "receiver view with move arg", "cannot move `rc` while a read loan is live"
   obj Wrap
     inner: *Inner
 
-    sub show(?self, other: *Wrap)
+    sub show(?@, other: *Wrap)
       <other
-      y = +self.inner
+      y = +@inner
       print(y.x)
 
   rc = *Wrap(inner: *Inner(x: 5))

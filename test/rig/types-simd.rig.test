@@ -610,7 +610,7 @@ bomb "simd fold with sub panics", "integer overflow", release: true
   v = Simd[I8, 4].splat(0).with(1, -128)
   print(v - 1)
 
-fail "simd forms", "7:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "8:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "9:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "10:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "14:12: cannot iterate over `Simd[U8, 4]`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)", "16:9: cannot `match` on a value of type `Simd[U8, 4]`; match works on enums, errors, integers, Bool, and Symbol", "18:11: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3", "18:17: lane `-1` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3", "19:7: `Simd[U8, 4]` is a type, not a value", errors: 9
+fail "simd forms", "7:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "8:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "9:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "10:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "14:12: cannot iterate over `Simd[U8, 4]`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!@) -> T?`)", "16:9: cannot `match` on a value of type `Simd[U8, 4]`; match works on enums, errors, integers, Bool, and Symbol", "18:11: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3", "18:17: lane `-1` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3", "19:7: `Simd[U8, 4]` is a type, not a value", errors: 9
   # A vector is one value: a `for` walks its lanes through `v.array()`, a
   # `match` does not take it, and a lane index is checked against the lane
   # count. A module constant holds a vector made of constants, and no
@@ -688,8 +688,8 @@ test "simd generic lanes", '''
   obj Window[n: Int]
     lanes: Simd[U8, n]
 
-    fun low(?self, k: U8) -> Simd[Bool, n]
-      self.lanes < k
+    fun low(?@, k: U8) -> Simd[Bool, n]
+      @lanes < k
 
   sub main()
     print(ops(Simd[I32, 2]([1, -2]), Simd[I32, 2]([3, 4]), 2))
@@ -1290,12 +1290,12 @@ test "simd places", '''
     ahead: Block
     pos: Int
 
-    fun peek(?self) -> U8
-      self.ahead[0]
+    fun peek(?@) -> U8
+      @ahead[0]
 
-    sub skip(!self)
-      self.ahead = self.ahead.with(0, 0)
-      self.pos += 1
+    sub skip(!@)
+      @ahead = @ahead.with(0, 0)
+      @pos += 1
 
   obj Wrap[T]
     value: T

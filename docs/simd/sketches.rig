@@ -60,28 +60,28 @@ obj Indexer
   after_scalar: U64              # 1 when the last block ended inside a scalar
 
   # The bytes a backslash escapes: odd-length runs end in an escape.
-  fun escaped(!self, bs: U64) -> U64
+  fun escaped(!@, bs: U64) -> U64
     if bs == 0
-      e = self.next_escaped
-      self.next_escaped = 0
+      e = @next_escaped
+      @next_escaped = 0
       return e
-    prev = self.next_escaped
+    prev = @next_escaped
     lead = bs & prev.not()
     codes = (((lead << 1) | ODD) -% lead) ^ ODD
-    self.next_escaped = (codes & bs) >> 63
+    @next_escaped = (codes & bs) >> 63
     codes ^ (bs | prev)
 
   # Appends the index of every structural byte, string start and scalar
   # start in the block at `at`.
-  sub block(!self, b: ?Lanes[U8, 64], at: Int, out: !List[Int])
+  sub block(!@, b: ?Lanes[U8, 64], at: Int, out: !List[Int])
     c = classify(b)
-    quote = c.quote & (!self).escaped(c.backslash).not()
-    inside = quote.prefix_xor() ^ self.in_string
-    self.in_string = 0 -% (inside >> 63)
+    quote = c.quote & (!@).escaped(c.backslash).not()
+    inside = quote.prefix_xor() ^ @in_string
+    @in_string = 0 -% (inside >> 63)
     scalar = (c.op | c.space).not()
     plain = scalar & quote.not()
-    starts = scalar & ((plain << 1) | self.after_scalar).not()
-    self.after_scalar = plain >> 63
+    starts = scalar & ((plain << 1) | @after_scalar).not()
+    @after_scalar = plain >> 63
     m = (c.op | starts) & (inside ^ quote).not()
     while m != 0
       !out.push(at + m.trailing_zeros())

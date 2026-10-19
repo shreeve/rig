@@ -93,37 +93,34 @@
                                ^^^ string
                                   ^ punctuation
 > 
->   fun norm(?self) -> Int
+>   fun norm(?@) -> Int
     ^^^^ keyword
         ^^^^ function
             ^ punctuation
              ^ storage.modifier
-              ^^^^ variable.special
-                  ^ punctuation
-                    ^^ operator
-                       ^^^ type
->     self.x * self.x
-      ^^^^ variable.special
-          ^ punctuation
-             ^ operator
-               ^^^^ variable.special
-                   ^ punctuation
+              ^ variable.special
+               ^ punctuation
+                 ^^ operator
+                    ^^^ type
+>     @x * @x
+      ^ variable.special
+         ^ operator
+           ^ variable.special
 > 
->   sub shift(!self, by: Int)
+>   sub shift(!@, by: Int)
     ^^^^ keyword
         ^^^^^ function
              ^ punctuation
               ^ storage.modifier
-               ^^^^ variable.special
-                   ^ punctuation
-                     ^^ variable.parameter
-                       ^ punctuation
-                         ^^^ type
-                            ^ punctuation
->     self.x += by
-      ^^^^ variable.special
-          ^ punctuation
-             ^^ operator
+               ^ variable.special
+                ^ punctuation
+                  ^^ variable.parameter
+                    ^ punctuation
+                      ^^^ type
+                         ^ punctuation
+>     @x += by
+      ^ variable.special
+         ^^ operator
 > 
 > obj Handle
   ^^^^ keyword
@@ -133,20 +130,19 @@
       ^ punctuation
         ^^^ type
 > 
->   sub drop(!self)
+>   sub drop(!@)
     ^^^^ keyword
         ^^^^ function
             ^ punctuation
              ^ storage.modifier
-              ^^^^ variable.special
-                  ^ punctuation
->     print("closed", self.fd)
+              ^ variable.special
+               ^ punctuation
+>     print("closed", @fd)
            ^ punctuation
             ^^^^^^^^ string
                     ^ punctuation
-                      ^^^^ variable.special
-                          ^ punctuation
-                             ^ punctuation
+                      ^ variable.special
+                         ^ punctuation
 > 
 > obj Pair[T]
   ^^^^ keyword
@@ -163,22 +159,21 @@
          ^ punctuation
            ^ type
 > 
->   fun first(?self) -> ?T from self
+>   fun first(?@) -> ?T from @
     ^^^^ keyword
         ^^^^^ function
              ^ punctuation
               ^ storage.modifier
-               ^^^^ variable.special
-                   ^ punctuation
-                     ^^ operator
-                        ^ storage.modifier
-                         ^ type
-                           ^^^^ keyword
-                                ^^^^ variable.special
->     ?self.left
+               ^ variable.special
+                ^ punctuation
+                  ^^ operator
+                     ^ storage.modifier
+                      ^ type
+                        ^^^^ keyword
+                             ^ variable.special
+>     ?@left
       ^ storage.modifier
-       ^^^^ variable.special
-           ^ punctuation
+       ^ variable.special
 > 
 > called fun hot(n: Int) -> Int
   ^^^^^^ keyword

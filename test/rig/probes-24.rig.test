@@ -7,9 +7,9 @@ test "review-never-data-1-g10 branch replace", '''
   obj S
     c: Cell[List[Int]]
 
-    sub grow(!self)
+    sub grow(!@)
       for i in 0..50
-        !self.c.push(i)
+        !@c.push(i)
 
   obj O
     s: S
@@ -29,9 +29,9 @@ test "review-never-data-1-h05 place then alias", "Cell(value: [1, 0, 1, 2, 3, 4,
   obj S
     c: Cell[List[Int]]
 
-    fun growi(!self) -> Int
+    fun growi(!@) -> Int
       for i in 0..100
-        !self.c.push(i)
+        !@c.push(i)
       5
 
   obj O
@@ -170,8 +170,8 @@ test "review-never-data-1-i01 generic readT infer", '''
   obj Counter
     hits: Cell[Int] = Cell(0)
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   sub poke[T](x: ?T)
     print(1)
@@ -185,8 +185,8 @@ fail "review-never-data-1-j01 branch receiver view result", "`i` is bound but ne
   obj H
     v: List[String]
 
-    fun first(?self) -> ?String
-      ?self.v[0]
+    fun first(?@) -> ?String
+      ?@v[0]
 
   a = H(v: List())
   b = H(v: List())
@@ -202,8 +202,8 @@ fail "review-never-data-1-j02 branch receiver drop", "cannot drop `a` while it i
   obj H
     v: List[String]
 
-    fun first(?self) -> ?String
-      ?self.v[0]
+    fun first(?@) -> ?String
+      ?@v[0]
 
   a = H(v: List())
   b = H(v: List())
@@ -218,8 +218,8 @@ fail "review-never-data-1-j09 branch coalesce receiver", "cannot drop `b` while 
   obj H
     v: List[String]
 
-    fun first(?self) -> ?String
-      ?self.v[0]
+    fun first(?@) -> ?String
+      ?@v[0]
 
   a: H? = H(v: List())
   b = H(v: List())
@@ -238,8 +238,8 @@ test "review-never-data-1-k02 handle ptr siblings", '''
   obj Q
     n: Int
 
-    fun get(?self, j: Int, k: Int) -> Int
-      self.n + j + k
+    fun get(?@, j: Int, k: Int) -> Int
+      @n + j + k
 
   obj W
     h: *Q
@@ -380,15 +380,15 @@ test "review-never-data-1-l01 generic nested cell", "6"
   obj In[T]
     c: Cell[T]
 
-    sub put(!self, x: T)
-      !self.c.set(x)
+    sub put(!@, x: T)
+      !@c.set(x)
 
   obj W[T]
     i: In[T]
     n: Int
 
-    sub put2(!self, x: T)
-      !self.i.put(x)
+    sub put2(!@, x: T)
+      !@i.put(x)
 
   sub bump[T](w: !W[T], x: T)
     !w.i.c.set(x)
@@ -423,8 +423,8 @@ test "review-never-data-1-l04 generic vec cellvec", "80"
   obj W[T]
     c: Cell[List[T]]
 
-    sub add(!self, x: T)
-      !self.c.push(x)
+    sub add(!@, x: T)
+      !@c.push(x)
 
   sub fill[T](w: !W[T], x: T, n: Int)
     for _ in 0..n
@@ -457,8 +457,8 @@ test "review-never-data-1-n03", "3 1 5"
     pub obj Counter
       pub hits: Cell[Int] = Cell(0)
 
-      pub sub hit(!self)
-        !self.hits.set(self.hits.get() + 1)
+      pub sub hit(!@)
+        !@hits.set(@hits.get() + 1)
 
     pub type C = Cell[Int]
 
@@ -1342,21 +1342,21 @@ fail "review-payload-loan-3-f05 write binding return", "cannot reassign `e` whil
   e = E.b
   print(r)
 
-fail "review-payload-loan-3-g01 self write view return", "cannot assign to `self.t` while `self.t` is lent"
+fail "review-payload-loan-3-g01 self write view return", "cannot assign to `@t` while `@t` is lent"
   obj S
     t: String
     n: Int
 
-    fun tail(!self) -> ?String
-      self.n += 1
-      ?self.t[1..]
+    fun tail(!@) -> ?String
+      @n += 1
+      ?@t[1..]
 
-    fun peek(?self) -> ?String
-      ?self.t[1..]
+    fun peek(?@) -> ?String
+      ?@t[1..]
 
-    sub hold(!self)
-      r = ?self.t[1..]
-      self.t = String("other")
+    sub hold(!@)
+      r = ?@t[1..]
+      @t = String("other")
       print(r)
 
   s = S(t: String("hello"), n: 0)
@@ -1371,18 +1371,18 @@ test "review-payload-loan-3-g02 self write hold then write ok", '''
     t: String
     n: Int
 
-    fun tail(!self) -> ?String
-      self.n += 1
-      ?self.t[1..]
+    fun tail(!@) -> ?String
+      @n += 1
+      ?@t[1..]
 
-    fun peek(?self) -> ?String
-      ?self.t[1..]
+    fun peek(?@) -> ?String
+      ?@t[1..]
 
-    sub hold(!self)
-      r = ?self.t[1..]
+    sub hold(!@)
+      r = ?@t[1..]
       print(r)
-      self.t = String("other")
-      q = ?self
+      @t = String("other")
+      q = ?@
       print(q.t)
 
   s = S(t: String("hello"), n: 0)
@@ -1525,8 +1525,8 @@ fail "review-payload-loan-3-o04 method self match write", "cannot lend `t` to wr
     a(t: String)
     z
 
-    sub grow(!self)
-      match !self
+    sub grow(!@)
+      match !@
         .a(t)
           s = ?t[1..]
           !t.add(" and more and more and more text to realloc the buffer")

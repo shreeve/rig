@@ -184,6 +184,12 @@ const SymbolResolver = struct {
             try self.ctx.err(pos, "`none` is the absent optional and cannot be used as a name", .{});
             return null;
         }
+        // A parameter named `@` is checked as a receiver once its
+        // function is known to be a method (`resolveParamType`).
+        if (std.mem.eql(u8, name, "@") and kind != .param and kind != .capture) {
+            try self.ctx.err(pos, "`@` is a method's receiver and names nothing else", .{});
+            return null;
+        }
         // The lexer lets a keyword through only where it may name a
         // member, which includes a parameter list's `name:`.
         if (rig.keyword(name)) |kw| if (kw != .new) {
@@ -321,6 +327,10 @@ const SymbolResolver = struct {
         const prev = try self.enter(node, .lambda);
         defer self.scope = prev;
         const captures = sema.captureList(ir.Lambda.captures(node));
+        // A closure may capture the receiver, `|?@|`, but takes no `@`.
+        for (ir.Lambda.params(node).items()) |p| if (sema.paramNameNode(p)) |n| if (std.mem.eql(u8, identAt(self.ctx.source, n) orelse "", "@")) {
+            try self.ctx.errAt(n, "`@` is a method's receiver and names nothing else", .{});
+        };
         // Captures first, so a parameter that reuses a capture's name is caught.
         for (captures) |cap| {
             const name_node = sema.captureNameNode(cap) orelse continue;
@@ -1391,8 +1401,10 @@ pub const TypeResolver = struct {
         switch (param) {
             .src => |s| {
                 const name = identAt(self.ctx.source, param).?;
-                if (std.mem.eql(u8, name, "self") and !self.nominal.isEmpty()) {
-                    try self.ctx.err(s.pos, "`self` parameter requires an explicit receiver type; use `?self`, `!self`, or `<self`", .{});
+                if (std.mem.eql(u8, name, "@") and !self.nominal.isEmpty()) {
+                    try self.ctx.err(s.pos, "the receiver `@` is declared with how it is lent: `?@`, `!@`, or `<@`", .{});
+                } else if (std.mem.eql(u8, name, "@")) {
+                    try self.ctx.err(s.pos, "`@` is a method's receiver and names nothing else", .{});
                 } else {
                     try self.ctx.err(s.pos, "parameter `{s}` needs a type annotation (`{s}: T`)", .{ name, name });
                 }
@@ -1402,17 +1414,24 @@ pub const TypeResolver = struct {
                 const h = param.kind() orelse return self.ctx.types.invalid_id;
                 switch (h) {
                     .@":", .default => {
+                        // The receiver takes no type: it is `?@`, `!@`, or `<@`.
+                        if (sema.paramNameNode(param)) |n| if (std.mem.eql(u8, identAt(self.ctx.source, n) orelse "", "@")) {
+                            if (self.nominal.isEmpty()) {
+                                try self.ctx.errAt(n, "`@` is a method's receiver and names nothing else", .{});
+                            } else try self.ctx.errAt(n, "the receiver `@` takes no type: write `?@`, `!@`, or `<@`", .{});
+                            return self.ctx.types.invalid_id;
+                        };
                         const ty = try self.resolveType(ir.get(param, .type));
                         if (try self.misplacedAt(ir.get(param, .type), ty, .signature)) return self.ctx.types.invalid_id;
                         return ty;
                     },
-                    // `?self`, `!self`, `<self`: `self: ?Self`, `!Self`, `Self`.
+                    // `?@`, `!@`, `<@`: `@: ?Self`, `!Self`, `Self`.
                     .read, .write, .move => {
                         const operand = ir.get(param, .operand);
                         const name = identAt(self.ctx.source, operand) orelse return self.ctx.types.invalid_id;
                         const pos = srcPos(operand, 0);
-                        if (!std.mem.eql(u8, name, "self")) {
-                            try self.ctx.err(pos, "sigil-prefixed parameter is only allowed for `self`; for other parameters use `{s}: ?Type` / `{s}: !Type` / `{s}: Type`", .{ name, name, name });
+                        if (!std.mem.eql(u8, name, "@")) {
+                            try self.ctx.err(pos, "sigil-prefixed parameter is only allowed for the receiver `@`; for other parameters use `{s}: ?Type` / `{s}: !Type` / `{s}: Type`", .{ name, name, name });
                             return self.ctx.types.invalid_id;
                         }
                         const sigil: []const u8 = switch (h) {
@@ -1421,7 +1440,7 @@ pub const TypeResolver = struct {
                             else => "<",
                         };
                         if (self.nominal.isEmpty()) {
-                            try self.ctx.err(pos, "`{s}self` is only allowed in a method body (inside an object, enum, or errors declaration)", .{sigil});
+                            try self.ctx.err(pos, "`{s}@` is only allowed in a method body (inside an object, enum, or errors declaration)", .{sigil});
                             return self.ctx.types.invalid_id;
                         }
                         if (h == .move) _ = try self.misplacedAt(param, self.nominal.self_type, .signature);
@@ -1737,7 +1756,7 @@ pub const TypeResolver = struct {
                         },
                         .read, .write, .move => {
                             const n = identAt(self.ctx.source, ir.get(m, .operand)) orelse "name";
-                            try self.ctx.err(sema.paramPos(m, 0), "sigil-prefixed member (`?{s}` / `!{s}` / `<{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for the `self` parameter of a method", .{ n, n, n });
+                            try self.ctx.err(sema.paramPos(m, 0), "sigil-prefixed member (`?{s}` / `!{s}` / `<{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for the receiver `@` of a method", .{ n, n, n });
                         },
                         .drop_decl => {
                             if (head == .@"struct") {
@@ -1950,6 +1969,10 @@ pub const TypeResolver = struct {
     /// `owner` (`names`: each member's name -> where it is declared).
     /// Reported.
     fn checkDuplicateMember(self: *TypeResolver, names: *std.StringHashMapUnmanaged(u32), name: []const u8, pos: u32, owner: []const u8) Error!bool {
+        if (std.mem.eql(u8, name, "@")) {
+            try self.ctx.err(pos, "`@` is a method's receiver and names nothing else", .{});
+            return true;
+        }
         const gop = try names.getOrPut(self.ctx.allocator, name);
         if (!gop.found_existing) {
             gop.value_ptr.* = pos;
@@ -2024,10 +2047,10 @@ pub const TypeResolver = struct {
         for (params.items(), 0..) |p, i| {
             if (i == 0) continue;
             if (self.isSelfParam(p)) {
-                try self.ctx.err(sema.paramPos(p, mpos), "`self` must be the first parameter of a method", .{});
+                try self.ctx.err(sema.paramPos(p, mpos), "the receiver `@` must be the first parameter of a method", .{});
             }
             if (p.isKind(.read) or p.isKind(.write) or p.isKind(.move)) {
-                try self.ctx.err(sema.paramPos(p, mpos), "sigil-prefixed parameter sugar (`?self` / `!self` / `<self`) is only allowed at the first parameter position", .{});
+                try self.ctx.err(sema.paramPos(p, mpos), "sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", .{});
             }
         }
         const receiver: MethodReceiver = if (params.items().len > 0 and self.isSelfParam(params.items()[0]))
@@ -2056,18 +2079,18 @@ pub const TypeResolver = struct {
         switch (self.ctx.types.get(pty_id)) {
             .read_view => |inner| {
                 if (inner == self_ty) return .read;
-                try self.ctx.err(mpos, "`self` receiver type must be `?Self` or `?{s}`", .{nom});
+                try self.ctx.err(mpos, "the receiver `@` is typed `?Self` or `?{s}`", .{nom});
             },
             .write_view => |inner| {
                 if (inner == self_ty) return .write;
-                try self.ctx.err(mpos, "`self` receiver type must be `!Self` or `!{s}`", .{nom});
+                try self.ctx.err(mpos, "the receiver `@` is typed `!Self` or `!{s}`", .{nom});
             },
             .nominal, .parameterized_nominal => {
                 if (pty_id == self_ty) return .value;
-                try self.ctx.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom});
+                try self.ctx.err(mpos, "the receiver `@` is typed `Self` or `{s}`", .{nom});
             },
             .unknown, .invalid => {},
-            else => try self.ctx.err(mpos, "`self` receiver type must be `?Self`, `!Self`, `Self`, or an explicit `{s}` form", .{nom}),
+            else => try self.ctx.err(mpos, "the receiver `@` is typed `?Self`, `!Self`, `Self`, or an explicit `{s}` form", .{nom}),
         }
         return .none;
     }
@@ -2091,12 +2114,12 @@ pub const TypeResolver = struct {
             }
         }
         if (count != 1) {
-            try self.ctx.err(pos, "`drop` takes exactly one parameter, its receiver: `drop(!self)`; got {d}", .{count});
+            try self.ctx.err(pos, "`drop` takes exactly one parameter, its receiver: `drop(!@)`; got {d}", .{count});
             return;
         }
         const first = params.items()[0];
         if (!self.isSelfParam(first)) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver, named `self`: `drop(!self)`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver: `drop(!@)`", .{});
             return;
         }
         const pty = self.ctx.types.get(ptys[0]);
@@ -2107,7 +2130,7 @@ pub const TypeResolver = struct {
             };
         };
         if (!ok) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver lent to write: `drop(!self)`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver lent to write: `drop(!@)`", .{});
             return;
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
@@ -2131,16 +2154,16 @@ pub const TypeResolver = struct {
         const head = body.kind() orelse return;
         switch (head) {
             .drop => if (self.isSelf(ir.Drop.target(body))) {
-                try self.ctx.errAt(ir.Drop.target(body), "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
+                try self.ctx.errAt(ir.Drop.target(body), "cannot drop `@` inside its own drop body; the binding is being destroyed by the runtime", .{});
             },
             .move => if (self.isSelf(ir.Move.operand(body))) {
-                try self.ctx.errAt(ir.Move.operand(body), "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
+                try self.ctx.errAt(ir.Move.operand(body), "cannot move `@` out of its own drop body; the binding is being destroyed by the runtime", .{});
             },
             .@"return" => if (self.isSelf(ir.Return.value(body))) {
-                try self.ctx.errAt(ir.Return.value(body), "cannot return `self` from its own drop body", .{});
+                try self.ctx.errAt(ir.Return.value(body), "cannot return `@` from its own drop body", .{});
             },
             .set => if (self.isSelf(ir.Set.target(body))) {
-                try self.ctx.errAt(ir.Set.target(body), "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
+                try self.ctx.errAt(ir.Set.target(body), "cannot reassign `@` inside its own drop body; dropping the old value would run this body again", .{});
             },
             else => {},
         }
@@ -2148,11 +2171,11 @@ pub const TypeResolver = struct {
     }
 
     fn isSelf(self: *TypeResolver, node: Sexp) bool {
-        return std.mem.eql(u8, identAt(self.ctx.source, node) orelse "", "self");
+        return std.mem.eql(u8, identAt(self.ctx.source, node) orelse "", "@");
     }
 
     fn isSelfParam(self: *TypeResolver, param: Sexp) bool {
-        return std.mem.eql(u8, sema.paramName(self.ctx.source, param) orelse "", "self");
+        return std.mem.eql(u8, sema.paramName(self.ctx.source, param) orelse "", "@");
     }
 
     // ---- type expressions ---------------------------------------------------

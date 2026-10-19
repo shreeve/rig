@@ -60,8 +60,8 @@ test "defer effects at continuing exits", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(r: R)
     print("eat", r.n)
@@ -192,10 +192,10 @@ fail "defer in loop keeps lent", "32:17: cannot lend `v` to write while a read l
     xs: []Int
     i: Int
 
-    fun next(!self) -> Int?
-      return none if self.i >= self.xs.len
-      self.i += 1
-      self.xs[self.i - 1]
+    fun next(!@) -> Int?
+      return none if @i >= @xs.len
+      @i += 1
+      @xs[@i - 1]
 
   fun smk(v: ?List[Int]) -> SCur from v
     SCur(xs: ?v[0..v.len], i: 0)
@@ -203,8 +203,8 @@ fail "defer in loop keeps lent", "32:17: cannot lend `v` to write while a read l
   obj SB
     xs: List[Int]
 
-    fun each(?self) -> SCur from self
-      SCur(xs: ?self.xs[0..self.xs.len], i: 0)
+    fun each(?@) -> SCur from @
+      SCur(xs: ?@xs[0..@xs.len], i: 0)
 
   sub grow(v: !List[Int])
     for _ in 0..100
@@ -321,8 +321,8 @@ fail "defer revives struct at none", "17:9: use of `x` after move", errors: 1
   # does not revive the moved `x`.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(r: R)
     print("eat", r.n)
@@ -343,8 +343,8 @@ fail "defer revives struct at none in loop", "19:11: use of `x` after move", err
   # reassignment does not revive the moved `x`.
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(r: R)
     print("eat", r.n)
@@ -370,8 +370,8 @@ fail "defer revives struct at propagate", "24:9: use of `x` after move", errors:
 
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(r: R)
     print("eat", r.n)
