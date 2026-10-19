@@ -647,14 +647,15 @@ pub fn RcBox(comptime T: type) type {
             self.strong -= 1;
             if (self.strong > 0) return;
             if (comptime !needsDrop(T)) return self.releaseValue();
-            if (drop_depth >= max_drop_depth) {
-                drop_queue.append(std.heap.smp_allocator, .{ .box = self, .release = releaseErased }) catch oom();
+            const t = task();
+            if (t.drop_depth >= max_drop_depth) {
+                t.drop_queue.append(std.heap.smp_allocator, .{ .box = self, .release = releaseErased }) catch oom();
                 return;
             }
-            drop_depth += 1;
+            t.drop_depth += 1;
             self.releaseValue();
-            drop_depth -= 1;
-            if (drop_depth == 0) drainDropQueue();
+            t.drop_depth -= 1;
+            if (t.drop_depth == 0) drainDropQueue();
         }
 
         /// Drop the value, then give up the strong side's weak count.
@@ -677,27 +678,27 @@ pub fn RcBox(comptime T: type) type {
 // the order a recursive release would have reached them (depth first,
 // siblings in the order they were queued), only later: after the
 // releases already in progress finish. A queued box already has
-// `strong == 0`, so `upgrade` fails on it.
+// `strong == 0`, so `upgrade` fails on it. The depth and the queue are
+// the running task's (`TaskState`): a `*T` never leaves its task.
 
 const max_drop_depth = 256;
-var drop_depth: u32 = 0;
 const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
-var drop_queue: std.ArrayList(PendingDrop) = .empty;
 
 fn drainDropQueue() void {
-    drop_depth += 1;
+    const t = task();
+    t.drop_depth += 1;
     // The queue is a stack. The boxes a release queued go on top, reversed,
     // so the first one queued is released next and before anything
     // queued earlier.
     var fresh: usize = 0;
     while (true) {
-        std.mem.reverse(PendingDrop, drop_queue.items[fresh..]);
-        const pending = drop_queue.pop() orelse break;
-        fresh = drop_queue.items.len;
+        std.mem.reverse(PendingDrop, t.drop_queue.items[fresh..]);
+        const pending = t.drop_queue.pop() orelse break;
+        fresh = t.drop_queue.items.len;
         pending.release(pending.box);
     }
-    drop_depth -= 1;
-    drop_queue.clearAndFree(std.heap.smp_allocator);
+    t.drop_depth -= 1;
+    t.drop_queue.clearAndFree(std.heap.smp_allocator);
 }
 
 /// `~T`: a non-owning handle to an `RcBox(T)`.
@@ -870,14 +871,15 @@ pub fn Box(comptime T: type) type {
 
         pub fn __rig_drop(self: *Self) void {
             if (comptime !needsDrop(T)) return defaultAllocator().destroy(self.value);
-            if (drop_depth >= max_drop_depth) {
-                drop_queue.append(std.heap.smp_allocator, .{ .box = @ptrCast(self.value), .release = releaseErased }) catch oom();
+            const t = task();
+            if (t.drop_depth >= max_drop_depth) {
+                t.drop_queue.append(std.heap.smp_allocator, .{ .box = @ptrCast(self.value), .release = releaseErased }) catch oom();
                 return;
             }
-            drop_depth += 1;
+            t.drop_depth += 1;
             release(self.value);
-            drop_depth -= 1;
-            if (drop_depth == 0) drainDropQueue();
+            t.drop_depth -= 1;
+            if (t.drop_depth == 0) drainDropQueue();
         }
 
         fn release(p: *T) void {
@@ -3024,6 +3026,49 @@ const leak_checked = builtin.optimize == .debug;
 const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
 const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
 
+// Tasks. A program that makes tasks (`f(x)&`) declares `__rig_tasks` in
+// its root module; on Zig's `Threaded` backend each of its tasks runs on a
+// thread of its own. The runtime then keeps what belongs to one task in
+// that thread's `TaskState`, and takes a lock around output and the leak
+// checker. Any other program compiles as if there were one thread, at no
+// cost. The runtime's own unit tests take the concurrent paths, so they
+// are tested.
+
+const concurrent = builtin.is_test or (@hasDecl(root, "__rig_tasks") and root.__rig_tasks);
+
+/// What the runtime keeps for the task that is running: the depth and
+/// queue of nested `*T` releases (`drainDropQueue`), how deep a `print`
+/// is inside the value it writes (`writeValue`), and the guard below the
+/// task's stack (`mapStack`).
+const TaskState = struct {
+    drop_depth: u32 = 0,
+    drop_queue: std.ArrayList(PendingDrop) = .empty,
+    print_depth: u32 = 0,
+    stack_guard: StackGuard = .{},
+};
+
+threadlocal var thread_task: TaskState = .{};
+var only_task: TaskState = .{};
+
+/// The running task's `TaskState`.
+inline fn task() *TaskState {
+    return if (concurrent) &thread_task else &only_task;
+}
+
+/// Held while a `print`, `warn`, or the final flush writes output, so the
+/// lines of two tasks never interleave; and while the leak checker
+/// updates its table.
+var output_lock: std.Io.Mutex = .init;
+var alloc_lock: std.Io.Mutex = .init;
+
+fn lockOutput() void {
+    if (concurrent) output_lock.lockUncancelable(io());
+}
+
+fn unlockOutput() void {
+    if (concurrent) output_lock.unlock(io());
+}
+
 var trace_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
 var sanitizer: Sanitizer = .{};
 var leak_checker: LeakChecker = .{};
@@ -3050,8 +3095,18 @@ const LeakChecker = struct {
         return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
     }
 
+    fn lock() void {
+        if (concurrent) alloc_lock.lockUncancelable(io());
+    }
+
+    fn unlock() void {
+        if (concurrent) alloc_lock.unlock(io());
+    }
+
     fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
         const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        lock();
+        defer unlock();
         const ptr = backing().rawAlloc(n, alignment, ret_addr) orelse return null;
         self.live.put(table_allocator, @intFromPtr(ptr), n) catch oom();
         self.bytes += n;
@@ -3068,6 +3123,8 @@ const LeakChecker = struct {
 
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        lock();
+        defer unlock();
         const size = self.entry(memory);
         if (!backing().rawResize(memory, alignment, new_len, ret_addr)) return false;
         self.bytes = self.bytes - size.* + new_len;
@@ -3077,6 +3134,8 @@ const LeakChecker = struct {
 
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        lock();
+        defer unlock();
         _ = self.entry(memory);
         const ptr = backing().rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
         _ = self.live.remove(@intFromPtr(memory.ptr));
@@ -3087,6 +3146,8 @@ const LeakChecker = struct {
 
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        lock();
+        defer unlock();
         // Under RIG_LEAK_TRACE, let SafeAllocator report a bad free
         // with its stack traces first.
         if (leak_trace and !sanitize and !self.live.contains(@intFromPtr(memory.ptr))) backing().rawFree(memory, alignment, ret_addr);
@@ -3301,6 +3362,8 @@ const Sanitizer = struct {
 const Usage = struct { count: usize, bytes: usize };
 
 fn usage() Usage {
+    LeakChecker.lock();
+    defer LeakChecker.unlock();
     return .{ .count = leak_checker.live.count(), .bytes = leak_checker.bytes };
 }
 
@@ -3356,23 +3419,24 @@ comptime {
     std.debug.assert(unwind_headroom >= 64 and unwind_headroom % 16 == 0);
 }
 
-/// The guard below the stack, once it is mapped: an access in it is a
-/// stack overflow.
-var stack_guard: struct { lo: usize = 0, hi: usize = 0 } = .{};
+/// The guard below a stack, once it is mapped: an access in it is a
+/// stack overflow. Each task has its own (`TaskState`).
+const StackGuard = struct { lo: usize = 0, hi: usize = 0 };
 
-/// Map the stack, read-write, above its guard and below one inaccessible
-/// page, so a read past its top faults whatever else is mapped; the
-/// stack's top, or null when not even the smallest guard can be
-/// reserved.
-fn mapStack() ?usize {
-    for (guard_sizes) |size| {
+/// Map a stack, read-write, above its guard and below one inaccessible
+/// page, so a read past its top faults whatever else is mapped, and make
+/// it the running task's (`TaskState.stack_guard`). `guards` are the
+/// guard sizes to try, largest first. The stack's top, or null when not
+/// even the smallest guard can be reserved.
+fn mapStack(guards: []const usize) ?usize {
+    for (guards) |size| {
         const got = std.posix.mmap(null, size + stack_size + std.heap.pageSize(), .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
         const base = @intFromPtr(got.ptr);
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + size), stack_size, .{ .READ = true, .WRITE = true })) != .SUCCESS) {
             std.posix.munmap(got);
             continue;
         }
-        stack_guard = .{ .lo = base, .hi = base + size };
+        task().stack_guard = .{ .lo = base, .hi = base + size };
         return base + size + stack_size;
     }
     return null;
@@ -3383,7 +3447,7 @@ fn mapStack() ?usize {
 /// stack and guard cannot be mapped stops before it runs.
 pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (!own_stack) return @call(.auto, f, args);
-    const top = mapStack() orelse {
+    const top = mapStack(&guard_sizes) orelse {
         std.debug.print("rig: cannot reserve the program's stack and the guard below it\n", .{});
         std.process.exit(1);
     };
@@ -3392,6 +3456,39 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
     // none until it is set again.
     if (builtin.link_libc) _ = std.c.pthread_atfork(null, null, attachSignalStack);
     installOverflowHandler();
+    const Call = struct {
+        args: @TypeOf(args),
+        result: @typeInfo(@TypeOf(f)).@"fn".return_type.? = undefined,
+
+        fn run(p: *anyopaque) callconv(.c) void {
+            const call: *@This() = @ptrCast(@alignCast(p));
+            call.result = @call(.auto, f, call.args);
+        }
+    };
+    var call: Call = .{ .args = args };
+    switchStack(&call, &Call.run, top - unwind_headroom);
+    return call.result;
+}
+
+/// The guards a task's stack takes. A task's stack is as large as
+/// `main`'s, for the same frames, and its guard is the smaller of
+/// `main`'s, which still holds any frame the compiler accepts
+/// (`max_frame_reach`), so many tasks fit in the address space.
+const task_guard_sizes = [_]usize{guard_sizes[guard_sizes.len - 1]};
+
+/// `f(args...)` on a stack of the task's own, mapped for the call and
+/// unmapped after it, as `onOwnStack` runs `main`: called on the thread
+/// that runs a task. A task whose stack cannot be mapped ends the
+/// program, as running out of memory does.
+pub fn onTaskStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (!own_stack) return @call(.auto, f, args);
+    const top = mapStack(&task_guard_sizes) orelse oom();
+    const guard = task().stack_guard;
+    defer {
+        const mapped = top + std.heap.pageSize() - guard.lo;
+        std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(guard.lo))[0..mapped]);
+        task().stack_guard = .{};
+    }
     const Call = struct {
         args: @TypeOf(args),
         result: @typeInfo(@TypeOf(f)).@"fn".return_type.? = undefined,
@@ -3533,7 +3630,10 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
     // A fault inside the handler that prints the trace.
     if (@atomicLoad(bool, &overflow_handling, .seq_cst)) std.process.abort();
     const addr = faultAddress(info);
-    if (addr < stack_guard.lo or addr >= stack_guard.hi) {
+    // The fault is the faulting thread's, which runs this handler, so the
+    // guard to check is the task's it runs.
+    const guard = task().stack_guard;
+    if (addr < guard.lo or addr >= guard.hi) {
         for (Sanitizer.signals, &overflow_previous) |s, *old| std.posix.sigaction(s, old, null);
         return;
     }
@@ -3652,7 +3752,9 @@ pub fn exitStatus(n: Int) u8 {
 /// a leaking program never passes.
 pub fn finish() void {
     releaseProcess();
+    lockOutput();
     flush();
+    unlockOutput();
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
     std.process.exit(1);
@@ -3661,6 +3763,7 @@ pub fn finish() void {
 /// A failure that left `main`, after its drops and `finish`: report the
 /// error as a Rig program shows it and exit 1.
 pub fn failMain(err: anyerror) noreturn {
+    lockOutput();
     flushQuietly();
     std.debug.print("error: {s}\n", .{errorShown(err)});
     std.process.exit(1);
@@ -3705,6 +3808,8 @@ fn flushQuietly() void {
 /// straight line: each run of text (`piecesOf`) copied into the buffer
 /// at once, each value written by its writer (`outValue`).
 pub inline fn print(pieces: anytype) void {
+    lockOutput();
+    defer unlockOutput();
     const plan = comptime piecesOf(@TypeOf(pieces));
     comptime std.debug.assert(plan.len > 0 and plan[plan.len - 1] == .text);
     inline for (plan, 0..) |p, i| switch (p) {
@@ -3784,7 +3889,7 @@ noinline fn stdoutFailed() noreturn {
     @branchHint(.cold);
     const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
     if (err == error.BrokenPipe) {
-        std.process.exit(if (panic_stage > 0 or running_tests or tests_failed > 0) 1 else 0);
+        std.process.exit(if (panic_stage.load(.seq_cst) > 0 or running_tests or tests_failed > 0) 1 else 0);
     }
     var buf: [128]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
@@ -3857,6 +3962,8 @@ noinline fn outValueOf(value: anytype) void {
 /// 4 KiB. A write to stderr that fails is dropped, and the program goes
 /// on: there is nowhere left to report it.
 pub noinline fn warn(pieces: anytype) void {
+    lockOutput();
+    defer unlockOutput();
     flush();
     var buf: [4096]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
@@ -3885,23 +3992,43 @@ pub const panic = std.debug.FullPanic(panicAfterFlush);
 
 /// How far into a panic the program is: 0 before one, 1 while it is
 /// reported, 2 once a panic came while reporting it.
-var panic_stage: u8 = 0;
+var panic_stage: std.atomic.Value(u8) = .init(0);
+
+/// This thread is the one reporting a panic.
+threadlocal var panicking_here: bool = false;
 
 /// What every panic does before its report: name the test it ended, if
 /// one is running, with the count so far, and write out what `print`
 /// has buffered. A second panic, while the first is reported, skips it.
+/// A panic in another task while one is reported waits for the program
+/// to end with the first report.
 fn beginPanic() void {
-    if (panic_stage > 0) {
-        if (panic_stage > 1) std.process.abort();
-        panic_stage = 2;
-        return;
+    if (concurrent and !panicking_here) {
+        if (panic_stage.cmpxchgStrong(0, 1, .seq_cst, .seq_cst) != null) awaitOtherPanic();
+        panicking_here = true;
+    } else {
+        const stage = panic_stage.load(.seq_cst);
+        if (stage > 0) {
+            if (stage > 1) std.process.abort();
+            panic_stage.store(2, .seq_cst);
+            return;
+        }
+        panic_stage.store(1, .seq_cst);
     }
-    panic_stage = 1;
+    // Output another task is writing now is left unwritten, rather than
+    // wait on it from a panic.
+    if (concurrent and !output_lock.tryLock()) return;
     if (current_test) |t| {
         stdout().print("FAIL  {f}: panicked\n", .{t}) catch {};
         stdout().print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed + 1 }) catch {};
     }
     flushQuietly();
+}
+
+/// Wait, in a task that panicked while another task's panic is reported,
+/// for that report to end the program.
+fn awaitOtherPanic() noreturn {
+    while (true) io().sleep(.fromSeconds(1), .awake) catch {};
 }
 
 fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
@@ -3917,7 +4044,7 @@ fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
     // The trace names emitted Zig lines. Only the unwinder that cannot
     // fault walks it: the program runs on a stack the runtime maps
     // (`onOwnStack`), which the other one faults on.
-    if (builtin.mode == .debug and panic_stage == 1) {
+    if (builtin.mode == .debug and panic_stage.load(.seq_cst) == 1) {
         std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr orelse @returnAddress() });
     }
     std.process.abort();
@@ -4063,7 +4190,6 @@ pub fn rigName(zig: []const u8) []const u8 {
 /// Values nested deeper than this print as `...`: a structure that
 /// reaches itself through handles would otherwise print forever.
 const max_print_depth = 64;
-var print_depth: u32 = 0;
 
 /// A value as Rig writes it: text as its bytes at the top level, and
 /// quoted and escaped inside other values (`writeQuoted`); a float in
@@ -4104,9 +4230,10 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         .error_set => return w.writeAll(errorShown(value)),
         else => {},
     }
-    if (print_depth >= max_print_depth) return w.writeAll("...");
-    print_depth += 1;
-    defer print_depth -= 1;
+    const t = task();
+    if (t.print_depth >= max_print_depth) return w.writeAll("...");
+    t.print_depth += 1;
+    defer t.print_depth -= 1;
     switch (@typeInfo(T)) {
         .pointer, .array => try writeList(w, value),
         // A vector prints as the array of its lanes.
@@ -4908,7 +5035,7 @@ test "dropping a long chain of boxes does not recurse per link" {
     for (0..100_000) |_| head = rcNew(Link{ .next = head, .drops = &drops });
     drop(&head);
     try testing.expectEqual(100_000, drops);
-    try testing.expectEqual(0, drop_depth);
+    try testing.expectEqual(0, task().drop_depth);
     try expectNoLeaks(before);
 }
 
@@ -4938,9 +5065,93 @@ test "queued drops keep the order of a recursive release" {
         for (0..depth) |_| head = rcNew(Tree{ .next = head, .a = null, .b = null });
         drop(&head);
         try testing.expectEqualSlices(u8, &.{ 2, 1, 4, 3 }, log[0..n]);
-        try testing.expectEqual(0, drop_depth);
+        try testing.expectEqual(0, task().drop_depth);
     }
     try expectNoLeaks(before);
+}
+
+test "tasks on threads of their own each release their own deep chains" {
+    // Each thread is a task: its drop depth and queue are its own, so
+    // chains past `max_drop_depth` released at once never mix queues.
+    const before = usage();
+    const Link = struct {
+        next: ?*RcBox(@This()),
+        drops: *usize,
+        pub fn __rig_drop(self: *@This()) void {
+            self.drops.* += 1;
+            dropFields(self);
+        }
+    };
+    const Run = struct {
+        fn chain(drops: *usize, ok: *bool) void {
+            for (0..20) |_| {
+                var head: ?*RcBox(Link) = null;
+                for (0..5_000) |_| head = rcNew(Link{ .next = head, .drops = drops });
+                drop(&head);
+            }
+            ok.* = task().drop_depth == 0 and task().drop_queue.items.len == 0;
+        }
+    };
+    var drops: [8]usize = @splat(0);
+    var ok: [8]bool = @splat(false);
+    var threads: [8]std.Thread = undefined;
+    for (&threads, &drops, &ok) |*t, *d, *k| t.* = try std.Thread.spawn(.{}, Run.chain, .{ d, k });
+    for (threads) |t| t.join();
+    for (drops, ok) |d, k| {
+        try testing.expectEqual(100_000, d);
+        try testing.expect(k);
+    }
+    try expectNoLeaks(before);
+}
+
+test "the leak checker counts allocations made by many tasks at once" {
+    // A checker of its own, since a build other than Debug checks no
+    // leaks; its table is shared by every task, behind `alloc_lock`.
+    var checker: LeakChecker = .{};
+    defer checker.live.deinit(LeakChecker.table_allocator);
+    const Run = struct {
+        fn churn(a: std.mem.Allocator) void {
+            var kept: [64][]u8 = undefined;
+            for (0..200) |round| {
+                for (&kept, 0..) |*k, i| k.* = a.alloc(u8, 16 + (round + i) % 48) catch oom();
+                for (kept) |k| a.free(k);
+            }
+        }
+    };
+    var threads: [8]std.Thread = undefined;
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Run.churn, .{checker.allocator()});
+    for (threads) |t| t.join();
+    try testing.expectEqual(0, checker.live.count());
+    try testing.expectEqual(0, checker.bytes);
+}
+
+test "a task runs on a stack of its own, mapped for it and unmapped after" {
+    if (!own_stack) return error.SkipZigTest;
+    const Run = struct {
+        fn deep(n: usize) usize {
+            var pad: [1024]u8 = undefined;
+            std.mem.doNotOptimizeAway(&pad);
+            return if (n == 0) 0 else 1 + deep(n - 1);
+        }
+        fn body(out: *usize, guard_set: *bool) void {
+            guard_set.* = task().stack_guard.hi != 0;
+            out.* = deep(20_000);
+        }
+        fn onThread(out: *usize, guard_set: *bool, cleared: *bool) void {
+            onTaskStack(body, .{ out, guard_set });
+            cleared.* = task().stack_guard.hi == 0;
+        }
+    };
+    var out: [4]usize = @splat(0);
+    var guard_set: [4]bool = @splat(false);
+    var cleared: [4]bool = @splat(false);
+    var threads: [4]std.Thread = undefined;
+    for (&threads, &out, &guard_set, &cleared) |*t, *o, *g, *c| t.* = try std.Thread.spawn(.{}, Run.onThread, .{ o, g, c });
+    for (threads) |t| t.join();
+    for (out, guard_set, cleared) |o, g, c| {
+        try testing.expectEqual(20_000, o);
+        try testing.expect(g and c);
+    }
 }
 
 test "values print the way Rig writes them" {
@@ -5134,14 +5345,14 @@ fn readByte(addr: usize) void {
 
 test "the program's stack is writable, and the guard below it and the page above it fault" {
     if (!own_stack) return error.SkipZigTest;
-    const top = mapStack() orelse return error.TestUnexpectedResult;
-    defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(stack_guard.lo))[0 .. top + std.heap.pageSize() - stack_guard.lo]);
-    try std.testing.expectEqual(top - stack_size, stack_guard.hi);
-    try std.testing.expect(stack_guard.hi - stack_guard.lo >= guard_sizes[guard_sizes.len - 1]);
+    const top = mapStack(&guard_sizes) orelse return error.TestUnexpectedResult;
+    defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(task().stack_guard.lo))[0 .. top + std.heap.pageSize() - task().stack_guard.lo]);
+    try std.testing.expectEqual(top - stack_size, task().stack_guard.hi);
+    try std.testing.expect(task().stack_guard.hi - task().stack_guard.lo >= guard_sizes[guard_sizes.len - 1]);
     writeByte(top - 1);
-    writeByte(stack_guard.hi);
-    try std.testing.expect(try faults(stack_guard.hi - 1, writeByte));
-    try std.testing.expect(try faults(stack_guard.lo, readByte));
+    writeByte(task().stack_guard.hi);
+    try std.testing.expect(try faults(task().stack_guard.hi - 1, writeByte));
+    try std.testing.expect(try faults(task().stack_guard.lo, readByte));
     try std.testing.expect(try faults(top, readByte));
 }
 
