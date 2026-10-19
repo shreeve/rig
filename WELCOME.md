@@ -452,7 +452,7 @@ correspondences:
 | a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `?String`, a slice, a plain enum); `*const T` for an object, an array, or a generic instance |
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
-| `*T`, `~T` | a runtime `RcBox(T)` pointer, a weak handle |
+| `*T`, `~T` | a runtime `Shared(T)` pointer, a weak handle |
 | `List[T]`, `Cell[T]`, `^T`, `Signal[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
 | a stack closure | a local struct holding its captures, with an `__rig_invoke` method |
