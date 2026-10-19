@@ -1,0 +1,187 @@
+# concurrency: tests whose names start `cancel`.
+
+test "cancel check", '''
+  Stop.canceled true
+  -1
+'''
+  # `task.check()!` is the waiting point of a computation that never
+  # waits: a cancel stops it there.
+  use std.task
+  use std.time
+
+  fun count() -> Int!
+    n = 0
+    while true
+      task.check()!
+      n += 1
+    n
+
+  t = count()&
+  time.sleep(time.MS)!
+  r = <t.cancel() catch |e|
+    print(e, e == task.Stop.canceled)
+    -1
+  print(r)
+
+test "cancel sleep", release: true, '''
+  nap stops
+  -1
+  true
+'''
+  # A cancel interrupts a sleep, and the task's `defer`s run.
+  use std.time
+
+  fun nap() -> Int!
+    defer print("nap stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  start = time.now()
+  u = nap()&
+  print(<u.cancel() catch -1)
+  print(start.elapsed() < 5 * time.SECOND)
+
+test "cancel sticky", '''
+  caught once
+  -2
+'''
+  # A cancel stays: catching it once does not let the task carry on.
+  use std.task
+  use std.time
+
+  fun stubborn() -> Int!
+    time.sleep(10 * time.SECOND) catch print("caught once")
+    task.check()!
+    2
+
+  v = stubborn()&
+  print(<v.cancel() catch -2)
+
+test "cancel through wait", '''
+  inner stops
+  -1
+'''
+  # Waiting passes a cancel on to the task waited for.
+  use std.time
+
+  fun inner() -> Int!
+    defer print("inner stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  fun outer() -> Int!
+    t = inner()&
+    x = <t.wait()!
+    x + 1
+
+  o = outer()&
+  time.sleep(10 * time.MS)!
+  print(<o.cancel() catch -1)
+
+test "cancel infallible wait", '''
+  sleep canceled
+  waited 5
+  -1
+'''
+  # A wait on a task that cannot fail finishes; the cancel stays for the
+  # next waiting point.
+  use std.task
+  use std.time
+
+  fun quick() -> Int
+    5
+
+  fun patient() -> Int!
+    q = quick()&
+    time.sleep(10 * time.SECOND) catch print("sleep canceled")
+    n = <q.wait()
+    print("waited", n)
+    task.check()!
+    n
+
+  p = patient()&
+  time.sleep(10 * time.MS)!
+  print(<p.cancel() catch -1)
+
+test "cancel on drop", '''
+  nap stops
+  7
+  true
+'''
+  # A task that can fail is canceled where it is dropped: here, on an
+  # early return.
+  use std.time
+
+  fun nap() -> Int!
+    defer print("nap stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  fun first(early: Bool) -> Int!
+    t = nap()&
+    return 7 if early
+    <t.wait()!
+
+  start = time.now()
+  print(first(true) catch -1)
+  print(start.elapsed() < 5 * time.SECOND)
+
+test "cancel passes to owned", '''
+  quiet woken
+  -1
+'''
+  # A canceled task passes the cancel on to a task it drops, even one
+  # that cannot fail.
+  use std.time
+
+  sub quiet()
+    time.sleep(10 * time.SECOND) catch print("quiet woken")
+
+  fun owner() -> Int!
+    q = quiet()&
+    time.sleep(10 * time.SECOND)!
+    <q.wait()
+    1
+
+  o = owner()&
+  time.sleep(10 * time.MS)!
+  print(<o.cancel() catch -1)
+
+test "cancel finished", "4"
+  # A task with no waiting point runs to its end, and `cancel` gives its
+  # result.
+  fun four() -> Int!
+    4
+
+  t = four()&
+  <t.cancel() catch -1
+
+test "cancel write loan", '''
+  -1
+  0
+'''
+  # A task lent to write is canceled where it is bound.
+  use std.time
+
+  fun fill(xs: !List[Int]) -> Int!
+    time.sleep(10 * time.SECOND)!
+    !xs.push(1)
+    xs.len
+
+  xs: List[Int] = List()
+  t = fill(!xs)&
+  print(<t.cancel() catch -1)
+  print(xs.len)
+
+fail "cancel infallible", "`Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `<t.wait()`", errors: 1
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(3)&
+  print(<t.cancel())
+
+fail "cancel sleep unhandled", "fallible call to `time.sleep` must be wrapped with `!` (propagate) or `catch` (handle)", errors: 1
+  use std.time
+
+  sub nap()
+    time.sleep(time.MS)

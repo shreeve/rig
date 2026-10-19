@@ -1,5 +1,7 @@
 # std.time: clocks and sleeping. A duration is an `Int` of nanoseconds.
 
+use std.task
+
 pub NS = 1
 pub US = 1_000
 pub MS = 1_000_000
@@ -34,5 +36,6 @@ extern zig "time.zig"
   pub fun unix_ns() -> Int
 
   # Wait at least `ns` nanoseconds; not at all when `ns` is not
-  # positive.
-  pub sub sleep(ns: Int)
+  # positive. A fallible waiting point: in a canceled task it fails with
+  # `task.Stop.canceled` (std.task).
+  pub sub sleep(ns: Int)!

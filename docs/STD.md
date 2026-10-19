@@ -35,6 +35,7 @@ never read as the library's.
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
+| [`std.task`](#stdtask) | stopping a task: the `Stop` errors and `check` |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -333,15 +334,15 @@ it cannot be mixed up with the wall clock's nanoseconds.
 | `now() -> Instant` | the monotonic clock now: it never goes back |
 | `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
-| `sleep(ns: Int)` | wait at least `ns` nanoseconds; not at all when `ns` is not positive |
+| `sleep(ns: Int)!` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)) |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
 ```rig
 use std.time
 
-sub main()
+sub main()!
   start = time.now()
-  time.sleep(5 * time.MS)
+  time.sleep(5 * time.MS)!
   print(start.elapsed() >= 5 * time.MS)
   print(time.now().since(start) > 0)
   print(time.unix_ns() / time.SECOND > 1_700_000_000)
@@ -351,6 +352,47 @@ sub main()
 true
 true
 true
+```
+
+## std.task
+
+Canceling a task ([SPEC §18](../SPEC.md#18-tasks)) asks it to stop. The
+request reaches it as `Stop.canceled` at its next fallible waiting
+point: `task.check()`, `time.sleep`, or a wait on a task that can fail.
+It stays: every fallible waiting point the task reaches after it fails
+too, so a `catch` cannot swallow it and carry on. Everything else the
+task does finishes as it would.
+
+| Member | Result |
+|---|---|
+| `error Stop` | `canceled`, the request to stop, and `timeout` |
+| `check()!` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, and otherwise give other threads a turn |
+
+A long computation calls `task.check()!` where stopping is safe:
+
+```rig
+use std.task
+use std.time
+
+fun count() -> Int!
+  n = 0
+  while true
+    task.check()!
+    n += 1
+  n
+
+sub main()!
+  t = count()&
+  time.sleep(time.MS)!
+  n = <t.cancel() catch |e|
+    print(e)
+    -1
+  print(n)
+```
+
+```output
+Stop.canceled
+-1
 ```
 
 ## std.target
