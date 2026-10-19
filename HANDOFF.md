@@ -89,6 +89,24 @@ from).
   against Zig's `std.json`, serde_json, simd-json, sonic-rs and
   zimdjson (docs/json/RESULTS.md). Its API is not settled
   (docs/json/DESIGN.md, "Open items").
+- **Concurrency:** the model and its plan are
+  [docs/CONCURRENCY.md](docs/CONCURRENCY.md), with its reviews in
+  `docs/concurrency/`. The plan's first step is on `main` (SPEC §18):
+  - **Tasks:** `f(x)&` runs a call as a task and gives a `Task[T]`,
+    which keeps its arguments' loans until `<t.wait()` takes its
+    result; a task is never left running past its scope.
+  - **Cancellation:** `<t.cancel()`, a cancel that sticks, `std.task`
+    (`Stop`, `check`), and a fallible `time.sleep`.
+  - **Sets and joins:** `Tasks[T]` with `wait_all`, `wait_first`, and
+    `within:` deadlines; `task.both` and `task.all`.
+  - **Where tasks run:** by default on Zig's `Threaded` backend, a
+    thread each (`src/tasks.zig`). A program built with
+    `RIG_SCHEDULER=1` runs them on Rig's own scheduler instead
+    (`src/sched.zig`): fibers on a worker per core, `RIG_WORKERS` of
+    them when set ([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
+    `bench/tasks` times it against Tokio and Go, and
+    `bench/tasks/PROGRESS.md` records each step: it already starts,
+    waits for, and switches tasks faster than Tokio.
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag; its release notes include a
@@ -338,6 +356,22 @@ and run the suite after.
 
 **Toward `v0.3.0`:** the docs pass, a full run, and the tag with a
 migration guide (`tools/migrate-0.3.py`).
+
+**Concurrency**, in order (docs/concurrency/SCHEDULER.md and
+docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
+plan's second step):
+
+1. The scheduler's x86-64 path, run on pup's Linux before it becomes the
+   default; so far only arm64 has run it.
+2. Scheduler increment 5: compiler-inserted yield checks.
+3. Increment 6: the scheduler is the default, and the `Threaded` path
+   goes.
+4. Increment 7: Rig's own stack probes, so task stacks take 64 KiB
+   guards in place of 1 GiB ones (Zig emits none on arm64 macOS).
+5. The plan's next steps: the crossing facts, `*Atomic`, and `par`;
+   actors, panics unwinding to boundaries, and `task.isolate`; then
+   I/O, timers, and `http.serve` on Rig's own `std.Io`, whose blocking
+   pool today serves only `std.file.read`.
 
 **Later:**
 
