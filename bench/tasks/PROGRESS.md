@@ -4,26 +4,31 @@ Each row is one measurement of `bench/tasks/bench-tasks` (README.md):
 time per operation, best of 5, on an Apple M5 with 10 cores. Read down
 a column to see how a benchmark moves. The reference rows are Tokio's
 and Go's at the baseline; the Rig rows below them are added as the
-scheduler grows (`bench-tasks --record "#PR: what changed"`).
+scheduler grows (`bench-tasks --record "#PR: what changed"`, which
+appends to the end of the file, so a Mac row moves up into its table).
+`hog` came with #355: the rows before it have none, and Tokio's and
+Go's are from then.
 
-| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) |
-|---|---|---|---|---|---|---|
-| 2026-10-19 | reference | tokio | 171 ns | 167 ns | 69.0 ms | 40 ns |
-| 2026-10-19 | reference | go | 232 ns | 223 ns | 69.6 ms | 233 ns |
+| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) |
+|---|---|---|---|---|---|---|---|
+| 2026-10-19 | reference | tokio | 171 ns | 167 ns | 69.0 ms | 40 ns | 2.9 ms |
+| 2026-10-19 | reference | go | 232 ns | 223 ns | 69.6 ms | 233 ns | 3.2 ms |
 | 2026-10-19 | #347: baseline, Zig's `Threaded` backend | rig-fast | 12.28 us | 10.29 us | 82.7 ms | 412 ns |
 | 2026-10-19 | #348: fibers on one worker | rig-sched | 103 ns | 47 ns | 570.5 ms | 17 ns |
 | 2026-10-19 | #349: a worker per core, with stealing | rig-sched | 206 ns | 61 ns | 75.8 ms | 13 ns |
 | 2026-10-19 | #351: stacks, handoff, a faster spawn | rig-sched | 132 ns | 45 ns | 76.4 ms | 11 ns |
 | 2026-10-19 | #352: waiting without spinning | rig-sched | 105 ns | 47 ns | 76.4 ms | 8 ns |
+| 2026-10-19 | #355: yield checks | rig-sched | 113 ns | 45 ns | 78.2 ms | 10 ns | 84.11 us |
 
 ## x86-64 (pup)
 
 The same benchmarks on pup: Linux, x86-64, 22 cores. Tokio builds from
-the crates.io release (pup has no `misc/tokio` clone), and Go is not
-installed there.
+the crates.io release (pup has no `misc/tokio` clone).
 
-| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) |
-|---|---|---|---|---|---|---|
-| 2026-10-19 | reference | tokio | 252 ns | 252 ns | 101.2 ms | 44 ns |
+| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) |
+|---|---|---|---|---|---|---|---|
+| 2026-10-19 | reference | tokio | 252 ns | 252 ns | 101.2 ms | 44 ns | 2.3 ms |
+| 2026-10-19 | reference | go | 272 ns | 265 ns | 84.9 ms | 474 ns | 1.9 ms |
 | 2026-10-19 | #352: Zig's `Threaded` backend | rig-fast | 20.37 us | 19.94 us | 109.3 ms | 98 ns |
 | 2026-10-19 | #352: waiting without spinning | rig-sched | 274 ns | 82 ns | 108.0 ms | 7 ns |
+| 2026-10-19 | #355: yield checks | rig-sched | 222 ns | 82 ns | 96.7 ms | 7 ns | 73.60 us |

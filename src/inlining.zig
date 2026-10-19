@@ -1017,8 +1017,9 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         f.inlined = true;
     }
     try pass.fit();
-    for (pass.fns.items) |f| {
+    for (pass.fns.items, 0..) |f, v| {
         if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});
+        if (pass.isCyclic(@intCast(v))) try mods[f.module].sema.recursive.put(allocator, f.pos, {});
     }
     // Every owner's account. An owner large with the calls inlined into it
     // is never inlined by Zig either: a function, a closure's body, or a

@@ -2209,6 +2209,9 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The functions and methods on a cycle of calls, by where their
+    /// names are declared (`inlining.decide`).
+    recursive: std.AutoHashMapUnmanaged(u32, void) = .empty,
     /// This module's functions and methods declared `inline fun`, by
     /// where their names are declared: their declarations (`resolve`).
     inline_decls: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
@@ -2360,6 +2363,7 @@ pub const SemContext = struct {
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
+        self.recursive.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
         self.inline_decls.deinit(self.allocator);
         self.inline_frames.deinit(self.allocator);

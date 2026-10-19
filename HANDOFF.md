@@ -361,14 +361,11 @@ migration guide (`tools/migrate-0.3.py`).
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
 plan's second step):
 
-1. The scheduler's x86-64 path, run on pup's Linux before it becomes the
-   default; so far only arm64 has run it.
-2. Scheduler increment 5: compiler-inserted yield checks.
-3. Increment 6: the scheduler is the default, and the `Threaded` path
-   goes.
-4. Increment 7: Rig's own stack probes, so task stacks take 64 KiB
+1. Scheduler increment 6: the scheduler is the default, and the
+   `Threaded` path goes.
+2. Increment 7: Rig's own stack probes, so task stacks take 64 KiB
    guards in place of 1 GiB ones (Zig emits none on arm64 macOS).
-5. The plan's next steps: the crossing facts, `*Atomic`, and `par`;
+3. The plan's next steps: the crossing facts, `*Atomic`, and `par`;
    actors, panics unwinding to boundaries, and `task.isolate`; then
    I/O, timers, and `http.serve` on Rig's own `std.Io`, whose blocking
    pool today serves only `std.file.read`.

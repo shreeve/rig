@@ -1,5 +1,5 @@
 //! Tokio's tasks timed as bench/tasks/tasks.rig times Rig's: spawn,
-//! chain, fanout, yield. Prints `NAME NS CHECK` per benchmark.
+//! chain, fanout, yield, hog. Prints `NAME NS CHECK` per benchmark.
 
 use std::hint::black_box;
 use std::time::Instant;
@@ -11,6 +11,10 @@ const FAN_TASKS: i64 = 10;
 const FAN_WORK: i64 = 20_000_000;
 const YIELD_TASKS: i64 = 100;
 const YIELDS: i64 = 10000;
+const HOG_TASKS: i64 = 32;
+const HOG_WORK: i64 = 20_000_000;
+const HOG_CHAIN: i64 = 50;
+const HOG_SLICE: i64 = 1_000_000;
 
 fn leaf(i: i64) -> i64 {
     black_box(i)
@@ -80,4 +84,27 @@ async fn run() {
         sum += h.await.unwrap();
     }
     println!("yield {} {}", t.elapsed().as_nanos(), sum);
+
+    let mut hogs = Vec::new();
+    for i in 0..HOG_TASKS {
+        hogs.push(tokio::spawn(async move { spin(HOG_WORK + i) }));
+    }
+    let mut slices = Vec::new();
+    let t = Instant::now();
+    let mut sum = 0i64;
+    for i in 0..HOG_CHAIN {
+        slices.push(tokio::spawn(async move { spin(HOG_SLICE + i) }));
+        let a = tokio::spawn(async move { leaf(i) });
+        let b = tokio::spawn(async move { leaf(i) });
+        sum += a.await.unwrap();
+        sum += b.await.unwrap();
+    }
+    let ns = t.elapsed().as_nanos();
+    for h in hogs {
+        sum += h.await.unwrap();
+    }
+    for h in slices {
+        sum += h.await.unwrap();
+    }
+    println!("hog {} {}", ns, sum);
 }

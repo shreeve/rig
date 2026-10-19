@@ -1,7 +1,7 @@
-# Rig's tasks timed four ways (bench/tasks/README.md): starting and
+# Rig's tasks timed five ways (bench/tasks/README.md): starting and
 # waiting for many tiny tasks in waves (spawn), one at a time (chain),
-# CPU work split across tasks (fanout), and tasks that only yield
-# (yield). Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
+# CPU work split across tasks (fanout), tasks that only yield (yield),
+# and a chain while CPU-bound tasks keep every core busy (hog). Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
 # the checks must agree with tokio.rs's and main.go's.
 
 use std.task
@@ -14,6 +14,10 @@ FAN_TASKS = 10
 FAN_WORK = 20000000
 YIELD_TASKS = 100
 YIELDS = 10000
+HOG_TASKS = 32
+HOG_WORK = 20000000
+HOG_CHAIN = 50
+HOG_SLICE = 1000000
 
 fun leaf(i: Int) -> Int
   i
@@ -71,8 +75,31 @@ called sub yields()
     sum += x
   print("yield", t.elapsed(), sum)
 
+called sub hog()
+  hogs = Tasks[Int]()
+  for i in 0..HOG_TASKS
+    !hogs.add(spin(HOG_WORK + i)&)
+  slices = Tasks[Int]()
+  t = time.now()
+  sum = 0
+  for i in 0..HOG_CHAIN
+    !slices.add(spin(HOG_SLICE + i)&)
+    a = leaf(i)&
+    b = leaf(i)&
+    sum += <a.wait()
+    sum += <b.wait()
+  ns = t.elapsed()
+  xs = <hogs.wait_all()
+  for x in xs
+    sum += x
+  ys = <slices.wait_all()
+  for y in ys
+    sum += y
+  print("hog", ns, sum)
+
 sub main()
   spawn()
   chain()
   fanout()
   yields()
+  hog()

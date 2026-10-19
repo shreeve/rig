@@ -204,6 +204,11 @@ const FunState = struct {
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
+    /// The function is on a cycle of calls: its body starts with a yield
+    /// check (`Emitter.yield_checks`).
+    recursive: bool = false,
+    /// How many loops the code being emitted is inside.
+    loops: u32 = 0,
 };
 
 const Nominal = struct {
@@ -352,6 +357,11 @@ pub const Emitter = struct {
     /// compiles only if every operation on one goes through the optional
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
     strict_optionals: bool = false,
+    /// The program makes tasks: its outermost loops count their turns
+    /// toward a yield check (`rig.turn`), and its recursive functions
+    /// check for work left waiting (`rig.tickCall`), so no task keeps
+    /// the others waiting for long.
+    yield_checks: bool = false,
     /// What the module imports the runtime by: its file in the package,
     /// or the module a batch shares (`runtime_module`).
     runtime_import: []const u8 = runtime_filename,
@@ -882,7 +892,8 @@ pub const Emitter = struct {
         const tparams = facts.syntax.tparamsOf(node);
         const inlined = self.facts.isInlined(name_node);
         const marker = self.facts.markerOf(node);
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = marker == .rarely };
+        const recursive = self.yield_checks and self.facts.isRecursive(name_node);
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = marker == .rarely, .recursive = recursive };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
@@ -998,6 +1009,7 @@ pub const Emitter = struct {
             self.fun.quota = false;
             if (self.fun.cold) try self.line("@branchHint(.cold);", .{});
             if (!self.fun.inlined) try self.line("@setEvalBranchQuota(rig.eval_quota);", .{});
+            if (self.fun.recursive) try self.line("rig.tickCall();", .{});
         }
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
@@ -2591,6 +2603,9 @@ pub const Emitter = struct {
         /// A `for` whose source's unit is being written (`enterUnit`),
         /// until the loop is entered.
         source_unit: bool = false,
+        /// An outermost loop's count of turns (`Emitter.yield_checks`),
+        /// which each turn's body starts by counting down.
+        turns: ?[]const u8 = null,
     };
 
     /// `while` and every form of `for` (docs/INTERNALS.md, "Loops"):
@@ -2619,6 +2634,14 @@ pub const Emitter = struct {
         const has_res = else_ != .nil or value != null;
         lp.target = .{ .node = loop, .rig_label = rig_label, .brk = if (has_res) lp.res else lp.loop, .loop = lp.loop, .body = lp.body, .value_ty = value };
         if (has_res) try self.openLoopBlock(&lp);
+        // An outermost loop counts its turns, in the block around it.
+        if (self.yield_checks and self.fun.loops == 0) {
+            try self.openLoopBlock(&lp);
+            lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
+            try self.line("var {s}: u32 = rig.tick_turns;", .{lp.turns.?});
+        }
+        self.fun.loops += 1;
+        defer self.fun.loops -= 1;
         const depth = self.targets.items.len;
         // A `for` source's code is its unit's until the loop starts.
         if (loop.isKind(.@"for")) lp.source_unit = try self.enterUnit(ir.For.source(loop));
@@ -2671,6 +2694,7 @@ pub const Emitter = struct {
         self.targets.items[lp.index].part = .body;
         const l = try self.openLabeled(lp.body);
         try self.openBrace();
+        if (lp.turns) |n| try self.line("rig.turn(&{s});", .{n});
         return l;
     }
 
