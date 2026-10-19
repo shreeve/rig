@@ -44,7 +44,7 @@ fail "method consume without move", "method `consume` consumes the receiver; wri
   u = User(name: String("Steve"))
   u.consume()
 
-test "method consuming receiver", "Steve"
+test "method consumes self", "Steve"
   # A method that takes self by value (`<@`) consumes it; the call site
   # must spell the move as `<u.consume()`.
 
@@ -107,7 +107,7 @@ fail "method on int", "type `Int` has no method `twice`"
   x = 3
   print(x.twice())
 
-test "method read receiver", "Steve"
+test "method reads self", "Steve"
   # A `?@` method reads self; `u.greet()` lends `u` implicitly.
 
   obj User
@@ -119,7 +119,7 @@ test "method read receiver", "Steve"
   u = User(name: "Steve")
   print(u.greet())
 
-fail "method receiver at dot", "7:5: a member of self is written `@name`, the name touching the `@`"
+fail "method self at dot", "7:5: a member of self is written `@name`, the name touching the `@`"
   # A member of self is `@n`, the name touching the `@`.
 
   obj P
@@ -128,7 +128,7 @@ fail "method receiver at dot", "7:5: a member of self is written `@name`, the na
     fun get(?@) -> Int
       @.n
 
-fail "method receiver names nothing else", "6:3: `@` is a method's self and names nothing else", "8:5: `@` is a method's self and names nothing else", "11:7: `@` is a method's self and names nothing else", "15:3: `@` is a method's self and names nothing else", "16:8: `@` is a method's self and names nothing else", "17:7: `@` is a method's self and names nothing else"
+fail "method self names nothing else", "6:3: `@` is a method's self and names nothing else", "8:5: `@` is a method's self and names nothing else", "11:7: `@` is a method's self and names nothing else", "15:3: `@` is a method's self and names nothing else", "16:8: `@` is a method's self and names nothing else", "17:7: `@` is a method's self and names nothing else"
   # `@` is a method's self: no field, function, parameter, local,
   # closure parameter, or loop binding is named `@`.
 
@@ -148,7 +148,7 @@ fail "method receiver names nothing else", "6:3: `@` is a method's self and name
     for @ in 0..2
       pass
 
-fail "method receiver typed", "7:9: self takes no type: write `?@`, `!@`, or `<@`"
+fail "method self typed", "7:9: self takes no type: write `?@`, `!@`, or `<@`"
   # Self is written with its sigil, `?@`, `!@`, or `<@`, and no
   # type.
 
@@ -339,7 +339,7 @@ fail "method static as instance", "method `make` takes no self; call as `User.ma
   v = u.make()
   print(v.name)
 
-test "method write receiver", '''
+test "method writes self", '''
   Steve
   Bob
 '''

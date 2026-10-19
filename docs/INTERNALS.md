@@ -1596,7 +1596,7 @@ view only in some places, and one decider says where:
 
 Every spelled type asks it where it stands
 (`TypeResolver.misplacedAt`: a field's type, a parameter's, a
-receiver's `<@`, a result's, a local's annotation, a closure
+self's `<@`, a result's, a local's annotation, a closure
 parameter's, what an optional, a view, a handle, or an array or slice
 holds, and each type argument written); `checkGenericInstantiations`
 asks it for each instance's type arguments, inferred ones included

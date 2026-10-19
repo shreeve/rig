@@ -3444,7 +3444,7 @@ fail "review-move-done-p65 bare branch made part", "`mk().v` owns a `List[Int]`,
   # oracle: main reject C2
 
 test "review-move-done-p70 consume receiver copy", "2 3"
-  # a method taking <self on a plain field: with and without `<`
+  # a method taking <@ on a plain field: with and without `<`
   obj P
     x: Int
 

@@ -1469,7 +1469,7 @@ with a receiver sigil when it writes or consumes the receiver
 ### Function values
 
 A function's name, or a method named through its type, is a value of a
-function type. A method's first parameter is then its receiver.
+function type. A method's first parameter is then what it takes as self.
 
 ```rig
 fun twice(n: Int) -> Int

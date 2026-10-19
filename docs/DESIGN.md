@@ -178,8 +178,8 @@ it, suffixes included, so `?User?` views an optional:
 One exception is made, for method calls: `?`, `!`, or `<` directly
 before a place followed by a method call applies to the place, so
 `!v.push(x)` is `(!v).push(x)` and `<conn.close()` is
-`(<conn).close()`. The three are exactly the receiver modes a method
-declares (`?@`, `!@`, `<@`), so a call reads the same way
+`(<conn).close()`. The three are exactly the ways a method takes self
+(`?@`, `!@`, `<@`), so a call reads the same way
 whichever mode its method takes; `?p.m()` spells out the read lend
 a plain `p.m()` makes anyway. On a call's result `!` and `<` would mean
 nothing (the result is a temporary the caller already owns, so writing
@@ -349,14 +349,15 @@ per such binding, visible in the emitted code.
 
 A function that can fail returns `T!`, and its errors are typed values
 that may carry data. A caller passes a failure on with `e!`, written
-where it happens, or handles it with `e catch fallback`; `defer` runs on
-every exit, and `errdefer` only when the function fails. Rig has no
-exceptions: nothing is thrown past a caller, no stack unwinds in search
-of a handler, and there is no `try`, `rescue`, `ensure`, or `finally`
-block, which would only say again what `!`, `catch`, `defer`, and
-`errdefer` say where the code is. `try` stays reserved. A `panic` is
-not an error: it is a bug, it ends the program, and no code recovers
-from it.
+where it happens, or handles it with `e catch fallback`; `defer` runs
+however its scope ends, and `errdefer` only when the function fails.
+Rig has no exceptions: nothing is thrown past a caller, no stack
+unwinds in search of a handler, and there is no `try`, `rescue`,
+`ensure`, or `finally` block, which would only say again what `!`,
+`catch`, `defer`, and `errdefer` say where the code is. `try` stays
+reserved. A `panic` is not an error: it is a bug, and it ends the
+program where it stands, with no `defer` run and no code to recover
+it.
 
 ### Bindings
 

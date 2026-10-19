@@ -540,7 +540,7 @@ const zig_primitives = std.StaticStringMap(void).initComptime(.{
 /// handler), and the ones Zig's standard library looks up in the root
 /// module with `@hasDecl(root, ...)` and uses as hooks (`debug`, `os`,
 /// `std_options`, the entry points of each target), and `self`, which
-/// self, `@`, is written as. Every one is renamed wherever it
+/// `@` is written as. Every one is renamed wherever it
 /// stands, so no hook depends on which module or scope declares it.
 const emitter_names = std.StaticStringMap(void).initComptime(.{
     .{"std"},       .{"rig"},                .{"panic"},
@@ -1511,8 +1511,8 @@ pub const Lexer = struct {
 
     /// `@` is self, a name, and `@name` its member `name`: an
     /// `@` touching a name is followed by a `.` before it, which the
-    /// next call returns (`member_dot`). The receiver's member is never
-    /// written `@.name`.
+    /// next call returns (`member_dot`). Self's member is never written
+    /// `@.name`.
     fn receiverMember(self: *Lexer, at: Token) ?LexError {
         var probe = self.base;
         const after = probe.next();

@@ -571,8 +571,8 @@ test "drop decl body", '''
   print(0)
   # scope exit runs the drop body, which prints the fd
 
-fail "drop decl typed receiver", "7:8: self takes no type: write `?@`, `!@`, or `<@`"
-  # A `drop` receiver is written as a method's is, `drop(!@)`, with no
+fail "drop decl typed self", "7:8: self takes no type: write `?@`, `!@`, or `<@`"
+  # A `drop` body takes self as a method does, `drop(!@)`, with no
   # type.
 
   obj A
@@ -584,8 +584,8 @@ fail "drop decl typed receiver", "7:8: self takes no type: write `?@`, `!@`, or 
   a = A(n: 1)
   print(a.n)
 
-fail "drop receiver without parens", "6:8: a drop body takes self in parentheses: `drop(!@)`"
-  # A `drop` body takes its receiver in parentheses, like a method.
+fail "drop self without parens", "6:8: a drop body takes self in parentheses: `drop(!@)`"
+  # A `drop` body takes self in parentheses, like a method.
 
   obj File
     fd: Int
@@ -3382,7 +3382,7 @@ test "pass statement", '''
   pass if i > 1
   defer pass
 
-fail "receiver outside a method", "4:5: use of unbound name `@`; `@` is the self of a method that declares it: `(?@)`, `(!@)`, or `(<@)`"
+fail "self outside a method", "4:5: use of unbound name `@`; `@` is the self of a method that declares it: `(?@)`, `(!@)`, or `(<@)`"
   # `@` is a method's self: outside a method it names nothing.
 
   x = 42
@@ -3589,7 +3589,7 @@ fail "read receiver sigil on writer", "21:1: `bump` writes its receiver: write `
   print(?c.done())
   show(?Counter.make())
 
-test "receiver move sigil", '''
+test "self move sigil", '''
   2
   5
   7

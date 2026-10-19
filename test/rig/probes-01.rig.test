@@ -2480,7 +2480,7 @@ test "R15-p-ao1", '''
   print(c[1], c.read[U8](c.len - 1))
 
 fail "R15-p-b1", "cannot lend `b.a` to write while a read loan on `b` is live"
-  # method with !self and a ![]T param from the same object
+  # method with !@ and a ![]T param from the same object
   obj B
     a: [4]Int
     sub go(!@, s: ![]Int)

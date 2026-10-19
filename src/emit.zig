@@ -959,7 +959,7 @@ pub const Emitter = struct {
         try self.emitTypeTy(local.ty.?);
     }
 
-    /// A method's receiver: `?@`, `!@`, or `<@`.
+    /// A method's self: `?@`, `!@`, or `<@`.
     fn isReceiverParam(self: *Emitter, p: Sexp) bool {
         return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "@");
     }

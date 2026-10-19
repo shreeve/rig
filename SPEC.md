@@ -1737,10 +1737,10 @@ sub main()
 
 A method whose first parameter is `@` is an instance method;
 without one it is an associated function, called through the type
-(`Point.origin()`). `Self` names the enclosing type. The receiver says
-how the method uses the value, and the call site says the same thing:
+(`Point.origin()`). `Self` names the enclosing type. How a method takes
+self says how it uses the value, and the call site says the same thing:
 
-| Receiver | Meaning | Call |
+| Takes self as | Meaning | Call |
 |---|---|---|
 | `?@` | reads the value | `p.m()`, or `?p.m()`: the read view may be left implicit |
 | `!@` | modifies the value | `!p.m()` |
@@ -1946,7 +1946,7 @@ Inside a `!@` method, `@field = v` and
 the type (`other: ?Point`).
 
 A method named through its type, `Type.method`, is a function value
-whose first parameter is the receiver, as the method declares it:
+whose first parameter is what the method takes as self:
 `Counter.bump` has type `sub(!Counter)`. Named through a value, `c.bump`
 must be called, since a value would have to capture its receiver
 unseen; write a closure instead. Methods of generic types cannot be
@@ -6227,7 +6227,7 @@ sub main()
 ab 1
 ```
 
-A method lends all of its receiver: its signature says `!@`, and a
+A method lends all of self: its signature says `!@`, and a
 caller does not look into its body. To lend only the fields a step
 writes, lend them, `(!@ast).add(...)`, or make the step a function
 of those fields, which a caller gives disjoint paths:
@@ -6420,8 +6420,8 @@ closure accept only values that carry no loan ([§10](#string),
 ## 8. Drop and drop glue
 
 An object may declare one `drop` body, which runs when a value of the
-type is released. It takes exactly one parameter, its receiver
-lent to write, spelled as a method's: `drop(!@)`.
+type is released. It takes exactly one parameter, self lent to
+write, spelled as a method's: `drop(!@)`.
 
 ```rig
 obj File
@@ -9563,7 +9563,6 @@ not parse, and their words and sigils stay reserved:
 | Form | Diagnostic |
 |---|---|
 | `&&`, `\|\|`, `**` | `` `&&` is not a Rig operator; use `and` `` |
-| `@x` | `` `@` is reserved `` |
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |

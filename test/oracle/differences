@@ -17,8 +17,8 @@
 # what the function was lent (s7), keeps every loan in order.
 test/reject/probes/review-box-p117.rig main prod-rejects prod-strict `y = x` of a `for x in ?v` element view
 test/reject/probes/review-box-p142.rig main prod-rejects prod-strict `new x = x` of a `for x in ?v` element view
-test/reject/probes/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?@es` element view of the receiver
-test/reject/probes/syntax-review-complete-vw2.rig BagIter.next prod-rejects prod-strict returns a `for x in ?@bag.items` element view of what the receiver views
+test/reject/probes/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?@es` element view of self
+test/reject/probes/syntax-review-complete-vw2.rig BagIter.next prod-rejects prod-strict returns a `for x in ?@bag.items` element view of what self views
 
 # Whether writing through a fixed `w =! !n` (`w = 5`, `w += 1`) reassigns
 # `w`: Core §6 forbids reassigning a const binding, and SPEC §7 says a
