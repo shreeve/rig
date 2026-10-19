@@ -111,9 +111,9 @@ pub fn Task(comptime T: type) type {
                 // A cancel that comes to the waiter during the wait goes
                 // on to the task it waits on (`Control.cancel`).
                 const me = task().control;
-                if (me) |c| c.waiting_on = t.control;
+                if (me) |c| c.waiting_on.store(t.control, .release);
                 result = t.handle.result();
-                if (me) |c| c.waiting_on = null;
+                if (me) |c| c.waiting_on.store(null, .release);
                 passed_on = t.control.canceled.load(.acquire);
             } else {
                 const prev = io().swapCancelProtection(.unblocked);
@@ -224,14 +224,14 @@ pub const Control = struct {
     done: std.atomic.Value(bool) = .init(false),
     wakeup: std.atomic.Value(?*Wakeup) = .init(null),
     /// On the scheduler, the task this one waits on (`Task.wait`).
-    waiting_on: ?*Control = null,
+    waiting_on: std.atomic.Value(?*Control) = .init(null),
 
     /// Record a cancel: on the scheduler, also of the task this one
     /// waits on, and so on down, since a fiber waiting on a task sees
     /// no cancel of its own until that task ends.
     fn cancel(self: *Control) void {
         var c: ?*Control = self;
-        while (c) |x| : (c = if (rt.scheduled) x.waiting_on else null) x.canceled.store(true, .release);
+        while (c) |x| : (c = if (rt.scheduled) x.waiting_on.load(.acquire) else null) x.canceled.store(true, .release);
     }
 
     /// The task has ended: record it, then wake what waits on it. A

@@ -61,10 +61,13 @@ fails.
 1. **Fibers on one worker**: the switch, start, wait, yield, and the
    waiting points (`task.check`, `time.sleep`, waits on sets), which
    yield until they can go on. `main` is the first fiber.
-2. **Many workers**: the rings, stealing, the global queue, and workers
-   that sleep and wake.
-3. **Stacks and the fast paths**: the reservation, stack probes, the
-   "run next" slot, and running a waited-for task inline.
+2. **Many workers**: the rings, stealing, the global queue, workers that
+   sleep and wake, a fiber queued or recorded as waiting only once it has
+   switched away, and the two fast paths many workers need to keep up
+   with one: a stack taken when a fiber first runs, from the worker that
+   runs it, and the "run next" slot.
+3. **Stacks**: the reservation, stack probes, and running a waited-for
+   task inline.
 4. **Waiting without spinning**: futex and timers for fibers,
    cancellation on them, and the blocking pool for the rest of `std.Io`.
 5. **Yield checks** in the compiler.
