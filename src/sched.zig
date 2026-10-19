@@ -1124,7 +1124,9 @@ const saved_bytes = switch (builtin.target.cpu.arch) {
 /// Save the registers a call keeps on the stack running, store its
 /// stack pointer in `from`, and resume the stack at `to`: the fiber or
 /// the worker that saved it there, which returns from its own
-/// `switchTo` (or, new, starts at `fiberStartNaked`).
+/// `switchTo` (or, new, starts at `fiberStartNaked`). An x86_64
+/// instruction that writes memory names its size (`movq`), as Zig's own
+/// x86_64 assembler, which builds debug code, requires.
 fn switchNaked() callconv(.naked) void {
     switch (builtin.target.cpu.arch) {
         .aarch64 => asm volatile (
@@ -1162,7 +1164,7 @@ fn switchNaked() callconv(.naked) void {
             \\ push %%r13
             \\ push %%r14
             \\ push %%r15
-            \\ mov %%rsp, (%%rdi)
+            \\ movq %%rsp, (%%rdi)
             \\ mov %%rsi, %%rsp
             \\ pop %%r15
             \\ pop %%r14
@@ -1187,7 +1189,7 @@ fn fiberStartNaked() callconv(.naked) void {
         ),
         .x86_64 => asm volatile (
             \\ mov %%rbx, %%rdi
-            \\ and $-16, %%rsp
+            \\ andq $-16, %%rsp
             \\ call *%%r12
             \\ ud2
         ),

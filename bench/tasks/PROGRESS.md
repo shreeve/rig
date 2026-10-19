@@ -15,3 +15,15 @@ scheduler grows (`bench-tasks --record "#PR: what changed"`).
 | 2026-10-19 | #349: a worker per core, with stealing | rig-sched | 206 ns | 61 ns | 75.8 ms | 13 ns |
 | 2026-10-19 | #351: stacks, handoff, a faster spawn | rig-sched | 132 ns | 45 ns | 76.4 ms | 11 ns |
 | 2026-10-19 | #352: waiting without spinning | rig-sched | 105 ns | 47 ns | 76.4 ms | 8 ns |
+
+## x86-64 (pup)
+
+The same benchmarks on pup: Linux, x86-64, 22 cores. Tokio builds from
+the crates.io release (pup has no `misc/tokio` clone), and Go is not
+installed there.
+
+| Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) |
+|---|---|---|---|---|---|---|
+| 2026-10-19 | reference | tokio | 252 ns | 252 ns | 101.2 ms | 44 ns |
+| 2026-10-19 | #352: Zig's `Threaded` backend | rig-fast | 20.37 us | 19.94 us | 109.3 ms | 98 ns |
+| 2026-10-19 | #352: waiting without spinning | rig-sched | 274 ns | 82 ns | 108.0 ms | 7 ns |
