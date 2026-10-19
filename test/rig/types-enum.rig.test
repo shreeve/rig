@@ -51,15 +51,15 @@ test "enum from int", '''
     ok = 200
     missing = 404
 
-  all = @variants(Status)
+  all = $variants(Status)
 
   sub main()
     print(Status.from_int(404), Status.from_int(500), Status.from_int(U16(200)))
     for s in all
       print(s, Int(s))
-    print(@variants(Status).len)
+    print($variants(Status).len)
 
-fail "enum from int rules", "8:7: `from_int` is built into every plain enum", "11:17: `@variants(T)` takes a plain enum; `Shape` has variants with payloads", "11:31: `Shape` has variants with payloads, which have no integer value"
+fail "enum from int rules", "8:7: `from_int` is built into every plain enum", "11:17: `$variants(T)` takes a plain enum; `Shape` has variants with payloads", "11:31: `Shape` has variants with payloads, which have no integer value"
   enum Shape
     dot
     circle(r: Int)
@@ -70,7 +70,7 @@ fail "enum from int rules", "8:7: `from_int` is built into every plain enum", "1
     fun from_int(n: Int) -> Int
       n
 
-  print(@variants(Shape), Shape.from_int(0))
+  print($variants(Shape), Shape.from_int(0))
 
 test "enum from text", '''
   .red .dark_red .blue
@@ -141,13 +141,13 @@ test "enum from text", '''
   s = String("xblue")
   print(Color.from_text(w), Color.from_text(?w), Color.from_text(?s[1..]), Color.from_text(String("bl", "ue")), w)
   round = 0
-  for c in @variants(Color)
+  for c in $variants(Color)
     round += 1 if Color.from_text(c.text) == c else 0
-  for st in @variants(Status)
+  for st in $variants(Status)
     round += 1 if Status.from_text(st.text) == st else 0
-  for op in @variants(Op)
+  for op in $variants(Op)
     round += 1 if Op.from_text(op.text) == op else 0
-  print(round, @variants(Color).len + @variants(Status).len + @variants(Op).len)
+  print(round, $variants(Color).len + $variants(Status).len + $variants(Op).len)
   print(Op.from_text("xor_op"), Op.from_text("branch"), Op.from_text("xor"), Op.from_text("branches"))
 
 test "enum literal binding", ".red"
@@ -272,7 +272,7 @@ test "enum order implicit", '''
   print(Code.c > Code.b, Code.d < Code.c, Code.e < Code.b, Code.a < Code.e)
   print(Int(Code.c), Int(Code.e))
   n = 0
-  for v in @variants(Level)
+  for v in $variants(Level)
     if v >= Level.mid
       n += 1
   print(n)
@@ -568,9 +568,9 @@ test "enum text", '''
   print(t == "blue", String(t, "!"), t.hash() == "blue".hash())
   k = Kind.text
   print(k, k.text, Kind.other.text)
-  for v in @variants(Color)
+  for v in $variants(Color)
     print(v.text)
-  for w in @variants(Word)
+  for w in $variants(Word)
     print(w, w.text, Word.from_text(w.text) == w, Word.from_text(String(w.text, "'")))
 
 fail "enum text assign through", "18:10: cannot assign to `.text`; a variant's name is read-only", "19:14: cannot assign to `.text`; a variant's name is read-only", "20:10: cannot assign to `.text`; a variant's name is read-only", errors: 3

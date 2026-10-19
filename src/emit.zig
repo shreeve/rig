@@ -310,7 +310,7 @@ pub const Emitter = struct {
     subject_path: Sexp = .nil,
     /// A name was qualified as `__rig_module.name` (`writeModuleName`).
     uses_module: bool = false,
-    /// A `@name` of a type parameter needs the module's table of names
+    /// A `$name` of a type parameter needs the module's table of names
     /// (`emitNamesTable`).
     uses_names: bool = false,
     /// A symbol or the type `Symbol` is written, so the module imports
@@ -751,7 +751,7 @@ pub const Emitter = struct {
     }
 
     /// `pub const __rig_name = .{ .module = "geo", .name = .{ "Point" } };`:
-    /// the type being emitted as sema's printer spells it, for `@name` of
+    /// the type being emitted as sema's printer spells it, for `$name` of
     /// a type parameter (`rig.typeName`): its module (`nameModule`), and
     /// its spelling, a generic type's at the parameters of each instance
     /// (`.{ "Pair[", A, ", ", B, "]" }`).
@@ -5742,7 +5742,7 @@ pub const Emitter = struct {
         try self.emitBare(e);
     }
 
-    /// `@builtin(args)`. Arguments that name Rig types are spelled as Zig
+    /// `$builtin(args)`. Arguments that name Rig types are spelled as Zig
     /// types. A builtin call as Zig names it. `@fromBackingInt` takes the enum's
     /// backing integer type exactly, so its operand, any integer, goes
     /// through `@intCast` (checked in safe builds, as the tag is).
@@ -5761,14 +5761,14 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// `@variants(T)`: `[N]T{ T.a, T.b }`, the variants in order.
+    /// `$variants(T)`: `[N]T{ T.a, T.b }`, the variants in order.
     fn emitVariants(self: *Emitter, sexp: Sexp) Error!void {
-        const arr = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped `@variants`");
+        const arr = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped `$variants`");
         const elem = switch (self.facts.types.get(arr)) {
             .array => |a| a.elem,
-            else => return self.unsupported(sexp, "`@variants` of this type"),
+            else => return self.unsupported(sexp, "`$variants` of this type"),
         };
-        const decl = self.facts.nominalDecl(elem) orelse return self.unsupported(sexp, "`@variants` of this type");
+        const decl = self.facts.nominalDecl(elem) orelse return self.unsupported(sexp, "`$variants` of this type");
         try self.w.writeAll("(");
         try self.emitTypeTy(arr);
         try self.w.writeAll("{ ");
@@ -5783,7 +5783,7 @@ pub const Emitter = struct {
         try self.w.writeAll(" })");
     }
 
-    /// `@name(T)`: the type's name as sema's printer spells it, the
+    /// `$name(T)`: the type's name as sema's printer spells it, the
     /// string itself for a type known here. A type that holds a type
     /// parameter is spelled per instance: the printer's spelling, with
     /// each parameter named by `rig.typeName` from the module's table
@@ -5791,9 +5791,9 @@ pub const Emitter = struct {
     fn emitNameQuery(self: *Emitter, sexp: Sexp) Error!void {
         const arg = ir.Builtin.args(sexp)[0];
         const of = if (arg.isKind(.builtin)) ir.Builtin.args(arg)[0] else arg;
-        const ty = self.typeOf(of) orelse return self.unsupported(arg, "an untyped `@name` argument");
+        const ty = self.typeOf(of) orelse return self.unsupported(arg, "an untyped `$name` argument");
         const spelling = try self.facts.formatTypeMarked(self.arena.allocator(), ty);
-        // `@name(@type(x))` reads `x`, as `@size(@type(x))` does
+        // `$name($type(x))` reads `x`, as `$size($type(x))` does
         // (`@TypeOf(x)`), though its name is known: a binding read only
         // there is still used in the Zig.
         const of_value = arg.isKind(.builtin);
@@ -5900,7 +5900,7 @@ pub const Emitter = struct {
     }
 
     /// The Zig name of builtin `name`: Rig's type queries are Zig's
-    /// under their own names (`@size` is `@sizeOf`); every other builtin
+    /// under their own names (`$size` is `@sizeOf`); every other builtin
     /// is Zig's, as written.
     fn zigBuiltinName(name: []const u8) []const u8 {
         const rig_names = std.StaticStringMap([]const u8).initComptime(.{

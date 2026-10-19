@@ -102,8 +102,8 @@ back, across from `prev`.
 
 **Builtins.** `print(a, b)` prints values separated by spaces and reads them like a
 read parameter (`print(w[1..3])`);
-`String(a, b)` builds text the same way; `@size(T)`, `@align(T)`, and
-`@name(T)` describe a type.
+`String(a, b)` builds text the same way; `$size(T)`, `$align(T)`, and
+`$name(T)` describe a type.
 
 ```rig
 obj Account

@@ -1224,7 +1224,7 @@ header: `while more() ?? break @outer : i += 1`.
 
 A label's `@` touches its name, and no `(` touches the name: `@size(T)`,
 with the `(` touching, asks the compiler about a type
-([§11](#calls)). After `break` or `continue`, `@name` is always a
+([§11](#calls)). After `break` or `continue`, `$name` is always a
 label, so `break @outer (x)` leaves `outer` with the value `(x)`; the
 value stands apart from the label.
 
@@ -1436,7 +1436,7 @@ A closure whose body is an assignment (`|!total, n| total += n`) is the
 last argument of a call. A method is called on a value, `p.m(args)`,
 with a receiver sigil when it writes or consumes the receiver
 ([§5](#receiver-sigils)); an associated function through its type,
-`Point.origin()`; and a builtin with `@`: `@size(Int)`.
+`Point.origin()`; and a builtin with `$`: `$size(Int)`.
 
 ### Function values
 

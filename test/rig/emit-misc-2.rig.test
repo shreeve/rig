@@ -1139,7 +1139,7 @@ test "underscore zig names", '''
   x = f() catch |e|
     print(e)
     0
-  print(x, G[Int](x: 4).x, @name(G[Int]))
+  print(x, G[Int](x: 4).x, $name(G[Int]))
 
 test "unused error params", "1 2 3 3 4 5 4"
   # Zig discards no error by value, so a parameter holding an error that

@@ -2879,7 +2879,7 @@ fn sizedType(name: []const u8) ?Type {
 }
 
 /// Every built-in type a name spells, once each (`I64` is `Int`): the
-/// types `@name` of a type parameter names from a table (`emit`), which
+/// types `$name` of a type parameter names from a table (`emit`), which
 /// is keyed by the Zig type. A `Static` is the Zig type of a `?String`, so
 /// a type parameter bound to either is named `?String`.
 pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const Type {
@@ -2888,7 +2888,7 @@ pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const 
         const ty = ctx.types.get(primitiveTypeId(ctx, name).?);
         if (ty != .static) try out.append(a, ty);
     }
-    // The read view of a `String` has no name of its own, but `@name` names it.
+    // The read view of a `String` has no name of its own, but `$name` names it.
     try out.append(a, ctx.types.get(ctx.types.string_view_id));
     // `error`, a keyword, is an error of any set.
     try out.append(a, ctx.types.get(ctx.types.any_error_id));

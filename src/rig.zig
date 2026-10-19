@@ -857,6 +857,8 @@ pub const Lexer = struct {
         slash_comment,
         pin_sigil,
         at_detached,
+        at_builtin,
+        dollar_call,
         label_keyword,
         label_call,
         label_touch,
@@ -904,10 +906,12 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .pin_sigil => "the pin sigil `@x` is reserved; `@` starts a builtin call, `@name(...)` with the `(` touching the name, or a label, `@name`, before a statement that starts a line or after `break` or `continue`",
-                .at_detached => "`@` touches the name after it: a label `@outer`, a builtin call `@size(T)`",
+                .pin_sigil => "the pin sigil `@x` is reserved; `@` starts a label, `@name`, before a statement that starts a line or after `break` or `continue`, and `$` a builtin call, `$size(T)`",
+                .at_detached => "`@` touches the name after it: a label is written `@outer`",
+                .at_builtin => "a builtin call is written with `$`: `$size(T)`, `$name(T)`",
+                .dollar_call => "`$` starts a builtin call: `$size(T)`, with the `$` touching the name and the name touching the `(`",
                 .label_keyword => "a keyword is not a label name",
-                .label_call => "after `break` or `continue`, `@name` is a label, never a builtin call: put a space before a value, `break @outer (x)`, or break with a builtin's value as `break (@size(T))`",
+                .label_call => "after `break` or `continue`, `@name` is a label: put a space before a value, `break @outer (x)`; a builtin call is written with `$`, `break $size(T)`",
                 .label_touch => "a jump's label ends at its name: put a space before the value, `break @outer -1`",
                 .symbol_detached => "a prefix `:` touches its operand: a symbol is written `:width`",
                 .symbol_name => "a symbol is `:` and a name: `:width`, `:content-type`",
@@ -1244,6 +1248,7 @@ pub const Lexer = struct {
                 .cat => |cat| cat,
                 .err => |err| return self.fail(err, tok.pos),
             },
+            .dollar => if (self.isBuiltinCall(tok)) .dollar else return self.fail(.dollar_call, tok.pos),
             .bar => if (self.isCaptureBar(tok, after_value)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
             // `||` where an operand starts is an empty closure bar list.
@@ -1419,10 +1424,10 @@ pub const Lexer = struct {
     /// A keyword names a member where nothing else can stand: after
     /// `.`, before `:` inside ( ) (a keyword argument or payload field),
     /// and in a member list before `:` (a field) or after `fun` / `sub`
-    /// (a method). After `@` it names a builtin (`@type(x)`).
+    /// (a method). After `$` it names a builtin (`$type(x)`).
     fn memberName(self: *const Lexer, tok: Token) ?TokenCat {
         switch (self.last_cat) {
-            .dot, .at => return .ident,
+            .dot, .dollar => return .ident,
             .fun, .sub => return if (self.in_members[self.depth]) .ident else null,
             else => {},
         }
@@ -1518,12 +1523,12 @@ pub const Lexer = struct {
         return out;
     }
 
-    /// `@name(...)`, the `(` touching the name, is a builtin call. `@name`
-    /// alone is a label where a statement that takes one starts (`@outer
+    /// `@name` is a label where a statement that takes one starts (`@outer
     /// for`) and after `break` or `continue`, where `@name` is always a
     /// label (`break @outer (x)` leaves `outer` with the value `(x)`).
     /// Anywhere else it is the reserved pin sigil. The `@` touches the
-    /// name.
+    /// name. A `(` touching the name is a builtin call written the old
+    /// way: builtins are `$name(...)`.
     fn classifyAt(self: *const Lexer, at: Token) union(enum) { cat: TokenCat, err: LexError } {
         var probe = self.base;
         const name = probe.next();
@@ -1532,11 +1537,20 @@ pub const Lexer = struct {
         if (word and name.pos != endOf(&self.base, at)) return .{ .err = .at_detached };
         const call = word and paren.cat == .lparen and paren.pos == endOf(&probe, name);
         const jump = isLabelJump(self.last_cat);
-        if (call and !jump) return .{ .cat = .at };
+        if (call and !jump) return .{ .err = .at_builtin };
         if (!word or !(jump or self.labelStart())) return .{ .err = .pin_sigil };
         if (name.cat != .ident) return .{ .err = .label_keyword };
         if (call) return .{ .err = .label_call };
         return .{ .cat = .label_at };
+    }
+
+    /// `$name(...)` is a builtin call: the `$` touches the name, and the
+    /// name the `(`.
+    fn isBuiltinCall(self: *const Lexer, dollar: Token) bool {
+        var probe = self.base;
+        const name = probe.next();
+        const paren = probe.next();
+        return isWord(name.cat) and name.pos == endOf(&self.base, dollar) and paren.cat == .lparen and paren.pos == endOf(&probe, name);
     }
 
     /// The character right after `tok`, or 0 at the end of the source.
@@ -1768,7 +1782,7 @@ fn isValue(cat: TokenCat) bool {
 /// not touch a jump's label (`break @outer-1`, `break @outer.red`).
 fn startsOperand(cat: TokenCat) bool {
     return isSigil(cat) or switch (cat) {
-        .lparen, .lbracket, .dot, .dotdot, .bar, .or_sym, .at, .string_sq, .string_dq => true,
+        .lparen, .lbracket, .dot, .dotdot, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq => true,
         else => false,
     };
 }
@@ -3806,10 +3820,16 @@ test "a `,` after `as name` outside brackets joins the names `as` binds" {
     try expectCats("q, r = f()", &.{ .ident, .comma, .ident, .assign, .ident, .lparen, .rparen });
 }
 
-test "`@name(` with the `(` touching is a builtin; `@name` alone is a label" {
-    try expectCats("@size(T)", &.{ .at, .ident, .lparen, .ident, .rparen });
-    try expectCats("@type(x)", &.{ .at, .ident, .lparen, .ident, .rparen });
-    try expectCats("x = @size(T)", &.{ .ident, .assign, .at, .ident, .lparen, .ident, .rparen });
+test "`$name(` with the `(` touching is a builtin; `@name` alone is a label" {
+    try expectCats("$size(T)", &.{ .dollar, .ident, .lparen, .ident, .rparen });
+    try expectCats("$type(x)", &.{ .dollar, .ident, .lparen, .ident, .rparen });
+    try expectCats("x = $size(T)", &.{ .ident, .assign, .dollar, .ident, .lparen, .ident, .rparen });
+    try expectCats("break $size(T)", &.{ .@"break", .dollar, .ident, .lparen, .ident, .rparen });
+    try expectCats("@size(T)", &.{.err});
+    try expectCats("x = @size(T)", &.{ .ident, .assign, .err });
+    try expectCats("$size", &.{.err});
+    try expectCats("$ size(T)", &.{.err});
+    try expectCats("$size (T)", &.{.err});
     try expectCats("break @a", &.{ .@"break", .label_at, .ident });
     try expectCats("break @a (x)", &.{ .@"break", .label_at, .ident, .lparen, .ident, .rparen });
     try expectCats("break @a x if c", &.{ .@"break", .label_at, .ident, .ident, .post_if, .ident });
@@ -4277,7 +4297,7 @@ test "parser: every form parses" {
         \\    _
         \\      print(2)
         \\  g = |+c, <d, ~e, k: Int, j| c + k
-        \\  h = *|+c| c.set(@size(Int))
+        \\  h = *|+c| c.set($size(Int))
         \\  i = || print(1)
         \\  v = f(1, b: 3) catch 0
         \\  u = f(1)!
@@ -4286,7 +4306,7 @@ test "parser: every form parses" {
         \\  o = 1 if c else 2
         \\  defer print(1)
         \\  raw
-        \\    print(@intCast(x))
+        \\    print($intCast(x))
         \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
         \\  n: fun() -> Int = f
         \\  n2: *sub(Int, ?Wrap[Int]) = h
@@ -4322,7 +4342,7 @@ test "parser: a definition writes its parameter list, even when empty" {
     }
 }
 
-test "a keyword after `@` names a builtin" {
-    try expectCats("@type(x)", &.{ .at, .ident, .lparen, .ident, .rparen });
-    try expectCats("@size(@type(x))", &.{ .at, .ident, .lparen, .at, .ident, .lparen, .ident, .rparen, .rparen });
+test "a keyword after `$` names a builtin" {
+    try expectCats("$type(x)", &.{ .dollar, .ident, .lparen, .ident, .rparen });
+    try expectCats("$size($type(x))", &.{ .dollar, .ident, .lparen, .dollar, .ident, .lparen, .ident, .rparen, .rparen });
 }

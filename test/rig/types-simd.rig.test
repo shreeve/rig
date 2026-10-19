@@ -1316,7 +1316,7 @@ test "simd places", '''
     x
 
   fun named[T](x: T) -> ?String
-    @name(Wrap[T])
+    $name(Wrap[T])
 
   l = Lexer(ahead: Block([1, 2, 3, 4]), pos: 0)
   l.ahead = l.ahead + 1
@@ -1355,7 +1355,7 @@ test "simd places", '''
   print(lanes(l.ahead), lanes(Simd[U8, 64].splat(0)))
   w = Wrap(value: l.ahead)
   print(w, same(l.ahead), same(w).value[3])
-  print(@name(Block), @name(Simd[Bool, 64]), named(l.ahead == 0))
+  print($name(Block), $name(Simd[Bool, 64]), named(l.ahead == 0))
 
 bomb "simd read past end panics", "byte read out of range: 16 bytes at offset 2 of 17", prints: "[false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true]", release: true
   # A vector read is checked once: all its bytes must be in range.
@@ -1482,26 +1482,26 @@ bomb "simd shl sign panics", "left shift overflowed bits", prints: "16384", rele
   print((v << 1)[0])
   print((v << 2)[0])
 
-fail "simd size", "18:8: `@size` takes no type that holds a vector: `Simd[U8, 4]` holds a `Simd`, whose size and alignment differ from target to target", "18:28: `@align` takes no type that holds a vector: `Simd[Bool, 64]` holds a `Simd`, whose size and alignment differ from target to target", "18:52: `@size` takes no type that holds a vector: `L` holds a `Simd`, whose size and alignment differ from target to target", "18:62: `@size` takes no type that holds a vector: `Simd[U8, 4]?` holds a `Simd`, whose size and alignment differ from target to target", "20:7: `size[Simd[U8, 4]]` cannot use `T = Simd[U8, 4]`: the generic body takes `@size` of a type that holds a `T`, and `Simd[U8, 4]` holds a vector, whose size and alignment differ from target to target", "20:28: `boxed[L]` cannot use `T = L`: the generic body takes `@align` of a type that holds a `T`, and `L` holds a vector, whose size and alignment differ from target to target", errors: 6
-  # A vector's size and alignment are the target's, so `@size` and
-  # `@align` take no type that holds one, and no generic `T` that is one.
+fail "simd size", "18:8: `$size` takes no type that holds a vector: `Simd[U8, 4]` holds a `Simd`, whose size and alignment differ from target to target", "18:28: `$align` takes no type that holds a vector: `Simd[Bool, 64]` holds a `Simd`, whose size and alignment differ from target to target", "18:52: `$size` takes no type that holds a vector: `L` holds a `Simd`, whose size and alignment differ from target to target", "18:62: `$size` takes no type that holds a vector: `Simd[U8, 4]?` holds a `Simd`, whose size and alignment differ from target to target", "20:7: `size[Simd[U8, 4]]` cannot use `T = Simd[U8, 4]`: the generic body takes `$size` of a type that holds a `T`, and `Simd[U8, 4]` holds a vector, whose size and alignment differ from target to target", "20:28: `boxed[L]` cannot use `T = L`: the generic body takes `$align` of a type that holds a `T`, and `L` holds a vector, whose size and alignment differ from target to target", errors: 6
+  # A vector's size and alignment are the target's, so `$size` and
+  # `$align` take no type that holds one, and no generic `T` that is one.
 
   obj L
     v: Simd[U8, 16]
     n: Int
 
   fun size[T]() -> Int
-    @size(T)
+    $size(T)
 
   obj Two[T]
     a: T
     b: T
 
   fun boxed[T]() -> Int
-    @align(Two[T])
+    $align(Two[T])
 
-  print(@size(Simd[U8, 4]), @align(Simd[Bool, 64]), @size(L), @size(Simd[U8, 4]?))
-  print(@size(List[Simd[U8, 4]]), @name(Simd[U8, 4]))
+  print($size(Simd[U8, 4]), $align(Simd[Bool, 64]), $size(L), $size(Simd[U8, 4]?))
+  print($size(List[Simd[U8, 4]]), $name(Simd[U8, 4]))
   print(size[Simd[U8, 4]](), boxed[L]())
 
 bomb "simd sub overflow panics", "integer overflow", prints: "[-2, 32767]\n[-1, -32768]", release: true

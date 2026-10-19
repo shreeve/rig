@@ -1947,7 +1947,7 @@ pub const Requirement = union(enum) {
     /// closure, not a handle of a function.
     not_function,
     /// Holds no view but a `?String` (`nameable`): the body names a type
-    /// that holds the parameter (`@name`), which the runtime spells from
+    /// that holds the parameter (`$name`), which the runtime spells from
     /// the instance's Zig type.
     named,
     /// Printable (`printable`): the body prints a value that holds the
@@ -2000,7 +2000,7 @@ pub fn requireHandleOf(ctx: *SemContext, inner: TypeId, pos: u32, op: []const u8
     }
 }
 
-/// The first type `ty` holds, at any depth, that `@name` of a type
+/// The first type `ty` holds, at any depth, that `$name` of a type
 /// parameter cannot spell, or null: a view but `?String`. The runtime
 /// names an instance from its Zig type (`rig.typeName`), where a read
 /// view of a number is the number, and a `[]U8` and a `?String` are one
@@ -5231,7 +5231,7 @@ pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
 /// Whether a value of `ty` is or holds a vector inline: in a field, a
 /// payload, an array, an optional, or a generic instance's argument held
 /// by value (a List's or a box's elements are on the heap). Its size and
-/// alignment are the target's, so `@size` and `@align` take no such type.
+/// alignment are the target's, so `$size` and `$align` take no such type.
 pub fn holdsVector(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).vector;
 }
@@ -7333,7 +7333,7 @@ pub fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
 
 /// Render a type the way it is spelled in Rig source, allocating in the
 /// context's arena. This is the one place a type's Rig name is decided:
-/// diagnostics print it, and `@name(T)` returns it.
+/// diagnostics print it, and `$name(T)` returns it.
 pub fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
     return formatTypeIn(ctx, ctx.arena.allocator(), ty_id);
 }
@@ -7357,7 +7357,7 @@ pub const type_param_mark = 0;
 /// bytes (`List[\x003\x00]`), and each type whose spelling depends on
 /// the one a parameter stands for (`spelledPerInstance`) as `t` and its
 /// type id (`List[\x00t9\x00]` for `List[T?]`), for a spelling
-/// completed per instance: the emitter fills each in (`@name(T)`). A
+/// completed per instance: the emitter fills each in (`$name(T)`). A
 /// spelling with no mark names one type.
 pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
     return (TypePrinter{ .ctx = ctx, .a = a, .marked = true }).id(ty_id);

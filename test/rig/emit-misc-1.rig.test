@@ -689,9 +689,9 @@ test "builtin len array", "3"
 
 test "builtin type argument", "8"
   # Rig type names passed to a builtin are spelled as Zig types
-  # (`@size(I64)` is `@sizeOf(i64)`).
+  # (`$size(I64)` is `@sizeOf(i64)`).
 
-  n = @size(I64)
+  n = $size(I64)
   print(n)
 
 test "builtin type arguments", '''
@@ -699,16 +699,16 @@ test "builtin type arguments", '''
   true
   8
 '''
-  # `@size` takes a type name or a weak handle type.
+  # `$size` takes a type name or a weak handle type.
 
   obj B
     n: Int
 
   type Pair = B
 
-  print(@size(~B) == @size(Int))
-  print(@size(Pair) == @size(B))
-  print(@align(B))
+  print($size(~B) == $size(Int))
+  print($size(Pair) == $size(B))
+  print($align(B))
 
 test "capture move struct drop glue", '''
   8

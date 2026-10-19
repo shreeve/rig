@@ -21,7 +21,7 @@ export default function (hljs) {
       {"scope": "keyword", "match": "(?<= )(?<![0-9A-Za-z_])of(?![0-9A-Za-z_])(?= )"},
       {"scope": {"1": "keyword", "2": "symbol"}, "match": ["(?:break|continue)[\\x09 ]+", "@[A-Z_a-z][0-9A-Z_a-z]*"]},
       {"scope": "symbol", "match": "@[A-Z_a-z][0-9A-Z_a-z]*(?=[\\x09 ]+(?:for|while|match|raw))"},
-      {"scope": "built_in", "match": "@[_a-z]+(?=\\()"},
+      {"scope": "built_in", "match": "\\$[A-Z_a-z]+(?=\\()"},
       {"scope": "keyword", "match": "(?<![)0-9A-Z\\]_a-z])\\*(?=<[(A-\\[_a-z])"},
       {"scope": "keyword", "match": "(?<![)0-9A-Z\\]_a-z])[!*+<?\\^~](?=[(A-\\[_a-z])"},
       {"scope": "keyword", "match": "(?<=[)0-9A-Z\\]_a-z])[!?](?![(0-9=?A-\\[_a-z])"},
@@ -69,6 +69,7 @@ export default function (hljs) {
       {"scope": "number", "match": "0|[1-9](?:_?[0-9])*"},
       {"match": "[0-9][0-9A-Z_a-z]*"},
       {"match": "\\|\\|"},
+      {"match": "\\$"},
       {"match": "[A-Z_a-z][0-9A-Z_a-z]*"},
       {"match": "."}
     ]

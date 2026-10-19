@@ -1469,12 +1469,12 @@ test "review-enumtext-module-const", '''
   blue .blue
   red
 '''
-  # `.text` of module constants (an element of `@variants`, a variant, an array element) and of a Signal's value.
+  # `.text` of module constants (an element of `$variants`, a variant, an array element) and of a Signal's value.
   enum Color
     red
     blue
 
-  all = @variants(Color)
+  all = $variants(Color)
   fav = Color.blue
   pair = [Color.blue, Color.red]
 

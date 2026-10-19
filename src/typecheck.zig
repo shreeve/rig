@@ -7991,7 +7991,7 @@ const Checker = struct {
         return self.t().void_id;
     }
 
-    /// `!t.push[T, e](v)`: the integer `v`, a `T`, appended as `@size(T)`
+    /// `!t.push[T, e](v)`: the integer `v`, a `T`, appended as `$size(T)`
     /// bytes in byte order `e`, a compile-time `Endian`; a one-byte `T`
     /// takes no byte order. True when it checked, with the call's `T`
     /// recorded; after a diagnostic, false.
@@ -10552,7 +10552,7 @@ const Checker = struct {
     }
 
     /// `bytes.read[T, e](at)` and `!bytes.write[T, e](at, v)`: the integer
-    /// or float `T` held in the `@size(T)` bytes from `at`, in byte
+    /// or float `T` held in the `$size(T)` bytes from `at`, in byte
     /// order `e`, a compile-time `Endian`. The bytes are a `[]U8`, an
     /// `![]U8`, a `[N]U8`, a `List[U8]`, or (for `read`) a `?String`; `at` is
     /// checked now against an array's length when it is constant, and
@@ -13207,10 +13207,10 @@ const Checker = struct {
     // =========================================================================
 
     /// Every builtin Rig has. Rig's own, the compile-time type queries
-    /// `@size(T)`, `@align(T)`, `@name(T)`, and `@type(x)` as their
+    /// `$size(T)`, `$align(T)`, `$name(T)`, and `$type(x)` as their
     /// argument, work anywhere. Zig's keep their Zig names and work only
     /// inside `raw`: the casts, and the queries under Zig's names
-    /// (`@sizeOf`), which mean what Rig's do.
+    /// (`$sizeOf`), which mean what Rig's do.
     const Builtin = enum {
         size,
         @"align",
@@ -13248,18 +13248,18 @@ const Checker = struct {
         }
     };
 
-    /// `@sizeOf(I64)` as Rig writes it, `@size(I64)`: each of Zig's
+    /// `$sizeOf(I64)` as Rig writes it, `$size(I64)`: each of Zig's
     /// names for a type query in `call` becomes Rig's.
     fn rigSpelling(self: *Checker, call: []const u8) Error![]const u8 {
         var out: std.ArrayList(u8) = .empty;
         const a = self.ctx.arena.allocator();
         var i: usize = 0;
         outer: while (i < call.len) {
-            if (call[i] == '@') {
+            if (call[i] == '$') {
                 for ([_][2][]const u8{ .{ "sizeOf", "size" }, .{ "alignOf", "align" }, .{ "typeName", "name" }, .{ "TypeOf", "type" } }) |pair| {
                     const after = i + 1 + pair[0].len;
                     if (std.mem.startsWith(u8, call[i + 1 ..], pair[0]) and (after == call.len or !(std.ascii.isAlphanumeric(call[after]) or call[after] == '_'))) {
-                        try out.print(a, "@{s}", .{pair[1]});
+                        try out.print(a, "${s}", .{pair[1]});
                         i = after;
                         continue :outer;
                     }
@@ -13274,11 +13274,11 @@ const Checker = struct {
     /// Zig's name for a type query outside `raw`: the fix-it writes the
     /// call `node` with Rig's names.
     fn zigQueryName(self: *Checker, node: Sexp, written: []const u8, rig_name: []const u8) Error!void {
-        // From the name on: `@ sizeOf(I64)` is fixed as `@size(I64)`.
+        // From the name on: `$ sizeOf(I64)` is fixed as `$size(I64)`.
         const args = diag.textBetween(self.ctx.source, self.ctx.span(ir.Builtin.name(node)).end, self.ctx.span(node).end);
         const short = args.len <= 60 and std.mem.findScalar(u8, args, '\n') == null;
-        const fix = if (short) try self.ctx.arena.allocator().print("@{s}{s}", .{ rig_name, try self.rigSpelling(args) }) else try self.ctx.arena.allocator().print("@{s}(...)", .{rig_name});
-        try self.errAt(node, "write `{s}`: Rig's builtin is `@{s}`; Zig's `@{s}` works only inside `raw`", .{ fix, rig_name, written });
+        const fix = if (short) try self.ctx.arena.allocator().print("${s}{s}", .{ rig_name, try self.rigSpelling(args) }) else try self.ctx.arena.allocator().print("${s}(...)", .{rig_name});
+        try self.errAt(node, "write `{s}`: Rig's builtin is `${s}`; `${s}`, Zig's name for it, works only inside `raw`", .{ fix, rig_name, written });
     }
 
     fn synthBuiltin(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
@@ -13289,11 +13289,11 @@ const Checker = struct {
         const ty: TypeId = blk: {
             const builtin = std.meta.stringToEnum(Builtin, name) orelse {
                 if (std.mem.eql(u8, name, "enumFromInt")) {
-                    try self.err(pos, "builtin `@enumFromInt` is not supported; an integer becomes a plain enum with `@fromBackingInt`", .{});
+                    try self.err(pos, "builtin `$enumFromInt` is not supported; an integer becomes a plain enum with `$fromBackingInt`", .{});
                 } else if (std.mem.eql(u8, name, "intFromFloat")) {
-                    try self.err(pos, "builtin `@intFromFloat` is not supported; a float becomes an integer with `@trunc`", .{});
+                    try self.err(pos, "builtin `$intFromFloat` is not supported; a float becomes an integer with `$trunc`", .{});
                 } else {
-                    try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@size`, `@align`, `@type`, `@name`, `@variants`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`, `@floatFromInt`, `@fromBackingInt`", .{name});
+                    try self.err(pos, "builtin `${s}` is not supported; the builtins are `$size`, `$align`, `$type`, `$name`, `$variants`, and, inside `raw`, `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`, `$floatFromInt`, `$fromBackingInt`", .{name});
                 }
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
@@ -13304,12 +13304,12 @@ const Checker = struct {
                 if (query) |q| {
                     try self.zigQueryName(node, name, @tagName(q));
                 } else {
-                    try self.err(pos, "builtin `@{s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `@size`, `@align`, `@type`, `@name`, `@variants`", .{name});
+                    try self.err(pos, "builtin `${s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `$size`, `$align`, `$type`, `$name`, `$variants`", .{name});
                 }
             }
             if (query) |q| switch (q) {
                 .type => {
-                    try self.err(pos, "`@{s}` is only allowed as the argument of `@size`, `@align`, or `@name`", .{name});
+                    try self.err(pos, "`${s}` is only allowed as the argument of `$size`, `$align`, or `$name`", .{name});
                     try self.synthArgs(args);
                     break :blk self.t().invalid_id;
                 },
@@ -13319,19 +13319,19 @@ const Checker = struct {
                 },
             };
             if (args.len != 1) {
-                try self.err(pos, "`@{s}` takes one argument", .{name});
+                try self.err(pos, "`${s}` takes one argument", .{name});
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             }
             const operand = try self.synthValue(args[0]);
             const target = expected orelse {
-                try self.err(pos, "`@{s}` needs a known result type; bind it to an annotated name (`y: T = @{s}(x)`)", .{ name, name });
+                try self.err(pos, "`${s}` needs a known result type; bind it to an annotated name (`y: T = ${s}(x)`)", .{ name, name });
                 break :blk self.t().invalid_id;
             };
             if (!self.isPoison(operand) and !self.isPoison(target)) {
                 const to = self.liftTarget(target);
                 if (self.castProblem(builtin, operand, to)) |why| {
-                    try self.err(pos, "`@{s}` cannot turn `{s}` into `{s}`: {s}", .{ name, try self.tyName(operand), try self.tyName(target), why });
+                    try self.err(pos, "`${s}` cannot turn `{s}` into `{s}`: {s}", .{ name, try self.tyName(operand), try self.tyName(target), why });
                     break :blk self.t().invalid_id;
                 }
                 // Zig converts a constant operand when it compiles, so the
@@ -13340,7 +13340,7 @@ const Checker = struct {
                     .intCast, .floatFromInt => try self.checkLiteralFits(args[0], to),
                     .trunc => try self.checkFloatFits(args[0], to),
                     .fromBackingInt => if (self.constInt(args[0]) != null) {
-                        try self.errAt(args[0], "`@fromBackingInt` of a constant: name the variant instead (`.name`)", .{});
+                        try self.errAt(args[0], "`$fromBackingInt` of a constant: name the variant instead (`.name`)", .{});
                     },
                     else => {},
                 }
@@ -13351,7 +13351,7 @@ const Checker = struct {
         return ty;
     }
 
-    /// `@variants(T)`: every variant of plain enum `T`, in declaration
+    /// `$variants(T)`: every variant of plain enum `T`, in declaration
     /// order, a `[N]T`.
     fn variantsOf(self: *Checker, args: []const Sexp, pos: u32) Error!TypeId {
         if (!(try self.builtinTypeArg("variants", args, pos))) return self.t().invalid_id;
@@ -13369,24 +13369,24 @@ const Checker = struct {
                         .read_view => "a read view",
                         else => "a write view",
                     };
-                    try self.errAt(args[0], "`@variants` takes an enum type; `{s}` is {s} of one: write `@variants({s})`", .{ try self.tyName(ty), what, try self.tyName(inner) });
+                    try self.errAt(args[0], "`$variants` takes an enum type; `{s}` is {s} of one: write `$variants({s})`", .{ try self.tyName(ty), what, try self.tyName(inner) });
                     return self.t().invalid_id;
                 },
                 else => {},
             }
-            try self.errAt(args[0], "`@variants` takes an enum type; `{s}` is not one", .{try self.tyName(ty)});
+            try self.errAt(args[0], "`$variants` takes an enum type; `{s}` is not one", .{try self.tyName(ty)});
             return self.t().invalid_id;
         }
         const plain = self.enumValues(ty) orelse {
-            try self.errAt(args[0], "`@variants` takes an enum type; `{s}` is not an enum", .{try self.tyName(ty)});
+            try self.errAt(args[0], "`$variants` takes an enum type; `{s}` is not an enum", .{try self.tyName(ty)});
             return self.t().invalid_id;
         };
         if (self.isBuiltinEnumTy(ty)) {
-            try self.errAt(args[0], "`@variants(T)` takes a declared enum; `{s}` is a built-in enum", .{try self.tyName(ty)});
+            try self.errAt(args[0], "`$variants(T)` takes a declared enum; `{s}` is a built-in enum", .{try self.tyName(ty)});
             return self.t().invalid_id;
         }
         if (!plain) {
-            try self.errAt(args[0], "`@variants(T)` takes a plain enum; `{s}` has variants with payloads", .{try self.tyName(ty)});
+            try self.errAt(args[0], "`$variants(T)` takes a plain enum; `{s}` has variants with payloads", .{try self.tyName(ty)});
             return self.t().invalid_id;
         }
         const decl = sema.nominalDecl(self.ctx, ty).?;
@@ -13427,11 +13427,11 @@ const Checker = struct {
         return null;
     }
 
-    /// `@size(T)` / `@size(@type(x))`. A type argument, written as one is
+    /// `$size(T)` / `$size($type(x))`. A type argument, written as one is
     /// in an expression (`typeArg`), is recorded with the type it names.
     fn builtinTypeArg(self: *Checker, name: []const u8, args: []const Sexp, pos: u32) Error!bool {
         if (args.len != 1) {
-            try self.err(pos, "`@{s}` takes one type argument", .{name});
+            try self.err(pos, "`${s}` takes one type argument", .{name});
             return false;
         }
         const a = args[0];
@@ -13455,7 +13455,7 @@ const Checker = struct {
         // neither, nor those of a type that holds one inline.
         if (!std.mem.eql(u8, name, "name")) {
             if (sema.holdsVector(self.ctx, ty)) {
-                try self.err(pos, "`@{s}` takes no type that holds a vector: `{s}` holds a `Simd`, whose size and alignment differ from target to target", .{ name, try self.tyName(ty) });
+                try self.err(pos, "`${s}` takes no type that holds a vector: `{s}` holds a `Simd`, whose size and alignment differ from target to target", .{ name, try self.tyName(ty) });
                 return false;
             }
             var params: std.ArrayList(SymbolId) = .empty;
@@ -13465,12 +13465,12 @@ const Checker = struct {
         return true;
     }
 
-    /// `@name` of a type that holds type parameters names each one's
+    /// `$name` of a type that holds type parameters names each one's
     /// instance as the program runs (`rig.typeName`), from its Zig type:
     /// each instance must hold no view it could not tell apart
     /// (`Requirement.named`).
     fn requireNamed(self: *Checker, builtin: []const u8, ty: TypeId, at: Sexp) Error!void {
-        // Zig's `@typeName`, inside `raw`, names the Zig type.
+        // Zig's `$typeName`, inside `raw`, names the Zig type.
         if (!std.mem.eql(u8, builtin, "name")) return;
         var params: std.ArrayList(SymbolId) = .empty;
         try sema.reachedTypeVars(self.ctx, ty, &params, self.ctx.arena.allocator());
@@ -14249,7 +14249,7 @@ fn wholeDivision(source: []const u8, e: Sexp) ?Sexp {
 }
 
 /// An expression of whole-number literals: integer literals, and
-/// arithmetic and builtins (`@size(T)`) over them.
+/// arithmetic and builtins (`$size(T)`) over them.
 fn wholeLiterals(source: []const u8, e: Sexp) bool {
     return switch (e) {
         .src => sema.isIntLiteralText(identAt(source, e) orelse ""),
@@ -15251,7 +15251,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
                 .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
                 .lane_count => try ctx.err(at, cannot ++ "uses `{s}` as a lane count, a power of two from 2 to 64", .{ inst, pname, aname, pname }),
-                .sized => try ctx.err(at, cannot ++ "takes `@{s}` of a type that holds a `{s}`, and `{s}` holds a vector, whose size and alignment differ from target to target", .{ inst, pname, aname, req.op, pname, aname }),
+                .sized => try ctx.err(at, cannot ++ "takes `${s}` of a type that holds a `{s}`, and `{s}` holds a vector, whose size and alignment differ from target to target", .{ inst, pname, aname, req.op, pname, aname }),
                 .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
@@ -15263,7 +15263,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .named => {
                     const held = sema.unnameable(ctx, arg).?;
                     const what = if (held == arg) "is one" else try ctx.arena.allocator().print("holds `{s}`", .{try sema.formatType(ctx, held)});
-                    try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
+                    try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
                 },
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => if (try sema.notHashable(ctx, arg, null)) |n|
@@ -15279,7 +15279,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
-                .named => try ctx.noteIn(req.module_id, req.pos, "`@name` here", .{}),
+                .named => try ctx.noteIn(req.module_id, req.pos, "`$name` here", .{}),
                 .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }

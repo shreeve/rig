@@ -835,7 +835,7 @@ test "syntax-review-ux-c1e", "11831194018420276491"
   fun mulw(a: U64, b: U64) -> U64
     wide: U128 = U128(a) * U128(b)
     raw
-      r: U64 = @truncate(wide)
+      r: U64 = $truncate(wide)
       r
 
   fun fnv1a(s: ?String) -> U64
@@ -920,7 +920,7 @@ test "syntax-review-ux-c3", '''
     print("full at", i) if not ok
   while (!r).pop() as b
     print(b, popcount(U32(b)))
-  print(@size(R8))
+  print($size(R8))
 
   type R8 = Ring[8]
 

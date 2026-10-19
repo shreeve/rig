@@ -390,7 +390,7 @@ test "review-rule2-cell-handle-module", '''
       swap(!a, !b)
 
     pub sub touch[T](x: !T)
-      print(@name(T))
+      print($name(T))
 
     pub sub through(c: *Cell[List[String]])
       (!c).push(String("n"))
@@ -488,15 +488,15 @@ test "review-rule2-name-module", '''
 
   sub main()
     n: Node? = none
-    print(lib.nm(n), @name(NN))
-    print(lib.hnm(n), @name(HN))
+    print(lib.nm(n), $name(NN))
+    print(lib.hnm(n), $name(HN))
     p: lib.P? = none
-    print(lib.nm(p), @name(LPP))
-    print(lib.hnm(p), @name(HP))
+    print(lib.nm(p), $name(LPP))
+    print(lib.hnm(p), $name(HP))
     print(lib.deeper(n))
     i: (Int?)? = none
     b = lib.Box(v: i)
-    print(b.self_name(), @name(BX))
+    print(b.self_name(), $name(BX))
     lib.local_names()
 
   file "lib.rig"
@@ -507,13 +507,13 @@ test "review-rule2-name-module", '''
       pub v: T
 
       pub fun self_name(?self) -> ?String
-        @name(Self?)
+        $name(Self?)
 
     pub fun nm[T](x: T) -> ?String
-      @name(T?)
+      $name(T?)
 
     pub fun hnm[T](x: T) -> ?String
-      @name(*T)
+      $name(*T)
 
     pub fun deeper[T](x: T) -> ?String
       y: T? = none
@@ -522,9 +522,9 @@ test "review-rule2-name-module", '''
     pub type LP = (P?)?
 
     pub sub local_names()
-      print("lib", @name(LP), @name(Box[P?]?))
+      print("lib", $name(LP), $name(Box[P?]?))
 
-fail "review-rule2-name-view-deep-import", "`lib.f9[(?Node)?]` cannot use `T = (?Node)?`: the generic body names a type that holds a `T` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `(?Node)?` holds `?Node`"
+fail "review-rule2-name-view-deep-import", "`lib.f9[(?Node)?]` cannot use `T = (?Node)?`: the generic body names a type that holds a `T` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `(?Node)?` holds `?Node`"
   use lib
 
   obj Node
@@ -564,7 +564,7 @@ fail "review-rule2-name-view-deep-import", "`lib.f9[(?Node)?]` cannot use `T = (
       f9(x) + 1
 
     pub fun f9[T](x: ?T) -> Int
-      print(@name(T))
+      print($name(T))
       0
 
 test "review-rule2-proof-addend-cycle", '''

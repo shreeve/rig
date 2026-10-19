@@ -57,7 +57,7 @@ done
 # last one up.
 {
     decls 20000 'obj G%d[T]\n  a: G%d[T]\n' 'obj G%d[T]\n  v: T'
-    printf '\nsub main()\n  print(@size(G0[Int]) > 0)\n'
+    printf '\nsub main()\n  print($size(G0[Int]) > 0)\n'
 } >generic.rig
 out=$("$TIMEOUT_CMD" 120 "$RIG" check generic.rig 2>&1); expect_rc $? 0 "a chain of 20,000 generic types: $out"
 
@@ -92,5 +92,5 @@ out=$("$TIMEOUT_CMD" 120 "$RIG" check printed.rig 2>&1); expect_rc $? 0 "print o
 # is made here.
 mkdir -p module
 decls 20000 'pub obj G%d[T]\n  pub a: G%d[T]\n' 'pub obj G%d[T]\n  pub v: T' >module/lib.rig
-printf 'use lib\n\nsub main()\n  print(@size(lib.G0[Int]) > 0)\n' >module/main.rig
+printf 'use lib\n\nsub main()\n  print($size(lib.G0[Int]) > 0)\n' >module/main.rig
 out=$("$TIMEOUT_CMD" 120 "$RIG" check module/main.rig 2>&1); expect_rc $? 0 "a chain of 20,000 generic types in another module: $out"

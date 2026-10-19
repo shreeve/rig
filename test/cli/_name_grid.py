@@ -272,10 +272,10 @@ sub t{i}()
     .zz => print("m0")
   print(Int(V{i}.from_int(7) ?? V{i}.aa), pv{i}(P{i}.{n}(w: 5)), pv{i}(.pp(v: 6)), gv{i}(G{i}[Int].{n}(w: 8)))
   n = 0
-  for x in @variants(V{i})
+  for x in $variants(V{i})
     n += Int(x)
   print(n, K{i}.{n}, V{i}.{n}, P{i}.{n}(w: 1), String(k))
-  for x in @variants(K{i})
+  for x in $variants(K{i})
     print(x)
 """, f"1 7 1 0 true true true\nm1\n7 5 6 8\n10 .{n} .{n} .{n}(w: 1) .{n}\n.zz\n.{n}"
 
@@ -328,7 +328,7 @@ fun id{i}[{n}](x: {n}) -> {n}
   x
 
 fun sz{i}[{n}]() -> Int
-  @size({n})
+  $size({n})
 
 sub t{i}()
   g = GT{i}[Int](x: 4)
@@ -336,7 +336,7 @@ sub t{i}()
   match h
     .one(v) => print(v)
     .two => print("two")
-  print(g.first(), id{i}[Int](5), id{i}(6), sz{i}[U8](), g, @name(GT{i}[Int]))
+  print(g.first(), id{i}[Int](5), id{i}(6), sz{i}[U8](), g, $name(GT{i}[Int]))
 """, f"7\n4 5 6 1 GT{i}(x: 4) GT{i}[Int]"
 
 
@@ -362,7 +362,7 @@ fun fails{i}() -> Int!
 
 sub t{i}()
   o = {n}(v: 3)
-  print(o.get2(), o, @name({n}), mk{i}(2).v, {n}E.b)
+  print(o.get2(), o, $name({n}), mk{i}(2).v, {n}E.b)
   x = fails{i}() catch |e|
     print(e)
     0

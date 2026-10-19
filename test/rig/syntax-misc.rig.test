@@ -196,10 +196,10 @@ test "boolean operators", '''
   print(true or loud(false))
   print(not false and loud(true))
 
-fail "builtin detached", "3:7: `@` touches the name after it: a label `@outer`, a builtin call `@size(T)`"
-  # `@` touches the name after it, for a builtin call as for a label.
+fail "builtin detached", "3:7: `$` starts a builtin call: `$size(T)`, with the `$` touching the name and the name touching the `(`"
+  # A builtin call's `$` touches its name, and the name its `(`.
 
-  print(@ size(Int))
+  print($ size(Int))
 
 test "byte order mark", "1"
   ﻿# A UTF-8 byte order mark at the start of a file is skipped.
@@ -1915,7 +1915,7 @@ test "keywords as members", '''
 
 fail "label after defer", "5:9: the pin sigil `@x` is reserved"
   # The statement after `defer`, `errdefer`, or `=>` takes no label, so
-  # `@name` there is the reserved pin sigil.
+  # `$name` there is the reserved pin sigil.
 
   for i in 0..3
     defer @a for j in 0..i
@@ -1933,7 +1933,7 @@ test "label break value", '''
 '''
   # After `break`, `@name` is always a label, so a value in parentheses
   # follows it with a space: `break @outer (x)` leaves `outer` with `(x)`.
-  # `@size(Int)`, with the `(` touching the name, is a builtin call, also
+  # `$size(Int)`, with the `(` touching the name, is a builtin call, also
   # inside a labeled loop.
 
   fun pick(a: Int, b: Int) -> Int
@@ -1951,14 +1951,14 @@ test "label break value", '''
   @outer for i in 0..3
     for j in 0..3
       continue @outer if j > i
-      print(@size(I32), i, j)
+      print($size(I32), i, j)
   n = 0
   @rows while n < 10 : n += 1
-    m = n * @size(I16)
+    m = n * $size(I16)
     break @rows if m > 6
   print(n)
 
-fail "label call after jump", "6:11: after `break` or `continue`, `@name` is a label, never a builtin call: put a space before a value, `break @outer (x)`, or break with a builtin's value as `break (@size(T))`"
+fail "label call after jump", "6:11: after `break` or `continue`, `@name` is a label: put a space before a value, `break @outer (x)`; a builtin call is written with `$`, `break $size(T)`"
   # After `break` or `continue`, `@name` is always a label, so a `(`
   # touching it would read as a builtin call: the value takes a space.
 
@@ -1970,7 +1970,7 @@ fail "label call after jump", "6:11: after `break` or `continue`, `@name` is a l
     0
   print(x)
 
-fail "label detached", "3:1: `@` touches the name after it: a label `@outer`, a builtin call `@size(T)`"
+fail "label detached", "3:1: `@` touches the name after it: a label is written `@outer`"
   # `@` touches the name after it, for a label as for a builtin call.
 
   @ outer for i in 0..3
@@ -2059,7 +2059,7 @@ fail "label value detached prefix", "7:20: a prefix `-` touches its operand"
 
 fail "label value position", "4:5: the pin sigil `@x` is reserved"
   # A label stands where a statement starts or after `break` or
-  # `continue`; anywhere else a bare `@name` is the reserved pin sigil.
+  # `continue`; anywhere else a bare `$name` is the reserved pin sigil.
 
   x = @outer for i in 0..3
     break @outer i
@@ -3388,7 +3388,7 @@ test "pass statement", '''
 
 fail "pin sigil reserved", "the pin sigil `@x` is reserved"
   # The `@x` pin sigil is reserved: pinning has no semantics yet, so a
-  # tight `@` before a name (not a `@builtin(...)` call) is a lexical error.
+  # tight `@` before a name (not a label) is a lexical error.
 
   x = 42
   p = @x
@@ -4074,7 +4074,7 @@ test "sigil spacing", '''
   # The same character is an infix operator when spaced (`a < x`, `a * b`,
   # `a + b`, `a % b`, `a - b`) and an ownership sigil when tight against its
   # operand at expression start (`<s`, `*Wrap`, `+s`, `?box`). `-x` is
-  # negation, and `<x` alone on a line drops `x`; `@name(...)` is a
+  # negation, and `<x` alone on a line drops `x`; `$name(...)` is a
   # builtin call.
 
   obj Wrap
@@ -4093,7 +4093,7 @@ test "sigil spacing", '''
   print(a - b)
   y = -x              # negation
   print(y)
-  print(@size(Wrap)) # builtin call
+  print($size(Wrap)) # builtin call
   s = *Wrap(v: 10)     # share
   t = +s              # clone
   u = <s              # move

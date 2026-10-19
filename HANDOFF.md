@@ -380,8 +380,9 @@ migration guide (`tools/migrate-0.3.py`).
   `rig.grammar`, `src/rig.zig`, and `src/diag.zig` are mirrored
   byte-for-byte in Nexus's `test/rig`, so a change to them needs a Nexus
   re-sync.
-- **Builtins:** Rig's raw `@` builtins track Zig's names exactly
-  (`@fromBackingInt`, `@trunc`). The old names are rejected with a hint.
+- **Builtins:** a builtin call is `$name(...)`. Rig's raw builtins track
+  Zig's names exactly (`$fromBackingInt`, `$trunc`). The old names are
+  rejected with a hint.
 - **Merging:** after a branch merges, delete it locally and on GitHub,
   and remove its worktree. `main` stays the only branch.
 

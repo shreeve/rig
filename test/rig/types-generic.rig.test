@@ -707,7 +707,7 @@ test "generic fn expected nested", '''
   print(g(7))
   bx = Wrap[Wrap[U8]].make(Wrap.make(250))
   od = id[Wrap[U8]](Wrap.make(7))
-  print(bx.v.v, od.v, @size(@type(bx.v.v)), @size(@type(od.v)))
+  print(bx.v.v, od.v, $size($type(bx.v.v)), $size($type(od.v)))
 
 test "generic fn expected type", '''
   2 1
@@ -810,20 +810,20 @@ test "generic fn expected type", '''
     f: F32
 
   z: U8 = max(1, 2)
-  print(z, @size(@type(z)))
+  print(z, $size($type(z)))
   v: List[Int] = empty()
   !v.push(3)
   o: Int? = first(?v)
   print(v.len, o ?? 0)
   print(take(max(1, 2)), small(), last_small(), maybe() ?? 0, checked(true) catch 0)
   n: U8 = max(max(1, 2), 3)
-  print(n, @size(@type(n)))
+  print(n, $size($type(n)))
   s: U8 = 200
   m = max(max(1, 2), s)
-  print(m, @size(@type(m)))
+  print(m, $size($type(m)))
   b = Wrap(v: 1)
   p: U8 = b.pick(1, 2)
-  print(p, @size(@type(p)))
+  print(p, $size($type(p)))
   h = Holder(n: max(4, 9), f: half(3.0))
   print(h.n, h.f)
   h.n = max(10, 11)
@@ -834,13 +834,13 @@ test "generic fn expected type", '''
   print(w[0])
   r: U8 = parse(true, 5) catch 0
   t: U8 = parse(false, 5) catch 7
-  print(r, t, twice() catch 0, @size(@type(r)))
+  print(r, t, twice() catch 0, $size($type(r)))
   pr: Pair[U8, Float] = Pair.make(1, 2)
   op: Opt[U8] = Opt.some(1)
   ws: List[U8] = wrap(max(1, 2))
   on: Int? = id(none)
   print(pr.first, pr.second, op, ws[0], on ?? 5, max(max(1, 2), 2.5))
-  print(@size(@type(pr.first)), @size(@type(ws[0])))
+  print($size($type(pr.first)), $size($type(ws[0])))
   d: U8 = nothing() ?? 3
   c = true
   i: U8 = max(1, 2) if c else max(3, 4)
@@ -848,7 +848,7 @@ test "generic fn expected type", '''
     true => max(5, 6)
     false => 0
   g: fun() -> U8 = || max(1, 3)
-  print(d, i, k, g(), @size(@type(i)))
+  print(d, i, k, g(), $size($type(i)))
 
 fail "generic fn expected type conflicts", "17:9: type mismatch: expected `U8`, got `Int`; `max` takes `T = Int` from argument 1; convert its result with `U8(...)`", "18:16: integer value `300` does not fit in `U8` (0..255)", "19:17: type mismatch: expected `Int`, got `Float`", "20:5: cannot infer `T` for `empty` from its arguments or the type expected of its result; give `T` in brackets: `empty[...]()`", "21:10: type mismatch: expected `Int`, but `empty` returns `List[T]`", "22:5: cannot infer `U` for `pair` from its arguments or the type expected of its result; give `U` in brackets: `pair[Int, ...](...)`"
   # The type expected of a generic call's result binds only the type
