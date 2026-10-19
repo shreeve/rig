@@ -17,6 +17,5 @@ pub fn unix_ns() i64 {
 }
 
 pub fn sleep(ns: i64) rig.Stop!void {
-    if (ns <= 0) return;
-    try rig.waitPoint(std.Io.sleep, .{ rig.io(), std.Io.Duration.fromNanoseconds(ns), std.Io.Clock.awake });
+    return rig.taskSleep(ns);
 }

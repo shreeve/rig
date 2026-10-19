@@ -575,7 +575,8 @@ setup = ->
   packs.push(...Object.values(pooled))
   for p in packs when p.cases.length > 0
     h = new Bun.CryptoHasher('sha256')
-    h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
+    # `RIG_SCHEDULER` picks the backend tasks run on (src/sched.zig).
+    h.update(part + '\0') for part in [compiler, process.env.RIG_SCHEDULER or '', ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
     p.key = h.digest('hex')
     keyPath = join(p.dir, 'key')
     continue if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))

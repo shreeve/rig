@@ -46,6 +46,9 @@ pub const runtime_source = @embedFile("runtime.zig");
 /// The runtime's tasks (`src/tasks.zig`), written beside it.
 pub const tasks_filename = "rig/tasks.zig";
 pub const tasks_source = @embedFile("tasks.zig");
+/// The scheduler (`src/sched.zig`), written beside the runtime too.
+pub const sched_filename = "rig/sched.zig";
+pub const sched_source = @embedFile("sched.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.

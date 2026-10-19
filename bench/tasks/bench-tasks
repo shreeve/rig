@@ -6,6 +6,8 @@ usage: bench/tasks/bench-tasks [options]
   --variants a,b  what to build and time (default: rig-fast,tokio,go):
                     rig-fast   bench/tasks/tasks.rig, rig build --release=fast
                     rig-safe   the same, rig build --release (Zig's safe mode)
+                    rig-sched  rig-fast on the scheduler (RIG_SCHEDULER=1,
+                               src/sched.zig)
                     tokio      bench/tasks/tokio, cargo build --release, on
                                Tokio's multi-threaded runtime
                     go         bench/tasks/go, go build
@@ -17,6 +19,8 @@ usage: bench/tasks/bench-tasks [options]
   --tokio DIR     the Tokio source to build against (default: the
                   repository's misc/tokio clone, if it has one; else
                   the crates.io release Cargo resolves)
+  --record NOTE   append the Rig variants' rows to bench/tasks/PROGRESS.md,
+                  dated, with NOTE (say, "#348: fibers on one worker")
 
 Each program prints `NAME NS CHECK` per benchmark; the checks must
 agree. The report gives each benchmark's time per operation, and how
@@ -52,7 +56,10 @@ def build(v, out, tokio):
         return exe
     tmp = exe + ".new"
     if v.startswith("rig-"):
-        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
+        env.pop("RIG_SCHEDULER", None)
+        if v == "rig-sched":
+            env["RIG_SCHEDULER"] = "1"
         flag = "--release" if v == "rig-safe" else "--release=fast"
         subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "tasks.rig")], check=True, env=env)
     elif v == "tokio":
@@ -90,6 +97,24 @@ def per_op(name, ns):
     return "%.0f ns/%s" % (v, unit)
 
 
+def cell(name, ns):
+    """A table cell: the time per operation, in the unit it reads best in."""
+    return per_op(name, ns).split("/")[0]
+
+
+def record(note, variants, best):
+    """Append each Rig variant's row to PROGRESS.md: the date, the note,
+    the variant, and each benchmark's time per operation."""
+    import datetime
+    path = os.path.join(HERE, "PROGRESS.md")
+    day = datetime.date.today().isoformat()
+    with open(path, "a") as f:
+        for v in variants:
+            if v.startswith("rig-"):
+                f.write("| %s | %s | %s | %s |\n" % (day, note, v, " | ".join(cell(n, best[v][n]) for n in OPS)))
+    print("bench-tasks: recorded in %s" % path, file=sys.stderr)
+
+
 def compare(ns, base):
     if ns >= base:
         return "%.1fx slower" % (ns / base)
@@ -104,6 +129,7 @@ def main():
     ap.add_argument("--build-only", action="store_true")
     ap.add_argument("--time-only", action="store_true")
     ap.add_argument("--tokio")
+    ap.add_argument("--record")
     a = ap.parse_args()
     variants = a.variants.split(",")
     out = a.out or tempfile.mkdtemp(prefix="bench-tasks-")
@@ -127,6 +153,8 @@ def main():
         cells = "".join("%-18s" % per_op(name, best[v][name]) for v in variants)
         ratios = ", ".join("%s %s" % (v, compare(best[v][name], best[base][name])) for v in variants if v != base)
         print("%-8s%s%s" % (name, cells, ratios))
+    if a.record:
+        record(a.record, variants, best)
     if not a.out:
         shutil.rmtree(out, ignore_errors=True)
 
