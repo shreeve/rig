@@ -32,21 +32,34 @@ otherwise.
   one store; other workers steal half with one compare-and-swap. A "run
   next" slot keeps a just-woken task in cache, at most 3 in a row. A
   global queue takes overflow and work from outside the workers.
-- **Cheap until it runs.** A task gets its stack when it first runs; a
-  waiter that finds its task not started runs it inline on its own stack
-  when there is room.
+- **Cheap until it runs.** A task gets its stack when it first runs,
+  from the worker that runs it. A waiter whose task has not started and
+  is next on its worker hands the worker straight to it, on the task's
+  own stack, and the task switches straight back when it ends, past the
+  queues (`sched.handoff`). Running the task on the waiter's own stack
+  would be faster still, but is safe only for a task whose stack use is
+  proven to fit, which Rig does not yet prove.
 - **Idle workers** steal from a random victim, at most half of them
   searching at once; one that finds work wakes one more; workers with no
   work sleep on a futex.
 
 ## Stacks
 
-A task's stack is carved from one reservation: 64 MiB of address space,
-as `main`'s stack has, since a frame may keep up to 13 MiB of values,
-committed only as the task touches it, over a 64 KiB guard, with
-per-worker free lists. Stacks never move, since loans point into them.
-The compiler emits stack probes, so a frame larger than the guard still
-faults in it.
+A task's stack is 64 MiB of address space, as `main`'s is, since a
+frame may keep up to 13 MiB of values, committed only as the task
+touches it. Stacks never move, since loans point into them. They are
+carved 16 at a time from one reservation, and each worker keeps up to
+64 free for the next tasks, returning more to the system.
+
+Below each stack is a guard that a frame overflowing the stack faults
+in. A frame that skips past its guard would land in another's memory,
+so the guard is wider than any frame Rig allows: 1 GiB, as today's task
+stacks have. It costs address space, not memory, but limits a program
+to about 100,000 tasks at once on macOS. A compiler usually emits
+*stack probes* instead, touching each page of a large frame in order so
+it faults in a small guard; Zig emits none on arm64 macOS. Rig will emit
+its own, from the frame sizes it already measures, and then guards of
+64 KiB let millions of tasks run at once (increment 7).
 
 ## Yield checks
 
@@ -66,13 +79,17 @@ fails.
    switched away, and the two fast paths many workers need to keep up
    with one: a stack taken when a fiber first runs, from the worker that
    runs it, and the "run next" slot.
-3. **Stacks**: the reservation, stack probes, and running a waited-for
-   task inline.
+3. **Stacks and handoff**: stacks carved from reservations and returned
+   when a worker keeps enough, handoff to a waited-for task, one
+   allocation per task, and a shared count ticked only by tasks of sets
+   that can fail.
 4. **Waiting without spinning**: futex and timers for fibers,
    cancellation on them, and the blocking pool for the rest of `std.Io`.
 5. **Yield checks** in the compiler.
 6. **The default**: every program that makes tasks runs on the
    scheduler, and the `Threaded` path goes.
+7. **Rig's own stack probes**, and 64 KiB guards, before step 5's
+   servers with many connections.
 
 Each must not make `bench/tasks` slower on the benchmarks it touches;
 the step is done when `spawn`, `chain`, and `yield` are each within 1.2x
