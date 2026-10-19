@@ -11,7 +11,8 @@ The reports are in [docs/concurrency/](concurrency/):
 [the runtime engineers](concurrency/1-runtime-engineers.md),
 [the language models](concurrency/2-language-models.md),
 [Zig and theory](concurrency/3-zig-and-theory.md), and
-[the adversarial review](concurrency/4-adversarial-review.md). They
+[the adversarial review](concurrency/4-adversarial-review.md), with
+[the draft it attacked](concurrency/4-reviewed-draft.md). They
 review earlier drafts of this document, so a few of their findings
 are already folded in, and a few of their proposals were set aside
 here.
