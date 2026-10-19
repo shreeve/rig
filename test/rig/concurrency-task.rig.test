@@ -223,7 +223,9 @@ fail "task targets", "a task runs a call of a function or a method: `f(x)&`, `(!
   u = f(2)&
   v = Node(v: 3)&
 
-fail "task crossing", "a task may run on another core, and `?*Node` holds what stays on this one", errors: 1
+fail "task crossing", "a task may run on another core, and `?n` is lent to it to read: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  # What a task is lent to read must share: another core reads it while
+  # this one may too (docs/CONCURRENCY.md, "What may cross cores").
   obj Node
     v: Int
 
@@ -233,6 +235,114 @@ fail "task crossing", "a task may run on another core, and `?*Node` holds what s
   n = *Node(v: 1)
   t = val(?n)&
   print(<t.wait())
+
+fail "task crossing given", "a task may run on another core, and `n` is given to it: `*Node` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  # What a task is given must move.
+  obj Node
+    v: Int
+
+  fun val(n: *Node) -> Int
+    n.v
+
+  n = *Node(v: 1)
+  t = val(n)&
+  print(<t.wait())
+
+fail "task crossing inside", "a task may run on another core, and `?ns` is lent to it to read: `?List[*Node]` holds `*Node`, a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  # A value that holds a handle anywhere inside stays on this core.
+  obj Node
+    v: Int
+
+  fun count(ns: ?List[*Node]) -> Int
+    ns.len
+
+  ns = List[*Node]()
+  t = count(?ns)&
+  print(<t.wait())
+
+fail "task crossing task lent", "a task may run on another core, and `?a` is lent to it to read: `?Task[Int]` views a task, which only the one that holds it may wait for", errors: 1
+  # A task moves to another task, but is never lent: only the one that
+  # holds it may wait for it.
+  fun one() -> Int
+    1
+
+  fun peek(t: ?Task[Int]) -> Int
+    2
+
+  a = one()&
+  t = peek(?a)&
+  print(<t.wait(), <a.wait())
+
+test "task crossing passed", '''
+  6
+  3
+  5
+  7
+'''
+  # Each argument, and a method's self (`@`), crosses as it is passed: a
+  # List lent to read shares, one lent to write moves, and self as the
+  # method takes it, `?@` or `!@`.
+  obj Counter
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+    sub bump(!@, k: Int)
+      @n += k
+
+  fun total(xs: ?List[Int]) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  xs = List[Int]()
+  !xs.push(1)
+  !xs.push(2)
+  !xs.push(3)
+  a = total(?xs)&
+  print(<a.wait())
+  ys = List[Int]()
+  b = fill(!ys, 3)&
+  <b.wait()
+  print(ys.len)
+  c = Counter(n: 5)
+  d = ?c.get()&
+  print(<d.wait())
+  e = (!c).bump(2)&
+  <e.wait()
+  print(c.n)
+
+test "task moved into a task", "17"
+  # A task moves to another task, which waits for it.
+  fun square(n: Int) -> Int
+    n * n
+
+  fun later(t: Task[Int]) -> Int
+    <t.wait() + 1
+
+  t = square(4)&
+  u = later(<t)&
+  print(<u.wait())
+
+fail "task moved keeps its loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # A task moved to another keeps its loans for the other's whole life.
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  fun later(t: Task[Int]) -> Int
+    <t.wait() + 1
+
+  xs = List[Int]()
+  t = total(?xs)&
+  u = later(<t)&
+  !xs.push(2)
+  print(<u.wait())
 
 fail "task write loan bound", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = fill(!xs, 3)&`, then `<t.wait()`", errors: 1
   fun fill(xs: !List[Int], n: Int) -> Int

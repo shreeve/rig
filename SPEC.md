@@ -9820,8 +9820,8 @@ it holds.
   well as the next is added, so a server that adds a task for each
   request holds only those still running, and those that failed.
 
-A set goes where a task goes: it is bound, held in an owned value, or
-returned, and never put in a shared home or given to another core.
+A set is bound, held in an owned value, or returned, and never put in a
+shared home or given to another task.
 
 ```rig
 use std.time
@@ -9863,10 +9863,28 @@ give each one's value as several results:
 and can fail when any of them can; then the first to fail cancels the
 others.
 
-**What a task may take.** A task may run on another core, so what it
-takes holds nothing that stays on one: no `*T` or `~T` handle, `Cell`,
-`Signal`, task, or function, whether by value, through a view, or in a
-field, an element, or an optional.
+**What a task may take.** A task may run on another core, so each
+argument, and a method's self (`@`), must be able to go there as it is
+passed. A value *moves* when it can be handed whole to another thread,
+and *shares* when another thread may read it through a view while this
+one also reads it:
+
+- given, moved or copied, it must move;
+- lent to read, `?x` or a `?@` method's self, it must share;
+- lent to write, `!x` or a `!@` method's self, what it views must move.
+
+| Type | moves | shares |
+|---|---|---|
+| plain data, `String`, `List[T]`, `^T`, objects and enums | when every part moves | when every part shares |
+| `?T` | when `T` shares | when `T` shares |
+| `!T` | when `T` moves | never |
+| `Task[T]` | when `T` moves | never |
+| `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`, a function | never | never |
+
+So a task may be handed to another task, which waits for it, and keeps
+its loans for that task's whole life. A `*T` or `~T` handle never
+crosses, by value, through a view, or in a field, an element, or an
+optional, since its count is not atomic.
 
 ```rig reject
 obj Node
@@ -9882,19 +9900,21 @@ sub main()
 ```
 
 ```error
-a task may run on another core, and `?*Node` holds what stays on this one
+a task may run on another core, and `?n` is lent to it to read: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once
 ```
 
 **The value.** A task is not copied, cloned, or compared, and `print`
 writes it as `<task>`. `Task[T]` holds a call's result, so its `T` may
 be fallible, `Task[Int!]` ([§13](#13-errors)).
 
-**Running.** A program that makes tasks runs each on a thread of Zig's
-`Threaded` I/O backend, with cancels held off except at its waiting
-points, on a stack of its own as large as `main`'s,
-with a guard below it. Output from several tasks is written a
-whole `print` at a time. A panic in a task ends the program, as one in
-`main` does. If no thread can be started for a task, the program
+**Running.** A program that makes tasks runs them on Rig's scheduler:
+each is a fiber on a stack of its own as large as `main`'s, run by a
+worker thread per core (`RIG_WORKERS` sets how many), with a guard
+below it at least twice the program's largest frame. A long loop or
+recursion lets other tasks run when they are waiting
+([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
+Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in
+`main` does. If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task
 runs on one thread, with no locks.
 
