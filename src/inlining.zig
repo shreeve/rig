@@ -1003,7 +1003,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     try pass.findCycles();
     // A large frame found at an instance another module makes marks its
     // declaration in its own module (module ids count from 1).
-    for (mods) |m| for (m.sema.large_foreign_frames.items) |fr| try mods[fr.module - 1].sema.large_frames.put(allocator, fr.pos, {});
+    for (mods) |m| for (m.sema.large_foreign_frames.items) |fr| try sema.markLarge(&mods[fr.module - 1].sema.large_frames, allocator, fr.pos, fr.bytes);
     for (pass.fns.items, 0..) |*f, v| {
         // A marked `inline` function is never a value (typecheck rejects
         // one), and one on a cycle of marked ones is an error above.
@@ -1032,7 +1032,8 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         o.account = .{ .own = own, .marked = marked, .auto = auto };
         if (pass.owners.items[index].fun) |v| if (pass.fns.items[v].inlined) continue;
         const known = own orelse continue;
-        if ((known.reach + marked.reach + auto) * sema.reach_factor >= sema.noinline_reach) try m.sema.large_frames.put(allocator, o.pos, {});
+        const takes = (known.reach + marked.reach + auto) * sema.reach_factor;
+        if (takes >= sema.noinline_reach) try sema.markLarge(&m.sema.large_frames, allocator, o.pos, @intCast(takes));
     };
     // A call that may reach an inlined function hands back a value Zig
     // would know at compile time (`Emitter.emitCallDirect`).

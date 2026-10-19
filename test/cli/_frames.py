@@ -12,8 +12,13 @@ program. The bytes are what its prologue reserves:
 - x86_64: each `sub rsp, N`, or `sub rsp, REG` after `mov REG, N`, and the
   end of a probe loop, `sub r11, N`, within its first 24 instructions.
 
+With `--all` first, `_frames.py --all <file>` prints every function's,
+by its whole name.
+
 Shared by the tests that compare the compiler's frame counts with real
-frames (test/cli/frame_reach.sh).
+frames (test/cli/frame_reach.sh) and that hold every frame of a program
+that makes tasks within the guard below a task's stack
+(test/cli/task_frames.sh).
 """
 import re
 import sys
@@ -21,16 +26,19 @@ import sys
 ARM_LABEL = re.compile(r'^___rig_main\.([A-Za-z0-9_]+):$|^_(rig\.runtime\.[A-Za-z0-9_.]+):$')
 X86_LABEL = re.compile(r'^[0-9a-f]+ <__rig_main\.([A-Za-z0-9_]+)>:$|^[0-9a-f]+ <(rig\.runtime\.[A-Za-z0-9_.]+)>:$')
 OTHER = re.compile(r'^([0-9a-f]+ <.*>:|_\S*:)$')
+# Any function: a symbol's label in the assembly (quoted when its name is
+# not a plain one), or in objdump's output.
+ANY_LABEL = re.compile(r'^"?_(.+?)"?:$|^[0-9a-f]+ <(.+)>:$')
 
 
-def frames(path):
+def frames(path, every=False):
     out = {}
     fn = None
     count = 0
     regs = {}
     for line in open(path, errors='replace'):
         line = line.rstrip('\n')
-        m = ARM_LABEL.match(line) or X86_LABEL.match(line)
+        m = ANY_LABEL.match(line) if every else ARM_LABEL.match(line) or X86_LABEL.match(line)
         if m:
             fn = m.group(1) or m.group(2)
             out[fn] = 0
@@ -81,5 +89,6 @@ def frames(path):
 
 
 if __name__ == '__main__':
-    for name, size in frames(sys.argv[1]).items():
+    every = sys.argv[1] == '--all'
+    for name, size in frames(sys.argv[-1], every).items():
         print(name, size)

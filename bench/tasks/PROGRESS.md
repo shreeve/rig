@@ -22,6 +22,7 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-19 | #352: waiting without spinning | rig-sched | 105 ns | 47 ns | 76.4 ms | 8 ns |
 | 2026-10-19 | #355: yield checks | rig-sched | 113 ns | 45 ns | 78.2 ms | 10 ns | 84.11 us |
 | 2026-10-19 | #356: the scheduler is the default | rig-fast | 94 ns | 49 ns | 78.0 ms | 8 ns | 84.63 us | 32.0 KiB |
+| 2026-10-19 | #358: guards sized to the program | rig-fast | 106 ns | 44 ns | 77.8 ms | 10 ns | 101.25 us | 17.0 KiB |
 
 ## x86-64 (pup)
 
@@ -36,3 +37,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-19 | #352: waiting without spinning | rig-sched | 274 ns | 82 ns | 108.0 ms | 7 ns |
 | 2026-10-19 | #355: yield checks | rig-sched | 222 ns | 82 ns | 96.7 ms | 7 ns | 73.60 us |
 | 2026-10-19 | #356: the scheduler is the default | rig-fast | 272 ns | 82 ns | 103.8 ms | 7 ns | 71.54 us | 9.0 KiB |
+| 2026-10-19 | #358: guards sized to the program | rig-fast | 311 ns | 76 ns | 102.3 ms | 7 ns | 55.78 us | 5.2 KiB |

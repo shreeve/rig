@@ -54,18 +54,31 @@ carved 16 at a time from one reservation, and each worker keeps up to
 64 free for the next tasks, returning more to the system.
 
 Below each stack is a guard that a frame overflowing the stack faults
-in. A frame that skips past its guard would land in another's memory,
-so the guard is wider than any frame Rig allows: 1 GiB, as today's task
-stacks have. It costs address space, not memory, but limits a program
-to about 100,000 tasks at once on macOS. A compiler usually emits
-*stack probes* instead, touching each page of a large frame in order so
-it faults in a small guard; Zig emits none on arm64 macOS. Rig will emit
-its own, from the frame sizes it already measures, and then guards of
-64 KiB let millions of tasks run at once (increment 7).
+in. A frame that skipped past its guard would land in another's memory,
+so the guard is wider than any frame the program has. The compiler
+already bounds each frame it emits (`sema.reach_factor` times its
+reach, which `test/cli/frame_reach.sh` checks against the frames Zig
+really reserves), so `bin/rig` sizes the guard of each program's tasks
+from its largest frame: at least twice it, and at least 16 MiB, room
+for sixteen frames under `sema.noinline_reach` merged into one by Zig's
+inlining (`sema.taskGuard`, `__rig_task_guard`). Most programs take
+16 MiB, and one with frames as large as the compiler accepts takes
+1 GiB. The runtime's and the Zig library's frames, which the compiler
+does not count, stay under half the smallest guard
+(`test/cli/task_frames.sh`). A guard costs address space, not memory:
+with 16 MiB guards, about 1.6 million tasks fit at once on macOS.
 
-A sleeping task holds two pages of its stack: about 32 KiB on the Mac,
-whose pages are 16 KiB, and 9 KiB on pup's Linux, where Tokio's task
-holds about 300 bytes and Go's about 3 KiB (`bench/tasks`, `memory`).
+A compiler usually emits *stack probes* instead, touching each page of
+a large frame in order so it faults in a small guard. Zig emits none on
+aarch64, and a probe Rig emitted would have to know the frame's real
+size, which only Zig does: probing the compiler's bound reports an
+overflow for frames that fit.
+
+A free stack's link in its worker's list is kept at its top, on the page
+the next fiber touches anyway, so a sleeping task holds one page of its
+stack and its record: about 17 KiB on the Mac, whose pages are 16 KiB,
+and 5 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
+Go's about 3 KiB (`bench/tasks`, `memory`).
 
 ## Waiting
 
@@ -140,8 +153,10 @@ signal; Tokio never does.
    tasks (above).
 6. **The default**: every program that makes tasks runs on the
    scheduler, and Zig's `Threaded` backend no longer runs tasks.
-7. **Rig's own stack probes**, and 64 KiB guards, before step 5's
-   servers with many connections.
+7. **Guards sized to the program**: each program's task guard from its
+   largest frame, 16 MiB for most in place of 1 GiB, so a million tasks
+   fit at once, and a sleeping task holding one stack page in place of
+   two.
 
 Each must not make `bench/tasks` slower on the benchmarks it touches;
 the step is done when `spawn`, `chain`, and `yield` are each within 1.2x

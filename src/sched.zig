@@ -1123,8 +1123,7 @@ pub fn Spawned(comptime T: type, comptime Extra: type) type {
 // -----------------------------------------------------------------------------
 
 /// A fiber's stack: `guard` bytes of inaccessible address space at
-/// `base`, then the stack, then one inaccessible page, as
-/// `rt.onTaskStack` maps a task's.
+/// `base`, then the stack, then one inaccessible page.
 pub const Stack = struct {
     base: usize,
     guard: usize,
@@ -1135,9 +1134,15 @@ pub const Stack = struct {
     }
 };
 
-/// A free stack's link in its worker's list, kept in the stack itself, at
-/// the bottom of its usable part.
+/// A free stack's link in its worker's list, kept in the stack itself, in
+/// the room left at its top (`rt.unwind_headroom`): on the page the next
+/// fiber's first frame touches anyway, so a free stack holds no page a
+/// fiber would not.
 const FreeStack = struct { stack: Stack, next: ?*FreeStack };
+
+comptime {
+    std.debug.assert(@sizeOf(FreeStack) <= rt.unwind_headroom);
+}
 
 /// How many stacks a worker keeps free; one more is returned to the
 /// system, with what its fiber touched.
@@ -1173,7 +1178,7 @@ fn takeStack() Stack {
 /// return it to the system when `w` keeps enough.
 fn releaseStack(w: *Worker, s: Stack) void {
     if (w.free_count >= keep_free) return unmapStack(s);
-    const n: *FreeStack = @ptrFromInt(s.base + s.guard);
+    const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
     n.* = .{ .stack = s, .next = w.free };
     w.free = n;
     w.free_count += 1;
@@ -1254,19 +1259,23 @@ fn switchNaked() callconv(.naked) void {
 }
 
 /// Where a new fiber's first switch lands: the registers its frame was
-/// made with hold the fiber (x19, rbx) and `fiberMain` (x20, r12).
+/// made with hold the fiber (x19, rbx) and `fiberMain` (x20, r12). It
+/// enters `fiberMain`, which never returns, with no frame and no return
+/// address above it, so a stack trace's walk ends there.
 fn fiberStartNaked() callconv(.naked) void {
     switch (builtin.target.cpu.arch) {
         .aarch64 => asm volatile (
             \\ mov x0, x19
-            \\ blr x20
-            \\ brk #0
+            \\ mov x29, xzr
+            \\ mov x30, xzr
+            \\ br x20
         ),
         .x86_64 => asm volatile (
             \\ mov %%rbx, %%rdi
+            \\ xorl %%ebp, %%ebp
             \\ andq $-16, %%rsp
-            \\ call *%%r12
-            \\ ud2
+            \\ pushq $0
+            \\ jmp *%%r12
         ),
         else => unreachable,
     }

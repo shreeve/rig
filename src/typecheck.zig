@@ -15352,7 +15352,9 @@ fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.Instanc
         return counted;
     }
     if (reach * sema.reach_factor < sema.noinline_reach) return counted;
-    if (declared == ctx.module_id) try ctx.large_frames.put(ctx.allocator, decl, {}) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl });
+    // Within `max_frame_reach`, checked above.
+    const takes: u64 = @intCast(reach * sema.reach_factor);
+    if (declared == ctx.module_id) try sema.markLarge(&ctx.large_frames, ctx.allocator, decl, takes) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl, .bytes = takes });
     return counted;
 }
 
