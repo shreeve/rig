@@ -7,9 +7,9 @@ part of the test suite or CI.
 
 ```sh
 D=$(mktemp -d)
-cpuq run --cores 2 -- zig build-exe -O ReleaseSafe --dep nametable \
+zig build-exe -O ReleaseSafe --dep nametable \
   -Mroot=bench/names/lookup.zig -Mnametable=src/nametable.zig -femit-bin=$D/lookup
-cpuq run --cores 1 -- $D/lookup
+$D/lookup
 ```
 
 For each count of names, 3 to 12 random lowercase letters and `_`, it

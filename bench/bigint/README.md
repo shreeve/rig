@@ -9,14 +9,8 @@ others. It is not part of the test suite or CI.
 
 ```sh
 D=$(mktemp -d)
-cpuq run --cores 2 -- bin/rig build --release -o $D/bench bench/bigint/bench.rig
-cpuq run --cores 1 -- $D/bench
-```
-
-On x86, time on pup under the bench lease, pinned to one core:
-
-```sh
-cpuq lease pup-bench --exclusive -- taskset -c 2 $D/bench
+bin/rig build --release -o $D/bench bench/bigint/bench.rig
+$D/bench
 ```
 
 For each size, 1 to 64 limbs of 64 bits (19 decimal or 16 hexadecimal

@@ -76,7 +76,7 @@ These are about the compiler, not the process. They don't bend.
 
 Tests are cases in `test/rig/*.rig.test` (docs/RIG-TESTS.md): `code`,
 `fail`, `test`, and `bomb`, each a few lines of Rig and its result. Run
-them with `swarm test/rig.rip`, through `cpuq run` (below): a run with no
+them with `swarm test/rig.rip`: a run with no
 names is the core, every file but the probes of past reviews, the doc
 examples, the unit tests, and the oracle, in seconds when little
 changed; name files to run just those, `doc` for the doc examples,
@@ -85,7 +85,7 @@ probes' cases, `all` for all three, and `proofs` by hand after a change
 to the proofs (`test/README.md`). A bug fix starts with a case that
 fails. There are no gates or required runs: run more when you judge the
 change needs it. Never time on burst, a shared VM: time arm64 on
-the Mac and x86 on pup, through `cpuq lease pup-bench`.
+the Mac and x86 on pup.
 
 ### Spend tokens well
 
@@ -125,13 +125,7 @@ RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 
 - **Nexus** is co-developed. `zig build` regenerates `src/parser.zig`
   with `../nexus/bin/nexus`, or another binary with `-Dnexus=PATH`.
-- **Shared machines:** run work through `cpuq run --label rig:NAME -- …`
-  with `-j "$CPUQ_CORES"`, and keep the label stable. `test/rig.rip`
-  sizes itself to the lease (its workers and its zig builds), so
-  `cpuq run --label rig:test --cores 5 -- swarm test/rig.rip` needs no `-w`. A plain `cpuq run`
-  stays on this Mac; `--on HOST` sends it to pup or burst. Never ssh to pup or burst. Limit test programs
-  with `cpuq cap`, not a watchdog. Under load, rerun a timeout alone
-  before trusting it.
+- **Timeouts:** under load, rerun a timeout alone before trusting it.
 
 ## Map
 
