@@ -11,8 +11,8 @@ generation, and linking.
 
 > **Status: early.** The core language and its ownership checker work
 > and are tested end to end, every program running leak-checked. The
-> standard library is small, there is no concurrency or async yet, and
-> the language will change: `main` is heading for v0.3.0, which renames
+> standard library is small, concurrency has only its first piece,
+> tasks ([SPEC §18](SPEC.md#18-tasks)), and the language will change: `main` is heading for v0.3.0, which renames
 > `Box`, `Vec`, `Text`, and `struct` (`tools/migrate-0.3.py` migrates
 > 0.2 programs). See [what works](#status).
 >
@@ -360,6 +360,8 @@ and environment variable.
   continued by a deeper line that starts with `.`
 - SIMD vectors, `Simd[T, n]`: lane-wise operators with the same overflow
   rules as scalars, comparisons that give masks, and byte reads
+- tasks: `f(x)&` runs a call on a thread of its own, keeping the loans
+  of its arguments until `<t.wait()` takes its result
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
   environment), `std.file` (reading a whole file), `std.time`,
@@ -368,7 +370,8 @@ and environment variable.
   `std.json` (a fast JSON parser; experimental)
 
 **Not yet:** most of a standard library (writing files, maps, number
-formatting), concurrency, and async. [SPEC §18](SPEC.md#18-reserved-and-unsupported-forms)
+formatting), and concurrency beyond single tasks: sets of tasks,
+cancellation, channels, and actors. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
 `?fun`, works);

@@ -1007,13 +1007,13 @@ test "seams-strategy-probe3", '''
   a
   b
 '''
-  obj Task
+  obj Job
     name: String
     priority: Int
 
-  board: List[^Task] = List()
-  !board.push(^Task(name: String("a"), priority: 2))
-  !board.push(^Task(name: String("b"), priority: 1))
+  board: List[^Job] = List()
+  !board.push(^Job(name: String("a"), priority: 2))
+  !board.push(^Job(name: String("b"), priority: 1))
   sort.sort_by(!board[..], |a, b| a.priority < b.priority)
   !board.swap(0, 1)
   for t in ?board
@@ -1051,22 +1051,22 @@ test "seams-strategy-tasks", '''
   # A tiny task board: tasks with owned names, sorted by priority,
   # with a text report.
 
-  obj Task
+  obj Job
     name: String
     priority: Int
     done: Bool = false
 
-  fun make_task(prefix: ?String, n: Int, priority: Int) -> Task
-    Task(name: String(prefix, "-", n), priority: priority)
+  fun make_task(prefix: ?String, n: Int, priority: Int) -> Job
+    Job(name: String(prefix, "-", n), priority: priority)
 
-  fun report(tasks: ?List[Task]) -> String
+  fun report(tasks: ?List[Job]) -> String
     out = String("tasks: ", tasks.len, "\n")
     for t in tasks
       mark = "x" if t.done else " "
       !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
     out
 
-  board: List[Task] = List()
+  board: List[Job] = List()
   i = 0
   while i < 5 : i += 1
     !board.push(make_task("job", i, (i * 7) % 5))
@@ -1084,22 +1084,22 @@ test "seams-strategy-tasks box", '''
 
 '''
   # The same board, with the workaround the compiler allows: boxed tasks.
-  obj Task
+  obj Job
     name: String
     priority: Int
     done: Bool = false
 
-  fun make_task(prefix: ?String, n: Int, priority: Int) -> ^Task
-    ^Task(name: String(prefix, "-", n), priority: priority)
+  fun make_task(prefix: ?String, n: Int, priority: Int) -> ^Job
+    ^Job(name: String(prefix, "-", n), priority: priority)
 
-  fun report(tasks: ?List[^Task]) -> String
+  fun report(tasks: ?List[^Job]) -> String
     out = String("tasks: ", tasks.len, "\n")
     for t in ?tasks
       mark = "x" if t.done else " "
       !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
     out
 
-  board: List[^Task] = List()
+  board: List[^Job] = List()
   i = 0
   while i < 5 : i += 1
     !board.push(make_task("job", i, (i * 7) % 5))

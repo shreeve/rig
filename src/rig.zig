@@ -196,7 +196,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -1279,6 +1279,7 @@ pub const Lexer = struct {
             },
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
+            .ampersand => if (self.isTaskAmp(tok)) .task_amp else .ampersand,
             // `if f() as a, b`: a `,` after `as name` outside brackets
             // joins the names `as` binds. Inside brackets a `,` after
             // `x as a` separates arguments or elements.
@@ -1676,6 +1677,16 @@ pub const Lexer = struct {
         }
     }
 
+    /// `f(x)&`: a `&` that touches the `)` before it, with no operand
+    /// touching it on the right, makes the call a task. Any other `&` is
+    /// bitwise and, whose spacing is the same on both sides (`a & b`,
+    /// `f()&b`).
+    fn isTaskAmp(self: *const Lexer, tok: Token) bool {
+        if (self.last_cat != .rparen or tok.pos != self.prev_end) return false;
+        const c = self.charAfter(tok);
+        return c == 0 or isSpaceBefore(c) or c == ')' or c == ']' or c == ',' or c == '#';
+    }
+
     /// The next token is `return`, `break`, or `continue`.
     fn nextIsJump(self: *const Lexer) bool {
         return switch (self.nextJoined().cat) {
@@ -1753,6 +1764,7 @@ fn isValue(cat: TokenCat) bool {
         .false,
         .rparen,
         .rbracket,
+        .task_amp,
         => true,
         else => false,
     };
@@ -3519,7 +3531,7 @@ pub const Parser = struct {
         }
         const lend = try self.base.newNode(.write, &.{receiver}, at);
         const member = try self.base.newNode(.member, &.{ lend, hiddenLeaf(key, .next) }, at);
-        const call = try self.base.newNode(.call, &.{member}, at);
+        const call = try self.base.newNode(.call, &.{ .nil, member }, at);
         const bound = try self.base.newNode(.as, &.{ call, binding }, .{ .start = self.span(binding).start, .end = at.end });
         const out = try self.allocator().alloc(Sexp, 5);
         out[0] = .{ .tag = .@"while" };

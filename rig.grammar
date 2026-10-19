@@ -29,6 +29,9 @@
 #     else (the other contextual words are the parser's: see @keywords);
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
+#   * marks a `&` that touches a `)` and has no operand touching it on
+#     the right as TASK_AMP, which makes the call before it a task
+#     (`f(x)&`); any other `&` is bitwise and (`a & b`, `f()&b`);
 #   * marks a `$` as LABEL, a label, where a statement starts, before a
 #     name and the `:` touching it (`$outer: for`, or `$outer:` on a line
 #     of its own over the block it names), the `:` as LABEL_COLON, and
@@ -197,6 +200,7 @@ tokens
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
+    task_amp        # &   touching a `)`, with no operand touching it: a task, `f(x)&`
     step_colon      # :   the first `:` of a `while` header: its step
     symbol_colon    # :   where an operand starts, touching a name: a symbol, `:width`
     as_comma        # ,   between the names `as` binds: `if f() as a, b`
@@ -441,7 +445,7 @@ tokens
     cap_clone, cap_move, cap_weak, cap_read, cap_write  name:leaf
 
     # Calls and access
-    call                        callee ...args
+    call                        task:tag(task)? callee ...args
     builtin                     name:leaf ...args
     member                      object name:leaf
     index                       object index
@@ -482,7 +486,7 @@ tokens
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
     OF: "`of`", OBJ: "`obj`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`"
-    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL: "`$`", LABEL_COLON: "`:`"
+    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", TASK_AMP: "`&`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL: "`$`", LABEL_COLON: "`:`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -1107,6 +1111,7 @@ postfix  = object:postfix "." name:name             → (member)
          | object:postfix "[" index:open "]"        → (index)
          | object:postfix "[" args:targs "]"        → (inst)
          | callee:postfix "(" args:args ")"         → (call)
+         | callee:postfix "(" args:args ")" TASK_AMP → (call task:task)
          | value:postfix "!"                        → (propagate)
          | value:postfix "?"                        → (propagate_none)
          | atom

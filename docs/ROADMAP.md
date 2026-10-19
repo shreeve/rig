@@ -4,7 +4,7 @@ Where Rig is going, one line each. Nothing here is scheduled; the order
 follows what real programs need, and each item lands only when it can
 be checked as thoroughly as what exists. The forms the compiler
 rejects today as not supported yet are listed, with their diagnostics,
-in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
+in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 
 ## Language
 

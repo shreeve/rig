@@ -44,7 +44,8 @@ errors shown.
 15. [Raw code and FFI](#15-raw-code-and-ffi)
 16. [Compile-time parameters](#16-compile-time-parameters)
 17. [Printing and stopping](#17-printing-and-stopping)
-18. [Reserved and unsupported forms](#18-reserved-and-unsupported-forms)
+18. [Tasks](#18-tasks)
+19. [Reserved and unsupported forms](#19-reserved-and-unsupported-forms)
 
 The standard library, imported with `use std.NAME`, is described in
 [docs/STD.md](docs/STD.md).
@@ -1178,7 +1179,7 @@ sub main()
 | `[]T` | slice: a read-only view of elements | [§2](#slices) |
 | `![]T` | writable slice: a write view of elements | [§2](#slices) |
 | `T?` | optional: a `T` or `none` | [§12](#12-optionals) |
-| `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§13](#13-errors) |
+| `T!` | fallible: a `T` or an error; only where a call's result is named: a return type, a function type's, or a task's, `Task[T!]` | [§13](#13-errors) |
 | `?T` | read view of a `T` (parameters, returns, locals, fields) | [§7](#7-ownership) |
 | `!T` | write view of a `T` (parameters, receivers, returns, locals) | [§7](#write-views) |
 | `^T` | box: one `T` alone on the heap, with one owner | [§10](#box) |
@@ -1188,6 +1189,7 @@ sub main()
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§11](#11-closures) |
 | `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#callable-views) |
 | `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-string-and-signal) |
+| `Task[T]` | a call running as a task, `f(x)&`, and the `T` it gives | [§18](#18-tasks) |
 | `String` | owned, growable text | [§10](#string) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Arch` | built-in enum: the target's processor architecture, `target.arch` | [§3](#the-target) |
@@ -8222,10 +8224,11 @@ closure propagates only when its type can fail: one checked against
 `?fun(?String) -> Int!`, `?sub(?String)!`, or `*fun(?String) -> Int!`
 sends the failure of its `!` to whoever calls it, as a function does.
 A closure whose type cannot fail, or whose type is inferred from its
-body, handles failures with `catch`. A fallible type is only allowed as
-the return type of a function or of a function type
-(`fun(Int) -> Int!`, `sub(Int)!`, `*fun(Int) -> Int!`), and a plain `T`
-is accepted where `T!` is expected. `E!` for an error set `E` is
+body, handles failures with `catch`. A fallible type stands only where
+a call's result is named: the return type of a function or of a
+function type (`fun(Int) -> Int!`, `sub(Int)!`, `*fun(Int) -> Int!`),
+and the result a task holds, `Task[Int!]` ([§18](#18-tasks)). A plain
+`T` is accepted where `T!` is expected. `E!` for an error set `E` is
 rejected: a failure and a success would both be `E` values. So is a
 generic `T!` whose `T` an error set fills.
 
@@ -9554,7 +9557,158 @@ sub main()
 
 ---
 
-## 18. Reserved and unsupported forms
+## 18. Tasks
+
+A task is a call that runs concurrently with the code after it. A `&`
+touching the `)` of a call, with no operand touching it on the right,
+makes the call a task: `sq(4)&`, `total(?xs)&`, `(!c).bump(2)&`
+([SYNTAX §5](SYNTAX.md#5-prefixes-infixes-and-suffixes)). Spaced, or
+with an operand touching it, `&` is bitwise and: `a & b`, `f()&b`. Only
+a call of a named function or method is a task; a closure's call or a
+constructor is not.
+
+The call's arguments are evaluated where it is written, and it gives at
+once a `Task[T]`, where `T` is what the call gives (`Void` for a
+`sub`): an owned value that holds the result once the task ends. `<t.wait()` waits for the task to
+end and takes its result. A fallible result is passed on with
+`<t.wait()!` or handled with `catch`.
+
+```rig
+fun total(xs: ?List[Int]) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun sq(x: Int) -> Int
+  x * x
+
+sub main()
+  xs: List[Int] = List()
+  !xs.push(3)
+  !xs.push(4)
+  t = sq(5)&
+  u = total(?xs)&
+  print(<t.wait(), <u.wait())
+```
+
+```output
+25 7
+```
+
+**Loans.** A task keeps the loans of its arguments and its receiver
+until it ends: `total(?xs)&` lends `xs` to read for the task's whole
+life, so the task reads it in place and nothing changes it meanwhile.
+After `<u.wait()`, `xs` can be lent to write again. A task lent to write
+keeps its write loan while it runs, and no value holds a write view
+([Write views](#write-views)), so it is bound to a local where it is
+made, `t = fill(!xs, 3)&`, and waited for there, `<t.wait()`; it is not
+moved, held in a list, or returned. A method's receiver is lent as the
+method takes it: `?c.get()&` to read, `(<c).into()&` to move it in, and
+`(!c).bump(2)&` to write, in parentheses as any write call whose value
+is used is ([Receiver sigils](SYNTAX.md#receiver-sigils)).
+
+```rig
+sub fill(xs: !List[Int], n: Int)
+  for i in 0..n
+    !xs.push(i)
+
+sub main()
+  xs: List[Int] = List()
+  t = fill(!xs, 3)&
+  <t.wait()
+  print(xs)
+```
+
+```output
+[0, 1, 2]
+```
+
+```rig reject
+fun total(xs: ?List[Int]) -> Int
+  xs.len
+
+sub main()
+  xs: List[Int] = List()
+  u = total(?xs)&
+  !xs.push(1)
+  print(<u.wait())
+```
+
+```error
+cannot lend `xs` to write while a read loan is live
+```
+
+**Drop.** Dropping a task waits for it to end and drops its result, so
+no task outlives the scope that holds it, nor its loans. A task alone as
+a statement, `log(e)&`, is rejected: it would be dropped, and waited
+for, at once. A fallible task the normal path leaves without waiting
+for is rejected, since its error would be lost; where an error passes
+on (`!`), a `return`, or a `break` leaves its scope early, the task is
+dropped.
+
+```rig
+error Parity
+  odd
+
+fun half(x: Int) -> Int!
+  return Parity.odd if x % 2 == 1
+  x / 2
+
+fun both(a: Int, b: Int) -> Int!
+  t = half(a)&
+  u = half(b)&
+  x = <t.wait()!
+  y = <u.wait()!
+  x + y
+
+sub main()
+  print(both(2, 6) catch -1)
+  print(both(4, 3) catch -1)
+```
+
+```output
+4
+-1
+```
+
+**What a task may take.** A task may run on another core, so what it
+takes holds nothing that stays on one: no `*T` or `~T` handle, `Cell`,
+`Signal`, task, or function, whether by value, through a view, or in a
+field, an element, or an optional.
+
+```rig reject
+obj Node
+  v: Int
+
+fun val(n: ?*Node) -> Int
+  n.v
+
+sub main()
+  n = *Node(v: 1)
+  t = val(?n)&
+  print(<t.wait())
+```
+
+```error
+a task may run on another core, and `?*Node` holds what stays on this one
+```
+
+**The value.** A task is not copied, cloned, or compared, and `print`
+writes it as `<task>`. `Task[T]` holds a call's result, so its `T` may
+be fallible, `Task[Int!]` ([§13](#13-errors)).
+
+**Running.** A program that makes tasks runs each on a thread of Zig's
+`Threaded` I/O backend, on a stack of its own as large as `main`'s,
+with a guard below it. Output from several tasks is written a
+whole `print` at a time. A panic in a task ends the program, as one in
+`main` does. If no thread can be started for a task, the program
+panics, as it does when memory runs out. A program that makes no task
+runs on one thread, with no locks.
+
+---
+
+## 19. Reserved and unsupported forms
 
 These forms are rejected, with a diagnostic that says what to write
 instead; each is proven by a `fail` case in `test/rig`. The first group do

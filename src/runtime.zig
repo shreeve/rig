@@ -1170,6 +1170,73 @@ pub fn Signal(comptime T: type) type {
 }
 
 // -----------------------------------------------------------------------------
+// Task
+// -----------------------------------------------------------------------------
+
+/// `Task(T)`: a call running as a task of its own (`f(x)&`), which gives
+/// a `T` when it ends. It runs on a thread of the program's `Threaded`
+/// backend (`io`), on a stack of its own (`onTaskStack`). `wait` takes
+/// its result. Dropping a task waits for it and drops its result, so no
+/// task outlives the scope that holds it, nor the loans it was given.
+pub fn Task(comptime T: type) type {
+    return struct {
+        future: std.Io.Future(T),
+
+        const Self = @This();
+        /// Its arguments, for `typeName`.
+        pub const __rig_args = .{T};
+
+        /// `f(args...)&`: start the call as a task.
+        pub fn spawn(comptime f: anytype, args: anytype) Self {
+            const Args = @TypeOf(args);
+            // `call` gives `T` even where `f` is generic.
+            const Run = struct {
+                fn call(a: Args) T {
+                    return @call(.auto, f, a);
+                }
+                fn run(a: Args) T {
+                    return onTaskStack(call, .{a});
+                }
+            };
+            return .{ .future = io().concurrent(Run.run, .{args}) catch noTaskThread() };
+        }
+
+        /// `recv.name(args...)&`: start a method's call as a task. `recv`
+        /// is the receiver's address, or the address of a view of it. A
+        /// method that takes its receiver by value is given it here,
+        /// before the task starts.
+        pub fn spawnMethod(recv: anytype, comptime name: []const u8, args: anytype) Self {
+            const P = @TypeOf(recv);
+            const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
+            const ptr: Ptr = if (Ptr == P) recv else recv.*;
+            const method = @field(@typeInfo(Ptr).pointer.child, name);
+            const Receiver = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
+            if (@typeInfo(Receiver) == .pointer) return spawn(method, .{ptr} ++ args);
+            return spawn(method, .{ptr.*} ++ args);
+        }
+
+        /// `<t.wait()`: wait for the task to end and take its result.
+        pub fn wait(self: Self) T {
+            var future = self.future;
+            return future.await(io());
+        }
+
+        pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("<task>");
+        }
+
+        pub fn __rig_drop(self: *Self) void {
+            var result = self.future.await(io());
+            dropElement(T, &result);
+        }
+    };
+}
+
+fn noTaskThread() noreturn {
+    @panic("no thread could be started for a task");
+}
+
+// -----------------------------------------------------------------------------
 // List
 // -----------------------------------------------------------------------------
 
@@ -3034,7 +3101,8 @@ const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_
 // cost. The runtime's own unit tests take the concurrent paths, so they
 // are tested.
 
-const concurrent = builtin.is_test or (@hasDecl(root, "__rig_tasks") and root.__rig_tasks);
+const makes_tasks = @hasDecl(root, "__rig_tasks") and root.__rig_tasks;
+const concurrent = builtin.is_test or makes_tasks;
 
 /// What the runtime keeps for the task that is running: the depth and
 /// queue of nested `*T` releases (`drainDropQueue`), how deep a `print`
@@ -3683,6 +3751,10 @@ pub fn start(init: std.process.Init.Minimal) void {
         };
         std.posix.sigaction(.PIPE, &act, null);
     }
+    // The backend that runs tasks, set up after that handler, which it
+    // saves and puts back when `finish` joins it. Its own allocations are
+    // outside the leak count.
+    if (makes_tasks) threaded = .init(std.heap.smp_allocator, .{ .argv0 = .init(init.args), .environ = init.environ });
     // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
     // panics on purpose: Linux passes its death to no crash handler
     // (apport). It still dies by its signal, its report on stderr
@@ -3736,10 +3808,14 @@ pub fn processArgs() []const []const u8 {
 }
 
 /// The `std.Io` the runtime and the standard library's Zig files do
-/// their I/O through: synchronous, on the calling thread.
+/// their I/O through: synchronous, on the calling thread; and, in a
+/// program that makes tasks, the `Threaded` backend that runs them, set
+/// up by `start` and joined by `finish`.
 pub fn io() std.Io {
-    return std.Io.Threaded.global_single_threaded.io();
+    return if (makes_tasks) threaded.io() else std.Io.Threaded.global_single_threaded.io();
 }
+
+var threaded: std.Io.Threaded = .init_single_threaded;
 
 /// `fun main() -> Int`: its result, which `finish` has already run after,
 /// as the process's exit status.
@@ -3751,6 +3827,7 @@ pub fn exitStatus(n: Int) u8 {
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    if (makes_tasks) threaded.deinit();
     releaseProcess();
     lockOutput();
     flush();

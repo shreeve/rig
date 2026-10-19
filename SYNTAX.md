@@ -388,6 +388,7 @@ spacing that would read as the other form is rejected.
 | `x: Int`, `x = :a` | a type, and a symbol ([§4](#symbols)) |
 | `T?`, `T!`, `f()!`, `x?` | suffixes: optional, fallible, propagate a failure or `none` |
 | `a \| b`, `\|x\| x + 1` | bitwise or, and a closure's bar list |
+| `f(x)&`, `a & b`, `f()&b` | a task, and bitwise and |
 
 A prefix sigil says how a value is held, and a suffix `?` or `!` is
 control flow: Rig has no `!` for "not" (that is `not`), so `!v.pop()`
@@ -402,6 +403,10 @@ So a sigil touches what it marks, and spacing shows how a line reads:
 - A prefix sigil (`<` `+` `-` `*` `^` `?` `!` `~`) touches its operand, in
   an expression and in a type: `-b`, `<x`, `*T`, `^T`, `[]?T`.
 - A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
+- A postfix `&` touches the `)` of a call, with nothing touching it on
+  the right: `f(x)&` makes the call a task
+  ([SPEC §18](SPEC.md#18-tasks)). With an operand touching it, `f()&b`,
+  it is bitwise and.
 - A call's parenthesis and an index's bracket touch what they follow:
   `f(x)`, `xs[0]`, never `f (x)` or `xs [0]`.
 - A member `.` touches both sides, `w.get()`; inside brackets a chain
@@ -1466,6 +1471,10 @@ with a receiver sigil when it writes or consumes the receiver
 ([§5](#receiver-sigils)); an associated function through its type,
 `Point.origin()`; and a builtin with `$`: `$size(Int)`.
 
+A call with `&` touching its `)` runs as a task, concurrently with what
+follows, and gives a `Task[T]` at once: `t = sq(4)&`, then
+`<t.wait()` for the result ([SPEC §18](SPEC.md#18-tasks)).
+
 ### Function values
 
 A function's name, or a method named through its type, is a value of a
@@ -1873,7 +1882,8 @@ neg       = "not" neg | infix "as" name ("," name)* | infix
 infix     = unary (op unary)*                       # the table in section 6
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~" | "^") unary | postfix
 postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"
-          | "[" expr, expr, ... "]" | "(" args ")" | "!" | "?") | atom
+          | "[" expr, expr, ... "]" | "(" args ")" ["&"] | "!" | "?") | atom
+                                                    # `&` touching `)`: a task
 args      = [(name ":" expr | expr), ...] | (name ":" expr | expr), ..., tail-closure
 atom      = name | integer | float | string | "true" | "false" | "." name
           | ":" name                                # a symbol; `:` touches the name

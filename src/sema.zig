@@ -2082,6 +2082,10 @@ pub const SemContext = struct {
     cell_sym_id: SymbolId = symbol_invalid,
     list_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
+    task_sym_id: SymbolId = symbol_invalid,
+    /// The module makes a task (`f(x)&`): the program's root declares
+    /// `__rig_tasks`, which runs it on the `Threaded` backend.
+    makes_tasks: bool = false,
     simd_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
@@ -3957,8 +3961,9 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // A Signal owns its subscribers too, but has no glue of its own: it
     // lives only behind a `*` handle (typecheck rejects one held by
     // value), whose release drops it.
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
+    // A task owns its running call, and its drop waits for it.
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id) c.glue = true;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.task_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -4149,6 +4154,16 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         },
         .imported_nominal => Reach.of((nominalDecl(ctx, ty) orelse return .{}).symbol().contents),
         .parameterized_nominal => |pn| blk: {
+            // A task keeps the loans of its call's arguments, which its
+            // type does not name, so it may always hold a view: a shared
+            // home never holds one (docs/CONCURRENCY.md, "Loans and
+            // structure"). Its loans are never write views by type: a
+            // task lent to write stays where it is bound.
+            if (pn.sym == ctx.task_sym_id) {
+                var r: Reach = .{ .unique = true, .views = .{ .marked = true } };
+                for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask, into));
+                break :blk r;
+            }
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
                 var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.string_only), into));
@@ -5451,9 +5466,10 @@ pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
     return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id;
 }
 
-/// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`.
+/// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
+/// `Task`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id;
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.task_sym_id;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -5788,6 +5804,64 @@ pub fn mayHoldMarkedView(ctx: *const SemContext, ty: TypeId) bool {
 pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     const b = ctx.holds(ty).views;
     return b.marked or b.string_view;
+}
+
+/// Whether `ty` is a task, `Task[T]`.
+pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn.sym == ctx.task_sym_id,
+        else => false,
+    };
+}
+
+/// Whether a value of `ty` may go to a task on another core: nothing it
+/// reaches is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
+/// `Signal`, which change through shared handles, a `Task`, or a function
+/// value, whose captures a function type does not show. Where it cannot
+/// see what a type holds, it says no (docs/CONCURRENCY.md, "What may
+/// cross cores").
+pub fn crossesCores(ctx: *const SemContext, ty: TypeId) bool {
+    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    defer seen.deinit(ctx.allocator);
+    return crossesIn(ctx, ty, &seen);
+}
+
+const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
+
+fn crossesIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
+    return switch (ctx.types.get(ty)) {
+        .shared, .weak, .function, .callable => false,
+        .optional, .fallible, .read_view, .write_view, .range => |inner| crossesIn(ctx, inner, seen),
+        .array => |a| crossesIn(ctx, a.elem, seen),
+        .slice => |sl| crossesIn(ctx, sl.elem, seen),
+        .results => |parts| for (parts) |part| {
+            if (!crossesIn(ctx, part, seen)) break false;
+        } else true,
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.task_sym_id) break :blk false;
+            for (pn.args) |a| if (!crossesIn(ctx, a, seen)) break :blk false;
+            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk true;
+            break :blk fieldsCross(ctx, pn.sym, seen);
+        },
+        .nominal => |sym| fieldsCross(ctx, sym, seen),
+        .imported_nominal => blk: {
+            const decl = nominalDecl(ctx, ty) orelse break :blk false;
+            break :blk fieldsCross(decl.ctx, decl.sym, seen);
+        },
+        else => true,
+    };
+}
+
+/// The fields and payloads of a declared type all cross (`crossesIn`); a
+/// type already being looked into adds nothing. A generic parameter in a
+/// field stands for an argument, which its instance checks.
+fn fieldsCross(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
+    const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return false;
+    if (got.found_existing) return true;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
+        for (dataFields(f)) |d| if (!crossesIn(ctx, d.ty, seen)) return false;
+    }
+    return true;
 }
 
 /// Whether a view of type `view` of a slot of type `slot` (a String, or a
@@ -6581,6 +6655,9 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool
         .imported_nominal => typeHasDropGlue(ctx, ty),
         .nominal => |sid| fieldsRunDropBody(ctx, sid, path),
         .parameterized_nominal => |pn| blk: {
+            // A task's drop waits for its call, which uses the loans the
+            // task keeps (CORE sentence 6).
+            if (pn.sym == ctx.task_sym_id) break :blk true;
             for (pn.args) |a| if (runsDropBody(ctx, a, path)) break :blk true;
             break :blk fieldsRunDropBody(ctx, pn.sym, path);
         },
@@ -8295,7 +8372,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed, .task => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,
         .read, .write => .lend,
         .member, .index => .path,

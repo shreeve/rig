@@ -6497,10 +6497,34 @@ pub const Emitter = struct {
     /// specifies a check when the program runs. `rig.rt` keeps the
     /// whole result, error or optional included, a run-time value.
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
+        if (ir.Call.task(sexp) != .nil) return self.emitTask(sexp);
         if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
         try self.w.writeAll("rig.rt(");
         try self.emitCallPlain(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// `f(x)&`: the call started as a task, its arguments evaluated here
+    /// (`rig.Task(T).spawn`). A method's receiver goes by its address,
+    /// which the runtime passes on, or reads when the method takes its
+    /// receiver by value (`spawnMethod`).
+    fn emitTask(self: *Emitter, sexp: Sexp) Error!void {
+        const callee = self.facts.calleeOf(sexp);
+        try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
+        if (self.receiverOf(sexp)) |recv| {
+            const saved = self.read_place;
+            defer self.read_place = saved;
+            self.read_place = !self.receiverWrites(sexp);
+            try self.w.writeAll(".spawnMethod(");
+            try self.emitAddressOf(lentPlace(recv));
+            try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
+        } else {
+            try self.w.writeAll(".spawn(");
+            try self.emitExpr(callee);
+            try self.w.writeAll(", .{ ");
+        }
+        try self.emitArgs(sexp);
+        try self.w.writeAll(" })");
     }
 
     fn emitCallPlain(self: *Emitter, sexp: Sexp) Error!void {

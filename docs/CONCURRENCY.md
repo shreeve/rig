@@ -133,8 +133,7 @@ state, as `!c.set(5)` is on a `*Cell`.
 **Form.** A `&` touching the `)` of a call, with no operand touching it
 on the right, makes the call a task: `parse(f)&`,
 `(!rooms).join(r, w)&`. It is a postfix sigil under Rig's spacing rule,
-so `a & b` stays bitwise and, and `f()&b` is rejected. Only a call takes
-`&`.
+so `a & b` and `f()&b` stay bitwise and. Only a call takes `&`.
 
 **Meaning.** The call is guaranteed to run concurrently with what
 follows. Its result is a `Task[T]`, an owning value that holds the
@@ -176,7 +175,7 @@ thread for a task, the program panics, as it does when memory runs out.
 
 `Tasks[T]` is the one group type. It is in `std` and needs no syntax:
 
-- `!ts.add(f()&)` adds a task. With no result (`Tasks[]`), a task that
+- `!ts.add(f()&)` adds a task. With no result (`Tasks[Void]`), a task that
   has finished is removed at once, so a long-running server loop never
   piles up finished work.
 - `<ts.wait_all()` waits for all and gives their results in the order

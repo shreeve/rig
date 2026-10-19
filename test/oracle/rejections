@@ -1866,6 +1866,7 @@ target.name_compound.plain.read main
 target.name_compound.ternary.grow main
 target.name_compound.ternary.move main
 target.name_compound.ternary.read main
+test/reject/concurrency/task_copy.rig main
 test/reject/probes/R11a-d1l.rig main
 test/reject/probes/R13-s-m-lib.rig Opt.or
 test/reject/probes/R15-p-a1.rig main

@@ -1,0 +1,323 @@
+# concurrency: tests whose names start `task`.
+
+test "task wait", '''
+  16 3
+'''
+  # `f(x)&` starts the call as a task and gives a `Task[T]` at once;
+  # `<t.wait()` waits for it to end and takes its result.
+  fun sq(x: Int) -> Int
+    x * x
+
+  fun total(xs: ?List[Int]) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  xs: List[Int] = List()
+  !xs.push(3)
+  t = sq(4)&
+  u = total(?xs)&
+  print(<t.wait(), <u.wait())
+
+test "task read loan ends at wait", '''
+  1
+'''
+  # A task keeps its loans until it is waited for; then `xs` can be
+  # lent to write again.
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  u = total(?xs)&
+  n = <u.wait()
+  !xs.push(n)
+  print(xs.len)
+
+test "task write loan", release: true, '''
+  3
+  3 4
+'''
+  # A task lent to write runs where it is bound, and is waited for there.
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  fun add(xs: !List[Int], n: Int) -> Int
+    !xs.push(n)
+    n
+
+  xs: List[Int] = List()
+  t = fill(!xs, 3)&
+  <t.wait()
+  print(xs.len)
+  u = add(!xs, 3)&
+  n = <u.wait()
+  print(n, xs.len)
+
+test "task methods", '''
+  3
+  3
+  n is 3
+'''
+  # A method runs as a task with its receiver lent as the method takes
+  # it: `(!c).bump(2)&` to write, `?c.get()&` to read, `(<c).into()&`
+  # moved in.
+  obj Counter
+    n: Int
+
+    sub bump(!@, by: Int)
+      @n += by
+
+    fun get(?@) -> Int
+      @n
+
+    fun into(<@) -> String
+      String("n is ", @n)
+
+  c = Counter(n: 1)
+  t = (!c).bump(2)&
+  <t.wait()
+  print(c.n)
+  g = ?c.get()&
+  print(<g.wait())
+  v = (<c).into()&
+  print(<v.wait())
+
+test "task generic", "[7, 7]"
+  fun twice[T](x: T) -> List[T]
+    out: List[T] = List()
+    !out.push(x)
+    !out.push(x)
+    out
+
+  w = twice[Int](7)&
+  <w.wait()
+
+test "task many", release: true, '''
+  101152559
+'''
+  # Tasks held in a List, each waited for in turn.
+  fun spin(n: Int) -> Int
+    total = 0
+    for i in 0..n
+      total = (total + i * 7) % 1000003
+    total
+
+  tasks: List[Task[Int]] = List()
+  for i in 0..200
+    !tasks.push(spin(100000 + i)&)
+  sum = 0
+  for t in <tasks
+    sum += <t.wait()
+  print(sum)
+
+test "task dropped waits", '''
+  started
+  end
+  drop 1
+'''
+  # A task no one waits for is waited for where its scope ends, and its
+  # result dropped.
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  fun make(n: Int) -> Res
+    Res(n: n)
+
+  t = make(1)&
+  print("started")
+  print("end")
+
+test "task fallible", '''
+  2
+  -1
+'''
+  error Parity
+    odd
+
+  fun half(x: Int) -> Int!
+    return Parity.odd if x % 2 == 1
+    x / 2
+
+  fun both(a: Int, b: Int) -> Int!
+    t = half(a)&
+    u = half(b)&
+    x = <t.wait()!
+    y = <u.wait()!
+    x + y
+
+  print(both(2, 2) catch -1)
+  print(both(4, 3) catch -1)
+
+test "task print", '''
+  <task>
+  2
+'''
+  fun half(x: Int) -> Int
+    x / 2
+
+  t = half(4)&
+  print(t)
+  print(<t.wait())
+
+test "task defer before", "0"
+  # A defer declared before the task runs after the task is dropped.
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  sub clear(xs: !List[Int])
+    !xs.clear()
+
+  xs: List[Int] = List()
+  defer clear(!xs)
+  u = total(?xs)&
+  print(<u.wait())
+
+test "task prints", '''
+  in the task
+  done
+'''
+  sub say()
+    print("in the task")
+
+  t = say()&
+  <t.wait()
+  print("done")
+
+test "task amp spacing", '''
+  2 2 16
+'''
+  # `&` touching a `)` with nothing touching its other side starts a
+  # task; with an operand touching it, or spaced, it is `and`.
+  fun six() -> Int
+    6
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  b = 3
+  t = sq(4)& # runs while this goes on
+  print(six()&b, six() & b, <t.wait())
+
+fail "task dropped at once", "1:1: this task is dropped as soon as it starts, which waits for it to end: bind it, `t = sq(3)&`"
+  sq(3)&
+  fun sq(x: Int) -> Int
+    x * x
+
+fail "task results", "a call that gives several results cannot be a task", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  t = divmod(17, 5)&
+
+fail "task targets", "a task runs a call of a function or a method: `f(x)&`, `(!v).m(x)&`", errors: 2
+  # A closure or a constructor is not a task's target.
+  obj Node
+    v: Int
+
+  f = |x: Int| x + 1
+  u = f(2)&
+  v = Node(v: 3)&
+
+fail "task crossing", "a task may run on another core, and `?*Node` holds what stays on this one", errors: 1
+  obj Node
+    v: Int
+
+  fun val(n: ?*Node) -> Int
+    n.v
+
+  n = *Node(v: 1)
+  t = val(?n)&
+  print(<t.wait())
+
+fail "task write loan bound", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = fill(!xs, 3)&`, then `<t.wait()`", errors: 1
+  fun fill(xs: !List[Int], n: Int) -> Int
+    !xs.push(n)
+    n
+
+  xs: List[Int] = List()
+  ts: List[Task[Int]] = List()
+  !ts.push(fill(!xs, 3)&)
+
+fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for where it is bound: `<t.wait()`", errors: 1
+  fun fill(xs: !List[Int], n: Int) -> Int
+    !xs.push(n)
+    n
+
+  xs: List[Int] = List()
+  ts: List[Task[Int]] = List()
+  t = fill(!xs, 4)&
+  !ts.push(<t)
+
+fail "task read loan live", "cannot lend `xs` to write while a read loan is live", errors: 1
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  u = total(?xs)&
+  !xs.push(1)
+  print(<u.wait())
+
+fail "task defer after", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # A defer declared after the task runs before the task is dropped,
+  # while it still reads `xs`.
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  sub clear(xs: !List[Int])
+    !xs.clear()
+
+  xs: List[Int] = List()
+  u = total(?xs)&
+  defer clear(!xs)
+  print(xs.len)
+
+fail "task fallible lost", "the task `u` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost", errors: 1
+  error Parity
+    odd
+
+  fun half(x: Int) -> Int!
+    return Parity.odd if x % 2 == 1
+    x / 2
+
+  t = half(4)&
+  u = half(3)&
+  print(<t.wait() catch -1)
+
+fail "task temporary", "a view of the temporary `make(5)` outlives its statement", errors: 1
+  obj Counter
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+  fun make(n: Int) -> Counter
+    Counter(n: n)
+
+  g = make(5).get()&
+  print(<g.wait())
+
+fail "task copy", "`t` owns a `Task[Int]`, which can't be copied by `=`", errors: 1
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(2)&
+  u = t
+  print(<u.wait())
+
+fail "task write receiver", "write `(!c).bump(2)&`: a write call whose value is used puts its `!` in parentheses", errors: 1
+  # A task's value is always used, so its write receiver is in
+  # parentheses.
+  obj Counter
+    n: Int
+
+    sub bump(!@, by: Int)
+      @n += by
+
+  c = Counter(n: 1)
+  t = !c.bump(2)&
+  <t.wait()

@@ -1122,6 +1122,7 @@ pub const Checker = struct {
         if (self.reachable) {
             _ = try self.exitTo(.{ .exit = .scope_end });
             try self.checkDropOrder(self.scopes.items[idx].start);
+            try self.checkLostTasks(self.scopes.items[idx].start);
         }
         var scope = self.scopes.pop().?;
         defer scope.defers.deinit(self.gpa);
@@ -2751,6 +2752,10 @@ pub const Checker = struct {
         const ctx = self.sema orelse return v;
         const t = ty orelse return v;
         if (v.loans.len == 0) return v;
+        // A task is its call, still running: it keeps every loan of its
+        // arguments as lent, a write loan to write, whatever its result's
+        // type could view (docs/CONCURRENCY.md, "Loans and structure").
+        if (sema.isTask(ctx, t)) return v;
         if (!self.viewsOnlyRead(t)) return v;
         const reads = result or sema.holdsViewOnly(ctx, t);
         var out: std.ArrayList(Loan) = .empty;
@@ -6536,6 +6541,22 @@ pub const Checker = struct {
                     try self.note(x.decl, "`{s}` is declared after `{s}`, so it is dropped first; declare it before `{s}`", .{ x.name, h.name, h.name });
                 }
             }
+        }
+    }
+
+    /// A task that can fail, still held where its scope ends normally,
+    /// would be dropped without being waited for, and its error lost
+    /// (docs/CONCURRENCY.md, "Tasks"). On an early exit (`return`, `!`, a
+    /// `break`) the drop is what cancels it, and is not reported.
+    fn checkLostTasks(self: *Checker, start: u32) Error!void {
+        const ctx = self.sema orelse return;
+        for (start..self.vars.items.len) |i| {
+            const h = self.vars.items[i];
+            const ty = h.ty orelse continue;
+            if (!self.flowLive(@intCast(i)) or !sema.isTask(ctx, ty)) continue;
+            const result = ctx.types.get(ty).parameterized_nominal.args[0];
+            if (ctx.types.get(result) != .fallible) continue;
+            try self.err(h.decl, "the task `{s}` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost: wait for it, `<{s}.wait()!`, or handle its error with `catch`", .{ h.name, h.name });
         }
     }
 

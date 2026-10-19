@@ -3094,6 +3094,20 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "subscribe", .write, &.{ write_self, closure_handle }, ctx.types.void_id, null),
         });
     }
+
+    // Task[T]: a call made a task, `f(x)&`, running at the same time as
+    // the code after it; `T` is the call's result. Only `&` makes one, a
+    // task is never copied or cloned, and `wait` takes it and gives the
+    // result (docs/CONCURRENCY.md).
+    {
+        const g = try addGeneric(ctx, module_scope, module_scope, "Task", &.{"T"});
+        ctx.task_sym_id = g.sym;
+        ctx.symbols.items[g.sym].flags.unique = true;
+        const t = g.params[0];
+        try setFields(ctx, g.sym, &.{
+            try method(ctx, "wait", .value, &.{g.self_ty}, t, null),
+        });
+    }
 }
 
 const Generic = struct {
