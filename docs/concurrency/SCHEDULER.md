@@ -79,10 +79,37 @@ over hand, so no cancel reaches a task through a chain another may free.
 ## Yield checks
 
 A fiber yields only at a waiting point, so a task that computes without
-waiting would hold its worker. The compiler counts down at each outer
-loop's back edge and at each recursive function's entry, in programs
-that make tasks, and yields when the count runs out; the check never
-fails.
+waiting would hold its worker, and the work queued behind it would wait
+until it ends. In a program that makes tasks, the compiler adds yield
+checks where a computation can run long without waiting. A check never
+fails, and yields only when other work waits.
+
+- **Loops.** Each outermost loop keeps a count of its turns, a local of
+  its own, and every 1,024 turns calls the scheduler (`rig.turn`,
+  `sched.tick`). The task yields when work waits for its worker (in its
+  "run next" slot, its ring, or the global queue) or for another busy
+  one (the flag below). A loop inside another
+  is not counted, so the inner loops that do the most work stay as
+  tight as they were.
+- **Recursion.** A function on a cycle of calls (`inlining.decide`)
+  starts by reading one flag, `sched.waiting`, on a cache line of its
+  own. Work woken or made while every worker is busy sets it. The first
+  check to see it clears it and yields to that work: its own worker's,
+  or half of another busy worker's ring, stolen. A worker that finds no
+  work and sleeps clears it too. A task that yields only puts itself
+  back in line, so it never sets the flag, and busy tasks do not keep
+  yielding to each other.
+
+The loop check costs a decrement and a branch per turn of an outermost
+loop: within noise on `bench/tasks`. The recursion check is a load and
+a branch per call: free in any function that does work, but a
+function as small as `fib` runs about 1.5x slower with it.
+
+With every core busy with long loops, a task queued behind one on its
+worker waits for one slice of that loop, not all of it (`bench/tasks`
+`hog`): under 0.1 ms on the Mac and on pup, where Tokio and Go wait 2
+to 3 ms, the whole loop. Go stops a goroutine after 10 ms, by a
+signal; Tokio never does.
 
 ## Increments
 
@@ -103,7 +130,9 @@ fails.
    deadlines, a cancel that wakes the wait it ends, a waiter that passes
    its cancel on to the task it waits on, and the blocking pool, which
    `std.file` reads through.
-5. **Yield checks** in the compiler.
+5. **Yield checks**: a countdown in each outermost loop, and a flag
+   read on entry to each recursive function, in programs that make
+   tasks (above).
 6. **The default**: every program that makes tasks runs on the
    scheduler, and the `Threaded` path goes.
 7. **Rig's own stack probes**, and 64 KiB guards, before step 5's

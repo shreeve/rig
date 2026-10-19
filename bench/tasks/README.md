@@ -1,6 +1,6 @@
 # Task benchmarks
 
-Times Rig's tasks (SPEC §18) against Tokio's and Go's on the same four
+Times Rig's tasks (SPEC §18) against Tokio's and Go's on the same five
 benchmarks, so the scheduler's work can be measured against the
 runtimes it aims to match. It is not part of the test suite or CI.
 
@@ -21,7 +21,7 @@ scheduler grows ([docs/concurrency/SCHEDULER.md](../../docs/concurrency/SCHEDULE
 
 ## The benchmarks
 
-Each program runs all four, times each with the monotonic clock, and
+Each program runs all five, times each with the monotonic clock, and
 prints `NAME NS CHECK`; the driver rejects a run whose checks differ
 between programs.
 
@@ -31,11 +31,16 @@ between programs.
 | `chain` | 10,000 times: start one task, wait for it | task |
 | `fanout` | 10 tasks of CPU work (a 20-million-step loop each) at once | run |
 | `yield` | 100 tasks, each yielding 10,000 times | yield |
+| `hog` | 32 tasks of CPU work (a 20-million-step loop each) keep every core busy; meanwhile, 50 times: queue a task of CPU work (a 1-million-step loop), then start two tasks and wait for both | step |
 
 `spawn` and `chain` measure what a task costs to start, schedule, finish
 and wake its waiter: in bulk, and one at a time on the critical path.
 `fanout` measures how well CPU work spreads over the cores. `yield`
-measures a switch between tasks that do no work.
+measures a switch between tasks that do no work. `hog` measures how
+long a task waits behind one that computes without waiting: the first
+of each step's two tasks is queued behind that step's loop on the
+waiter's worker, while the 32 loops keep the other workers busy, so it
+waits until that loop yields or ends.
 
 ## The rules
 

@@ -321,3 +321,51 @@ fail "task write receiver", "write `(!c).bump(2)&`: a write call whose value is 
   c = Counter(n: 1)
   t = !c.bump(2)&
   <t.wait()
+
+test "task hogs", release: true, '''
+  chain 380
+  waited true
+  hogs 32
+'''
+  # Loops and recursion that never wait leave a worker often enough for
+  # the work that waits behind them: a loop counts its turns toward a
+  # yield check, and a recursive call checks for work left waiting
+  # (docs/concurrency/SCHEDULER.md). Each step queues a long loop on
+  # main's worker ahead of `a`, which would wait for all of it.
+  use std.time
+
+  fun spin(n: Int) -> Int
+    total = 0
+    for i in 0..n
+      total = (total + i * 7) % 1000003
+    total
+
+  fun fib(n: Int) -> Int
+    if n < 2
+      return n
+    fib(n - 1) + fib(n - 2)
+
+  fun leaf(i: Int) -> Int
+    i
+
+  hogs = Tasks[Int]()
+  for i in 0..32
+    if i % 2 == 0
+      !hogs.add(spin(20000000 + i)&)
+    else
+      !hogs.add(fib(27)&)
+  slices = Tasks[Int]()
+  start = time.now()
+  sum = 0
+  for i in 0..20
+    !slices.add(spin(10000000 + i)&)
+    a = leaf(i)&
+    b = leaf(i)&
+    sum += <a.wait()
+    sum += <b.wait()
+  took = start.elapsed()
+  print("chain", sum)
+  print("waited", took < time.SECOND)
+  xs = <hogs.wait_all()
+  ys = <slices.wait_all()
+  print("hogs", xs.len)

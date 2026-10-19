@@ -39,6 +39,7 @@ OPS = {
     "chain": ("task", 10000),
     "fanout": ("run", 1),
     "yield": ("yield", 100 * 10000),
+    "hog": ("step", 50),
 }
 
 

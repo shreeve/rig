@@ -99,6 +99,27 @@ var sleepers: Sleepers = .{};
 /// sleeping one only when none is looking.
 var searching: std.atomic.Value(u32) = .init(0);
 var stopping: std.atomic.Value(bool) = .init(false);
+/// Set when work is made while every worker is busy; the first yield
+/// check to see it clears it and takes that work (`claimWaiting`), and
+/// a worker that finds no work and sleeps clears it too. A recursive
+/// call only reads it (`rt.tickCall`), on a cache line of its own, so
+/// what the scheduler writes beside it never slows those reads.
+pub var waiting: Flag = .{};
+
+const Flag = extern struct {
+    value: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
+    _: [std.atomic.cache_line - 4]u8 = undefined,
+
+    pub fn load(f: *const Flag, comptime order: std.builtin.AtomicOrder) u32 {
+        return f.value.load(order);
+    }
+    fn store(f: *Flag, v: u32, comptime order: std.builtin.AtomicOrder) void {
+        f.value.store(v, order);
+    }
+    fn swap(f: *Flag, v: u32, comptime order: std.builtin.AtomicOrder) u32 {
+        return f.value.swap(v, order);
+    }
+};
 
 /// The fiber running on this thread, or none outside every fiber.
 pub fn current() ?*Fiber {
@@ -114,13 +135,13 @@ pub fn current() ?*Fiber {
 pub fn wake(f: *Fiber) void {
     const w = me() orelse {
         global.push(f);
-        return notify();
+        return notifyNew();
     };
     const before = w.lifo;
     w.lifo = f;
     if (before) |b| {
         w.ring.push(b);
-        notify();
+        notifyNew();
     }
 }
 
@@ -137,6 +158,43 @@ pub fn yield() void {
 
 fn requeue(f: *Fiber, _: ?*anyopaque) void {
     wakeLast(f);
+}
+
+/// A yield check of a loop (`rt.turn`): yield when other work waits
+/// for this worker, in its "run next" slot or ring, or in the global
+/// queue, or take work that waits for a busy one (`claimWaiting`). Work
+/// a sleeping or searching worker can take is left to it.
+pub noinline fn tick() void {
+    const w = me() orelse return;
+    if (hasOwnWork(w)) return yield();
+    if (waiting.load(.monotonic) != 0) claimWaiting(w);
+}
+
+/// A recursive call that saw `waiting` set (`rt.tickCall`).
+pub noinline fn tickCall() void {
+    @branchHint(.cold);
+    const w = me() orelse return;
+    claimWaiting(w);
+}
+
+/// Clear `waiting`, if no other check has, and yield to the work that
+/// waits: this worker's own, or half of another's ring, stolen as a
+/// searching worker would.
+fn claimWaiting(w: *Worker) void {
+    if (waiting.swap(0, .monotonic) == 0) return;
+    if (hasOwnWork(w)) return yield();
+    if (workers.len < 2) return;
+    for (workers) |*v| {
+        if (v == w) continue;
+        if (w.ring.stealFrom(&v.ring)) |f| {
+            w.ring.push(f);
+            return yield();
+        }
+    }
+}
+
+fn hasOwnWork(w: *Worker) bool {
+    return w.lifo != null or !w.ring.isEmpty() or global.count.load(.monotonic) != 0;
 }
 
 /// How many times in a row a worker runs its "run next" fiber before it
@@ -538,6 +596,11 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     workers = &.{};
     all_workers = &.{};
     me_slot = null;
+    // Workers stopped asleep are still listed; the next run, in a test,
+    // starts with none.
+    sleepers = .{};
+    searching.store(0, .seq_cst);
+    waiting.store(0, .monotonic);
 }
 
 /// The most workers a program runs.
@@ -667,6 +730,17 @@ fn search(w: *Worker) ?*Fiber {
     return global.pop();
 }
 
+/// `notify` for work woken or made, not a fiber that yielded: when no
+/// worker is looking or asleep, every one is busy, and their yield
+/// checks are told it waits (`waiting`).
+fn notifyNew() void {
+    if (searching.load(.seq_cst) == 0 and sleepers.count.load(.seq_cst) == 0) {
+        if (waiting.load(.monotonic) == 0) waiting.store(1, .monotonic);
+        return;
+    }
+    notify();
+}
+
 /// Wake a sleeping worker when work was made and no worker is looking,
 /// counting it as searching from now, so the next work made does not
 /// wake another before this one has looked.
@@ -688,8 +762,10 @@ fn wakeWorker(w: *Worker) void {
 /// Sleep until woken: listed as asleep first, then, after a last look
 /// for work made meanwhile, on the futex. Work a worker searching will
 /// find needs no last look: only work made when none searches, which
-/// woke no one (`notify`), keeps this worker up.
+/// woke no one (`notify`), keeps this worker up. A worker with no work
+/// to find clears `waiting`.
 fn sleep(w: *Worker) void {
+    if (waiting.load(.monotonic) != 0) waiting.store(0, .monotonic);
     w.woken.store(0, .seq_cst);
     sleepers.push(w);
     if (stopping.load(.seq_cst) or (searching.load(.seq_cst) == 0 and hasWork())) {

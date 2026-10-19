@@ -1,5 +1,5 @@
 // Go's goroutines timed as bench/tasks/tasks.rig times Rig's tasks:
-// spawn, chain, fanout, yield. Prints `NAME NS CHECK` per benchmark.
+// spawn, chain, fanout, yield, hog. Prints `NAME NS CHECK` per benchmark.
 package main
 
 import (
@@ -17,6 +17,10 @@ const (
 	fanWork    = 20000000
 	yieldTasks = 100
 	yields     = 10000
+	hogTasks   = 32
+	hogWork    = 20000000
+	hogChain   = 50
+	hogSlice   = 1000000
 )
 
 //go:noinline
@@ -89,4 +93,32 @@ func main() {
 		sum += x
 	}
 	fmt.Println("yield", time.Since(t).Nanoseconds(), sum)
+
+	hogs := make([]int64, hogTasks)
+	for i := 0; i < hogTasks; i++ {
+		wg.Add(1)
+		go func(i int) { hogs[i] = spin(hogWork + int64(i)); wg.Done() }(i)
+	}
+	slices := make([]int64, hogChain)
+	var swg sync.WaitGroup
+	t = time.Now()
+	sum = 0
+	for i := int64(0); i < hogChain; i++ {
+		swg.Add(1)
+		go func(i int64) { slices[i] = spin(hogSlice + i); swg.Done() }(i)
+		go func(i int64) { ch <- leaf(i) }(i)
+		go func(i int64) { ch <- leaf(i) }(i)
+		sum += <-ch
+		sum += <-ch
+	}
+	ns := time.Since(t).Nanoseconds()
+	wg.Wait()
+	for _, x := range hogs {
+		sum += x
+	}
+	swg.Wait()
+	for _, x := range slices {
+		sum += x
+	}
+	fmt.Println("hog", ns, sum)
 }

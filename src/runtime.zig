@@ -38,6 +38,35 @@ pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".
 }
 pub const Stop = tasks.Stop;
 const Control = tasks.Control;
+
+/// How many turns of a loop run between a task's yield checks (`turn`).
+pub const tick_turns: u32 = 1024;
+
+/// A turn of an outermost loop in a program that makes tasks, counted
+/// down in `n`, the loop's own: every `tick_turns` turns, on the
+/// scheduler, the task yields if other work waits for its worker
+/// (`sched.tick`), so a long loop never keeps that work waiting.
+pub inline fn turn(n: *u32) void {
+    if (!scheduled or @inComptime()) return;
+    n.* -%= 1;
+    if (n.* == 0) {
+        @branchHint(.unlikely);
+        n.* = tick_turns;
+        sched.tick();
+    }
+}
+
+/// The entry of a recursive function in a program that makes tasks: on
+/// the scheduler, when work waits that no idle worker will take
+/// (`sched.waiting`), the first such call to see it yields to that work
+/// (`sched.tickCall`). Otherwise it is one load of a flag.
+pub inline fn tickCall() void {
+    if (!scheduled or @inComptime()) return;
+    if (sched.waiting.load(.monotonic) != 0) {
+        @branchHint(.unlikely);
+        sched.tickCall();
+    }
+}
 // The scheduler, which runs tasks as fibers (`sched.zig`).
 pub const sched = @import("sched.zig");
 

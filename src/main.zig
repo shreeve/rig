@@ -1204,6 +1204,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.poison = env.sanitize();
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
+        em.yield_checks = tasks;
         em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
         // A debug build of the compiler checks that emit writes the units
