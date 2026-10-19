@@ -2755,7 +2755,8 @@ pub const Checker = struct {
         // A task is its call, still running: it keeps every loan of its
         // arguments as lent, a write loan to write, whatever its result's
         // type could view (docs/CONCURRENCY.md, "Loans and structure").
-        if (sema.isTask(ctx, t)) return v;
+        // A set of tasks keeps those of each.
+        if (sema.isTask(ctx, t) or sema.isTaskSet(ctx, t)) return v;
         if (!self.viewsOnlyRead(t)) return v;
         const reads = result or sema.holdsViewOnly(ctx, t);
         var out: std.ArrayList(Loan) = .empty;
@@ -6544,19 +6545,22 @@ pub const Checker = struct {
         }
     }
 
-    /// A task that can fail, still held where its scope ends normally,
-    /// would be dropped without being waited for, and its error lost
-    /// (docs/CONCURRENCY.md, "Tasks"). On an early exit (`return`, `!`, a
-    /// `break`) the drop is what cancels it, and is not reported.
+    /// A task or a set of tasks that can fail, still held where its scope
+    /// ends normally, would be dropped without being waited for, and its
+    /// error lost (docs/CONCURRENCY.md, "Tasks"). On an early exit
+    /// (`return`, `!`, a `break`) the drop is what cancels it, and is not
+    /// reported.
     fn checkLostTasks(self: *Checker, start: u32) Error!void {
         const ctx = self.sema orelse return;
         for (start..self.vars.items.len) |i| {
             const h = self.vars.items[i];
             const ty = h.ty orelse continue;
-            if (!self.flowLive(@intCast(i)) or !sema.isTask(ctx, ty)) continue;
-            const result = ctx.types.get(ty).parameterized_nominal.args[0];
+            if (!self.flowLive(@intCast(i))) continue;
+            const result = sema.taskResult(ctx, ty) orelse continue;
             if (ctx.types.get(result) != .fallible) continue;
-            try self.err(h.decl, "the task `{s}` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost: wait for it, `<{s}.wait()!`, or handle its error with `catch`", .{ h.name, h.name });
+            if (sema.isTaskSet(ctx, ty)) {
+                try self.err(h.decl, "the tasks of `{s}` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost: wait for them, `<{s}.wait_all()!`, or handle the error with `catch`", .{ h.name, h.name });
+            } else try self.err(h.decl, "the task `{s}` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost: wait for it, `<{s}.wait()!`, or handle its error with `catch`", .{ h.name, h.name });
         }
     }
 

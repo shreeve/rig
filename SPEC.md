@@ -1190,6 +1190,7 @@ sub main()
 | `?fun(A) -> R`, `?sub(A)` | callable view: a closure, function, or owned closure lent to a call | [§11](#callable-views) |
 | `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-string-and-signal) |
 | `Task[T]` | a call running as a task, `f(x)&`, and the `T` it gives | [§18](#18-tasks) |
+| `Tasks[T]` | a set of tasks of one type, waited for together | [§18](#sets-of-tasks) |
 | `String` | owned, growable text | [§10](#string) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Arch` | built-in enum: the target's processor architecture, `target.arch` | [§3](#the-target) |
@@ -9794,6 +9795,73 @@ sub main()
 ```error
 `Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `<t.wait()`
 ```
+
+### Sets of tasks
+
+`Tasks[T]` holds tasks of one type. `!ts.add(f(x)&)` moves a task in,
+and the set keeps its loans as the task did; `ts.len` counts the tasks
+it holds.
+
+- `<ts.wait_all()` waits for every task and gives the results in the
+  order added: a `List[U]`, or `List[U]!` when the tasks can fail. Then
+  the first task to fail, in the order they end, cancels the rest, and
+  the wait fails with its error.
+- `<ts.wait_first()` gives the first result to succeed and cancels the
+  rest; when every task fails, it fails with the last error. It is only
+  for tasks that can fail, since the rest must be stopped.
+- `within: ns` on either wait is a deadline, in nanoseconds: when it
+  passes, the tasks still running are canceled, and the wait fails with
+  `task.Stop.timeout`. It too is only for tasks that can fail.
+- Waiting on tasks that can fail is a waiting point: a canceled waiter
+  cancels them all and fails with `Stop.canceled`.
+- Dropping a set cancels the tasks that can fail, all of them first,
+  then waits for each.
+- A set of tasks that give nothing, `Tasks[Void]`, drops each that ended
+  well as the next is added, so a server that adds a task for each
+  request holds only those still running, and those that failed.
+
+A set goes where a task goes: it is bound, held in an owned value, or
+returned, and never put in a shared home or given to another core.
+
+```rig
+use std.time
+
+error Fetch
+  missing
+
+fun fetch(n: Int, ms: Int) -> Int!
+  time.sleep(ms * time.MS)!
+  return Fetch.missing if n == 3
+  n * 10
+
+fun first_two() -> List[Int]!
+  ts = Tasks[Int!]()
+  !ts.add(fetch(1, 20)&)
+  !ts.add(fetch(2, 1)&)
+  <ts.wait_all(within: 5 * time.SECOND)!
+
+fun any_one() -> Int!
+  ts = Tasks[Int!]()
+  !ts.add(fetch(3, 1)&)
+  !ts.add(fetch(5, 5)&)
+  <ts.wait_first()!
+
+sub main()
+  print(first_two() catch List[Int]())
+  print(any_one() catch -1)
+```
+
+```output
+[10, 20]
+50
+```
+
+`task.both(a, b)` and `task.all(a, b, ...)` of `std.task`
+([std.task](docs/STD.md#stdtask)) wait for tasks of different types and
+give each one's value as several results:
+`u, o = task.both(user(id)&, orders(id)&)!`. The call takes its tasks,
+and can fail when any of them can; then the first to fail cancels the
+others.
 
 **What a task may take.** A task may run on another core, so what it
 takes holds nothing that stays on one: no `*T` or `~T` handle, `Cell`,

@@ -3300,9 +3300,9 @@ test "fallible function returns error", '''
   print(parse_len("abc") catch -1)
   print(parse_len("") catch -1)
 
-fail "fallible param type", "7:10: a fallible type `Int!` is only allowed as a function's return type", "7:19: a fallible type `*N!` is only allowed as a function's return type"
-  # A fallible type is only allowed as a function's return type, a
-  # fallible handle included; the message names the whole type.
+fail "fallible param type", "7:10: a fallible type `Int!` stands only where a call's result is named", "7:19: a fallible type `*N!` stands only where a call's result is named"
+  # A fallible type stands only where a call's result is named, not as a
+  # parameter's, a handle's included; the message names the whole type.
 
   obj N
     a: Int
@@ -4310,7 +4310,7 @@ fail "handle of view", "9:10: a handle holds a value, not a view; `?P` is a view
   h = *(?y)
   c = Cell[*(?Int)](none)
 
-fail "handle to optional", "10:15: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)", "11:10: a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", "12:10: a handle to an optional has no expression spelling", "13:14: expected `?*Node?`", "14:10: a handle to an optional has no expression spelling", "15:10: a handle to an optional has no expression spelling", "16:10: a fallible type `*Node!` is only allowed as a function's return type"
+fail "handle to optional", "10:15: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)", "11:10: a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", "12:10: a handle to an optional has no expression spelling", "13:14: expected `?*Node?`", "14:10: a handle to an optional has no expression spelling", "15:10: a handle to an optional has no expression spelling", "16:10: a fallible type `*Node!` stands only where a call's result is named"
   # A handle binds tighter than a suffix, so a handle to an optional is
   # written with parentheses, `*(Node?)`, and is not itself optional. As a
   # type argument in an expression it has no spelling: an expression reads

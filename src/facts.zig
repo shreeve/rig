@@ -113,6 +113,7 @@ pub const Facts = struct {
     list_sym_id: SymbolId,
     signal_sym_id: SymbolId,
     task_sym_id: SymbolId,
+    tasks_sym_id: SymbolId,
     box_sym_id: SymbolId,
     endian_sym_id: SymbolId,
     arch_sym_id: SymbolId,
@@ -132,6 +133,7 @@ pub const Facts = struct {
             .list_sym_id = ctx.list_sym_id,
             .signal_sym_id = ctx.signal_sym_id,
             .task_sym_id = ctx.task_sym_id,
+            .tasks_sym_id = ctx.tasks_sym_id,
             .box_sym_id = ctx.box_sym_id,
             .endian_sym_id = ctx.endian_sym_id,
             .arch_sym_id = ctx.arch_sym_id,
@@ -307,6 +309,9 @@ pub const Facts = struct {
     }
     pub fn readsInPlace(f: Facts, node: Sexp) bool {
         return f.c().readsInPlace(node);
+    }
+    pub fn isTaskJoin(f: Facts, call: Sexp) bool {
+        return f.c().isTaskJoin(call);
     }
     pub fn testCheckOf(f: Facts, node: Sexp) ?[]const u8 {
         return f.c().testCheckOf(node);

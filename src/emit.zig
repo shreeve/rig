@@ -6648,6 +6648,23 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
+        // `task.both(a, b)`, `task.all(a, b, ...)`: the tasks, waited for
+        // together.
+        if (self.facts.isTaskJoin(sexp)) {
+            try self.w.writeAll("rig.waitTasks(.{ ");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(" })");
+        }
+        // A set's wait, `<ts.wait_all(within: d)`: its deadline, or none.
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
+            const m = self.srcText(ir.Member.name(callee));
+            if (std.mem.eql(u8, m, "wait_all") or std.mem.eql(u8, m, "wait_first")) {
+                try self.emitExpr(callee);
+                try self.w.writeAll("(");
+                if (args.len == 1) try self.emitExpr(ir.Kwarg.value(args[0])) else try self.w.writeAll("null");
+                return self.w.writeAll(")");
+            }
+        };
         try self.checkCallTarget(sexp);
         // `get` on an array, a slice, or a `?String`.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isSequence(t) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "get")) {

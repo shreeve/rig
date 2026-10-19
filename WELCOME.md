@@ -851,8 +851,8 @@ You will reach for these and not find them:
   instance supports;
 - **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;
-- **concurrency beyond single tasks** ([SPEC §18](SPEC.md#18-tasks)):
-  sets of tasks, deadlines, channels, and actors;
+- **concurrency beyond tasks** ([SPEC §18](SPEC.md#18-tasks)):
+  atomics, channels, and actors;
 - **a large standard library**: beyond `print`, `Cell`, `List`,
   `String`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,

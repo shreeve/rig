@@ -2232,7 +2232,7 @@ pub const TypeResolver = struct {
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = inner });
-                        try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type", .{try sema.formatType(self.ctx, ty)});
+                        try self.ctx.errAt(sexp, "a fallible type `{s}` stands only where a call's result is named: a function's return type, or a task's, `Task[T!]`", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
                     .optional, .read_view, .write_view, .weak, .slice => {
@@ -2744,10 +2744,16 @@ pub const TypeResolver = struct {
         var args: std.ArrayList(TypeId) = .empty;
         defer args.deinit(self.ctx.allocator);
         var any_bad = false;
+        // What a task gives may fail: `Task[Int!]`, `Tasks[Int!]` name a
+        // call's result.
+        const gives = sym_id == self.ctx.task_sym_id or sym_id == self.ctx.tasks_sym_id;
         for (supplied, tparams, 0..) |a, tp, i| {
             const arg = if (self.ctx.symbols.items[tp].kind == .param)
                 try self.resolveCtInt(a, .{ .arg = .{ .param = tp, .owner = name, .index = i } })
-            else if (isValueSpelling(self.ctx.source, a)) blk: {
+            else if (gives and a.isKind(.error_union)) blk: {
+                const inner = try self.resolveType(ir.ErrorUnion.type(a));
+                break :blk if (sema.containsPoison(self.ctx, inner)) inner else try self.ctx.intern(.{ .fallible = inner });
+            } else if (isValueSpelling(self.ctx.source, a)) blk: {
                 try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
                 break :blk t.invalid_id;
             } else try self.resolveType(a);
@@ -3113,6 +3119,22 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         try setFields(ctx, g.sym, &.{
             try method(ctx, "wait", .value, &.{g.self_ty}, t, null),
             try method(ctx, "cancel", .value, &.{g.self_ty}, t, null),
+        });
+
+        // Tasks[T]: a set of tasks of one type, `!ts.add(f(x)&)`, kept
+        // with their loans until `wait_all` or `wait_first`, or the set's
+        // drop, which cancels those that can fail first. What the waits
+        // give depends on whether `T` can fail, so typecheck types their
+        // calls (`Checker.taskSetCall`); `len` is a member, as a List's.
+        const s = try addGeneric(ctx, module_scope, module_scope, "Tasks", &.{"T"});
+        ctx.tasks_sym_id = s.sym;
+        ctx.symbols.items[s.sym].flags.unique = true;
+        const st = s.params[0];
+        const task_of = try ctx.intern(.{ .parameterized_nominal = .{ .sym = g.sym, .args = try ctx.dupeIds(&.{st}) } });
+        try setFields(ctx, s.sym, &.{
+            try method(ctx, "add", .write, &.{ try ctx.intern(.{ .write_view = s.self_ty }), task_of }, ctx.types.void_id, null),
+            try method(ctx, "wait_all", .value, &.{s.self_ty}, ctx.types.void_id, null),
+            try method(ctx, "wait_first", .value, &.{s.self_ty}, st, null),
         });
     }
 }
