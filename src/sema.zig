@@ -5896,54 +5896,71 @@ pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
 }
 
-/// Whether a value of `ty` may go to a task on another core: nothing it
-/// reaches is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
-/// `Signal`, which change through shared handles, a `Task`, or a function
-/// value, whose captures a function type does not show. Where it cannot
-/// see what a type holds, it says no (docs/CONCURRENCY.md, "What may
-/// cross cores").
-pub fn crossesCores(ctx: *const SemContext, ty: TypeId) bool {
+/// The two facts that say what may go to a task on another core
+/// (docs/CONCURRENCY.md, "What may cross cores"): a value that `moves`
+/// can be handed whole to another thread, and one that `shares` can be
+/// read through a view by another thread while this one also reads it.
+pub const Crossing = enum { moves, shares };
+
+/// Whether a value of `ty` meets `how` (`Crossing`): nothing it reaches
+/// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
+/// `Signal`, which change through handles on this core, a set of tasks,
+/// or a function value, whose captures a function type does not show.
+/// A read view crosses when what it views shares; a write view and a
+/// `Task` move when what they hold moves, and never share. Where it
+/// cannot see what a type holds, it says no.
+pub fn crosses(ctx: *const SemContext, ty: TypeId, how: Crossing) bool {
+    return crossingBlocker(ctx, ty, how) == null;
+}
+
+/// What in `ty` keeps it from meeting `how` (`crosses`): the innermost
+/// type that does not, or null when it does.
+pub fn crossingBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
-    return crossesIn(ctx, ty, &seen);
+    return blockerIn(ctx, ty, how, &seen);
 }
 
 const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
-fn crossesIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
+fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .function, .callable => false,
-        .optional, .fallible, .read_view, .write_view, .range => |inner| crossesIn(ctx, inner, seen),
-        .array => |a| crossesIn(ctx, a.elem, seen),
-        .slice => |sl| crossesIn(ctx, sl.elem, seen),
+        .shared, .weak, .function, .callable => ty,
+        .read_view => |inner| blockerIn(ctx, inner, .shares, seen),
+        .write_view => |inner| if (how == .shares) ty else blockerIn(ctx, inner, .moves, seen),
+        .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, seen),
+        .array => |a| blockerIn(ctx, a.elem, how, seen),
+        .slice => |sl| blockerIn(ctx, sl.elem, how, seen),
         .results => |parts| for (parts) |part| {
-            if (!crossesIn(ctx, part, seen)) break false;
-        } else true,
+            if (blockerIn(ctx, part, how, seen)) |b| break b;
+        } else null,
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk false;
-            for (pn.args) |a| if (!crossesIn(ctx, a, seen)) break :blk false;
-            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk true;
-            break :blk fieldsCross(ctx, pn.sym, seen);
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.tasks_sym_id) break :blk ty;
+            if (pn.sym == ctx.task_sym_id and how == .shares) break :blk ty;
+            for (pn.args) |a| if (blockerIn(ctx, a, how, seen)) |b| break :blk b;
+            if (pn.sym == ctx.task_sym_id or isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
+            break :blk fieldsBlock(ctx, pn.sym, how, seen);
         },
-        .nominal => |sym| fieldsCross(ctx, sym, seen),
+        .nominal => |sym| fieldsBlock(ctx, sym, how, seen),
         .imported_nominal => blk: {
-            const decl = nominalDecl(ctx, ty) orelse break :blk false;
-            break :blk fieldsCross(decl.ctx, decl.sym, seen);
+            const decl = nominalDecl(ctx, ty) orelse break :blk ty;
+            break :blk fieldsBlock(decl.ctx, decl.sym, how, seen);
         },
-        else => true,
+        else => null,
     };
 }
 
-/// The fields and payloads of a declared type all cross (`crossesIn`); a
-/// type already being looked into adds nothing. A generic parameter in a
-/// field stands for an argument, which its instance checks.
-fn fieldsCross(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
-    const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return false;
-    if (got.found_existing) return true;
+/// What in the fields and payloads of a declared type keeps it from
+/// meeting `how` (`blockerIn`); a type already being looked into adds
+/// nothing. A generic parameter in a field stands for an argument, which
+/// its instance checks.
+fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
+    const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return ctx.types.invalid_id;
+    if (got.found_existing) return null;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
-        for (dataFields(f)) |d| if (!crossesIn(ctx, d.ty, seen)) return false;
+        for (dataFields(f)) |d| if (blockerIn(ctx, d.ty, how, seen)) |b| return b;
     }
-    return true;
+    return null;
 }
 
 /// Whether a view of type `view` of a slot of type `slot` (a String, or a
