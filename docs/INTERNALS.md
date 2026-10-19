@@ -3599,7 +3599,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   defer is guarded by a flag, and the consuming site clears it:
 
   ```zig
-  const b = rig.rcNew(Wrap{ .n = 1 });
+  const b = rig.shared(Wrap{ .n = 1 });
   var __rig_alive_b = true;
   defer if (__rig_alive_b) { __rig_alive_b = false; b.dropStrong(); };
   if (c) {
@@ -3655,7 +3655,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   `test/cli/strict_optionals.sh` runs one program both ways every run.
 - **Cells.** A value whose type holds a Cell by value lives only
   behind a shared handle (Core sentence 9): it is always in the heap
-  memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or
+  memory a `*T` points to (`rig.Shared(T)`), as a `Cell[T]`'s value or
   a field of a value made by `*S(...)`, and no binding, parameter,
   temporary, slot, element, or type argument holds one. A Cell changes
   only by a marked call, which is a call on the Cell's address
@@ -3670,7 +3670,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   A type argument never holds a Cell by value, so a generic type's
   `rig.ReadView(T)` is a read-only pointer, and a List element reached
   through a read view is `constSlot(i)`, a `*const T`.
-- **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`,
+- **Types.** `*T` is `*rig.Shared(T)`, `~T` is `rig.Weak(T)`,
   `^T` is `rig.Box(T)` (a pointer to the value, reached as
   `b.value.f`; `?b` lent as a `?T` is `b.value`), `T?`
   is `?T`, `T!` is `anyerror!T`, an error set's members are Zig errors
@@ -4183,9 +4183,9 @@ reviewed.
 
 | Piece | Role |
 |---|---|
-| `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
-| `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
-| `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
+| `Shared(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
+| `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `Shared` past 256 nested releases |
+| `Weak(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
 | `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way (`Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`); `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
