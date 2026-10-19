@@ -826,7 +826,7 @@ test "review-labels-1-w04 header bare jump call step", '''
     print(i)
   print(9)
 
-test "review-labels-1-w07c header old label named like var", '''
+test "review-labels-1-w07c header step call named like var", '''
   0 0
   0 1
   0 2

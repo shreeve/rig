@@ -4422,8 +4422,7 @@ is a builtin call ([Builtins](#builtins)) instead, after a jump too:
 `break $outer (x)` leaves `outer` with the value `(x)`, and `break
 $size(T)` leaves the innermost loop with the value `$size(T)`. A jump's
 value stands apart from its label (`break $outer -1`, not `break
-$outer-1`). A keyword is not a label name, and the old spellings,
-`@outer for` and `:outer for`, are rejected with a hint.
+$outer-1`). A keyword is not a label name.
 
 ```rig reject
 sub main()

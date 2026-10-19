@@ -2536,12 +2536,7 @@ const Checker = struct {
         frame.part = .step;
         const call_step = step.isKind(.call) or (step.isKind(.propagate) and ir.Propagate.value(step).isKind(.call));
         if (step != .nil and !step.isKind(.set) and !call_step) {
-            // `while x ?? break :outer`, a label in the old spelling: the
-            // name reads as the step.
-            const jump = if (step == .src) bareJumpAtEnd(cond) else null;
-            if (jump) |j| {
-                try self.errAt(step, "a label is written `$name`: the `:` in a `while` header starts the step, so `{s}` reads as the step; to name a label, write `{s} ${s}`", .{ self.text(step), j, self.text(step) });
-            } else try self.errAt(step, "a `while` step is an assignment or a call", .{});
+            try self.errAt(step, "a `while` step is an assignment or a call", .{});
         } else if (step != .nil) {
             try self.checkStmt(step);
             // The step runs after the body, which would see a name it
@@ -2876,17 +2871,6 @@ const Checker = struct {
         const elem = self.ctx.symbols.items[pair.elem].name;
         const index = self.ctx.symbols.items[pair.index].name;
         return self.ctx.arena.allocator().print("; `{s}` is the index here: Rig writes the element first, `for {s}, {s} in {s}`", .{ index, index, elem, self.sourceText(pair.source) });
-    }
-
-    /// The `break` or `continue`, with no label or value, that `cond`
-    /// ends in (`x ?? break`), which a label in the old spelling
-    /// (`x ?? break :outer`) was meant for.
-    fn bareJumpAtEnd(cond: Sexp) ?[]const u8 {
-        var e = cond;
-        while (e.isKind(.@"??") or e.isKind(.@"and") or e.isKind(.@"or")) e = ir.get(e, .right);
-        if (e.isKind(.@"break") and ir.Break.label(e) == .nil and ir.Break.value(e) == .nil) return "break";
-        if (e.isKind(.@"continue") and ir.Continue.label(e) == .nil) return "continue";
-        return null;
     }
 
     /// A loop with a `break` that carries a value: its value is used.

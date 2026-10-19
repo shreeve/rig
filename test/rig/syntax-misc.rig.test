@@ -1958,25 +1958,6 @@ test "label break value", '''
     break $rows if m > 6
   print(n)
 
-fail "label at jump", "6:11: a label is written with `$`: `break $outer`, `continue $outer`"
-  # `@` is reserved: a label written the old way after a jump is an error
-  # that says how to write it.
-
-  x = for i in 0..3
-    $inner: for j in 0..3
-      break @inner (j)
-    break i
-  else
-    0
-  print(x)
-
-fail "label at statement", "4:1: a label is written with `$` and a `:` touching its name: `$outer: for ...`, or `$outer:` on a line of its own over the block it names"
-  # `@` is reserved: a label written the old way where a statement
-  # starts is an error that says how to write it.
-
-  @outer for i in 0..3
-    break $outer
-
 fail "label block continue", "6:3: `continue $b` names a block, not a loop"
   # A label alone on a line names the block under it, which `break`
   # leaves; no `continue` names a block.
@@ -2022,22 +2003,6 @@ fail "label keyword", "3:1: a keyword is not a label name"
 
   $for: for i in 0..3
     print(i)
-
-fail "label old spelling", "4:1: a label is written `$name:`: `$outer: for ...`, `break $outer`, `continue $outer`"
-  # A label is written `$name`; the old spelling, `:name`, is rejected
-  # with a hint.
-
-  :outer for i in 0..3
-    print(i)
-
-fail "label old spelling jump", "7:14: a label is written `$name:`: `$outer: for ...`, `break $outer`, `continue $outer`"
-  # A label after a jump is written `$name`; `continue :outer`, spaced or
-  # not, is the old spelling.
-
-  $outer: for i in 0..3
-    for j in 0..3
-      print(j - i)
-      continue : outer
 
 fail "label on defer", "3:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave, or, on a line of its own, the block under it; `$d` cannot label a `defer`", "4:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave, or, on a line of its own, the block under it; `$e` cannot label a `defer`", errors: 2
   # A `defer` takes no label: nothing can jump out of it by name.
@@ -3429,8 +3394,7 @@ test "pass statement", '''
   defer pass
 
 fail "pin sigil reserved", "`@` is reserved"
-  # `@` is reserved: an `@` before a name is a lexical error, which says
-  # how a builtin call and a label are written.
+  # `@` is reserved: an `@` is a lexical error.
 
   x = 42
   p = @x

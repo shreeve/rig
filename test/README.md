@@ -267,12 +267,12 @@ local write view, and writes through the place while a view of the binding lives
 program must be rejected (`hdr.`). A `while` step
 reads what its condition binds, a view or an object holding one, while
 the body grows what it views on each way to the step (the body's end,
-`continue`, `continue :outer` from a nested `for`, `while`, or
+`continue`, `continue $outer` from a nested `for`, `while`, or
 `while … as`, also under a joined or `catch break` condition, an inner
 loop, a `defer`, a `break`), and a program that runs must print how
 many steps ran. And it puts a `while`, `for`, `while … as`, `match`, or
 `if` in each kind of loop (`while`, `while … as`, joined, `catch break`,
-`for`) that jumps once (`continue`, `continue :outer`, `break :outer`,
+`for`) that jumps once (`continue`, `continue $outer`, `break $outer`,
 or `continue` in the inner construct's `else`) past a `defer` or an
 owned local, and a program that runs must print the trace of passes,
 steps, defers, and drops the jumps' meaning gives. Last, it changes or
