@@ -940,6 +940,9 @@ pub const Facts = struct {
     /// The `Bool`s that decide a test, its last line and each `return`
     /// with a value in it -> what a failing one reports.
     test_checks: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
+    /// The calls of `task.both` and `task.all`, which wait for the tasks
+    /// they take (`Checker.taskJoin`).
+    task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -2087,6 +2090,7 @@ pub const SemContext = struct {
     list_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
     task_sym_id: SymbolId = symbol_invalid,
+    tasks_sym_id: SymbolId = symbol_invalid,
     /// The module makes a task (`f(x)&`): the program's root declares
     /// `__rig_tasks`, which runs it on the `Threaded` backend.
     makes_tasks: bool = false,
@@ -3119,6 +3123,15 @@ pub const SemContext = struct {
         return self.facts.temp_drops.contains(nodeKey(node) orelse return false);
     }
 
+    pub fn recordTaskJoin(self: *SemContext, call: Sexp) !void {
+        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is a `task.both` or `task.all` (`recordTaskJoin`).
+    pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
+        return self.facts.task_joins.contains(exprKey(call) orelse return false);
+    }
+
     pub fn recordTestCheck(self: *SemContext, node: Sexp, shown: []const u8) !void {
         try self.facts.test_checks.put(self.allocator, recordExprKey(node) orelse return, shown);
     }
@@ -3977,8 +3990,8 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // lives only behind a `*` handle (typecheck rejects one held by
     // value), whose release drops it.
     // A task owns its running call, and its drop waits for it.
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.task_sym_id) c.plain = false;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.glue = true;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -4173,8 +4186,9 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             // type does not name, so it may always hold a view: a shared
             // home never holds one (docs/CONCURRENCY.md, "Loans and
             // structure"). Its loans are never write views by type: a
-            // task lent to write stays where it is bound.
-            if (pn.sym == ctx.task_sym_id) {
+            // task lent to write stays where it is bound. A set of tasks
+            // keeps the loans of each.
+            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) {
                 var r: Reach = .{ .unique = true, .views = .{ .marked = true } };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask, into));
                 break :blk r;
@@ -5482,9 +5496,9 @@ pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
-/// `Task`.
+/// `Task`, `Tasks`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.task_sym_id;
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -5829,6 +5843,22 @@ pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// Whether `ty` is a set of tasks, `Tasks[T]`.
+pub fn isTaskSet(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn.sym == ctx.tasks_sym_id,
+        else => false,
+    };
+}
+
+/// The `T` of a `Task[T]` or a `Tasks[T]`: what each of its tasks gives.
+pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and pn.args.len == 1) pn.args[0] else null,
+        else => null,
+    };
+}
+
 /// Whether a value of `ty` may go to a task on another core: nothing it
 /// reaches is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
 /// `Signal`, which change through shared handles, a `Task`, or a function
@@ -5853,7 +5883,7 @@ fn crossesIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged
             if (!crossesIn(ctx, part, seen)) break false;
         } else true,
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.task_sym_id) break :blk false;
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk false;
             for (pn.args) |a| if (!crossesIn(ctx, a, seen)) break :blk false;
             if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk true;
             break :blk fieldsCross(ctx, pn.sym, seen);
@@ -6672,7 +6702,7 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool
         .parameterized_nominal => |pn| blk: {
             // A task's drop waits for its call, which uses the loans the
             // task keeps (CORE sentence 6).
-            if (pn.sym == ctx.task_sym_id) break :blk true;
+            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk true;
             for (pn.args) |a| if (runsDropBody(ctx, a, path)) break :blk true;
             break :blk fieldsRunDropBody(ctx, pn.sym, path);
         },

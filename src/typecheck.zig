@@ -1902,7 +1902,7 @@ const Checker = struct {
             } else if (self.ctx.isEnumText(step)) {
                 place.block(if (inner == self.t().symbol_id) .symbol_text else .text, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
-            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
+            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             }
@@ -6515,7 +6515,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .array, .slice, .string_view, .static, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
-            .parameterized_nominal => if ((listElementType(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null) and std.mem.eql(u8, field, "len")) return self.t().int_id,
+            .parameterized_nominal => if ((listElementType(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null or sema.isTaskSet(self.ctx, peeled)) and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
                 return self.t().invalid_id;
@@ -6960,11 +6960,15 @@ const Checker = struct {
         }
         const args = try self.ctx.arena.allocator().alloc(TypeId, given.len);
         var bad = false;
+        // What a task gives may fail: `Tasks[Int!]()`.
+        const gives = nt.id == self.ctx.task_sym_id or nt.id == self.ctx.tasks_sym_id;
         for (given, args, params, 0..) |g, *a, tp, i| {
             a.* = if (self.ctx.symbols.items[tp].kind == .param)
                 (try self.ctIntArg(g, tp, i, nt.sym.name)) orelse self.t().invalid_id
-            else
-                try self.typeArg(g);
+            else if (gives and g.isKind(.propagate)) blk: {
+                const inner = try self.typeArg(ir.Propagate.value(g));
+                break :blk if (self.isPoison(inner)) inner else try self.ctx.intern(.{ .fallible = inner });
+            } else try self.typeArg(g);
             if (self.isPoison(a.*)) bad = true;
         }
         if (bad) return self.t().invalid_id;
@@ -7019,7 +7023,7 @@ const Checker = struct {
                     });
                 },
                 .propagate => {
-                    try self.errAt(e, "a fallible type `{s}` is only allowed as a function's return type", .{self.sourceText(e)});
+                    try self.errAt(e, "a fallible type `{s}` stands only where a call's result is named: a function's return type, or a task's, `Task[T!]`", .{self.sourceText(e)});
                     return self.t().invalid_id;
                 },
                 .index, .inst => if (try self.instTarget(ir.get(e, .object))) |target| switch (target) {
@@ -7057,7 +7061,7 @@ const Checker = struct {
         var base = op;
         while (base.isKind(.propagate_none) or base.isKind(.propagate)) : (count += 1) {
             if (base.isKind(.propagate)) {
-                try self.errAt(e, "a fallible type `{s}` is only allowed as a function's return type", .{self.sourceText(e)});
+                try self.errAt(e, "a fallible type `{s}` stands only where a call's result is named: a function's return type, or a task's, `Task[T!]`", .{self.sourceText(e)});
                 return self.t().invalid_id;
             }
             base = ir.PropagateNone.value(base);
@@ -10357,7 +10361,10 @@ const Checker = struct {
                 obj = place;
             }
         }
-        if (try self.moduleNamed(obj)) |id| return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
+        if (try self.moduleNamed(obj)) |id| {
+            if (ct == null) if (try self.taskJoin(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
+            return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
+        }
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
         if (self.symbolNamed(obj)) return self.misreachedWrite(misreached, obj, method, try self.symbolTypeCall(callee, method, pos, args, ct));
         if (try self.numberType(obj)) |nty| return self.misreachedWrite(misreached, obj, method, try self.numberTypeCall(callee, obj, nty, method, pos, args, ct));
@@ -10417,6 +10424,7 @@ const Checker = struct {
             else => {},
         }
 
+        if (try self.taskSetWait(callee, obj, obj_ty, method, pos, args)) |ty| return ty;
         if (cellListElement(self.ctx, obj_ty)) |elem| if (try self.cellListCall(callee, obj, obj_ty, elem, pos, args)) |ty| {
             const mode: MethodReceiver = if (std.mem.eql(u8, method, "get")) .read else .write;
             if (mode == .read and self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads the Cell");
@@ -10796,6 +10804,97 @@ const Checker = struct {
     /// A `Cell[List[E]]` answers its List's `push`, `pop`, `keep`,
     /// `clear`, and, for a plain-data `E`, `get(i)`, through any path to
     /// the cell, as `set` does. Null for the Cell's own members.
+    /// `task.both(a, b)` and `task.all(a, b, ...)` of `std.task`: wait for
+    /// tasks of any types, which the call takes, and give each one's value
+    /// as several results, failing when any task can. Rig declares no
+    /// function of any number of arguments, so the call is typed here,
+    /// its parameters the tasks' own types (`argType`). Null when
+    /// `module_sym` is not `std.task`, or `name` neither.
+    fn taskJoin(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
+        if (!std.mem.eql(u8, foreign.name, "std.task")) return null;
+        const both = std.mem.eql(u8, name, "both");
+        if (!both and !std.mem.eql(u8, name, "all")) return null;
+        if (both and args.len != 2) return try self.badCall(args, pos, "`task.both` waits for two tasks, `task.both(f(x)&, g(y)&)`; for more, `task.all`", .{});
+        if (!both and args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `<t.wait()`", .{});
+        const a = self.ctx.arena.allocator();
+        const params = try a.alloc(TypeId, args.len);
+        const parts = try a.alloc(TypeId, args.len);
+        var fails = false;
+        for (args, params, parts) |arg, *p, *part| {
+            if (arg.isKind(.kwarg)) return try self.badCall(args, arg, "`task.{s}` takes its tasks in order, with no names", .{name});
+            const ty = try self.argType(arg);
+            if (self.isPoison(ty)) return try self.skipCall(args);
+            if (!sema.isTask(self.ctx, ty)) return try self.badCall(args, arg, "`task.{s}` waits for tasks, and `{s}` is a `{s}`: make the call a task, `f(x)&`", .{ name, self.sourceText(arg), try self.tyName(ty) });
+            const gives = sema.taskResult(self.ctx, ty).?;
+            const can_fail = self.ctx.types.get(gives) == .fallible;
+            const value = if (can_fail) self.ctx.types.get(gives).fallible else gives;
+            if (value == self.t().void_id) return try self.badCall(args, arg, "`task.{s}` gives each task's value, and `{s}` gives none: wait for it on its own, `<t.wait()`", .{ name, self.sourceText(arg) });
+            fails = fails or can_fail;
+            p.* = ty;
+            part.* = value;
+        }
+        const results = try self.ctx.intern(.{ .results = try self.ctx.dupeIds(parts) });
+        const result = if (fails) try self.ctx.intern(.{ .fallible = results }) else results;
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = false };
+        try self.noteCallee(f);
+        try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
+        if (self.current_call) |call| try self.ctx.recordTaskJoin(call);
+        return result;
+    }
+
+    /// `<ts.wait_all()` and `<ts.wait_first()`, each with a deadline
+    /// when its tasks can fail, `within: ns`: the waits of a set of
+    /// tasks, whose results depend on whether its tasks can fail. Null
+    /// when the receiver is not a set, or `method` neither wait.
+    fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const set = sema.unwrapViews(self.ctx, obj_ty);
+        if (!sema.isTaskSet(self.ctx, set)) return null;
+        const first = std.mem.eql(u8, method, "wait_first");
+        if (!first and !std.mem.eql(u8, method, "wait_all")) return null;
+        const each = sema.taskResult(self.ctx, set).?;
+        const fails = self.ctx.types.get(each) == .fallible;
+        const value = if (fails) self.ctx.types.get(each).fallible else each;
+        const result = if (first) each else blk: {
+            const all = if (value == self.t().void_id) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
+            break :blk if (fails) try self.ctx.intern(.{ .fallible = all }) else all;
+        };
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{set}), .returns = result, .is_sub = result == self.t().void_id };
+        try self.noteCallee(f);
+        _ = try self.noteMethod(callee, .value, result);
+        const misplaced_sigil = try self.checkReceiverSigil(obj, .value, result, method);
+        try self.recordUse(obj, .take);
+        if (!misplaced_sigil) {
+            const saved_of = self.receiver_of;
+            defer self.receiver_of = saved_of;
+            self.receiver_of = callee;
+            try self.checkReceiverMode(obj, .value, classifyReceiverType(self.ctx, obj_ty, self.ctx.tasks_sym_id), method, pos, result);
+        }
+        const shown = try self.plainText(stripSigil(obj));
+        // Only tasks that can fail can be stopped: neither the first to
+        // finish nor a deadline can leave the others behind.
+        if (first and !fails) {
+            try self.err(pos, "`wait_first` takes the first task to succeed and cancels the rest, and the tasks of `{s}` cannot fail, so they cannot be canceled: wait for all of them, `<{s}.wait_all()`", .{ try self.tyName(set), shown });
+            try self.synthArgs(args);
+            return self.t().invalid_id;
+        }
+        if (args.len > 1 or (args.len == 1 and !(args[0].isKind(.kwarg) and std.mem.eql(u8, self.text(ir.Kwarg.name(args[0])), "within")))) {
+            try self.err(pos, "`{s}` takes only a deadline, in nanoseconds: `<{s}.{s}(within: 2 * time.SECOND)`", .{ method, shown, method });
+            try self.synthArgs(args);
+            return self.t().invalid_id;
+        }
+        if (args.len == 1) {
+            if (!fails) {
+                try self.errAt(args[0], "a deadline cancels the tasks still running, and the tasks of `{s}` cannot fail, so they cannot be canceled: remove `within:`", .{try self.tyName(set)});
+                try self.synthArgs(args);
+                return self.t().invalid_id;
+            }
+            try self.checkExpr(ir.Kwarg.value(args[0]), self.t().int_id);
+        }
+        return result;
+    }
+
     fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
         const method = self.text(ir.Member.name(callee));
         const Member = enum { push, pop, keep, clear, get };

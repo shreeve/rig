@@ -35,7 +35,7 @@ never read as the library's.
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
-| [`std.task`](#stdtask) | stopping a task: the `Stop` errors and `check` |
+| [`std.task`](#stdtask) | stopping a task, and waiting for several: `Stop`, `check`, `both`, `all` |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -367,6 +367,8 @@ task does finishes as it would.
 |---|---|
 | `error Stop` | `canceled`, the request to stop, and `timeout` |
 | `check()!` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, and otherwise give other threads a turn |
+| `both(a, b)` | wait for two tasks of any types, and give each one's value as two results; it can fail when either task can, and then the first to fail cancels the other |
+| `all(a, b, ...)` | `both` for two tasks or more |
 
 A long computation calls `task.check()!` where stopping is safe:
 

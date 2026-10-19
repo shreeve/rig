@@ -173,7 +173,8 @@ thread for a task, the program panics, as it does when memory runs out.
 
 ## Sets of tasks
 
-`Tasks[T]` is the one group type. It is in `std` and needs no syntax:
+`Tasks[T]` is the one group type. It is built in, as `Task` is, and needs
+no syntax:
 
 - `!ts.add(f()&)` adds a task. With no result (`Tasks[Void]`), a task that
   has finished is removed at once, so a long-running server loop never

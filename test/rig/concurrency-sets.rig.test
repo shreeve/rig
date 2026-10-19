@@ -1,0 +1,315 @@
+# concurrency: tests whose names start `sets`.
+
+test "sets wait all", '''
+  4 <4 tasks>
+  [0, 1, 4, 9]
+'''
+  # `Tasks[T]` holds tasks of one type; `wait_all` gives their results in
+  # the order added.
+  fun sq(x: Int) -> Int
+    x * x
+
+  ts = Tasks[Int]()
+  for i in 0..4
+    !ts.add(sq(i)&)
+  print(ts.len, ts)
+  print(<ts.wait_all())
+
+test "sets order added", "[10, 20]"
+  # The second task ends first; the results keep the order added.
+  use std.time
+
+  fun fetch(n: Int, ms: Int) -> Int!
+    time.sleep(ms * time.MS)!
+    n * 10
+
+  ts = Tasks[Int!]()
+  !ts.add(fetch(1, 20)&)
+  !ts.add(fetch(2, 1)&)
+  <ts.wait_all()!
+
+test "sets first error", release: true, '''
+  slow 1 stops
+  slow 2 stops
+  Fetch.missing
+  true
+'''
+  # The first task to fail cancels the rest, and the wait fails with its
+  # error.
+  use std.time
+
+  error Fetch
+    missing
+
+  fun fail_soon() -> Int!
+    time.sleep(5 * time.MS)!
+    return Fetch.missing
+
+  fun slow(n: Int) -> Int!
+    defer print("slow", n, "stops")
+    time.sleep(10 * time.SECOND)!
+    n
+
+  fun run() -> Int!
+    ts = Tasks[Int!]()
+    !ts.add(slow(1)&)
+    !ts.add(fail_soon()&)
+    !ts.add(slow(2)&)
+    xs = <ts.wait_all()!
+    xs.len
+
+  start = time.now()
+  _ = run() catch |e|
+    print(e)
+    0
+  print(start.elapsed() < 5 * time.SECOND)
+
+test "sets deadline", '''
+  slow stops
+  Stop.timeout true
+'''
+  # `within:` cancels what is still running when the deadline passes.
+  use std.task
+  use std.time
+
+  fun slow() -> Int!
+    defer print("slow stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  fun run() -> Int!
+    ts = Tasks[Int!]()
+    !ts.add(slow()&)
+    xs = <ts.wait_all(within: 20 * time.MS)!
+    xs.len
+
+  _ = run() catch |e|
+    print(e, e == task.Stop.timeout)
+    0
+
+test "sets wait first", '''
+  slow stops
+  50
+'''
+  # The first task to succeed; a failure before it is passed over.
+  use std.time
+
+  error Fetch
+    missing
+
+  fun fetch(n: Int, ms: Int) -> Int!
+    time.sleep(ms * time.MS)!
+    return Fetch.missing if n == 3
+    n * 10
+
+  fun slow() -> Int!
+    defer print("slow stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  ts = Tasks[Int!]()
+  !ts.add(slow()&)
+  !ts.add(fetch(3, 1)&)
+  !ts.add(fetch(5, 5)&)
+  print(<ts.wait_first()!)
+
+test "sets wait first all fail", "Fetch.late"
+  # When every task fails, `wait_first` fails with the last error.
+  use std.time
+
+  error Fetch
+    early
+    late
+
+  fun early() -> Int!
+    return Fetch.early
+
+  fun late() -> Int!
+    time.sleep(20 * time.MS)!
+    return Fetch.late
+
+  fun run() -> Int!
+    ts = Tasks[Int!]()
+    !ts.add(early()&)
+    !ts.add(late()&)
+    <ts.wait_first()!
+
+  run() catch |e|
+    print(e)
+    0
+
+test "sets drop cancels", '''
+  slow stops
+  done
+'''
+  # Dropping a set cancels the tasks that can fail, then waits for them.
+  use std.time
+
+  fun slow() -> Int!
+    defer print("slow stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  fun run(early: Bool) -> Int!
+    ts = Tasks[Int!]()
+    !ts.add(slow()&)
+    return 0 if early
+    xs = <ts.wait_all()!
+    xs.len
+
+  _ = run(true) catch 0
+  print("done")
+
+test "sets void", '''
+  1
+  done 3
+'''
+  # A set of tasks that give nothing drops each that ended well as the
+  # next is added, so it holds only those still running.
+  use std.time
+
+  sub say(n: Int)
+    time.sleep(n * time.MS) catch print("woken")
+
+  ts = Tasks[Void]()
+  !ts.add(say(0)&)
+  time.sleep(20 * time.MS)!
+  !ts.add(say(30)&)
+  print(ts.len)
+  <ts.wait_all()
+  print("done", 3)
+
+test "sets both", '''
+  user2 6
+  6
+'''
+  # `task.both` waits for two tasks of different types.
+  use std.task
+  use std.time
+
+  fun user(id: Int) -> String!
+    time.sleep(5 * time.MS)!
+    String("user", id)
+
+  fun orders(id: Int) -> Int!
+    id * 3
+
+  fun both(id: Int) -> Int!
+    u, o = task.both(user(id)&, orders(id)&)!
+    print(u, o)
+    o
+
+  print(both(2) catch -1)
+
+test "sets both fails", '''
+  slow stops
+  -1
+'''
+  # The first to fail cancels the other.
+  use std.task
+  use std.time
+
+  error Fetch
+    missing
+
+  fun slow() -> Int!
+    defer print("slow stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  fun missing() -> Int!
+    return Fetch.missing
+
+  fun run() -> Int!
+    a, b = task.both(slow()&, missing()&)!
+    a + b
+
+  print(run() catch -1)
+
+test "sets all", "4 9 16 25"
+  # `task.all` takes two tasks or more; a moved task too.
+  use std.task
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  a, b, c, d = task.all(sq(2)&, sq(3)&, sq(4)&, <t)
+  print(a, b, c, d)
+
+fail "sets wait first infallible", "`wait_first` takes the first task to succeed and cancels the rest, and the tasks of `Tasks[Int]` cannot fail, so they cannot be canceled: wait for all of them, `<ts.wait_all()`", errors: 1
+  fun sq(x: Int) -> Int
+    x * x
+
+  ts = Tasks[Int]()
+  !ts.add(sq(2)&)
+  print(<ts.wait_first())
+
+fail "sets deadline infallible", "a deadline cancels the tasks still running, and the tasks of `Tasks[Int]` cannot fail, so they cannot be canceled: remove `within:`", errors: 1
+  fun sq(x: Int) -> Int
+    x * x
+
+  ts = Tasks[Int]()
+  !ts.add(sq(2)&)
+  print(<ts.wait_all(within: 5))
+
+fail "sets wait args", "`wait_all` takes only a deadline, in nanoseconds: `<ts.wait_all(within: 2 * time.SECOND)`", errors: 1
+  fun sq(x: Int) -> Int!
+    x * x
+
+  ts = Tasks[Int!]()
+  !ts.add(sq(2)&)
+  print(<ts.wait_all(5) catch List[Int]())
+
+fail "sets loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # A set keeps the loans of its tasks.
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  !ts.add(total(?xs)&)
+  !xs.push(1)
+  print(<ts.wait_all())
+
+fail "sets write loan", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound", errors: 1
+  fun fill(xs: !List[Int]) -> Int
+    !xs.push(1)
+    1
+
+  xs: List[Int] = List()
+  ts = Tasks[Int]()
+  !ts.add(fill(!xs)&)
+  print(<ts.wait_all())
+
+fail "sets lost", "the tasks of `ws` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost", errors: 1
+  fun sq(x: Int) -> Int!
+    x * x
+
+  ws = Tasks[Int!]()
+  !ws.add(sq(2)&)
+
+fail "sets both count", "`task.both` waits for two tasks, `task.both(f(x)&, g(y)&)`; for more, `task.all`", errors: 1
+  use std.task
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  a, b, c = task.both(sq(1)&, sq(2)&, sq(3)&)
+  print(a, b, c)
+
+fail "sets both not a task", "`task.both` waits for tasks, and `sq(2)` is a `Int`: make the call a task, `f(x)&`", errors: 1
+  use std.task
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  a, b = task.both(sq(1)&, sq(2))
+  print(a, b)
+
+bomb "sets wait first empty", "wait_first on a set with no tasks"
+  fun sq(x: Int) -> Int!
+    x * x
+
+  ts = Tasks[Int!]()
+  print(<ts.wait_first() catch -1)
