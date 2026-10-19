@@ -101,8 +101,8 @@ aim to match it in the rest.
   io_uring) is tuned by years of real load. Rig's is the plan's fifth
   step ("The engine").
 - **Memory for a task at rest.** A Tokio task can be a few hundred
-  bytes; a Rig task holds two pages of its stack, 32 KiB on the Mac and
-  9 KiB on Linux. Closing that gap, by stacks sized to a proven bound
+  bytes; a Rig task holds a page of its stack, 17 KiB on the Mac and
+  5 KiB on Linux. Closing that gap, by stacks sized to a proven bound
   and stacks smaller still, is measured work ("The engine").
 - **Maturity.** Its ecosystem, its tooling, and its years in
   production.
