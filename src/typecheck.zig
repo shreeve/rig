@@ -7546,8 +7546,8 @@ const Checker = struct {
     /// `f(x)&`: the call made a task, of type `Task[T]` for the call's
     /// result `T`, a fallible one too, whose failure `<t.wait()!` passes
     /// on (docs/CONCURRENCY.md, "Tasks"). The callee is a Rig function or
-    /// method, and every argument, and the receiver, may go to another
-    /// core (`sema.crossesCores`).
+    /// method, and every argument, and a method's self (`@`), may go to
+    /// another core as it is passed (`crossCheck`).
     fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
         if (self.isPoison(ty)) return self.t().invalid_id;
         const callee = ir.Call.callee(node);
@@ -7561,7 +7561,13 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         var parts: std.ArrayList(Sexp) = .empty;
-        if (callee.isKind(.member)) try parts.append(self.ctx.arena.allocator(), ir.Member.object(callee));
+        // A method's self, `@`, is passed as the method takes it.
+        var self_mode: sema.MethodReceiver = .none;
+        if (callee.isKind(.member)) {
+            const obj = ir.Member.object(callee);
+            try parts.append(self.ctx.arena.allocator(), obj);
+            if (self.ctx.typeOf(obj)) |obj_ty| self_mode = sema.methodReceiver(self.ctx, obj_ty, self.text(ir.Member.name(callee))) orelse .none;
+        }
         for (ir.Call.args(node)) |arg| try parts.append(self.ctx.arena.allocator(), if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
         // A task lent to write keeps its write loan while it runs, and no
         // value holds a write view: it stays where it is bound, and is
@@ -7577,14 +7583,61 @@ const Checker = struct {
             }
             if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
         }
-        for (parts.items) |part| {
+        for (parts.items, 0..) |part, i| {
             const part_ty = self.ctx.typeOf(part) orelse continue;
-            if (self.isPoison(part_ty) or sema.crossesCores(self.ctx, part_ty)) continue;
-            try self.errAt(part, "a task may run on another core, and `{s}` holds what stays on this one: a `*T` or `~T` handle, a `Cell`, a `Signal`, a task, or a function", .{try self.tyName(part_ty)});
-            return self.t().invalid_id;
+            if (self.isPoison(part_ty)) continue;
+            const as_self: ?sema.MethodReceiver = if (i == 0 and callee.isKind(.member)) self_mode else null;
+            if (!try self.crossCheck(part, part_ty, as_self)) return self.t().invalid_id;
         }
         self.ctx.makes_tasks = true;
         return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+    }
+
+    /// Whether `part`, of type `part_ty`, an argument of a task or its
+    /// method's self (taken as `as_self` says), may go to the task on
+    /// another core, as it is passed: given (moved or copied) when its type moves,
+    /// lent to read when it shares, and lent to write when what it views
+    /// moves (`sema.Crossing`). Reports the part that cannot.
+    fn crossCheck(self: *Checker, part: Sexp, part_ty: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
+        const k = self.ctx.types.get(part_ty);
+        const Mode = enum { given, read, write };
+        const mode: Mode = if (as_self) |r| switch (r) {
+            .read => .read,
+            .write => .write,
+            .value, .none => if (k == .read_view) .read else if (k == .write_view) .write else .given,
+        } else if (k == .read_view) .read else if (k == .write_view) .write else .given;
+        const how: sema.Crossing = if (mode == .read) .shares else .moves;
+        const inner = if (k == .read_view or k == .write_view) sema.unwrapViews(self.ctx, part_ty) else part_ty;
+        const blocker = sema.crossingBlocker(self.ctx, inner, how) orelse return true;
+        const passed = switch (mode) {
+            .given => "is given to it",
+            .read => "is lent to it to read",
+            .write => "is lent to it to write",
+        };
+        try self.errAt(part, "a task may run on another core, and `{s}` {s}: `{s}` {s}", .{ self.sourceText(part), passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
+        return false;
+    }
+
+    /// Why a value holding `blocker` cannot go to another core
+    /// (`crossCheck`), and to be read there when `shared`; `verb` says how
+    /// it relates to `blocker` when it is that type or views it.
+    fn blockerReason(self: *Checker, blocker: TypeId, shared: bool, verb: ?[]const u8) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const what = verb orelse try std.fmt.allocPrint(a, "holds `{s}`,", .{try self.tyName(blocker)});
+        const why: []const u8 = switch (self.ctx.types.get(blocker)) {
+            .shared => "a `*` handle whose count is not atomic, so two cores could change it at once",
+            .weak => "a `~` handle whose count is not atomic, so two cores could change it at once",
+            .function, .callable => "a function, whose captures its type does not show",
+            .write_view => "a write view, which no two tasks may hold at once",
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.task_sym_id and shared)
+                "a task, which only the one that holds it may wait for"
+            else if (pn.sym == self.ctx.tasks_sym_id)
+                "a set of tasks, which stays with the task that made it"
+            else
+                "a value that changes through handles that stay on this core",
+            else => "a value that cannot go to another core",
+        };
+        return std.fmt.allocPrint(a, "{s} {s}", .{ what, why });
     }
 
     /// How a callee is spelled, for messages: `f`, `a.f`, or `.m`.

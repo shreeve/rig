@@ -3,8 +3,8 @@
 //!
 //! Ownership conventions shared with the emitter:
 //!
-//! - `*T` is `*RcBox(T)`: single-threaded reference counting with weak
-//!   handles (`WeakHandle(T)`). `cloneStrong` / `dropStrong` /
+//! - `*T` is `*Shared(T)`: single-threaded reference counting with weak
+//!   handles (`Weak(T)`). `cloneStrong` / `dropStrong` /
 //!   `weakRef` / `cloneWeak` / `dropWeak` / `upgrade` are the only
 //!   refcount operations; the emitter spells every one explicitly.
 //! - `dropElement` is the single place that knows how to release a value
@@ -164,12 +164,12 @@ pub inline fn pack(comptime O: type, x: ?Payload(O)) O {
 // Dropping values
 // -----------------------------------------------------------------------------
 
-/// True when `T` is `*RcBox(U)` for some `U`.
-fn isStrongHandle(comptime T: type) bool {
+/// True when `T` is `*Shared(U)` for some `U`.
+fn isShared(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .one and
             @typeInfo(p.child) == .@"struct" and
-            @hasDecl(p.child, "__rig_rcbox"),
+            @hasDecl(p.child, "__rig_shared"),
         else => false,
     };
 }
@@ -182,7 +182,7 @@ fn isStrongHandle(comptime T: type) bool {
 fn needsDrop(comptime T: type) bool {
     if (comptime isOptStruct(T)) return needsDrop(Payload(T));
     return switch (@typeInfo(T)) {
-        .pointer => isStrongHandle(T),
+        .pointer => isShared(T),
         .optional => |o| needsDrop(o.child),
         .error_union => |e| needsDrop(e.payload),
         .array => |a| needsDrop(a.child),
@@ -474,7 +474,7 @@ fn nullish(x: anytype) bool {
 /// handle holding one.
 fn isString(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .@"struct" => @hasDecl(T, "__rig_string") or ((@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_rcbox")) and isString(@TypeOf(@as(T, undefined).value))),
+        .@"struct" => @hasDecl(T, "__rig_string") or ((@hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_shared")) and isString(@TypeOf(@as(T, undefined).value))),
         .pointer => |p| p.size == .one and isString(p.child),
         else => false,
     };
@@ -486,7 +486,7 @@ fn stringBytes(x: anytype) []const u8 {
     if (comptime !isString(X)) return x;
     if (comptime @typeInfo(X) == .pointer) return stringBytes(x.*);
     if (comptime @hasDecl(X, "__rig_box")) return stringBytes(x.value.*);
-    if (comptime @hasDecl(X, "__rig_rcbox")) return stringBytes(x.value);
+    if (comptime @hasDecl(X, "__rig_shared")) return stringBytes(x.value);
     return x.list.items;
 }
 
@@ -664,17 +664,17 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
 // Shared and weak handles
 // -----------------------------------------------------------------------------
 
-/// Reference-counted box behind `*T`. `strong` counts owning handles;
+/// The counted allocation behind `*T`. `strong` counts owning handles;
 /// `weak` counts weak handles plus one on behalf of all strong handles,
 /// so the box outlives its value while weak handles remain.
-pub fn RcBox(comptime T: type) type {
+pub fn Shared(comptime T: type) type {
     return struct {
         strong: usize,
         weak: usize,
         value: T,
 
-        /// Marks the type for `isStrongHandle`.
-        pub const __rig_rcbox = {};
+        /// Marks the type for `isShared`.
+        pub const __rig_shared = {};
 
         const Self = @This();
 
@@ -684,7 +684,7 @@ pub fn RcBox(comptime T: type) type {
             return self;
         }
 
-        pub fn weakRef(self: *Self) WeakHandle(T) {
+        pub fn weakRef(self: *Self) Weak(T) {
             std.debug.assert(self.strong > 0);
             self.weak += 1;
             return .{ .ptr = self };
@@ -754,10 +754,10 @@ fn drainDropQueue() void {
     t.drop_queue.clearAndFree(std.heap.smp_allocator);
 }
 
-/// `~T`: a non-owning handle to an `RcBox(T)`.
-pub fn WeakHandle(comptime T: type) type {
+/// `~T`: a non-owning handle to a `Shared(T)`.
+pub fn Weak(comptime T: type) type {
     return struct {
-        ptr: *RcBox(T),
+        ptr: *Shared(T),
 
         const Self = @This();
         /// Its handle's type, for `typeName`.
@@ -779,7 +779,7 @@ pub fn WeakHandle(comptime T: type) type {
         }
 
         /// A new strong handle, or null once the value has been dropped.
-        pub fn upgrade(self: Self) ?*RcBox(T) {
+        pub fn upgrade(self: Self) ?*Shared(T) {
             if (self.ptr.strong == 0) return null;
             self.ptr.strong += 1;
             return self.ptr;
@@ -835,7 +835,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
 pub fn cloneOptional(value: anytype) @TypeOf(value) {
     const O = @TypeOf(value);
     const h = some(value) orelse return pack(O, null);
-    return pack(O, if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak());
+    return pack(O, if (comptime isShared(@TypeOf(h))) h.cloneStrong() else h.cloneWeak());
 }
 
 /// `e == none` for a temporary optional that owns a resource: the
@@ -878,8 +878,8 @@ pub fn discardAt(ptr: anytype) void {
 }
 
 /// Allocate a new `*T` holding `value`.
-pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
-    const box = create(RcBox(@TypeOf(value)));
+pub fn shared(value: anytype) *Shared(@TypeOf(value)) {
+    const box = create(Shared(@TypeOf(value)));
     box.* = .{ .strong = 1, .weak = 1, .value = value };
     return box;
 }
@@ -1137,7 +1137,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         }
 
         /// Lend the owned closure `handle` points to (a
-        /// `*RcBox(Closure(params, R))`, or a pointer to one).
+        /// `*Shared(Closure(params, R))`, or a pointer to one).
         pub fn ofClosure(handle: anytype) Self {
             const box = if (@typeInfo(@TypeOf(handle.*)) == .pointer) handle.* else handle;
             const C = @TypeOf(box.value);
@@ -1171,7 +1171,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
 pub fn Signal(comptime T: type) type {
     return struct {
         value: T,
-        subs: List(*RcBox(Callback)),
+        subs: List(*Shared(Callback)),
         notifying: bool = false,
         pending: ?T = null,
 
@@ -1211,7 +1211,7 @@ pub fn Signal(comptime T: type) type {
 
         /// Takes ownership of `cb`; the caller passes its own strong
         /// handle (`sig.subscribe(+cb)` to keep one).
-        pub fn subscribe(self: *Self, cb: *RcBox(Callback)) void {
+        pub fn subscribe(self: *Self, cb: *Shared(Callback)) void {
             if (self.notifying) @panic("Signal.subscribe called while notifying subscribers");
             self.subs.push(cb);
         }
@@ -1680,7 +1680,7 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
         // or slice: its instance is a type the generic body may copy.
         .pointer => |p| if (@typeInfo(p.child) == .@"fn")
             fnName(@typeInfo(p.child).@"fn".param_types, @typeInfo(p.child).@"fn".return_type.?, names)
-        else if (isStrongHandle(T))
+        else if (isShared(T))
             handleName("*", @FieldType(p.child, "value"), names)
         else
             @compileError("rig.typeName: no Rig name for " ++ @typeName(T)),
@@ -1772,7 +1772,7 @@ fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
     if (builtinName(T, names)) |name| return name[0] == '?';
     return switch (@typeInfo(T)) {
         .array => true,
-        .pointer => |p| if (isStrongHandle(T)) takesNoSuffix(@FieldType(p.child, "value"), names) else true,
+        .pointer => |p| if (isShared(T)) takesNoSuffix(@FieldType(p.child, "value"), names) else true,
         .@"struct" => if (@hasDecl(T, "__rig_weak"))
             takesNoSuffix(T.__rig_weak, names)
         else if (@hasDecl(T, "__rig_box"))
@@ -4285,7 +4285,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
-            if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);
+            if (comptime isShared(T)) return writeValue(w, value.value, top);
             if (@typeInfo(p.child) == .@"fn") return w.writeAll("<fun>");
             if (p.size != .slice) return writeValue(w, value.*, top);
         },
@@ -4802,7 +4802,7 @@ test "viewedPtr reaches what a read view views, or the view's own copy" {
 test "strong and weak handles free the box once" {
     const before = usage();
     var drops: usize = 0;
-    const a = rcNew(Counter{ .drops = &drops });
+    const a = shared(Counter{ .drops = &drops });
     const b = a.cloneStrong();
     const w = a.weakRef();
     a.dropStrong();
@@ -4819,7 +4819,7 @@ test "strong and weak handles free the box once" {
 test "upgrading a taken weak handle drops it" {
     const before = usage();
     var drops: usize = 0;
-    const a = rcNew(Counter{ .drops = &drops });
+    const a = shared(Counter{ .drops = &drops });
     const up = upgradeTaken(a.weakRef()).?;
     a.dropStrong();
     try testing.expectEqual(0, drops);
@@ -4833,7 +4833,7 @@ test "upgrading a taken weak handle drops it" {
 test "dropping a shared handle to a shared handle drops the inner one" {
     const before = usage();
     var drops: usize = 0;
-    rcNew(rcNew(Counter{ .drops = &drops })).dropStrong();
+    shared(shared(Counter{ .drops = &drops })).dropStrong();
     try testing.expectEqual(1, drops);
     try expectNoLeaks(before);
 }
@@ -4841,8 +4841,8 @@ test "dropping a shared handle to a shared handle drops the inner one" {
 test "optional handles drop, clone, and compare with none" {
     const before = usage();
     var drops: usize = 0;
-    var held: ?*RcBox(Counter) = rcNew(Counter{ .drops = &drops });
-    var none: ?*RcBox(Counter) = null;
+    var held: ?*Shared(Counter) = shared(Counter{ .drops = &drops });
+    var none: ?*Shared(Counter) = null;
     var other = cloneOptional(held);
     try testing.expectEqual(2, held.?.strong);
     try testing.expectEqual(null, cloneOptional(none));
@@ -4853,7 +4853,7 @@ test "optional handles drop, clone, and compare with none" {
     try testing.expectEqual(0, drops);
     drop(&other);
     try testing.expectEqual(1, drops);
-    try testing.expect(needsDrop(?*RcBox(Counter)));
+    try testing.expect(needsDrop(?*Shared(Counter)));
     try testing.expect(!needsDrop(?i32));
     try expectNoLeaks(before);
 }
@@ -4861,16 +4861,16 @@ test "optional handles drop, clone, and compare with none" {
 test "Cell.set stores the new value before dropping the old one" {
     const before = usage();
     const Probe = struct {
-        cell: *Cell(?*RcBox(@This())),
+        cell: *Cell(?*Shared(@This())),
         seen_new: *bool,
         pub fn __rig_drop(self: *@This()) void {
             self.seen_new.* = self.cell.value != null;
         }
     };
     var seen_new = false;
-    var cell: Cell(?*RcBox(Probe)) = .{ .value = null };
-    cell.value = rcNew(Probe{ .cell = &cell, .seen_new = &seen_new });
-    cell.set(rcNew(Probe{ .cell = &cell, .seen_new = &seen_new }));
+    var cell: Cell(?*Shared(Probe)) = .{ .value = null };
+    cell.value = shared(Probe{ .cell = &cell, .seen_new = &seen_new });
+    cell.set(shared(Probe{ .cell = &cell, .seen_new = &seen_new }));
     try testing.expect(seen_new);
     cell.__rig_drop();
     try expectNoLeaks(before);
@@ -4879,8 +4879,8 @@ test "Cell.set stores the new value before dropping the old one" {
 test "Cell.swap hands the old value back without dropping it" {
     const before = usage();
     var drops: usize = 0;
-    var cell: Cell(*RcBox(Counter)) = .{ .value = rcNew(Counter{ .drops = &drops }) };
-    const old = cell.swap(rcNew(Counter{ .drops = &drops }));
+    var cell: Cell(*Shared(Counter)) = .{ .value = shared(Counter{ .drops = &drops }) };
+    const old = cell.swap(shared(Counter{ .drops = &drops }));
     try testing.expectEqual(0, drops);
     old.dropStrong();
     try testing.expectEqual(1, drops);
@@ -4893,8 +4893,8 @@ test "List owns and drops its elements, last first" {
     const before = usage();
     var log: [16]u8 = undefined;
     var n: usize = 0;
-    var v: List(*RcBox(Order)) = .empty;
-    for (1..11) |i| v.push(rcNew(Order{ .log = &log, .n = &n, .id = @intCast(i) }));
+    var v: List(*Shared(Order)) = .empty;
+    for (1..11) |i| v.push(shared(Order{ .log = &log, .n = &n, .id = @intCast(i) }));
     try testing.expectEqual(10, v.len);
     v.__rig_drop();
     try testing.expectEqualSlices(u8, &.{ 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 }, log[0..n]);
@@ -4963,7 +4963,7 @@ test "Signal takes ownership of subscribers and delivers reentrant sets" {
     var n: usize = 0;
     const env = create(Env);
     env.* = .{ .sig = &sig, .seen = &seen, .n = &n };
-    sig.subscribe(rcNew(Callback.init(Env, env)));
+    sig.subscribe(shared(Callback.init(Env, env)));
     sig.set(1);
     try testing.expectEqualSlices(i32, &.{ 1, 2 }, seen[0..n]);
     sig.__rig_drop();
@@ -5007,7 +5007,7 @@ test "a callable view calls a stack closure, a function, or an owned closure" {
     try testing.expectEqual(10, Ref.ofFn(ptr).call(.{5}));
     const heap = create(Env);
     heap.* = .{ .k = 10 };
-    const handle = rcNew(Closure(&.{i64}, i64).init(Env, heap));
+    const handle = shared(Closure(&.{i64}, i64).init(Env, heap));
     try testing.expectEqual(11, Ref.ofClosure(handle).call(.{1}));
     try testing.expectEqual(12, Ref.ofClosure(&handle).call(.{2}));
     handle.dropStrong();
@@ -5017,7 +5017,7 @@ test "a callable view calls a stack closure, a function, or an owned closure" {
 test "aggregates drop their parts" {
     const before = usage();
     var drops: usize = 0;
-    const H = *RcBox(Counter);
+    const H = *Shared(Counter);
     const Pair = struct { n: i32, a: H, b: ?H };
     const Slot = union(enum) { full: H, pair: struct { x: H, y: i32 }, empty };
     try testing.expect(needsDrop(Pair));
@@ -5025,17 +5025,17 @@ test "aggregates drop their parts" {
     try testing.expect(!needsDrop(struct { n: i32 }));
     try testing.expect(!needsDrop(union(enum) { a: i32, b }));
 
-    var pair: Pair = .{ .n = 1, .a = rcNew(Counter{ .drops = &drops }), .b = rcNew(Counter{ .drops = &drops }) };
+    var pair: Pair = .{ .n = 1, .a = shared(Counter{ .drops = &drops }), .b = shared(Counter{ .drops = &drops }) };
     drop(&pair);
     try testing.expectEqual(2, drops);
 
-    var slot: Slot = .{ .pair = .{ .x = rcNew(Counter{ .drops = &drops }), .y = 0 } };
+    var slot: Slot = .{ .pair = .{ .x = shared(Counter{ .drops = &drops }), .y = 0 } };
     drop(&slot);
     var empty: Slot = .empty;
     drop(&empty);
     try testing.expectEqual(3, drops);
 
-    var arr: [2]H = .{ rcNew(Counter{ .drops = &drops }), rcNew(Counter{ .drops = &drops }) };
+    var arr: [2]H = .{ shared(Counter{ .drops = &drops }), shared(Counter{ .drops = &drops }) };
     drop(&arr);
     try testing.expectEqual(5, drops);
     try expectNoLeaks(before);
@@ -5044,7 +5044,7 @@ test "aggregates drop their parts" {
 test "an optional held as a struct drops, clones, compares, hashes, and prints as ?T does" {
     const before = usage();
     var drops: usize = 0;
-    const H = *RcBox(Counter);
+    const H = *Shared(Counter);
     const Obj = struct {
         h: H,
         pub const __rig_strict_optional = {};
@@ -5057,7 +5057,7 @@ test "an optional held as a struct drops, clones, compares, hashes, and prints a
     try testing.expect(isOptStruct(O) and needsDrop(O) and !needsDrop(Opt(Plain)));
     try testing.expect(Opt(i64) == ?i64 and Opt(O) == ?O);
 
-    var held = pack(O, Obj{ .h = rcNew(Counter{ .drops = &drops }) });
+    var held = pack(O, Obj{ .h = shared(Counter{ .drops = &drops }) });
     var none = pack(O, null);
     try testing.expect(some(none) == null and somePtr(&none) == null);
     var cloned = cloneValue(&held);
@@ -5089,7 +5089,7 @@ test "an optional held as a struct drops, clones, compares, hashes, and prints a
 test "dropping a long chain of boxes does not recurse per link" {
     const before = usage();
     const Link = struct {
-        next: ?*RcBox(@This()),
+        next: ?*Shared(@This()),
         drops: *usize,
         pub fn __rig_drop(self: *@This()) void {
             self.drops.* += 1;
@@ -5097,8 +5097,8 @@ test "dropping a long chain of boxes does not recurse per link" {
         }
     };
     var drops: usize = 0;
-    var head: ?*RcBox(Link) = null;
-    for (0..100_000) |_| head = rcNew(Link{ .next = head, .drops = &drops });
+    var head: ?*Shared(Link) = null;
+    for (0..100_000) |_| head = shared(Link{ .next = head, .drops = &drops });
     drop(&head);
     try testing.expectEqual(100_000, drops);
     try testing.expectEqual(0, task().drop_depth);
@@ -5110,25 +5110,25 @@ test "queued drops keep the order of a recursive release" {
     // queue; they still drop last first, before the node's child.
     const before = usage();
     const Tree = struct {
-        next: ?*RcBox(@This()),
-        a: ?*RcBox(Order),
-        b: ?*RcBox(Order),
+        next: ?*Shared(@This()),
+        a: ?*Shared(Order),
+        b: ?*Shared(Order),
     };
     var log: [16]u8 = undefined;
     var n: usize = 0;
     for ([_]usize{ 10, max_drop_depth - 1, max_drop_depth, max_drop_depth + 5 }) |depth| {
         n = 0;
-        const child = rcNew(Tree{
+        const child = shared(Tree{
             .next = null,
-            .a = rcNew(Order{ .log = &log, .n = &n, .id = 3 }),
-            .b = rcNew(Order{ .log = &log, .n = &n, .id = 4 }),
+            .a = shared(Order{ .log = &log, .n = &n, .id = 3 }),
+            .b = shared(Order{ .log = &log, .n = &n, .id = 4 }),
         });
-        var head: ?*RcBox(Tree) = rcNew(Tree{
+        var head: ?*Shared(Tree) = shared(Tree{
             .next = child,
-            .a = rcNew(Order{ .log = &log, .n = &n, .id = 1 }),
-            .b = rcNew(Order{ .log = &log, .n = &n, .id = 2 }),
+            .a = shared(Order{ .log = &log, .n = &n, .id = 1 }),
+            .b = shared(Order{ .log = &log, .n = &n, .id = 2 }),
         });
-        for (0..depth) |_| head = rcNew(Tree{ .next = head, .a = null, .b = null });
+        for (0..depth) |_| head = shared(Tree{ .next = head, .a = null, .b = null });
         drop(&head);
         try testing.expectEqualSlices(u8, &.{ 2, 1, 4, 3 }, log[0..n]);
         try testing.expectEqual(0, task().drop_depth);
@@ -5141,7 +5141,7 @@ test "tasks on threads of their own each release their own deep chains" {
     // chains past `max_drop_depth` released at once never mix queues.
     const before = usage();
     const Link = struct {
-        next: ?*RcBox(@This()),
+        next: ?*Shared(@This()),
         drops: *usize,
         pub fn __rig_drop(self: *@This()) void {
             self.drops.* += 1;
@@ -5151,8 +5151,8 @@ test "tasks on threads of their own each release their own deep chains" {
     const Run = struct {
         fn chain(drops: *usize, ok: *bool) void {
             for (0..20) |_| {
-                var head: ?*RcBox(Link) = null;
-                for (0..5_000) |_| head = rcNew(Link{ .next = head, .drops = drops });
+                var head: ?*Shared(Link) = null;
+                for (0..5_000) |_| head = shared(Link{ .next = head, .drops = drops });
                 drop(&head);
             }
             ok.* = task().drop_depth == 0 and task().drop_queue.items.len == 0;
@@ -5197,7 +5197,7 @@ test "values print the way Rig writes them" {
     var w = std.Io.Writer.fixed(&buf);
     const P = struct { name: []const u8, n: ?i64 };
     const U = union(enum) { dot, circle: struct { r: i64 }, at: struct { p: P }, rect: struct { w: i64, h: i64 } };
-    const h = rcNew(P{ .name = "b", .n = 1 });
+    const h = shared(P{ .name = "b", .n = 1 });
     const weak = h.weakRef();
     const Env = struct {
         pub fn __rig_invoke(_: *@This()) void {}
@@ -5305,9 +5305,9 @@ test "String writes values as print does, and compares and frees its bytes" {
 
 test "printing stops past a nesting depth" {
     const before = usage();
-    const Node = struct { next: ?*RcBox(@This()) };
-    var head: ?*RcBox(Node) = null;
-    for (0..100) |_| head = rcNew(Node{ .next = head });
+    const Node = struct { next: ?*Shared(@This()) };
+    var head: ?*Shared(Node) = null;
+    for (0..100) |_| head = shared(Node{ .next = head });
     var buf: [4096]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try writeValue(&w, head, true);

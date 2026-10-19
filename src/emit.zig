@@ -5989,8 +5989,8 @@ pub const Emitter = struct {
             .shared => |p| p,
             else => null,
         } else null;
-        try self.w.writeAll("rig.rcNew(");
-        // A constructor call spells its own type: `rig.rcNew(Node{ ... })`.
+        try self.w.writeAll("rig.shared(");
+        // A constructor call spells its own type: `rig.shared(Node{ ... })`.
         const typed = payload_ty != null and self.isConstructorCall(inner) and
             if (self.typeOf(inner)) |inner_ty| inner_ty == payload_ty.? else false;
         const cast = payload_ty != null and !typed;
@@ -7678,7 +7678,7 @@ pub const Emitter = struct {
     ///         const __rig_Env_N = struct { cap_x: T, pub fn __rig_invoke(...) R { ... } };
     ///         const __rig_env_N = rig.create(__rig_Env_N);
     ///         __rig_env_N.* = .{ .cap_x = ... };
-    ///         break :__rig_closure_N rig.rcNew(rig.Closure(&.{ A }, R).init(__rig_Env_N, __rig_env_N));
+    ///         break :__rig_closure_N rig.shared(rig.Closure(&.{ A }, R).init(__rig_Env_N, __rig_env_N));
     ///     }
     ///
     /// The environment is freed when the last strong handle drops.
@@ -7701,7 +7701,7 @@ pub const Emitter = struct {
         try self.emitCaptureInit(caps);
         try self.w.writeAll(";\n");
         try self.writeIndent(self.indent);
-        try self.w.print("break :__rig_closure_{d} rig.rcNew(", .{id});
+        try self.w.print("break :__rig_closure_{d} rig.shared(", .{id});
         try self.emitCallableTy("Closure", f);
         try self.w.print(".init({s}, {s}));\n", .{ env, env_ptr });
         try self.closeBrace();
@@ -7830,7 +7830,7 @@ pub const Emitter = struct {
                 try self.emitTypeTy(inner);
             },
             .shared, .weak => |inner| {
-                try self.w.writeAll(if (ctx.types.get(ty) == .shared) "*rig.RcBox(" else "rig.WeakHandle(");
+                try self.w.writeAll(if (ctx.types.get(ty) == .shared) "*rig.Shared(" else "rig.Weak(");
                 switch (ctx.types.get(inner)) {
                     .function => |f| try self.emitCallableTy("Closure", f),
                     else => try self.emitTypeTy(inner),
