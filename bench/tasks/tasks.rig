@@ -1,0 +1,78 @@
+# Rig's tasks timed four ways (bench/tasks/README.md): starting and
+# waiting for many tiny tasks in waves (spawn), one at a time (chain),
+# CPU work split across tasks (fanout), and tasks that only yield
+# (yield). Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
+# the checks must agree with tokio.rs's and main.go's.
+
+use std.task
+use std.time
+
+WAVES = 100
+SIZE = 1000
+CHAIN = 10000
+FAN_TASKS = 10
+FAN_WORK = 20000000
+YIELD_TASKS = 100
+YIELDS = 10000
+
+fun leaf(i: Int) -> Int
+  i
+
+fun spin(n: Int) -> Int
+  total = 0
+  for i in 0..n
+    total = (total + i * 7) % 1000003
+  total
+
+fun yielder(n: Int) -> Int!
+  for _ in 0..n
+    task.check()!
+  n
+
+called sub spawn()
+  t = time.now()
+  sum = 0
+  for _ in 0..WAVES
+    ts = Tasks[Int]()
+    for i in 0..SIZE
+      !ts.add(leaf(i)&)
+    xs = <ts.wait_all()
+    for x in xs
+      sum += x
+  print("spawn", t.elapsed(), sum)
+
+called sub chain()
+  t = time.now()
+  sum = 0
+  for i in 0..CHAIN
+    u = leaf(i)&
+    sum += <u.wait()
+  print("chain", t.elapsed(), sum)
+
+called sub fanout()
+  t = time.now()
+  ts = Tasks[Int]()
+  for i in 0..FAN_TASKS
+    !ts.add(spin(FAN_WORK + i)&)
+  xs = <ts.wait_all()
+  sum = 0
+  for x in xs
+    sum += x
+  print("fanout", t.elapsed(), sum)
+
+called sub yields()
+  t = time.now()
+  ts = Tasks[Int!]()
+  for _ in 0..YIELD_TASKS
+    !ts.add(yielder(YIELDS)&)
+  xs = <ts.wait_all() catch List[Int]()
+  sum = 0
+  for x in xs
+    sum += x
+  print("yield", t.elapsed(), sum)
+
+sub main()
+  spawn()
+  chain()
+  fanout()
+  yields()
