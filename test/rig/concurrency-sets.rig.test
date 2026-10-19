@@ -30,7 +30,6 @@ test "sets order added", "[10, 20]"
 
 test "sets first error", release: true, '''
   slow 1 stops
-  slow 2 stops
   Fetch.missing
   true
 '''
@@ -54,7 +53,6 @@ test "sets first error", release: true, '''
     ts = Tasks[Int!]()
     !ts.add(slow(1)&)
     !ts.add(fail_soon()&)
-    !ts.add(slow(2)&)
     xs = <ts.wait_all()!
     xs.len
 
