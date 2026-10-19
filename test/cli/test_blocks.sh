@@ -71,36 +71,71 @@ expect_has "$(cat err.txt)" "memory leak detected: 2 allocations" "leak detail"
 expect_has "$(cat err.txt)" "index out of bounds" "panic detail"
 
 # A test's value decides it: a `Bool` last line, or a `return`'s.
+# The program extends SPEC.md's (Tests).
 cat >bool.rig <<'EOF'
-fun big(n: Int) -> Bool
-  n > 10
+error Parse
+  empty
+  long
+
+fun sum(xs: []Int) -> Int
+  total = 0
+  for x in xs
+    total += x
+  total
+
+fun parse(s: ?String) -> Int!
+  return Parse.empty if s.len == 0
+  return Parse.long if s.len > 3
+  s.len
+
+test "sum adds the elements"
+  sum([1, 2, 3]) == 6
+
+test "a list grows and shrinks"
+  xs: List[Int] = List()
+  !xs.push(1)
+  !xs.push(2)
+  return false if xs.len != 2
+  n = (!xs).pop() ?? -1
+  n == 2 and xs.len == 1
+
+test "parse reads text"
+  parse("abc")! == 3
+
+test "parse rejects empty text"
+  _ = parse("") catch |e| return e == Parse.empty
+  false
+
+test "sum is wrong on purpose"
+  sum([1, 2, 3]) == 7
+
+test "prints and passes"
+  print(sum([4, 5]))
 
 test "make sure move works"
   s = String("a")
   t = <s
   t == "a"
 
-test "false at the end"
-  s = String("a")
-  s == "b"
-
-test "early return"
+test "an early return false"
   n = 3
   return false if n > 2  # too big
   print("not here")
 
-test "return a Bool"
-  n = 3
-  if n > 1
-    return big(n)
-  true
+test "no error comes"
+  _ = parse("ab") catch |e| return e == Parse.empty
+  false
 
-test "not a Bool"
-  print("unchanged")
+test "another error comes"
+  _ = parse("abcdef") catch |e| return e == Parse.empty
+  false
+
+test "a failing bang"
+  parse("abcdef")! == 3
 EOF
 rig test bool.rig >out.txt 2>&1; rc=$?
 expect_rc $rc 1 "a run a test gave false in"
-expect_eq "$(cat out.txt)" $'ok    test "make sure move works"\nFAIL  test "false at the end": s == "b" is false\nFAIL  test "early return": return false if n > 2\nFAIL  test "return a Bool": big(n) is false\nunchanged\nok    test "not a Bool"\n2 passed, 3 failed' "Bool report"
+expect_eq "$(cat out.txt)" $'ok    test "sum adds the elements"\nok    test "a list grows and shrinks"\nok    test "parse reads text"\nok    test "parse rejects empty text"\nFAIL  test "sum is wrong on purpose": sum([1, 2, 3]) == 7 is false\n9\nok    test "prints and passes"\nok    test "make sure move works"\nFAIL  test "an early return false": return false if n > 2\nFAIL  test "no error comes": reached false on line 52\nFAIL  test "another error comes": e == Parse.empty is false\nFAIL  test "a failing bang": Parse.long\n6 passed, 5 failed' "Bool report"
 
 cat >none.rig <<'EOF'
 sub main()

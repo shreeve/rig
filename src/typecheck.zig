@@ -1083,10 +1083,14 @@ const Checker = struct {
     /// What `rig test` reports when the `Bool` that `node`, a test's last
     /// line or a `return` in it, gives is `false`: `t == "a" is false`,
     /// written on one line. For a `return false`, the rest of its line,
-    /// which holds any guard: `return false if n > 3`.
+    /// which holds any guard: `return false if n > 3`. For a last line
+    /// `false`, where it is: `reached false on line 12`.
     fn testReport(self: *Checker, node: Sexp) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         const value = if (node.isKind(.@"return")) ir.Return.value(node) else node;
+        if (node == .src and std.mem.eql(u8, self.sourceText(node), "false")) {
+            return a.print("reached false on line {d}", .{diag.lineCol(self.ctx.source, self.ctx.span(node).start).line});
+        }
         if (node.isKind(.@"return") and value == .src and std.mem.eql(u8, self.sourceText(value), "false")) {
             const src = self.ctx.source;
             const start = self.ctx.span(node).start;

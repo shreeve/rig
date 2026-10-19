@@ -998,9 +998,10 @@ of its module, before or after it.
 
 `test "name"` (or `test 'name'`) declares a block that `rig test` runs when it is in the file or directory module `rig test` is given, not in a module that one imports.
 
-Its last line is its value, as a `fun` body's is: a `Bool` there decides the
-test, and `false` fails it. `return` with a `Bool` ends the test early:
-`return false if n > 3` ([SPEC §3](SPEC.md#tests)).
+It takes one argument, its name. It fails when its last line, or a
+`return`, gives a `Bool` that is `false`; when a `!` passes an error out
+of it; or when it panics. Otherwise it passes
+([SPEC §3](SPEC.md#tests)).
 
 ### Imports and extern
 
