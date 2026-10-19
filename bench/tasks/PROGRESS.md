@@ -14,3 +14,4 @@ scheduler grows (`bench-tasks --record "#PR: what changed"`).
 | 2026-10-19 | #348: fibers on one worker | rig-sched | 103 ns | 47 ns | 570.5 ms | 17 ns |
 | 2026-10-19 | #349: a worker per core, with stealing | rig-sched | 206 ns | 61 ns | 75.8 ms | 13 ns |
 | 2026-10-19 | #351: stacks, handoff, a faster spawn | rig-sched | 132 ns | 45 ns | 76.4 ms | 11 ns |
+| 2026-10-19 | #352: waiting without spinning | rig-sched | 105 ns | 47 ns | 76.4 ms | 8 ns |

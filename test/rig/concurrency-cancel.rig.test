@@ -185,3 +185,45 @@ fail "cancel sleep unhandled", "fallible call to `time.sleep` must be wrapped wi
 
   sub nap()
     time.sleep(time.MS)
+
+test "cancel storm", "true"
+  # Cancels that race with waits ending: a chain of waits canceled as its
+  # sleep may end, a set whose deadline may or may not pass first, and a
+  # sleeping task dropped on an early return, many times over.
+  use std.time
+
+  fun nap(us: Int) -> Int!
+    time.sleep(us * time.US)!
+    us
+
+  fun inner(us: Int) -> Int!
+    t = nap(us)&
+    <t.wait()!
+
+  fun outer(us: Int) -> Int!
+    t = inner(us)&
+    x = <t.wait()!
+    x + 1
+
+  fun early(i: Int) -> Int!
+    d = nap(100000)&
+    return 1 if i >= 0
+    <d.wait()!
+
+  fun round(i: Int) -> Int
+    got = 0
+    o = outer(i % 50)&
+    time.sleep((i % 7) * time.US) catch print("never")
+    got += <o.cancel() catch 0
+    ts = Tasks[Int!]()
+    for k in 0..8
+      !ts.add(nap((i + k) % 40)&)
+    xs = <ts.wait_all(within: (i % 30) * time.US) catch List[Int]()
+    got += xs.len
+    got += early(i) catch 0
+    got
+
+  total = 0
+  for i in 0..300
+    total += round(i)
+  print(total > 0)

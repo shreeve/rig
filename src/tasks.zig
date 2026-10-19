@@ -113,13 +113,19 @@ pub fn Task(comptime T: type) type {
             var result: T = undefined;
             var passed_on = false;
             if (rt.scheduled) {
-                // A cancel that comes to the waiter during the wait goes
-                // on to the task it waits on (`Control.cancel`).
-                const me = task().control;
-                if (me) |c| c.waiting_on.store(t.control, .release);
-                result = t.handle.result();
-                if (me) |c| c.waiting_on.store(null, .release);
-                passed_on = t.control.canceled.load(.acquire);
+                // A cancel that comes to the waiter during the wait wakes
+                // it, and it passes the cancel on to the task it waits on,
+                // then waits for that task's end.
+                const job = t.handle.job;
+                const mine: ?*const std.atomic.Value(bool) = if (task().control) |c| &c.canceled else null;
+                if (!job.waitEnd(mine)) {
+                    t.control.cancel();
+                    _ = job.waitEnd(null);
+                }
+                result = job.result;
+                // Canceled while it waited, even when the task ended
+                // before the cancel could reach it.
+                passed_on = t.control.canceled.load(.acquire) or (if (mine) |c| c.load(.acquire) else false);
             } else {
                 const prev = io().swapCancelProtection(.unblocked);
                 result = t.handle.result();
@@ -228,15 +234,16 @@ pub const Control = struct {
     canceled: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
     wakeup: std.atomic.Value(?*Wakeup) = .init(null),
-    /// On the scheduler, the task this one waits on (`Task.wait`).
-    waiting_on: std.atomic.Value(?*Control) = .init(null),
+    /// On the scheduler, the task's fiber, whose wait a cancel ends
+    /// (`rt.sched.interruptForCancel`).
+    fiber: if (rt.scheduled) ?*rt.sched.Fiber else void = if (rt.scheduled) null else {},
 
-    /// Record a cancel: on the scheduler, also of the task this one
-    /// waits on, and so on down, since a fiber waiting on a task sees
-    /// no cancel of its own until that task ends.
+    /// Record a cancel; on the scheduler, also end the wait the task is
+    /// in, when a cancel may end it. A task waiting on another passes
+    /// the cancel on itself (`Task.wait`).
     fn cancel(self: *Control) void {
-        var c: ?*Control = self;
-        while (c) |x| : (c = if (rt.scheduled) x.waiting_on.load(.acquire) else null) x.canceled.store(true, .release);
+        self.canceled.store(true, .seq_cst);
+        if (rt.scheduled) if (self.fiber) |f| rt.sched.interruptForCancel(f);
     }
 
     /// The task has ended: record it, then wake what waits on it. A
@@ -252,6 +259,10 @@ pub const Control = struct {
 /// tasks adds to as it ends, which a waiter sleeps on until it changes.
 const Wakeup = struct {
     ticks: std.atomic.Value(u32) = .init(0),
+    /// On the scheduler, the fiber waiting on the count and the epoch of
+    /// its wait (`rt.sched.Wait`).
+    waiter: std.atomic.Value(?*anyopaque) = .init(null),
+    waiter_epoch: std.atomic.Value(u32) = .init(0),
 
     fn create() *Wakeup {
         const w = std.heap.smp_allocator.create(Wakeup) catch oom();
@@ -269,7 +280,8 @@ const Wakeup = struct {
 
     fn tick(self: *Wakeup) void {
         _ = self.ticks.fetchAdd(1, .seq_cst);
-        if (!rt.scheduled) io().futexWake(u32, &self.ticks.raw, 1);
+        if (!rt.scheduled) return io().futexWake(u32, &self.ticks.raw, 1);
+        if (self.waiter.load(.seq_cst)) |f| _ = rt.sched.interrupt(@ptrCast(@alignCast(f)), self.waiter_epoch.load(.seq_cst), false);
     }
 
     /// Sleep until a watched task ends after `seen` was read, the
@@ -281,12 +293,17 @@ const Wakeup = struct {
             if (left <= 0) return timeout_error;
             break :blk .{ .duration = .{ .raw = .fromNanoseconds(left), .clock = .awake } };
         } else .none;
-        // A fiber yields until a tick, the deadline, or a cancel.
+        // A fiber sleeps until a tick, the deadline, or a cancel wakes it.
         if (rt.scheduled) {
             while (self.ticks.load(.seq_cst) == seen) {
-                rt.sched.yield();
                 if (canceledHere()) return canceled_error;
                 if (deadline) |d| if (nowNs() >= d) return timeout_error;
+                const e = rt.sched.beginWait(true);
+                self.waiter.store(rt.sched.current().?, .seq_cst);
+                self.waiter_epoch.store(e, .seq_cst);
+                if (self.ticks.load(.seq_cst) != seen) return;
+                if (canceledHere()) return canceled_error;
+                rt.sched.commitWait(e, deadline);
             }
             return;
         }
@@ -655,8 +672,7 @@ pub fn check() Stop!void {
 }
 
 /// `time.sleep(ns)`: a waiting point that waits `ns` nanoseconds. On the
-/// scheduler a fiber yields until the time has passed, looking for a
-/// cancel each time it runs.
+/// scheduler a fiber sleeps until its timer, or a cancel, wakes it.
 pub fn sleep(ns: i64) Stop!void {
     if (ns <= 0) return;
     if (rt.scheduled) {
@@ -664,7 +680,9 @@ pub fn sleep(ns: i64) Stop!void {
         while (true) {
             if (canceledHere()) return canceled_error;
             if (nowNs() >= until) return;
-            rt.sched.yield();
+            const e = rt.sched.beginWait(true);
+            if (canceledHere()) return canceled_error;
+            rt.sched.commitWait(e, until);
         }
     }
     try waitPoint(std.Io.sleep, .{ io(), std.Io.Duration.fromNanoseconds(ns), std.Io.Clock.awake });
