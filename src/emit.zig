@@ -43,6 +43,9 @@ const ir = parser.ir;
 pub const runtime_filename = "rig/runtime.zig";
 pub const runtime_module = "rig";
 pub const runtime_source = @embedFile("runtime.zig");
+/// The runtime's tasks (`src/tasks.zig`), written beside it.
+pub const tasks_filename = "rig/tasks.zig";
+pub const tasks_source = @embedFile("tasks.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.
