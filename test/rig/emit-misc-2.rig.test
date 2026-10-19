@@ -1634,7 +1634,7 @@ test "while step nested jumps", '''
   deep()
   leaves()
 
-test "write self receiver", "2"
+test "write self in place", "2"
   # A `!@` method mutates the receiver in place.
 
   obj Bag

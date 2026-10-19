@@ -1931,7 +1931,7 @@ pub const Checker = struct {
                     name_node = ir.get(p, .name);
                     type_node = ir.get(p, .type);
                 },
-                // `?self` / `!self` sugar.
+                // `?@` / `!@` sugar.
                 .read => {
                     name_node = ir.Read.operand(p);
                     sugar = .read;
@@ -1940,7 +1940,7 @@ pub const Checker = struct {
                     name_node = ir.Write.operand(p);
                     sugar = .write;
                 },
-                // `<self`: `self: Self`, owned.
+                // `<@`: `Self`, owned.
                 .move => name_node = ir.Move.operand(p),
                 else => {},
             },
@@ -4445,7 +4445,7 @@ pub const Checker = struct {
         const arg_values = try self.arena().alloc(Value, args.len);
         // What the call may store, and what its result carries. A method
         // may store a view of what its receiver holds, or is, in what it
-        // was lent to write (`h.r = ?self.items[..]`).
+        // was lent to write (`h.r = ?@items[..]`).
         var stored: Value = if (params == null or params.?.storesReceiver()) recv_value else .{};
         // Whether it may store a value of a type parameter's type, which
         // carries no loan in a generic body (`noteGenericStore`).
@@ -5203,7 +5203,7 @@ pub const Checker = struct {
             self.lambda_ok = true;
             return self.walkLambda(inner, true);
         }
-        // `*w` upgrading a weak handle it reads reads it, as a `?self`
+        // `*w` upgrading a weak handle it reads reads it, as a `?@`
         // method reads its receiver; one it takes is moved, as `*<x` moves
         // `x`. The new handle reaches what `w` reaches.
         if (self.sema) |ctx| if (ctx.upgradeOf(node)) |how| {
@@ -6824,7 +6824,7 @@ pub const Checker = struct {
     }
 
     /// How a method call takes its receiver, from the signature ctx
-    /// resolved for the callee: `!self` writes, a `Self` value is consumed,
+    /// resolved for the callee: `!@` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {
         if (obj.isKind(.move)) return .value;

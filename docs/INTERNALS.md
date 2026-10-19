@@ -293,7 +293,7 @@ detached sigil, is the one reported.
 | `name:` inside `( )` vs `f(not :a)` | `KWARG_NAME` vs a word | a keyword argument or typed parameter: a word right after `(`, `,`, or a closure's opening bar, before a `:` that touches it or that no name touches (`K(break : 3)`); a word anywhere else stays a word, so `f(c or :a)` holds a symbol; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | `while c : step`, `while a ?? break : step` vs `x: Int` vs `x = :width`, `:a =>` | `STEP_COLON` vs `:` vs `SYMBOL_COLON` | decided once, in `Lexer.classifyColon`. The first `:` at a `while` header's bracket depth, after a value or a jump, starts its step. A `:` after a value or a keyword argument's name anywhere else is `:`. A `:` where an operand starts that touches a name is a symbol's, and the word after it, a keyword too, is the symbol's name, with its runs of `-` or `.` and a name character (`symbolName`): `:content-type`, `:a.b`. A `:` there that touches no name is an error (`symbol_detached`, `symbol_name`) |
 | `$size(T)` vs `$outer: for`, `$outer:` over a block, `break $outer`, `break $outer (x)` | `$` vs `LABEL`, `LABEL_COLON` | decided in `Lexer.classifyDollar`. `$` touching a name that touches a `(` is a builtin call, anywhere. Any other `$name` is a label: declared at the start of a line or after another label, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`), with a `:` touching the name, which is `LABEL_COLON` (`label_decl` without it); and named after `break` or `continue`. The `$` touches the name (`dollar_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a `$name` anywhere else is an error (`dollar_stray`). After a declared label's `:` a statement starts; after a jump's label the next token starts an operand |
-| `@`, `!@`, `@hits`, `@visit()` | `IDENT`, and `.` | `@` is the receiver, a name the rewriter returns as `IDENT` whose text is `@`; an `@` touching a name is followed by a `.` the rewriter returns before the name (`member_dot`), so `@hits` parses as the member access `@ . hits`. `@.hits` is an error (`receiver_dot`) |
+| `@`, `!@`, `@hits`, `@visit()` | `IDENT`, and `.` | `@` is self, a name the rewriter returns as `IDENT` whose text is `@`; an `@` touching a name is followed by a `.` the rewriter returns before the name (`member_dot`), so `@hits` parses as the member access `@ . hits`. `@.hits` is an error (`receiver_dot`) |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `called` and `rarely` only there before `fun` or `sub` |
 | `called fun g()`, `pub rarely sub s()` vs `called = 3`, `p.rarely`, `fun called()` | `CALLED`, `RARELY` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
@@ -360,7 +360,7 @@ forms to `value`, an expression without blocks or closures (conditions,
   inside brackets that `,` separates arguments or elements, and the
   parser's state alone cannot tell them apart;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
-  `/*` comments, and `@.name` (the receiver's member is `@name`), and
+  `/*` comments, and `@.name` (self's member is `@name`), and
   malformed input where it is written: a `=!` with no space after it
   (the one place token boundaries could read two ways: `x =!y` is a
   fixed binding of `y`, or `x = !y`), a number with a
@@ -667,7 +667,7 @@ A few kinds serve more than one surface form:
   index, where a side may be `_` (`xs[a..]`, `xs[..b]`, `xs[..]`). A
   range with a side left out anywhere else is a parse error, which the
   parser wrapper reports at the `..`.
-- A receiver in a parameter list, `?@`, `!@`, or `<@`, is
+- Self in a parameter list, `?@`, `!@`, or `<@`, is
   `(read @)`, `(write @)`, or `(move @)`; sema gives it the type
   `?Self`, `!Self`, or `Self`.
 - A declaration's compile-time parameters are its `tparams` group (a

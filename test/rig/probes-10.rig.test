@@ -1071377,7 +1071377,7 @@ test "purity-designer-q02 drop tail sub", '''
   g(R(n: 1))
   print("after")
 
-test "purity-designer-q09 self typed", "1 1"
+test "purity-designer-q09 self sigils", "1 1"
   obj P
     x: Int
     fun get(?@) -> Int

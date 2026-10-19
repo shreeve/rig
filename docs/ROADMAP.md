@@ -20,7 +20,6 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **Conditional compilation** on the target's operating system and CPU features and the build mode, as `std.target` gives the architecture (`target.arch`).
 - **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes computed from a compile-time parameter (`[n * 2]Int`, `[cap(n)]Int`), so a failure is a Rig diagnostic rather than a Zig error.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
-- **A value-yielding `try` block** with a matching `catch` block.
 - **Drop bodies for enums and generic types.**
 
 - **Several results**, after their first form (SPEC "Several results"):

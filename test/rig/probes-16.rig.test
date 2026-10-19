@@ -2406,7 +2406,7 @@ fail "rev255-q02 swap between write params keeps one", "`sw` stores a view of `a
   <t1
   print(y.s)
 
-fail "rev255-q07 generic swap self receiver", "`take_all` stores a view of `@` in `other`, which its caller reaches, but its signature does not keep `@`; say so: `keeps @, other`"
+fail "rev255-q07 generic swap self", "`take_all` stores a view of `@` in `other`, which its caller reaches, but its signature does not keep `@`; say so: `keeps @, other`"
   obj Bag[T]
     items: List[T]
 
@@ -2550,7 +2550,7 @@ fail "rev255-y04 keeps self into own field list", "cannot let this call store a 
   q = <o
   print(q.out[0].n)
 
-fail "rev255-y05 keeps self receiver moved", "cannot move `a` while a read loan is live"
+fail "rev255-y05 keeps self moved", "cannot move `a` while a read loan is live"
   obj N
     n: String
 

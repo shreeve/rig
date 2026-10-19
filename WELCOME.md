@@ -219,7 +219,7 @@ sub main()
 ada 70
 ```
 
-`?@` reads the receiver and `!@` writes it. The call site says
+`?@` reads self and `!@` writes it. The call site says
 the same: a read is implicit (`a.can_pay(30)`), but a write is always
 spelled out, `!a.pay(30)`, so every mutation is visible, a change to a
 shared `Cell` included: `!count.set(5)`, which lends the handle `count`
@@ -622,7 +622,7 @@ Rig has no `++`; write `x += 1`
 ```
 
 **Other languages' names.** The absent value is `none`, booleans are
-lowercase, the receiver is `@` and always written, and a line is
+lowercase, self is `@` and always written, and a line is
 printed with `print`:
 
 ```rig reject
@@ -642,7 +642,7 @@ sub main()
 ```
 
 ```error
-use of unbound name `this`; a method's receiver is `@`
+use of unbound name `this`; a method's self is `@`
 use of unbound name `n`; did you mean `@n`?
 use of unbound name `null`; Rig's absent value is `none`
 use of unbound name `True`; Rig writes `true`

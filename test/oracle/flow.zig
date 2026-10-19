@@ -342,8 +342,8 @@ const Checker = struct {
             if (op.what == .call and !(pv.kind == .write_view or pv.holds_writes)) self.readOnly(pf);
         }
         // What the receiver itself takes leaves out the call's own lend of
-        // it: a callee cannot store a view of `self` through `self`, whose
-        // write it is (the compiler rejects `!self.w.push(?self.n)`). In
+        // it: a callee cannot store a view of `@` through `@`, whose
+        // write it is (the compiler rejects `!@w.push(?@n)`). In
         // another `!` argument it may store that view, which keeps the
         // receiver lent while the argument holds it (SPEC "Second-class
         // views").

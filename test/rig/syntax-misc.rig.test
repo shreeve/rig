@@ -571,7 +571,7 @@ test "drop decl body", '''
   print(0)
   # scope exit runs the drop body, which prints the fd
 
-fail "drop decl typed receiver", "7:8: the receiver `@` takes no type: write `?@`, `!@`, or `<@`"
+fail "drop decl typed receiver", "7:8: self takes no type: write `?@`, `!@`, or `<@`"
   # A `drop` receiver is written as a method's is, `drop(!@)`, with no
   # type.
 
@@ -584,7 +584,7 @@ fail "drop decl typed receiver", "7:8: the receiver `@` takes no type: write `?@
   a = A(n: 1)
   print(a.n)
 
-fail "drop receiver without parens", "6:8: a drop body takes its receiver in parentheses: `drop(!@)`"
+fail "drop receiver without parens", "6:8: a drop body takes self in parentheses: `drop(!@)`"
   # A `drop` body takes its receiver in parentheses, like a method.
 
   obj File
@@ -978,7 +978,7 @@ test "for iterator", release: true, '''
     s += n
   print(s)
 
-fail "for iterator signature", "31:10: cannot iterate over `Reads`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes `?@`", "34:10: cannot iterate over `Wants`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes more than `@`", "37:10: cannot iterate over `Plain`: a `for` walks a type with `next(!@) -> T?`, but its `next` does not give an optional", "40:10: cannot iterate over `Free`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes no receiver `@`", "42:10: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!@) -> T?`)", errors: 5
+fail "for iterator signature", "31:10: cannot iterate over `Reads`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes `?@`", "34:10: cannot iterate over `Wants`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes more than `@`", "37:10: cannot iterate over `Plain`: a `for` walks a type with `next(!@) -> T?`, but its `next` does not give an optional", "40:10: cannot iterate over `Free`: a `for` walks a type with `next(!@) -> T?`, but its `next` takes no self", "42:10: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!@) -> T?`)", errors: 5
   # A `for` walks a type whose `next` is `next(!@) -> T?`: a `next`
   # that takes `?@`, takes more, or gives no optional is not one, and
   # a loop over such a type says why. Plain `List`, array and `?String`
@@ -3382,8 +3382,8 @@ test "pass statement", '''
   pass if i > 1
   defer pass
 
-fail "receiver outside a method", "4:5: use of unbound name `@`; `@` is the receiver of a method that declares one: `(?@)`, `(!@)`, or `(<@)`"
-  # `@` is a method's receiver: outside a method it names nothing.
+fail "receiver outside a method", "4:5: use of unbound name `@`; `@` is the self of a method that declares it: `(?@)`, `(!@)`, or `(<@)`"
+  # `@` is a method's self: outside a method it names nothing.
 
   x = 42
   p = @x
@@ -3595,7 +3595,7 @@ test "receiver move sigil", '''
   7
   1
 '''
-  # `<@` declares that the method consumes its receiver, as `?@`
+  # `<@` declares that the method consumes self, as `?@`
   # declares that it reads it and `!@` that it writes it. The caller writes
   # the move (`<c.close()`), or calls it on a temporary.
 

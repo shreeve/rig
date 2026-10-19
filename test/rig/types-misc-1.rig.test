@@ -2384,7 +2384,7 @@ fail "drop decl duplicate", "duplicate `drop` declaration on this object"
     drop(!@)
       print(@fd + 1)
 
-fail "drop decl extra param", "`drop` takes exactly one parameter, its receiver: `drop(!@)`; got 2"
+fail "drop decl extra param", "`drop` takes exactly one parameter, self: `drop(!@)`; got 2"
   # A `drop` declaration takes exactly one parameter, its receiver.
 
   obj File
@@ -2413,7 +2413,7 @@ fail "drop decl on generic", "`drop` bodies are only for non-generic objects, no
     drop(!@)
       print(0)
 
-fail "drop decl read self", "`drop` takes its receiver lent to write: `drop(!@)`"
+fail "drop decl read self", "`drop` takes self lent to write: `drop(!@)`"
   # A `drop` declaration's receiver is lent to write, `drop(!@)`; a
   # read view is rejected.
 
@@ -6635,7 +6635,7 @@ fail "param default not literal", "a default parameter value must be a literal"
 
   print(scaled(3))
 
-fail "param sigil sugar not self", "sigil-prefixed parameter is only allowed for the receiver `@`"
+fail "param sigil sugar not self", "sigil-prefixed parameter is only allowed for self, `@`"
   # Sigil-on-name parameter sugar is only for `@`; other parameters put
   # the sigil on the type (`xs: ?Type`).
 
@@ -7154,7 +7154,7 @@ test "rebind view local", '''
   print(r)
   print(a, b)
 
-fail "receiver move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body", "11:17: the receiver `@` must be the first parameter of a method", "11:17: sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", "14:9: `drop` takes its receiver lent to write: `drop(!@)`", "17:8: sigil-prefixed parameter is only allowed for the receiver `@`", "20:8: `<@` is only allowed in a method body"
+fail "receiver move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body", "11:17: self, `@`, must be the first parameter of a method", "11:17: sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", "14:9: `drop` takes self lent to write: `drop(!@)`", "17:8: sigil-prefixed parameter is only allowed for self, `@`", "20:8: `<@` is only allowed in a method body"
   # `<@` is only a method's first parameter, and only `@` takes it; a
   # drop body views its receiver, so it cannot take `<@`.
 

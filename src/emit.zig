@@ -15,7 +15,7 @@
 //!   optional of one) is dropped at scope exit by a `defer`. When the
 //!   binding may be moved, dropped, or returned, the defer tests a
 //!   `__rig_alive_<name>` flag, and the consuming site clears it.
-//! - `!T` parameters, `!self` receivers, and write-view bindings are
+//! - `!T` parameters, `!@` receivers, and write-view bindings are
 //!   pointers; reads go through `.*`.
 //! - Every Rig name is written with `rig.writeZigIdent` (`ident`), the
 //!   one place a Rig name becomes a Zig name; a local that would shadow
@@ -935,7 +935,7 @@ pub const Emitter = struct {
             if (local.kind == .value or local.kind == .optional) {
                 local.param_name = try self.fmt("__rig_arg_{d}", .{self.nextId()});
             } else if (inlined and !unused) {
-                // The receiver, `@`, comes in as `__rig_in_self`, so a
+                // Self, `@`, comes in as `__rig_in_self`, so a
                 // parameter named `self` takes a number.
                 local.param_name = if (std.mem.eql(u8, rig_name, "@"))
                     "__rig_in_self"
@@ -959,7 +959,7 @@ pub const Emitter = struct {
         try self.emitTypeTy(local.ty.?);
     }
 
-    /// A method's receiver: `?self`, `!self`, or `self: T`.
+    /// A method's receiver: `?@`, `!@`, or `<@`.
     fn isReceiverParam(self: *Emitter, p: Sexp) bool {
         return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "@");
     }
@@ -7029,7 +7029,7 @@ pub const Emitter = struct {
         if (kind == .value or kind == .optional or (writes and !ptr)) try self.poisonAtExit(name);
         // Sema rejects a viewed temporary receiver that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
-        // value holding a type parameter gets here (`self.twice()` of a
+        // value holding a type parameter gets here (`@twice()` of a
         // `Wrap[T]`): plain data in every instance sema accepts, dropped
         // like a resource in the generic body.
         if (kind) |k| {
@@ -7477,7 +7477,7 @@ pub const Emitter = struct {
     }
 
     /// The field of a closure's environment that holds capture `name`:
-    /// `cap_x`. The receiver, `@`, is `cap_self`, so a capture named
+    /// `cap_x`. Self, `@`, is `cap_self`, so a capture named
     /// `self` is `cap_self'`, as `writeZigIdent` renames it.
     fn capField(self: *Emitter, name: []const u8) Error![]const u8 {
         if (std.mem.eql(u8, name, "@")) return "cap_self";

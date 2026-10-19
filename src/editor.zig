@@ -395,7 +395,7 @@ const Classifier = struct {
     }
 
     /// The parameters of a group: a name, `name: T`, `name: T = v`, or
-    /// one of these behind a sigil (`?self`).
+    /// one of these behind a sigil (`?@`).
     fn params(c: *Classifier, group: Sexp) !void {
         for (group.items()) |item| {
             var x = item;

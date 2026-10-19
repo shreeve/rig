@@ -224,7 +224,7 @@ pub fn hasReceiver(ctx: *const SemContext, call: Sexp) bool {
     return !isTypeCallee(ctx, ir.Member.object(callee));
 }
 
-/// Whether the method of `value.method(...)` takes `!self`.
+/// Whether the method of `value.method(...)` takes `!@`.
 pub fn receiverWrites(ctx: *const SemContext, call: Sexp) bool {
     if (!hasReceiver(ctx, call)) return false;
     const f = fnType(ctx, typeOf(ctx, ctx.calleeOf(call))) orelse return false;
@@ -285,7 +285,7 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
         }
     }
     const callee = ctx.calleeOf(call);
-    // Zig passes a temporary receiver to a `!self` method as a constant.
+    // Zig passes a temporary receiver to a `!@` method as a constant.
     if (receiverOf(ctx, call)) |recv| if (!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) return true;
     var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or consumedTemporary(ctx, call) != null;
     for (args) |a| {
@@ -407,7 +407,7 @@ pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
 /// it takes is: it is read, not taken, and its type is read by
 /// address (`sema.readByAddress`), as the ownership checker reads
 /// each leaf in place (`holdBranchReads`). Zig would copy it into a
-/// temporary, and a `?self` method would view the copy; a struct, an
+/// temporary, and a `?@` method would view the copy; a struct, an
 /// array, or a String is instead reached through the address of its
 /// leaf, which Zig follows for a field, an element, or a method.
 pub fn reachesLeaf(ctx: *const SemContext, e: Sexp) bool {

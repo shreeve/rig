@@ -769,25 +769,28 @@ sub main()
 Point(x: 13, y: 4) 25
 ```
 
-A method whose first parameter is the receiver is an instance method;
-one without is an associated function, called through the type
+A method that takes self, `@`, as its first parameter is an instance
+method; one without is an associated function, called through the type
 (`Point.origin()`). `Self` names the enclosing type.
 
-The receiver is `@`. Its member is `@name`, the name touching the `@`:
-`@x` is the field `x`, and `@norm()` calls the method `norm`. `@` alone
-is the receiver itself, as in `!out.push(@)`. A name with no `@` is a
-local or parameter, never a member.
+Inside a method, `@` is self, the value the method was called on, and
+`@name` is self's member `name`, the name touching the `@`: `@x` is the
+field `x`, and `@norm()` calls the method `norm`. Read `@x` as "my x":
+`@hits += 1` is "my hits go up by one", and `!out.push(@)` is "push me
+onto `out`". A name with no `@` is a local or parameter, never a
+member. At the call, the value before the `.` (`p` in `p.m()`) is the
+receiver: it is what self is inside the method.
 
-| Receiver | Called as |
+| Takes self as | Called as |
 |---|---|
 | `?@` | `p.m()`, or `?p.m()` |
 | `!@` | `!p.m()` |
 | `<@` | `<p.m()`, or on a temporary |
 | (none) | `Point.origin()` |
 
-Only the receiver takes its sigil before it, and no type; other
-parameters put the sigil on the type (`other: ?Point`). A drop body is written like a method
-with the receiver `!@` and no name: `drop(!@)`. `pub` before a
+Only self takes its sigil before it, and no type; other parameters
+put the sigil on the type (`other: ?Point`). A drop body is written
+like a method that takes self as `!@`, with no name: `drop(!@)`. `pub` before a
 field or method exports it: `pub x: Int`, `pub fun sum(?@) -> Int`.
 `pub ?x: Int` (or `pub ?x: Int = 0`) exports a field to read only: the
 read sigil before the name says other modules get a read view, and
@@ -1649,7 +1652,7 @@ the same sigil means the same thing in every position:
 |---|---|---|---|---|---|
 | expression | `?x` | `!x` | `<x` | `+x` | `~x` |
 | type | `?T` | `!T` | | | `~T` |
-| receiver | `?@` | `!@` | `<@` | | |
+| self | `?@` | `!@` | `<@` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in v` | `for x in !v` | `for x in <v` | | |
 | `match` subject | `match e` | `match !e` | `match <e` | | |

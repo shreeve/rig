@@ -345,6 +345,19 @@ binding may be moved or dropped early. Zig's `defer` makes cleanup
 path-sensitive and correctly ordered for free; the cost is one Boolean
 per such binding, visible in the emitted code.
 
+### Errors are values, not exceptions
+
+A function that can fail returns `T!`, and its errors are typed values
+that may carry data. A caller passes a failure on with `e!`, written
+where it happens, or handles it with `e catch fallback`; `defer` runs on
+every exit, and `errdefer` only when the function fails. Rig has no
+exceptions: nothing is thrown past a caller, no stack unwinds in search
+of a handler, and there is no `try`, `rescue`, `ensure`, or `finally`
+block, which would only say again what `!`, `catch`, `defer`, and
+`errdefer` say where the code is. `try` stays reserved. A `panic` is
+not an error: it is a bug, it ends the program, and no code recovers
+from it.
+
 ### Bindings
 
 `x = e` binds or assigns, as in Python and Ruby, so there is no `var`

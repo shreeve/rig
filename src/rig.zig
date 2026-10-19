@@ -540,7 +540,7 @@ const zig_primitives = std.StaticStringMap(void).initComptime(.{
 /// handler), and the ones Zig's standard library looks up in the root
 /// module with `@hasDecl(root, ...)` and uses as hooks (`debug`, `os`,
 /// `std_options`, the entry points of each target), and `self`, which
-/// the receiver `@` is written as. Every one is renamed wherever it
+/// self, `@`, is written as. Every one is renamed wherever it
 /// stands, so no hook depends on which module or scope declares it.
 const emitter_names = std.StaticStringMap(void).initComptime(.{
     .{"std"},       .{"rig"},                .{"panic"},
@@ -585,7 +585,7 @@ pub const ZigSpelling = enum { rig, exact };
 /// method, variant, type, generic parameter, constant, function,
 /// label, or module the program names is written here, so a use is
 /// always spelled as its declaration.
-///   * the receiver, `@`, is `self`;
+///   * self, `@`, is `self`;
 ///   * a name the emitter or Zig's standard library uses
 ///     (`zigRenames`: `std`, `rig`, `debug`, `self`, `__rig*`) gets a `'`
 ///     suffix, which no Rig identifier can contain: `@"rig'"`; an
@@ -914,7 +914,7 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .receiver_dot => "a member of the receiver is written `@name`, the name touching the `@`",
+                .receiver_dot => "a member of self is written `@name`, the name touching the `@`",
                 .dollar_detached => "`$` touches the name after it: a builtin call is written `$size(T)`, a label `$outer:` (`break $outer`)",
                 .dollar_stray => "`$name` is a builtin call, `$size(T)`, with the name touching its `(`, or a label: `$outer:` where a statement starts, and `break $outer` or `continue $outer`",
                 .label_keyword => "a keyword is not a label name",
@@ -1509,7 +1509,7 @@ pub const Lexer = struct {
         return out;
     }
 
-    /// `@` is the receiver, a name, and `@name` its member `name`: an
+    /// `@` is self, a name, and `@name` its member `name`: an
     /// `@` touching a name is followed by a `.` before it, which the
     /// next call returns (`member_dot`). The receiver's member is never
     /// written `@.name`.
@@ -1565,7 +1565,7 @@ pub const Lexer = struct {
             var t = probe.next();
             if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) t = probe.next();
             // A keyword entry still makes a bar list, so that the parser
-            // reports the keyword (`|when: Int|`). The receiver, `@`, is a
+            // reports the keyword (`|when: Int|`). Self, `@`, is a
             // name (`|?@|`).
             if (!isWord(t.cat) and t.cat != .at) return true;
             var sep = probe.next();
@@ -2538,7 +2538,7 @@ pub const Parser = struct {
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
             .star => if (precededBy(src, tok.pos, "for")) reserved_for_star else null,
             .in => if (forStar(src, tok.pos)) reserved_for_star else null,
-            .ident, .not_sym, .question => if (precededBy(src, tok.pos, "drop")) "a drop body takes its receiver in parentheses: `drop(!@)`" else null,
+            .ident, .not_sym, .question => if (precededBy(src, tok.pos, "drop")) "a drop body takes self in parentheses: `drop(!@)`" else null,
             else => null,
         };
     }
@@ -3344,7 +3344,7 @@ pub const Parser = struct {
         slot.* = try self.base.newNode(.drop, &.{slot.*}, self.span(slot.*));
     }
 
-    /// A name a binding may have, the receiver `@` too: not a literal,
+    /// A name a binding may have, self, `@`, too: not a literal,
     /// `true`, or `false`.
     fn isBindingName(source: []const u8, leaf: Sexp) bool {
         const text = leafText(source, leaf.src);
@@ -3834,7 +3834,7 @@ test "`$name(` with the `(` touching is a builtin; `$name` alone is a label" {
     try expectCats("f($a)", &.{ .ident, .lparen, .err });
 }
 
-test "`@` is the receiver, and `@name` its member" {
+test "`@` is self, and `@name` its member" {
     try expectCats("@", &.{.ident});
     try expectCats("x = @a", &.{ .ident, .assign, .ident, .dot, .ident });
     try expectCats("f(!@)", &.{ .ident, .lparen, .not_sym, .ident, .rparen });

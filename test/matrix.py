@@ -416,7 +416,7 @@ CONTEXTS = {
     # the value a call makes there, so it binds that value.
     "match_subject_temp": dict(inline='match pass_t(E, ?String("t"))\n    y => print(look(?y))', temp=True),
     "as_temp": dict(inline='if some_t(E, ?String("t")) as y\n    print(look(?y))', temp=True),
-    # A method that consumes its receiver (`<self`, `^T.unbox`).
+    # A method that consumes its receiver (`<@`, `^T.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # A method that writes its receiver: a value made there, or one
     # lent with `!` (a place without one is rejected).
@@ -455,7 +455,7 @@ CONTEXTS = {
                                  recv={t: "me()" for t in ("shared", "box", "drop")}),
     "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "static", "text")),
     "index_then_write": dict(inline="print((E)[poke(!W)])", write=True, types=("list",)),
-    # A `?self` method returning a view of its receiver (`me`): the view
+    # A `?@` method returning a view of its receiver (`me`): the view
     # held past the statement, used after a later operand writes what the
     # form reads, or held while a later statement writes it.
     "recv_view": dict(inline="x = (E).M", after="print(x.v)", recv={"drop": "me()", "shared": "me()"}),
@@ -902,7 +902,7 @@ LOOP_JUMPS = {
 
 
 # -----------------------------------------------------------------------------
-# A `for` over an iterator (`next(!self) -> Int?`, yielding 0, 1, 2),
+# A `for` over an iterator (`next(!@) -> Int?`, yielding 0, 1, 2),
 # which is `while (!it).next() as k` (SPEC, "for"), from each kind of
 # source and in each context: a statement that runs out, breaks, skips,
 # returns, fails, or has an `else`; a loop used as a value or as a
@@ -2015,7 +2015,7 @@ def hdr_program(hname, sname, lname, gname="bare"):
 # A Cell lives only behind `*`: a value holding one is reached through a
 # `*` handle. A Cell changed, or read, through the handle to the value
 # holding it, through a `!T` parameter given the handle, and through a
-# `!self` method called on it, built in debug and with `--release`: a
+# `!@` method called on it, built in debug and with `--release`: a
 # change by a marked call must reach the value in both. Each program applies each
 # operation (in a function of its own, to a value of its own) through
 # one access in a statement, a loop that continues early, a loop that
@@ -2437,7 +2437,7 @@ KEEPS_KINDS = {
     "fnval": dict(P="?String", held="?String", E="p", setup=[], init='"first"', owner=['t = String("seven")'], lend="?t",
                   read="print(h.r)", stored="seven", first="first", change='!t.add("x")', fnval=True),
 }
-# Each store: how the callee's body stores `E` (`self.r`, or `h.r` in a
+# Each store: how the callee's body stores `E` (`@r`, or `h.r` in a
 # function given the holder `h`), and whether it stores at all.
 KEEPS_STORES = {
     "self": dict(stores=True),
@@ -2997,7 +2997,7 @@ def rootidx_program(shape, site, writer):
 # after a second use of a place of the same value, in a context, past an
 # exit. The places (`FIELD_ROOTS`): a struct's fields, a nested struct's,
 # a field reached through a read-view field (whose loan is the view's,
-# not the holder's), `self`'s in a `!self` method, and a box's. The
+# not the holder's), self's in a `!@` method, and a box's. The
 # second use is a read lend, a write lend, a take (`<X.o`), or an
 # assignment, of a sibling (`sib`: `X.b`, `X.o`), the same field
 # (`same`), or the whole value (`parent`). The contexts: straight line,

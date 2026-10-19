@@ -1746,11 +1746,12 @@ how the method uses the value, and the call site says the same thing:
 | `!@` | modifies the value | `!p.m()` |
 | `<@` | consumes the value | `<p.m()`, or on a temporary; `p.m()` takes a copy of a value that copies |
 
-The receiver is written with its sigil and no type; `@: Self` is
-rejected. In a method's body `@` is the receiver, and `@name` its
-member `name`, the name touching the `@` (`@n`, `@bump()`); `@.n` is
-rejected. A method without a receiver, or a function, has no `@`, and
-nothing else is named `@`.
+Self is written with its sigil and no type; `@: Self` is rejected. In
+a method's body `@` is self, the value the method was called on (its
+receiver at the call), and `@name` is self's member `name`, the name
+touching the `@` (`@n`, `@bump()`); `@.n` is rejected. A method that
+takes no self, or a function, has no `@`, and nothing else is named
+`@`.
 
 A write lend and a move are always written ([§7](#lending)), so
 calling a `!@` method as `p.m()` is an error, also on a binding that
@@ -6475,7 +6476,7 @@ noisy 1
 A drop body may read and assign fields, call methods on `@`
 (including `!@` methods), and use `raw`. It may not move, drop, or
 reassign `@` directly, since a replaced `@` would be dropped,
-running the body again. A `!@` method that replaces its receiver
+running the body again. A `!@` method that replaces self
 recurses the same way, as it would in Rust. No field can be moved out,
 because the fields are released after the body returns.
 `drop` bodies are only for non-generic objects; enums and generic
