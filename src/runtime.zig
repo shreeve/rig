@@ -1041,7 +1041,7 @@ pub fn Box(comptime T: type) type {
 
 /// `Cell(T)`: interior mutability. `get` is only offered for plain-data
 /// `T` (sema enforces this); resource payloads move in and out with
-/// `set` and `replace`.
+/// `set` and `swap`.
 pub fn Cell(comptime T: type) type {
     return struct {
         value: T,

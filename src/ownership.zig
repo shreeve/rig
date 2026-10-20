@@ -4435,7 +4435,7 @@ pub const Checker = struct {
             return .{};
         }
         // Every handle to a Cell or Signal reaches what it holds, so what
-        // goes in (`Cell(v)`, `set`, `replace`, `subscribe`) may
+        // goes in (`Cell(v)`, `set`, `swap`, `subscribe`) may
         // not hold a view.
         const into = if (callee.isKind(.member) and !self.namesType(callee))
             self.builtinName(self.exprType(ir.Member.object(callee)))

@@ -18,6 +18,14 @@ extern zig "char.zig"
   # The class of rune `r` among std.text's chars (Class in
   # std/char_tables.zig), with `tailored` as Ghostty's.
   fun char_class(r: Int, tailored: Bool) -> Int
+  # One step of text.CharBreak: the state after rune `r` from `state`
+  # (negative before any rune), bit 7 set when a char starts at `r`.
+  fun char_step(state: Int, r: Int, tailored: Bool) -> Int
+
+extern zig "cells.zig"
+  # `dst[i]` is `U64(src[i]) | bits` for each `i` of the shorter of the
+  # two, sixteen at a time.
+  sub widen(dst: ![]U64, src: ?String, bits: U64)
 
 extern zig "width_tables.zig"
   # The width bits of rune `r`: its width, ZERO_IN_CHAR, and VS_BASE.
@@ -32,12 +40,40 @@ CLASS_PICT = 1
 ZERO_IN_CHAR = 4
 VS_BASE = 8
 
-# The index of `s` in `styles`, added when it is new.
-fun intern(styles: !List[Style], s: ?Style) -> Int
-  for t, k in styles
-    return k if t.same(s)
+# The index of `s` in `styles`, added when it is new. A few styles are
+# looked at one by one; past SMALL_STYLES, as truecolor output makes
+# thousands, `s` is found by its key in `ids`, which holds every style's
+# (and in the rare case another style has that key, by looking at each).
+fun intern(styles: !List[Style], ids: !hash.Map[Int, Int], s: ?Style) -> Int
+  if styles.len <= SMALL_STYLES
+    for t, k in styles
+      return k if t.same(s)
+  else if ids.get(style_key(s)) as k
+    return k if styles[k].same(s)
+    for t, j in styles
+      return j if t.same(s)
+  key = style_key(s)
   !styles.push(+s)
+  !ids.put(key, styles.len - 1) if not ids.has(key)
   styles.len - 1
+
+SMALL_STYLES = 32
+
+# `style_ids` of a terminal's first style, the plain one.
+fun plain_ids() -> hash.Map[Int, Int]
+  ids = hash.Map[Int, Int].new()
+  !ids.put(style_key(?(Style.plain())), 0)
+  ids
+
+# A key for style `s`: its fields, mixed into 63 bits (an Int's), so two
+# styles with the same key are the same but for odds of about one in 2^63.
+fun style_key(s: ?Style) -> Int
+  a = U64(s.flags | (s.underline << 8) | ((s.fg + 1) << 11))
+  b = U64((s.bg + 1) | ((s.ulc + 1) << 26))
+  h = (a *% 0x9E3779B97F4A7C15) ^ b
+  h = (h ^ (h >> 31)) *% 0xBF58476D1CE4E5B9
+  h = (h ^ (h >> 29)) *% 0x94D049BB133111EB
+  Int((h ^ (h >> 32)) >> 1)
 
 # Every mode Ghostty knows, DEC private and ANSI, and each one's default,
 # in Ghostty's order (modes.zig). A mode the terminal does nothing for is
@@ -58,8 +94,8 @@ fun mode_index(m: Int, ansi: Bool) -> Int
 # What XTVERSION names the terminal.
 NAME = "std.terminal"
 
-# A cursor DECSC saved: its place, pending wrap, pen, origin mode, and
-# character sets; `set` is false before the first save.
+# A cursor DECSC saved: its place, pending wrap, pen, origin mode,
+# character sets, and protection; `set` is false before the first save.
 obj Saved
   set: Bool
   row: Int
@@ -70,9 +106,10 @@ obj Saved
   g: [4]Int
   gl: Int
   single: Int
+  protect: Bool
 
   fun none() -> Saved
-    Saved(set: false, row: 0, col: 0, wrap: false, pen: Style.plain(), origin: false, g: [4 of UTF8], gl: 0, single: -1)
+    Saved(set: false, row: 0, col: 0, wrap: false, pen: Style.plain(), origin: false, g: [4 of UTF8], gl: 0, single: -1, protect: false)
 
 # Character sets.
 UTF8 = 0
@@ -105,6 +142,15 @@ KIND: U64 = 0xC0000000
 # are in `extras`, by the cell's index (Ghostty's grapheme map).
 EXTRA: U64 = 0x20000000
 
+# A cell is protected: printed while protection was on (SPA or DECSCA),
+# so a selective erase, or any erase after SPA, leaves it.
+PROT: U64 = 0x10000000
+
+# The kinds of protection a screen had last (SPA is ISO, DECSCA DEC).
+PROT_OFF = 0
+PROT_ISO = 1
+PROT_DEC = 2
+
 # The flags of a row, kept by its place in `cells`, so they move with it:
 # it wraps into the next row, it is wrapped into from the row before, and
 # it may hold cells of wide runes, and cells with EXTRA.
@@ -122,7 +168,7 @@ fun mark(c: U64) -> Int
   Int(c >> 32)
 
 # A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune
-# in the low 21 bits (0 for empty), EXTRA in bit 29, its kind (WIDE, TAIL,
+# in the low 21 bits (0 for empty), PROT in bit 28, EXTRA in bit 29, its kind (WIDE, TAIL,
 # HEAD, or 0) in the next 2, and its style, an index into `styles`, in
 # the high 32. The screen's rows are kept in any order: row `y` is cells
 # `map[rot + y] * cols` to `map[rot + y] * cols + cols - 1`, and its flags
@@ -148,6 +194,8 @@ pub obj Terminal
   extras: hash.Map[Int, List[U32]]
   # The styles cells use, the first the plain one.
   styles: List[Style]
+  # Each style's index in `styles`, by its `style_key`.
+  style_ids: hash.Map[Int, Int]
   # The style the next rune is printed in (SGR), and its index; the index
   # of an erased cell, which keeps only the pen's background; and both as
   # the high bits of a cell.
@@ -174,6 +222,12 @@ pub obj Terminal
   # Modes: autowrap (DECAWM), origin (DECOM), insert (IRM), and new line
   # (LNM, a line feed also returns).
   autowrap: Bool
+  # The cursor prints protected cells (SPA, DECSCA), and the kind of
+  # protection the screen had last, which ECH and ED and EL heed; the other
+  # screen's.
+  protect: Bool
+  prot_mode: Int
+  other_prot_mode: Int
   # Mode 2027: runes join into chars as Ghostty clusters them, and a char
   # takes the width of its runes together.
   graphemes: Bool
@@ -239,9 +293,9 @@ pub obj Terminal
     for y in 0..rows
       map[y] = y
     Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
-      styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
+      styles: List([Style.plain()]), style_ids: plain_ids(), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
-      autowrap: true, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
+      autowrap: true, protect: false, prot_mode: PROT_OFF, other_prot_mode: PROT_OFF, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
       modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
       kitty: [8 of 0], kitty_idx: 0, other_kitty: [8 of 0], other_kitty_idx: 0, replies: String(),
       tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_rot: 0, other_flags: List(), other_ends: List(), other_extras: hash.Map[Int, List[U32]].new(), other_saved: Saved.none(), other_bg: NONE,
@@ -263,12 +317,20 @@ pub obj Terminal
 
   # The pen changed: find its index, and the index of an erased cell.
   sub pen_changed(!@)
-    @pen_id = intern(!@styles, ?@pen)
+    @pen_id = intern(!@styles, !@style_ids, ?@pen)
     erased = Style.plain()
     erased.bg = @pen.bg
-    @blank_id = intern(!@styles, ?erased)
-    @pen_bits = U64(@pen_id) << 32
+    @blank_id = intern(!@styles, !@style_ids, ?erased)
+    @pen_bits = (U64(@pen_id) << 32) | (PROT if @protect else 0)
     @blank_cell = U64(@blank_id) << 32
+
+  # SPA and EPA (ISO, and off) or DECSCA (DEC, and off): whether the cells
+  # the cursor prints are protected, and, but for off, the kind of
+  # protection the screen had last.
+  sub set_protect(!@, mode: Int)
+    @protect = mode != PROT_OFF
+    @prot_mode = mode if mode != PROT_OFF else @prot_mode
+    @pen_bits = ((@pen_bits >> 32) << 32) | (PROT if @protect else 0)
 
   # The index in `cells` of row `y`, column `x`.
   fun at(?@, y: Int, x: Int) -> Int
@@ -359,6 +421,26 @@ pub obj Terminal
     return if (c == 0xFE0F or c == 0xFE0E) and char_class(first, true) != CLASS_PICT
     (!@).append(i, c)
 
+  # Mode 2027: whether `r` surely starts a char of its own, so `join` would
+  # leave it: the char before the cursor (as `join` finds it) is empty, or
+  # one rune, after which the rules break before `r`. When that char has
+  # more runes, `join` decides.
+  fun starts_char(?@, r: Int) -> Bool
+    return true if @col == 0
+    base = @map[@rot + @row] * @cols
+    left = 1
+    if @autowrap
+      left = 0 if @pending_wrap else 1
+    else if @col == @cols - 1
+      left = 1 if rune(@cells[base + @col]) == 0 else 0
+    x = @col - left
+    x -= 1 if @cells[base + x] & KIND == TAIL else 0
+    c = @cells[base + x]
+    first = rune(c)
+    return true if first == 0
+    return false if c & EXTRA != 0
+    char_step(char_step(-1, first, true) & 0x7F, r, true) & 0x80 != 0
+
   # Mode 2027: whether `c` continues the char that ends before the cursor
   # (or at it, with a wrap pending), as Ghostty clusters runes (a tailored
   # text.CharBreak); if so it joins that char. A variation selector after
@@ -402,7 +484,7 @@ pub obj Terminal
           # The char moves to the next row with its runes; its cell keeps
           # its style, as a spacer.
           runes = (!@extras).take(i) ?? List[U32]()
-          @cells[i] = ((@cells[i] >> 32) << 32) | HEAD
+          @cells[i] = ((@cells[i] >> 32) << 32) | (@cells[i] & PROT) | HEAD
           @flags[@map[@rot + @row]] |= ROW_WIDE
           (!@).wrap()
           (!@).put(U32(first), WIDE)
@@ -469,9 +551,7 @@ pub obj Terminal
       take = @cols - @col if @cols - @col < to - k else to - k
       p = @map[@rot + @row]
       base = p * @cols + @col
-      bits = @pen_bits
-      for t in 0..take
-        @cells[base + t] = U64(s[k + t]) | bits
+      widen(!@cells[base..base + take], s[k..k + take], @pen_bits)
       @ends[p] = @col + take if @ends[p] < @col + take else @ends[p]
       k += take
       # As `print` does, a pending wrap (kept with autowrap off, after CBT)
@@ -492,6 +572,10 @@ pub obj Terminal
   # Ghostty does.
   fun print_utf8(!@, s: ?String, from: Int) -> Int
     fast = not @insert and @single < 0 and @g[@gl] <= ASCII
+    # In mode 2027, the char break state after the rune this loop wrote
+    # last, while the char before the cursor is that rune alone; -1 when
+    # it may not be.
+    st = -1
     k = from
     n = s.len
     while k < n
@@ -523,9 +607,24 @@ pub obj Terminal
       else
         break
       w = 1 if r <= 0xFF else unicode.width(r)
-      if w == 0 or not fast or (@graphemes and r > 0xFF)
+      if w == 0 or not fast
         (!@).print(U32(r))
+        st = -1
         continue
+      next = -1
+      if @graphemes
+        if r <= 0xFF
+          next = char_step(-1, r, true) & 0x7F
+        else
+          # Whether `r` starts a char: from the state the last rune left,
+          # or else from the char before the cursor; when it may not,
+          # `print` joins it.
+          brk = char_step(st, r, true) if st >= 0 else (char_step(-1, r, true) if @starts_char(r) else 0)
+          if brk & 0x80 == 0
+            (!@).print(U32(r))
+            st = -1
+            continue
+          next = brk & 0x7F
       (!@).wrap() if @pending_wrap and @autowrap
       p = @map[@rot + @row]
       i = p * @cols + @col
@@ -538,7 +637,9 @@ pub obj Terminal
         @col += 1
       else
         (!@).print(U32(r))
+        st = -1
         continue
+      st = next
       @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
       @last = r
       if @col == @cols - 1
@@ -775,8 +876,26 @@ pub obj Terminal
     (!@).blank(base + @cols - k, base + @cols)
     (!@).reset_wrap()
 
+  # Cells `from` to `to` (not included) of one row erased as `blank`
+  # erases them, but with `keep` those protected stay.
+  sub erase_cells(!@, from: Int, to: Int, keep: Bool)
+    if not keep
+      (!@).blank(from, to)
+      return
+    i = from
+    while i < to
+      if @cells[i] & PROT != 0
+        i += 1
+        continue
+      j = i + 1
+      while j < to and @cells[j] & PROT == 0
+        j += 1
+      (!@).blank(i, j)
+      i = j
+
   # ECH: `n` cells from the cursor emptied, at least one, not past the row,
-  # and a wide rune cut at either end; the row no longer wraps.
+  # and a wide rune cut at either end; the row no longer wraps. After SPA
+  # protected cells stay.
   sub erase_chars(!@, n: Int)
     k = n if n > 0 else 1
     k = k if k < @cols - @col else @cols - @col
@@ -785,41 +904,56 @@ pub obj Terminal
     (!@).split_at(@col)
     (!@).split_at(@col + k)
     (!@).reset_wrap()
-    (!@).blank(base + @col, base + @col + k)
+    (!@).erase_cells(base + @col, base + @col + k, @prot_mode == PROT_ISO)
 
   # EL: 0 from the cursor to the end of the row, 1 from its start to the
   # cursor, 2 the whole row; a wide rune the cursor is on is erased whole.
-  # Erasing to the end, the row no longer wraps.
-  sub erase_line(!@, how: Int)
+  # Erasing to the end, the row no longer wraps. Protected cells stay after
+  # SPA, and in a `selective` erase (DECSEL).
+  sub erase_line(!@, how: Int, selective: Bool = false)
     base = @map[@rot + @row] * @cols
+    keep = selective or @prot_mode == PROT_ISO
     match how
       0
         from = @col - 1 if @col > 0 and @cells[base + @col] & KIND == TAIL else @col
         (!@).reset_wrap()
-        (!@).blank(base + from, base + @cols)
+        (!@).erase_cells(base + from, base + @cols, keep)
       1
         to = @col + 2 if @cells[base + @col] & KIND == WIDE else @col + 1
-        (!@).blank(base, base + to)
+        (!@).erase_cells(base, base + to, keep)
       2
         (!@).reset_wrap()
-        (!@).blank(base, base + @cols)
+        (!@).erase_cells(base, base + @cols, keep)
       _ => return
     @pending_wrap = false
 
   # ED: 0 from the cursor to the end of the screen, 1 from its start to the
   # cursor, 2 the whole screen; 3 the scrollback, which holds nothing yet.
-  sub erase_display(!@, how: Int)
+  # Protected cells stay after SPA, and in a `selective` erase (DECSED);
+  # rows erased so keep their flags, as in Ghostty.
+  sub erase_display(!@, how: Int, selective: Bool = false)
+    keep = selective or @prot_mode == PROT_ISO
     match how
       0
-        (!@).erase_line(0)
-        (!@).blank_rows(@row + 1, @rows)
+        (!@).erase_line(0, selective)
+        (!@).erase_rows(@row + 1, @rows, keep)
       1
-        (!@).erase_line(1)
-        (!@).blank_rows(0, @row)
+        (!@).erase_line(1, selective)
+        (!@).erase_rows(0, @row, keep)
       2
-        (!@).blank_rows(0, @rows)
+        (!@).erase_rows(0, @rows, keep)
         @pending_wrap = false
       _ => pass
+
+  # Rows `first` to `last` (not included) erased as `blank_rows` erases
+  # them, but with `keep` those cells protected stay, and the rows' flags.
+  sub erase_rows(!@, first: Int, last: Int, keep: Bool)
+    if not keep
+      (!@).blank_rows(first, last)
+      return
+    for y in first..last
+      base = @map[@rot + y] * @cols
+      (!@).erase_cells(base, base + @cols, true)
 
   # DECSTBM: rows `top` to `bottom`, counted from 1 (0 is the edge), scroll;
   # the cursor goes home. A region of fewer than two rows is ignored.
@@ -843,7 +977,7 @@ pub obj Terminal
     @bottom = @rows - 1
     (!@).set_origin(false)
     (!@).cursor_to(1, 1)
-    !@cells[..].fill(U64(0x45) | @pen_bits)
+    !@cells[..].fill(U64(0x45) | (@pen_bits ^ (@pen_bits & PROT)))
     !@flags[..].fill(0)
     !@ends[..].fill(@cols)
     !@extras.clear()
@@ -917,7 +1051,7 @@ pub obj Terminal
         @tabs[x] = false
 
   sub save_cursor(!@)
-    @saved = Saved(set: true, row: @row, col: @col, wrap: @pending_wrap, pen: +@pen, origin: @origin, g: @g, gl: @gl, single: @single)
+    @saved = Saved(set: true, row: @row, col: @col, wrap: @pending_wrap, pen: +@pen, origin: @origin, g: @g, gl: @gl, single: @single, protect: @protect)
 
   sub restore_cursor(!@)
     if @saved.set
@@ -929,6 +1063,7 @@ pub obj Terminal
       @g = @saved.g
       @gl = @saved.gl
       @single = @saved.single
+      @protect = @saved.protect
     else
       @row = 0
       @col = 0
@@ -938,6 +1073,7 @@ pub obj Terminal
       @g = [4 of UTF8]
       @gl = 0
       @single = -1
+      @protect = false
     (!@).pen_changed()
 
   # To the alternate screen (`alt`) or back to the primary; nothing when
@@ -966,6 +1102,7 @@ pub obj Terminal
     swap(!@extras, !@other_extras)
     swap(!@saved, !@other_saved)
     swap(!@kitty, !@other_kitty)
+    swap(!@prot_mode, !@other_prot_mode)
     swap(!@kitty_idx, !@other_kitty_idx)
     stale = @other_bg
     @other_bg = @pen.bg
@@ -977,7 +1114,7 @@ pub obj Terminal
     kept = @blank_cell
     erased = Style.plain()
     erased.bg = bg
-    @blank_cell = U64(intern(!@styles, ?erased)) << 32
+    @blank_cell = U64(intern(!@styles, !@style_ids, ?erased)) << 32
     (!@).erase_display(2)
     @blank_cell = kept
 

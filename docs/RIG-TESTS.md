@@ -178,10 +178,11 @@ swarm test/rig.rip proofs       # by hand (proofs-all: every program)
 ## Doc examples
 
 Every ```` ```rig ```` block in the Markdown files at the root and in
-`docs/`, `examples/`, and `test/` is a case, so the docs
-cannot drift from the compiler. Each doc is an area, `doc-<name>`: its
-path without `.md` or a leading `docs/`, slashes made dashes
-(`doc-SPEC`, `doc-CORE` for docs/CORE.md). The words after `rig` on the
+`docs/`, `docs/learn/`, `docs/launch/`, `examples/`, and `test/` is a
+case, so the docs cannot drift from the compiler. Each doc is an area,
+`doc-<name>`: its path without `.md` or a leading `docs/`, slashes made
+dashes (`doc-SPEC`, `doc-CORE` for docs/CORE.md, `doc-learn-01-sigils`
+for docs/learn/01-sigils.md). The words after `rig` on the
 opening fence, and the block that follows, give the contract:
 
 | Block | Case |
