@@ -21,6 +21,9 @@ extern zig "char.zig"
   # One step of text.CharBreak: the state after rune `r` from `state`
   # (negative before any rune), bit 7 set when a char starts at `r`.
   fun char_step(state: Int, r: Int, tailored: Bool) -> Int
+  # A tailored char_step from `state` (not negative), with rune `r`'s
+  # width in bits 8 and 9.
+  fun char_step_width(state: Int, r: Int) -> Int
 
 extern zig "cells.zig"
   # `dst[i]` is `U64(src[i]) | bits` for each `i` of the shorter of the
@@ -576,6 +579,9 @@ pub obj Terminal
     # last, while the char before the cursor is that rune alone; -1 when
     # it may not be.
     st = -1
+    # The state after printable ASCII, every byte of which is of class
+    # `other`.
+    ascii_st = char_step(-1, 0x61, true) & 0x7F if @graphemes else -1
     k = from
     n = s.len
     while k < n
@@ -606,14 +612,27 @@ pub obj Terminal
         k += 4
       else
         break
-      w = 1 if r <= 0xFF else unicode.width(r)
-      if w == 0 or not fast
-        (!@).print(U32(r))
-        st = -1
-        continue
       next = -1
-      if @graphemes
-        if r <= 0xFF
+      w = 0
+      if @graphemes and fast and r > 0xFF and st >= 0
+        # Inside a run in mode 2027: the char break and the width at once.
+        info = char_step_width(st, r)
+        if info & 0x80 == 0 or info >> 8 == 0
+          (!@).print(U32(r))
+          st = -1
+          continue
+        w = info >> 8
+        next = info & 0x7F
+      else
+        w = 1 if r <= 0xFF else unicode.width(r)
+        if w == 0 or not fast
+          (!@).print(U32(r))
+          st = -1
+          continue
+      if @graphemes and next < 0
+        if r < 0x80
+          next = ascii_st
+        else if r <= 0xFF
           next = char_step(-1, r, true) & 0x7F
         else
           # Whether `r` starts a char: from the state the last rune left,
