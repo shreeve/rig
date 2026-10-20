@@ -1433,7 +1433,11 @@ of a value that copies, a new count of a handle, or a deep copy of an
 owner. Captures are fixed: the body reads them, and writes only
 through a captured write view. A closure's life ends at its last use,
 so a closure literal lent to a call lends its captures for that call.
-A stack closure may be lent (`?fun`) but not stored. *(built)*
+A stack closure may be lent (`?fun`) but not stored. A closure literal
+lent to a call known to call it exactly once (`time.within`) is that
+one call's: what it owns of its captures (`<x`, `+x`, `~x`) it takes as
+a function takes a parameter given by value, so the body may move them
+out, and drops the rest when it returns. *(built)*
 
 ```rig
 sub main()

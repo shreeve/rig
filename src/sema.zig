@@ -972,8 +972,8 @@ pub const Facts = struct {
     /// The `Bool`s that decide a test, its last line and each `return`
     /// with a value in it -> what a failing one reports.
     test_checks: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
-    /// The calls of `task.both` and `task.all`, which wait for the tasks
-    /// they take (`Checker.taskJoin`).
+    /// The calls of `task.all`, which wait for the tasks they take
+    /// (`Checker.taskJoin`).
     task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `par.map` and `par.each`, which run a function on
     /// several tasks (`Checker.parCall`).
@@ -995,6 +995,9 @@ pub const Facts = struct {
     supervise_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `http.serve` (`Checker.httpServe`).
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Closure literals called exactly once, by the call they are
+    /// written in (`SemContext.recordOnceClosure`).
+    once_closures: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
     /// that makes them (`Checker.crossCheck`).
     local_tasks: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -2225,6 +2228,11 @@ pub const SemContext = struct {
     /// recorded by `storage.plan`): emit arms such a binding's drop
     /// behind an alive flag, and the ownership checker moves no other.
     consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// The captures of a closure called exactly once that it owns
+    /// (`|<x|`, `|+x|`, `|~x|`; `recordOnceClosure`): its one call takes
+    /// them, as a function takes a parameter given by value, so its body
+    /// may move them out, and drops what it leaves.
+    once_captures: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The array types spelled or built in generic declarations, which
     /// each instance checks against `max_value_bytes`; `module_id` is
     /// the module whose source `pos` is in (0 for this one).
@@ -3197,7 +3205,7 @@ pub const SemContext = struct {
         try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, {});
     }
 
-    /// Whether `call` is a `task.both` or `task.all` (`recordTaskJoin`).
+    /// Whether `call` is a `task.all` (`recordTaskJoin`).
     pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
         return self.facts.task_joins.contains(exprKey(call) orelse return false);
     }
@@ -3273,6 +3281,32 @@ pub const SemContext = struct {
     /// Whether `call` is `http.serve` (`recordHttpServe`).
     pub fn isHttpServe(self: *const SemContext, call: Sexp) bool {
         return self.facts.http_serves.contains(exprKey(call) orelse return false);
+    }
+
+    /// Records that closure literal `lambda` is called exactly once, by
+    /// the call it is written in (`time.within`'s): what it owns of its
+    /// captures, its one call takes (`once_captures`).
+    pub fn recordOnceClosure(self: *SemContext, lambda: Sexp) !void {
+        try self.facts.once_closures.put(self.allocator, recordExprKey(lambda) orelse return, {});
+        for (captureList(ir.Lambda.captures(lambda))) |cap| switch (captureModeOf(cap) orelse continue) {
+            .cap_move, .cap_clone, .cap_weak => {
+                const sym = self.symbolOf(captureNameNode(cap) orelse continue) orelse continue;
+                try self.once_captures.put(self.allocator, sym, {});
+            },
+            .cap_read, .cap_write => {},
+        };
+    }
+
+    /// Whether closure literal `lambda` is called exactly once
+    /// (`recordOnceClosure`).
+    pub fn isOnceClosure(self: *const SemContext, lambda: Sexp) bool {
+        return self.facts.once_closures.contains(exprKey(lambda) orelse return false);
+    }
+
+    /// Whether capture `sym` is taken by its closure's one call
+    /// (`recordOnceClosure`).
+    pub fn isOnceCapture(self: *const SemContext, sym: SymbolId) bool {
+        return self.once_captures.contains(sym);
     }
 
     pub fn recordLocalTask(self: *SemContext, call: Sexp) !void {
@@ -8581,7 +8615,7 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
     }];
     switch (sym.kind) {
         .param, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
-        .capture => return if (e == .src) .capture else partSource(ctx, e),
+        .capture => return if (e != .src) partSource(ctx, e) else if (ctx.isOnceCapture(ctx.symbolOf(root).?)) .binding else .capture,
         .local => {
             if (sym.scope == module_scope) return .declared;
             return if (e == .src) .binding else partSource(ctx, e);

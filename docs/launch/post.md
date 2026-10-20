@@ -197,8 +197,8 @@ same way: `time.within(ns, f)` makes every wait past the deadline fail
 with `task.Stop.timeout`, in `f` and in the tasks it starts. There is
 no context object to pass down, and no token to check by hand.
 
-`Tasks[T]` holds a set of tasks, and `task.both(a, b)` waits for two of
-different types. `par.map` and `par.each` spread a loop over the cores,
+`Tasks[T]` holds a set of tasks, and `task.all(a, b)` waits for tasks
+of different types. `par.map` and `par.each` spread a loop over the cores,
 and the compiler checks that the function is safe to call from several
 tasks at once. `*Chan[T](n)` is a bounded channel, and `task.select`
 commits exactly one of its arms.

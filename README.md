@@ -365,7 +365,7 @@ and environment variable.
 - tasks: `f(x)&` runs a call on a thread of its own, keeping the loans
   of its arguments until `>t` takes its result, and a task that
   can fail is canceled with `<t.cancel()`; sets of tasks (`Tasks[T]`)
-  with deadlines, and `task.both` for tasks of different types
+  with deadlines, and `task.all` for tasks of different types
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
   environment), `std.file` (reading and writing a whole file), `std.time`,

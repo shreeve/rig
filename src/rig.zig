@@ -1894,8 +1894,8 @@ const HiddenName = enum(u16) {
     discard = 2,
     /// The type of each byte of a byte string, `[U8(65), U8(66)]`.
     u8 = 3,
-    /// The method a wait calls: `>t` is `<t.wait()`, and on a set of
-    /// tasks, `<ts.wait_all()` (`isWaitCall`).
+    /// The method a wait calls: `>t` is `<t.wait()`, on a task or a set
+    /// of tasks (`isWaitCall`).
     wait = 4,
 
     fn text(self: HiddenName) []const u8 {

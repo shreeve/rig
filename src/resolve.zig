@@ -3182,7 +3182,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
 
         // Tasks[T]: a set of tasks of one type, `!ts.add(f(x)&)`, kept
-        // with their loans until `wait_all` or `wait_first`, or the set's
+        // with their loans until `>ts` or `wait_first`, or the set's
         // drop, which cancels those that can fail first. What the waits
         // give depends on whether `T` can fail, so typecheck types their
         // calls (`Checker.taskSetCall`); `len` is a member, as a List's.
@@ -3193,7 +3193,6 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const task_of = try ctx.intern(.{ .parameterized_nominal = .{ .sym = g.sym, .args = try ctx.dupeIds(&.{st}) } });
         try setFields(ctx, s.sym, &.{
             try method(ctx, "add", .write, &.{ try ctx.intern(.{ .write_view = s.self_ty }), task_of }, ctx.types.void_id, null),
-            try method(ctx, "wait_all", .value, &.{s.self_ty}, ctx.types.void_id, null),
             try method(ctx, "wait_first", .value, &.{s.self_ty}, st, null),
         });
     }
