@@ -7,6 +7,7 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "bigint.zig", @embedFile("bigint.zig") },
     .{ "file.rig", @embedFile("file.rig") },
     .{ "file.zig", @embedFile("file.zig") },
+    .{ "cells.zig", @embedFile("cells.zig") },
     .{ "char.zig", @embedFile("char.zig") },
     .{ "char_tables.zig", @embedFile("char_tables.zig") },
     .{ "hash.rig", @embedFile("hash.rig") },

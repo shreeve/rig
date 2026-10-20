@@ -22,6 +22,11 @@ extern zig "char.zig"
   # (negative before any rune), bit 7 set when a char starts at `r`.
   fun char_step(state: Int, r: Int, tailored: Bool) -> Int
 
+extern zig "cells.zig"
+  # `dst[i]` is `U64(src[i]) | bits` for each `i` of the shorter of the
+  # two, sixteen at a time.
+  sub widen(dst: ![]U64, src: ?String, bits: U64)
+
 extern zig "width_tables.zig"
   # The width bits of rune `r`: its width, ZERO_IN_CHAR, and VS_BASE.
   fun width_props(r: Int) -> Int
@@ -492,16 +497,7 @@ pub obj Terminal
       take = @cols - @col if @cols - @col < to - k else to - k
       p = @map[@rot + @row]
       base = p * @cols + @col
-      bits = @pen_bits
-      # Over a view of the row and one of the bytes, whose lengths the
-      # loop's guard tests, so no index needs a check of its own and the
-      # loop can run a vector at a time.
-      row = !@cells[base..base + take]
-      src = s[k..k + take]
-      t = 0
-      while t < row.len and t < src.len
-        row[t] = U64(src[t]) | bits
-        t += 1
+      widen(!@cells[base..base + take], s[k..k + take], @pen_bits)
       @ends[p] = @col + take if @ends[p] < @col + take else @ends[p]
       k += take
       # As `print` does, a pending wrap (kept with autowrap off, after CBT)
