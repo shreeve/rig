@@ -6564,6 +6564,7 @@ const Checker = struct {
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
+                    .sum => "xs.sum()",
                     .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
@@ -10495,7 +10496,13 @@ const Checker = struct {
             return obj_ty;
         }
 
-        if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, if (std.meta.stringToEnum(sema.ElemOp, method) == .read) .read else .write, ty);
+        if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| {
+            const reads = switch (std.meta.stringToEnum(sema.ElemOp, method) orelse .copy) {
+                .read, .sum => true,
+                else => false,
+            };
+            return self.noteMethod(callee, if (reads) .read else .write, ty);
+        }
         if (try self.stringCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .write, ty);
         if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         if (try self.simdCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .value, ty);
@@ -10740,9 +10747,10 @@ const Checker = struct {
     }
 
     /// `copy`, `fill`, and `swap`: built-in methods on the elements of a
-    /// slice, an array, or a List, which write them in place; and `read`
-    /// and `write` on bytes (`bytesCall`). Null when `method` is none of
-    /// them or the receiver has no elements.
+    /// slice, an array, or a List, which write them in place; `sum`,
+    /// which reads them (`sumCall`); and `read` and `write` on bytes
+    /// (`bytesCall`). Null when `method` is none of them or the receiver
+    /// has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
         if (op.isBits() or op.isSimd() or op.isTypeFn() or op == .hash) return null;
@@ -10761,6 +10769,7 @@ const Checker = struct {
             try self.misplacedSigil(obj, method, "does not consume its receiver");
             return try self.skipCall(args);
         }
+        if (op == .sum) return try self.sumCall(callee, obj, obj_ty, peeled, elem, pos, args, ct);
         if (op == .read or op == .write) return try self.bytesCall(callee, obj, obj_ty, elem, len, op, pos, args, ct);
         if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
         if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
@@ -10776,14 +10785,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -10798,9 +10807,36 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => unreachable,
         }
         return self.t().void_id;
+    }
+
+    /// `xs.sum()` and `xs.sum(start: n)`: the elements of a slice, an
+    /// array, or a List of numbers, added in order to `start`, `0` by
+    /// default, each as `+` adds; a value of the elements' type. It only
+    /// reads its receiver.
+    fn sumCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, peeled: TypeId, elem: TypeId, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        switch (self.ctx.types.get(peeled)) {
+            .string_view, .static => return self.badCall(args, obj, "`sum` adds numbers, and `{s}` is text", .{try self.tyName(obj_ty)}),
+            else => {},
+        }
+        if (ct) |b| return self.badCall(args, b, "`sum` takes no compile-time arguments", .{});
+        if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, "sum", "only reads its elements");
+        const numeric = switch (self.ctx.types.get(elem)) {
+            .int, .float => true,
+            else => false,
+        };
+        if (!numeric) return self.badCall(args, obj, "`sum` adds numbers: an `Int`, a `Float`, or a sized integer or float; the elements of `{s}` are `{s}`", .{ try self.tyName(obj_ty), try self.tyName(elem) });
+        if (args.len > 1 or (args.len == 1 and !(args[0].isKind(.kwarg) and std.mem.eql(u8, self.text(ir.Kwarg.name(args[0])), "start")))) {
+            return self.badCall(args, pos, "`sum` takes only a starting value, by name: `xs.sum(start: 10)`", .{});
+        }
+        const recv = try self.ctx.intern(.{ .read_view = peeled });
+        const params: []const TypeId = if (args.len == 1) &.{ recv, elem } else &.{recv};
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = elem, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .sum, .elem = elem });
+        if (args.len == 1) try self.checkExpr(ir.get(args[0], .value), elem);
+        return elem;
     }
 
     /// `bytes.read[T, e](at)` and `!bytes.write[T, e](at, v)`: the integer

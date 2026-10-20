@@ -1442,7 +1442,8 @@ pub const Use = enum {
 };
 
 /// A built-in method on the elements of a slice, an array, a List, or a
-/// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
+/// `?String`: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `xs.sum()`
+/// and `xs.sum(start: n)` of numbers (`elem` their type), and on
 /// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`
 /// (`num` a number type or a vector of numbers);
 /// and the methods of an integer's bits: `x.not()`, the complement of an
@@ -1504,13 +1505,16 @@ pub const ElemOp = enum {
     /// `x.hash()`: a `U64` of any value `==` compares but a float's
     /// (`notHashable`); `num` is the value's type, `elem` `U64`.
     hash,
+    /// `xs.sum()`, `xs.sum(start: n)`: the elements of a slice, an array,
+    /// or a List of numbers added in order to `start`, `0` by default.
+    sum,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => false,
         };
     }
 
@@ -1529,7 +1533,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .sum => false,
         };
     }
 };
