@@ -46,7 +46,7 @@ pub fn Task(comptime T: type) type {
         /// `f(args...)&`: start the call as a task, which keeps the
         /// deadline of the task starting it.
         pub fn spawn(comptime f: anytype, args: anytype) Self {
-            return start(true, f, args);
+            return start(false, f, args);
         }
 
         /// `f(args...)&` for a local task: one given or lent a value that
@@ -2058,4 +2058,33 @@ pub fn sleep(ns: i64) Stop!void {
         if (canceledHere()) return canceled_error;
         rt.sched.commitWait(e, wake_at);
     }
+}
+
+test "a task given what crosses cores runs anywhere, and a local task and its maker are pinned" {
+    const builtin = @import("builtin");
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var free_pinned = true;
+        var maker_pinned_before = true;
+        var local_pinned = false;
+        var maker_pinned_after = false;
+        fn one() u64 {
+            return 1;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const t = Task(u64).spawn(one, .{});
+            free_pinned = t.handle.job.header.fiber.home != null;
+            maker_pinned_before = rt.sched.current().?.home != null;
+            _ = t.wait();
+            const u = Task(u64).spawnLocal(one, .{});
+            local_pinned = u.handle.job.header.fiber.home != null;
+            maker_pinned_after = rt.sched.current().?.home != null;
+            _ = u.wait();
+        }
+    };
+    rt.sched.runForTest(Run.first, 2);
+    try std.testing.expect(!Run.free_pinned);
+    try std.testing.expect(!Run.maker_pinned_before);
+    try std.testing.expect(Run.local_pinned);
+    try std.testing.expect(Run.maker_pinned_after);
 }
