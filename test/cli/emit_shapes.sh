@@ -309,7 +309,7 @@ grep -qF '@Vector(32, bool)' <<<"$out" && fail "a wide mask is a bool vector: $o
 grep -qE '^pub fn Mask\(comptime n: comptime_int\) type \{$' "$ROOT/src/runtime.zig" || fail "runtime: no rig.Mask"
 grep -qF 'return if (n > 16) WideMask(n) else @Vector(n, bool);' "$ROOT/src/runtime.zig" || fail "runtime: a mask of more than 16 lanes is not bytes"
 
-# A test the compiler proved is omitted (docs/INTERNALS.md, "Proven
+# A test the compiler proved is omitted (docs/internals/INTERNALS.md, "Proven
 # checks"): the proven half of an index or a byte read, and an add known
 # to fit. The half not proven is still made, and an access with nothing
 # proven is the checked one.

@@ -270,7 +270,7 @@ fail "field handle field reassigned", "17:1: cannot assign to `p.h` while `p.h` 
 
 fail "field loop carried", "17:3: cannot lend `p.items` to write while a read loan is live", errors: 1
   # `prev`, declared before the loop and read in it, counts as live
-  # anywhere in the loop (docs/INTERNALS.md, "Liveness"), so its view of
+  # anywhere in the loop (docs/internals/INTERNALS.md, "Liveness"), so its view of
   # `p.items` conflicts with the push, though `prev` is re-pointed before
   # its next use. The paths are equal: a field loan changes nothing here.
   # From Trig's acceptance tests

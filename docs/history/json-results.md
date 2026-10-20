@@ -1,5 +1,7 @@
 # JSON: measurements
 
+> **History.** This is the dated record of how std.json was measured and tuned. The design is [docs/design/json.md](../design/json.md). It is kept as written.
+
 The record of how `std/json.rig` was measured and tuned. The parser was
 written in the Trig project before it moved into Rig's standard library,
 so the earlier commit ids below (such as 7c3821b, 13899b9 and 686c5ae)
@@ -1135,7 +1137,7 @@ on 2 cores); MB/s:
   dense instance only) made citm_catalog 11% faster under it but canada
   10% slower: the generic `document` counted both instances' calls
   against the inliner's per-function cap, which then out-lined
-  `Doc.number`. docs/RIG-NOTES.md, entry 6.
+  `Doc.number`. docs/history/rig-notes.md, entry 6.
 
 ## Linux x86 (pup), after the float conversion (Rig main at 646b4c9c5)
 
@@ -1206,7 +1208,7 @@ compiler and parser:
 The same run timed Rig's removal of the inliner's call cap (#154's
 follow-up) on today's parser: within noise. A `document` specialized
 for dense whitespace still lost `Doc.number`'s inlining under it, for
-the reason docs/RIG-NOTES.md, entry 6, gives.
+the reason docs/history/rig-notes.md, entry 6, gives.
 
 ## UTF-8 checked 16 bytes at a time (Rig main at 995ad18d2)
 
@@ -1240,7 +1242,7 @@ the branch:
 Inlined into `document`, the same block loop took 6-17% more
 instructions on five of the files, twitterescaped's 17% among them,
 which holds no non-ASCII byte; it is a separate method, `utf8_text`,
-which the inliner leaves as a call (docs/RIG-NOTES.md, entry 7).
+which the inliner leaves as a call (docs/history/rig-notes.md, entry 7).
 canada holds no non-ASCII byte and github_events 4, so their change
 is not the check: it is the code around the string scan, where
 `document` no longer holds the sequence-at-a-time loop either. twitter
@@ -1342,7 +1344,7 @@ once and keeping the bitmap in a register, so a skip is a shift and a
 count: the whitespace bitmap above (the wsspec prototype), which waits
 on Rig's inlining of single-call functions. The instruction guard
 (`bench/json/guard.py`) would have passed this variant
-(docs/RIG-NOTES.md, entry 25).
+(docs/history/rig-notes.md, entry 25).
 
 ## The honest harness
 
@@ -1365,7 +1367,7 @@ interleaved runs; MB/s:
 | gsoc-2018 | 8493 | 8242 | 3% slower | 7% more |
 | github_events | 4293 | 4098 | 5% slower | 10% more |
 
-The likely cause is docs/RIG-NOTES.md, entry 8: through `@`, every
+The likely cause is docs/history/rig-notes.md, entry 8: through `@`, every
 push to the tape loads its length and capacity and stores the length
 back.
 
@@ -1434,7 +1436,7 @@ file, 3173 by geomean, and is not kept.)
 
 The first answers are Rig's: keeping the parser's state in registers
 (the List growth round, `noalias` for write views, and a local tape in
-`document`; docs/RIG-NOTES.md, entry 8), worth up to 12% on citm_catalog
+`document`; docs/history/rig-notes.md, entry 8), worth up to 12% on citm_catalog
 by the honest harness's own measure ("The honest harness").
 
 ## SIMD first on x86, and the tape in a local
@@ -1511,7 +1513,7 @@ and sonic-rs within 2%. std.json leads only gsoc-2018, and stays 33%
 ahead of simd-json and 5.1x Zig's std.json. simdjson first indexes every
 structural character of each 64-byte block with SIMD (on x86, 32-byte
 AVX2 vectors), then walks the index; std.json scans tokens one after
-another. That index is docs/json/DESIGN.md's first open item, which also
+another. That index is docs/design/json.md's first open item, which also
 needs a carry-less multiply from Rig to find the bytes inside strings.
 
 The x86 checks in "SIMD first on x86, and the tape in a local" and "A

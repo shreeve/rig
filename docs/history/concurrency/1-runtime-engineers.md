@@ -1,5 +1,7 @@
 # Panel 1: Runtime engineers on Rig's concurrency engine
 
+> **History.** This is a review of an early draft of the concurrency design. The design as built is [docs/design/concurrency.md](../../design/concurrency.md), the rules are in [SPEC.md §18](../../../SPEC.md#18-tasks), and the review of the model as built is [docs/design/concurrency-panel](../../design/concurrency-panel/README.md). It is kept as written.
+
 Panel: (a) a Tokio core maintainer, (b) a Rust async and language-design
 expert, (c) a C systems engineer (io_uring, kqueue, epoll, libuv,
 libdispatch).
@@ -8,7 +10,7 @@ Path prefixes used in citations:
 - `T/` = `tokio/src/runtime/` in the Tokio repository
 - `TS/` = `tokio/src/` in the Tokio repository
 - `Z/` = `lib/std/Io/` in Zig 0.17
-- `C` = `docs/CONCURRENCY.md`, as drafted when reviewed
+- `C` = `docs/design/concurrency.md`, as drafted when reviewed
 
 Byte and nanosecond figures are the panel's estimates from the code's
 layout. Nothing was run.
@@ -334,7 +336,7 @@ stacks are carved from one reservation.
 Rig computes each function's frame "reach" and whether it recurses
 (`SPEC.md:575-583`). Its overflow safety today comes from a 64 GiB guard
 below a 64 MiB stack, because Zig emits no stack probes. Frames may reach
-512 MiB (`docs/INTERNALS.md` "the program's stack").
+512 MiB (`docs/internals/INTERNALS.md` "the program's stack").
 
 Therefore:
 - **The `C` plan, "a default with a guard page", is unsound under Rig's

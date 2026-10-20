@@ -1,5 +1,7 @@
 # Rust triage: what Rig should take, and what it should leave
 
+> **History.** This is a dated review of what to take from Rust. What was decided is in [docs/ROADMAP.md](../ROADMAP.md) and [docs/BEYOND-RUST.md](../BEYOND-RUST.md). It is kept as written.
+
 Rig and Rust share their central idea: ownership checked when the
 program compiles, with no garbage collector. They differ in many places.
 This page sorts every difference found in a side-by-side review
@@ -9,8 +11,8 @@ simpler way that keeps most of the benefit, and a few are better left
 out.
 
 This page is a plan, not a description of the compiler. What is built is
-in [CORE](CORE.md) and [SPEC](../SPEC.md); what Rig changes for a Rust
-programmer is in [BEYOND-RUST](BEYOND-RUST.md). Figures quoted here come
+in [CORE](../CORE.md) and [SPEC](../../SPEC.md); what Rig changes for a Rust
+programmer is in [BEYOND-RUST](../BEYOND-RUST.md). Figures quoted here come
 from Trig's ownership evidence pack (trig `docs/ownership/EVIDENCE.md`).
 
 ## Really need to add ASAP

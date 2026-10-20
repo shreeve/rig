@@ -15,7 +15,7 @@ the layout bench-json --out uses, so bench/json/timers/*.py read them too.
 --dsym keeps a .dSYM beside each program (macOS), for profiling.
 
 These patches only measure what a lowering would give. Never ship one: a
-speedup lands as a portable, safe Rig operation (docs/json/OPCODE-STUDY.md).
+speedup lands as a portable, safe Rig operation (docs/history/json-opcodes.md).
 """
 import importlib.util, os, platform, shutil, subprocess, sys
 

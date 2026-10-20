@@ -4,7 +4,7 @@ This directory holds the machine-checked side of Rig: λRig, the core
 calculus of the ownership model (docs/CORE.md), written in Lean 4, with
 an interpreter, an ownership checker, and a proof that every program the
 checker accepts runs without a fault. The plan it follows is
-[FORMAL-RIG](../docs/FORMAL-RIG.md), "Assurance: four stages of proof";
+[FORMAL-RIG](../docs/design/formal-plan.md), "Assurance: four stages of proof";
 this is the first slice of stages 2 and 3.
 
 ## Build
@@ -94,7 +94,7 @@ rejected, and each stops at the fault its rejection prevents.
 
 ## Tasks and waits
 
-The first slice of the concurrency model's proofs (docs/CONCURRENCY.md,
+The first slice of the concurrency model's proofs (docs/design/concurrency.md,
 "Proof obligations"), over machines of their own rather than λRig's
 expressions, since the runtime, not the expression, decides these.
 

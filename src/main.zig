@@ -1,4 +1,4 @@
-//! Rig compiler CLI. `usage` below is the reference; docs/INTERNALS.md
+//! Rig compiler CLI. `usage` below is the reference; docs/internals/INTERNALS.md
 //! describes the pipeline behind each command.
 //!
 //! `run`, `build`, `test`, and `emit` never emit a program the checkers

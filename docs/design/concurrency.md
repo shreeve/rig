@@ -7,12 +7,12 @@ expert reviews, which an adversarial review then attacked:
 - Zig 0.17's `std.Io`, structured-concurrency theory, scheduling theory,
   and soundness.
 
-The reports are in [docs/concurrency/](concurrency/):
-[the runtime engineers](concurrency/1-runtime-engineers.md),
-[the language models](concurrency/2-language-models.md),
-[Zig and theory](concurrency/3-zig-and-theory.md), and
-[the adversarial review](concurrency/4-adversarial-review.md), with
-[the draft it attacked](concurrency/4-reviewed-draft.md). They
+The reports are in [docs/history/concurrency/](../history/concurrency/):
+[the runtime engineers](../history/concurrency/1-runtime-engineers.md),
+[the language models](../history/concurrency/2-language-models.md),
+[Zig and theory](../history/concurrency/3-zig-and-theory.md),
+and [the adversarial review](../history/concurrency/4-adversarial-review.md),
+of a draft that git keeps. They
 review earlier drafts of this document, so a few of their findings
 are already folded in, and a few of their proposals were set aside
 here.
@@ -112,9 +112,9 @@ aim to match it in the rest.
 waiting, spreading work over cores, switching, and waiting behind a
 long computation, and measures the memory a task takes. Rig is ahead
 of Tokio wherever the scheduler is what is measured, and behind in
-memory ([bench/tasks/README.md](../bench/tasks/README.md), "Where it
+memory ([bench/tasks/README.md](../../bench/tasks/README.md), "Where it
 stands"), and `bench/tasks/PROGRESS.md` records each step of the
-scheduler ([docs/concurrency/SCHEDULER.md](concurrency/SCHEDULER.md)).
+scheduler ([docs/internals/scheduler.md](../internals/scheduler.md)).
 
 ## What a program writes
 
@@ -729,7 +729,7 @@ Zig 0.17's own evented backends are not a foundation:
 - network streams are unfinished on Linux and macOS;
 - the kqueue backend cannot cancel.
 
-Tasks run on Rig's own scheduler (docs/concurrency/SCHEDULER.md). The
+Tasks run on Rig's own scheduler (docs/internals/scheduler.md). The
 first step was built on Zig's `Threaded` backend, which is complete and
 preemptive: it proved the language rules, and measured nothing.
 

@@ -1,6 +1,6 @@
 /-
 Tasks: who holds each task's handle, the cores tasks run on, and the
-values that stay on one thread (docs/CONCURRENCY.md, "Local tasks").
+values that stay on one thread (docs/design/concurrency.md, "Local tasks").
 
 A machine of tasks, each with its holder (the task whose record holds
 its handle, and which waits for it), the core it runs on, the core it is

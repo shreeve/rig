@@ -1,6 +1,6 @@
 # timeout: 120
 # The program runs on a stack the runtime maps itself, 64 MiB over a
-# guard of 64 GiB (docs/INTERNALS.md, "The program's stack"). This checks
+# guard of 64 GiB (docs/internals/INTERNALS.md, "The program's stack"). This checks
 # what needs the command line: that `rig test`'s tests run there too;
 # that a frame of 100 MiB, larger than the whole stack, stops with a
 # stack-overflow error in the release modes, where only a hand-written

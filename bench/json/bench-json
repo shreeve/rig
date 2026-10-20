@@ -59,7 +59,7 @@ SRC = "@SRC@"
 # A second, trivial call of `parse`: with only one, LLVM inlines the whole
 # parser into `main` and keeps the Doc's fields in registers, which a
 # program that parses from more than one place does not get (7% faster
-# on the Mac by geomean, docs/json/RESULTS.md).
+# on the Mac by geomean, docs/history/json-results.md).
 sub warm()
   tiny = "[0]"
   w = json.new_doc()

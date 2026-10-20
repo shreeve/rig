@@ -1156,7 +1156,7 @@ test "header reads in place", '''
   # `for x in v` is `for x in ?v`, `if o as x` over an owning optional is
   # `if ?o as x`, `match b` on a box or a handle reaches the value it
   # holds, and a part of a value the header makes is read in that value,
-  # which the construct holds (docs/INTERNALS.md, "Header subjects").
+  # which the construct holds (docs/internals/INTERNALS.md, "Header subjects").
   obj Res
     n: Int
 

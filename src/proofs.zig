@@ -1,5 +1,5 @@
 //! Proven checks: which of a node's tests are known to pass
-//! (docs/INTERNALS.md, "Proven checks").
+//! (docs/internals/INTERNALS.md, "Proven checks").
 //!
 //! A check is the test an operation makes before it acts: `s[i]` tests
 //! `0 <= i` and `i < s.len`, `s.read[T, e](i)` tests `0 <= i` and
@@ -883,7 +883,7 @@ const Pass = struct {
         st.dead = false;
     }
 
-    /// `while cond : step` (docs/INTERNALS.md, "Loops"): each iteration
+    /// `while cond : step` (docs/internals/INTERNALS.md, "Loops"): each iteration
     /// starts from `L`, the facts before less every write in the loop
     /// (`0 <= i` kept when every write of `i` adds a constant); the step
     /// from the facts at the body's end met with what each `continue` to
@@ -1026,7 +1026,7 @@ fn constructs(ctx: *const SemContext, call: Sexp, ty: sema.TypeId) bool {
 }
 
 /// What each function of a module bounds of its result, from its return
-/// values (docs/INTERNALS.md, "Proven checks"). Each value a function can
+/// values (docs/internals/INTERNALS.md, "Proven checks"). Each value a function can
 /// return (every `return`'s, and the body's tail unless it is a
 /// `return`) is, for an `Int` result, a literal or a call of a function
 /// that bounds its result, and for a struct result, a constructor that

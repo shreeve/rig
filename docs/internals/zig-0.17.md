@@ -1273,7 +1273,7 @@ pub fn build(b: *std.Build) void {
   build-exe` compiles in full every time, with or without
   `-femit-bin=`. `rig build` runs `zig build-exe`, so it keeps the
   executable itself and copies it while nothing the build reads has
-  changed (docs/INTERNALS.md). On macOS such an executable's debug
+  changed (docs/internals/INTERNALS.md). On macOS such an executable's debug
   information stays in the object files Zig leaves in the cache's
   `tmp/`, which its stack traces read.
 

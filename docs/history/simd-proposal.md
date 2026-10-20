@@ -1,6 +1,8 @@
 # Portable SIMD vectors for Rig
 
-Status: approved by the owner, with the decisions in [README.md](README.md). It is written against `main` at
+> **History.** This is the proposal that led to `Simd[T, n]`. The design as built is [docs/design/simd.md](../design/simd.md), and the rules are in [SPEC.md](../../SPEC.md). It is kept as written.
+
+Status: approved by the owner, with the decisions in [README.md](../design/simd.md). It is written against `main` at
 `8119e590`, and it assumes the `notwide` branch (`x.not()`, and a
 `@Vector`-based `readInt`). Every Zig behavior it relies on was checked
 with Zig 0.17.0. The programs are in `zig/` next to this file (see

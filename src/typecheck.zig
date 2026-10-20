@@ -165,7 +165,7 @@ const Checker = struct {
     test_tail: Sexp = .nil,
     /// The call that gives several results where they may stand: the
     /// value of a destructure, of `return` in a function that gives
-    /// them, or of `if ... as a, b` (docs/INTERNALS.md, "Several
+    /// them, or of `if ... as a, b` (docs/internals/INTERNALS.md, "Several
     /// results"). Any other such call is reported (`misplacedResults`).
     results_ok: Sexp = .nil,
     /// The type of the result the `result_part` being checked takes:
@@ -1144,7 +1144,7 @@ const Checker = struct {
     /// target left to right as `x = e` binds `e` (each target but `_` is
     /// `(set op x _ (result_part))`). The value is a call that gives
     /// them, alone or under `!`, `?`, or a fallback that jumps
-    /// (docs/INTERNALS.md, "Several results").
+    /// (docs/internals/INTERNALS.md, "Several results").
     fn checkDestructure(self: *Checker, node: Sexp) Error!void {
         const value = ir.Destructure.value(node);
         const targets = ir.Destructure.targets(node).items();
@@ -2315,7 +2315,7 @@ const Checker = struct {
 
     /// A step that reads a binding of the condition runs inside the `if`s
     /// that bind it, after the body (`storage.StepPoint.after_body`,
-    /// docs/INTERNALS.md, "Loops"), so every binding there stays until the
+    /// docs/internals/INTERNALS.md, "Loops"), so every binding there stays until the
     /// step is done: each must be plain data (neither a view nor owning),
     /// and no `continue` in the condition, which would go on past the
     /// step (`resolveJump`), may skip binding one.
@@ -2491,7 +2491,7 @@ const Checker = struct {
         }
         // A place whose value is not plain data is bound where it stands,
         // as `if ?o as x` binds it; a part of a made value where the `if`
-        // holds that value (docs/INTERNALS.md, "Header subjects").
+        // holds that value (docs/internals/INTERNALS.md, "Header subjects").
         var viewed = false;
         if (!through_view and !self.isPoison(inner) and sema.copies(self.ctx, inner) == .no) switch (self.hands(expr).kind) {
             .place => {
@@ -2538,7 +2538,7 @@ const Checker = struct {
     /// against the subject's type, binding the fields in the arm's scope,
     /// which the condition's later parts and the body see; the caller
     /// restores the scope. It is a test, not exhaustive: other values fall
-    /// to the `else` (docs/AS-PATTERNS.md).
+    /// to the `else` (docs/design/as-patterns.md).
     fn checkAsMatch(self: *Checker, part: Sexp) Error!void {
         const node = rig.asMatchOf(part);
         const arm = rig.asMatchArm(part);
@@ -2791,7 +2791,7 @@ const Checker = struct {
                     source_ty = self.t().invalid_id;
                     elem_poisoned = true;
                 }
-                // How the loop has a bare source (docs/INTERNALS.md, "Header
+                // How the loop has a bare source (docs/internals/INTERNALS.md, "Header
                 // subjects"): a place is walked where it stands, as
                 // `for x in ?p`; an array made here whose elements move is
                 // taken, as `for x in <e`; a part of a made value is walked
@@ -2881,7 +2881,7 @@ const Checker = struct {
     }
 
     /// Whether a `for` source of type `ty` is an iterator: the one decision
-    /// (docs/INTERNALS.md, "Loops over an iterator"). A positive list: a
+    /// (docs/internals/INTERNALS.md, "Loops over an iterator"). A positive list: a
     /// struct or enum the program declares, or a std one (not a `List`, an
     /// array, a slice, a `?String`, or a range, which keep their own
     /// meaning), that declares `next(!@) -> T?`. A type with a `next`
@@ -4163,7 +4163,7 @@ const Checker = struct {
     /// its symbol) and the type that access gives it: a write view of what
     /// it reaches, or a read view, `!T` read as `?T` and `![]T` as `[]T`,
     /// or, with no access, the copy or owner of `reached`. The one place a
-    /// match binding's mode is decided (docs/INTERNALS.md, "Binding
+    /// match binding's mode is decided (docs/internals/INTERNALS.md, "Binding
     /// access").
     fn bindMatchView(self: *Checker, b: Sexp, mode: MatchMode, reached: TypeId) Error!TypeId {
         const access = if (self.isPoison(reached)) null else sema.decideBindingAccess(self.ctx, .{ .match = .{ .reach = try self.matchReach(mode), .reached = reached } });
@@ -7730,7 +7730,7 @@ const Checker = struct {
 
     /// `f(x)&`: the call made a task, of type `Task[T]` for the call's
     /// result `T`, a fallible one too, whose failure `>t!` passes
-    /// on (docs/CONCURRENCY.md, "Tasks"). The callee is a Rig function or
+    /// on (docs/design/concurrency.md, "Tasks"). The callee is a Rig function or
     /// method, and every argument, and a method's self (`@`), may go to
     /// another core as it is passed, or the task is local, pinned to this
     /// thread (`crossCheck`).
@@ -9315,7 +9315,7 @@ const Checker = struct {
         };
         // A task keeps the loans of every argument, and of its receiver,
         // until it ends: its result is the call itself, still running
-        // (docs/CONCURRENCY.md, "Loans and structure").
+        // (docs/design/concurrency.md, "Loans and structure").
         var origins = site.origins;
         if (call_node.isKind(.call) and ir.Call.task(call_node) != .nil) {
             origins.result = sema.all_params;
@@ -14936,7 +14936,7 @@ const Checker = struct {
         const want: ?FunctionType = if (expected) |e| self.ctx.types.get(e).function else null;
         // A closure that declares fewer parameters than the type it is
         // checked against is the closure with `_` for each trailing
-        // parameter it leaves out (docs/INTERNALS.md, "Closures with
+        // parameter it leaves out (docs/internals/INTERNALS.md, "Closures with
         // fewer parameters").
         const known: usize = if (want) |w| w.params.len else given_params.len;
         if (known > ir.Lambda.params(node).items().len and (want != null or known > 0)) {
