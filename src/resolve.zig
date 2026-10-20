@@ -671,9 +671,13 @@ const SymbolResolver = struct {
     /// A bare pattern name that names a module constant is that constant
     /// (`sema.patternConst`): it compares with its value and binds
     /// nothing. Module constants are declared before any body is walked.
+    /// A local of the name (`new ESC = 5`) hides the constant, as it does
+    /// anywhere else: the name then binds, and shadows that local.
     fn constPattern(self: *SymbolResolver, pattern: Sexp) Error!bool {
         if (!patternBinds(self.ctx.source, pattern)) return false;
-        const id = self.ctx.lookupInScopeOnly(self.module_scope, identAt(self.ctx.source, pattern).?) orelse return false;
+        const name = identAt(self.ctx.source, pattern).?;
+        if (self.visibleLocal(self.scope, name) != null) return false;
+        const id = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return false;
         if (!sema.isModuleConst(self.ctx, id)) return false;
         try self.ctx.recordName(pattern, id);
         return true;

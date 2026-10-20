@@ -4751,7 +4751,8 @@ it covers that value as its literal would: an arm that repeats a
 literal, a range, or a variant it covers is reported. Its type is the
 subject's, as a literal's would be. Any other constant (a float, a
 string, an array, an error, or a value the target sets) is compared in
-a guard instead: `x if x == LIMIT =>`.
+a guard instead: `x if x == LIMIT =>`. A local made with `new` hides
+the constant here as anywhere: the name binds, and shadows that local.
 
 ```rig
 enum Color

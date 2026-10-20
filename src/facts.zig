@@ -423,7 +423,6 @@ pub const Facts = struct {
     pub fn holdsView(f: Facts, match: Sexp) ?bool {
         return storage.decided(f.c(), match, .holds_view);
     }
-    /// Whether a read match's catch-all binding is captured by address.
     /// `storage.isCatchAll`.
     pub fn isCatchAll(f: Facts, pattern: Sexp) bool {
         return storage.isCatchAll(f.c(), pattern);
@@ -432,6 +431,7 @@ pub const Facts = struct {
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
         return sema.constScalar(sema.patternConst(f.c(), pattern) orelse return null);
     }
+    /// Whether a read match's catch-all binding is captured by address.
     pub fn catchAllCaptured(f: Facts, pattern: Sexp) ?bool {
         return storage.decided(f.c(), pattern, .catch_all_by_address);
     }
