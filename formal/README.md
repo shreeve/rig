@@ -67,7 +67,7 @@ step with no meaning (`stuck`), or a leak at the end.
 
 **`accepts_runs`** (Sound.lean): if `check` accepts a program, `run`
 ends without a fault and the heap is empty. That is the λRig form of
-AGENTS.md rule 3, "safe code cannot corrupt memory", for this slice. A
+AGENTS.md rule 2, "safe code cannot corrupt memory", for this slice. A
 `#guard_msgs` keeps its axioms to Lean's standard three (`propext`,
 `Classical.choice`, `Quot.sound`), so no step is assumed.
 
