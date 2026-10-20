@@ -1,6 +1,8 @@
 # Concurrency panel 3: Zig `std.Io` reality, soundness, and theory
 
-Reviewing `docs/CONCURRENCY.md` (worktree `concurrency-design`) against
+> **History.** This is a review of an early draft of the concurrency design. The design as built is [docs/design/concurrency.md](../../design/concurrency.md), the rules are in [SPEC.md §18](../../../SPEC.md#18-tasks), and the review of the model as built is [docs/design/concurrency-panel](../../design/concurrency-panel/README.md). It is kept as written.
+
+Reviewing `docs/design/concurrency.md` (worktree `concurrency-design`) against
 CORE.md, SPEC.md, FORMAL-RIG.md, `formal/`, and Zig 0.17's `lib/std/Io*`.
 Zig paths below are relative to Zig 0.17's `lib/std/`.
 

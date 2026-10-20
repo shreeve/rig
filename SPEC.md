@@ -635,7 +635,7 @@ guard, stops with a stack-overflow error (`error: rig: stack overflow`)
 before writing beyond the stack, in every build mode. A program that
 cannot reserve its stack and the guard stops before it runs, with `rig:
 cannot reserve the program's stack and the guard below it` and exit
-status 1 ([INTERNALS](docs/INTERNALS.md#the-programs-stack) describes the
+status 1 ([INTERNALS](docs/internals/INTERNALS.md#the-programs-stack) describes the
 mechanism).
 
 ```rig reject
@@ -1700,7 +1700,7 @@ words that ask for a speed and never change what the program means:
   out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
-([INTERNALS](docs/INTERNALS.md), "Inlining"). A marker applies to every
+([INTERNALS](docs/internals/INTERNALS.md), "Inlining"). A marker applies to every
 instance of a function with compile-time parameters, and a method
 takes one as any function does, in its type's body or outside it.
 
@@ -10310,7 +10310,7 @@ each is a fiber on a stack of its own as large as `main`'s, run by a
 worker thread per core (`RIG_WORKERS` sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
-([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
+([docs/internals/scheduler.md](docs/internals/scheduler.md)).
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in
 `main` does, unless an isolate stops it ([below](#isolating-a-panic)). If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task

@@ -1,5 +1,5 @@
 # `rig check --facts=proofs` checks the program, then prints each test of
-# the root module known to pass, which emit omits (docs/INTERNALS.md,
+# the root module known to pass, which emit omits (docs/internals/INTERNALS.md,
 # "Proven checks"), one per line in source order: `L:C KIND TESTS`.
 source "$ROOT/test/cli/_lib.sh"
 

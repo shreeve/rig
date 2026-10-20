@@ -3,9 +3,9 @@
 This is a guide for people changing the compiler. It describes how a
 Rig program becomes a running binary, what each pass is responsible
 for, and the data each pass hands to the next. The language itself is
-specified in [SPEC.md](../SPEC.md), the reasons behind it are in
-[DESIGN.md](DESIGN.md), and the working rules are in
-[AGENTS.md](../AGENTS.md). [zig-0.17.md](zig-0.17.md) is a reference
+specified in [SPEC.md](../../SPEC.md), the reasons behind it are in
+[DESIGN.md](../DESIGN.md), and the working rules are in
+[AGENTS.md](../../AGENTS.md). [zig-0.17.md](zig-0.17.md) is a reference
 for the Zig 0.17 APIs the compiler and runtime use.
 
 ## Pipeline
@@ -745,7 +745,7 @@ fun double(n: Int) -> Int
 
 Node ids are the ones sema keys its facts by. These are the syntax
 facts only; sema's facts (symbols, types, ownership operations) are not
-exported yet (see [ROADMAP.md](ROADMAP.md)).
+exported yet (see [ROADMAP.md](../ROADMAP.md)).
 
 ## Modules
 
@@ -4412,8 +4412,8 @@ runs on that code's stack, unguarded by this.
 leak-checked under the sanitizing allocator; rejection tests; known
 bugs), every `rig` example in the documentation, the examples, torture
 inputs, CLI scripts, the Zig unit tests, and the reference ownership
-checker. [docs/RIG-TESTS.md](RIG-TESTS.md) is the format, and
-[test/README.md](../test/README.md) describes each kind.
+checker. [docs/internals/tests.md](tests.md) is the format, and
+[test/README.md](../../test/README.md) describes each kind.
 
 To fix a bug: write a failing case first (marked `known: true` if it
 will not be fixed in the same change), make it pass, and keep the suite
@@ -4423,7 +4423,7 @@ green.
 
 `bin/rig-oracle` (`test/oracle/`) is a second ownership checker that the
 suite runs beside `src/ownership.zig`, written from
-[CORE](CORE.md) and sharing none of the compiler's ownership code: it
+[CORE](../CORE.md) and sharing none of the compiler's ownership code: it
 reads only the IR, symbols, and types (`src/lib.zig`), never the facts
 typecheck and ownership record about what an expression hands over, nor
 the storage facts, and a lint keeps it so. It lowers each function to a small core in which

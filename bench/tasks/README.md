@@ -16,7 +16,7 @@ It needs `bin/rig` built first, Cargo, and Go. `bench/tasks/bench-tasks
 `rig-safe` on request) and the options. The Rig programs run on the
 scheduler with one worker per core, or `RIG_WORKERS` when set. `--record "#PR: what changed"` adds the Rig rows to
 [PROGRESS.md](PROGRESS.md), which tracks each benchmark as the
-scheduler grows ([docs/concurrency/SCHEDULER.md](../../docs/concurrency/SCHEDULER.md)).
+scheduler grows ([docs/internals/scheduler.md](../../docs/internals/scheduler.md)).
 
 Before a change to the scheduler or to tasks lands, run
 `bench/tasks/bench-tasks --variants rig-fast --gate` on a quiet machine:

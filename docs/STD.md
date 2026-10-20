@@ -1151,7 +1151,7 @@ sub main()
 
 ## Text: bytes, runes, units, chars
 
-The whole text API, built and planned, is listed in [TEXT-API](TEXT-API.md).
+The whole text API, built and planned, is listed in [TEXT-API](history/text-api.md).
 
 Every text API is described in four words, each with one meaning:
 
@@ -1925,7 +1925,7 @@ fast today, not as a settled API.
 A JSON parser (RFC 8259) in safe Rig, written for speed: it validates
 the whole document in one pass and builds a tape, a flat list with one
 entry for each value in document order. On Apple silicon it runs at 1.9 to 7.0 GB/s on the standard
-benchmark files ([docs/json/](json/RESULTS.md)), 3 to 11 times Zig's `std.json`, with
+benchmark files ([docs/json/](history/json-results.md)), 3 to 11 times Zig's `std.json`, with
 every bounds and overflow check kept in `--release`. Nothing is lazy:
 `parse` decodes every escape, checks all UTF-8, and converts every number
 before it returns.
@@ -2002,5 +2002,5 @@ eof at byte 5
 
 `bench/json/check/compare.py` checks it against Python's `json` module on 10,511
 inputs, sanitizer-clean (`bench/json/check/README.md`); the design and the
-measurements are in [json/DESIGN.md](json/DESIGN.md) and
-[json/RESULTS.md](json/RESULTS.md).
+measurements are in [json/DESIGN.md](design/json.md) and
+[json/RESULTS.md](history/json-results.md).

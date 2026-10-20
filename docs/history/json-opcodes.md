@@ -1,5 +1,7 @@
 # The opcode study: which instructions std.json's speed needs
 
+> **History.** This is a dated study made while tuning std.json. The design is [docs/design/json.md](../design/json.md). It is kept as written.
+
 This study asks which instructions and lowerings would make `std/json.rig`
 faster on Apple silicon and on x86, ranked by measured time. Each one has
 to become a safe, portable Rig operation, with a fallback for targets that

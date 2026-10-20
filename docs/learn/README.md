@@ -11,9 +11,9 @@ Read them in order; each builds on the ones before it.
 | # | Journey | The question it answers |
 |---|---|---|
 | 01 | [Sigils: a line that says what it does](01-sigils.md) | What does each one-character mark mean, and why are there so few? |
-| 02 | Ownership without a collector | How does Rig free every allocation at a point you can see? |
-| 03 | Errors and optionals: failure you can see | How does a program fail without exceptions, and say so where it happens? |
-| 04 | Concurrency without async | How do you run work at the same time with no colored functions? |
+| 02 | [Ownership without a collector](02-ownership.md) | How does Rig free every allocation at a point you can see? |
+| 03 | [Errors and optionals: failure you can see](03-errors.md) | How does a program fail without exceptions, and say so where it happens? |
+| 04 | [Concurrency without async](04-concurrency.md) | How do you run work at the same time with no colored functions? |
 | 05 | Text done right | What is a character, and how does Rig keep text both fast and correct? |
 | 06 | The standard library: a tool in an afternoon | What can you build with what ships? |
 | 07 | Generics and compile time | How does Rig write code once for many types? |

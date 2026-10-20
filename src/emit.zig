@@ -1,6 +1,6 @@
 //! Zig code generation.
 //!
-//! Lowers the semantic IR (`docs/INTERNALS.md`) of one checked module to Zig
+//! Lowers the semantic IR (`docs/internals/INTERNALS.md`) of one checked module to Zig
 //! 0.17 source. The program has already passed sema and ownership
 //! checking; this pass only chooses a representation, and it
 //! reads everything it needs to know about names and types from sema's
@@ -150,7 +150,7 @@ const Header = struct { label: []const u8 = "", first: usize };
 const ZigLabel = struct { name: []const u8, used: bool = false };
 
 /// A loop, or a labeled `match` or `raw` block, that a `break` or
-/// `continue` can go to, while it is emitted (docs/INTERNALS.md,
+/// `continue` can go to, while it is emitted (docs/internals/INTERNALS.md,
 /// "Loops"). A jump finds it by the construct its `JumpDest` names,
 /// which the type checker resolved.
 const JumpTarget = struct {
@@ -2715,7 +2715,7 @@ pub const Emitter = struct {
         turns: ?[]const u8 = null,
     };
 
-    /// `while` and every form of `for` (docs/INTERNALS.md, "Loops"):
+    /// `while` and every form of `for` (docs/internals/INTERNALS.md, "Loops"):
     ///
     ///     __rig_loop_N: {                  // when there is an `else`, a value, or a held header
     ///         <the values the header holds>
@@ -8628,7 +8628,7 @@ pub const Emitter = struct {
     /// for rejecting it with a proper diagnostic; reaching this is a
     /// compiler bug.
     // =========================================================================
-    // Units (docs/INTERNALS.md, "Proven checks")
+    // Units (docs/internals/INTERNALS.md, "Proven checks")
     // =========================================================================
 
     /// Start writing the code of the unit `node` is the root of
@@ -8678,7 +8678,7 @@ pub const Emitter = struct {
         if (!check_units) return;
         const want = self.facts.unitOf(node) orelse return;
         const have: ?facts.NodeKey = if (self.units.items.len > 0) self.units.getLast() else null;
-        if (have != want) return self.unsupported(node, "code outside the unit that holds it (docs/INTERNALS.md, \"Proven checks\")");
+        if (have != want) return self.unsupported(node, "code outside the unit that holds it (docs/internals/INTERNALS.md, \"Proven checks\")");
     }
 
     /// The tests of `node` known to pass, which emit omits.

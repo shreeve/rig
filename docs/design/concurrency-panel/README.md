@@ -1,7 +1,7 @@
 # Concurrency panel, 2026-10-20
 
 Six experts reviewed Rig's concurrency model as built, once all 18
-points of docs/CONCURRENCY.md's plan had landed: the runtime and
+points of docs/design/concurrency.md's plan had landed: the runtime and
 scheduler, the language surface, adversarial soundness, testing,
 formal methods, and I/O with std. Each report is at most 400 words,
 with the probes it ran cited by name. The owner approved every default

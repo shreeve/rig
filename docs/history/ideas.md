@@ -1,5 +1,7 @@
 # Ideas for Rig
 
+> **History.** This is a dated list of ideas. What was decided is in [docs/ROADMAP.md](../ROADMAP.md) and the language is specified in [SPEC.md](../../SPEC.md). It is kept as written.
+
 Suggestions for making Rig clearer, more complete, and a strong platform
 for writing code with AI agents. They come from:
 
@@ -128,11 +130,11 @@ and write parameters stay as they are.
 ### 1.4 Error values that carry data *(decided)*
 `QError::Invalid(String)` has no Rig equivalent, because an error is only
 a name. Real programs need context such as `PakError.too_many(count: Int)`.
-Decided ([CORE](docs/CORE.md) §2, "A failure moves its error"): a member
+Decided ([CORE](../CORE.md) §2, "A failure moves its error"): a member
 carries fields as an enum's variant does, the failure moves the error up
 through `!`, and the handler owns it. `error`, the owning type of an
 error of any set, is built; declared sets (`T!E`) and fields are planned
-([SPEC §13](SPEC.md#declared-sets-and-fields)).
+([SPEC §13](../../SPEC.md#declared-sets-and-fields)).
 
 ### 1.5 Walking a chain *(new, small)*
 Walking `next: (*Pak)?` takes a `while true` plus an `if … as … else return`.

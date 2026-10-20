@@ -7,11 +7,10 @@ before it moved here.
 
 | File | Contents |
 |---|---|
-| [PROPOSAL.md](PROPOSAL.md) | The design: type, operations, the Core paragraph, safety, implementation plan, effort |
-| [ZIG-LOWERING.md](ZIG-LOWERING.md) | What Zig 0.17's `@Vector` compiles to on aarch64, x86-64 and WASM, with pitfalls |
-| [sketches.rig](sketches.rig) | JSON kernels written in the proposed syntax |
-| [OPCODES.md](OPCODES.md) | The Apple silicon opcodes for this work, and the Rig operation that reaches each |
-| [zig/](zig/) | The Zig probes and benchmarks behind both documents |
+| [PROPOSAL.md](../history/simd-proposal.md) | The design: type, operations, the Core paragraph, safety, implementation plan, effort |
+| [ZIG-LOWERING.md](../internals/simd-lowering.md) | What Zig 0.17's `@Vector` compiles to on aarch64, x86-64 and WASM, with pitfalls |
+| [OPCODES.md](../history/simd-opcodes.md) | The Apple silicon opcodes for this work, and the Rig operation that reaches each |
+| [zig/](../history/simd-zig/) | The Zig probes and benchmarks behind both documents |
 
 ## Decisions
 

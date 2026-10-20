@@ -15,14 +15,8 @@ compiler checks a program, writes Zig, and Zig optimizes and links.
 Ownership is visible where it happens, as one-character sigils that mean
 the same thing everywhere; words are libraries.
 
-| Mechanic | Sigils |
-|---|---|
-| Binding | `x = e` binds, `x =! e` binds for good |
-| Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
-| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
-| Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
-| Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
-| Concurrency | `f(x)&` sends work off, `>t` takes its result back |
+The six families of sigils are on one page in [docs/QUICK.md](docs/QUICK.md),
+and each is taught in [docs/learn/01-sigils.md](docs/learn/01-sigils.md).
 
 Brackets after a name are compile time (`List[Int]`), parentheses run
 time. The whole ownership model is [docs/CORE.md](docs/CORE.md).
@@ -53,7 +47,7 @@ These are about the compiler, not the process. They do not bend.
 
 ## The map
 
-The compiler is one pipeline; [docs/INTERNALS.md](docs/INTERNALS.md)
+The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTERNALS.md)
 ("Pipeline", "Source map") describes each pass.
 
 | Path | Role |
@@ -87,12 +81,12 @@ Which document answers which question:
 | What does a form mean? | SPEC.md (§1 Programs to §19 Reserved forms) |
 | How is a form written? | SYNTAX.md |
 | What are the ownership rules, built and planned? | docs/CORE.md |
-| How does the compiler work? | docs/INTERNALS.md |
+| How does the compiler work? | docs/internals/INTERNALS.md |
 | What does the standard library offer? | docs/STD.md |
-| How do tasks, actors, and the scheduler work? | docs/CONCURRENCY.md, docs/concurrency/SCHEDULER.md |
-| How are tests written and run? | docs/RIG-TESTS.md, test/README.md |
-| Why is Rig this way? | docs/DESIGN.md, docs/RIG-MANTRAS.md |
-| Which Zig 0.17 APIs does Rig use? | docs/zig-0.17.md |
+| How do tasks, actors, and the scheduler work? | docs/design/concurrency.md, docs/internals/scheduler.md |
+| How are tests written and run? | docs/internals/tests.md, test/README.md |
+| Why is Rig this way? | docs/DESIGN.md, docs/design/mantras.md |
+| Which Zig 0.17 APIs does Rig use? | docs/internals/zig-0.17.md |
 | What is decided but not started? | TODO.md, docs/ROADMAP.md |
 
 ## Workflow
@@ -149,12 +143,12 @@ result of several lines. Options follow as `key: value`: `seeds: 20`,
 it fails, fails the day it works). Each case runs as its own process.
 
 **A doc example** is every ```` ```rig ```` block in a Markdown file at
-the root or in `docs/`, `docs/learn/`, `docs/launch/`, `examples/`, or
+the root or in `docs/`, `docs/learn/`, `docs/launch/`, `docs/design/`, `docs/internals/`, `examples/`, or
 `test/`. Followed by an
 ```` ```output ```` block it must print exactly that; ```` ```rig reject ````
 with an ```` ```error ```` block must be rejected so; alone it must check;
 ```` ```rig fragment ```` only parses; ```` ```rig pending ```` must fail
-until its rule is built. docs/RIG-TESTS.md has the rest.
+until its rule is built. docs/internals/tests.md has the rest.
 
 ## How a change is made
 
@@ -198,13 +192,13 @@ until its rule is built. docs/RIG-TESTS.md has the rest.
   "receiver".
 - **Taste.** Dissolve a problem rather than patch it; simplify; one
   word and one mechanism per idea. A second round of soundness fixes
-  stops a feature for redesign ([RIG-MANTRAS](docs/RIG-MANTRAS.md)).
+  stops a feature for redesign ([RIG-MANTRAS](docs/design/mantras.md)).
 - **Verify empirically.** Run the program, measure, read the code.
   Report results as they are, with numbers ("12% faster", never "+12%").
 - **Speed:** measure time, interleaved, fastest of N; fewer instructions
   can be slower, and moving code shifts a hot loop by 5-7% on Apple
   cores, so `bench/`'s instruction guards cannot judge one. A change
-  within 2% is noise ([RIG-NOTES](docs/RIG-NOTES.md)).
+  within 2% is noise ([RIG-NOTES](docs/history/rig-notes.md)).
 - **Concurrency** cases run under `seeds: 20`, deterministic schedules
   that fail the same way twice.
 - **Messages to the owner** are short, with decisions as a numbered list

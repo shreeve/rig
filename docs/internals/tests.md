@@ -178,7 +178,7 @@ swarm test/rig.rip proofs       # by hand (proofs-all: every program)
 ## Doc examples
 
 Every ```` ```rig ```` block in the Markdown files at the root and in
-`docs/`, `docs/learn/`, `docs/launch/`, `examples/`, and `test/` is a
+`docs/`, `docs/learn/`, `docs/launch/`, `docs/design/`, `docs/internals/`, `examples/`, and `test/` is a
 case, so the docs cannot drift from the compiler. Each doc is an area,
 `doc-<name>`: its path without `.md` or a leading `docs/`, slashes made
 dashes (`doc-SPEC`, `doc-CORE` for docs/CORE.md, `doc-learn-01-sigils`

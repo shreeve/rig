@@ -265,6 +265,6 @@ Opening a connection on Linux is slower than Tokio's, 36 µs against
 31.
 
 The code, the specification (SPEC.md, section 18), the design and its
-reviews (docs/CONCURRENCY.md), and every benchmark are in the
+reviews (docs/design/concurrency.md), and every benchmark are in the
 repository. If a number here does not hold up on your machine, we want
 to know.

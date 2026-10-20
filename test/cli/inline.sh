@@ -1,5 +1,5 @@
 # Which functions `rig emit` writes `inline`: small ones that are only
-# called, and no other (docs/INTERNALS.md, "Inlining"). Each is checked by
+# called, and no other (docs/internals/INTERNALS.md, "Inlining"). Each is checked by
 # the shape of its Zig; the `inline` cases of test/rig/emit-*.rig.test run
 # the programs.
 source "$ROOT/test/cli/_lib.sh"

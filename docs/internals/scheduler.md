@@ -1,6 +1,6 @@
 # The scheduler
 
-How Rig runs tasks fast: the engine under `f(x)&` (docs/CONCURRENCY.md,
+How Rig runs tasks fast: the engine under `f(x)&` (docs/design/concurrency.md,
 "The engine"), measured against Tokio and Go by `bench/tasks`, whose
 `PROGRESS.md` records each step. It is built in increments, each its own
 pull request. Every program that makes tasks runs on it, with one worker
@@ -149,7 +149,7 @@ deterministically (`sched.deterministic`, SPEC §3 "Tests"):
 
 The same seed makes the same choices, so a run prints the same thing
 every time; the suite runs each concurrency case again under seeds 1 to
-20 (`seeds: 20`, docs/RIG-TESTS.md).
+20 (`seeds: 20`, docs/internals/tests.md).
 
 ## Increments
 

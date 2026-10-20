@@ -9,7 +9,7 @@
 //!                                              diagnostics
 //!
 //! so `parser.Parser.init(allocator, source).parseProgram()` returns the
-//! semantic IR described in docs/INTERNALS.md.
+//! semantic IR described in docs/internals/INTERNALS.md.
 //!
 //! Also here: `Tag` (re-exported from the generated parser), IR helpers
 //! over the generated accessors, `BindingKind`, and the identifier
@@ -215,7 +215,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
 }
 
 /// How a statement orders the units it holds: the one skeleton `eachUnit`
-/// lists the units by and the proof pass walks (docs/INTERNALS.md,
+/// lists the units by and the proof pass walks (docs/internals/INTERNALS.md,
 /// "Proven checks").
 pub const Skeleton = union(enum) {
     /// One unit, of kind `stmt` or `raw`.
@@ -255,7 +255,7 @@ pub fn skeletonOf(stmt: Sexp) Skeleton {
 
 /// Call `visitor.enter(root, kind)` and `visitor.exit(root)` around each
 /// unit of a function or closure body, in the order the body runs them
-/// (docs/INTERNALS.md, "Proven checks"). A unit is a part of a body
+/// (docs/internals/INTERNALS.md, "Proven checks"). A unit is a part of a body
 /// inside which nothing is ordered: a statement, a guard part, a `while`
 /// step, a `for` source, a statement `match`'s selection, or a `raw`
 /// block. A block inside a unit's expression (an arm of a value `match`,
@@ -2095,7 +2095,7 @@ pub fn writeTree(tree: Sexp, source: []const u8, w: *std.Io.Writer) std.Io.Write
 }
 
 /// How a `for` over an iterator walks its source, which decides the
-/// `while` it is rewritten into (docs/INTERNALS.md, "Loops over an
+/// `while` it is rewritten into (docs/internals/INTERNALS.md, "Loops over an
 /// iterator").
 pub const IterSource = enum {
     /// A place the loop advances where it stands: `for x in it` and
@@ -2467,7 +2467,7 @@ pub const Parser = struct {
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
             // After `s as .circle(r)`: no guard in the pattern, and one
-            // pattern (docs/AS-PATTERNS.md, rules 2 and 1).
+            // pattern (docs/design/as-patterns.md, rules 2 and 1).
             .post_if => if (afterAsPattern(src, pos)) "a pattern after `as` takes no `if` guard: join the condition with `and`, `if s as .circle(r) and r > 10`" else "a postfix `if` guard must end a statement; write `a if c else b` for a value",
             .comma => if (afterAsPattern(src, pos)) "after `as`, a pattern tests one variant; to test several, write a `match`" else self.format("unexpected `{s}`", .{src[pos..end]}),
             .ident => self.format("unexpected name `{s}`", .{src[pos..end]}),
@@ -3073,7 +3073,7 @@ pub const Parser = struct {
 
     /// `q, r = f()`: each target but `_` takes the result in its position,
     /// as the binding `(set op q _ (result_part))`, which every pass
-    /// reads as the `x = e` it is (docs/INTERNALS.md, "Several
+    /// reads as the `x = e` it is (docs/internals/INTERNALS.md, "Several
     /// results"). A `_` stays a leaf: its result is left in the
     /// statement's temporary, which drops it at the statement's end.
     fn destructureTargets(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
@@ -3097,7 +3097,7 @@ pub const Parser = struct {
     /// `s as .circle(r)`: the `match` it is, `(as_match (match s (arm
     /// .circle(r) _ pass) (arm _ _ pass)))`. Its first arm goes on with
     /// the rest of the condition and the body; any other value takes the
-    /// second, which falls to the `else` (docs/AS-PATTERNS.md). Every pass
+    /// second, which falls to the `else` (docs/design/as-patterns.md). Every pass
     /// reads its subject and its pattern as a `match`'s, and emit writes
     /// the `match`, which drops a value `<s` took when no arm keeps it.
     fn asMatch(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
@@ -3229,7 +3229,7 @@ pub const Parser = struct {
     }
 
     /// A method declared outside its type's body is the member it names
-    /// (docs/INTERNALS.md, "Methods outside the body"): in a module that
+    /// (docs/internals/INTERNALS.md, "Methods outside the body"): in a module that
     /// declares `obj T[P]` or `enum T[P]`, `[pub] fun T[P].m(...)` is
     /// `[pub] fun m(...)` appended to `T`'s members, with `T`'s
     /// parameters named exactly as the declaration names them. One that
@@ -3731,7 +3731,7 @@ pub const Parser = struct {
     //
     // Typecheck finds the `for` loops whose source is an iterator, since
     // the type of a source is known only there, and the module is checked
-    // again on this rewrite (docs/INTERNALS.md, "Loops over an iterator").
+    // again on this rewrite (docs/internals/INTERNALS.md, "Loops over an iterator").
     // The nodes it builds are IR nodes like the parser's: each spans the
     // loop's source, and a name no source text holds (a method's `next`,
     // the hidden binding) is a leaf at a position inside the loop's `for`

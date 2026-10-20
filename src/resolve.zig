@@ -1864,7 +1864,7 @@ pub const TypeResolver = struct {
 
     /// `*fun(...) -> R` / `*sub(...)`, function type `ty` written
     /// `fun_type`: an owned closure is a method on its own environment
-    /// (docs/INTERNALS.md, "Owned closures"), so its parameters and
+    /// (docs/internals/INTERNALS.md, "Owned closures"), so its parameters and
     /// result stand where a function's do.
     fn ownedClosureSignature(self: *TypeResolver, fun_type: Sexp, ty: TypeId) Error!void {
         const f = self.ctx.types.get(ty).function;
@@ -3170,7 +3170,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // the code after it; `T` is the call's result. Only `&` makes one, a
     // task is never copied or cloned, `wait` takes it and gives the
     // result, and `cancel`, for a `T` that can fail, stops it first
-    // (docs/CONCURRENCY.md).
+    // (docs/design/concurrency.md).
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Task", &.{"T"});
         ctx.task_sym_id = g.sym;

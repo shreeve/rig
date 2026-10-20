@@ -2,7 +2,7 @@
 
 This document explains why Rig looks the way it does. The rules
 themselves are in [SPEC.md](../SPEC.md); the compiler is described in
-[INTERNALS.md](INTERNALS.md).
+[INTERNALS.md](internals/INTERNALS.md).
 
 ## The idea
 

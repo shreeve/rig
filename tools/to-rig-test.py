@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write behavior and rejection tests as Rig test files (docs/RIG-TESTS.md):
+"""Write behavior and rejection tests as Rig test files (docs/internals/tests.md):
 
     tools/to-rig-test.py OUT.rig.test "TITLE" TEST...
 
