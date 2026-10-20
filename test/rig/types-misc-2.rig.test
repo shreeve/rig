@@ -436,15 +436,7 @@ test "swap forms", '''
   o = (!c).swap(4)
   print(c.get(), o)
 
-fail "replace is swap", "3:5: `replace` is `swap`: `old = swap(!x, v)` puts `v` in `x` and gives back what was there, and `swap(!a, !b)` exchanges two places", "5:10: a Cell's `replace` is `swap`: `old = (!c).swap(v)` puts `v` in and gives back the old value", errors: 2
-  # `replace` became `swap`: each spelling of it says what to write.
-  x = 1
-  a = replace(!x, 2)
-  c = *Cell(1)
-  b = (!c).replace(3)
-  print(a, b)
-
-fail "replace swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a place lent to write: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
+fail "swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a place lent to write: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
   # `swap` takes places lent to write (`!x`) of one type, whose values
   # hold no view, and the value a swap stores has the place's type.
 
