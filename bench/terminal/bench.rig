@@ -11,7 +11,7 @@ use std.time
 
 sub main()!
   args = os.args()
-  data = file.read(args[1]) ?? String()
+  data = file.read(args[1])! ?? String()
   n = text.parse_int(args[2])!
   cols = text.parse_int(args[3])!
   rows = text.parse_int(args[4])!

@@ -7,44 +7,44 @@ source "$ROOT/test/cli/_lib.sh"
 cat >write.rig <<'EOF2'
 use std.file
 
-sub put(path: ?String, data: ?String)
+sub put(path: ?String, data: ?String)!
   file.write(path, data) catch |e|
     print(path, e)
     return
-  if file.read(path) as s
+  if file.read(path)! as s
     print(path, s.len, s == data)
   else
     print(path, "none")
 
-sub main()
-  put("a.txt", "one two")
-  put("a.txt", "x")
-  put("empty.txt", "")
-  put("deep/er/est/b.txt", "made")
-  put("deep/c.txt", "beside")
-  put("a.txt/c.txt", "under a file")
-  put("deep", "a directory")
-  put("", "no name")
+sub main()!
+  put("a.txt", "one two")!
+  put("a.txt", "x")!
+  put("empty.txt", "")!
+  put("deep/er/est/b.txt", "made")!
+  put("deep/c.txt", "beside")!
+  put("a.txt/c.txt", "under a file")!
+  put("deep", "a directory")!
+  put("", "no name")!
 EOF2
 
 # The same, from tasks waited for with `>`, and bytes that are not text.
 cat >tasks.rig <<'EOF2'
 use std.file
 
-fun put(path: String, n: Int) -> Bool
+fun put(path: String, n: Int) -> Bool!
   data = String()
   i = 0
   while i < n
     !data.push(U8(i % 256))
     i += 1
   file.write(?path, ?data) catch return false
-  (file.read(?path) ?? String()) == data
+  (file.read(?path)! ?? String()) == data
 
-sub main()
+sub main()!
   a = put(String("t/1/a.bin"), 1000)&
   b = put(String("t/2/b.bin"), 300000)&
   c = put(String("t/1/c.bin"), 7)&
-  print(>a, >b, >c)
+  print(>a!, >b!, >c!)
 EOF2
 
 # Where the program may not write; root may, so it is left out then.

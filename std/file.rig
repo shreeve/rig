@@ -1,7 +1,12 @@
-# std.file: reading and writing files, and asking what is at a path.
-# Each call blocks only the task that makes it: it runs on the blocking
-# pool while the task waits. A path is relative to the working
-# directory, or absolute.
+# std.file: files, and what is at a path. A path is relative to the
+# working directory, or absolute. Each call that reaches the file system
+# runs on the blocking pool, so it blocks only the task that makes it,
+# and is a fallible waiting point: in a canceled task it fails with
+# `task.Stop.canceled` (std.task), and past a deadline (`time.within`)
+# with `task.Stop.timeout`. A call that looks for something gives `none`
+# only when nothing is there; every other failure is an error.
+
+use std.task
 
 # Why a call on a path failed.
 pub error FileError
@@ -16,6 +21,8 @@ pub error FileError
   not_directory
   # The path names a directory, where a file is wanted.
   is_directory
+  # The directory to remove holds entries.
+  not_empty
   # Anything else the system reports: no space left, too many open
   # files, an I/O error.
   failed
@@ -27,12 +34,14 @@ pub enum Kind
   other
 
 # What is at a path (`stat`): its kind, following a symbolic link to what
-# it names; whether the path itself is a symbolic link; and its size in
-# bytes.
+# it names; whether the path itself is a symbolic link; its size in
+# bytes; and when its contents last changed, in nanoseconds since
+# 1970-01-01 00:00 UTC.
 pub obj Stat
   pub kind: Kind
   pub link: Bool
   pub size: Int
+  pub modified: Int
 
 # An entry of a directory (`read_dir`): its name, its kind as `stat`
 # gives it, and whether it is a symbolic link.
@@ -41,25 +50,55 @@ pub obj Entry
   pub kind: Kind
   pub link: Bool
 
+# An open file, read and written from where the last read or write
+# ended, as a `net.Stream` is: `open` gives one to read, and `create` one
+# to write. It closes when dropped. Its field is the runtime's.
+pub obj File
+  fd: Int
+
+  # Read up to `max` bytes onto the end of `into`: how many it read, or
+  # 0 at the end of the file.
+  pub fun read(!@, into: !String, max: Int) -> Int!
+    read_from(@fd, !into, max)!
+
+  # Write all of `bytes`.
+  pub sub write(!@, bytes: ?String)!
+    write_to(@fd, bytes)!
+
+  drop(!@)
+    close(@fd)
+
 # What is at `path`, or `none` when nothing is. A symbolic link that
 # names nothing is a link of kind `other`.
-pub fun stat(path: ?String) -> Stat?
-  if stat_code(path) as c
-    return Stat(kind: kind_of(c % 4), link: (c / 4) % 2 == 1, size: c / 8)
-  none
+pub fun stat(path: ?String) -> Stat?!
+  info = List[Int](capacity: 4)
+  if not stat_into(path, !info)!
+    return none
+  Stat(kind: kind_of(info[0]), link: info[1] == 1, size: info[2], modified: info[3])
 
 # The entries of the directory at `path`, sorted by name, without `.`
-# and `..`; `none` when it is not a directory that can be read.
-pub fun read_dir(path: ?String) -> List[Entry]?
+# and `..`; `none` when nothing is at `path`.
+pub fun read_dir(path: ?String) -> List[Entry]?!
   names = List[String]()
   codes = List[Int]()
-  if not dir_entries(path, !names, !codes)
+  if not dir_entries(path, !names, !codes)!
     return none
   entries = List[Entry](capacity: names.len)
   while (!names).pop() as name
     c = (!codes).pop() ?? 0
     !entries.push(Entry(name: <name, kind: kind_of(c % 4), link: c / 4 == 1))
   <entries
+
+# The file at `path` to read, or `none` when nothing is there.
+pub fun open(path: ?String) -> File?!
+  if open_fd(path)! as fd
+    return File(fd: fd)
+  none
+
+# The file at `path` to write, created, or emptied when it is there,
+# making each missing directory on the way to it.
+pub fun create(path: ?String) -> File!
+  File(fd: create_fd(path)!)
 
 fun kind_of(k: Int) -> Kind
   match k
@@ -69,23 +108,48 @@ fun kind_of(k: Int) -> Kind
 
 extern zig "file.zig"
   # The whole file at `path`, a fresh String of exactly its bytes, or
-  # `none` when it cannot be read: it does not exist, is a directory,
-  # may not be read, or reading it fails.
-  pub fun read(path: ?String) -> String?
+  # `none` when nothing is there.
+  pub fun read(path: ?String) -> String?!
 
   # Write `data` as the whole file at `path`: create it, or replace what
   # it holds, making each missing directory on the way to it.
   pub sub write(path: ?String, data: ?String)!
 
+  # Write `data` at the end of the file at `path`, creating it, and each
+  # missing directory on the way to it, when it is not there.
+  pub sub append(path: ?String, data: ?String)!
+
+  # Move what is at `from` to `to`, replacing a file at `to`.
+  pub sub rename(from: ?String, to: ?String)!
+
+  # Make the directory `path`, and each missing one on the way to it. A
+  # directory there already is fine.
+  pub sub mkdir(path: ?String)!
+
+  # Remove the file, or the empty directory, at `path`: true, or false
+  # when nothing was there.
+  pub fun remove(path: ?String) -> Bool!
+
   # The absolute path `path` names, every symbolic link in it resolved,
   # or `none` when nothing is there.
-  pub fun realpath(path: ?String) -> String?
+  pub fun realpath(path: ?String) -> String?!
 
-  # What `stat` gives, as one number: its size times 8, plus 4 when the
-  # path is a link, plus its kind (0 a file, 1 a directory, 2 other).
-  fun stat_code(path: ?String) -> Int?
+  # What `stat` gives, onto `info`: its kind (0 a file, 1 a directory, 2
+  # other), 1 when the path is a link, its size, and when it changed;
+  # false when nothing is at `path`.
+  fun stat_into(path: ?String, info: !List[Int]) -> Bool!
 
   # The entries of a directory, last name first, onto `names`, and each
-  # one's kind plus 4 when it is a link onto `codes`; false when the
-  # directory cannot be read.
-  fun dir_entries(path: ?String, names: !List[String], codes: !List[Int]) -> Bool
+  # one's kind plus 4 when it is a link onto `codes`; false when nothing
+  # is at `path`.
+  fun dir_entries(path: ?String, names: !List[String], codes: !List[Int]) -> Bool!
+
+  # A descriptor of the file at `path` open to read, or none.
+  fun open_fd(path: ?String) -> Int?!
+
+  # A descriptor of the file at `path`, created or emptied, open to write.
+  fun create_fd(path: ?String) -> Int!
+
+  fun read_from(fd: Int, into: !String, max: Int) -> Int!
+  sub write_to(fd: Int, bytes: ?String)!
+  sub close(fd: Int)

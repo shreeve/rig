@@ -33,7 +33,7 @@ never read as the library's.
 | [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.bigint`](#stdbigint) | integers of any size: parsing, printing, arithmetic, shifts, powers, and the nearest Float |
 | [`std.os`](#stdos) | the program's arguments and environment |
-| [`std.file`](#stdfile) | reading and writing a whole file, and asking what is at a path |
+| [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
@@ -247,7 +247,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 |---|---|
 | `args() -> []Static` | every argument, the program's name first |
 | `env(name: ?String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
-| `cwd() -> String` | the working directory, as an absolute path |
+| `cwd() -> String!` | the working directory, as an absolute path, its links resolved; fails with a `file.FileError` ([std.file](#stdfile)) when it was removed or cannot be read |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -287,103 +287,147 @@ nowhere
 
 ## std.file
 
-Reading a whole file into a `String`, writing one, and asking what is
-at a path.
+Files, and what is at a path. A relative `path` starts at the working
+directory.
 
 | Function | Result |
 |---|---|
-| `read(path: ?String) -> String?` | the file at `path` as a fresh `String` of exactly its bytes, or `none` when it cannot be read |
-| `write(path: ?String, data: ?String)!` | writes `data` as the whole file at `path`, making each missing directory on the way; fails with a `FileError` |
-| `stat(path: ?String) -> Stat?` | what is at `path`: its `kind`, whether it is a `link`, and its `size`; `none` when nothing is |
-| `read_dir(path: ?String) -> List[Entry]?` | the entries of the directory at `path`, sorted by name, each with its `name`, `kind`, and `link`; `none` when it is not a directory that can be read |
-| `realpath(path: ?String) -> String?` | the absolute path `path` names, every symbolic link in it resolved; `none` when nothing is there |
+| `read(path: ?String) -> String?!` | the file at `path` as a fresh `String` of exactly its bytes; `none` when nothing is there |
+| `write(path: ?String, data: ?String)!` | writes `data` as the whole file at `path`, making each missing directory on the way |
+| `append(path: ?String, data: ?String)!` | writes `data` at the end of the file at `path`, creating it, and each missing directory, when it is not there |
+| `stat(path: ?String) -> Stat?!` | what is at `path`: its `kind`, whether it is a `link`, its `size`, and when it was `modified`; `none` when nothing is there |
+| `read_dir(path: ?String) -> List[Entry]?!` | the entries of the directory at `path`, sorted by name, each with its `name`, `kind`, and `link`; `none` when nothing is there |
+| `realpath(path: ?String) -> String?!` | the absolute path `path` names, every symbolic link in it resolved; `none` when nothing is there |
+| `mkdir(path: ?String)!` | makes the directory `path` and each missing one on the way; a directory there already is fine |
+| `rename(from: ?String, to: ?String)!` | moves what is at `from` to `to`, replacing a file there |
+| `remove(path: ?String) -> Bool!` | removes the file, or empty directory, at `path`: `true`, or `false` when nothing was there |
+| `open(path: ?String) -> File?!` | the file at `path`, to read; `none` when nothing is there |
+| `create(path: ?String) -> File!` | the file at `path`, created or emptied, to write, making each missing directory on the way |
 
-Each call blocks only the task that makes it: it runs on the blocking
-pool while the task waits, so other tasks go on. To do several at once,
-make them tasks and wait with `>`, as for any call.
+**`none` means nothing is there; every other failure is an error.** A
+call that looks for something gives `none` only when nothing is at the
+path, and fails with a `FileError` for anything else: a path that may
+not be read, a directory where a file is wanted, an I/O error. So
+`file.read(p)! ?? String()` treats a missing file as empty and still
+reports a file it may not read.
+
+| Error | When |
+|---|---|
+| `not_found` | nothing is at the path, or at a directory on the way to it (an empty path), for a call that needs something there |
+| `exists` | something is at the path already: `mkdir` where a file is |
+| `denied` | the system does not allow it: permissions, or a read-only file system |
+| `not_directory` | a part of the path before its last name, or the path given `read_dir`, is not a directory |
+| `is_directory` | the path names a directory, where a file is wanted |
+| `not_empty` | `remove` of a directory that holds entries |
+| `failed` | anything else: no space left, too many open files, an I/O error |
+
+**Each call is a fallible waiting point.** It runs on the blocking pool
+while its task waits, so other tasks go on; to do several at once, make
+them tasks and wait with `>`, as for any call. Like a socket's calls
+([std.net](#stdnet)), it fails with `task.Stop.canceled` in a canceled
+task and with `task.Stop.timeout` past the task's deadline
+(`time.within`), checked when the call is made.
+
+A `File` reads and writes from where its last read or write ended, with
+the methods a `net.Stream` has, and closes when it is dropped:
+
+| Method | Result |
+|---|---|
+| `f.read(!@, into: !String, max: Int) -> Int!` | reads up to `max` bytes onto the end of `into`: how many, or 0 at the end of the file |
+| `f.write(!@, bytes: ?String)!` | writes all of `bytes` |
+
+```rig
+use std.file
+
+# Copy the file at `from` to `to`, a block at a time.
+sub copy(from: ?String, to: ?String)!
+  if file.open(from)! as src
+    dst = file.create(to)!
+    buf = String()
+    while (!src).read(!buf, 65536)! > 0
+      (!dst).write(buf)!
+      buf = String()
+
+sub main()!
+  copy("examples/hello.rig", "out/hello.rig")!
+```
 
 A `kind` is `Kind.file`, `Kind.directory`, or `Kind.other` (a device,
 a pipe, a socket). `stat` and `read_dir` follow a symbolic link to give
 the kind of what it names, and say with `link` that the path itself is
 one; a link that names nothing is a link of kind `other`, so
-`file.stat(p) != none` asks whether anything is at `p`, as Go's
+`file.stat(p)! != none` asks whether anything is at `p`, as Go's
 `os.Lstat` does, and a `kind` of `Kind.file` whether a file is there to
-read, as its `os.Stat` does. `read_dir` leaves out `.` and `..`, and
-sorts by the names' bytes.
+read, as its `os.Stat` does. `modified` is when the contents last
+changed, in nanoseconds since 1970-01-01 00:00 UTC, of what a link
+names. `read_dir` leaves out `.` and `..`, and sorts by the names'
+bytes.
 
 ```rig
 use std.file
 
-sub main()
-  if file.stat("examples") as s
-    print(s.kind, s.link)
-  if file.read_dir("examples") as entries
+sub main()!
+  if file.stat("examples")! as s
+    print(s.kind, s.link, s.modified > 0)
+  if file.read_dir("examples")! as entries
     print(entries.len > 0, entries[0].kind)
-  print(file.stat("no/such/file") == none, file.realpath("no/such/file") == none)
+  print(file.stat("no/such/file")! == none, file.realpath("no/such/file")! == none)
 ```
 
 ```output
-.directory false
+.directory false true
 true .file
 true true
 ```
 
-A relative `path` starts at the working directory. The bytes are the
-file's as they are: none added, and none checked to be UTF-8, so a
-binary file reads as well as text. The `String` is the caller's, like
-any other, and its buffer holds exactly the file's bytes, with no
-spare room past them. A pipe or a device, which has no
+`read`'s bytes are the file's as they are: none added, and none checked
+to be UTF-8, so a binary file reads as well as text. The `String` is
+the caller's, like any other, and its buffer holds exactly the file's
+bytes, with no spare room past them. A pipe or a device, which has no
 size, is read to its end, so one that never ends (`/dev/zero`) is read
 until memory runs out, and a pipe with no writer waits, as Go's
 `os.ReadFile` does. A file too large for memory panics as any
 allocation that fails does.
 
-`read` gives `none` when the file does not exist, when `path` names a
-directory, when the program may not read the file, and when reading it
-fails partway. It does not say which: the `none` covers them all.
-
 ```rig
 use std.file
 use std.text
 
-sub main()
-  if file.read("examples/hello.rig") as source
+sub main()!
+  if file.read("examples/hello.rig")! as source
     end = text.find(source, "\n") ?? source.len
     print(source[..end])
-  print(file.read("examples") == none, file.read("no/such/file") == none)
+  print(file.read("no/such/file")! == none)
+  _ = file.read("examples") catch |e|
+    print(e)
+    none
 ```
 
 ```output
 # The smallest meaningful Rig program.
-true true
+true
+FileError.is_directory
 ```
 
-The suite runs this example from the repository's root, where
+The suite runs these examples from the repository's root, where
 `examples/hello.rig` is.
 
 `write` creates the file, or replaces what it holds, and first makes
 each directory on the way to it that is missing, as Go's `os.MkdirAll`
-and `os.WriteFile` do together. It is not atomic: a reader at the same
-time may see part of the bytes. When it fails, it says why with a
-`FileError`:
-
-| Error | When |
-|---|---|
-| `not_found` | nothing is at the path, or at a directory on the way to it (an empty path) |
-| `exists` | something is at the path already |
-| `denied` | the system does not allow it: permissions, or a read-only file system |
-| `not_directory` | a part of the path before its last name is not a directory |
-| `is_directory` | the path names a directory, where a file is wanted |
-| `failed` | anything else: no space left, too many open files, an I/O error |
+and `os.WriteFile` do together; `append` and `create` make them too.
+None is atomic: a reader at the same time may see part of the bytes.
+To replace a file whole, write another beside it and `rename` it over
+the first.
 
 ```rig
 use std.file
 
 sub main()
-  file.write("out/gen/main.zig", "pub fn main() void {}\n") catch |e|
+  file.write("out/gen/main.zig.tmp", "pub fn main() void {}\n") catch |e|
     print("cannot write:", e)
     return
-  print(file.read("out/gen/main.zig") ?? String())
+  file.rename("out/gen/main.zig.tmp", "out/gen/main.zig") catch |e|
+    print("cannot rename:", e)
 ```
 
 ## std.time

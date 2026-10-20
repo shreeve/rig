@@ -20,7 +20,7 @@ starts; a program that makes none starts no workers.
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
-  never blocks; `std.file.read` does so today. Other system calls go
+  never blocks; `std.file`'s calls do so. Other system calls go
   through a `Threaded` instance of Zig's `std.Io` (`rt.io`) on the
   calling thread, which runs no tasks; a write to a full pipe holds its
   worker until it returns. Rig's own `std.Io`, with the rest of I/O on
