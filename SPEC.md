@@ -10249,8 +10249,9 @@ so the call fails as `f` fails too; it always can fail.
   point into `f`'s frames. A task's panic passes to its owner at its
   wait or drop, up to the isolate.
 - `f`'s frames stop where they stand: their drops and `defer`s do not
-  run, and what they own stays allocated. A debug build reports it
-  apart from leaks, as left by a panic.
+  run, and what they own stays allocated, with what a handle they hold
+  leads to. A debug build reports it apart from leaks, as left by a
+  panic.
 - Nothing outside `f` is lent to it to write, so all a panic could have
   half-changed is `f`'s own: `f` is a closure written in the call with
   no `|!x|` capture, or a function's name. A shared `*Cell` it changes
@@ -10375,6 +10376,18 @@ Bank.pay -> Ledger.post -> Bank.balance`, where `Bank.pay` called
 of tasks count too: a method that waits on a task that calls its own
 actor is such a cycle. The wait that closes the cycle finds it, so the
 program never hangs on one.
+
+A panic in an actor's method ends the actor. Its value is abandoned,
+not dropped, since the panic may have left it half-changed; a debug
+build reports what it owns apart from leaks, as left by a panic. The
+caller waiting on that method panics too: a method run on the actor's
+own task stops the panic there, and it passes to the caller, while one
+run inline panics in the caller as it stands, ending every actor the
+caller runs a method of. The calls queued then, and every later call,
+panic, naming the method that ended the actor: `Rooms.count: the actor
+died from a panic in Rooms.pick`. An isolate around a call stops its
+caller's panic as any other ([Isolating a panic](#isolating-a-panic)),
+a deadlock's too.
 
 ```rig
 obj Ledger

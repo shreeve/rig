@@ -916,6 +916,7 @@ const panicked_error = error.@"std.task.Stop.panicked";
 pub fn panicked(iso: *Isolate) noreturn {
     iso.panicked.store(true, .seq_cst);
     rt.isolatePanicked(iso.id);
+    rt.leaveFrames();
     if (iso.fiber == rt.sched.current()) {
         task().unwinding = true;
         iso.stop(true);
@@ -960,6 +961,11 @@ pub fn Actor(comptime T: type) type {
         /// The method running in the actor while the fiber running it
         /// blocks, for a deadlock's walk (`rt.sched.Held`).
         held_by: std.atomic.Value(?*rt.sched.Held) = .init(null),
+        /// The message the runner runs, which a panic in it answers as
+        /// panicked (`kill`); only the runner's fiber touches it.
+        running: ?*Message = null,
+        /// The method a panic ended the actor in, once it has died.
+        died_in: ?*const rt.sched.Label = null,
 
         const Self = @This();
 
@@ -978,8 +984,73 @@ pub fn Actor(comptime T: type) type {
             try w.writeAll("<actor>");
         }
 
+        /// A dead actor's value is abandoned, not dropped: a panic may
+        /// have left it half-changed (`kill`).
         pub fn __rig_drop(self: *Self) void {
+            if (self.state.load(.acquire) & dead != 0) return;
             dropElement(T, &self.value);
+        }
+
+        /// A panic in method `in`, on the fiber running it, ends the
+        /// actor: its value is abandoned, the call the runner runs is
+        /// answered as panicked, and the calls queued, as made to an actor
+        /// that died; so is every later call (`send`).
+        fn kill(self: *Self, in: *const rt.sched.Label) void {
+            self.lock.lock();
+            if (self.state.load(.acquire) & dead != 0) {
+                self.lock.unlock();
+                return;
+            }
+            self.died_in = in;
+            _ = self.state.fetchOr(dead, .acq_rel);
+            var queued = self.first;
+            self.first = null;
+            self.last = null;
+            const running = self.running;
+            self.running = null;
+            self.lock.unlock();
+            if (running) |m| {
+                m.outcome = Message.panicked;
+                m.answer();
+            }
+            while (queued) |m| {
+                queued = m.next;
+                m.started = true;
+                m.outcome = Message.died;
+                m.answer();
+            }
+            rt.abandonValue(T, &self.value);
+        }
+
+        /// The actor that `h`, a fiber's hold on an actor, names.
+        fn heldBy(h: *rt.sched.Held) *Self {
+            return @fieldParentPtr("held_by", h.held_by);
+        }
+
+        /// A panic on a fiber that runs a method inline: the actor dies,
+        /// and the panic goes on to the fiber's own boundary.
+        fn dieInline(h: *rt.sched.Held) bool {
+            heldBy(h).kill(h.doing);
+            return false;
+        }
+
+        /// A panic in the runner: the actor dies, the runner's handle
+        /// goes, and the panic stops here.
+        fn dieRunner(h: *rt.sched.Held) bool {
+            const self = heldBy(h);
+            self.kill(h.doing);
+            const box: *rt.Shared(Self) = @fieldParentPtr("value", self);
+            box.dropStrong();
+            return true;
+        }
+
+        /// A call of method `name` found the actor dead.
+        fn calledDead(self: *Self, comptime name: []const u8) noreturn {
+            @branchHint(.cold);
+            var buf: [256]u8 = undefined;
+            const in = self.died_in.?;
+            const text = std.fmt.bufPrint(&buf, "{s}.{s}: the actor died from a panic in {s}.{s}", .{ actorName(T), name, in.actor, in.method }) catch "an actor that died from a panic was called";
+            @panic(text);
         }
 
         /// What method `name` of `T` gives.
@@ -1016,7 +1087,7 @@ pub fn Actor(comptime T: type) type {
             const f = rt.sched.current();
             const t = if (f) |x| &x.state else task();
             if (f != null and self.claim(t)) {
-                var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = label(name), .next = f.?.held };
+                var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = label(name), .die = dieInline, .next = f.?.held };
                 f.?.held = &held;
                 defer {
                     f.?.held = held.next;
@@ -1036,11 +1107,16 @@ pub fn Actor(comptime T: type) type {
                 }
             };
             var c: Call = .{ .msg = .{ .run = Call.run, .label = label(name) }, .actor = self, .args = args };
-            self.send(box, &c.msg);
+            if (!self.send(box, &c.msg)) self.calledDead(name);
             const b: rt.sched.Blocked = .{ .call = .{ .label = label(name), .held_by = &self.held_by, .msg = &c.msg, .answered = Message.answered } };
             rt.sched.block(&b);
             const done = c.msg.waitAnswer(self, fallible);
             rt.sched.unblock();
+            switch (c.msg.outcome) {
+                Message.panicked => rt.passPanicFrom("an actor's method this task called panicked"),
+                Message.died => self.calledDead(name),
+                else => {},
+            }
             if (!done) {
                 if (comptime fallible) return if (canceledHere()) canceled_error else timeout_error;
                 unreachable;
@@ -1048,14 +1124,20 @@ pub fn Actor(comptime T: type) type {
             return c.result;
         }
 
-        /// Put `m` in the mailbox, and start a runner when none drains it.
-        fn send(self: *Self, box: *rt.Shared(Self), m: *Message) void {
+        /// Put `m` in the mailbox, and start a runner when none drains it;
+        /// false, with nothing sent, once the actor has died.
+        fn send(self: *Self, box: *rt.Shared(Self), m: *Message) bool {
             self.lock.lock();
+            if (self.state.load(.acquire) & dead != 0) {
+                self.lock.unlock();
+                return false;
+            }
             if (self.last) |l| l.next = m else self.first = m;
             self.last = m;
             const start = self.state.fetchOr(busy | mail, .acq_rel) == 0;
             self.lock.unlock();
             if (start) rt.sched.spawnDetached(runner, .{box.cloneStrong()});
+            return true;
         }
 
         /// Take the actor for a call run inline: when it is idle, which
@@ -1071,13 +1153,14 @@ pub fn Actor(comptime T: type) type {
             return claimSpinning(&self.state);
         }
 
-        /// Run method `name` inline as the actor: under no cancel,
-        /// deadline, or isolate, as its runner runs one, so a canceled
-        /// caller cannot stop it partway.
+        /// Run method `name` inline as the actor: under no cancel or
+        /// deadline, as its runner runs one, so a canceled caller cannot
+        /// stop it partway. A panic in it ends the actor and goes on to
+        /// the caller's own boundary (`dieInline`).
         fn runInline(self: *Self, t: *rt.TaskState, comptime name: []const u8, args: anytype) Result(name) {
-            const control, const deadline, const iso = .{ t.control, t.deadline, t.isolate };
-            t.control, t.deadline, t.isolate = .{ null, null, null };
-            defer t.control, t.deadline, t.isolate = .{ control, deadline, iso };
+            const control, const deadline = .{ t.control, t.deadline };
+            t.control, t.deadline = .{ null, null };
+            defer t.control, t.deadline = .{ control, deadline };
             return self.invoke(name, args);
         }
 
@@ -1107,11 +1190,13 @@ pub fn Actor(comptime T: type) type {
         }
 
         /// The runner: each message in turn, until the mailbox is empty;
-        /// then its handle goes, which may be the last.
+        /// then its handle goes, which may be the last. A panic in a
+        /// method stops here (`dieRunner`): the actor dies, and the
+        /// runner ends where it stands.
         fn runner(box: *rt.Shared(Self)) void {
             const self = &box.value;
             const f = rt.sched.current().?;
-            var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = undefined, .next = f.held };
+            var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = undefined, .die = dieRunner, .next = f.held };
             f.held = &held;
             defer f.held = held.next;
             while (true) {
@@ -1126,7 +1211,9 @@ pub fn Actor(comptime T: type) type {
                 m.started = true;
                 self.lock.unlock();
                 held.doing = m.label;
+                self.running = m;
                 m.run(m);
+                self.running = null;
                 m.answer();
             }
             box.dropStrong();
@@ -1167,6 +1254,21 @@ const claim_spins = 4;
 /// The bits of `Actor.state`.
 const busy: u8 = 1;
 const mail: u8 = 2;
+/// Set for good once a panic ends the actor (`Actor.kill`).
+const dead: u8 = 4;
+
+/// A panic on the running fiber: every actor it runs a method of dies,
+/// since each of those methods stops partway (`rt.sched.Held`). Whether
+/// the fiber is an actor's runner, where the panic stops.
+pub fn actorsDie() bool {
+    if (!rt.scheduled) return false;
+    const f = rt.sched.current() orelse return false;
+    var stop = false;
+    var at = f.held;
+    f.held = null;
+    while (at) |h| : (at = h.next) stop = h.die(h) or stop;
+    return stop;
+}
 
 /// Whether the running task's stack has room for an actor's method run
 /// inline (`Actor.claim`): `inline_reserve` bytes or more above its
@@ -1197,8 +1299,15 @@ const Message = struct {
     /// Taken by a runner, under the actor's lock: no longer withdrawn.
     started: bool = false,
     status: std.atomic.Value(u8) = .init(queued),
+    /// How it was answered: `done`, or, when the actor died, `panicked`
+    /// for the call it ran then and `died` for one queued (`Actor.kill`).
+    outcome: u8 = done,
     waiter: std.atomic.Value(?*rt.sched.Fiber) = .init(null),
     waiter_epoch: std.atomic.Value(u32) = .init(0),
+
+    const done = 0;
+    const panicked = 1;
+    const died = 2;
 
     const queued = 0;
     const waited = 1;

@@ -348,3 +348,100 @@ fail "actor task keeps argument loans", "cannot lend `ys` to write while a read 
   t = c.sum(?ys)&
   !ys.push(1)
   print(<t.wait())
+
+test "actor dies in a method run inline", seeds: 20, '''
+  1
+  caught Stop.panicked
+  -1
+  caught again Stop.panicked
+  -2
+  caught a task Stop.panicked
+'''
+  # A panic in an actor's method ends the actor: a call run inline
+  # panics in its caller, which an isolate stops, and every later call,
+  # waiting or with `&`, panics too.
+  use std.task
+
+  obj Rooms
+    names: List[String]
+
+    fun pick(?@, i: Int) -> Int
+      @names[i].len
+
+    sub add(!@, s: String)
+      !@names.push(<s)
+
+    fun count(?@) -> Int
+      @names.len
+
+  fun later(r: *Actor[Rooms]) -> Int
+    t = r.count()&
+    <t.wait()
+
+  r = *Actor(Rooms(names: List[String]()))
+  !r.add(String("hall"))
+  print(r.count())
+  n = task.isolate(|+r| r.pick(5)) catch |e|
+    print("caught", e)
+    -1
+  print(n)
+  m = task.isolate(|+r| r.count()) catch |e|
+    print("caught again", e)
+    -2
+  print(m)
+  _ = task.isolate(|+r| later(+r)) catch |e|
+    print("caught a task", e)
+    -3
+
+test "actor dies on its own task", seeds: 20, '''
+  caught Stop.panicked
+  -1 1
+  -2
+'''
+  # A call queued behind another runs on the actor's own task: a panic
+  # there stops at the actor, which dies, and passes to the caller; a
+  # call queued behind it learns the actor died.
+  use std.task
+  use std.time
+
+  obj Slow
+    n: Int
+
+    fun hold(!@) -> Int!
+      time.sleep(20 * time.MS)!
+      @n
+
+    fun boom(?@, i: Int) -> Int
+      [1, 2, 3][i]
+
+    fun get(?@) -> Int
+      @n
+
+  fun holder(a: *Actor[Slow]) -> Int!
+    (!a).hold()!
+
+  fun behind(a: *Actor[Slow]) -> Int!
+    time.sleep(2 * time.MS)!
+    task.isolate(|+a| a.get()) catch -2
+
+  a = *Actor(Slow(n: 1))
+  t = holder(+a)&
+  time.sleep(5 * time.MS)!
+  u = behind(+a)&
+  n = task.isolate(|+a| a.boom(9)) catch |e|
+    print("caught", e)
+    -1
+  print(n, <t.wait()!)
+  print(<u.wait()!)
+
+bomb "actor dies and its caller panics", seeds: 20, "index out of bounds", prints: "before"
+  # With no isolate, the caller's panic ends the program.
+  obj Rooms
+    n: Int
+
+    fun pick(?@, i: Int) -> Int
+      [1, 2, 3][i] + @n
+
+  r = *Actor(Rooms(n: 0))
+  print("before")
+  print(r.pick(7))

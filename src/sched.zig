@@ -1144,6 +1144,9 @@ pub const Held = struct {
     held_by: *std.atomic.Value(?*Held),
     /// The method it runs.
     doing: *const Label,
+    /// A panic on the fiber: the actor dies (`tasks.actorsDie`); true
+    /// when the fiber is the actor's runner, where the panic stops.
+    die: *const fn (*Held) bool,
     next: ?*Held,
     /// The fiber, and what it waits on, while it blocks (`block`).
     fiber: *Fiber = undefined,
@@ -1874,6 +1877,12 @@ pub fn leaveApart(home: usize) noreturn {
     var gone: usize = 0;
     switchTo(&gone, home);
     unreachable;
+}
+
+/// End the running fiber, one `spawnDetached` started, where it stands,
+/// its frames left as they were: an actor's runner whose method panicked.
+pub fn abandonDetached() noreturn {
+    finishFiber(current().?);
 }
 
 /// End the running fiber where it stands, its frames left as they are:

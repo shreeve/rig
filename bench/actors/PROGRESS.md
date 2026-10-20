@@ -14,6 +14,7 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-20 | #383: actors, every call a message | rig-fast | 99 ns | 151 ns | 35 ns |
 | 2026-10-20 | #386: the idle path | rig-fast | 4.9 ns | 6.9 ns | 1.6 ns |
 | 2026-10-20 | #389: deadlock detection | rig-fast | 6.0 ns | 34 ns | 1.7 ns |
+| 2026-10-20 | #391: actor failure | rig-fast | 5.9 ns | 42 ns | 1.3 ns |
 
 ## x86-64 (pup)
 
@@ -26,3 +27,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-20 | reference | go | 12 ns | 66 ns | 1.3 ns |
 | 2026-10-20 | #386: the idle path | rig-fast | 13 ns | 33 ns | 2.2 ns |
 | 2026-10-20 | #389: deadlock detection | rig-fast | 15 ns | 32 ns | 1.8 ns |
+| 2026-10-20 | #391: actor failure | rig-fast | 12 ns | 31 ns | 1.8 ns |
