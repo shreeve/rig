@@ -27,8 +27,16 @@ const not_found = error.@"std.file.FileError.not_found";
 /// Run `f` on the blocking pool, once the task is neither canceled nor
 /// past its deadline.
 fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
-    try rig.taskCheck();
+    try stopped();
     return rig.blocking(f, args);
+}
+
+/// Fail when the task is canceled or past its deadline, as `net`'s
+/// waiting points do, without yielding (`task.check` yields).
+fn stopped() rig.Stop!void {
+    const t = rig.task();
+    if (t.control) |c| if (c.canceled.load(.acquire)) return error.@"std.task.Stop.canceled";
+    if (t.deadline) |d| if (rig.sched.nowNs() >= d) return error.@"std.task.Stop.timeout";
 }
 
 /// The FileError for a failure of Zig's, or the FileError itself.
