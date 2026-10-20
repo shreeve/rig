@@ -43,11 +43,11 @@ sub main()
   ts = Tasks[Int!]()
   for 0..4
     !ts.add(nap()&)
-  xs = <ts.wait_all() catch List[Int]()
+  xs = >ts catch List[Int]()
   u = nap()&
   r = <u.cancel() catch 0
   text = file.read("tasks.rig") ?? String("")
-  print(<t.wait(), xs.len, r, text.len > 0)
+  print(>t, xs.len, r, text.len > 0)
 EOF2
 
 if [[ $how == asm ]]; then

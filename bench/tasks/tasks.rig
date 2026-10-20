@@ -46,7 +46,7 @@ called sub spawn()
     ts = Tasks[Int]()
     for i in 0..SIZE
       !ts.add(leaf(i)&)
-    xs = <ts.wait_all()
+    xs = >ts
     for x in xs
       sum += x
   print("spawn", t.elapsed(), sum)
@@ -56,7 +56,7 @@ called sub chain()
   sum = 0
   for i in 0..CHAIN
     u = leaf(i)&
-    sum += <u.wait()
+    sum += >u
   print("chain", t.elapsed(), sum)
 
 called sub fanout()
@@ -64,7 +64,7 @@ called sub fanout()
   ts = Tasks[Int]()
   for i in 0..FAN_TASKS
     !ts.add(spin(FAN_WORK + i)&)
-  xs = <ts.wait_all()
+  xs = >ts
   sum = 0
   for x in xs
     sum += x
@@ -75,7 +75,7 @@ called sub yields()
   ts = Tasks[Int!]()
   for 0..YIELD_TASKS
     !ts.add(yielder(YIELDS)&)
-  xs = <ts.wait_all() catch List[Int]()
+  xs = >ts catch List[Int]()
   sum = 0
   for x in xs
     sum += x
@@ -92,13 +92,13 @@ called sub hog()
     !slices.add(spin(HOG_SLICE + i)&)
     a = leaf(i)&
     b = leaf(i)&
-    sum += <a.wait()
-    sum += <b.wait()
+    sum += >a
+    sum += >b
   ns = t.elapsed()
-  xs = <hogs.wait_all()
+  xs = >hogs
   for x in xs
     sum += x
-  ys = <slices.wait_all()
+  ys = >slices
   for y in ys
     sum += y
   print("hog", ns, sum)
@@ -112,7 +112,7 @@ called sub many()
   ts = Tasks[Int!]()
   for 0..MANY
     !ts.add(nap()&)
-  xs = <ts.wait_all() catch List[Int]()
+  xs = >ts catch List[Int]()
   sum = 0
   for x in xs
     sum += x

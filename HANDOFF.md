@@ -93,7 +93,7 @@ from).
   [docs/CONCURRENCY.md](docs/CONCURRENCY.md), with its reviews in
   `docs/concurrency/`. The plan's first step is on `main` (SPEC §18):
   - **Tasks:** `f(x)&` runs a call as a task and gives a `Task[T]`,
-    which keeps its arguments' loans until `<t.wait()` takes its
+    which keeps its arguments' loans until `>t` takes its
     result; a task is never left running past its scope.
   - **Cancellation:** `<t.cancel()`, a cancel that sticks, `std.task`
     (`Stop`, `check`), and a fallible `time.sleep`.

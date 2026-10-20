@@ -103,7 +103,7 @@ pub fn Task(comptime T: type) type {
             return start(local, method, .{ptr.*} ++ args);
         }
 
-        /// `<t.wait()`: wait for the task to end and take its result. A
+        /// `>t`: wait for the task to end and take its result. A
         /// task that waits passes a cancel on to the task it waits for:
         /// one canceled before the wait cancels it, and one canceled
         /// during the wait wakes the waiter, which passes it on. Waiting
@@ -548,7 +548,7 @@ pub fn Tasks(comptime T: type) type {
             }
         };
 
-        /// `<ts.wait_all()`: every result, in the order added; nothing
+        /// `>ts`, or `<ts.wait_all(within: ns)`: every result, in the order added; nothing
         /// for tasks that give none.
         pub fn wait_all(self: Self, within: ?Int) All {
             var s = self;

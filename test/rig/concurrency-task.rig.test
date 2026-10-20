@@ -4,7 +4,7 @@ test "task wait", seeds: 20, '''
   16 3
 '''
   # `f(x)&` starts the call as a task and gives a `Task[T]` at once;
-  # `<t.wait()` waits for it to end and takes its result.
+  # `>t` waits for it to end and takes its result.
   fun sq(x: Int) -> Int
     x * x
 
@@ -18,7 +18,7 @@ test "task wait", seeds: 20, '''
   !xs.push(3)
   t = sq(4)&
   u = total(?xs)&
-  print(<t.wait(), <u.wait())
+  print(>t, >u)
 
 test "task read loan ends at wait", seeds: 20, '''
   1
@@ -30,7 +30,7 @@ test "task read loan ends at wait", seeds: 20, '''
 
   xs: List[Int] = List()
   u = total(?xs)&
-  n = <u.wait()
+  n = >u
   !xs.push(n)
   print(xs.len)
 
@@ -49,10 +49,10 @@ test "task write loan", seeds: 20, release: true, '''
 
   xs: List[Int] = List()
   t = fill(!xs, 3)&
-  <t.wait()
+  >t
   print(xs.len)
   u = add(!xs, 3)&
-  n = <u.wait()
+  n = >u
   print(n, xs.len)
 
 test "task methods", seeds: 20, '''
@@ -77,12 +77,12 @@ test "task methods", seeds: 20, '''
 
   c = Counter(n: 1)
   t = (!c).bump(2)&
-  <t.wait()
+  >t
   print(c.n)
   g = ?c.get()&
-  print(<g.wait())
+  print(>g)
   v = (<c).into()&
-  print(<v.wait())
+  print(>v)
 
 test "task generic", seeds: 20, "[7, 7]"
   fun twice[T](x: T) -> List[T]
@@ -92,7 +92,7 @@ test "task generic", seeds: 20, "[7, 7]"
     out
 
   w = twice[Int](7)&
-  <w.wait()
+  >w
 
 test "task many", seeds: 20, release: true, '''
   101152559
@@ -109,7 +109,7 @@ test "task many", seeds: 20, release: true, '''
     !tasks.push(spin(100000 + i)&)
   sum = 0
   for t in <tasks
-    sum += <t.wait()
+    sum += >t
   print(sum)
 
 test "task dropped waits", seeds: 20, '''
@@ -146,23 +146,21 @@ test "task fallible", seeds: 20, '''
   fun both(a: Int, b: Int) -> Int!
     t = half(a)&
     u = half(b)&
-    x = <t.wait()!
-    y = <u.wait()!
+    x = >t!
+    y = >u!
     x + y
 
   print(both(2, 2) catch -1)
   print(both(4, 3) catch -1)
 
-test "task print", seeds: 20, '''
-  <task>
-  2
-'''
+fail "task print", "`t` is a task, which `print` cannot show: wait for what it gives, `>t`"
+  # A task shows nothing of what it gives: printing one is a slip for
+  # `>t`, one key from `<t`.
   fun half(x: Int) -> Int
     x / 2
 
   t = half(4)&
-  print(t)
-  print(<t.wait())
+  print(<t)
 
 test "task defer before", seeds: 20, "0"
   # A defer declared before the task runs after the task is dropped.
@@ -175,7 +173,7 @@ test "task defer before", seeds: 20, "0"
   xs: List[Int] = List()
   defer clear(!xs)
   u = total(?xs)&
-  print(<u.wait())
+  print(>u)
 
 test "task prints", seeds: 20, '''
   in the task
@@ -185,7 +183,7 @@ test "task prints", seeds: 20, '''
     print("in the task")
 
   t = say()&
-  <t.wait()
+  >t
   print("done")
 
 test "task amp spacing", seeds: 20, '''
@@ -201,7 +199,7 @@ test "task amp spacing", seeds: 20, '''
 
   b = 3
   t = sq(4)& # runs while this goes on
-  print(six()&b, six() & b, <t.wait())
+  print(six()&b, six() & b, >t)
 
 fail "task dropped at once", "1:1: this task is dropped as soon as it starts, which waits for it to end: bind it, `t = sq(3)&`"
   sq(3)&
@@ -247,18 +245,18 @@ test "task local", seeds: 20, '''
 
   n = *Node(v: 1)
   t = val(?n)&
-  print(<t.wait())
+  print(>t)
   u = keep(+n, 0)&
-  print(<u.wait())
+  print(>u)
   ns = List[*Node]()
   for 0..3
     !ns.push(+n)
   c = count(?ns)&
-  print(<c.wait())
+  print(>c)
   ts = Tasks[Int]()
   for k in 0..100
     !ts.add(keep(+n, k)&)
-  xs = <ts.wait_all()
+  xs = >ts
   s = 0
   for x in xs
     s += x
@@ -282,9 +280,9 @@ test "task local signal", seeds: 20, '''
       print("set", s.get())
   )
   t = ping(+sig, inc)&
-  <t.wait()
+  >t
   u = ping(+sig, inc)&
-  <u.wait()
+  >u
   print(sig.get())
 
 fail "task local task lent", "`?a` is lent to a task to read: `?Task[Int]` views a task, which only the one that holds it may wait for", errors: 1
@@ -298,7 +296,7 @@ fail "task local task lent", "`?a` is lent to a task to read: `?Task[Int]` views
 
   a = one()&
   t = peek(?a)&
-  print(<t.wait(), <a.wait())
+  print(>t, >a)
 
 fail "task local tasks given", "`!ts` is lent to a task to write: `!Tasks[Int]` views a set of tasks, which stays with the task that made it", errors: 1
   # A set of tasks stays with the task that made it, even on one thread.
@@ -310,7 +308,7 @@ fail "task local tasks given", "`!ts` is lent to a task to write: `!Tasks[Int]` 
 
   ts = Tasks[Int]()
   t = more(!ts)&
-  <t.wait()
+  >t
 
 fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> Int` views a function, whose captures its type does not show", errors: 1
   # A function lent to read could lend what it captures to write, which
@@ -320,7 +318,7 @@ fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> 
 
   f = |x: Int| x + 1
   t = call(?f)&
-  print(<t.wait())
+  print(>t)
 
 fail "task local channel", "`+ch` is given to a task: `*Chan[*Node]` holds `*Node`, a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
   # A channel's elements go to any task that holds a handle of it, so a
@@ -333,7 +331,7 @@ fail "task local channel", "`+ch` is given to a task: `*Chan[*Node]` holds `*Nod
 
   ch = *Chan[*Node](4)
   t = take(+ch)&
-  print(<t.wait())
+  print(>t)
 
 test "task crossing passed", seeds: 20, '''
   6
@@ -368,16 +366,16 @@ test "task crossing passed", seeds: 20, '''
   !xs.push(2)
   !xs.push(3)
   a = total(?xs)&
-  print(<a.wait())
+  print(>a)
   ys = List[Int]()
   b = fill(!ys, 3)&
-  <b.wait()
+  >b
   print(ys.len)
   c = Counter(n: 5)
   d = ?c.get()&
-  print(<d.wait())
+  print(>d)
   e = (!c).bump(2)&
-  <e.wait()
+  >e
   print(c.n)
 
 test "task moved into a task", seeds: 20, "17"
@@ -386,11 +384,11 @@ test "task moved into a task", seeds: 20, "17"
     n * n
 
   fun later(t: Task[Int]) -> Int
-    <t.wait() + 1
+    >t + 1
 
   t = square(4)&
   u = later(<t)&
-  print(<u.wait())
+  print(>u)
 
 fail "task moved keeps its loans", "cannot lend `xs` to write while a read loan is live", errors: 1
   # A task moved to another keeps its loans for the other's whole life.
@@ -398,15 +396,15 @@ fail "task moved keeps its loans", "cannot lend `xs` to write while a read loan 
     xs.len
 
   fun later(t: Task[Int]) -> Int
-    <t.wait() + 1
+    >t + 1
 
   xs = List[Int]()
   t = total(?xs)&
   u = later(<t)&
   !xs.push(2)
-  print(<u.wait())
+  print(>u)
 
-fail "task write loan bound", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = fill(!xs, 3)&`, then `<t.wait()`", errors: 1
+fail "task write loan bound", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = fill(!xs, 3)&`, then `>t`", errors: 1
   fun fill(xs: !List[Int], n: Int) -> Int
     !xs.push(n)
     n
@@ -415,7 +413,7 @@ fail "task write loan bound", "this task is lent to write, and keeps its write l
   ts: List[Task[Int]] = List()
   !ts.push(fill(!xs, 3)&)
 
-fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `<t.wait()`", errors: 1
+fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
   fun fill(xs: !List[Int], n: Int) -> Int
     !xs.push(n)
     n
@@ -432,7 +430,7 @@ fail "task read loan live", "cannot lend `xs` to write while a read loan is live
   xs: List[Int] = List()
   u = total(?xs)&
   !xs.push(1)
-  print(<u.wait())
+  print(>u)
 
 fail "task defer after", "cannot lend `xs` to write while a read loan is live", errors: 1
   # A defer declared after the task runs before the task is dropped,
@@ -458,7 +456,7 @@ fail "task fallible lost", "the task `u` can fail, and it is dropped where its s
 
   t = half(4)&
   u = half(3)&
-  print(<t.wait() catch -1)
+  print(>t catch -1)
 
 fail "task temporary", "a view of the temporary `make(5)` outlives its statement", errors: 1
   obj Counter
@@ -471,7 +469,7 @@ fail "task temporary", "a view of the temporary `make(5)` outlives its statement
     Counter(n: n)
 
   g = make(5).get()&
-  print(<g.wait())
+  print(>g)
 
 fail "task copy", "`t` owns a `Task[Int]`, which can't be copied by `=`", errors: 1
   fun sq(x: Int) -> Int
@@ -479,7 +477,7 @@ fail "task copy", "`t` owns a `Task[Int]`, which can't be copied by `=`", errors
 
   t = sq(2)&
   u = t
-  print(<u.wait())
+  print(>u)
 
 fail "task write receiver", "write `(!c).bump(2)&`: a write call whose value is used puts its `!` in parentheses", errors: 1
   # A task's value is always used, so its write receiver is in
@@ -492,7 +490,7 @@ fail "task write receiver", "write `(!c).bump(2)&`: a write call whose value is 
 
   c = Counter(n: 1)
   t = !c.bump(2)&
-  <t.wait()
+  >t
 
 test "task hogs", release: true, '''
   chain 380
@@ -533,13 +531,13 @@ test "task hogs", release: true, '''
     !slices.add(spin(10000000 + i)&)
     a = leaf(i)&
     b = leaf(i)&
-    sum += <a.wait()
-    sum += <b.wait()
+    sum += >a
+    sum += >b
   took = start.elapsed()
   print("chain", sum)
   print("waited", took < time.SECOND)
-  xs = <hogs.wait_all()
-  ys = <slices.wait_all()
+  xs = >hogs
+  ys = >slices
   print("hogs", xs.len)
 
 bomb "task stack overflow frame", "rig: stack overflow", prints: "before"
@@ -579,7 +577,7 @@ bomb "task stack overflow frame", "rig: stack overflow", prints: "before"
   sub main()
     print("before")
     t = run(1)&
-    print(<t.wait())
+    print(>t)
 
 bomb "task stack overflow deep frames", "rig: stack overflow", prints: "before", release: true
   # Recursion in a task whose frames are large runs out of stack in the
@@ -599,4 +597,4 @@ bomb "task stack overflow deep frames", "rig: stack overflow", prints: "before",
   sub main()
     print("before")
     t = start()&
-    print(<t.wait())
+    print(>t)

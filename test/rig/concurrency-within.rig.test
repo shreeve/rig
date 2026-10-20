@@ -62,14 +62,14 @@ test "within tasks", seeds: 20, release: true, '''
   start = time.now()
   r = time.within(10 * time.MS, ||
     x = slow(10_000)&
-    <x.wait()!
+    >x!
   ) catch -1
   print("inherited", r, start.elapsed() < 5 * time.SECOND)
   s = time.within(10 * time.MS, ||
     ts = Tasks[Int!]()
     !ts.add(slow(10_000)&)
     !ts.add(slow(1)&)
-    <ts.wait_all()!.len
+    (>ts!).len
   ) catch -2
   print("set", s)
   print("check", time.within(10 * time.MS, || spin()!) catch -3)

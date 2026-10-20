@@ -56,7 +56,7 @@ test "isolate tasks", seeds: 20, '''
     !ts.add(nap(1)&)
     !ts.add(bad(9)&)
     !ts.add(nap(3)&)
-    <ts.wait_all()!.len
+    (>ts!).len
 
   _ = task.isolate(|| owner()!) catch |e|
     print("caught", e)
@@ -105,7 +105,7 @@ bomb "isolate none", "index out of bounds", prints: "before"
 
   print("before")
   t = bad(9)&
-  print(<t.wait() catch -1)
+  print(>t catch -1)
 
 fail "isolate write capture", "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!total|` lends `total` so: give the change back as its value, or keep it in a `*Cell`, captured `|+total|`", errors: 1
   use std.task

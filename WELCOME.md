@@ -31,8 +31,24 @@ leaks; a program marked as rejected fails with the errors shown.
 
 ## The central idea
 
-Everything that happens to a value's ownership is written where it
-happens, as a one-character **sigil**:
+**Sigils are the language's mechanics; words are its libraries.** How
+data is bound, taken, lent, held, failed, and run at the same time is
+written where it happens, as a one-character **sigil**, and a sigil
+means the same thing wherever it appears:
+
+| Mechanic | Sigils |
+|---|---|
+| Binding | `x = e` binds, `x =! e` binds for good |
+| Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
+| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
+| Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
+| Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
+| Concurrency | `f(x)&` sends work off, `>t` takes its result back |
+
+What a library chooses is a word: canceling a task, `<t.cancel()`, or
+waiting for the first of several, `<ts.wait_first()`.
+
+Next to Rust and Zig:
 
 | Sigil | Meaning | Rust | Zig |
 |---|---|---|---|
@@ -47,6 +63,8 @@ happens, as a one-character **sigil**:
 | `*w` of a weak handle | upgrade: a new handle, or `none` | `w.upgrade()` | a hand-written weak count check |
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
+| `f(x)&` | run the call as a task | `tokio::spawn(f(x))` | `std.Thread.spawn(...)` |
+| `>t` | wait for the task and take its result | `t.await` | `t.join()` |
 
 **Names say what a value is; sigils say how you hold it.** Every named
 type is an owner (`List[T]`, `String`, `Cell[T]`, an object of yours), and
@@ -57,7 +75,7 @@ heap, like Rust's `Box<T>`; `*T` is a counted pointer, like Rust's
 
 **Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
 and `!x` lend it, `<x` moves it, `+x` clones it, `^x` boxes it, `*x` and
-`~x` make handles), and a suffix `?` or `!` is control flow (`e?` passes `none`
+`~x` make handles, and `>t` takes what a task gives back), and a suffix `?` or `!` is control flow (`e?` passes `none`
 up, `e!` passes a failure up). Types follow suit: `?T`
 and `!T` are views, `^T` a box, `*T` a shared handle and `~T` a weak one, while
 `T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for

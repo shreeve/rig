@@ -32,7 +32,7 @@ test "net echo", seeds: 20, '''
     _ = (!c).read(!got, 100)!
   print(got)
   _ = <c
-  print(<t.wait()!)
+  print(>t!)
 
 test "net many connections", seeds: 20, "20000 20000"
   # Each connection is a task of its own; every byte comes back.
@@ -53,7 +53,7 @@ test "net many connections", seeds: 20, "20000 20000"
     ts = Tasks[Int!]()
     for 0..conns
       !ts.add(conn(l.accept()!)&)
-    xs = <ts.wait_all()!
+    xs = >ts!
     sum = 0
     for x in xs
       sum += x
@@ -76,11 +76,11 @@ test "net many connections", seeds: 20, "20000 20000"
   cs = Tasks[Int!]()
   for 0..40
     !cs.add(client(port, 50)&)
-  ys = <cs.wait_all()!
+  ys = >cs!
   back = 0
   for y in ys
     back += y
-  print(back, <s.wait()!)
+  print(back, >s!)
 
 test "net errors", seeds: 20, '''
   NetError.refused

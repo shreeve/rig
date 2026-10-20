@@ -369,7 +369,7 @@ a prefix `:` touches its operand: a symbol is written `:width`
 
 ## 5. Prefixes, infixes, and suffixes
 
-The characters `<` `+` `-` `*` `?` `!` `|` are both operators and
+The characters `<` `>` `+` `-` `*` `?` `!` `|` are both operators and
 prefixes, and `(`, `[`, and `.` both continue a value and start a new
 one. Whitespace never decides which: a character's position does, and
 spacing that would read as the other form is rejected.
@@ -383,6 +383,8 @@ spacing that would read as the other form is rejected.
 |---|---|
 | `a < b`, `a<b` | comparison |
 | `x = <y`, `f(<y)` | a move |
+| `a > b`, `a>b` | comparison |
+| `x = >t`, `f(>t)` | a wait for the task `t` ([SPEC §18](SPEC.md#18-tasks)) |
 | `a - 1`, `a-1` | subtraction |
 | `f(-x)`, `-x` | negation |
 | `f(x)`, `f (x)`, `a[i]`, `a.b` | a call, an index or compile-time arguments ([§11](#compile-time-arguments)), member access |
@@ -402,7 +404,7 @@ So a sigil touches what it marks, and spacing shows how a line reads:
   `a<b`, never `a <b` or `a< b`. This holds for every operator between
   two values: arithmetic, comparisons, `??`, `..`, the bitwise
   operators, and `=` and the compound assignments.
-- A prefix sigil (`<` `+` `-` `*` `^` `?` `!` `~`) touches its operand, in
+- A prefix sigil (`<` `>` `+` `-` `*` `^` `?` `!` `~`) touches its operand, in
   an expression and in a type: `-b`, `<x`, `*T`, `^T`, `[]?T`.
 - A postfix `?` or `!` touches what it follows: `f()!`, `x?`, `T?`.
 - A postfix `&` touches the `)` of a call, with nothing touching it on
@@ -463,8 +465,13 @@ sigil after the `]` of an array or slice type starts its element type: in
 `[2]?Int`, each element is a read view.
 
 Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`, and
-`+n.first()` clones what `first` returns. The one exception is a
-receiver sigil.
+`+n.first()` clones what `first` returns. There are two exceptions: a
+receiver sigil, below, and a wait. `>` takes a name alone, and a `!` or
+`?` after it applies to what the task gives: `>t!` is `(>t)!`. Anything
+else after it is written on the parenthesized wait, `(>t).len`, so it
+never reads as the task's own, and `>f(x)` is rejected: a call is made a
+task and bound first, `t = f(x)&`. Where `=` and `>` touch they are the
+match arm's `=>`, so a wait is spaced `x = >t`.
 
 ### Receiver sigils
 
@@ -1480,7 +1487,7 @@ with a receiver sigil when it writes or consumes the receiver
 
 A call with `&` touching its `)` runs as a task, concurrently with what
 follows, and gives a `Task[T]` at once: `t = sq(4)&`, then
-`<t.wait()` for the result ([SPEC §18](SPEC.md#18-tasks)).
+`>t` for the result ([SPEC §18](SPEC.md#18-tasks)).
 
 ### Function values
 

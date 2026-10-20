@@ -6640,8 +6640,8 @@ pub const Checker = struct {
             const result = sema.taskResult(ctx, ty) orelse continue;
             if (ctx.types.get(result) != .fallible) continue;
             if (sema.isTaskSet(ctx, ty)) {
-                try self.err(h.decl, "the tasks of `{s}` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost: wait for them, `<{s}.wait_all()!`, or handle the error with `catch`", .{ h.name, h.name });
-            } else try self.err(h.decl, "the task `{s}` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost: wait for it, `<{s}.wait()!`, or handle its error with `catch`", .{ h.name, h.name });
+                try self.err(h.decl, "the tasks of `{s}` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost: wait for them, `>{s}!`, or handle the error with `catch`", .{ h.name, h.name });
+            } else try self.err(h.decl, "the task `{s}` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost: wait for it, `>{s}!`, or handle its error with `catch`", .{ h.name, h.name });
         }
     }
 

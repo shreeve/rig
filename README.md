@@ -257,6 +257,8 @@ libraries are written in Rig itself (see
 | `^` | `^x` box: move into a box with one owner | `^T` box |
 | `*` | `*x` share: move into a counted handle; `*w` of a weak handle upgrades it, a `*T?` | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
+| `&` | `f(x)&` run the call as a task, a `Task[T]` | |
+| `>` | `>t` wait for the task and take its result | |
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** An object
 lives where it is declared and has no identity of its own: `b = a`
@@ -361,7 +363,7 @@ and environment variable.
 - SIMD vectors, `Simd[T, n]`: lane-wise operators with the same overflow
   rules as scalars, comparisons that give masks, and byte reads
 - tasks: `f(x)&` runs a call on a thread of its own, keeping the loans
-  of its arguments until `<t.wait()` takes its result, and a task that
+  of its arguments until `>t` takes its result, and a task that
   can fail is canceled with `<t.cancel()`; sets of tasks (`Tasks[T]`)
   with deadlines, and `task.both` for tasks of different types
 - `fun main() -> Int` for an exit status, and the start of a

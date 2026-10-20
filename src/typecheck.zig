@@ -141,10 +141,9 @@ const Checker = struct {
     local_value: Sexp = .nil,
     local_target: Sexp = .nil,
     /// The locals that hold a task lent to write, each moved only into
-    /// its own `<t.wait()` or `<t.cancel()`.
+    /// its own wait, `>t`, or `<t.cancel()`.
     write_tasks: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-    /// The operand of the `<t` in the `<t.wait()` or `<t.cancel()` being
-    /// checked.
+    /// The task a wait, `>t`, or a `<t.cancel()` being checked takes.
     task_wait: Sexp = .nil,
     /// The value of the struct or enum field, or the field default, being
     /// checked: a value holding a Cell may be made there (`cellMadeAway`).
@@ -6045,7 +6044,7 @@ const Checker = struct {
         const operand = ir.Move.operand(e);
         const ty = try self.synthExpr(operand);
         if (operand == .src and !sameSite(operand, self.task_wait)) if (self.ctx.symbolOf(operand)) |id| if (self.write_tasks.contains(id)) {
-            try self.errAt(e, "`{s}` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `<{s}.wait()`", .{ self.text(operand), self.text(operand) });
+            try self.errAt(e, "`{s}` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>{s}`", .{ self.text(operand), self.text(operand) });
             return self.t().invalid_id;
         };
         if (operand == .src) if (self.ctx.symbolOf(operand)) |id| try self.ctx.recordWrite(e, id, .move);
@@ -7685,7 +7684,7 @@ const Checker = struct {
         // What the call reaches, recorded where it resolves to a Rig
         // function (`noteTarget`); any other call reaches none.
         try self.ctx.recordCallTarget(node, .none);
-        // `<t.wait()`, `<t.cancel()`: the move of `t` there takes a task
+        // `>t` (the wrapper's `<t.wait()`), `<t.cancel()`: the move of `t` there takes a task
         // lent to write.
         const saved_wait = self.task_wait;
         defer self.task_wait = saved_wait;
@@ -7704,7 +7703,7 @@ const Checker = struct {
             if (sema.isTask(self.ctx, peeled) and !self.isPoison(ty) and self.ctx.types.get(ty) != .fallible) {
                 const obj = ir.Member.object(callee_node);
                 const held = if (obj.isKind(.move)) ir.Move.operand(obj) else obj;
-                try self.errAt(ir.Member.name(callee_node), "`{s}` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `<{s}.wait()`", .{ try self.tyName(peeled), self.sourceText(held) });
+                try self.errAt(ir.Member.name(callee_node), "`{s}` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `>{s}`", .{ try self.tyName(peeled), self.sourceText(held) });
                 return self.t().invalid_id;
             }
         };
@@ -7714,7 +7713,10 @@ const Checker = struct {
             try self.misplacedResults(node, ty);
             return self.t().invalid_id;
         }
-        if (!handled and self.ctx.types.get(ty) == .fallible) {
+        if (!handled and self.ctx.types.get(ty) == .fallible and rig.isWaitCall(node)) {
+            const written = self.sourceText(node);
+            try self.errAt(node, "the task `{s}` can fail: pass its failure on, `{s}!`, or handle it, `{s} catch ...`", .{ written[1..], written, written });
+        } else if (!handled and self.ctx.types.get(ty) == .fallible) {
             const callee = ir.Call.callee(node);
             const name = try self.calleeName(callee);
             try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
@@ -7727,7 +7729,7 @@ const Checker = struct {
     }
 
     /// `f(x)&`: the call made a task, of type `Task[T]` for the call's
-    /// result `T`, a fallible one too, whose failure `<t.wait()!` passes
+    /// result `T`, a fallible one too, whose failure `>t!` passes
     /// on (docs/CONCURRENCY.md, "Tasks"). The callee is a Rig function or
     /// method, and every argument, and a method's self (`@`), may go to
     /// another core as it is passed, or the task is local, pinned to this
@@ -7769,7 +7771,7 @@ const Checker = struct {
         } else false;
         if (lends_write) {
             if (!sameNode(node, self.local_value)) {
-                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}`, then `<t.wait()`", .{self.sourceText(node)});
+                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}`, then `>t`", .{self.sourceText(node)});
                 return self.t().invalid_id;
             }
             if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
@@ -8337,6 +8339,13 @@ const Checker = struct {
                 try self.ctx.recordLend(a, implicit);
             };
             if (try self.writeLendRead(a, ty, .{ .value = sema.unwrapViews(self.ctx, ty) })) continue;
+            // A task shows nothing of what it gives: what is meant is its
+            // result, and `<t` and `>t` are one key apart.
+            if (!self.isPoison(ty) and (sema.isTask(self.ctx, sema.unwrapViews(self.ctx, ty)) or sema.isTaskSet(self.ctx, sema.unwrapViews(self.ctx, ty)))) {
+                const shown = try self.plainText(stripSigil(a));
+                try self.errAt(a, "`{s}` is a task, which {s} cannot show: wait for what it gives, `>{s}`", .{ shown, who, shown });
+                continue;
+            }
             // An integer literal is written as an `Int`, which must hold it.
             if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
             switch (self.ctx.types.get(ty)) {
@@ -10798,6 +10807,9 @@ const Checker = struct {
             return obj_ty;
         }
 
+        if (rig.isWaitMember(callee)) {
+            if (try self.waitOperand(obj, obj_ty, pos, args)) |ty| return ty;
+        } else if (try self.spelledWait(obj, obj_ty, method, pos, args)) |ty| return ty;
         if (sema.actorOfHandle(self.ctx, obj_ty)) |value| return self.actorCall(callee, obj, obj_ty, value, method, pos, args, ct);
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| {
             const reads = switch (std.meta.stringToEnum(sema.ElemOp, method) orelse .copy) {
@@ -11455,7 +11467,7 @@ const Checker = struct {
         const both = std.mem.eql(u8, name, "both");
         if (!both and !std.mem.eql(u8, name, "all")) return null;
         if (both and args.len != 2) return try self.badCall(args, pos, "`task.both` waits for two tasks, `task.both(f(x)&, g(y)&)`; for more, `task.all`", .{});
-        if (!both and args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `<t.wait()`", .{});
+        if (!both and args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
         const a = self.ctx.arena.allocator();
         const params = try a.alloc(TypeId, args.len);
         const parts = try a.alloc(TypeId, args.len);
@@ -11468,7 +11480,7 @@ const Checker = struct {
             const gives = sema.taskResult(self.ctx, ty).?;
             const can_fail = self.ctx.types.get(gives) == .fallible;
             const value = if (can_fail) self.ctx.types.get(gives).fallible else gives;
-            if (value == self.t().void_id) return try self.badCall(args, arg, "`task.{s}` gives each task's value, and `{s}` gives none: wait for it on its own, `<t.wait()`", .{ name, self.sourceText(arg) });
+            if (value == self.t().void_id) return try self.badCall(args, arg, "`task.{s}` gives each task's value, and `{s}` gives none: wait for it on its own, `>t`", .{ name, self.sourceText(arg) });
             fails = fails or can_fail;
             p.* = ty;
             part.* = value;
@@ -11884,7 +11896,7 @@ const Checker = struct {
         return false;
     }
 
-    /// `<ts.wait_all()` and `<ts.wait_first()`, each with a deadline
+    /// `>ts` (all of them), `<ts.wait_all(within: ns)`, and `<ts.wait_first()`, each with a deadline
     /// when its tasks can fail, `within: ns`: the waits of a set of
     /// tasks, whose results depend on whether its tasks can fail. Null
     /// when the receiver is not a set, or `method` neither wait.
@@ -11892,7 +11904,8 @@ const Checker = struct {
         const set = sema.unwrapViews(self.ctx, obj_ty);
         if (!sema.isTaskSet(self.ctx, set)) return null;
         const first = std.mem.eql(u8, method, "wait_first");
-        if (!first and !std.mem.eql(u8, method, "wait_all")) return null;
+        // `>ts` waits for them all, as `wait_all` with no deadline does.
+        if (!first and !std.mem.eql(u8, method, "wait_all") and !rig.isWaitMember(callee)) return null;
         const each = sema.taskResult(self.ctx, set).?;
         const fails = self.ctx.types.get(each) == .fallible;
         const value = if (fails) self.ctx.types.get(each).fallible else each;
@@ -11915,7 +11928,7 @@ const Checker = struct {
         // Only tasks that can fail can be stopped: neither the first to
         // finish nor a deadline can leave the others behind.
         if (first and !fails) {
-            try self.err(pos, "`wait_first` takes the first task to succeed and cancels the rest, and the tasks of `{s}` cannot fail, so they cannot be canceled: wait for all of them, `<{s}.wait_all()`", .{ try self.tyName(set), shown });
+            try self.err(pos, "`wait_first` takes the first task to succeed and cancels the rest, and the tasks of `{s}` cannot fail, so they cannot be canceled: wait for all of them, `>{s}`", .{ try self.tyName(set), shown });
             try self.synthArgs(args);
             return self.t().invalid_id;
         }
@@ -11933,6 +11946,31 @@ const Checker = struct {
             try self.checkExpr(ir.Kwarg.value(args[0]), self.t().int_id);
         }
         return result;
+    }
+
+    /// `>x`: what a wait takes is a task, or a set of tasks, held, not a
+    /// view of one; the error when it is not, and null when it is, for the
+    /// task's `wait` or the set's (`taskSetWait`) to type.
+    fn waitOperand(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
+        const shown = try self.plainText(stripSigil(obj));
+        const held = sema.unwrapViews(self.ctx, obj_ty);
+        const task = sema.isTask(self.ctx, held) or sema.isTaskSet(self.ctx, held);
+        if (task and held == obj_ty) return null;
+        if (task) return try self.badCall(args, pos, "`>{s}` takes the task, and `{s}` is a view of it, `{s}`: only the one that holds a task waits for it", .{ shown, shown, try self.tyName(obj_ty) });
+        if (self.ctx.types.get(held) == .function) return try self.badCall(args, pos, "`>` waits for a task, and `{s}` is a function: make its call a task, `t = {s}(...)&`, then wait for it, `>t`", .{ shown, shown });
+        return try self.badCall(args, pos, "`>` waits for a task, and `{s}` has type `{s}`; a task is a call made with `&`, `t = f(x)&`", .{ shown, try self.tyName(obj_ty) });
+    }
+
+    /// `t.wait()` or `ts.wait_all()` written out: a task is waited for
+    /// with `>t`, and a set with `>ts` (a set's wait with a deadline,
+    /// `<ts.wait_all(within: ns)`, stays a method).
+    fn spelledWait(self: *Checker, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const held = sema.unwrapViews(self.ctx, obj_ty);
+        const task = sema.isTask(self.ctx, held) and std.mem.eql(u8, method, "wait");
+        const set = sema.isTaskSet(self.ctx, held) and std.mem.eql(u8, method, "wait_all") and args.len == 0;
+        if (!task and !set) return null;
+        const shown = try self.plainText(stripSigil(obj));
+        return try self.badCall(args, pos, "a {s} is waited for with `>`: write `>{s}`", .{ if (task) "task" else "set of tasks", shown });
     }
 
     fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {

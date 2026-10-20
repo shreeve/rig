@@ -27,7 +27,7 @@ test "actor ledger across tasks", seeds: 20, "805 805"
   ts = Tasks[Void]()
   for 0..8
     !ts.add(work(+l)&)
-  <ts.wait_all()
+  >ts
   print(l.count() + 4, l.sum())
 
 test "actor ledger across tasks released", seeds: 20, release: true, "8000"
@@ -48,7 +48,7 @@ test "actor ledger across tasks released", seeds: 20, release: true, "8000"
   ts = Tasks[Void]()
   for 0..8
     !ts.add(work(+c)&)
-  <ts.wait_all()
+  >ts
   print(c.get())
 
 test "actor task calls", seeds: 20, '''
@@ -72,11 +72,11 @@ test "actor task calls", seeds: 20, '''
   c = *Actor(Counter(hits: 0))
   t = (!c).add(5)&
   u = c.get()&
-  print(<t.wait(), <u.wait() >= 0)
+  print(>t, >u >= 0)
   ts = Tasks[Int]()
   for 0..10
     !ts.add(c.get()&)
-  print(<ts.wait_all().len == 10)
+  print((>ts).len == 10)
   print((!c).add(1))
 
 test "actor mailbox", seeds: 20, "20 20"
@@ -96,7 +96,7 @@ test "actor mailbox", seeds: 20, "20 20"
   ts = Tasks[Int]()
   for 0..20
     !ts.add((!c).add(1)&)
-  xs = <ts.wait_all()
+  xs = >ts
   print(xs.len, c.get())
 
 test "actor handles", seeds: 20, '''
@@ -264,7 +264,7 @@ test "actor idle and busy", seeds: 20, "80 80"
   ts = Tasks[Void!]()
   for 0..8
     !ts.add(work(+r)&)
-  <ts.wait_all()!
+  >ts!
   print(r.count(), r.count())
 
 fail "actor only behind a handle", "an actor lives only behind a shared handle: write `*Actor(x)`"
@@ -347,7 +347,7 @@ fail "actor task keeps argument loans", "cannot lend `ys` to write while a read 
   ys = List[Int]()
   t = c.sum(?ys)&
   !ys.push(1)
-  print(<t.wait())
+  print(>t)
 
 test "actor dies in a method run inline", seeds: 20, '''
   1
@@ -376,7 +376,7 @@ test "actor dies in a method run inline", seeds: 20, '''
 
   fun later(r: *Actor[Rooms]) -> Int
     t = r.count()&
-    <t.wait()
+    >t
 
   r = *Actor(Rooms(names: List[String]()))
   !r.add(String("hall"))
@@ -431,8 +431,8 @@ test "actor dies on its own task", seeds: 20, '''
   n = task.isolate(|+a| a.boom(9)) catch |e|
     print("caught", e)
     -1
-  print(n, <t.wait()!)
-  print(<u.wait()!)
+  print(n, >t!)
+  print(>u!)
 
 bomb "actor dies and its caller panics", seeds: 20, "index out of bounds", prints: "before"
   # With no isolate, the caller's panic ends the program.
@@ -522,7 +522,7 @@ test "actor supervised on its own task", seeds: 20, '''
   time.sleep(5 * time.MS)!
   u = behind(+a)&
   n = task.isolate(|+a| a.boom(9)) catch -1
-  print(n, <t.wait()!, <u.wait()!)
+  print(n, >t!, >u!)
   time.sleep(20 * time.MS)!
   _ = task.isolate(|+a| a.boom(9)) catch -1
   print(a.get(), made.get())

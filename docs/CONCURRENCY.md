@@ -25,7 +25,7 @@ assumes. Once they are settled, the examples become
 A programmer learns three things, and the checker enforces a fourth:
 
 1. **A task.** `f(x)&` runs a call at the same time as the code after it
-   and gives an owned `Task[T]`; `<t.wait()` takes its result.
+   and gives an owned `Task[T]`; `>t` takes its result.
 2. **A task belongs to its owner.** A task never outlives the value
    that holds it. Dropping a task that was not waited for cancels it and
    waits for it. So a scope, or a set of tasks, is the group, and a task
@@ -47,7 +47,8 @@ channels, atomics, and supervision.
 
 What a programmer never writes:
 - threads, fibers, or async functions;
-- `await`, `Pin`, or locks;
+- `await` on every call that waits, `Pin`, or locks: only a task started
+  with `&` is waited for, with `>t`;
 - cancellation tokens;
 - `'static` bounds;
 - `Arc` around data a task only needs to read.
@@ -125,7 +126,7 @@ docs = load_docs()
 ts = Tasks[Int]()
 for d in ?docs
   !ts.add(score(?d)&)
-scores = <ts.wait_all()
+scores = >ts
 print(sum(?scores))
 ```
 
@@ -194,8 +195,8 @@ follows. Its result is a `Task[T]`, an owning value that holds the
 result once it is ready. `T` may be fallible: `Task[Page!]` is the one
 place a fallible type stands as a type argument.
 
-- `<t.wait()` waits for the task and takes its result. A fallible
-  result is passed on with `<t.wait()!` or handled with `catch`.
+- `>t` waits for the task and takes its result. A fallible
+  result is passed on with `>t!` or handled with `catch`.
 - `<t.cancel()` cancels a fallible task, waits for it, and gives what it
   returned, usually `error.Canceled`.
 - `task.both(a, b)` and `task.all(a, b, c)` wait for several tasks of
@@ -233,7 +234,7 @@ no syntax:
 - `!ts.add(f()&)` adds a task. With no result (`Tasks[Void]`), a task that
   has finished is removed at once, so a long-running server loop never
   piles up finished work.
-- `<ts.wait_all()` waits for all and gives their results in the order
+- `>ts` waits for all and gives their results in the order
   added. `<ts.wait_first()` gives the first success. Both take
   `within:`.
 - The first error of a fallible set cancels the rest.
@@ -809,7 +810,7 @@ Each item gives the answer this document assumes.
 1. **The model:** tasks (`f(x)&`), ownership of tasks, actors, and the
    crossing facts, with everything else in `std`. *Yes.*
 2. **Tasks:**
-   - `Task[T]` is owned, and `<t.wait()` and `<t.cancel()` consume it;
+   - `Task[T]` is owned, and `>t` and `<t.cancel()` consume it;
    - dropping an unwaited task cancels it and waits;
    - only a fallible task can be canceled;
    - `Task[T!]` is allowed as a type argument.

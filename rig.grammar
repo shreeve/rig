@@ -457,6 +457,7 @@ tokens
     call                        task:tag(task)? callee ...args
     builtin                     name:leaf ...args
     member                      object name:leaf
+    wait                        operand          # `>t`: rewritten by the Parser wrapper to `<t.wait()`'s tree; no pass sees it
     index                       object index
     inst                        object ...args
     array                       ...elems
@@ -1164,6 +1165,7 @@ callarg  = name:KWARG_NAME ":" value:expr           → (kwarg)
          | expr
 
 atom     = name
+         | ">" operand:name                         → (wait)  # `>t`, which waits for the task `t` (SPEC §18)
          | ERROR                                    # the type `error`, as a type argument: `List[error]()`
          | INTEGER
          | REAL

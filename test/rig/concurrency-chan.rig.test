@@ -21,8 +21,8 @@ test "chan producer and consumer", seeds: 20, "499500"
   ch = *Chan[Int](4)
   p = produce(+ch, 1000)&
   c = consume(+ch)&
-  <p.wait()!
-  print(<c.wait()!)
+  >p!
+  print(>c!)
 
 test "chan many senders", seeds: 20, "8000 8"
   # Senders on several tasks share one channel through handles of their
@@ -39,7 +39,7 @@ test "chan many senders", seeds: 20, "8000 8"
   for 0..8000
     sum += (!ch).recv()! ?? 0
   n = ts.len
-  <ts.wait_all()!
+  >ts!
   print(sum, n)
 
 test "chan select", seeds: 20, '''
