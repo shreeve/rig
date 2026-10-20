@@ -1,0 +1,34 @@
+# A small server: a hit counter every request shares, rooms people join,
+# and one route that panics. Run it with `rig run rooms.rig`, then
+# `curl localhost:8080/hit`, `/join?room=rig`, `/boom`.
+
+use std.hash
+use std.http
+use std.net
+use std.os
+
+obj Rooms
+  members: hash.Map[String, Int]
+
+  fun join(!@, room: String) -> Int
+    n = (@members.get(?room) ?? 0) + 1
+    !@members.put(<room, n)
+    n
+
+fun pick(xs: ?List[Int], i: Int) -> Int
+  xs[i]
+
+sub main()!
+  args = os.args()
+  addr = String(args[1]) if args.len > 1 else String("127.0.0.1:8080")
+  hits = *Cell(0)
+  rooms = *Actor(Rooms(members: hash.Map[String, Int]()))
+  l = net.listen(?addr)!
+  print("listening on", l.port())
+  http.serve(<l, |+hits, +rooms, req|
+    match req.path
+      "/hit" => http.text(String("hits ", (!hits).add(1)))
+      "/join" => http.text(String("members ", (!rooms).join(req.arg("room") ?? String("lobby"))))
+      "/boom" => http.text(String(pick(List([1, 2, 3]), 7)))
+      _ => http.not_found()
+  )!
