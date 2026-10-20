@@ -6175,6 +6175,16 @@ pub const Emitter = struct {
             if (ir.Call.args(inner).len == 1) try self.w.writeAll(", 64");
             return self.w.writeAll(")");
         }
+        // `*Chan[T](n)`: the runtime makes the channel behind its first
+        // handle.
+        if (self.facts.isChanMake(inner)) {
+            const ty = self.typeOf(inner) orelse return self.unsupported(inner, "an untyped channel");
+            try self.w.writeAll("rig.chan(");
+            try self.emitTypeTy(self.facts.types.get(ty).parameterized_nominal.args[0]);
+            try self.w.writeAll(", ");
+            try self.emitArgs(inner);
+            return self.w.writeAll(")");
+        }
         // `*Actor.supervised(f, ...)`: the runtime makes the actor from
         // `f`, which it keeps, with each option or its default.
         if (self.facts.isActorSupervised(inner)) {
@@ -6962,6 +6972,26 @@ pub const Emitter = struct {
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
+        }
+        // `task.select(arm, ...)`: each arm a channel operation and the
+        // function the runtime calls when it is the one that commits.
+        if (self.facts.isSelect(sexp)) {
+            try self.w.writeAll("rig.select(.{ ");
+            for (args, 0..) |arm, i| {
+                if (i > 0) try self.w.writeAll(", ");
+                try self.emitExpr(arm);
+            }
+            return self.w.writeAll(" })");
+        }
+        // An arm of `task.select`: the channel, the value an arm sends,
+        // and the function the runtime calls.
+        if (self.facts.selectArmOf(sexp)) |kind| {
+            const handle = ir.get(ir.Member.object(callee), .operand);
+            try self.w.writeAll(if (kind == .recv) "rig.recvArm(" else "rig.sendArm(");
+            try self.emitMemberBase(handle, self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel"));
+            try self.w.writeAll(", ");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
         }
         // `http.serve(<listener, f)`: the runtime's server.
         if (self.facts.isHttpServe(sexp)) {

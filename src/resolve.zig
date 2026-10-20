@@ -3037,6 +3037,24 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
+    // Chan[T]: a bounded channel, behind `*`: `*Chan[Job](64)`. Sending
+    // and receiving change it, so they take `!@`; each is a fallible
+    // waiting point. `on_recv` and `on_send` are the arms of
+    // `task.select` (`Checker.taskSelect`).
+    {
+        const g = try addGeneric(ctx, module_scope, module_scope, "Chan", &.{"T"});
+        ctx.chan_sym_id = g.sym;
+        const t = g.params[0];
+        const write_self = try ctx.intern(.{ .write_view = g.self_ty });
+        const fails = try ctx.intern(.{ .fallible = ctx.types.void_id });
+        const gets = try ctx.intern(.{ .fallible = try ctx.intern(.{ .optional = t }) });
+        try setFields(ctx, g.sym, &.{
+            try method(ctx, "send", .write, &.{ write_self, t }, fails, null),
+            try method(ctx, "recv", .write, &.{write_self}, gets, null),
+            try method(ctx, "close", .write, &.{write_self}, ctx.types.void_id, null),
+        });
+    }
+
     // Actor[T]: a value one task at a time changes, the actor's own,
     // behind `*`: `*Actor(x)`. A method of `T` called through a handle
     // is a message (`Checker.actorCall`); it has no members of its own.

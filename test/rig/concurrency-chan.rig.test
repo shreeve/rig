@@ -1,0 +1,114 @@
+# concurrency: tests whose names start `chan`.
+use std.task
+
+test "chan producer and consumer", seeds: 20, "499500"
+  # A bounded channel carries values from one task to another; closing
+  # it ends the receiver's loop once it has drained what was sent.
+  sub produce(ch: *Chan[Int], n: Int)!
+    for i in 0..n
+      !ch.send(i)!
+    !ch.close()
+
+  fun consume(ch: *Chan[Int]) -> Int!
+    sum = 0
+    while true
+      v = (!ch).recv()! ?? -1
+      if v < 0
+        break
+      sum += v
+    sum
+
+  ch = *Chan[Int](4)
+  p = produce(+ch, 1000)&
+  c = consume(+ch)&
+  <p.wait()!
+  print(<c.wait()!)
+
+test "chan many senders", seeds: 20, "8000 8"
+  # Senders on several tasks share one channel through handles of their
+  # own; every value arrives once.
+  sub produce(ch: *Chan[Int], n: Int)!
+    for 0..n
+      !ch.send(1)!
+
+  ch = *Chan[Int](16)
+  ts = Tasks[Void!]()
+  for 0..8
+    !ts.add(produce(+ch, 1000)&)
+  sum = 0
+  for 0..8000
+    sum += (!ch).recv()! ?? 0
+  n = ts.len
+  <ts.wait_all()!
+  print(sum, n)
+
+test "chan select", seeds: 20, '''
+  207
+  sent 1
+  hello
+  none
+'''
+  # `task.select` commits exactly one arm: the receive that can complete,
+  # or a send; a send that loses drops its value, and a closed channel
+  # gives none.
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !b.send(7)!
+  got = task.select(
+    (!a).on_recv(|v| (v ?? 0) + 100),
+    (!b).on_recv(|v| (v ?? 0) + 200),
+  )!
+  print(got)
+  full = *Chan[String](1)
+  !full.send(String("hello"))!
+  sent = task.select(
+    (!full).on_send(String("lost"), || 0),
+    (!a).on_send(5, || 1),
+  )!
+  print("sent", sent)
+  print((!full).recv()! ?? String("none"))
+  !b.close()
+  closed = task.select((!b).on_recv(|v| "none" if v == none else "value"))!
+  print(closed)
+
+test "chan deadline and cancel", seeds: 20, '''
+  -9
+  Stop.canceled
+'''
+  # A receive with nothing to take is a fallible waiting point.
+  use std.time
+
+  fun wait_for(ch: *Chan[Int]) -> Int!
+    (!ch).recv()! ?? -1
+
+  a = *Chan[Int](1)
+  n = time.within(5 * time.MS, |+a| (!a).recv()! ?? -1) catch -9
+  print(n)
+  t = wait_for(+a)&
+  time.sleep(time.MS)!
+  r = <t.cancel() catch |e|
+    print(e)
+    -1
+  _ = r
+
+bomb "chan send closed", seeds: 20, "send on a closed channel", prints: "before"
+  a = *Chan[Int](1)
+  !a.close()
+  print("before")
+  !a.send(1) catch print("never")
+
+fail "chan only behind a handle", "a channel lives only behind a shared handle: write `*Chan[T](n)`"
+  c = Chan[Int](4)
+
+fail "chan holds no view", "a channel's values hold no loan, and a `?String` may hold a view"
+  c = *Chan[?String](4)
+
+fail "chan arm outside select", "no method `on_recv`"
+  c = *Chan[Int](1)
+  _ = (!c).on_recv(|v| v)
+
+fail "chan select arm marked", "an arm receives or sends, which changes the channel: mark it, `(!c).on_recv(...)`"
+  fun pick(c: *Chan[Int]) -> Int!
+    task.select(c.on_recv(|v| v ?? 0))!
+
+  _ = pick(*Chan[Int](1))

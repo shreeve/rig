@@ -30,6 +30,11 @@ pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
 pub const Actor = tasks.Actor;
 pub const actor = tasks.actor;
+pub const chan = tasks.chan;
+pub const Chan = tasks.Chan;
+pub const select = tasks.select;
+pub const recvArm = tasks.recvArm;
+pub const sendArm = tasks.sendArm;
 pub const actorSupervised = tasks.actorSupervised;
 pub const actorCall = tasks.actorCall;
 pub const actorSpawn = tasks.actorSpawn;
@@ -691,6 +696,8 @@ fn synchronized(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct") return false;
     // An actor's handles go to other tasks (`tasks.Actor`).
     if (@hasDecl(T, "__rig_actor")) return true;
+    // So do a channel's (`tasks.Chan`).
+    if (@hasDecl(T, "__rig_chan")) return true;
     return @hasDecl(T, "__rig_word") and T.__rig_word;
 }
 

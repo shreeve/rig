@@ -981,6 +981,11 @@ pub const Facts = struct {
     /// `*Actor(x)` calls (`Checker.actorMake`) and method calls through
     /// an actor's handle (`Checker.actorCall`).
     actor_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// `*Chan[T](n)` calls (`Checker.chanMake`), `task.select` calls
+    /// (`Checker.taskSelect`), and their arms, receiving or sending.
+    chan_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    select_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    select_arms: std.AutoHashMapUnmanaged(u64, SelectArm) = .empty,
     /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
     actor_supervised: std.AutoHashMapUnmanaged(u64, void) = .empty,
     actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -1891,7 +1896,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        StringCall, Use, Upgrade, ParCall => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm => try w.print(" {s}", .{@tagName(v)}),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
@@ -2140,6 +2145,7 @@ pub const SemContext = struct {
     signal_sym_id: SymbolId = symbol_invalid,
     /// `Actor[T]`: a value one task at a time changes, behind `*`.
     actor_sym_id: SymbolId = symbol_invalid,
+    chan_sym_id: SymbolId = symbol_invalid,
     task_sym_id: SymbolId = symbol_invalid,
     tasks_sym_id: SymbolId = symbol_invalid,
     /// The module makes a task (`f(x)&`): the program's root declares
@@ -3209,6 +3215,33 @@ pub const SemContext = struct {
         return self.facts.actor_supervised.contains(exprKey(call) orelse return false);
     }
 
+    pub fn recordChanMake(self: *SemContext, call: Sexp) !void {
+        try self.facts.chan_makes.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `Chan[T](n)` (`recordChanMake`).
+    pub fn isChanMake(self: *const SemContext, call: Sexp) bool {
+        return self.facts.chan_makes.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordSelect(self: *SemContext, call: Sexp) !void {
+        try self.facts.select_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `task.select` (`recordSelect`).
+    pub fn isSelect(self: *const SemContext, call: Sexp) bool {
+        return self.facts.select_calls.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordSelectArm(self: *SemContext, call: Sexp, arm: SelectArm) !void {
+        try self.facts.select_arms.put(self.allocator, recordExprKey(call) orelse return, arm);
+    }
+
+    /// The arm `call` is of a `task.select`, if it is one.
+    pub fn selectArmOf(self: *const SemContext, call: Sexp) ?SelectArm {
+        return self.facts.select_arms.get(exprKey(call) orelse return null);
+    }
+
     pub fn recordActorCall(self: *SemContext, call: Sexp) !void {
         try self.facts.actor_calls.put(self.allocator, recordExprKey(call) orelse return, {});
     }
@@ -4106,7 +4139,7 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // value), whose release drops it.
     // A task owns its running call, and its drop waits for it.
     if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -4310,8 +4343,8 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             }
             // An actor, as a Cell, lives only behind `*` and changes by a
             // marked call through a handle.
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id) {
-                var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id };
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id) {
+                var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.string_only), into));
                 break :blk r;
             }
@@ -5636,7 +5669,7 @@ pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
 /// `Task`, `Tasks`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -5858,6 +5891,23 @@ pub fn isWordCell(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// The `T` of a `Chan[T]`, or null for any other type.
+pub fn chanValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.chan_sym_id and pn.args.len == 1) pn.args[0] else null,
+        else => null,
+    };
+}
+
+/// The `T` of the `Chan[T]` a handle `*Chan[T]`, or a view of one,
+/// reaches; null for any other type.
+pub fn chanOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(unwrapViews(ctx, ty))) {
+        .shared => |inner| chanValue(ctx, inner),
+        else => null,
+    };
+}
+
 /// The `T` of an `Actor[T]`, or null for any other type.
 pub fn actorValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
@@ -5973,7 +6023,7 @@ fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
 fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .nominal, .imported_nominal => holdsCellByValue(ctx, ty),
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
+        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
             if (holdsCellByValue(ctx, a)) break false;
         } else true),
         else => false,
@@ -6004,6 +6054,9 @@ pub fn mayHoldView(ctx: *const SemContext, ty: TypeId) bool {
     const b = ctx.holds(ty).views;
     return b.marked or b.string_view;
 }
+
+/// An arm of `task.select`: `(!ch).on_recv(f)` or `(!ch).on_send(<v, f)`.
+pub const SelectArm = enum { recv, send };
 
 /// Whether `ty` is a task, `Task[T]`.
 pub fn isTask(ctx: *const SemContext, ty: TypeId) bool {
@@ -6067,7 +6120,7 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoH
         // A Cell of one word's handle, and an actor's, strong or weak,
         // count atomically, and what they reach changes one task at a
         // time.
-        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else ty,
+        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, seen) else ty,
         .weak => |inner| if (actorValue(ctx, inner) != null) null else ty,
         .function, .callable => ty,
         .read_view => |inner| blockerIn(ctx, inner, .shares, seen),
@@ -6079,7 +6132,7 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoH
             if (blockerIn(ctx, part, how, seen)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.tasks_sym_id) break :blk ty;
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) break :blk ty;
             if (pn.sym == ctx.task_sym_id and how == .shares) break :blk ty;
             for (pn.args) |a| if (blockerIn(ctx, a, how, seen)) |b| break :blk b;
             if (pn.sym == ctx.task_sym_id or isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
@@ -7127,7 +7180,7 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id) break :blk false;
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id) break :blk false;
             const sym = ctx.symbols.items[pn.sym];
             if (sym.kind != .generic_type or isProxy(sym)) break :blk false;
             const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .parent = frame };

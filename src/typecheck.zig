@@ -7284,6 +7284,7 @@ const Checker = struct {
             return ty;
         }
         if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, e, stack_signal, .{});
+        if (nt.id == self.ctx.chan_sym_id) return self.chanMake(call, e, ty, args);
         const subst: TypeSubst = .{ .params = nt.sym.type_params orelse &.{}, .args = self.ctx.types.get(ty).parameterized_nominal.args };
         return self.construct(nt.id, args, self.startOf(e), subst, null);
     }
@@ -10765,6 +10766,7 @@ const Checker = struct {
             if (ct == null) if (try self.parCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.isolateCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.httpServe(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
+            if (ct == null) if (try self.taskSelect(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         }
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
@@ -11616,6 +11618,109 @@ const Checker = struct {
         if (self.current_call) |c| try self.ctx.recordIsolateCall(c);
         self.ctx.makes_tasks = true;
         return result;
+    }
+
+    /// `*Chan[T](n)`: a channel of `n` slots, behind its first handle. It
+    /// stands only as the operand of `*`, and what it carries holds no
+    /// view, as a Cell's value holds none.
+    fn chanMake(self: *Checker, call: Sexp, e: Sexp, ty: TypeId, args: []const Sexp) Error!TypeId {
+        if (!sameNode(call, self.shared_operand)) return self.badCall(args, e, "a channel lives only behind a shared handle: write `*Chan[T](n)`", .{});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, e, "`Chan[T](n)` takes how many values it holds: `*Chan[Job](64)`", .{});
+        const elem = self.ctx.types.get(ty).parameterized_nominal.args[0];
+        if (sema.mayHoldView(self.ctx, elem)) return self.badCall(args, e, "a channel's values hold no loan, and a `{s}` may hold a view", .{try self.tyName(elem)});
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = ty, .is_sub = false };
+        try self.noteCallee(f);
+        try self.checkArgs(args, f, .{ .names = &.{"capacity"} }, "Chan", self.startOf(e), .{ .declared = f.params });
+        try self.ctx.recordChanMake(call);
+        self.ctx.makes_tasks = true;
+        return ty;
+    }
+
+    /// `task.select(arm, ...)` of `std.task`: wait until one arm's channel
+    /// operation can complete, commit that one alone, and give what its
+    /// function gives. An arm is `(!ch).on_recv(f)`, whose `f` takes the
+    /// value received as `T?`, none once the channel is closed and empty,
+    /// or `(!ch).on_send(<v, f)`, whose `f` takes nothing; every `f` gives
+    /// the same type, and is a closure written in the arm or a function's
+    /// name. A fallible waiting point. Null when `module_sym` is not
+    /// `std.task`, or `name` not `select`.
+    fn taskSelect(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
+        if (!std.mem.eql(u8, foreign.name, "std.task") or !std.mem.eql(u8, name, "select")) return null;
+        const shape = "each arm of `task.select` is `(!ch).on_recv(|v| ...)` or `(!ch).on_send(<v, || ...)`";
+        if (args.len == 0) return try self.badCall(args, pos, "`task.select` takes the arms to wait on; {s}", .{shape});
+        var result: ?TypeId = null;
+        const saved_call = self.current_call;
+        const saved_callee = self.callee_node;
+        defer {
+            self.current_call = saved_call;
+            self.callee_node = saved_callee;
+        }
+        for (args) |arm| {
+            if (!arm.isKind(.call) or !ir.Call.callee(arm).isKind(.member)) return try self.badCall(args, arm, "{s}", .{shape});
+            const callee = ir.Call.callee(arm);
+            const method = self.text(ir.Member.name(callee));
+            const recv = std.mem.eql(u8, method, "on_recv");
+            if (!recv and !std.mem.eql(u8, method, "on_send")) return try self.badCall(args, arm, "{s}", .{shape});
+            const obj = ir.Member.object(callee);
+            if (!obj.isKind(.write)) return try self.badCall(args, obj, "an arm receives or sends, which changes the channel: mark it, `(!{s}).{s}(...)`", .{ self.sourceText(obj), method });
+            const handle = ir.get(obj, .operand);
+            const handle_ty = try self.synthExpr(handle);
+            if (self.isPoison(handle_ty)) return try self.skipCall(args);
+            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badCall(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
+            const arm_args = ir.Call.args(arm);
+            if (arm_args.len != @as(usize, if (recv) 1 else 2)) return try self.badCall(args, arm, "{s}", .{shape});
+            const f = arm_args[arm_args.len - 1];
+            const given: []const TypeId = if (recv) &.{try self.ctx.intern(.{ .optional = elem })} else &.{};
+            const returns = result orelse blk: {
+                const r = try self.armResult(f, given);
+                break :blk r orelse return try self.skipCall(args);
+            };
+            result = returns;
+            const fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(given), .returns = returns, .is_sub = sema.returnsNothing(self.ctx, returns) } });
+            const lent = try sema.callableOfFn(self.ctx, fn_ty);
+            const call: FunctionType = .{ .params = if (recv) try self.ctx.dupeIds(&.{lent}) else try self.ctx.dupeIds(&.{ elem, lent }), .returns = returns, .is_sub = sema.returnsNothing(self.ctx, returns) };
+            self.current_call = arm;
+            self.callee_node = callee;
+            try self.noteCallee(call);
+            try self.checkArgs(arm_args, call, .{ .names = if (recv) &.{"f"} else &.{ "value", "f" } }, method, self.startOf(callee), .{ .declared = call.params });
+            try self.ctx.recordType(arm, returns);
+            try self.ctx.recordSelectArm(arm, if (recv) .recv else .send);
+        }
+        const r = result.?;
+        if (saved_call) |c| try self.ctx.recordSelect(c);
+        self.ctx.makes_tasks = true;
+        const value = if (self.ctx.types.get(r) == .fallible) self.ctx.types.get(r).fallible else r;
+        return try self.ctx.intern(.{ .fallible = value });
+    }
+
+    /// What the first arm's function `f`, given `params`, gives: a closure
+    /// written there, checked quietly first as one that cannot fail, or a
+    /// function's name.
+    fn armResult(self: *Checker, f: Sexp, params: []const TypeId) Error!?TypeId {
+        if (f.isKind(.lambda)) {
+            const quiet = blk: {
+                const mark = self.ctx.diagnostics.items.len;
+                self.ctx.quiet += 1;
+                self.tentative += 1;
+                defer {
+                    self.ctx.quiet -= 1;
+                    self.tentative -= 1;
+                    self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+                }
+                const ty = try self.checkLambdaGiven(f, null, params, false);
+                break :blk .{ ty, self.ctx.diagnostics.items.len == mark };
+            };
+            const ty = if (quiet[1]) quiet[0] else try self.checkLambdaGiven(f, null, params, true);
+            if (self.isPoison(ty) or self.ctx.types.get(ty) != .function) return null;
+            return self.ctx.types.get(ty).function.returns;
+        }
+        const ty = try self.argType(f);
+        if (self.isPoison(ty)) return null;
+        if (self.ctx.types.get(ty) == .function) return self.ctx.types.get(ty).function.returns;
+        try self.errAt(f, "an arm of `task.select` calls a closure written in it, or a function's name; `{s}` is a `{s}`", .{ self.sourceText(f), try self.tyName(ty) });
+        return null;
     }
 
     /// `http.serve(<listener, f)` of `std.http`: take connections on a

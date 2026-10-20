@@ -137,6 +137,9 @@ from).
     500 (`rig/net.zig`, `serve`). bench/http times it against hyper
     and Go: as fast as hyper on the Mac and about three times its
     requests on pup, at 16 to 33 KiB per idle connection.
+  - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
+    `task.select` commits exactly one of its arms (`tasks.Chan`,
+    `selectArms`).
     `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds
