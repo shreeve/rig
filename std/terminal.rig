@@ -26,7 +26,7 @@ extern zig "char.zig"
   # width in bits 8 and 9.
   fun char_step_width(state: Int, r: Int) -> Int
 
-extern zig "cells.zig"
+extern zig "terminal.zig"
   # `dst[i]` is `U64(src[i]) | bits` for each `i` of the shorter of the
   # two, sixteen at a time.
   sub widen(dst: ![]U64, src: ?String, bits: U64)
