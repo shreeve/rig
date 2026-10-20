@@ -42,7 +42,7 @@ connections:
 
 ```text
                  req/s       p50       p99 per idle conn
-rig-fast        171062     365 us     641 us      32.6 KiB
+rig-fast        191526     326 us     597 us      16.6 KiB
 tokio           180339     346 us     614 us      18.6 KiB
 go              163675     366 us    1071 us      18.5 KiB
 ```
@@ -62,9 +62,13 @@ go              249642     136 us    1514 us      19.2 KiB
 ```
 
 Rig answers as fast as hyper on the Mac and about three times as many
-requests on pup. An idle connection holds a page of task stack (16 KiB
-on Apple Silicon, 4 KiB on x86) and its read and write buffers, 16 KiB
-on that stack: more than Tokio's on both. A million idle connections do
+requests on pup. An idle connection holds no buffer: its read and write
+buffers, 16 KiB, are a block of its worker's while it reads and answers
+a request, given back while it waits for the next (`net.Conn.fill`,
+`sched.takeBlock`), and a worker keeps 64 blocks, so a burst leaves no
+memory behind. So an idle connection holds its task's stack page (16 KiB
+on Apple Silicon) and a few small records: 16.6 KiB on the Mac and 8.6
+KiB on pup (PROGRESS.md), below Tokio's and Go's on both. A million idle connections do
 not fit on pup, whose processes may hold 524,288 descriptors and whose
 19 GB free would not hold a million of any server's plus the load
 generator's; 100,000 give the figure per connection.

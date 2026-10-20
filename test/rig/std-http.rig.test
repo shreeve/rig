@@ -87,6 +87,29 @@ test "http keep alive", seeds: 20, "500 500"
   print(sum, hits.get())
   _ = <t.cancel() catch -1
 
+test "http pipelined", seeds: 20, "/a: /b:hello /c:"
+  # Requests sent together on one connection, one with a body, are each
+  # answered in turn: what is read past one request stays for the next.
+  use std.text
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| http.text(String(req.path, ":", req.body)))!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  (!c).write(String("GET /a HTTP/1.1\r\nHost: x\r\n\r\nPOST /b HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhelloGET /c HTTP/1.1\r\nHost: x\r\n\r\n"))!
+  got = String()
+  while text.find(?got, "/c:") == none
+    _ = (!c).read(!got, 4096)!
+  a = text.find(?got, "/a:") ?? -1
+  b = text.find(?got, "/b:hello") ?? -1
+  d = text.find(?got, "/c:") ?? -1
+  print("/a:" if a >= 0 else "?", "/b:hello" if b > a else "?", "/c:" if d > b else "?")
+  _ = <t.cancel() catch -1
+
 fail "http serve captures share", "`http.serve` calls the closure on several tasks at once, and `|!count|` lends `count` to write"
   fun run(l: net.Listener) -> Int!
     count = 0

@@ -81,6 +81,9 @@ const Worker = struct {
     lifo_streak: u8 = 0,
     free: ?*FreeStack = null,
     free_count: u32 = 0,
+    /// Blocks to reuse (`takeBlock`).
+    blocks: ?*FreeBlock = null,
+    block_count: u32 = 0,
     /// A fiber handed this worker that ended and switched straight back
     /// to the fiber that handed it over, which finishes it (`handoff`).
     returned: ?*Fiber = null,
@@ -1027,6 +1030,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     timers.clear();
     for (workers) |*w| {
         freeStacks(w);
+        freeBlocks(w);
         w.timers.clear();
         w.poller.close();
     }
@@ -1983,6 +1987,50 @@ pub const Stack = struct {
         return s.base + s.guard + s.len - rt.unwind_headroom;
     }
 };
+
+/// The size of a block a task holds only while it works, as an HTTP
+/// connection holds its buffers while it reads and answers a request
+/// (`net.Conn`), and gives back while it waits.
+pub const block_size = 16 * 1024;
+
+/// How many blocks a worker keeps for the next; one more goes back to the
+/// system, so a burst of work leaves no memory behind once it ends.
+const keep_blocks = 64;
+
+const FreeBlock = struct { next: ?*FreeBlock };
+
+/// A block of `block_size` bytes: one this worker kept, or a new one from
+/// the system.
+pub fn takeBlock() *[block_size]u8 {
+    if (me()) |w| if (w.blocks) |b| {
+        w.blocks = b.next;
+        w.block_count -= 1;
+        return @ptrCast(b);
+    };
+    return std.heap.page_allocator.create([block_size]u8) catch rt.oom();
+}
+
+/// Give back a block `takeBlock` gave: this worker keeps it, or the
+/// system has it back.
+pub fn giveBlock(given: *[block_size]u8) void {
+    if (me()) |w| if (w.block_count < keep_blocks) {
+        const b: *FreeBlock = @ptrCast(@alignCast(given));
+        b.next = w.blocks;
+        w.blocks = b;
+        w.block_count += 1;
+        return;
+    };
+    std.heap.page_allocator.destroy(given);
+}
+
+fn freeBlocks(w: *Worker) void {
+    while (w.blocks) |b| {
+        w.blocks = b.next;
+        const kept: *[block_size]u8 = @ptrCast(@alignCast(b));
+        std.heap.page_allocator.destroy(kept);
+    }
+    w.block_count = 0;
+}
 
 /// A free stack's link in its worker's list, kept in the stack itself, in
 /// the room left at its top (`rt.unwind_headroom`): on the page the next
