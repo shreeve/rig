@@ -31,8 +31,9 @@ fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
     return rig.blocking(f, args);
 }
 
-/// The FileError for a failure of Zig's.
+/// The FileError for a failure of Zig's, or the FileError itself.
 fn failure(err: anyerror) FileError {
+    if (std.mem.startsWith(u8, @errorName(err), "std.file.FileError.")) return @errorCast(err);
     return switch (err) {
         error.FileNotFound => not_found,
         error.PathAlreadyExists => error.@"std.file.FileError.exists",
@@ -57,10 +58,12 @@ fn errnoFailure(e: posix.E) FileError {
     };
 }
 
-/// Null for `not_found`, the error for any other failure.
+/// Nothing for a failure that means nothing is at the path: nothing at
+/// it, or a file on the way to it, which some systems report as one and
+/// some as the other. The error for any other failure.
 fn absent(err: anyerror) FileError!void {
     const e = failure(err);
-    if (e == not_found) return;
+    if (e == not_found or e == error.@"std.file.FileError.not_directory") return;
     return e;
 }
 
@@ -243,7 +246,8 @@ fn entriesHere(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(
     const io = rig.io();
     const gpa = std.heap.smp_allocator;
     var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch |err| {
-        try absent(err);
+        // A file at the path, or on the way to it, is not a directory.
+        if (failure(err) != not_found) return failure(err);
         return false;
     };
     defer dir.close(io);
@@ -294,8 +298,8 @@ pub fn open_fd(path: []const u8) Error!?i64 {
 fn openHere(path: []const u8) FileError!?i64 {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const fd = openAt(try terminated(path, &buf), .{ .ACCMODE = .RDONLY, .CLOEXEC = true }) catch |err| {
-        if (err == not_found) return null;
-        return err;
+        try absent(err);
+        return null;
     };
     return fd;
 }

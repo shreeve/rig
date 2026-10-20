@@ -4,7 +4,8 @@
 # and is a fallible waiting point: in a canceled task it fails with
 # `task.Stop.canceled` (std.task), and past a deadline (`time.within`)
 # with `task.Stop.timeout`. A call that looks for something gives `none`
-# only when nothing is there; every other failure is an error.
+# only when nothing is there (nothing by its name, or a file where a
+# directory on the way to it would be); every other failure is an error.
 
 use std.task
 
@@ -17,7 +18,8 @@ pub error FileError
   # The system does not allow it: permissions, or a read-only file
   # system.
   denied
-  # A part of the path on the way to its last name is not a directory.
+  # The path given `read_dir` names a file, or a file stands where a
+  # call that makes something needs a directory on the way.
   not_directory
   # The path names a directory, where a file is wanted.
   is_directory

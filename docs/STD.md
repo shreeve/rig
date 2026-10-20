@@ -306,7 +306,8 @@ directory.
 
 **`none` means nothing is there; every other failure is an error.** A
 call that looks for something gives `none` only when nothing is at the
-path, and fails with a `FileError` for anything else: a path that may
+path (nothing by its name, or a file where a directory on the way to it
+would be), and fails with a `FileError` for anything else: a path that may
 not be read, a directory where a file is wanted, an I/O error. So
 `file.read(p)! ?? String()` treats a missing file as empty and still
 reports a file it may not read.
@@ -316,7 +317,7 @@ reports a file it may not read.
 | `not_found` | nothing is at the path, or at a directory on the way to it (an empty path), for a call that needs something there |
 | `exists` | something is at the path already: `mkdir` where a file is |
 | `denied` | the system does not allow it: permissions, or a read-only file system |
-| `not_directory` | a part of the path before its last name, or the path given `read_dir`, is not a directory |
+| `not_directory` | the path given `read_dir` names a file, or a file stands where a call that makes something needs a directory on the way |
 | `is_directory` | the path names a directory, where a file is wanted |
 | `not_empty` | `remove` of a directory that holds entries |
 | `failed` | anything else: no space left, too many open files, an I/O error |

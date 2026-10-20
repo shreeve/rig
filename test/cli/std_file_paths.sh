@@ -28,6 +28,8 @@ sub main()!
   real = file.realpath("d/link")! ?? String("none")
   base = os.cwd()!
   print(real == String(base, "/d/a.txt"), file.realpath("d/broken")! ?? String("none"))
+  # A file on the way: nothing can be there.
+  print(file.stat("d/a.txt/x")! == none, file.read("d/a.txt/x")! == none, file.open("d/a.txt/x")! == none)
   # The modification time, in nanoseconds since 1970: `touch -t`
   # set it to 2001-09-09 01:46:40 UTC, 1e9 seconds.
   if file.stat("d/old.txt")! as s
@@ -78,6 +80,7 @@ d/missing none
 FileError.not_directory
 true
 true none
+true true true
 1000000000000000000'
 
 for mode in debug release; do

@@ -73,6 +73,24 @@ sub main()!
   print(file.read("never.txt")! == none)
 EOF2
 
+# In a directory the program may not write; root may, so it is left out
+# then.
+cat >denied.rig <<'EOF2'
+use std.file
+
+sub main()
+  file.append("ro/f.txt", "x") catch |e|
+    print("append", e)
+  _ = file.remove("ro/f.txt") catch |e|
+    print("remove", e)
+    false
+  file.rename("ro/f.txt", "g.txt") catch |e|
+    print("rename", e)
+  _ = file.create("ro/g.txt") catch |e|
+    print("create", e)
+    return
+EOF2
+
 want_ops='hello world b
 mkdir on a file FileError.exists
 true hello world
@@ -94,5 +112,12 @@ for mode in debug release; do
     expect_eq "$out" "$want_ops" "$mode: append, mkdir, rename, remove, open, create"
     out=$(RIG_SANITIZE=1 rig run $flag stop.rig 2>&1); expect_rc $? 0 "$mode stop: $out"
     expect_eq "$out" $'sleep Stop.timeout\n-1\n-2\ntrue' "$mode: past a deadline, and canceled"
+    if [[ $(id -u) -ne 0 ]]; then
+        rm -rf ro; mkdir ro; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro
+        out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?
+        chmod 700 ro
+        expect_rc $rc 0 "$mode denied: $out"
+        expect_eq "$out" $'append FileError.denied\nremove FileError.denied\nrename FileError.denied\ncreate FileError.denied' "$mode: denied"
+    fi
 done
 exit 0
