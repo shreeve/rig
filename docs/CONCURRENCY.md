@@ -799,6 +799,8 @@ a machine of tasks apart from λRig's expressions:
   `woken_queued`): the wait protocol queues a waiting fiber exactly
   once when a waker or a cancel ends its wait, and loses no wakeup;
   a cancel is never taken back (`Tasks.cancel_sticky`).
+  `test/cli/wait_sync.sh` keeps Wait.lean's word and steps in step
+  with src/sched.zig.
 
 Handing a task's handle to another task, sets, actors, channels, the
 deadlock walk, and unwinding are the next slices.
