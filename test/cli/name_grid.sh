@@ -16,4 +16,4 @@ jobs=${jobs%%-*}
 python3 "$ROOT/test/cli/_name_grid.py" --cases cases.rig.test || fail "write the rejected names' cases"
 cmp -s cases.rig.test "$ROOT/test/rig/names-name-grid.rig.test" ||
     fail "test/rig/names-name-grid.rig.test is not what test/cli/_name_grid.py --cases writes: run it"
-python3 "$ROOT/test/cli/_name_grid.py" "$RIG" --jobs "$jobs" || fail "the name grid"
+python3 "$ROOT/test/cli/_name_grid.py" "$RIG" --jobs "$jobs" --out "$RIG_OUT_DIR/name_grid" || fail "the name grid"
