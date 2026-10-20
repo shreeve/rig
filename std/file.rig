@@ -1,7 +1,70 @@
-# std.file: reading files.
+# std.file: reading files, and asking what is at a path. Each call
+# blocks only the task that makes it: it runs on the blocking pool while
+# the task waits. A path is relative to the working directory, or
+# absolute.
+
+# What `stat` and `read_dir` find at a path.
+pub enum Kind
+  file
+  directory
+  other
+
+# What is at a path (`stat`): its kind, following a symbolic link to what
+# it names; whether the path itself is a symbolic link; and its size in
+# bytes.
+pub obj Stat
+  pub kind: Kind
+  pub link: Bool
+  pub size: Int
+
+# An entry of a directory (`read_dir`): its name, its kind as `stat`
+# gives it, and whether it is a symbolic link.
+pub obj Entry
+  pub name: String
+  pub kind: Kind
+  pub link: Bool
+
+# What is at `path`, or `none` when nothing is. A symbolic link that
+# names nothing is a link of kind `other`.
+pub fun stat(path: ?String) -> Stat?
+  if stat_code(path) as c
+    return Stat(kind: kind_of(c % 4), link: (c / 4) % 2 == 1, size: c / 8)
+  none
+
+# The entries of the directory at `path`, sorted by name, without `.`
+# and `..`; `none` when it is not a directory that can be read.
+pub fun read_dir(path: ?String) -> List[Entry]?
+  names = List[String]()
+  codes = List[Int]()
+  if not dir_entries(path, !names, !codes)
+    return none
+  entries = List[Entry](capacity: names.len)
+  while (!names).pop() as name
+    c = (!codes).pop() ?? 0
+    !entries.push(Entry(name: <name, kind: kind_of(c % 4), link: c / 4 == 1))
+  <entries
+
+fun kind_of(k: Int) -> Kind
+  match k
+    0 => Kind.file
+    1 => Kind.directory
+    _ => Kind.other
 
 extern zig "file.zig"
   # The whole file at `path`, a fresh String of exactly its bytes, or
   # `none` when it cannot be read: it does not exist, is a directory,
   # may not be read, or reading it fails.
   pub fun read(path: ?String) -> String?
+
+  # The absolute path `path` names, every symbolic link in it resolved,
+  # or `none` when nothing is there.
+  pub fun realpath(path: ?String) -> String?
+
+  # What `stat` gives, as one number: its size times 8, plus 4 when the
+  # path is a link, plus its kind (0 a file, 1 a directory, 2 other).
+  fun stat_code(path: ?String) -> Int?
+
+  # The entries of a directory, last name first, onto `names`, and each
+  # one's kind plus 4 when it is a link onto `codes`; false when the
+  # directory cannot be read.
+  fun dir_entries(path: ?String, names: !List[String], codes: !List[Int]) -> Bool
