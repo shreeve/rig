@@ -346,6 +346,9 @@ sub Terminal.esc_dispatch(!@, b: U8)
     b'O' => @single = 3
     b'n' => @gl = 2
     b'o' => @gl = 3
+    # SPA and EPA: protection of the cells printed, ISO, on and off.
+    b'V' => (!@).set_protect(PROT_ISO)
+    b'W' => (!@).set_protect(PROT_OFF)
     _ => pass
 
 # The final byte of a CSI sequence: the parameters are complete.
@@ -360,10 +363,17 @@ sub Terminal.csi_final(!@, b: U8)
   n = @count
   p0 = @params[0] if n > 0 else 0
   p1 = @params[1] if n > 1 else 0
-  # ED and EL with `?` (selective erase) erase as plain ED and EL do while
-  # no cell is protected.
-  if @inter == Int(b'?') and (b == b'J' or b == b'K')
-    @inter = 0
+  # ED and EL with `?`: DECSED and DECSEL, the selective erases, which
+  # leave protected cells.
+  selective = @inter == Int(b'?') and (b == b'J' or b == b'K')
+  @inter = 0 if selective else @inter
+  # DECSCA: protection of the cells printed, on (1) or off (0 or 2).
+  if b == b'q' and @inter == Int(b'"')
+    if n == 0 or (n == 1 and (p0 == 0 or p0 == 2))
+      (!@).set_protect(PROT_OFF)
+    else if n == 1 and p0 == 1
+      (!@).set_protect(PROT_DEC)
+    return
   # Replies, and the kitty keyboard flags.
   if b == b'c' and (@inter == 0 or @inter == Int(b'>') or @inter == Int(b'='))
     (!@).device_attributes(@inter)
@@ -433,8 +443,8 @@ sub Terminal.csi_final(!@, b: U8)
     b'Z' if count >= 0 => (!@).tab_back(count)
     # Ghostty's TBC needs its parameter: `CSI g` alone does nothing.
     b'g' if n == 1 => (!@).tab_clear(p0)
-    b'J' if n <= 1 => (!@).erase_display(p0)
-    b'K' if n <= 1 => (!@).erase_line(p0)
+    b'J' if n <= 1 => (!@).erase_display(p0, selective)
+    b'K' if n <= 1 => (!@).erase_line(p0, selective)
     b'X' if count >= 0 => (!@).erase_chars(count)
     b'L' if count >= 0 => (!@).insert_lines(count)
     b'M' if count >= 0 => (!@).delete_lines(count)
