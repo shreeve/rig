@@ -620,6 +620,29 @@ sub main()!
 HTTP/1.1 200 OK
 ```
 
+The server guards itself against clients that send too much, too
+slowly, or too many at once, with limits read from the environment
+when `serve` starts:
+
+| Limit | Default | Setting |
+|---|---|---|
+| A connection waiting for its next request, or for a read of a body or a write of a response to make progress, is closed after | 60 s | `RIG_HTTP_IDLE_MS` |
+| A request's head must arrive whole, from its first byte, within | 10 s | `RIG_HTTP_HEAD_MS` |
+| A body larger than this is answered 413, and its connection closed | 16 MiB | `RIG_HTTP_MAX_BODY` (bytes) |
+
+A body over the limit is refused before any of it is read when its
+`Content-Length` says so, and once the limit is passed when it comes
+chunked. A client that sends `Expect: 100-continue` is asked for the
+body (`100 Continue`) only once its length is within the limit; any
+other expectation is answered 417. Once the process has run out of
+file descriptors, `serve` pauses, from 5 ms doubling to 1 s, and
+accepts again, as Go's server does, so the connections it holds can
+close; the listener stays open. A deterministic run (`RIG_SEED`, `rig
+test`) leaves the two timeouts off: its virtual clock would reach them
+while bytes are still on their way. Arguments to `http.serve` that set
+these limits per server are planned; the environment sets them for the
+whole process.
+
 ## std.target
 
 The target, the machine the program is compiled for, as compile-time
