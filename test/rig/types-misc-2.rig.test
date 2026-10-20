@@ -3248,8 +3248,9 @@ fail "vec of write views loop", "6:5: a write view is never stored inside a valu
   w = List[!Int]()
   print(w.len, a)
 
-fail "vec positional arg", "`List` constructor takes no positional arguments"
-  # The `List` constructor takes no positional arguments.
+fail "vec positional arg", "`List(...)` copies the elements of an array or a slice, `List([1, 2, 3])`; got `Int`"
+  # The `List` constructor's one positional argument is an array or a
+  # slice to copy.
 
   v: List[Int] = List(10)
 

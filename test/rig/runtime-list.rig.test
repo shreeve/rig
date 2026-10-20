@@ -724,3 +724,44 @@ test "list zero bit", release: true, '''
   !ys.keep(2)
   zs = +ys
   print(ys.len, zs, ys.get(1))
+
+test "list from array", '''
+  [1, 2, 3, 4] [5, 6] [7, 8, 9] [1.5, 2.5] [6] ["a", "b"] 4
+  [] 0
+'''
+  # `List(a)` copies the elements of an array or a slice into a new List,
+  # as `String("abc")` copies text: typed by `a`, by brackets, or by
+  # context.
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs = List([1, 2, 3])
+  !xs.push(4)
+  a = [5, 6]
+  ys = List(a)
+  zs = List[Int]([7, 8, 9])
+  ws: List[Float] = List([1.5, 2.5])
+  vs = List(?a[1..])
+  names = List(["a", "b"])
+  print(xs, ys, zs, ws, vs, names, total(?xs))
+  nothing: [0]Int = []
+  e = List(nothing)
+  print(e, e.len)
+
+fail "list from array literal", "type mismatch: expected `List[Int]`, got `[2]Int`", errors: 1
+  # An array literal is no List: the allocation is shown, `List([1, 2])`.
+  xs: List[Int] = [1, 2]
+  print(xs)
+
+fail "list from array not elements", "`List(...)` copies the elements of an array or a slice, `List([1, 2, 3])`; got `Int`", errors: 1
+  xs = List(3)
+  print(xs)
+
+fail "list from array owners", "`List(...)` copies each element, and a `String` cannot be copied so: make the List with `List[String]()`, then `!xs.push(+x)` each", errors: 1
+  a = [String("x"), String("y")]
+  xs = List(?a[..])
+  print(xs)
+
+fail "list from array element type", "type mismatch: expected `Int`, got `Float`", errors: 1
+  xs = List[Int]([1.5])
+  print(xs)
