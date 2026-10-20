@@ -423,6 +423,8 @@ any tasks on one worker do. So a GUI program's `*T`, `Cell`, and
 - **Implicit.** The checker makes a task local when its arguments or
   self hold such a value (`sema.localBlocker`), and records it; nothing
   marks it in the source, as nothing marks how a `Cell` is kept safe.
+  `rig check --tasks` lists each local task and what pins it: the
+  argument, and the type in it that stays on one thread.
 - **What still stops it.** A set of tasks, a task or a write view lent
   to read, and a function lent to read, which may lend what it captures
   to write (a closure literal written in the task's call among them, as
