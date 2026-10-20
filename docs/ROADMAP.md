@@ -32,9 +32,10 @@ items, with their probe cases, are in
 
 ## Speed
 
-- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`, and one load for 4- and 8-byte byte-lane reads on ARM; a widening
-  conversion (`Simd[U8, 16]` to `Simd[U64, 16]`) and a vector store into a
-  `![]T`, which std/terminal.zig's `widen` stands in for.
+- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`, and one load for 4- and 8-byte byte-lane reads on ARM.
+- **Zig 0.18**: LLVM's loop vectorizer, which Zig 0.17 turns off
+  (docs/internals/zig-0.17.md §16), is back; measure plain loops again,
+  and move std/terminal.zig's `widen` back into std/terminal.rig.
 - **Checker-proved check elimination**: bounds and overflow checks the checker proves redundant, redesigned around units.
 - **A frame-size guard** for every function.
 
