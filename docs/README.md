@@ -17,8 +17,8 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | How is memory freed with no collector? | [learn/02-ownership.md](learn/02-ownership.md), then [CORE.md](CORE.md) |
 | How do errors and optionals work? | [learn/03-errors.md](learn/03-errors.md), then [SPEC §12 and §13](../SPEC.md#12-optionals) |
 | How do I run things concurrently? | [learn/04-concurrency.md](learn/04-concurrency.md), then [SPEC §18](../SPEC.md#18-tasks) |
-| How do I handle text? | [TEXT.md](TEXT.md), and the text modules of [STD.md](STD.md) |
-| What is in the standard library? | [STD.md](STD.md) |
+| How do I handle text? | [learn/05-text.md](learn/05-text.md), then [TEXT.md](TEXT.md) and the text modules of [STD.md](STD.md) |
+| What is in the standard library? | [learn/06-stdlib.md](learn/06-stdlib.md) for a tour, [STD.md](STD.md) for each module |
 | How do I write a form? | [SYNTAX.md](../SYNTAX.md) |
 | What exactly does a form mean? | [SPEC.md](../SPEC.md) |
 | Why was it designed this way? | [FAQ.md](../FAQ.md), then [DESIGN.md](DESIGN.md) and [design/](design/) |
@@ -28,7 +28,8 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | What has been proved? | [formal/README.md](../formal/README.md) |
 | Where do things stand right now? | [HANDOFF.md](../HANDOFF.md) |
 | How do I work on the compiler? | [AGENTS.md](../AGENTS.md), then [internals/](internals/) and its [weak spots](internals/weak-spots.md) |
-| How do tests work? | [test/README.md](../test/README.md) and [internals/tests.md](internals/tests.md) |
+| How do I test Rig code? | [learn/08-tests.md](learn/08-tests.md), then [SPEC, Tests](../SPEC.md#tests) |
+| How does Rig's own test suite work? | [test/README.md](../test/README.md) and [internals/tests.md](internals/tests.md) |
 | What was tried before? | [history/](history/) |
 
 ## Reading orders
@@ -37,7 +38,8 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 program: [README](../README.md), then [WELCOME](../WELCOME.md) for
 your language, then the journeys in order: [sigils](learn/01-sigils.md),
 [ownership](learn/02-ownership.md), [errors](learn/03-errors.md),
-[concurrency](learn/04-concurrency.md). Then the
+[concurrency](learn/04-concurrency.md), [text](learn/05-text.md),
+[the standard library](learn/06-stdlib.md), [tests](learn/08-tests.md). Then the
 [examples](../examples/README.md), and the [FAQ](../FAQ.md) when a
 "why" comes up.
 

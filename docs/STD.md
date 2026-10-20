@@ -20,8 +20,7 @@ any other module. What Rig cannot do itself, a module declares in an
 `extern zig` block: functions with full Rig signatures, implemented by
 a small Zig file beside the module on Zig's standard library
 ([SPEC §15](../SPEC.md#zig-backed-declarations)). A call to one is
-checked like any call. The standard library is new: this page lists
-everything it has.
+checked like any call. This page lists everything it has.
 
 `RIG_STD=dir` makes `rig` read the standard library from `dir` in
 place of the copy built into it. It is a setting for developing the
