@@ -7255,3 +7255,68 @@ fail "receiver sigil bool used", "14:5: write `(!@).insert(k)`: a write call who
   ok = !set.checked(4) catch false
   !set.insert(5)
   print(fresh, n, ok)
+
+test "catch statement handler gives nothing", '''
+  failed Parse.empty
+  then Parse.empty
+  no name
+  named Parse.empty
+  owned failed Parse.empty
+  done 3
+'''
+  # A `catch` whose value goes nowhere, a statement's or `_ =`'s, may
+  # have a handler that gives nothing; a handler that gives a value gives
+  # the fallback, as anywhere: `0`, a call, or a block's last value.
+  error Parse
+    empty
+
+  fun parse(s: ?String) -> Int!
+    return Parse.empty if s.len == 0
+    s.len
+
+  fun name(s: ?String) -> String!
+    return Parse.empty if s.len == 0
+    String(s)
+
+  fun fallback() -> Int
+    7
+
+  parse("") catch |e| print("failed", e)
+  parse("ok") catch |e|
+    print("never", e)
+  parse("") catch 0
+  parse("") catch fallback()
+  parse("") catch 1 + 2
+  parse("") catch |e|
+    print("then", e)
+    -1
+  parse("") catch print("no name")
+  _ = parse("") catch |e| print("named", e)
+  _ = name("") catch |e| print("owned failed", e)
+  _ = name("yes") catch |e| print("never", e)
+  x = parse("abc") catch 0
+  print("done", x)
+
+test "catch statement handler gives nothing released", release: true, "ok 2"
+  # The same in Zig's safe mode: the value is dropped, the handler runs
+  # on an error.
+  error Parse
+    empty
+
+  fun name(s: ?String) -> String!
+    return Parse.empty if s.len == 0
+    String(s)
+
+  _ = name("yes") catch |e| print("never", e)
+  _ = name("") catch |e| print("ok", 2)
+
+fail "catch statement owned", "`name(\"\")` gives a `String`, which owns what it must release, and this `catch` throws it away: drop it by name, `_ = name(\"\") catch ...`", errors: 1
+  # An owned value is dropped visibly, by `_ =`.
+  error Parse
+    empty
+
+  fun name(s: ?String) -> String!
+    return Parse.empty if s.len == 0
+    String(s)
+
+  name("") catch |e| print("failed", e)
