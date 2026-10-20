@@ -27,6 +27,17 @@ pub obj Instant
 pub fun now() -> Instant
   Instant(ns: monotonic())
 
+# Run `f` with a deadline `ns` nanoseconds from now, and give what it
+# gives. Every fallible waiting point `f` reaches after the deadline
+# fails with `task.Stop.timeout`: `sleep`, `task.check`, and a wait on a
+# task or a set that can fail, whose tasks are canceled first. The tasks
+# `f` starts keep the deadline. Inside another deadline, the earlier
+# one holds, and the outer one is back once `f` returns.
+pub fun within[R](ns: Int, f: ?fun() -> R!) -> R!
+  outer = enter_deadline(ns)
+  defer restore_deadline(outer)
+  f()!
+
 extern zig "time.zig"
   # Nanoseconds on the monotonic clock, since an unspecified moment.
   fun monotonic() -> Int
@@ -37,5 +48,13 @@ extern zig "time.zig"
 
   # Wait at least `ns` nanoseconds; not at all when `ns` is not
   # positive. A fallible waiting point: in a canceled task it fails with
-  # `task.Stop.canceled` (std.task).
+  # `task.Stop.canceled` (std.task), and past a deadline (`within`) with
+  # `task.Stop.timeout`, sleeping only until the deadline.
   pub sub sleep(ns: Int)!
+
+  # The running task's deadline becomes `ns` from now, unless it has an
+  # earlier one; gives the one it had, for `restore_deadline`.
+  fun enter_deadline(ns: Int) -> Int
+
+  # The running task's deadline is again `outer`.
+  sub restore_deadline(outer: Int)

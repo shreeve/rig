@@ -36,6 +36,7 @@ never read as the library's.
 | [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, and waiting for several: `Stop`, `check`, `both`, `all` |
+| [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -334,7 +335,8 @@ it cannot be mixed up with the wall clock's nanoseconds.
 | `now() -> Instant` | the monotonic clock now: it never goes back |
 | `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
-| `sleep(ns: Int)!` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)) |
+| `sleep(ns: Int)!` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
+| `within[R](ns: Int, f: ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
 ```rig
@@ -361,12 +363,13 @@ request reaches it as `Stop.canceled` at its next fallible waiting
 point: `task.check()`, `time.sleep`, or a wait on a task that can fail.
 It stays: every fallible waiting point the task reaches after it fails
 too, so a `catch` cannot swallow it and carry on. Everything else the
-task does finishes as it would.
+task does finishes as it would. Past a deadline (`time.within`), the
+same waiting points fail with `Stop.timeout`.
 
 | Member | Result |
 |---|---|
 | `error Stop` | `canceled`, the request to stop, and `timeout` |
-| `check()!` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, and otherwise give other threads a turn |
+| `check()!` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other threads a turn |
 | `both(a, b)` | wait for two tasks of any types, and give each one's value as two results; it can fail when either task can, and then the first to fail cancels the other |
 | `all(a, b, ...)` | `both` for two tasks or more |
 
@@ -395,6 +398,37 @@ sub main()!
 ```output
 Stop.canceled
 -1
+```
+
+## std.par
+
+Calling a function on each element of a List, an array, or a slice, on
+several tasks at once ([SPEC §18](../SPEC.md#each-element-on-several-tasks)).
+The tasks take chunks of the elements in turn. `f` is a closure written
+in the call, whose captures must share, or a function's name.
+
+| Member | Result |
+|---|---|
+| `map(?xs, f, limit: n)` | a `List` of `f(x)` for each element, in the order of `xs`; `f` takes each as `?T` |
+| `each(!xs, f, limit: n)` | call `f` on each element, as `!T`, which it may write |
+
+`limit` is how many tasks run at once, by default one per worker. When
+`f` can fail, so can the call: the first failure cancels the rest, and
+the call fails with its error.
+
+```rig
+use std.par
+
+sub main()
+  xs = List([1, 2, 3, 4])
+  print(par.map(?xs, |x| x * x, limit: 2))
+  par.each(!xs, |x| x *= 10)
+  print(xs.sum())
+```
+
+```output
+[1, 4, 9, 16]
+100
 ```
 
 ## std.target

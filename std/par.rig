@@ -1,0 +1,15 @@
+# std.par: running a function on each element of a List, an array, or a
+# slice, on several tasks at once, each taking chunks of the elements in
+# turn. The checker types both calls, as it does `task.both`.
+#
+# - `par.map(?xs, f, limit: n)` gives a List of `f(x)` for each `x`, in
+#   the order of `xs`.
+# - `par.each(!xs, f, limit: n)` calls `f(!x)` for each element, which
+#   it may write.
+#
+# `f` is a closure written in the call, or a function's name. Every task
+# reads what the closure captures, so each capture must share, and none
+# is a write view. When `f` can fail, so can the call: the first failure
+# cancels the other tasks, and the call fails with it. `limit` is how
+# many tasks run at once, by default one per worker; with one, or few
+# elements, the calls run in turn on the calling task.

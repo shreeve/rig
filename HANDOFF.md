@@ -99,6 +99,10 @@ from).
     (`Stop`, `check`), and a fallible `time.sleep`.
   - **Sets and joins:** `Tasks[T]` with `wait_all`, `wait_first`, and
     `within:` deadlines; `task.both` and `task.all`.
+  - **Deadlines and parallel loops:** `time.within(ns, || ...)`, a
+    deadline every fallible waiting point honors, kept by the tasks it
+    starts; `par.map` and `par.each` (`std.par`), typed by the checker
+    as `task.both` is, with chunks taken in turn by a task per worker.
   - **Where tasks run:** on Rig's own scheduler (`src/sched.zig`,
     `src/tasks.zig`): fibers on a worker per core, `RIG_WORKERS` of
     them when set, with yield checks in long loops and recursion
@@ -360,8 +364,8 @@ migration guide (`tools/migrate-0.3.py`).
 
 **Concurrency**, in order (docs/concurrency/SCHEDULER.md and
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
-plan's second step, and its increments are done; the crossing facts and
-a `Cell` of one word across tasks are built): `par` and `time.within`;
+plan's second step, and its increments are done; the crossing facts, a
+`Cell` of one word across tasks, `par`, and `time.within` are built):
 actors, panics unwinding to boundaries, and `task.isolate`; then I/O,
 timers, and `http.serve` on Rig's own `std.Io`, whose blocking pool
 today serves only `std.file.read`.

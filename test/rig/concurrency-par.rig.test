@@ -1,0 +1,189 @@
+# concurrency: tests whose names start `par`.
+
+test "par map", '''
+  [0, 3, 6, 9, 12]
+  1000 2997 1498500
+  999000
+  [1, 2, 3]
+'''
+  # `par.map` gives each call's value in the order of the elements, from
+  # a closure written in the call or a function's name, over a List, an
+  # array, or a slice.
+  use std.par
+
+  fun double(n: Int) -> Int
+    n * 2
+
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  k = 3
+  print(par.map(?xs[..5], |+k, x| x * k))
+  ys = par.map(?xs, |?k, x| x * k)
+  print(ys.len, ys[999], ys.sum())
+  print(par.map(?xs, double, limit: 4).sum())
+  words = ["a", "bb", "ccc"]
+  print(par.map(?words, |w| w.len))
+
+test "par each", '''
+  [10, 20, 30, 40]
+  1 4 4
+  499500
+'''
+  # `par.each` lends each element to write.
+  use std.par
+
+  arr = [1, 2, 3, 4]
+  par.each(!arr, |x| x *= 10)
+  print(arr)
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  par.each(!xs[0..4], |x| x += 1)
+  print(xs[0], xs[3], xs[4])
+  par.each(!xs[0..4], |x| x -= 1)
+  print(xs.sum())
+
+test "par fails", release: true, '''
+  Bad.odd true
+  499500
+'''
+  # A function that can fail makes the call fail: the first failure stops
+  # the other tasks taking more elements, and cancels them.
+  use std.par
+  use std.time
+
+  error Bad
+    odd
+
+  fun slow(n: Int) -> Int!
+    return Bad.odd if n == 500
+    time.sleep(20 * time.MS)!
+    n
+
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  start = time.now()
+  r = par.map(?xs, |x| slow(x)!, limit: 1000) catch |e|
+    print(e, start.elapsed() < 500 * time.MS)
+    List[Int]()
+  ok = par.map(?xs, |x| slow(x + 1000)! - 1000, limit: 1000) catch List[Int]()
+  print(ok.sum())
+
+test "par fails drops", '''
+  0
+  ["n1", "n2", "n3"]
+'''
+  # The values made before a failure are dropped.
+  use std.par
+  use std.task
+
+  error Bad
+    odd
+
+  fun name(n: Int) -> String!
+    return Bad.odd if n == 77
+    task.check()!
+    String("n", n)
+
+  xs: List[Int] = List(capacity: 100)
+  for i in 0..100
+    !xs.push(i)
+  names = par.map(?xs, |x| name(x)!) catch List[String]()
+  print(names.len)
+  print(par.map(?xs[1..4], |x| name(x)!) catch List[String]())
+
+test "par limit", release: true, "true true"
+  # No more than `limit` calls run at once.
+  use std.par
+  use std.time
+
+  sub watch(active: *Cell[Int], most: *Cell[Int])
+    now = (!active).add(1)
+    seen = most.get()
+    while now > seen
+      break if (!most).compare_swap(seen, now)
+      seen = most.get()
+    time.sleep(100 * time.US) catch print("stopped")
+    _ = (!active).sub(1)
+
+  xs: List[Int] = List(capacity: 1000)
+  for i in 0..1000
+    !xs.push(i)
+  active = *Cell(0)
+  most = *Cell(0)
+  par.each(!xs, |+active, +most, x| watch(+active, +most), limit: 3)
+  print(most.get() <= 3, most.get() > 1)
+
+test "par one task", "[2, 4, 6]"
+  # With `limit: 1`, the calls run in turn on the calling task.
+  use std.par
+
+  xs = List([1, 2, 3])
+  print(par.map(?xs, |x| x * 2, limit: 1))
+
+fail "par write capture", "`par.each` calls the closure on several tasks at once, and `|!total|` lends `total` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+total|`", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  total = 0
+  par.each(!xs, |!total, x| total += x)
+
+fail "par capture shares", "`par.map` calls the closure on several tasks at once, which all read what it captures, and `c` is a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  c = *Cell(List[Int]())
+  ys = par.map(?xs, |+c, x| x + c.len)
+
+fail "par elements share", "`par.map` hands the elements of `?ts` to tasks that may run on other cores, to read each, and `*Thing` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  use std.par
+
+  obj Thing
+    n: Int
+
+  ts: List[*Thing] = List()
+  !ts.push(*Thing(n: 1))
+  ns = par.map(?ts, |t| t.n)
+
+fail "par values move", "`par.map` gathers the values that tasks on other cores make, and `*Thing` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  use std.par
+
+  obj Thing
+    n: Int
+
+  xs = List([1, 2, 3])
+  hs = par.map(?xs, |x| *Thing(n: x))
+
+fail "par named closure", "`par.map` calls `?add` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `par.map(?xs, |x| ...)`", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  add = |a: ?Int| a + 1
+  ys = par.map(?xs, ?add)
+
+fail "par owned closure", "`par.map` calls `?cb` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `par.map(?xs, |x| ...)`", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  cb: *fun(?Int) -> Int = *|a| a - 1
+  ys = par.map(?xs, ?cb)
+
+fail "par map gives nothing", "`par.map` gives each call's value, and `|x| print(x)` gives none: to call it on each element, `par.each(!xs, ...)`", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  ys = par.map(?xs, |x| print(x))
+
+fail "par each writes", "`par.each` lends each element to write: lend the elements so, `par.each(!xs, ...)`", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  par.each(?xs, |x| x += 1)
+
+fail "par limit last", "positional arguments must come before keyword arguments: `par.map` takes `limit:` after the function, `par.map(..., f, limit: n)`", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  ys = par.map(?xs, limit: 2, |x| x)

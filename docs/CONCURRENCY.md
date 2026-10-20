@@ -383,10 +383,15 @@ the closure where the library is called, with the closure in hand:
 A closure that breaks the rule is rejected where it is passed:
 
 ```text
-par.map(?docs, |d| tally(!counts, d))
-# error: `par.map` calls this closure from several tasks at once,
-#   and it captures `counts` to write; two calls would write it together
+par.map(?docs, |!counts, d| tally(!counts, d))
+# error: `par.map` calls the closure on several tasks at once, and
+#   `|!counts|` lends `counts` to write, which no two tasks may hold at once
 ```
+
+Today `par.map` and `par.each` are typed by the checker itself, and take
+a closure written in the call, whose captures it sees, or a function's
+name; reading the requirement from a library's body comes with
+`http.serve`.
 
 A function value stored in a field and called from many tasks later is
 checked where it is stored, as a closure placed in an owned home is
