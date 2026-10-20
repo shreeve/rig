@@ -253,22 +253,25 @@ sub main()
 
 ## Rune properties: `std.unicode`
 
-Facts about one rune, from the Unicode Character Database 15.1: whether
-it may start or continue an identifier (`unicode.is_id_start(r)`,
-`unicode.is_id_continue(r)`, UAX #31), and whether it is whitespace
-(`unicode.is_space(r)`). Every table names its Unicode version.
+Facts about one rune, from the Unicode Character Database 17.0: the
+columns it takes in a terminal (`unicode.width(r)`, 0, 1, or 2), whether
+it is whitespace (`unicode.is_space(r)`), and whether it may start or
+continue an identifier (`unicode.is_id_start(r)`,
+`unicode.is_id_continue(r)`, UAX #31). The identifier classes stay at
+Unicode 15.1, TypeScript's version, so a scanner built on them reads the
+identifiers tsc reads. Every table names its Unicode version.
 
 ```rig
 use std.unicode
 
 sub main()
   print(unicode.VERSION, unicode.is_id_start(0x4e2d), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
-  print(unicode.is_space(0x3000), unicode.is_space(0xfeff))
+  print(unicode.is_space(0x3000), unicode.is_space(0xfeff), unicode.width(0x4e2d), unicode.width(0x301))
 ```
 
 ```output
-15.1.0 true false true
-true false
+17.0.0 true false true
+true false 2 0
 ```
 
 ## Chars: `std.text`
@@ -283,8 +286,8 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.first_chars(s, n) -> ?String` | the first `n` chars of `s`, or all of `s` if it has fewer |
 | `text.last_chars(s, n) -> ?String` | the last `n` chars of `s`, or all of `s` if it has fewer |
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
-| `text.char_width(c) -> Int` *(planned)* | the terminal columns one char `c` takes, 0, 1, or 2: by its East Asian Width (UAX #11), 2 for an emoji, 0 for a combining mark or a zero-width char |
-| `text.width(s) -> Int` *(planned)* | the terminal columns `s` takes: `char_width` summed over its chars |
+| `text.char_width(c) -> Int` | the terminal columns one char `c` takes, 0, 1, or 2, as Ghostty counts them: its first rune's `unicode.width` (by East Asian Width, UAX #11; 0 for a combining mark or a zero-width rune), 2 when a later rune takes a column of its own, and 2 or 1 after an emoji or text variation selector |
+| `text.width(s) -> Int` | the terminal columns `s` takes: `char_width` summed over its chars |
 
 ```rig
 use std.text
@@ -292,14 +295,14 @@ use std.utf8
 
 sub main()
   for c in text.chars("a\u{1f44b}\u{1f3fd}")
-    print(c, c.len, utf8.rune_count(c))
-  print(text.first_chars("h\u{e9}llo", 2))
+    print(c, c.len, utf8.rune_count(c), text.char_width(c))
+  print(text.first_chars("h\u{e9}llo", 2), text.width("h\u{e9}llo"), text.width("\u{65e5}\u{672c}"))
 ```
 
 ```output
-a 1 1
-👋🏽 8 2
-hé
+a 1 1 1
+👋🏽 8 2 2
+hé 5 4
 ```
 
 ```rig

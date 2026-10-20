@@ -55,7 +55,7 @@ A char is a grapheme: what a reader sees as one character.
 | `char_count(s) -> Int` | built |
 | `first_chars(s, n) -> ?String`, `last_chars(s, n) -> ?String` | built |
 | `char_boundary(s, i) -> Int` | built |
-| `width(s) -> Int`, `char_width(c) -> Int`: screen columns | *(planned: width round)* |
+| `width(s) -> Int`, `char_width(c) -> Int`: screen columns | built |
 
 ## ascii: one byte
 
@@ -78,6 +78,7 @@ Whole-string ASCII checks are `utf8.is_ascii(s)` and `utf8.ascii_end(s, i)`.
 | `ascii_end(s, i) -> Int` | built |
 | `push_rune(!out, r)` | built |
 | `REPLACEMENT`, `RUNE_SELF` | built |
+| `Decoder.new()`, `(!d).next(b) -> Int?`, `d.retry`, `d.pending()`: streaming, one REPLACEMENT per maximal subpart | built |
 
 ## utf16: units and JavaScript positions
 
@@ -101,7 +102,8 @@ There is no module-level `unit_index(s, bytes)`: the one-off form is
 |---|---|
 | `is_space(r)` | built as `is_space_rune`; `is_space` *(planned: #186)* |
 | `is_id_start(r)`, `is_id_continue(r)` | built |
-| `VERSION` | built |
+| `width(r)`: screen columns | built |
+| `VERSION`, `ID_VERSION` | built |
 
 ## slices
 

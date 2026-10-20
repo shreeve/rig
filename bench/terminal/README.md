@@ -1,13 +1,17 @@
 # Terminal benchmark
 
 Times `std/terminal` against Ghostty's terminal (libghostty-vt, at the
-commit `tools/terminal_ghostty.py` pins) on generated program output. It
-is not part of the test suite.
+commit `tools/terminal_ghostty.py` pins) and Dispatch's (Term, Paul
+Miller's Swift port of Ghostty at the same commit) on generated program
+output. It is not part of the test suite.
 
 ```sh
 zig build                                   # bin/rig
 bench/terminal/bench-terminal               # every corpus and variant
 bench/terminal/bench-terminal --files tui --variants rig-fast,ghostty --reps 9
+DISPATCH=~/src/dispatch bench/terminal/bench-terminal    # and Dispatch
+GHOSTTY_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
+  bench/terminal/bench-terminal                           # and Ghostty's SIMD build
 ```
 
 `bench/terminal/bench-terminal --help` lists the corpora, the variants,
@@ -16,19 +20,27 @@ it needs Ghostty's source (`$GHOSTTY`, or a clone) and Zig 0.16.0
 (`$ZIG_GHOSTTY`, or mise's). Its module is built in ReleaseFast; a Zig
 package that depends on Ghostty without naming an optimize mode gets its
 Debug build, with Ghostty's slow safety checks, which runs a hundred times
-slower.
+slower. Dispatch is built from `$DISPATCH`, a Dispatch checkout: its Term
+sources and `dispatch.swift` as one module, `swiftc -O -wmo`, with no
+scrollback and mode 2027 off, as Ghostty starts (Dispatch's app turns it
+on). `ghostty-simd` is Ghostty with its C++ SIMD paths (simdutf and
+Highway). Zig 0.16's libc++ does not build against the macOS 27 SDK
+(`INFINITY` is undeclared), and Zig asks `xcrun --sdk macosx` for the
+SDK, ignoring `SDKROOT`; with `$GHOSTTY_SDK` set to an older SDK the
+build runs with an `xcrun` that answers with it.
 
 Each program feeds a whole corpus to new terminals, untimed setup aside,
 and prints `<ns> <check>`. The check is a hash of the final screen and
 cursor, the same `dump` the differential tests compare, so every run also
-checks that std.terminal ends where Ghostty does on 16 MB of input.
+checks that std.terminal ends where Ghostty and Dispatch do on 16 MB of
+input.
 
 ## Results
 
 Apple M5, arm64, 120x40, fastest of interleaved runs, Ghostty without its
-C++ SIMD paths. The machine was busy both times (load average about 28,
-then about 55), so every number is low; variants ran interleaved, so the
-ratios within a table hold.
+C++ SIMD paths. The machine was busy for the first two tables (load
+average about 28, then about 55), so their numbers are low; variants ran
+interleaved, so the ratios within a table hold.
 
 2026-10-20, before std.terminal's fast paths (3 runs):
 
@@ -53,3 +65,49 @@ whole, and CR and LF outside the state machine (5 runs):
 Rig's bounds checks cost 3 to 10% (rig-nocheck). Ghostty's SIMD paths
 would speed its text most; building them needs a Zig whose libc++ builds
 against the macOS SDK, or a Linux machine.
+
+2026-10-20, with wide runes and the Unicode 17 width table, Dispatch
+added; a quieter machine (load average about 4; 5 runs):
+
+| corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | dispatch | rig-fast / ghostty |
+|---|---:|---:|---:|---:|---:|---:|
+| text | 592.2 MB/s | 782.5 MB/s | 1004.7 MB/s | 946.9 MB/s | 857.3 MB/s | 0.78 |
+| scroll | 120.3 MB/s | 126.3 MB/s | 174.0 MB/s | 183.8 MB/s | 130.3 MB/s | 0.73 |
+| sgr | 252.4 MB/s | 275.0 MB/s | 174.6 MB/s | 193.1 MB/s | 148.3 MB/s | 1.57 |
+| tui | 302.7 MB/s | 332.0 MB/s | 203.1 MB/s | 202.5 MB/s | 166.7 MB/s | 1.63 |
+
+A run just before wide runes, at a load average of about 6, gave
+rig-fast / ghostty ratios of 0.79, 0.73, 1.64, and 1.71.
+
+2026-10-20, Ghostty with its SIMD paths too, built against the macOS
+26.5 SDK, and a utf8 corpus, two thirds of its bytes beyond ASCII (load
+average about 2; 5 runs):
+
+| corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | ghostty, SIMD | dispatch | rig-fast / best Ghostty |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| text | 611.2 MB/s | 803.8 MB/s | 1026.2 MB/s | 958.2 MB/s | 1014.9 MB/s | 867.0 MB/s | 0.78 |
+| scroll | 124.7 MB/s | 132.2 MB/s | 177.6 MB/s | 187.7 MB/s | 174.9 MB/s | 132.7 MB/s | 0.70 |
+| sgr | 253.9 MB/s | 275.2 MB/s | 174.8 MB/s | 194.3 MB/s | 176.3 MB/s | 149.0 MB/s | 1.42 |
+| tui | 299.9 MB/s | 328.1 MB/s | 203.7 MB/s | 204.4 MB/s | 206.0 MB/s | 167.6 MB/s | 1.59 |
+| utf8 | 213.7 MB/s | 221.9 MB/s | 263.9 MB/s | 259.1 MB/s | 346.8 MB/s | 225.9 MB/s | 0.64 |
+
+On the ASCII corpora the SIMD paths change Ghostty's speed by no more
+than the noise: its time goes to printing and scrolling. On utf8 they
+make it 31% faster, decoding runs of runes at once (simdutf), where
+std.terminal decodes a byte at a time through `utf8.Decoder` and looks
+each rune's width up alone. The SIMD build answers every case of the
+differential file as the plain one does.
+
+2026-10-20, with UTF-8 decoded in runs (`print_utf8`) and its runes
+written straight into their cells (load average about 4; 5 runs):
+
+| corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | ghostty, SIMD | dispatch | rig-fast / best Ghostty |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| text | 593.4 MB/s | 775.5 MB/s | 998.9 MB/s | 916.5 MB/s | 994.8 MB/s | 852.8 MB/s | 0.78 |
+| scroll | 119.9 MB/s | 128.0 MB/s | 172.5 MB/s | 183.4 MB/s | 172.4 MB/s | 127.1 MB/s | 0.70 |
+| sgr | 250.0 MB/s | 272.0 MB/s | 171.4 MB/s | 183.7 MB/s | 171.4 MB/s | 140.5 MB/s | 1.48 |
+| tui | 295.3 MB/s | 322.7 MB/s | 198.3 MB/s | 199.0 MB/s | 200.2 MB/s | 164.3 MB/s | 1.61 |
+| utf8 | 360.5 MB/s | 389.8 MB/s | 257.7 MB/s | 250.3 MB/s | 336.2 MB/s | 219.9 MB/s | 1.16 |
+
+utf8 went from 221.9 to 389.8 MB/s; the other corpora do not reach the
+new path.

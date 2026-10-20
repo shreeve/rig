@@ -24,7 +24,10 @@ it under .zig-cache/terminal-ghostty; its first build fetches Ghostty's
 dependencies. Ghostty is built without its SIMD paths (`simd = false`,
 pure Zig): they are C++ that Zig 0.16's libc++ does not build against
 every macOS SDK, and they change Ghostty's speed, not what it shows. It
-runs no rig.
+runs no rig. bench/terminal also times a build with them, under
+.zig-cache/terminal-ghostty-simd; on macOS 27 that needs $GHOSTTY_SDK, an
+older SDK (Zig 0.16 asks `xcrun` for the SDK, so the build runs with an
+`xcrun` that answers with this one).
 
 A case is in AREAS, the parts of the terminal std.terminal implements;
 the file holds only those areas' cases, so a case that fails is a bug,
@@ -45,7 +48,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -312,6 +315,73 @@ CASES = [
     ("reply", "RIS keeps replies already made", 10, 2, b"\x1b[c\x1bc\x1b[5n"),
     ("reply", "DECRC restores origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b8\x1b[?6$p\x1b[?6h\x1b[u\x1b[?6$p"),
     ("reply", "DECALN resets origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b#8\x1b[?6$p"),
+    ("utf8", "two-byte runes", 10, 2, "café ñ ü".encode()),
+    ("utf8", "three-byte runes of width 1", 10, 2, "─│┌€".encode()),
+    ("utf8", "Greek and Cyrillic", 12, 2, "Ωμέγα Жизнь".encode()),
+    ("utf8", "a rune wraps like any other", 4, 2, "ééééé".encode()),
+    ("utf8", "a stray continuation byte", 10, 2, b"a\x80b\xbfc"),
+    ("utf8", "a maximal subpart is one replacement", 10, 2, b"a\xe2\x82b"),
+    ("utf8", "overlong forms", 10, 2, b"\xc0\xaf\xe0\x80\xaf!"),
+    ("utf8", "a surrogate", 10, 2, b"\xed\xa0\x80!"),
+    ("utf8", "past U+10FFFF", 10, 2, b"\xf4\x90\x80\x80!"),
+    ("utf8", "bytes that never start a rune", 10, 2, b"\xc1\xf5\xff!"),
+    ("utf8", "a rune cut by a control", 10, 2, b"a\xc3\rb"),
+    ("utf8", "a rune cut by ESC", 10, 2, b"a\xe2\x82\x1b[2Cb"),
+    ("utf8", "a rune cut at the end", 10, 2, b"ab\xe2\x82"),
+    ("utf8", "a UTF-8 C1 control is ignored", 10, 2, b"a\xc2\x84b\xc2\x9bc"),
+    ("utf8", "a raw C1 byte in the ground state is a replacement", 10, 2, b"a\x84b\x9b2Ac"),
+    ("utf8", "C1 CSI in a sequence", 10, 3, b"\x1b\x9b2;3HX"),
+    ("utf8", "C1 IND in CSI parameters", 10, 3, b"ab\x1b[1\x84Y"),
+    ("utf8", "C1 NEL, HTS, and RI after ESC", 20, 3, b"ab\x1b\x85c\x1b\x88\x1b\x8dd"),
+    ("utf8", "C1 ST ends an APC", 10, 2, b"a\x1b_xyz\x9cb"),
+    ("utf8", "C1 in an OSC is data", 10, 2, b"a\x1b]0;x\x9cy\x07b"),
+    ("utf8", "C1 in a DCS body is data", 10, 2, b"a\x1bPq\x9c\x84\x1b\\b"),
+    ("utf8", "C1 in DCS parameters acts", 10, 3, b"a\x1bP1\x84b"),
+    ("utf8", "C1 CSI starts a sequence after ESC", 10, 2, b"\x1b\x9b31mX"),
+    ("utf8", "C1 DECID replies", 10, 2, b"\x1b[\x9a"),
+    ("utf8", "C1 SS2 shifts one rune", 10, 2, b"\x1b*0\x1b[\x8eqq"),
+    ("utf8", "a high byte in CSI is ignored", 10, 3, b"\x1b[2\xa0;3HX"),
+    ("utf8", "a mapped charset shows non-ASCII as space", 10, 2, "\x1b(0é".encode()),
+    ("utf8", "the British set keeps non-ASCII", 10, 2, "\x1b(Aé#".encode()),
+
+    ("wide", "wide runes take two cells", 10, 2, "中文字".encode()),
+    ("wide", "emoji, fullwidth forms, and Hangul are wide", 16, 2, "😀👍Ａ￤한".encode()),
+    ("wide", "each regional indicator is wide alone", 10, 2, "🇺🇸!".encode()),
+    ("wide", "zero-width runes change nothing", 10, 2, "e\u0301a\u200bb\ufe0fc".encode()),
+    ("wide", "a combining mark at the first column", 10, 2, "\u0301x\r\u0301y".encode()),
+    ("wide", "a zero-width rune keeps a pending wrap", 3, 2, "abc\u0301d".encode()),
+    ("wide", "a wide rune at the last column wraps, leaving a spacer", 5, 2, "abcd中e".encode()),
+    ("wide", "a wide rune wraps with a pending wrap", 4, 2, "abcd中".encode()),
+    ("wide", "with autowrap off a wide rune at the last column is not written", 5, 2, "\x1b[?7labcd中x".encode()),
+    ("wide", "a wide rune in a single column", 1, 2, "中a".encode()),
+    ("wide", "a wide rune at the bottom right scrolls", 4, 2, "abcdefg中".encode()),
+    ("wide", "a narrow rune over the first half empties the second", 6, 2, "中文\x1b[1;1Hx".encode()),
+    ("wide", "a narrow rune over the second half empties the first", 6, 2, "中文\x1b[1;2Hx".encode()),
+    ("wide", "a wide rune over halves of two", 8, 2, "中文\x1b[1;2H字".encode()),
+    ("wide", "a spacer keeps the style the rune had", 6, 2, "\x1b[41m中\x1b[0m\x1b[1;2Hx".encode()),
+    ("wide", "REP repeats a wide rune", 10, 2, "中\x1b[3b".encode()),
+    ("wide", "a single shift is spent on the spacer of a wrapping rune", 5, 2, "\x1b*0abcd\x1b[\x8e中q".encode()),
+    ("wide", "a mapped charset writes a wide rune as two blank cells", 6, 2, "\x1b(0a中b".encode()),
+    ("wide", "insert mode makes room for both cells", 8, 2, "abcd\x1b[1;1H\x1b[4h中".encode()),
+    ("wide", "insert mode at the next to last column", 5, 2, "abcde\x1b[1;4H\x1b[4h中".encode()),
+    ("wide", "ICH on a spacer empties its rune", 8, 2, "ab中cd\x1b[1;4H\x1b[2@".encode()),
+    ("wide", "ICH pushing a spacer off the row empties its rune", 5, 2, "abc中\x1b[1;1H\x1b[@".encode()),
+    ("wide", "DCH from a spacer", 8, 2, "a中b文c\x1b[1;3H\x1b[P".encode()),
+    ("wide", "DCH ending in the middle of a rune", 8, 2, "a中b文c\x1b[1;1H\x1b[4P".encode()),
+    ("wide", "ECH on a spacer", 8, 2, "a中b\x1b[1;3H\x1b[X".encode()),
+    ("wide", "ECH ending on a first half takes the second", 8, 2, "ab中c\x1b[1;1H\x1b[3X".encode()),
+    ("wide", "EL to the end from a spacer", 8, 2, "a中b\x1b[1;3H\x1b[K".encode()),
+    ("wide", "EL to the start from a first half", 8, 2, "a中b\x1b[1;2H\x1b[1K".encode()),
+    ("wide", "ECH empties the spacer of a wrapped row", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[1;1H\x1b[X".encode()),
+    ("wide", "DCH to the end empties the spacer of a wrapped row", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[1;2H\x1b[9P".encode()),
+    ("wide", "DCH at the start of a wrapped-into row empties the spacer above", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[2;1H\x1b[P".encode()),
+    ("wide", "after IL a row no longer wraps", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[1;1H\x1b[L\x1b[2;1H\x1b[X".encode()),
+    ("wide", "after SU at the top a row still wraps", 5, 3, "\n\x1b[41mabcd中\x1b[0m\x1b[S\x1b[1;1H\x1b[X".encode()),
+    ("wide", "after SU in a region a row no longer wraps", 5, 4, "\x1b[2;4r\x1b[2;1H\x1b[41mabcd中\x1b[0m\x1b[S\x1b[2;1H\x1b[X".encode()),
+    ("wide", "a row scrolled by a line feed still wraps", 5, 2, "\x1b[41mabcd中\x1b[0m\n\x1b[1;1H\x1b[X".encode()),
+    ("wide", "a narrow rune over a wrapped-into rune unmarks the spacer above", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[2;1Hx\x1b[2;1H\x1b[P".encode()),
+    ("wide", "DECALN clears wide runes and wraps", 5, 3, "abcd中\x1b#8\x1b[1;1H\x1b[X".encode()),
+    ("wide", "the alternate screen has its own row flags", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[?1047h\x1b[?1047l\x1b[1;1H\x1b[X".encode()),
 ]
 
 
@@ -346,10 +416,11 @@ def ghostty_tree():
     return tree
 
 
-def dumper():
-    """tools/terminal_ghostty.zig built against Ghostty; its path."""
+def dumper(simd=False):
+    """tools/terminal_ghostty.zig built against Ghostty, with its SIMD
+    paths or without; its path."""
     tree = ghostty_tree()
-    build = os.path.join(CACHE, "terminal-ghostty")
+    build = os.path.join(CACHE, "terminal-ghostty-simd" if simd else "terminal-ghostty")
     os.makedirs(build, exist_ok=True)
     zon = """.{
     .name = .terminal_ghostty,
@@ -385,20 +456,30 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(b.addExecutable(.{ .name = "terminal_ghostty", .root_module = mod }));
     b.installArtifact(b.addExecutable(.{ .name = "terminal_ghostty_bench", .root_module = fast }));
 }
-""".replace("DUMPER", DUMPER)
+""".replace("DUMPER", DUMPER).replace(".simd = false", ".simd = %s" % ("true" if simd else "false"))
     with open(os.path.join(build, "build.zig"), "w") as f:
         f.write(zig_build)
     with open(os.path.join(build, "build.zig.zon"), "w") as f:
         f.write(zon.replace("FINGERPRINT", fingerprint(build, zon, zig_build)))
-    run = subprocess.run([zig_for_ghostty(), "build", "install"], cwd=build, capture_output=True, text=True)
+    env = dict(os.environ)
+    if simd and os.environ.get("GHOSTTY_SDK"):
+        shim = os.path.join(build, "sdk")
+        os.makedirs(shim, exist_ok=True)
+        with open(os.path.join(shim, "xcrun"), "w") as f:
+            f.write('#!/bin/sh\nfor a in "$@"; do [ "$a" = --show-sdk-path ] && { echo "%s"; exit 0; }; done\nexec /usr/bin/xcrun "$@"\n'
+                    % os.environ["GHOSTTY_SDK"])
+        os.chmod(os.path.join(shim, "xcrun"), 0o755)
+        env["PATH"] = shim + os.pathsep + env.get("PATH", "")
+    run = subprocess.run([zig_for_ghostty(), "build", "install"], cwd=build, capture_output=True, text=True, env=env)
     if run.returncode != 0:
-        sys.exit("terminal_ghostty: building the dumper failed:\n" + run.stderr)
+        hint = " (on macOS 27, set GHOSTTY_SDK to an older SDK)" if simd else ""
+        sys.exit("terminal_ghostty: building the dumper failed%s:\n%s" % (hint, run.stderr[-3000:]))
     return os.path.join(build, "zig-out", "bin", "terminal_ghostty")
 
 
-def bench_exe():
+def bench_exe(simd=False):
     """The ReleaseFast build of tools/terminal_ghostty.zig, for bench/terminal."""
-    return os.path.join(os.path.dirname(dumper()), "terminal_ghostty_bench")
+    return os.path.join(os.path.dirname(dumper(simd)), "terminal_ghostty_bench")
 
 
 def fingerprint(build, zon, zig_build):
@@ -485,6 +566,8 @@ def piece(rng, every):
         return bytes(rng.choice(range(0x20, 0x80)) for _ in range(n))
     if k < 0.40:
         return bytes([rng.choice([8, 9, 10, 11, 12, 13, 7, 0, 5, 14, 15, 0x18, 0x1A, 0x1B, 0x7F])])
+    if k < 0.46:
+        return utf8_piece(rng)
     if k < 0.70:
         return csi(rng, every)
     if k < 0.82:
@@ -508,6 +591,32 @@ def piece(rng, every):
     return b"\x1b" + rng.choice([b"]0;", b"]2;", b"P", b"_", b"^", b"X"]) + body + end
 
 
+# Runes of width 1, 2, and 0, and any rune but a surrogate.
+NARROW = [range(0xA1, 0xAD), range(0xAE, 0x100), range(0x391, 0x3A2), range(0x3A3, 0x3CA), range(0x410, 0x450), range(0x2500, 0x2580), [0xFFFD, 0x20AC]]
+WIDE = [range(0x4E00, 0x4E40), range(0x3041, 0x3097), range(0xAC00, 0xAC40), range(0xFF01, 0xFF61), range(0xFFE0, 0xFFE7), range(0x1F300, 0x1F650), range(0x1F1E6, 0x1F200)]
+ZERO = [range(0x300, 0x370), range(0x200B, 0x2010), range(0xFE00, 0xFE10), range(0x1160, 0x1200), [0xAD, 0x20E3, 0x1F3FB]]
+
+
+def any_rune(rng):
+    while True:
+        c = rng.randrange(0xA0, 0x110000)
+        if not 0xD800 <= c < 0xE000:
+            return c
+
+
+def utf8_piece(rng):
+    """Runes of each width, bytes that never start a rune, or a rune cut short."""
+    k = rng.random()
+    if k < 0.6:
+        kinds = [NARROW, NARROW, WIDE, WIDE, ZERO]
+        return "".join(chr(any_rune(rng) if rng.random() < 0.1 else rng.choice(rng.choice(rng.choice(kinds))))
+                       for _ in range(rng.randint(1, 6))).encode()
+    if k < 0.8:
+        return bytes(rng.choice(list(range(0x80, 0xC2)) + list(range(0xF5, 0x100))) for _ in range(rng.randint(1, 3)))
+    whole = chr(rng.choice(rng.choice(NARROW + WIDE))).encode()
+    return whole[: rng.randint(1, max(1, len(whole) - 1))]
+
+
 def csi(rng, every):
     params = []
     for _ in range(rng.choice([0, 0, 1, 1, 1, 2, 2, 3, 5])):
@@ -520,7 +629,7 @@ def csi(rng, every):
     if rng.random() < 0.04:
         out += b" "
     if rng.random() < 0.03:
-        out += bytes([rng.choice([8, 13, 0x11, 10])])
+        out += bytes([rng.choice([8, 13, 0x11, 10, 0x84, 0x85, 0x8D, 0x9B, 0x9C, 0xA0, 0xC3])])
     return out + rng.choice(FINALS_ALL if every else FINALS).encode()
 
 

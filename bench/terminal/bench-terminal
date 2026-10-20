@@ -3,12 +3,14 @@
 
 usage: bench/terminal/bench-terminal [options]
 
-  --files a,b       corpora (default: text,scroll,sgr,tui), each about 4 MB,
-                    written once into OUT/data:
+  --files a,b       corpora (default: text,scroll,sgr,tui,utf8), each about
+                    4 MB, written once into OUT/data:
                       text     lines of words, CR LF between them, as `cat` of a log
                       scroll   short lines, so nearly every byte or two scrolls
                       sgr      colored words and resets, a line break now and then
                       tui      full-screen frames: CUP, SGR, a run of text, EL
+                      utf8     lines of words in accented Latin, Greek, Cyrillic,
+                               CJK, kana, Hangul, and emoji among ASCII ones
   --variants a,b    what to build and time (default: all but experiments):
                       rig-safe        bench.rig, rig build --release (Zig's safe mode)
                       rig-fast        bench.rig, rig build --release=fast
@@ -17,6 +19,13 @@ usage: bench/terminal/bench-terminal [options]
                                       no scrollback, as std.terminal has none
                       ghostty-scroll  the same with 10 MB of scrollback, Ghostty's
                                       default
+                      ghostty-simd    ghostty with its C++ SIMD paths (simdutf,
+                                      Highway); only when $GHOSTTY_SDK names a
+                                      macOS SDK Zig 0.16's libc++ builds against
+                      dispatch        Dispatch's engine (Term, Swift, swiftc -O
+                                      -wmo), no scrollback and mode 2027 off, as
+                                      Ghostty's; only when $DISPATCH names a
+                                      Dispatch checkout (bench/terminal/dispatch.swift)
                     and an experiment, only when named:
                       rig-nocheck     rig-fast with Rig's index, slice, and read
                                       bounds checks removed from its runtime (as
@@ -39,8 +48,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import terminal_ghostty  # noqa: E402
 
-FILES = ["text", "scroll", "sgr", "tui"]
-VARIANTS = ["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"]
+FILES = ["text", "scroll", "sgr", "tui", "utf8"]
+VARIANTS = (["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"] + (["ghostty-simd"] if os.environ.get("GHOSTTY_SDK") else [])
+            + (["dispatch"] if os.environ.get("DISPATCH") else []))
 SIZE = 4_000_000
 
 
@@ -48,12 +58,35 @@ def words(rng):
     return ["".join(rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(rng.randint(2, 9))) for _ in range(500)]
 
 
+# The letters of the utf8 corpus's scripts, and how often a word is in
+# each; CJK, kana, Hangul, and emoji are two columns wide.
+SCRIPTS = [
+    ("abcdefghijklmnopqrstuvwxyz", 4),
+    ("aeiouéèêàâçñöüßøåæœ" + "abcdefghijklmnopqrstuvwxyz", 3),
+    ("".join(chr(c) for c in range(0x3B1, 0x3CA)), 2),
+    ("".join(chr(c) for c in range(0x430, 0x450)), 2),
+    ("".join(chr(c) for c in range(0x4E00, 0x4E00 + 3000)), 3),
+    ("".join(chr(c) for c in range(0x3041, 0x3094)), 1),
+    ("".join(chr(c) for c in range(0xAC00, 0xAC00 + 2000)), 1),
+    ("".join(chr(c) for c in range(0x1F600, 0x1F650)), 1),
+]
+
+
+def utf8_words(rng):
+    out = []
+    for letters, weight in SCRIPTS:
+        wide = ord(letters[0]) >= 0x1100
+        for _ in range(100 * weight):
+            out.append("".join(rng.choice(letters) for _ in range(rng.randint(1, 4) if wide else rng.randint(2, 9))))
+    return out
+
+
 def corpus(name, cols, rows):
     rng = random.Random(name)
-    w = words(rng)
+    w = utf8_words(rng) if name == "utf8" else words(rng)
     out, n = [], 0
     while n < SIZE:
-        if name == "text":
+        if name in ("text", "utf8"):
             s = " ".join(rng.choice(w) for _ in range(rng.randint(3, 14))) + "\r\n"
         elif name == "scroll":
             s = rng.choice(w)[: rng.randint(1, 9)] + "\r\n"
@@ -66,14 +99,17 @@ def corpus(name, cols, rows):
             for _ in range(rng.randint(3, 12)):
                 text = " ".join(rng.choice(w) for _ in range(rng.randint(1, 5)))[: cols - 1]
                 s += "\x1b[%d;%dH\x1b[%d;3%dm%s\x1b[0m\x1b[K" % (rng.randint(1, rows), rng.randint(1, cols // 2), rng.choice([0, 1, 7]), rng.randint(0, 7), text)
+        s = s.encode()
         out.append(s)
         n += len(s)
-    return "".join(out).encode()
+    return b"".join(out)
 
 
 def build(variant, out):
     if variant.startswith("ghostty"):
-        return [terminal_ghostty.bench_exe()]
+        return [terminal_ghostty.bench_exe(variant == "ghostty-simd")]
+    if variant == "dispatch":
+        return [build_dispatch(out)]
     exe = os.path.join(out, variant)
     flag = "--release" if variant == "rig-safe" else "--release=fast"
     emitted = os.path.join(out, variant + ".out")
@@ -87,6 +123,24 @@ def build(variant, out):
         if r.returncode != 0:
             sys.exit("bench-terminal: building rig-nocheck failed:\n%s" % r.stderr)
     return [exe]
+
+
+def build_dispatch(out):
+    """bench/terminal/dispatch.swift compiled into Term, Dispatch's engine, from $DISPATCH."""
+    src = os.path.join(os.environ.get("DISPATCH", ""), "Vendor", "Term", "Sources", "Term")
+    if not os.path.isdir(src):
+        sys.exit("bench-terminal: set DISPATCH to a Dispatch checkout (it has Vendor/Term/Sources/Term)")
+    build = os.path.join(out, "dispatch.build")
+    os.makedirs(build, exist_ok=True)
+    main = os.path.join(build, "main.swift")
+    with open(os.path.join(ROOT, "bench", "terminal", "dispatch.swift")) as f, open(main, "w") as g:
+        g.write(f.read())
+    exe = os.path.join(out, "dispatch")
+    sources = sorted(os.path.join(src, f) for f in os.listdir(src) if f.endswith(".swift"))
+    r = subprocess.run(["swiftc", "-O", "-wmo", "-module-name", "Term", "-o", exe] + sources + [main], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("bench-terminal: building dispatch failed:\n%s" % r.stderr[-2000:])
+    return exe
 
 
 def bench_json():
@@ -103,7 +157,9 @@ def bench_json():
 
 def time_it(cmd, variant, path, n, cols, rows):
     if variant.startswith("ghostty"):
-        args = cmd + ["bench", path, str(n), str(cols), str(rows), "0" if variant == "ghostty" else "10000000"]
+        args = cmd + ["bench", path, str(n), str(cols), str(rows), "10000000" if variant == "ghostty-scroll" else "0"]
+    elif variant == "dispatch":
+        args = cmd + [path, str(n), str(cols), str(rows), "0"]
     else:
         args = cmd + [path, str(n), str(cols), str(rows)]
     r = subprocess.run(args, capture_output=True, text=True)
