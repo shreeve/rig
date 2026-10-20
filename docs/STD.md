@@ -33,7 +33,7 @@ never read as the library's.
 | [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.bigint`](#stdbigint) | integers of any size: parsing, printing, arithmetic, shifts, powers, and the nearest Float |
 | [`std.os`](#stdos) | the program's arguments and environment |
-| [`std.file`](#stdfile) | reading a whole file |
+| [`std.file`](#stdfile) | reading and writing a whole file, and asking what is at a path |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
@@ -287,11 +287,13 @@ nowhere
 
 ## std.file
 
-Reading a whole file into a `String`, and asking what is at a path.
+Reading a whole file into a `String`, writing one, and asking what is
+at a path.
 
 | Function | Result |
 |---|---|
 | `read(path: ?String) -> String?` | the file at `path` as a fresh `String` of exactly its bytes, or `none` when it cannot be read |
+| `write(path: ?String, data: ?String)!` | writes `data` as the whole file at `path`, making each missing directory on the way; fails with a `FileError` |
 | `stat(path: ?String) -> Stat?` | what is at `path`: its `kind`, whether it is a `link`, and its `size`; `none` when nothing is |
 | `read_dir(path: ?String) -> List[Entry]?` | the entries of the directory at `path`, sorted by name, each with its `name`, `kind`, and `link`; `none` when it is not a directory that can be read |
 | `realpath(path: ?String) -> String?` | the absolute path `path` names, every symbolic link in it resolved; `none` when nothing is there |
@@ -358,6 +360,31 @@ true true
 
 The suite runs this example from the repository's root, where
 `examples/hello.rig` is.
+
+`write` creates the file, or replaces what it holds, and first makes
+each directory on the way to it that is missing, as Go's `os.MkdirAll`
+and `os.WriteFile` do together. It is not atomic: a reader at the same
+time may see part of the bytes. When it fails, it says why with a
+`FileError`:
+
+| Error | When |
+|---|---|
+| `not_found` | nothing is at the path, or at a directory on the way to it (an empty path) |
+| `exists` | something is at the path already |
+| `denied` | the system does not allow it: permissions, or a read-only file system |
+| `not_directory` | a part of the path before its last name is not a directory |
+| `is_directory` | the path names a directory, where a file is wanted |
+| `failed` | anything else: no space left, too many open files, an I/O error |
+
+```rig
+use std.file
+
+sub main()
+  file.write("out/gen/main.zig", "pub fn main() void {}\n") catch |e|
+    print("cannot write:", e)
+    return
+  print(file.read("out/gen/main.zig") ?? String())
+```
 
 ## std.time
 
