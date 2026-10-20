@@ -42,27 +42,22 @@ connections:
 
 ```text
                  req/s       p50       p99 per idle conn
-rig-fast        191526     326 us     597 us      16.6 KiB
-tokio           180339     346 us     614 us      18.6 KiB
-go              163675     366 us    1071 us      18.5 KiB
+rig-fast        170966     366 us     643 us      16.6 KiB
+tokio           175293     355 us     642 us      18.6 KiB
+go              160870     368 us    1147 us      18.8 KiB
 ```
 
-On pup (Linux, x86-64, 22 cores), 10,000 idle connections, and then
-100,000 (one run):
+On pup (Linux, x86-64, 22 cores), 10,000 idle connections:
 
 ```text
                  req/s       p50       p99 per idle conn
-rig-fast        845844      51 us     427 us      16.6 KiB
-tokio           294609     162 us     808 us      10.8 KiB
-go              237436     153 us    1439 us      19.3 KiB
-
-rig-fast        974848      41 us     538 us      16.6 KiB
-tokio           297544     168 us     731 us      10.8 KiB
-go              249642     136 us    1514 us      19.2 KiB
+rig-fast       1124804      37 us     402 us       8.6 KiB
+tokio           323563     150 us     679 us      10.8 KiB
+go              291449     124 us    1198 us      18.9 KiB
 ```
 
-Rig answers as fast as hyper on the Mac and about three times as many
-requests on pup. An idle connection holds no buffer: its read and write
+Rig answers as fast as hyper on the Mac and about three and a half
+times as many requests on pup. An idle connection holds no buffer: its read and write
 buffers, 16 KiB, are a block of its worker's while it reads and answers
 a request, given back while it waits for the next (`net.Conn.fill`,
 `sched.takeBlock`), and a worker keeps 64 blocks, so a burst leaves no
