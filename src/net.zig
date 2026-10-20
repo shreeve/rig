@@ -307,13 +307,13 @@ pub fn copy(from: anytype, to: anytype) anyerror!i64 {
 const copy_block = 64 << 10;
 
 fn copyRead(from: anytype, dest: []u8) anyerror!usize {
-    if (@hasField(@TypeOf(from.*), "reg")) return readSome(@intCast(@field(from, "fd")), @field(from, "reg"), dest);
+    if (@hasField(@TypeOf(from.*), "reg")) return readSome(@intCast(@field(from, "fd")), @field(from, "reg"), dest, .{});
     try stopped();
     return rig.blocking(fileRead, .{ @as(i32, @intCast(@field(from, "fd"))), dest });
 }
 
 fn copyWrite(to: anytype, bytes: []const u8) anyerror!void {
-    if (@hasField(@TypeOf(to.*), "reg")) return write_to(@field(to, "fd"), @field(to, "reg"), bytes);
+    if (@hasField(@TypeOf(to.*), "reg")) return writeAll(@intCast(@field(to, "fd")), @field(to, "reg"), bytes, .{});
     try stopped();
     return rig.blocking(fileWrite, .{ @as(i32, @intCast(@field(to, "fd"))), bytes });
 }
