@@ -1610,7 +1610,7 @@ const Lowerer = struct {
         const label = self.label;
         self.label = null;
         const cond = ir.While.cond(s);
-        if (rig.bindsInCondition(cond) and !cond.isKind(.as) and !cond.isKind(.as_results)) return self.whileChain(s, label, loop_value);
+        if (rig.bindsInCondition(cond)) return self.whileChain(s, label, loop_value);
         const h = try self.newBlock();
         try self.goto(h);
         self.cur = h;
@@ -1620,23 +1620,15 @@ const Lowerer = struct {
         const st = try self.newBlock();
         // A jump in the condition (`?? break`) leaves the loop too.
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
-        var held: ?Held = null;
-        var held_parts: ?[]const VarId = null;
-        if (cond.isKind(.as)) {
-            held = try self.asHeader(ir.As.value(cond), .take);
-        } else if (cond.isKind(.as_results)) {
-            held_parts = try self.resultsHeader(cond);
-        } else try self.header(cond);
+        try self.header(cond);
         const els = ir.While.@"else"(s);
         const e = if (els == .nil) x else try self.newBlock();
         if (forever) try self.goto(b) else try self.branch(b, e);
         const step = ir.While.step(s);
-        // One iteration's region holds the `as` binding through the body
-        // and the step; `continue` goes to the step inside it.
+        // One iteration's region holds the body's and the step's
+        // temporaries; `continue` goes to the step inside it.
         self.cur = b;
         try self.pushRegion();
-        if (held) |hv| try self.bindHeld(ir.As.name(cond), hv, self.optionalInner(hv.ty));
-        if (held_parts) |hp| try self.bindParts(ir.AsResults.names(cond).items(), hp);
         self.loops.items[self.loops.items.len - 1].cont_depth = self.regions.items.len;
         try self.blockStmts(ir.While.body(s));
         try self.goto(st);
@@ -1653,10 +1645,11 @@ const Lowerer = struct {
         self.cur = x;
     }
 
-    /// A `while` whose condition joins parts with `and`, or tests a
-    /// variant (`while e as .item(x)`): each pass runs the parts
-    /// (`condChain`), then the body and the step in the scopes of their
-    /// bindings; a part that fails ends the loop.
+    /// A `while` whose condition binds (`e as x`, `f() as a, b`,
+    /// `e as .item(x)`, alone or joined by `and`): each pass runs the
+    /// parts (`condChain`), then the body, and the step, in the scopes of
+    /// the bindings when it reads one of them and after they end
+    /// otherwise; a part that fails ends the loop.
     fn whileChain(self: *Lowerer, s: Sexp, label: ?[]const u8, loop_value: ?VarId) Error!void {
         const h = try self.newBlock();
         try self.goto(h);
