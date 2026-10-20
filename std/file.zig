@@ -1,6 +1,6 @@
 //! `std.file`: reading a whole file into a `String` the runtime's
-//! allocator owns, so the leak checker and the sanitizer see it, and
-//! asking what is at a path. Every call runs on the blocking pool
+//! allocator owns, so the leak checker and the sanitizer see it, writing
+//! one, and asking what is at a path. Every call runs on the blocking pool
 //! (`rig.blocking`), so only the task making it waits.
 
 const std = @import("std");
@@ -41,6 +41,48 @@ fn readHere(path: []const u8) ?rig.String {
     }
     if (list.capacity != list.items.len) list.shrinkAndFreePrecise(gpa, list.items.len) catch rig.oom();
     return .{ .list = list };
+}
+
+/// `std.file.FileError`, which the emitter names
+/// `error.@"std.file.FileError.name"`.
+pub const FileError = error{
+    @"std.file.FileError.not_found",
+    @"std.file.FileError.exists",
+    @"std.file.FileError.denied",
+    @"std.file.FileError.not_directory",
+    @"std.file.FileError.is_directory",
+    @"std.file.FileError.failed",
+};
+
+/// The FileError for a failure of the system's.
+fn failure(err: anyerror) FileError {
+    return switch (err) {
+        error.FileNotFound => error.@"std.file.FileError.not_found",
+        error.PathAlreadyExists => error.@"std.file.FileError.exists",
+        error.AccessDenied, error.PermissionDenied, error.ReadOnlyFileSystem => error.@"std.file.FileError.denied",
+        error.NotDir => error.@"std.file.FileError.not_directory",
+        error.IsDir => error.@"std.file.FileError.is_directory",
+        else => error.@"std.file.FileError.failed",
+    };
+}
+
+/// Write `data` as the whole file at `path`, creating it or truncating
+/// it, and making each missing directory on the way to it.
+pub fn write(path: []const u8, data: []const u8) FileError!void {
+    return rig.blocking(writeHere, .{ path, data });
+}
+
+fn writeHere(path: []const u8, data: []const u8) FileError!void {
+    const io = rig.io();
+    const cwd = std.Io.Dir.cwd();
+    cwd.writeFile(io, .{ .sub_path = path, .data = data }) catch |err| {
+        if (err != error.FileNotFound) return failure(err);
+        // A directory on the way is missing: make them all, then try once
+        // more.
+        const parent = std.fs.path.dirname(path) orelse return failure(err);
+        cwd.createDirPath(io, parent) catch |e| return failure(e);
+        cwd.writeFile(io, .{ .sub_path = path, .data = data }) catch |e| return failure(e);
+    };
 }
 
 /// The absolute path `path` names, links resolved, or null when nothing
