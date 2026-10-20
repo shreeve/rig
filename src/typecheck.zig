@@ -10807,7 +10807,9 @@ const Checker = struct {
             return obj_ty;
         }
 
-        if (rig.isWaitMember(callee)) if (try self.waitOperand(obj, obj_ty, pos, args)) |ty| return ty;
+        if (rig.isWaitMember(callee)) {
+            if (try self.waitOperand(obj, obj_ty, pos, args)) |ty| return ty;
+        } else if (try self.spelledWait(obj, obj_ty, method, pos, args)) |ty| return ty;
         if (sema.actorOfHandle(self.ctx, obj_ty)) |value| return self.actorCall(callee, obj, obj_ty, value, method, pos, args, ct);
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| {
             const reads = switch (std.meta.stringToEnum(sema.ElemOp, method) orelse .copy) {
@@ -11957,6 +11959,18 @@ const Checker = struct {
         if (task) return try self.badCall(args, pos, "`>{s}` takes the task, and `{s}` is a view of it, `{s}`: only the one that holds a task waits for it", .{ shown, shown, try self.tyName(obj_ty) });
         if (self.ctx.types.get(held) == .function) return try self.badCall(args, pos, "`>` waits for a task, and `{s}` is a function: make its call a task, `t = {s}(...)&`, then wait for it, `>t`", .{ shown, shown });
         return try self.badCall(args, pos, "`>` waits for a task, and `{s}` has type `{s}`; a task is a call made with `&`, `t = f(x)&`", .{ shown, try self.tyName(obj_ty) });
+    }
+
+    /// `t.wait()` or `ts.wait_all()` written out: a task is waited for
+    /// with `>t`, and a set with `>ts` (a set's wait with a deadline,
+    /// `<ts.wait_all(within: ns)`, stays a method).
+    fn spelledWait(self: *Checker, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const held = sema.unwrapViews(self.ctx, obj_ty);
+        const task = sema.isTask(self.ctx, held) and std.mem.eql(u8, method, "wait");
+        const set = sema.isTaskSet(self.ctx, held) and std.mem.eql(u8, method, "wait_all") and args.len == 0;
+        if (!task and !set) return null;
+        const shown = try self.plainText(stripSigil(obj));
+        return try self.badCall(args, pos, "a {s} is waited for with `>`: write `>{s}`", .{ if (task) "task" else "set of tasks", shown });
     }
 
     fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {

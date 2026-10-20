@@ -231,6 +231,16 @@ fail "wait negated", "`->` gives a function's result type; to negate what the ta
   x = ->t
   print(x)
 
+fail "wait written out", "a task is waited for with `>`: write `>t`", "a set of tasks is waited for with `>`: write `>ts`"
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  print(<t.wait())
+  ts = Tasks[Int]()
+  !ts.add(sq(2)&)
+  print(<ts.wait_all())
+
 fail "wait print a task", "`t` is a task, which `print` cannot show: wait for what it gives, `>t`"
   fun sq(x: Int) -> Int
     x * x
