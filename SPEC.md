@@ -8351,9 +8351,34 @@ must say what happens to the failure, visibly:
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
+- A `catch` whose value goes nowhere, a statement or the value of
+  `_ =`, may have a handler that gives nothing: `f() catch |e| print(e)`
+  handles the failure and goes on. A handler that gives a value gives
+  the fallback, as anywhere (`f() catch 0`). A value that owns what it
+  must release is dropped visibly, so only `_ = make() catch |e| ...`
+  may throw it away so.
 
 An error is a value a caller handles. A state the program cannot go on
 from is a bug, for `panic` ([§17](#panic)), which no caller sees.
+
+```rig
+error Parse
+  empty
+
+fun parse(s: ?String) -> Int!
+  return Parse.empty if s.len == 0
+  s.len
+
+sub main()
+  parse("") catch |e| print("failed", e)
+  parse("") catch 0
+  print("done")
+```
+
+```output
+failed Parse.empty
+done
+```
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A `drop` body and a `defer` cannot propagate, and a

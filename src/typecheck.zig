@@ -152,6 +152,8 @@ const Checker = struct {
     /// The expression statement being checked, whose value is
     /// discarded (`isDiscardedCall`).
     discarded: Sexp = .nil,
+    /// `discarded` is the value of `_ =`, which drops it by name.
+    discard_named: bool = false,
     /// The last line of the test being checked: a `Bool` there is the
     /// test's value, which decides it (`checkExprStmt`).
     test_tail: Sexp = .nil,
@@ -993,6 +995,9 @@ const Checker = struct {
         const saved = self.discarded;
         defer self.discarded = saved;
         self.discarded = stmt;
+        const saved_named = self.discard_named;
+        defer self.discard_named = saved_named;
+        self.discard_named = false;
         try self.ctx.recordDiscard(stmt);
         // A call's several results are discarded whole, as one result is.
         const saved_ok = self.results_ok;
@@ -1406,6 +1411,9 @@ const Checker = struct {
             const saved = self.discarded;
             defer self.discarded = saved;
             self.discarded = rhs;
+            const saved_named = self.discard_named;
+            defer self.discard_named = saved_named;
+            self.discard_named = true;
             // `_ = f()` discards every result `f` gives.
             const saved_ok = self.results_ok;
             defer self.results_ok = saved_ok;
@@ -5305,6 +5313,23 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
+        // A `catch` whose value goes nowhere, a statement's or `_ =`'s,
+        // may have a handler that gives nothing: then the `catch` gives
+        // nothing, `run() catch |e| print(e)`. A handler that gives a
+        // value gives the fallback, as anywhere (`run() catch 0`). A
+        // value that owns what it must release is dropped visibly, by
+        // `_ =`, so only there.
+        if (sameNode(e, self.discarded) and inner != self.t().void_id) {
+            if (try self.synthQuiet(handler) == self.t().void_id) {
+                const owned = sema.typeHasDropGlue(self.ctx, inner) or sema.maybeDropGlue(self.ctx, inner);
+                if (owned and !self.discard_named) {
+                    const shown = self.sourceText(value);
+                    try self.errAt(value, "`{s}` gives a `{s}`, which owns what it must release, and this `catch` throws it away: drop it by name, `_ = {s} catch ...`", .{ shown, try self.tyName(inner), shown });
+                }
+                try self.checkExpr(handler, self.t().void_id);
+                return self.t().void_id;
+            }
+        }
         const view_result = try self.joinFallback(self.fallbackType(inner, expected), handler);
         const result = if (try self.fallbackCopy(e, value, ty, view_result, handler, expected)) |copied| result: {
             if (self.isPoison(copied)) {

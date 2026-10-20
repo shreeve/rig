@@ -4921,6 +4921,7 @@ pub const Emitter = struct {
                 // value. A named error is held as `anyerror`, so it
                 // compares and matches with any error value.
                 const handler = ir.Catch.handler(sexp);
+                if (self.catchGivesNothing(sexp)) return self.emitCatchStatement(sexp);
                 // Where the handler is a `T?` and the value a `T!`, the
                 // value is one too: the handler is tested, and the result
                 // packed.
@@ -4979,6 +4980,43 @@ pub const Emitter = struct {
             .panic => try self.emitPanic(sexp),
             else => return self.unsupported(sexp, "this expression"),
         }
+    }
+
+    /// A `catch` whose value goes nowhere, with a handler that gives
+    /// nothing, though its value gives something (`Checker.synthCatch`).
+    fn catchGivesNothing(self: *Emitter, sexp: Sexp) bool {
+        if (self.typeOf(sexp) != self.facts.types.void_id) return false;
+        const value_ty = self.typeOf(ir.Catch.value(sexp)) orelse return false;
+        return switch (self.facts.types.get(value_ty)) {
+            .fallible => |inner| inner != self.facts.types.void_id,
+            else => false,
+        };
+    }
+
+    /// `run() catch |e| print(e)` whose value goes nowhere: Zig's `if` on
+    /// the error union, which drops a value and runs the handler on an
+    /// error, both branches giving nothing.
+    fn emitCatchStatement(self: *Emitter, sexp: Sexp) Error!void {
+        const handler = ir.Catch.handler(sexp);
+        const ok = try self.fresh("__rig_ok");
+        const kept = try self.fresh("__rig_kept");
+        try self.w.writeAll("(if (");
+        try self.emitFallbackHolder(sexp, ir.Catch.value(sexp));
+        try self.w.print(") |{s}| {{ var {s} = {s}; rig.drop(&{s}); }} else ", .{ ok, kept, ok, kept });
+        const name = ir.Catch.name(sexp);
+        const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
+        if (sym != null and self.usage.used.contains(sym.?)) {
+            const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
+            try self.w.print("|{s}| ", .{tmp});
+            try self.pushScope();
+            const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
+            try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } }, self.facts.types.void_id);
+            try self.popScope();
+        } else {
+            try self.w.writeAll("|_| ");
+            try self.emitValueBlock(handler, .{}, self.facts.types.void_id);
+        }
+        try self.w.writeAll(")");
     }
 
     /// A statement that gives a value (`facts.syntax.yieldsValue`).
