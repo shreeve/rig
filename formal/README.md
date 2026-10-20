@@ -37,7 +37,7 @@ warning is an error. Run it after changing `formal/`.
 | `LambdaRig/Sound.lean` | `sound`, the induction over programs, and `accepts_runs` |
 | `LambdaRig/Examples.lean` | Programs, whether the checker accepts each, and how each run ends |
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
-| `LambdaRig/Tasks.lean` | The task machine: parents, cores, pins, and the values that stay on one thread |
+| `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
 | `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
 
 ## What the first slice covers
@@ -104,32 +104,55 @@ is a run. Of every state reached:
   wait a cancel may end queues it;
 - `late_waker`: a waker of an earlier wait changes nothing.
 
-**`Tasks.lean`** models tasks: each with its parent, which holds its
-handle, its core, its pin, whether it was made local, the values it
-holds that stay on one thread, and whether it ended or was canceled.
-Its steps are a free spawn (given nothing that stays on one thread),
-a local spawn (pinning the task and its maker to the maker's core), a
-worker stealing a task that is not pinned, making and dropping such a
-value, cancel, finish (after waiting for every task of its own), and
-wait (the parent takes what the task held). **`TasksSound.lean`**
-proves one invariant kept by every step: every task's parent is
-running, a pinned task runs on its pin's core, and the holders of each
-value are one root and local descendants of it, pinned with it. Of
-every state reached:
+**`Tasks.lean`** models tasks: each with its holder (the task whose
+record holds its handle), its core, its pin, whether it was made local,
+the values it holds that stay on one thread, and whether it ended or
+was canceled. A task holds the handles of the tasks it is the holder
+of, and once it ends, what it holds is its result. Its steps are a free
+spawn (given nothing that stays on one thread, and only handles of
+tasks that are not local), a local spawn (pinning the task and its
+maker to the maker's core), either spawn given handles its maker holds
+(`Task[T]` as an argument), a worker stealing a task that is not
+pinned, making and dropping such a value, cancel by the holder, finish,
+and wait (the holder takes the values and the handles the task held,
+so a `Task[T]` comes back through a result). A task ends keeping its
+handles in its result; one it does not return it waits for first, as a
+dropped handle cancels and waits.
 
-- `no_orphans`: every task's parent is running, so no task outlives,
-  unwaited, the task that holds its handle;
+`finish` models the rule that a task's result moves unless the task is
+local (`sema`, the check `par.map` makes): a task that is not local
+returns no value that stays on one thread and no handle of a local
+task, since a local task's result need not cross and so neither does
+its handle. `confined` needs it: without it, a free task could share a
+value with a local task and return it, with that task's handle, to a
+task on another core (the panel's `d1_result_smuggle.rig`).
+
+**`TasksSound.lean`** proves one invariant kept by every step: every
+task's chain of holders reaches `main` (so none loops), once `main` has
+ended no other task is left, a pinned task runs on its pin's core, two
+holders of one value are pinned to one core, a local task's holder is
+pinned with it, and an ended task that is not local holds nothing that
+does not cross. Of every state reached:
+
+- `no_orphans`: every task but `main` is held by a running task, or by
+  the result of an ended task held so in turn, so no task runs, or
+  waits to be waited for, with no running task answerable for it;
+- `main_last`: once `main` has ended, it is the only task;
 - `confined`: two tasks holding one such value are pinned to one core
   and run there, so no two cores touch it;
 - `pin_kept`: a pinned task stays on its core from then on;
 - `cancel_sticky`: a cancel is never taken back.
 
-`localTask_reach` is a run that reaches a state with two holders, so
-the invariant is not vacuous.
+Two runs show the invariant is not vacuous: `localTask_reach` reaches a
+state with two holders of one value, and `handed2_reach` the shape of
+the panel's `ret.rig`: task 1 makes task 2 and ends while 2 runs,
+holding 2's handle in its result; `main` waits for 1 and takes 2, then
+hands 2 to a new task 3.
 
-Not yet: a task's handle handed to another task, `Tasks` sets, actors
-and channels (whose contents the crossing rule restricts), the
-deadlock walk, and unwinding to a boundary.
+Not yet: `Tasks` sets, actors and channels (whose contents the crossing
+rule restricts), that dropping a handle cancels and waits (the model
+has a task wait before it ends instead), the deadlock walk, and
+unwinding to a boundary.
 
 ## What is not proved
 
