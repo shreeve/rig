@@ -230,7 +230,7 @@ test "task local", seeds: 20, '''
   # A task given or lent a value that stays on one thread (a `*` handle
   # whose count is not atomic, anywhere inside what it is passed) is
   # local: it and the task making it run on one thread from then on
-  # (docs/CONCURRENCY.md, "Local tasks").
+  # (docs/design/concurrency.md, "Local tasks").
   obj Node
     v: Int
 
@@ -500,7 +500,7 @@ test "task hogs", release: true, '''
   # Loops and recursion that never wait leave a worker often enough for
   # the work that waits behind them: a loop counts its turns toward a
   # yield check, and a recursive call checks for work left waiting
-  # (docs/concurrency/SCHEDULER.md). Each step queues a long loop on
+  # (docs/internals/scheduler.md). Each step queues a long loop on
   # main's worker ahead of `a`, which would wait for all of it.
   use std.time
 
@@ -544,7 +544,7 @@ bomb "task stack overflow frame", "rig: stack overflow", prints: "before"
   # A task's frame larger than its whole stack stops the program with a
   # stack-overflow error before it writes anything past the stack: the
   # guard below a task's stack is at least twice the program's largest
-  # frame (docs/concurrency/SCHEDULER.md, "Stacks"), here `big`'s.
+  # frame (docs/internals/scheduler.md, "Stacks"), here `big`'s.
 
   fun take(a: [800000]Int, k: Int) -> Int
     a[k]

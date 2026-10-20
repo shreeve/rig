@@ -1,7 +1,7 @@
 # Rig test suite
 
 `test/rig.rip` runs Rig's tests with Rip's Swarm
-([docs/RIG-TESTS.md](../docs/RIG-TESTS.md) is its spec): the cases of
+([docs/internals/tests.md](../docs/internals/tests.md) is its spec): the cases of
 `test/rig/*.rig.test` (every behavior and rejection test), every
 ```` ```rig ```` block of the docs, `examples/`, `test/torture/`, the
 unit tests, and the reference ownership checker's sets in its core; the
@@ -29,7 +29,7 @@ A case that fails lands in `.swarm/died`, with its reason in
 
 | Path | What it holds |
 |---|---|
-| `test/rig/<area>.rig.test` | the behavior and rejection tests, as cases (docs/RIG-TESTS.md) |
+| `test/rig/<area>.rig.test` | the behavior and rejection tests, as cases (docs/internals/tests.md) |
 | `test/cli/<name>.sh` | a script that drives the `rig` command line (below) |
 | `test/torture/<name>.rig` | bad input `rig run` must reject with a `file:line:col` diagnostic, never crashing |
 | `test/rig/probes-*.rig.test` | the probes of past reviews, as cases (below) |
@@ -46,12 +46,12 @@ nothing (below).
 An example, `examples/<name>.rig`, is a whole program whose `# expect:`
 block (the comment lines after it, `# ` taken off each) is what it
 prints. `test/rig.rip` runs each as a `test` case. The cases of
-`test/rig` give their results on their headers (docs/RIG-TESTS.md).
+`test/rig` give their results on their headers (docs/internals/tests.md).
 
 ## Doc examples
 
 Every ```` ```rig ```` block in the Markdown files (`*.md`, `docs/`,
-`docs/learn/`, `docs/launch/`, `examples/`, `test/`) is a test, so the docs cannot drift from the
+`docs/learn/`, `docs/launch/`, `docs/design/`, `docs/internals/`, `examples/`, `test/`) is a test, so the docs cannot drift from the
 compiler. The word after `rig` on the opening fence sets the contract:
 
 | Fence | Contract |
@@ -145,7 +145,7 @@ freed. Leak checking still covers every block.
 
 `RIG_STRICT_OPTIONALS=1 swarm test/rig.rip` runs the suite with every object's
 optional held as a tagged struct, which Zig never lifts a value into
-and never tests with `orelse` or `null` (docs/INTERNALS.md, Emit,
+and never tests with `orelse` or `null` (docs/internals/INTERNALS.md, Emit,
 "Optionals"). A program then compiles only if the compiler writes
 every operation on such an optional through the runtime's optional
 helpers, and prints what it prints in a plain run, so a run in this
@@ -417,7 +417,7 @@ swarm test/rig.rip proofs        # programs with a proven test
 swarm test/rig.rip proofs-all    # every program
 ```
 
-runs the tests the compiler omits (docs/INTERNALS.md, "Proven checks")
+runs the tests the compiler omits (docs/internals/INTERNALS.md, "Proven checks")
 three ways, for each `test` and `bomb` case (but known bugs) and example
 that `rig check --facts=proofs` lists a test for: in
 debug, where every omitted test is still made as an assertion, with

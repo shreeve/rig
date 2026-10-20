@@ -3,7 +3,7 @@ and a function replacer for the emitted json.zig.
 
 Every helper picks the instruction by a comptime test of the target and
 falls back to portable Zig elsewhere, as the Rig operation it stands for
-would (docs/json/OPCODE-STUDY.md names the operation).
+would (docs/history/json-opcodes.md names the operation).
 """
 import re
 

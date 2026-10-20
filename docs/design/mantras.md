@@ -3,8 +3,8 @@
 Short phrases we steer by. Each is a lesson Rig has already paid for,
 written down so the next decision costs less. When two choices both
 work, the one a mantra favors wins. The rules they come from are in
-[AGENTS.md](../AGENTS.md), [docs/CORE.md](CORE.md), and
-[docs/DESIGN.md](DESIGN.md).
+[AGENTS.md](../../AGENTS.md), [docs/CORE.md](../CORE.md), and
+[docs/DESIGN.md](../DESIGN.md).
 
 ## How we choose
 
@@ -30,7 +30,7 @@ the pieces (ownership, vectors, closures); frameworks are built from
 them, not built in.
 
 **Shorter and plainer than idiomatic Rust.** That is the bar a new form
-must clear ([IDEAS.md](../IDEAS.md)).
+must clear ([docs/history/ideas.md](../history/ideas.md)).
 
 ## How we build
 

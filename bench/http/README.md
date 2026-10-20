@@ -3,7 +3,7 @@
 Times Rig's HTTP server (`http.serve`, docs/STD.md) against Go's
 `net/http` and hyper on Tokio: requests per second and latency under
 load, and the memory an idle connection holds. These are the plan's
-target benchmarks (docs/CONCURRENCY.md, "The target"). It is not part
+target benchmarks (docs/design/concurrency.md, "The target"). It is not part
 of the test suite or CI.
 
 ```sh

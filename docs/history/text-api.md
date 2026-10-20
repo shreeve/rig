@@ -1,9 +1,11 @@
 # The text API
 
+> **History.** This is the planned names of the text API. The library is documented in [docs/STD.md](../STD.md) and its design in [docs/TEXT.md](../TEXT.md). It is kept as written.
+
 Every public name in Rig's text modules, with its signature, in one
 list: the owner's final API (2026-10-13). The design, the four units,
-and the reasons are in [TEXT.md](TEXT.md); each module's full reference
-is in [STD.md](STD.md). A name marked *(planned)* is decided and not
+and the reasons are in [TEXT.md](../TEXT.md); each module's full reference
+is in [STD.md](../STD.md). A name marked *(planned)* is decided and not
 built yet: it names the round that builds it, and nothing here claims it
 works until that round lands.
 

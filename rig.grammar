@@ -57,7 +57,7 @@
 #     what it follows, and an infix operator has the same spacing on
 #     both sides.
 #
-# The grammar has no LALR conflicts; see docs/INTERNALS.md (Conflicts policy).
+# The grammar has no LALR conflicts; see docs/internals/INTERNALS.md (Conflicts policy).
 # ==============================================================================
 
 @lang = "rig"
@@ -377,7 +377,7 @@ tokens
 # used) and generates the `Tag` and `Role` enums and the `ir` accessors
 # the compiler reads the tree with. A node always has all of its slots:
 # `_` where an optional role (`?`) is absent. A `...role` takes the
-# remaining children. See docs/INTERNALS.md (The semantic IR).
+# remaining children. See docs/internals/INTERNALS.md (The semantic IR).
 #
 # Role types: `leaf` is a name or literal; `group` an untagged list (a
 # parameter list); `tag(...)` a marker; `a|b` a node of one of those

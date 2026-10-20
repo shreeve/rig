@@ -1,5 +1,7 @@
 # Rig notes: what making std.json fast found in the language
 
+> **History.** This is dated notes from making std.json fast. Open items are in [docs/ROADMAP.md](../ROADMAP.md). It is kept as written.
+
 A running list of the weak, missing, and inconsistent spots in Rig that
 work on `std.json` runs into, written down so they can be fixed while
 the language is young. Each entry says what is wrong or missing, where
@@ -12,13 +14,13 @@ it showed up, what it costs, and a fix to consider.
 - *parked*: real, but not worth the change now;
 - *fixed*: on `main`.
 
-The measurements are in [json/RESULTS.md](json/RESULTS.md), and the
+The measurements are in [json/RESULTS.md](json-results.md), and the
 tools that take them in `bench/json/`.
 
 ## Asymmetries and inconsistencies
 
 1. **Vectors take every operator but the shifts.** `+ - * & | ^ +% -%`
-   and the comparisons work lane by lane, but [SPEC](../SPEC.md#vectors)
+   and the comparisons work lane by lane, but [SPEC](../../SPEC.md#vectors)
    says the shifts take no vector. Every nibble lookup needs `v >> 4`,
    and the `\u` hex decoder `v << 4`. Fix: `v >> c` and `v << c` (and
    `<<%`) on integer lanes, with the scalar rules. *In flight (requested
@@ -97,7 +99,7 @@ tools that take them in `bench/json/`.
    parser is compiled as part of whatever calls `parse`, and its code
    changed with the caller (when the benchmark's `main` was simplified,
    canada took 9% fewer instructions and github_events 10% more,
-   docs/json/RESULTS.md).
+   docs/history/json-results.md).
    Keeping such a function out of line would make its code the same in
    every program. *Verified; waiting on #154 to re-measure.*
 8. **A List's length and capacity are reloaded on every push.** In
@@ -156,7 +158,7 @@ tools that take them in `bench/json/`.
     function proves of its result, or proofs after inlining.
     *Observed. Partly fixed: a function whose every return value is a
     small literal, or an object whose field is one, proves a caller's
-    `i += d.size` (docs/INTERNALS.md, "Proven checks", Results); a bound
+    `i += d.size` (docs/internals/INTERNALS.md, "Proven checks", Results); a bound
     in terms of an argument, such as `>= i`, is still open.*
 11. **A List's length converts to `Int` with a check.** `rig.len` tests
     `n > max_len` at every `xs.len` (about 11 sites in std.json), though
@@ -278,7 +280,7 @@ tools that take them in `bench/json/`.
     for its load; a branch the predictor learns does not.
     `bench/json/guard.py` counts instructions only, so it passes such a
     change: a change to a hot loop is judged by time on both machines.
-    *Verified* (docs/json/RESULTS.md).
+    *Verified* (docs/history/json-results.md).
 26. **A guard cannot bind.** `return i + k if m.first() as k` is
     rejected with "use of unbound name `k`": a guard (`if cond` after a
     statement) takes a `Bool`, and `as` binds only in a block form (`if

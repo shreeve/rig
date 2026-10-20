@@ -1,9 +1,11 @@
 # Panel 2: language concurrency models, reviewing CONCURRENCY.md
 
+> **History.** This is a review of an early draft of the concurrency design. The design as built is [docs/design/concurrency.md](../../design/concurrency.md), the rules are in [SPEC.md §18](../../../SPEC.md#18-tasks), and the review of the model as built is [docs/design/concurrency-panel](../../design/concurrency-panel/README.md). It is kept as written.
+
 Panel: (a) Go runtime and language, (b) Erlang/BEAM, (c) Java Loom and
 structured concurrency, (d) .NET TPL, async/await and Orleans, (e)
 TypeScript/JavaScript. Sources read: the draft
-(`docs/CONCURRENCY.md`, as drafted when reviewed), `docs/DESIGN.md`,
+(`docs/design/concurrency.md`, as drafted when reviewed), `docs/DESIGN.md`,
 `SYNTAX.md` (sigils, receivers, closures, defer), and Tokio's `task/` and
 `sync/` docs for contrast.
 

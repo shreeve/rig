@@ -24,7 +24,7 @@
 //! `root_zig`, a name no module can have.
 //!
 //! A directory module is the one-file module whose source is its files
-//! joined in the byte order of their names (docs/INTERNALS.md,
+//! joined in the byte order of their names (docs/internals/INTERNALS.md,
 //! "Directory modules"): each file closes its own blocks and brackets, a
 //! diagnostic names the file it is in, and a `use` binds its name in its
 //! own file only. Its files whose names end in `_test.rig` belong to it
@@ -702,7 +702,7 @@ pub const ModuleGraph = struct {
         m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
         // A `for` over an iterator is the `while` it means: typecheck found
         // them, and no pass sees one once the tree is rewritten and the
-        // module checked again (docs/INTERNALS.md, "Loops over an iterator").
+        // module checked again (docs/internals/INTERNALS.md, "Loops over an iterator").
         if (m.sema.iter_loops.items.len > 0) {
             try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
             m.sema.deinit();
@@ -731,7 +731,7 @@ pub const ModuleGraph = struct {
 
         m.state = if (m.sema.hasErrors()) .failed else .checked;
         // Which tests are known to pass rests on the ownership checker's
-        // acceptance (docs/INTERNALS.md, "Proven checks").
+        // acceptance (docs/internals/INTERNALS.md, "Proven checks").
         const t1 = timing.start(self.timing);
         if (m.state == .checked) try proofs.check(m.sema, m.ir);
         timing.stop(self.timing, .proofs, t1);

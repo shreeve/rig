@@ -50,7 +50,7 @@ from).
     desugars to the member. Module constants fold in dependency order,
     and one that depends on itself is rejected. A directory's
     `_test.rig` files belong to its module only as the root of `rig test`
-    (docs/INTERNALS.md, "Directory modules").
+    (docs/internals/INTERNALS.md, "Directory modules").
   - **Evaluation order:** every assignment evaluates its value first,
     then its target's steps, then stores; the order is one recorded fact
     (`storage.SetOrder`, `storage.eachSetStep`) that emit and the
@@ -74,7 +74,7 @@ from).
     a bound that keeps it within the guard by a measured factor, not yet
     a proven one (destination-passing, TODO.md, will make it one), and a
     large frame is never inlined; a fill a box or a local takes is built
-    in place (docs/INTERNALS.md, "The program's stack").
+    in place (docs/internals/INTERNALS.md, "The program's stack").
   - **Compiler and tools:** a synthetic span outside its source reads as
     empty; the package cache and the build store have size caps;
     `src/parser.zig` is generated at build time from `rig.grammar`
@@ -87,10 +87,10 @@ from).
   checks it against Python's `json` module on 10,511 inputs;
   `tools/fetch-json-data.sh` fetches the third-party files those read. `bench/json/` times it
   against Zig's `std.json`, serde_json, simd-json, sonic-rs and
-  zimdjson (docs/json/RESULTS.md). Its API is not settled
-  (docs/json/DESIGN.md, "Open items").
+  zimdjson (docs/history/json-results.md). Its API is not settled
+  (docs/design/json.md, "Open items").
 - **Concurrency:** the model and its plan are
-  [docs/CONCURRENCY.md](docs/CONCURRENCY.md), with its reviews in
+  [docs/design/concurrency.md](docs/design/concurrency.md), with its reviews in
   `docs/concurrency/`. The plan's first step is on `main` (SPEC §18):
   - **Tasks:** `f(x)&` runs a call as a task and gives a `Task[T]`,
     which keeps its arguments' loans until `>t` takes its
@@ -127,7 +127,7 @@ from).
   - **Where tasks run:** on Rig's own scheduler (`src/sched.zig`,
     `src/tasks.zig`): fibers on a worker per core, `RIG_WORKERS` of
     them when set, with yield checks in long loops and recursion
-    ([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
+    ([docs/internals/scheduler.md](docs/internals/scheduler.md)).
     Each worker sleeps in a poller of its own (kqueue, epoll), with its
     own heap of timers; a fiber can wait for a file descriptor to be
     ready (`sched.waitReady`). `std.net` builds TCP listeners and
@@ -162,7 +162,7 @@ from).
 - **Toolchain:** Zig 0.17.0, pinned in `mise.toml`. Nexus 2.0.0
   generates the parser at every build, from the sibling checkout's
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
-  - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
+  - [docs/internals/zig-0.17.md](docs/internals/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
 - **Health:** the last full run was green on `main`: the
   full suite (`swarm test/rig.rip all`, with the doc examples, their
@@ -326,7 +326,7 @@ and run the suite after.
   temporary array lent to a call are the storage fact `zig_temp`. Emit
   still takes the address of two kinds of Zig rvalue no fact names: a
   `?@` method on a made value no slot keeps, or on a branching value
-  with a made leaf, and labeled value blocks' yields (docs/INTERNALS.md,
+  with a made leaf, and labeled value blocks' yields (docs/internals/INTERNALS.md,
   Emit, "Addresses of Zig temporaries"). They are latent: the checker
   keeps each view within its statement, and Zig keeps the rvalue's slot
   today. Next: make the chokepoint structural, so every `&` and `|*x|`
@@ -401,15 +401,15 @@ and run the suite after.
 **Toward `v0.3.0`:** the docs pass, a full run, and the tag with a
 migration guide (`tools/migrate-0.3.py`).
 
-**Concurrency**, in order (docs/concurrency/SCHEDULER.md and
-docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
+**Concurrency**, in order (docs/internals/scheduler.md and
+docs/design/concurrency.md, "Decisions" 15; the scheduler moved ahead of the
 plan's second step, and its increments are done; the crossing facts, a
 `Cell` of one word across tasks, `par`, `time.within`, `task.isolate`,
 actors with their idle path, deadlock detection, failure, and
 supervision, I/O, timers, `http.serve`, channels, `select`,
 `supervise`, local tasks, and an idle connection that holds no buffer
 are built, and the first slice of the model's proofs, in formal/):
-the next slices of those proofs (docs/CONCURRENCY.md, "Proof
+the next slices of those proofs (docs/design/concurrency.md, "Proof
 obligations").
 
 **Later:**

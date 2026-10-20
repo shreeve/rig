@@ -3,7 +3,7 @@
 # its reach with what the marked calls and the rule inline into it (`rig
 # check --facts=frames`, its last three columns): the bound that
 # keeps every frame the compiler accepts within the guard below the
-# program's stack (docs/INTERNALS.md, "The program's stack"). This builds
+# program's stack (docs/internals/INTERNALS.md, "The program's stack"). This builds
 # each form that makes or copies a value (a fill, a place, a field, an
 # element, a call, `if`, `??`, `catch`, `+x`) in each context that takes
 # one (a binding, an assignment, a field or element store, an argument,

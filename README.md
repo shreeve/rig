@@ -559,11 +559,11 @@ included.
 | look up how a form is written | [SYNTAX.md](SYNTAX.md) |
 | look up what a form means | [SPEC.md](SPEC.md), the language reference |
 | use the standard library | [docs/STD.md](docs/STD.md) |
-| read about concurrency | [docs/launch/post.md](docs/launch/post.md), then [docs/CONCURRENCY.md](docs/CONCURRENCY.md) |
+| read about concurrency | [docs/launch/post.md](docs/launch/post.md), then [docs/design/concurrency.md](docs/design/concurrency.md) |
 | check the numbers | [docs/launch/benchmarks.md](docs/launch/benchmarks.md), [bench/](bench/) |
 | compare with Rust | [docs/BEYOND-RUST.md](docs/BEYOND-RUST.md) |
 | see why Rig is the way it is | [docs/DESIGN.md](docs/DESIGN.md) |
 | read complete programs | [examples/](examples/README.md) |
 | find common questions | [FAQ.md](FAQ.md) |
-| see how the compiler works | [docs/INTERNALS.md](docs/INTERNALS.md) |
+| see how the compiler works | [docs/internals/INTERNALS.md](docs/internals/INTERNALS.md) |
 | work on Rig | [AGENTS.md](AGENTS.md), then [HANDOFF.md](HANDOFF.md) |

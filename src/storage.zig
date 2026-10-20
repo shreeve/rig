@@ -3,7 +3,7 @@
 //! After a module's expressions are checked, `plan` walks it and records,
 //! for each expression or construct emit holds in hidden storage, a
 //! `sema.Storage`: what the storage holds (`kind`), how (`by`), and for
-//! how long (`life`) (docs/INTERNALS.md, "Storage facts"). The
+//! how long (`life`) (docs/internals/INTERNALS.md, "Storage facts"). The
 //! predicates that decide where emit makes storage are here, and emit
 //! asks the same ones; it names each storage location through the fact
 //! (`Emitter.hiddenStorage`), which must exist and agree. So the ownership
@@ -1123,7 +1123,7 @@ fn decideFillsInPlace(ctx: *const SemContext, e: Sexp) bool {
     }
 }
 
-/// Where the step of a `while` runs (docs/INTERNALS.md, "Loops"), which
+/// Where the step of a `while` runs (docs/internals/INTERNALS.md, "Loops"), which
 /// emit lowers to, the ownership checker walks, and the type checker's
 /// jump resolver reads.
 pub const StepPoint = enum(u8) {

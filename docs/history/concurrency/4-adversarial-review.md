@@ -1,5 +1,7 @@
 # Review 4: an adversarial review of CONCURRENCY.md
 
+> **History.** This is a review of an early draft of the concurrency design. The design as built is [docs/design/concurrency.md](../../design/concurrency.md), the rules are in [SPEC.md §18](../../../SPEC.md#18-tasks), and the review of the model as built is [docs/design/concurrency-panel](../../design/concurrency-panel/README.md). It is kept as written.
+
 Reviewer: a senior concurrency-runtime engineer and a programming-language
 theorist, asked to break the design before it is built. Findings are
 ranked by severity. Each has a scenario and a proposed fix. Paths are

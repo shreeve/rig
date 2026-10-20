@@ -1,5 +1,7 @@
 # Apple silicon opcodes for SIMD and SWAR work
 
+> **History.** This is a dated study of Apple silicon opcodes. The design is [docs/design/simd.md](../design/simd.md). It is kept as written.
+
 The AArch64 (Apple silicon) instructions that matter for parsing,
 scanning, number conversion and hashing, and how Rig reaches each one.
 
@@ -70,4 +72,4 @@ interning hashes every identifier.
 
 Each stays a portable Rig operation, with a scalar fallback on targets
 that lack the instruction. The measurements behind these choices are in
-[README.md](README.md) and [ZIG-LOWERING.md](ZIG-LOWERING.md).
+[README.md](../design/simd.md) and [ZIG-LOWERING.md](../internals/simd-lowering.md).

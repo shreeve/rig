@@ -4,6 +4,19 @@ Rig's sigils show who owns a value and who may change it. [CORE](CORE.md)
 states the ownership model in full; [SYNTAX](../SYNTAX.md) and
 [SPEC](../SPEC.md) give every form.
 
+Sigils are the language's mechanics; words are its libraries:
+
+| Mechanic | Sigils |
+|---|---|
+| Binding | `x = e` binds, `x =! e` binds for good |
+| Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
+| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
+| Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
+| Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
+| Concurrency | `f(x)&` sends work off, `>t` takes its result back |
+
+Each sigil in each position:
+
 | Sigil | Before a value | Before a type |
 |---|---|---|
 | `?` | `?x` lends `x` to read | `?T`, a read view |

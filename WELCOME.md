@@ -481,7 +481,7 @@ correspondences:
 | `sub main()` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
-program; [INTERNALS](docs/INTERNALS.md) describes it.
+program; [INTERNALS](docs/internals/INTERNALS.md) describes it.
 
 ## From C, Python, Ruby, JavaScript, and Go
 

@@ -624,7 +624,7 @@ def gen_program(fname, said, then):
 
 # -----------------------------------------------------------------------------
 # A value `replace` takes out of a place: `t = replace(!P, v)` is
-# `t = <P; P = v` (docs/INTERNALS.md), so `t` views what the place's value
+# `t = <P; P = v` (docs/internals/INTERNALS.md), so `t` views what the place's value
 # viewed (`src`) and no part of the place. The place, of each kind, is
 # then written while `t` lives (accepted), `t` put back into it (accepted),
 # or `src` dropped while `t` lives (rejected). Its type holds a view and
@@ -712,7 +712,7 @@ STEP_SHAPES = {
 # view) whose value holds a statement of its own (a `match` arm, a block
 # arm, the last arm, an `if` block, an `else` block, a `catch` block, an
 # `if` block in a last arm), or none (a ternary, the plain value). An
-# assignment is `{ __v = value; place op= __v }` (docs/INTERNALS.md), so
+# assignment is `{ __v = value; place op= __v }` (docs/internals/INTERNALS.md), so
 # every scope in the value ends before the store goes through the view:
 # there the value may not grow, read, move, or drop what the view views,
 # nor point the view at a local of its own scope; it may lend another
@@ -1773,7 +1773,7 @@ def viewpay_program(tname, sname, uname):
 # b`, `for b in !v`, a `!T` parameter, a `|!b|` capture, a held `b = !x`),
 # followed by a write through the binding while
 # the lend's view is live, or after its last use. A lend of a write view
-# is a loan on it (docs/INTERNALS.md, "Lending a binding"), so a write
+# is a loan on it (docs/internals/INTERNALS.md, "Lending a binding"), so a write
 # while the view is live is rejected; a program that runs must print what
 # the view showed before the write, then what the write left. Cells are
 # `lendw.<binding>.<type>.<lend>.<when>`.
@@ -2717,7 +2717,7 @@ def clos_program(callee, aname, rname, then):
 # -----------------------------------------------------------------------------
 # Named arguments in every order. Arguments are evaluated in the order they
 # are written and passed in the order the parameters are declared
-# (docs/INTERNALS.md, "Evaluation order of arguments"): one argument writes
+# (docs/internals/INTERNALS.md, "Evaluation order of arguments"): one argument writes
 # what another views, written first or second, in a function, a method, and
 # a generic function. A view that is a loan (a ?String, a `?String`, a slice) is
 # rejected when written before the write; a copy of a number is not, and
@@ -2777,7 +2777,7 @@ def named_program(call, kind, order):
 # receiver, a propagation of an optional or a failure, a branch whose
 # condition writes `i`, or a call that takes the List `x` the value reads.
 # An assignment evaluates its value, then its target from the base of its
-# path outward, then stores (docs/INTERNALS.md, "Assignments"), so the
+# path outward, then stores (docs/internals/INTERNALS.md, "Assignments"), so the
 # value reads `i` or `x` as they were. Each path is a field, an element,
 # or an element whose index is a call; each value reads plainly, through
 # an index, or with a call of its own. Each cell must be accepted and
@@ -3316,7 +3316,7 @@ def program(tname, fname, cname):
 
 # -----------------------------------------------------------------------------
 # Proven checks (`proof.`): a guard, a write between it and a use, and the
-# use (docs/INTERNALS.md, "Proven checks"). Each cell's `--facts=proofs`
+# use (docs/internals/INTERNALS.md, "Proven checks"). Each cell's `--facts=proofs`
 # entry at its use must be what PROOF_USES says the guard's facts, less
 # what the write ends, prove: a positive copy of the pass's rules, kept
 # apart from them so the two cannot drift together. Each cell starts `i`
@@ -3390,7 +3390,7 @@ PROOF_PLACES = ("straight", "nested", "and")
 
 
 def proof_tests(facts, uname):
-    """The tests the use's node has proven under `facts` (docs/INTERNALS.md,
+    """The tests the use's node has proven under `facts` (docs/internals/INTERNALS.md,
     "Proven checks"): an index or a byte access, `0 <= i` and room for its
     width; an add of `c`, room for `c`, or any room below a length that
     fits; an add of a field its function bounds by 4, as an add of 4."""
@@ -3620,7 +3620,7 @@ def run_proof_built(path, keep, started_dir, expect, panic, flags, unguarded):
 
 # -----------------------------------------------------------------------------
 # Units (`unit.`): a write of `i` and a use of it, each in a slot of a
-# statement form, under a guard (docs/INTERNALS.md, "Proven checks"). The
+# statement form, under a guard (docs/internals/INTERNALS.md, "Proven checks"). The
 # form's own text decides which slots are one unit and which run after
 # which; `UNIT_FORMS` says, for each slot the use is in, which slots a
 # write in ends the guard's facts: its own unit's slots and those on a
