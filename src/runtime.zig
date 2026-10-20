@@ -30,6 +30,7 @@ pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
 pub const Actor = tasks.Actor;
 pub const actor = tasks.actor;
+pub const supervise = tasks.supervise;
 pub const chan = tasks.chan;
 pub const Chan = tasks.Chan;
 pub const select = tasks.select;

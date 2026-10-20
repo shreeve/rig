@@ -991,6 +991,8 @@ pub const Facts = struct {
     actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.isolate` (`Checker.isolateCall`).
     isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The calls of `task.supervise` (`Checker.isolateCall`).
+    supervise_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `http.serve` (`Checker.httpServe`).
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
@@ -3250,6 +3252,15 @@ pub const SemContext = struct {
     /// (`recordActorCall`).
     pub fn isActorCall(self: *const SemContext, call: Sexp) bool {
         return self.facts.actor_calls.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordSuperviseCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.supervise_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `task.supervise` (`recordSuperviseCall`).
+    pub fn isSuperviseCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.supervise_calls.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordHttpServe(self: *SemContext, call: Sexp) !void {

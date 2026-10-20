@@ -376,6 +376,7 @@ same waiting points fail with `Stop.timeout`.
 | `both(a, b)` | wait for two tasks of any types, and give each one's value as two results; it can fail when either task can, and then the first to fail cancels the other |
 | `all(a, b, ...)` | `both` for two tasks or more |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
+| `supervise(f, restarts: n, per: ns)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `ns` nanoseconds; past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `select(arm, ...)` | wait until one arm, `(!ch).on_recv(f)` or `(!ch).on_send(<v, f)`, can complete, commit it alone, and give what its `f` gives ([SPEC §18](../SPEC.md#channels)) |
 
 A long computation calls `task.check()!` where stopping is safe:
