@@ -790,17 +790,29 @@ These fit the existing λRig work in `formal/`, in this order:
 The first slice is proved (formal/README.md, "Tasks and waits"), over
 a machine of tasks apart from λRig's expressions:
 
-- **3, no orphans** (`Tasks.no_orphans`): every task's parent is
-  running;
+- **3, no orphans** (`Tasks.no_orphans`, `main_last`): every task is
+  held by a running task, directly or through results not yet taken,
+  as handles pass to new tasks and back through results;
 - **1, for what stays on one thread** (`Tasks.confined`, `pin_kept`):
   two tasks that hold such a value are pinned to one core and stay
-  there, which is what local tasks rely on;
+  there, which is what local tasks rely on. It needs the rule that a
+  task's result moves unless the task is local;
 - **5, delivery** (`Wait.cancel_delivered`, `one_waker`, `queued_once`,
   `woken_queued`): the wait protocol queues a waiting fiber exactly
   once when a waker or a cancel ends its wait, and loses no wakeup;
   a cancel is never taken back (`Tasks.cancel_sticky`).
+  `test/cli/wait_sync.sh` keeps Wait.lean's word and steps in step
+  with src/sched.zig.
 
-Handing a task's handle to another task, sets, actors, channels, the
+The runtime's handshakes are model-checked before more hand proofs
+(formal/README.md, "Model checks of the runtime"): the ring's steal,
+and how workers search, sleep, and are woken, with the pinned queue's
+`idle` flag. Every interleaving within the bounds checked loses no
+fiber and takes none twice. One gap shows: work into the global queue,
+made while a worker searches, can wait while another sleeps, until
+the first worker's next yield check.
+
+Sets, actors, channels, dropping a handle (cancel and wait), the
 deadlock walk, and unwinding are the next slices.
 
 ## Decisions

@@ -129,3 +129,24 @@ scroll that moves one entry of the row map, and CR LF taken at once
 A scroll had cost 36 ns, three quarters of it filling the new row with
 an erased cell: Zig's `@memset` of a U64 that is not 0 stores one cell
 at a time. It now costs about 8 ns, where Ghostty's costs 18.
+
+2026-10-20, with a CSI sequence read whole, a run of ASCII widened into
+cells sixteen at a time (std/cells.zig) and scanned eight bytes at a
+time, mode 2027 kept on the fast path, and styles found by key past 32;
+two corpora added, utf8-2027 and rgb (truecolor). Other sessions' builds
+held the load average between 8 and 28, so every number is low; the
+variants ran interleaved, and the ratios hold (5 runs):
+
+| corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | ghostty, SIMD | dispatch | rig-fast / best Ghostty |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| text | 1496.2 MB/s | 1489.1 MB/s | 865.9 MB/s | 819.0 MB/s | 840.5 MB/s | 759.4 MB/s | 1.72 |
+| scroll | 247.8 MB/s | 262.7 MB/s | 158.0 MB/s | 156.6 MB/s | 154.4 MB/s | 113.5 MB/s | 1.66 |
+| sgr | 279.8 MB/s | 310.9 MB/s | 157.7 MB/s | 173.7 MB/s | 157.6 MB/s | 135.6 MB/s | 1.79 |
+| tui | 455.1 MB/s | 478.0 MB/s | 190.1 MB/s | 190.0 MB/s | 191.4 MB/s | 151.0 MB/s | 2.50 |
+| utf8 | 327.2 MB/s | 365.4 MB/s | 244.5 MB/s | 239.2 MB/s | 318.2 MB/s | 208.2 MB/s | 1.15 |
+| utf8-2027 | 261.3 MB/s | 294.5 MB/s | 238.5 MB/s | 230.9 MB/s | 308.2 MB/s | 200.2 MB/s | 0.96 |
+| rgb | 280.0 MB/s | 306.0 MB/s | 219.7 MB/s | 161.6 MB/s | 213.6 MB/s | 190.3 MB/s | 1.39 |
+
+Before this branch rgb ran at 0.4 MB/s: each SGR looked its pen up in a
+list of styles that only grows. With mode 2027 on, UTF-8 is still a
+little behind Ghostty's SIMD build, and ahead of its plain one.
