@@ -7099,7 +7099,7 @@ const Checker = struct {
         const ty = try self.typeInstance(e, nt);
         if (self.isPoison(ty)) return self.skipCall(args);
         if (nt.id == self.ctx.list_sym_id) {
-            try self.checkListConstruction(call);
+            try self.checkListConstruction(call, ty);
             return ty;
         }
         if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, e, stack_signal, .{});
@@ -7698,7 +7698,11 @@ const Checker = struct {
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
                 .type_alias => return self.aliasCall(node, callee, name, sym.ty, args, callee.src.pos),
                 .generic_type => {
-                    if (sym_id == self.ctx.list_sym_id) return self.badCall(args, callee, "`List()` needs its element type: name it (`List[T]()`), or give it where the value goes (`v: List[T] = List()`)", .{});
+                    if (sym_id == self.ctx.list_sym_id) {
+                        // `List(a)` takes its element type from `a`'s.
+                        if (args.len == 1 and !args[0].isKind(.kwarg)) return self.listFromElems(args[0], null);
+                        return self.badCall(args, callee, "`List()` needs its element type: name it (`List[T]()`), give it where the value goes (`v: List[T] = List()`), or make the List from an array, `List([1, 2, 3])`", .{});
+                    }
                     if (sym_id == self.ctx.simd_sym_id) return self.badCall(args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
@@ -7733,7 +7737,7 @@ const Checker = struct {
         if (nt.foreign) |fo| return self.construct(nt.id, args, pos, TypeSubst.empty, fo);
         if (nt.args) |targs| {
             if (nt.id == self.ctx.list_sym_id) {
-                try self.checkListConstruction(call);
+                try self.checkListConstruction(call, ty);
                 return ty;
             }
             if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
@@ -12173,7 +12177,7 @@ const Checker = struct {
                     try self.errAt(callee, stack_signal, .{});
                     try self.synthArgs(ir.Call.args(e));
                 } else if (id == self.ctx.list_sym_id) {
-                    try self.checkListConstruction(e);
+                    try self.checkListConstruction(e, target);
                 } else {
                     const sym = self.ctx.symbols.items[id];
                     _ = try self.construct(id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
@@ -13540,12 +13544,17 @@ const Checker = struct {
         try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant, .call = call });
     }
 
-    /// `List()` / `List(capacity: n)`.
-    fn checkListConstruction(self: *Checker, call: Sexp) Error!void {
+    /// `List()` / `List(capacity: n)` / `List(a)`, making `list_ty`.
+    fn checkListConstruction(self: *Checker, call: Sexp, list_ty: TypeId) Error!void {
         var seen: ?u32 = null;
-        for (ir.Call.args(call)) |a| {
+        const args = ir.Call.args(call);
+        if (args.len == 1 and !args[0].isKind(.kwarg)) {
+            _ = try self.listFromElems(args[0], listElementType(self.ctx, list_ty));
+            return;
+        }
+        for (args) |a| {
             if (!a.isKind(.kwarg)) {
-                try self.errAt(a, "`List` constructor takes no positional arguments; use `List()` (empty) or `List(capacity: N)`", .{});
+                try self.errAt(a, "`List` constructor takes one positional argument, an array or slice to copy, `List([1, 2, 3])`; or none, `List()`, or `List(capacity: N)`", .{});
                 _ = try self.synthExpr(a);
                 continue;
             }
@@ -13563,6 +13572,41 @@ const Checker = struct {
             seen = pos;
             try self.checkExpr(ir.Kwarg.value(a), self.t().int_id);
         }
+    }
+
+    /// `List(a)`: a new List holding a copy of each element of `a`, an
+    /// array or a slice, as `String(s)` copies text; the call shows the
+    /// allocation. Its element type is `a`'s, or `want` where the List's
+    /// type is given. The elements copy and carry no loan, so the List
+    /// owns all it holds.
+    fn listFromElems(self: *Checker, arg: Sexp, want: ?TypeId) Error!TypeId {
+        // An array literal takes the element type the List is given; a
+        // temporary array is lent as the slice it is copied from.
+        const ty = if (want != null and arg.isKind(.array)) blk: {
+            const saved = self.lent_temp;
+            defer self.lent_temp = saved;
+            self.lent_temp = arg;
+            try self.checkExpr(arg, try self.ctx.intern(.{ .slice = .{ .elem = want.? } }));
+            break :blk self.ctx.typeOf(arg) orelse return self.t().invalid_id;
+        } else try self.synthExpr(arg);
+        if (self.isPoison(ty)) return self.t().invalid_id;
+        const elem: TypeId = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
+            .array => |a| a.elem,
+            .slice => |sl| sl.elem,
+            else => {
+                try self.errAt(arg, "`List(...)` copies the elements of an array or a slice, `List([1, 2, 3])`; got `{s}`", .{try self.tyName(ty)});
+                return self.t().invalid_id;
+            },
+        };
+        if (want) |w| if (elem != w and !self.isPoison(elem)) {
+            try self.errAt(arg, "type mismatch: expected `[]{s}`, got `{s}`", .{ try self.tyName(w), try self.tyName(ty) });
+            return self.t().invalid_id;
+        };
+        if (!sema.isPlainData(self.ctx, elem) or sema.mayHoldView(self.ctx, elem)) {
+            try self.errAt(arg, "`List(...)` copies each element, and a `{s}` cannot be copied so: make the List with `List[{s}]()`, then `!xs.push(+x)` each", .{ try self.tyName(elem), try self.tyName(elem) });
+            return self.t().invalid_id;
+        }
+        return want orelse try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{elem}) } });
     }
 
     /// Best-effort common type of two branches; reports on mismatch.

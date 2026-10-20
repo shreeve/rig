@@ -1370,6 +1370,19 @@ pub fn List(comptime T: type) type {
             return .{ .buf = defaultAllocator().alloc(T, n) catch oom() };
         }
 
+        /// `List(a)`: a new List holding a copy of each element of `a`,
+        /// an array or a slice, in one allocation of exactly their count.
+        pub fn fromSlice(src: []const T) Self {
+            var v = initCapacity(@intCast(src.len));
+            if (comptime @sizeOf(T) == 0) {
+                v.len = src.len;
+                return v;
+            }
+            @memcpy(v.buf[0..src.len], src);
+            v.len = src.len;
+            return v;
+        }
+
         pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
             try writeList(w, self.items());
         }

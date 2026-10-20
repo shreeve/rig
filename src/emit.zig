@@ -7331,12 +7331,22 @@ pub const Emitter = struct {
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
 
-    /// `List()` / `List(capacity: n)`: a decl literal of the type sema gave
-    /// it, which a `catch` or `??` handler cannot take from its result
-    /// location.
+    /// `List()` / `List(capacity: n)` / `List(a)`: a decl literal of the
+    /// type sema gave it, which a `catch` or `??` handler cannot take from
+    /// its result location. `List(a)` copies the elements of the array or
+    /// slice `a` (`fromSlice`).
     fn emitListConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
         try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped List construction"));
+        if (args.len == 1 and !args[0].isKind(.kwarg)) {
+            const arg_ty = self.peelViews(self.typeOf(args[0]) orelse return self.unsupported(call, "an untyped List source"));
+            try self.w.writeAll(".fromSlice(");
+            if (self.facts.types.get(arg_ty) == .array) {
+                try self.w.writeAll("&");
+                try self.emitBare(args[0]);
+            } else try self.emitBare(args[0]);
+            return self.w.writeAll(")");
+        }
         if (args.len == 1) {
             try self.w.writeAll(".initCapacity(");
             try self.emitBare(ir.Kwarg.value(args[0]));

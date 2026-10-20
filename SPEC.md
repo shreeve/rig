@@ -6951,6 +6951,7 @@ owns one), and read views.
 | Member | Meaning |
 |---|---|
 | `List()`, `List(capacity: n)` | an empty List (typed by context) |
+| `List(a)`, `List[T](a)` | a new List holding a copy of each element of the array or slice `a`, in one allocation of exactly their count, as `String("abc")` copies text: `List([1, 2, 3])`; typed by `a`, by context, or by brackets; the elements are plain data that carry no loan |
 | `List.filled(n, x)`, `List[T].filled(n, x)` | a List of `n` copies of `x` (typed by `x`, by context, or by brackets); `x` must copy (below); panics when `n` is negative |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
 | `v.len` | the number of elements |
@@ -6963,6 +6964,24 @@ owns one), and read views.
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
+
+An array literal is an array, not a List: `xs: List[Int] = [1, 2, 3]` is
+a type mismatch, since a List allocates and the allocation is shown at the
+place it happens. `List([1, 2, 3])` makes the List.
+
+```rig
+sub main()
+  xs = List([1, 2, 3])
+  !xs.push(4)
+  a = [5.5, 6.5]
+  ys = List(a)
+  zs = List[Int](?xs[1..3])
+  print(xs, ys, zs)
+```
+
+```output
+[1, 2, 3, 4] [5.5, 6.5] [2, 3]
+```
 
 `keep`'s count is the length that remains, as `!t.push(v, keep: k)` keeps
 the first `k` bytes of `v` ([String](#string)): a rewind saves
