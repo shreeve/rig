@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Time std.terminal against Ghostty's terminal on generated output.
+
+usage: bench/terminal/bench-terminal [options]
+
+  --files a,b       corpora (default: text,scroll,sgr,tui), each about 4 MB,
+                    written once into OUT/data:
+                      text     lines of words, CR LF between them, as `cat` of a log
+                      scroll   short lines, so nearly every byte or two scrolls
+                      sgr      colored words and resets, a line break now and then
+                      tui      full-screen frames: CUP, SGR, a run of text, EL
+  --variants a,b    what to build and time (default: all):
+                      rig-safe        bench.rig, rig build --release (Zig's safe mode)
+                      rig-fast        bench.rig, rig build --release=fast
+                      ghostty         libghostty-vt (tools/terminal_ghostty.zig,
+                                      ReleaseFast, without its C++ SIMD paths),
+                                      no scrollback, as std.terminal has none
+                      ghostty-scroll  the same with 10 MB of scrollback, Ghostty's
+                                      default
+  --size COLSxROWS  the terminal (default 120x40)
+  --ms N            aim each timed run at about N ms (default 300)
+  --reps N          timed runs per variant, interleaved (default 5)
+  --out D           keep builds and data here (default .zig-cache/terminal-bench)
+
+Each program prints `<ns> <check>` for N feeds of the file into new
+terminals; MB/s is bytes times N over the time, with MB = 10^6, and each
+variant's fastest run counts. The check is a hash of the final screen and
+cursor: every variant must give the same, or the run fails, so the
+benchmark compares the terminals on these large inputs too. Ghostty is
+built as tools/terminal_ghostty.py builds it, and needs what it needs.
+"""
+import argparse, os, random, subprocess, sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import terminal_ghostty  # noqa: E402
+
+FILES = ["text", "scroll", "sgr", "tui"]
+VARIANTS = ["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"]
+SIZE = 4_000_000
+
+
+def words(rng):
+    return ["".join(rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(rng.randint(2, 9))) for _ in range(500)]
+
+
+def corpus(name, cols, rows):
+    rng = random.Random(name)
+    w = words(rng)
+    out, n = [], 0
+    while n < SIZE:
+        if name == "text":
+            s = " ".join(rng.choice(w) for _ in range(rng.randint(3, 14))) + "\r\n"
+        elif name == "scroll":
+            s = rng.choice(w)[: rng.randint(1, 9)] + "\r\n"
+        elif name == "sgr":
+            s = "\x1b[%d;%dm%s\x1b[0m " % (rng.choice([0, 1, 4]), rng.randint(30, 37), rng.choice(w))
+            if rng.random() < 0.1:
+                s += "\r\n"
+        else:
+            s = "\x1b[H" + ("\x1b[2J" if rng.random() < 0.02 else "")
+            for _ in range(rng.randint(3, 12)):
+                text = " ".join(rng.choice(w) for _ in range(rng.randint(1, 5)))[: cols - 1]
+                s += "\x1b[%d;%dH\x1b[%d;3%dm%s\x1b[0m\x1b[K" % (rng.randint(1, rows), rng.randint(1, cols // 2), rng.choice([0, 1, 7]), rng.randint(0, 7), text)
+        out.append(s)
+        n += len(s)
+    return "".join(out).encode()
+
+
+def build(variant, out):
+    if variant.startswith("ghostty"):
+        return [terminal_ghostty.bench_exe()]
+    exe = os.path.join(out, variant)
+    flag = "--release" if variant == "rig-safe" else "--release=fast"
+    r = subprocess.run([os.path.join(ROOT, "bin", "rig"), "build", flag, "-o", exe, os.path.join(ROOT, "bench", "terminal", "bench.rig")], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("bench-terminal: building %s failed:\n%s" % (variant, r.stderr))
+    return [exe]
+
+
+def time_it(cmd, variant, path, n, cols, rows):
+    if variant.startswith("ghostty"):
+        args = cmd + ["bench", path, str(n), str(cols), str(rows), "0" if variant == "ghostty" else "10000000"]
+    else:
+        args = cmd + [path, str(n), str(cols), str(rows)]
+    r = subprocess.run(args, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("bench-terminal: %s failed on %s: %s" % (variant, path, r.stderr.strip()[-400:]))
+    ns, check = r.stdout.split()
+    return int(ns), check
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--files", default=",".join(FILES))
+    ap.add_argument("--variants", default=",".join(VARIANTS))
+    ap.add_argument("--size", default="120x40")
+    ap.add_argument("--ms", type=int, default=300)
+    ap.add_argument("--reps", type=int, default=5)
+    ap.add_argument("--out", default=os.path.join(ROOT, ".zig-cache", "terminal-bench"))
+    a = ap.parse_args()
+    cols, rows = (int(x) for x in a.size.split("x"))
+    os.makedirs(os.path.join(a.out, "data"), exist_ok=True)
+    files = a.files.split(",")
+    variants = a.variants.split(",")
+    paths = {}
+    for f in files:
+        p = os.path.join(a.out, "data", "%s-%dx%d.txt" % (f, cols, rows))
+        if not os.path.exists(p):
+            with open(p, "wb") as fh:
+                fh.write(corpus(f, cols, rows))
+        paths[f] = p
+    cmds = {v: build(v, a.out) for v in variants}
+    print("%-8s %10s" % ("file", "MB") + "".join("%16s" % v for v in variants))
+    failed = False
+    for f in files:
+        size = os.path.getsize(paths[f])
+        reps = {}
+        for v in variants:
+            ns, _ = time_it(cmds[v], v, paths[f], 1, cols, rows)
+            reps[v] = max(1, int(a.ms * 1e6 / max(ns, 1)))
+        best, checks = {}, {}
+        for _ in range(a.reps):
+            for v in variants:
+                ns, check = time_it(cmds[v], v, paths[f], reps[v], cols, rows)
+                rate = size * reps[v] * 1e3 / ns
+                best[v] = max(best.get(v, 0), rate)
+                checks[v] = check
+        print("%-8s %10.1f" % (f, size / 1e6) + "".join("%11.1f MB/s" % best[v] for v in variants))
+        if len(set(checks.values())) > 1:
+            failed = True
+            print("  the screens differ: " + ", ".join("%s %s" % (v, checks[v]) for v in variants))
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

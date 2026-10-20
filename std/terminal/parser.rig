@@ -176,6 +176,7 @@ sub Terminal.esc_dispatch(!@, b: U8)
       (!@).carriage_return()
     b'H' => (!@).tab_set()
     b'M' => (!@).reverse_index()
+    b'c' => (!@).full_reset()
     _ => pass
 
 # The final byte of a CSI sequence: the parameters are complete.
@@ -191,6 +192,13 @@ sub Terminal.csi_final(!@, b: U8)
   # no cell is protected.
   if @inter == Int(b'?') and (b == b'J' or b == b'K')
     @inter = 0
+  if (b == b's' or b == b'r') and @inter == Int(b'?')
+    for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
+      if b == b's'
+        (!@).save_mode(@params[k])
+      else
+        (!@).restore_mode(@params[k])
+    return
   if (b == b'h' or b == b'l') and (@inter == 0 or @inter == Int(b'?'))
     for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
       (!@).set_mode(@params[k], @inter != 0, b == b'h')
@@ -215,12 +223,15 @@ sub Terminal.csi_final(!@, b: U8)
       (!@).cursor_up(move)
       (!@).carriage_return()
     b'G', b'`' if move > 0 => (!@).cursor_to(@row + 1, move)
-    b'a' if move > 0 => (!@).cursor_right(move)
+    # HPR and VPR are CUP from the cursor, as in Ghostty: they move by their
+    # parameter as given (0 stays, but ends a pending wrap), and in origin
+    # mode the row counts from the top margin.
+    b'a' if count >= 0 => (!@).cursor_to(@row + 1, @col + 1 + count)
     b'd' if move > 0 => (!@).cursor_to(move, @col + 1)
-    b'e' if move > 0 => (!@).cursor_down(move)
+    b'e' if count >= 0 => (!@).cursor_to(@row + 1 + count, @col + 1)
     b'H', b'f' if n <= 2 => (!@).cursor_to(p0, p1)
-    b'I' if move > 0 => (!@).tab(move)
-    b'Z' if move > 0 => (!@).tab_back(move)
+    b'I' if count >= 0 => (!@).tab(count)
+    b'Z' if count >= 0 => (!@).tab_back(count)
     # Ghostty's TBC needs its parameter: `CSI g` alone does nothing.
     b'g' if n == 1 => (!@).tab_clear(p0)
     b'J' if n <= 1 => (!@).erase_display(p0)
@@ -233,6 +244,11 @@ sub Terminal.csi_final(!@, b: U8)
     b'S' if count >= 0 => (!@).scroll_up(count)
     b'T' if count >= 0 => (!@).scroll_down(count)
     b'r' if n <= 2 => (!@).set_margins(p0, p1)
+    # With no left and right margin mode, `CSI s` alone saves the cursor,
+    # and with parameters does nothing.
+    b's' if n == 0 => (!@).save_cursor()
+    b'u' => (!@).restore_cursor()
+    b'b' if count >= 0 => (!@).repeat(count)
     b'm'
       (!@).sgr()
       (!@).pen_changed()

@@ -1,0 +1,34 @@
+# bench/terminal's Rig side: `bench FILE N COLS ROWS` feeds FILE's bytes to
+# N new terminals of COLS by ROWS and prints `<ns> <check>`: the
+# nanoseconds the N feeds took, and the 64-bit FNV-1a hash of the last
+# terminal's dump, which Ghostty's must equal (tools/terminal_ghostty.zig).
+
+use std.file
+use std.os
+use std.terminal
+use std.text
+use std.time
+
+sub main()!
+  args = os.args()
+  data = file.read(args[1]) ?? String()
+  n = text.parse_int(args[2])!
+  cols = text.parse_int(args[3])!
+  rows = text.parse_int(args[4])!
+  ns = 0
+  check = U64(0)
+  for i in 0..n
+    t = terminal.Terminal.new(cols, rows)
+    start = time.now()
+    !t.feed(data)
+    ns += start.elapsed()
+    if i == n - 1
+      check = fnv(t.dump())
+  print(ns, check)
+
+# The 64-bit FNV-1a hash of `s`.
+fun fnv(s: ?String) -> U64
+  h = U64(0xcbf29ce484222325)
+  for b in s
+    h = (h ^ U64(b)) *% 0x100000001b3
+  h

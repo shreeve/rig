@@ -8,6 +8,13 @@ answers are still Ghostty's.
 
     tools/terminal_ghostty.py           write test/rig/std-terminal-ghostty.rig.test
     tools/terminal_ghostty.py --check   fail when that file is not what it writes
+    tools/terminal_ghostty.py --fuzz N [--seed S] [--all] [--rig RIG]
+                                        feed N random streams to Ghostty and to
+                                        std.terminal (tools/terminal_dump.rig,
+                                        built with RIG), and shrink each one whose
+                                        dumps differ, or that panics, to a short
+                                        reproducer; --all also draws sequences
+                                        std.terminal does not implement yet
 
 It needs Ghostty's source, from $GHOSTTY (a git checkout that has PIN) or
 cloned from GitHub, and the Zig Ghostty builds with: $ZIG_GHOSTTY, or Zig
@@ -219,6 +226,25 @@ CASES = [
     ("mode", "several modes at once", 6, 2, b"\x1b[?7;6labcdefgh"),
     ("mode", "an unknown mode is ignored", 10, 2, b"\x1b[?999h\x1b[999hab"),
     ("mode", "DECTCEM changes nothing on screen", 10, 2, b"\x1b[?25lab\x1b[?25hc"),
+    ("print", "REP repeats the last rune", 10, 2, b"ab\x1b[3b"),
+    ("print", "REP with no count repeats once", 10, 2, b"ab\x1b[b"),
+    ("print", "REP of zero repeats once", 10, 2, b"ab\x1b[0b"),
+    ("print", "REP before any rune does nothing", 10, 2, b"\x1b[3bX"),
+    ("print", "REP wraps", 4, 2, b"ab\x1b[5b"),
+    ("print", "REP after a control repeats the rune", 10, 2, b"a\r\x1b[2b"),
+    ("cursor", "CHT of zero does nothing", 20, 2, b"\x1b[0IX"),
+    ("cursor", "CBT keeps a pending wrap", 13, 2, b"abcdefghijklm\x1b[ZX"),
+    ("cursor", "HPR of zero stays and ends a pending wrap", 4, 2, b"abcd\x1b[0aX"),
+    ("cursor", "VPR of zero stays and ends a pending wrap", 4, 3, b"abcd\x1b[0eX"),
+    ("cursor", "VPR in origin mode counts from the margin", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b[1eX"),
+    ("escape", "CSI s and CSI u save and restore the cursor", 10, 3, b"ab\x1b[s\x1b[3;5HX\x1b[uY"),
+    ("escape", "CSI s with parameters does nothing", 10, 3, b"ab\x1b[2s\x1b[3;5HX\x1b[uY"),
+    ("escape", "RIS resets everything", 10, 3, b"\x1b[2;3r\x1b[1;31m\x1b[?7lab\x1bcX"),
+    ("style", "DECALN keeps only the pen's colors", 4, 2, b"\x1b[1;5;32;44m\x1b#8"),
+    ("style", "after DECALN the flags stay off", 4, 2, b"\x1b[1;32m\x1b#8\x1b[2;1HX"),
+    ("mode", "XTRESTORE with nothing saved restores the default", 4, 2, b"\x1b[?7l\x1b[?7rabcdef"),
+    ("mode", "XTSAVE and XTRESTORE", 4, 2, b"\x1b[?7l\x1b[?7s\x1b[?7h\x1b[?7rabcdef"),
+    ("mode", "XTRESTORE of origin mode homes the cursor", 10, 3, b"\x1b[2;2H\x1b[?6rX"),
 ]
 
 
@@ -270,13 +296,27 @@ def dumper():
     zig_build = """const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
     const mod = b.createModule(.{
         .root_source_file = .{ .cwd_relative = "DUMPER" },
-        .target = b.standardTargetOptions(.{}),
+        .target = target,
         .optimize = .ReleaseSafe,
     });
-    if (b.lazyDependency("ghostty", .{ .simd = false })) |dep| mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
+    const fast = b.createModule(.{
+        .root_source_file = .{ .cwd_relative = "DUMPER" },
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
+    // Ghostty builds its module in the optimize mode it is given, Debug
+    // (with its slow safety checks) when it is given none.
+    if (b.lazyDependency("ghostty", .{ .simd = false, .target = target, .optimize = .ReleaseSafe })) |dep| {
+        mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
+    }
+    if (b.lazyDependency("ghostty", .{ .simd = false, .target = target, .optimize = .ReleaseFast })) |dep| {
+        fast.addImport("ghostty-vt", dep.module("ghostty-vt"));
+    }
     b.installArtifact(b.addExecutable(.{ .name = "terminal_ghostty", .root_module = mod }));
+    b.installArtifact(b.addExecutable(.{ .name = "terminal_ghostty_bench", .root_module = fast }));
 }
 """.replace("DUMPER", DUMPER)
     with open(os.path.join(build, "build.zig"), "w") as f:
@@ -287,6 +327,11 @@ pub fn build(b: *std.Build) void {
     if run.returncode != 0:
         sys.exit("terminal_ghostty: building the dumper failed:\n" + run.stderr)
     return os.path.join(build, "zig-out", "bin", "terminal_ghostty")
+
+
+def bench_exe():
+    """The ReleaseFast build of tools/terminal_ghostty.zig, for bench/terminal."""
+    return os.path.join(os.path.dirname(dumper()), "terminal_ghostty_bench")
 
 
 def fingerprint(build, zon, zig_build):
@@ -352,10 +397,168 @@ def text(cases, dumps):
     return "\n".join(out) + "\n"
 
 
+# ---- Fuzzing ---------------------------------------------------------------
+
+# Parameter values a fuzzed sequence draws from: edges of small screens,
+# zero, and the large and huge.
+VALUES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 20, 25, 99, 255, 300, 65535, 99999]
+# CSI finals std.terminal implements; FINALS_ALL adds ones Ghostty does too.
+FINALS = "ABCDEFG`adeHfIZgJKXLM@PSTrmhlbsu"
+FINALS_ALL = FINALS + "cnqtpkjxyzvw{|}~^_"
+SGR = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 21, 22, 23, 24, 25, 27, 28, 29, 31, 37, 39, 42, 49, 53, 55, 59, 91, 103, 38, 48, 58]
+
+
+def piece(rng, every):
+    """One piece of a stream, as bytes."""
+    k = rng.random()
+    if k < 0.30:
+        return bytes(rng.choice(range(0x20, 0x7F)) for _ in range(rng.randint(1, 12)))
+    if k < 0.40:
+        return bytes([rng.choice([8, 9, 10, 11, 12, 13, 7, 0, 5, 14, 15, 0x18, 0x1A, 0x1B, 0x7F])])
+    if k < 0.70:
+        return csi(rng, every)
+    if k < 0.82:
+        return sgr(rng)
+    if k < 0.90:
+        private = rng.random() < 0.6
+        modes = [rng.choice([6, 7, 25, 1, 5] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
+        return b"\x1b[" + (b"?" if private else b"") + b";".join(b"%d" % m for m in modes) + rng.choice([b"h", b"l"])
+    if k < 0.96:
+        return b"\x1b" + rng.choice([b"7", b"8", b"D", b"E", b"H", b"M", b"#8", b"Q", b"=", b">"])
+    end = rng.choice([b"\x07", b"\x1b\\"])
+    body = bytes(rng.choice(range(0x20, 0x7F)) for _ in range(rng.randint(0, 8)))
+    return b"\x1b" + rng.choice([b"]0;", b"]2;", b"P", b"_", b"^", b"X"]) + body + end
+
+
+def csi(rng, every):
+    params = []
+    for _ in range(rng.choice([0, 0, 1, 1, 1, 2, 2, 3, 5])):
+        params.append(b"" if rng.random() < 0.1 else b"%d" % rng.choice(VALUES))
+    sep = b":" if rng.random() < 0.05 else b";"
+    out = b"\x1b["
+    if rng.random() < 0.08:
+        out += rng.choice([b"?", b">", b"<", b"="])
+    out += sep.join(params)
+    if rng.random() < 0.04:
+        out += b" "
+    if rng.random() < 0.03:
+        out += bytes([rng.choice([8, 13, 0x11, 10])])
+    return out + rng.choice(FINALS_ALL if every else FINALS).encode()
+
+
+def sgr(rng):
+    params = []
+    for _ in range(rng.randint(0, 4)):
+        v = rng.choice(SGR)
+        if v in (38, 48, 58):
+            if rng.random() < 0.5:
+                params.append(b"%d;5;%d" % (v, rng.choice(VALUES)))
+            elif rng.random() < 0.7:
+                params.append(b"%d;2;%d;%d;%d" % (v, rng.randrange(256), rng.randrange(256), rng.randrange(256)))
+            else:
+                params.append(b"%d:2::%d:%d:%d" % (v, rng.randrange(256), rng.randrange(256), rng.randrange(256)))
+        elif v == 4 and rng.random() < 0.3:
+            params.append(b"4:%d" % rng.randrange(7))
+        else:
+            params.append(b"%d" % v)
+    return b"\x1b[" + b";".join(params) + b"m"
+
+
+def stream(rng, every):
+    """A random case: (cols, rows, pieces)."""
+    return rng.randint(1, 16), rng.randint(1, 6), [piece(rng, every) for _ in range(rng.randint(1, 40))]
+
+
+def rig_dumper(rig):
+    """tools/terminal_dump.rig built with `rig`; its path."""
+    out = os.path.join(CACHE, "terminal-ghostty", "terminal_dump")
+    run = subprocess.run([rig, "build", "--release", "-o", out, os.path.join(ROOT, "tools", "terminal_dump.rig")], capture_output=True, text=True)
+    if run.returncode != 0:
+        sys.exit("terminal_ghostty: building tools/terminal_dump.rig failed:\n" + run.stderr)
+    return out
+
+
+def dumps_of(exe, cases):
+    """`exe`'s dumps of `cases` (cols, rows, bytes); fewer when it fails partway."""
+    with tempfile.NamedTemporaryFile(suffix=".cases", delete=False) as f:
+        for cols, rows, data in cases:
+            f.write(b"case %d %d %d\n" % (cols, rows, len(data)) + data + b"\n")
+        path = f.name
+    try:
+        r = subprocess.run([exe, path], capture_output=True)
+    finally:
+        os.unlink(path)
+    parts = r.stdout.decode("utf-8", "replace").split("end\n")
+    return [p.rstrip("\n") for p in parts[:-1]], r.returncode, r.stderr.decode("utf-8", "replace")
+
+
+def differs(ghostty, rig, case):
+    g, _, _ = dumps_of(ghostty, [case])
+    r, code, _ = dumps_of(rig, [case])
+    return code != 0 or g != r
+
+
+def shrink(ghostty, rig, cols, rows, pieces):
+    """The fewest pieces, then bytes, that still differ."""
+    bad = lambda ps: differs(ghostty, rig, (cols, rows, b"".join(ps)))
+    n = 2
+    while len(pieces) >= 2:
+        chunk = max(1, len(pieces) // n)
+        for i in range(0, len(pieces), chunk):
+            trial = pieces[:i] + pieces[i + chunk:]
+            if trial and bad(trial):
+                pieces, n = trial, max(n - 1, 2)
+                break
+        else:
+            if chunk == 1:
+                break
+            n = min(n * 2, len(pieces))
+    data = bytearray(b"".join(pieces))
+    i = 0
+    while i < len(data):
+        trial = data[:i] + data[i + 1:]
+        if trial and bad([bytes(trial)]):
+            data = trial
+        else:
+            i += 1
+    return bytes(data)
+
+
+def fuzz(n, seed, every, rig):
+    import random
+    rng = random.Random(seed)
+    ghostty, ours = dumper(), rig_dumper(rig)
+    cases = [stream(rng, every) for _ in range(n)]
+    flat = [(c, r, b"".join(ps)) for c, r, ps in cases]
+    want, _, _ = dumps_of(ghostty, flat)
+    got, code, err = dumps_of(ours, flat)
+    if len(want) != n:
+        sys.exit("terminal_ghostty: Ghostty dumped %d of %d cases" % (len(want), n))
+    bad = [i for i in range(n) if i >= len(got) or got[i] != want[i]]
+    if code != 0 and len(got) < n:
+        print("std.terminal failed on case %d: %s" % (len(got), err.strip().splitlines()[-1] if err.strip() else "exit %d" % code))
+    for i in bad[:5]:
+        cols, rows, pieces = cases[i]
+        small = shrink(ghostty, ours, cols, rows, pieces)
+        g, _, _ = dumps_of(ghostty, [(cols, rows, small)])
+        r, code, err = dumps_of(ours, [(cols, rows, small)])
+        print("case %d of seed %d differs; shrunk to %d by %d: %r" % (i, seed, cols, rows, small))
+        print("  Ghostty:\n    " + g[0].replace("\n", "\n    "))
+        print("  std.terminal:\n    " + (r[0].replace("\n", "\n    ") if r else "(failed) " + err.strip()))
+    print("fuzzed %d streams (seed %d): %d differ" % (n, seed, len(bad)))
+    return not bad
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--check", action="store_true", help="fail when the file is not what this writes")
+    p.add_argument("--fuzz", type=int, metavar="N", help="compare N random streams instead")
+    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--all", action="store_true", help="draw sequences std.terminal does not implement too")
+    p.add_argument("--rig", default=os.path.join(ROOT, "bin", "rig"))
     args = p.parse_args()
+    if args.fuzz:
+        sys.exit(0 if fuzz(args.fuzz, args.seed, args.all, args.rig) else 1)
     cases = [c for area in AREAS for c in CASES if c[0] == area]
     want = text(cases, answers(cases))
     if args.check:
