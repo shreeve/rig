@@ -1,0 +1,90 @@
+# std.terminal: a terminal emulator as a library. Bytes a program writes
+# go in through `feed`; the screen, the cursor, and the bytes the terminal
+# answers with come out. It reads nothing and writes nothing itself: a
+# caller owns the pty, the keyboard, and the drawing. Its behavior is
+# xterm's, as Ghostty implements it; the cases of
+# test/rig/std-terminal-ghostty.rig.test hold Ghostty's answers
+# (tools/terminal_ghostty.py records them).
+#
+# This is the first piece: printable ASCII, autowrap with a pending wrap,
+# carriage return, line feed (VT and FF too), and backspace.
+
+use std.utf8
+
+# A terminal of `cols` columns and `rows` rows. A cell holds a rune, 0 for
+# empty; row `y` is cells `y * cols` to `y * cols + cols - 1`.
+pub obj Terminal
+  cols: Int
+  rows: Int
+  cells: List[U32]
+  row: Int
+  col: Int
+  # The cursor is past the last column: the next printed rune wraps first.
+  pending_wrap: Bool
+
+  # An empty terminal of `cols` by `rows`, the cursor at the top left.
+  pub fun new(cols: Int, rows: Int) -> Terminal
+    Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), row: 0, col: 0, pending_wrap: false)
+
+  # Take `bytes` as a program's output, in order.
+  pub sub feed(!@, bytes: ?String)
+    for b in bytes
+      if b >= 0x20 and b < 0x7F
+        (!@).print(U32(b))
+      else
+        match b
+          0x08 => (!@).backspace()
+          0x0A, 0x0B, 0x0C => (!@).index()
+          0x0D => (!@).carriage_return()
+          _ => pass
+
+  # Write `r` at the cursor and move right, wrapping first when a wrap is
+  # pending.
+  sub print(!@, r: U32)
+    if @pending_wrap
+      @pending_wrap = false
+      @col = 0
+      (!@).index()
+    @cells[@row * @cols + @col] = r
+    if @col == @cols - 1
+      @pending_wrap = true
+    else
+      @col += 1
+
+  sub carriage_return(!@)
+    @col = 0
+    @pending_wrap = false
+
+  # Down one row, scrolling the screen up at the bottom.
+  sub index(!@)
+    @pending_wrap = false
+    if @row < @rows - 1
+      @row += 1
+      return
+    for i in 0..(@rows - 1) * @cols
+      @cells[i] = @cells[i + @cols]
+    for i in (@rows - 1) * @cols..@rows * @cols
+      @cells[i] = 0
+
+  sub backspace(!@)
+    @pending_wrap = false
+    @col -= 1 if @col > 0 else 0
+
+  # The screen and cursor as text: a line per row, `|` and the row's runes
+  # with its trailing blanks dropped (an empty cell is a space), then
+  # `cursor ROW COL`, with ` wrap` when a wrap is pending.
+  pub fun dump(?@) -> String
+    out = String()
+    for y in 0..@rows
+      start = y * @cols
+      end = start + @cols
+      while end > start and (@cells[end - 1] == 0 or @cells[end - 1] == 0x20)
+        end -= 1
+      !out.push(0x7C)
+      for i in start..end
+        r = @cells[i]
+        utf8.push_rune(!out, 0x20 if r == 0 else Int(r))
+      !out.push(0x0A)
+    !out.add("cursor ", @row, " ", @col)
+    !out.add(" wrap") if @pending_wrap
+    out
