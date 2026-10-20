@@ -9,7 +9,7 @@ usage: bench/terminal/bench-terminal [options]
                       scroll   short lines, so nearly every byte or two scrolls
                       sgr      colored words and resets, a line break now and then
                       tui      full-screen frames: CUP, SGR, a run of text, EL
-  --variants a,b    what to build and time (default: all):
+  --variants a,b    what to build and time (default: all but experiments):
                       rig-safe        bench.rig, rig build --release (Zig's safe mode)
                       rig-fast        bench.rig, rig build --release=fast
                       ghostty         libghostty-vt (tools/terminal_ghostty.zig,
@@ -17,6 +17,10 @@ usage: bench/terminal/bench-terminal [options]
                                       no scrollback, as std.terminal has none
                       ghostty-scroll  the same with 10 MB of scrollback, Ghostty's
                                       default
+                    and an experiment, only when named:
+                      rig-nocheck     rig-fast with Rig's index, slice, and read
+                                      bounds checks removed from its runtime (as
+                                      bench/json's): sizes what they cost
   --size COLSxROWS  the terminal (default 120x40)
   --ms N            aim each timed run at about N ms (default 300)
   --reps N          timed runs per variant, interleaved (default 5)
@@ -72,10 +76,29 @@ def build(variant, out):
         return [terminal_ghostty.bench_exe()]
     exe = os.path.join(out, variant)
     flag = "--release" if variant == "rig-safe" else "--release=fast"
-    r = subprocess.run([os.path.join(ROOT, "bin", "rig"), "build", flag, "-o", exe, os.path.join(ROOT, "bench", "terminal", "bench.rig")], capture_output=True, text=True)
+    emitted = os.path.join(out, variant + ".out")
+    env = dict(os.environ, RIG_OUT_DIR=emitted)
+    r = subprocess.run([os.path.join(ROOT, "bin", "rig"), "build", flag, "-o", exe, os.path.join(ROOT, "bench", "terminal", "bench.rig")], capture_output=True, text=True, env=env)
     if r.returncode != 0:
         sys.exit("bench-terminal: building %s failed:\n%s" % (variant, r.stderr))
+    if variant == "rig-nocheck":
+        bench_json().unchecked_runtime(os.path.join(emitted, "rig", "runtime.zig"))
+        r = subprocess.run(["zig", "build-exe", "-OReleaseFast", "--cache-dir", os.path.join(emitted, ".zc"), "-femit-bin=" + exe, os.path.join(emitted, "__rig_main.zig")], cwd=emitted, capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit("bench-terminal: building rig-nocheck failed:\n%s" % r.stderr)
     return [exe]
+
+
+def bench_json():
+    """bench/json/bench-json's unchecked_runtime, taken from its source
+    alone (the script runs when imported), so the patch has one copy."""
+    import ast, re
+    path = os.path.join(ROOT, "bench", "json", "bench-json")
+    tree = ast.parse(open(path).read())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "unchecked_runtime")
+    space = {"re": re, "sys": sys}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), path, "exec"), space)
+    return argparse.Namespace(unchecked_runtime=space["unchecked_runtime"])
 
 
 def time_it(cmd, variant, path, n, cols, rows):
