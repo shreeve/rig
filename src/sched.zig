@@ -52,6 +52,11 @@ pub const Fiber = struct {
     /// (`spendBudget`), so a socket that is always ready cannot keep it
     /// on its worker.
     budget: u8 = budget_size,
+    /// The worker it runs on and no other, once pinned (`pinHere`): a
+    /// local task, and the task that made one. It waits in that worker's
+    /// `pinned` queue, never in a ring or the global queue, so no other
+    /// worker takes it.
+    home: ?*Worker = null,
 };
 
 /// What a worker does with the fiber that just switched away, once it has:
@@ -87,6 +92,12 @@ const Worker = struct {
     /// fibers whose waits have a deadline it set (`Timers`).
     poller: Poller = .{},
     timers: Timers = .{},
+    /// Its pinned fibers that are ready (`Fiber.home`), which only it runs;
+    /// other workers and threads add to it.
+    pinned: Global = .{},
+    /// 1 while it sleeps, so a thread that adds to `pinned` kicks its
+    /// poller.
+    idle: std.atomic.Value(u32) = .init(0),
     /// The next worker asleep (`Sleepers`).
     next_sleeper: ?*Worker = null,
     searching: bool = false,
@@ -149,13 +160,16 @@ pub fn current() ?*Fiber {
 /// `f` goes to the global queue.
 pub fn wake(f: *Fiber) void {
     if (deterministic) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
-    const w = me() orelse {
+    const here = me();
+    if (f.home) |home| if (home != here) return wakeHome(f, home);
+    const w = here orelse {
         global.push(f);
         return notifyNew();
     };
     const before = w.lifo;
     w.lifo = f;
     if (before) |b| {
+        if (b.home != null) return w.pinned.push(b);
         w.ring.push(b);
         notifyNew();
     }
@@ -164,8 +178,28 @@ pub fn wake(f: *Fiber) void {
 /// Make `f` ready to run after the fibers already ready on this worker.
 fn wakeLast(f: *Fiber) void {
     if (deterministic) return wake(f);
+    if (f.home) |home| return wakeHome(f, home);
     if (me()) |w| w.ring.push(f) else global.push(f);
     notify();
+}
+
+/// Queue the pinned fiber `f` on its worker, and wake that worker if it
+/// sleeps: it looks at its queue after it marks itself idle, and before
+/// it sleeps in its poller (`sleep`).
+fn wakeHome(f: *Fiber, home: *Worker) void {
+    home.pinned.push(f);
+    if (home != me() and home.idle.load(.seq_cst) != 0) home.poller.kick();
+}
+
+/// Pin the running fiber to its worker, and give the worker to pin a
+/// task it makes to (`spawn`): what makes a task local. A local task
+/// shares handles whose counts are not atomic with the task that made it,
+/// so both stay on one thread from then on.
+pub fn pinHere() ?*Worker {
+    if (deterministic) return null;
+    const w = me() orelse return null;
+    w.current.?.home = w;
+    return w;
 }
 
 /// Let other fibers run, then go on.
@@ -218,7 +252,7 @@ fn claimWaiting(w: *Worker) void {
 }
 
 fn hasOwnWork(w: *Worker) bool {
-    return w.lifo != null or !w.ring.isEmpty() or global.count.load(.monotonic) != 0;
+    return w.lifo != null or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
 }
 
 /// How many times in a row a worker runs its "run next" fiber before it
@@ -1105,8 +1139,8 @@ fn prepare(f: *Fiber) void {
 }
 
 /// The next fiber to run: the global queue's (first, one turn in 61, so
-/// it is never starved), this worker's "run next" fiber, its ring's, the
-/// global queue's, or one stolen.
+/// it is never starved), this worker's "run next" fiber, its pinned
+/// fibers' and its ring's, the global queue's, or one stolen.
 fn next(w: *Worker) ?*Fiber {
     // Deterministic: any ready fiber, as the seed picks, once the timers
     // the clock has reached have woken theirs.
@@ -1129,10 +1163,14 @@ fn next(w: *Worker) ?*Fiber {
         // Run a fiber from the ring first, and leave this one to be
         // stolen meanwhile.
         w.lifo = null;
-        w.ring.push(f);
+        if (f.home != null) w.pinned.push(f) else w.ring.push(f);
     }
     w.lifo_streak = 0;
+    // Pinned fibers and the ring take turns first, so neither keeps the
+    // other waiting.
+    if (w.tick & 1 == 0) if (w.pinned.pop()) |f| return f;
     if (w.ring.pop()) |f| return f;
+    if (w.pinned.pop()) |f| return f;
     if (global.pop()) |f| return f;
     return search(w);
 }
@@ -1201,6 +1239,8 @@ fn wakeWorker(w: *Worker) void {
 fn sleep(w: *Worker) void {
     if (waiting.load(.monotonic) != 0) waiting.store(0, .monotonic);
     w.woken.store(0, .seq_cst);
+    w.idle.store(1, .seq_cst);
+    defer w.idle.store(0, .seq_cst);
     sleepers.push(w);
     if (stopping.load(.seq_cst) or (searching.load(.seq_cst) == 0 and hasWork())) {
         if (!sleepers.remove(w)) waitWoken(w);
@@ -1864,8 +1904,9 @@ fn handoff(w: *Worker, h: *Header, cancelable: bool) void {
 
 /// Start `f(args...)` as a fiber, ready to run, and give its record,
 /// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
-/// task's `Control` there), which `f` gets first.
-pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra) Spawned(T, Extra) {
+/// task's `Control` there), which `f` gets first. A `local` task, and the
+/// fiber making it, are pinned to this worker (`pinHere`).
+pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool) Spawned(T, Extra) {
     const Args = @TypeOf(args);
     const Full = struct {
         job: Job(T),
@@ -1893,6 +1934,7 @@ pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: 
     // its task somewhere does so before the task can run (`made`).
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     if (@hasDecl(Extra, "made")) full.extra.made();
+    if (local) full.job.header.fiber.home = pinHere();
     wake(&full.job.header.fiber);
     return .{ .job = &full.job, .extra = &full.extra };
 }
@@ -2279,7 +2321,7 @@ test "many workers run many fibers, each waited for, and their results add up" {
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [2000]*Job(u64) = undefined;
             for (0..50) |_| {
-                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}).job;
+                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false).job;
                 for (jobs) |j| {
                     sum += j.join();
                     j.free();
@@ -2306,7 +2348,7 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..20000) |i| {
-                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}).job;
+                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false).job;
                 sum += j.join();
                 j.free();
             }
@@ -2318,6 +2360,52 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u64, 19999 * 20000 / 2), Run.sum);
+}
+
+test "local tasks and the fiber that made them stay on its worker, woken there by other workers' tasks" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var sum: u64 = 0;
+        var moved = std.atomic.Value(u32).init(0);
+        const Unit = struct {};
+        fn leaf(_: *Unit, i: u64) u64 {
+            var x: u64 = i;
+            for (0..200) |k| x +%= k * i;
+            if (i % 2 == 0) yield();
+            return i;
+        }
+        /// A local task: it waits on a task free to run anywhere, whose
+        /// end wakes it from another worker, and checks it never moved.
+        fn local(_: *Unit, home: *Worker, i: u64) u64 {
+            var got: u64 = 0;
+            for (0..4) |k| {
+                const j = spawn(u64, Unit, leaf, .{i * 4 + k}, .{}, false).job;
+                yield();
+                if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
+                got += j.join();
+                j.free();
+                if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
+            }
+            return got;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            var jobs: [200]*Job(u64) = undefined;
+            const home = me().?;
+            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true).job;
+            for (jobs) |j| {
+                sum += j.join();
+                j.free();
+                if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
+            }
+        }
+    };
+    workers_override = 4;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u64, 799 * 800 / 2), Run.sum);
+    try std.testing.expectEqual(@as(u32, 0), Run.moved.load(.seq_cst));
 }
 
 test "a fiber waiting on a pipe wakes when its other end is written, and a deadline ends such a wait" {
@@ -2353,7 +2441,7 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = pipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}).job;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
             while (true) {
                 var b: [1]u8 = undefined;
                 const n: isize = @bitCast(std.posix.system.read(fds[0], &b, 1));

@@ -89,14 +89,17 @@ test "cell print shared", seeds: 20, "Cell(value: 3) 4"
   t = one()&
   print(c, 3 + <t.wait())
 
-fail "cell list stays", "a task may run on another core, and `xs` is given to it: `*Cell[List[Int]]` is a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks", errors: 1
-  # A Cell of more than one word stays with one task.
+test "cell list local", seeds: 20, "2 2"
+  # A Cell of more than one word stays on one thread: a task given its
+  # handle is local, run on the thread of the task that made it.
   fun total(xs: *Cell[List[Int]]) -> Int
+    !xs.push(4)
     xs.len
 
   xs = *Cell(List[Int]())
-  t = total(xs)&
-  print(<t.wait())
+  !xs.push(1)
+  t = total(+xs)&
+  print(<t.wait(), xs.len)
 
 fail "cell add bool", "`add` counts, so it is a `Cell[Int]`'s; this is a `Cell[Bool]`: change it with `set`, `swap`, or `compare_swap`", errors: 1
   a = *Cell(true)

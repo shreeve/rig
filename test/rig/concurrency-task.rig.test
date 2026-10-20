@@ -223,46 +223,73 @@ fail "task targets", "a task runs a call of a function or a method: `f(x)&`, `(!
   u = f(2)&
   v = Node(v: 3)&
 
-fail "task crossing", "a task may run on another core, and `?n` is lent to it to read: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
-  # What a task is lent to read must share: another core reads it while
-  # this one may too (docs/CONCURRENCY.md, "What may cross cores").
+test "task local", seeds: 20, '''
+  1
+  1
+  3
+  5050
+'''
+  # A task given or lent a value that stays on one thread (a `*` handle
+  # whose count is not atomic, anywhere inside what it is passed) is
+  # local: it and the task making it run on one thread from then on
+  # (docs/CONCURRENCY.md, "Local tasks").
   obj Node
     v: Int
 
   fun val(n: ?*Node) -> Int
     n.v
 
-  n = *Node(v: 1)
-  t = val(?n)&
-  print(<t.wait())
-
-fail "task crossing given", "a task may run on another core, and `n` is given to it: `*Node` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
-  # What a task is given must move.
-  obj Node
-    v: Int
-
-  fun val(n: *Node) -> Int
-    n.v
-
-  n = *Node(v: 1)
-  t = val(n)&
-  print(<t.wait())
-
-fail "task crossing inside", "a task may run on another core, and `?ns` is lent to it to read: `?List[*Node]` holds `*Node`, a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
-  # A value that holds a handle anywhere inside stays on this core.
-  obj Node
-    v: Int
+  fun keep(n: *Node, k: Int) -> Int
+    n.v + k
 
   fun count(ns: ?List[*Node]) -> Int
     ns.len
 
-  ns = List[*Node]()
-  t = count(?ns)&
+  n = *Node(v: 1)
+  t = val(?n)&
   print(<t.wait())
+  u = keep(+n, 0)&
+  print(<u.wait())
+  ns = List[*Node]()
+  for 0..3
+    !ns.push(+n)
+  c = count(?ns)&
+  print(<c.wait())
+  ts = Tasks[Int]()
+  for k in 0..100
+    !ts.add(keep(+n, k)&)
+  xs = <ts.wait_all()
+  s = 0
+  for x in xs
+    s += x
+  print(s)
 
-fail "task crossing task lent", "a task may run on another core, and `?a` is lent to it to read: `?Task[Int]` views a task, which only the one that holds it may wait for", errors: 1
+test "task local signal", seeds: 20, '''
+  set 1
+  set 2
+  2
+'''
+  # A Signal and a function given stay on one thread too.
+  fun inc(x: Int) -> Int
+    x + 1
+
+  sub ping(s: *Signal[Int], f: fun(Int) -> Int)
+    !s.set(f(s.get()))
+
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|~sig|
+    if *sig as s
+      print("set", s.get())
+  )
+  t = ping(+sig, inc)&
+  <t.wait()
+  u = ping(+sig, inc)&
+  <u.wait()
+  print(sig.get())
+
+fail "task local task lent", "`?a` is lent to a task to read: `?Task[Int]` views a task, which only the one that holds it may wait for", errors: 1
   # A task moves to another task, but is never lent: only the one that
-  # holds it may wait for it.
+  # holds it may wait for it, even on one thread.
   fun one() -> Int
     1
 
@@ -272,6 +299,41 @@ fail "task crossing task lent", "a task may run on another core, and `?a` is len
   a = one()&
   t = peek(?a)&
   print(<t.wait(), <a.wait())
+
+fail "task local tasks given", "`!ts` is lent to a task to write: `!Tasks[Int]` views a set of tasks, which stays with the task that made it", errors: 1
+  # A set of tasks stays with the task that made it, even on one thread.
+  fun one() -> Int
+    1
+
+  sub more(ts: !Tasks[Int])
+    !ts.add(one()&)
+
+  ts = Tasks[Int]()
+  t = more(!ts)&
+  <t.wait()
+
+fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> Int` views a function, whose captures its type does not show", errors: 1
+  # A function lent to read could lend what it captures to write, which
+  # no two tasks may hold at once, even on one thread.
+  fun call(f: ?fun(Int) -> Int) -> Int
+    f(1)
+
+  f = |x: Int| x + 1
+  t = call(?f)&
+  print(<t.wait())
+
+fail "task local channel", "`+ch` is given to a task: `*Chan[*Node]` holds `*Node`, a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  # A channel's elements go to any task that holds a handle of it, so a
+  # local task's channel still carries only what crosses cores.
+  obj Node
+    v: Int
+
+  fun take(ch: *Chan[*Node]) -> Int
+    1
+
+  ch = *Chan[*Node](4)
+  t = take(+ch)&
+  print(<t.wait())
 
 test "task crossing passed", seeds: 20, '''
   6

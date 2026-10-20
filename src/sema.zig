@@ -995,6 +995,9 @@ pub const Facts = struct {
     supervise_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `http.serve` (`Checker.httpServe`).
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// `f(x)&` tasks that are local, pinned to the thread of the task
+    /// that makes them (`Checker.crossCheck`).
+    local_tasks: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -3270,6 +3273,15 @@ pub const SemContext = struct {
     /// Whether `call` is `http.serve` (`recordHttpServe`).
     pub fn isHttpServe(self: *const SemContext, call: Sexp) bool {
         return self.facts.http_serves.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordLocalTask(self: *SemContext, call: Sexp) !void {
+        try self.facts.local_tasks.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether the task `call` makes is local (`recordLocalTask`).
+    pub fn isLocalTask(self: *const SemContext, call: Sexp) bool {
+        return self.facts.local_tasks.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordIsolateCall(self: *SemContext, call: Sexp) !void {
@@ -6121,38 +6133,54 @@ pub fn crosses(ctx: *const SemContext, ty: TypeId, how: Crossing) bool {
 pub fn crossingBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
-    return blockerIn(ctx, ty, how, &seen);
+    return blockerIn(ctx, ty, how, false, &seen);
+}
+
+/// What in `ty` keeps it from going to a local task as `how` says: one
+/// pinned to the thread of the task that makes it, so values that stay on
+/// one thread go to it (a `*T` or `~T` whose counts are not atomic, a
+/// `Cell`, a `Signal`, a function given). What still stops it: a set of
+/// tasks, a task or a write view lent to read, a function lent to read,
+/// whose captures may lend to write, and a channel's elements, which go
+/// to any task.
+pub fn localBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
+    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    defer seen.deinit(ctx.allocator);
+    return blockerIn(ctx, ty, how, true, &seen);
 }
 
 const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
-fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
+/// `local`: what a local task may not take (`localBlocker`).
+fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
     return switch (ctx.types.get(ty)) {
         // A Cell of one word's handle, and an actor's, strong or weak,
         // count atomically, and what they reach changes one task at a
-        // time.
-        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, seen) else ty,
-        .weak => |inner| if (actorValue(ctx, inner) != null) null else ty,
-        .function, .callable => ty,
-        .read_view => |inner| blockerIn(ctx, inner, .shares, seen),
-        .write_view => |inner| if (how == .shares) ty else blockerIn(ctx, inner, .moves, seen),
-        .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, seen),
-        .array => |a| blockerIn(ctx, a.elem, how, seen),
-        .slice => |sl| blockerIn(ctx, sl.elem, how, seen),
+        // time. A channel's elements go to any task. A local task reads
+        // what another handle reaches on the same thread.
+        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, false, seen) else if (local) blockerIn(ctx, inner, .shares, local, seen) else ty,
+        .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local) blockerIn(ctx, inner, .shares, local, seen) else ty,
+        .function, .callable => if (local and how == .moves) null else ty,
+        .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
+        .write_view => |inner| if (how == .shares) ty else blockerIn(ctx, inner, .moves, local, seen),
+        .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, local, seen),
+        .array => |a| blockerIn(ctx, a.elem, how, local, seen),
+        .slice => |sl| blockerIn(ctx, sl.elem, how, local, seen),
         .results => |parts| for (parts) |part| {
-            if (blockerIn(ctx, part, how, seen)) |b| break b;
+            if (blockerIn(ctx, part, how, local, seen)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
+            if (local and (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id)) break :blk null;
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) break :blk ty;
             if (pn.sym == ctx.task_sym_id and how == .shares) break :blk ty;
-            for (pn.args) |a| if (blockerIn(ctx, a, how, seen)) |b| break :blk b;
+            for (pn.args) |a| if (blockerIn(ctx, a, how, local, seen)) |b| break :blk b;
             if (pn.sym == ctx.task_sym_id or isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
-            break :blk fieldsBlock(ctx, pn.sym, how, seen);
+            break :blk fieldsBlock(ctx, pn.sym, how, local, seen);
         },
-        .nominal => |sym| fieldsBlock(ctx, sym, how, seen),
+        .nominal => |sym| fieldsBlock(ctx, sym, how, local, seen),
         .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk ty;
-            break :blk fieldsBlock(decl.ctx, decl.sym, how, seen);
+            break :blk fieldsBlock(decl.ctx, decl.sym, how, local, seen);
         },
         else => null,
     };
@@ -6203,11 +6231,11 @@ fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapU
 /// meeting `how` (`blockerIn`); a type already being looked into adds
 /// nothing. A generic parameter in a field stands for an argument, which
 /// its instance checks.
-fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
+fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, local: bool, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
     const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return ctx.types.invalid_id;
     if (got.found_existing) return null;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
-        for (dataFields(f)) |d| if (blockerIn(ctx, d.ty, how, seen)) |b| return b;
+        for (dataFields(f)) |d| if (blockerIn(ctx, d.ty, how, local, seen)) |b| return b;
     }
     return null;
 }

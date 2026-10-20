@@ -10243,7 +10243,17 @@ its loans for that task's whole life. A `*T` or `~T` handle never
 crosses, by value, through a view, or in a field, an element, or an
 optional, since its count is not atomic.
 
-```rig reject
+**Local tasks.** A task given or lent a value that does not cross (a
+`*T` or `~T` whose count is not atomic, a `Cell` of more than one word,
+a `Signal`, a function given), anywhere in what it is passed, is
+*local*: it runs on the thread of the task that makes it, and that task
+stays on that thread from then on, so no count they share changes on two
+cores at once. Such tasks take turns on one core, at their waits and
+yield checks; the code reads the same as for any task, and the compiler
+picks which a task is. So a GUI program's `*T`, `Cell`, and `Signal`
+code can use `&`.
+
+```rig
 obj Node
   v: Int
 
@@ -10256,8 +10266,31 @@ sub main()
   print(<t.wait())
 ```
 
+```output
+1
+```
+
+A local task still takes nothing that no two tasks may hold at once,
+even on one thread: a set of tasks, a task or a write view lent to
+read, or a function lent to read, which may lend what it captures to
+write. A channel's elements go to any task that holds a handle of it,
+so they cross cores even when a local task holds the channel.
+
+```rig reject
+fun one() -> Int
+  1
+
+fun peek(t: ?Task[Int]) -> Int
+  2
+
+sub main()
+  a = one()&
+  t = peek(?a)&
+  print(<t.wait(), <a.wait())
+```
+
 ```error
-a task may run on another core, and `?n` is lent to it to read: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once
+`?a` is lent to a task to read: `?Task[Int]` views a task, which only the one that holds it may wait for
 ```
 
 **The value.** A task is not copied, cloned, or compared, and `print`

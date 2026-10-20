@@ -7730,7 +7730,8 @@ const Checker = struct {
     /// result `T`, a fallible one too, whose failure `<t.wait()!` passes
     /// on (docs/CONCURRENCY.md, "Tasks"). The callee is a Rig function or
     /// method, and every argument, and a method's self (`@`), may go to
-    /// another core as it is passed (`crossCheck`).
+    /// another core as it is passed, or the task is local, pinned to this
+    /// thread (`crossCheck`).
     fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
         if (self.isPoison(ty)) return self.t().invalid_id;
         const callee = ir.Call.callee(node);
@@ -7777,18 +7778,21 @@ const Checker = struct {
             const part_ty = self.ctx.typeOf(part) orelse continue;
             if (self.isPoison(part_ty)) continue;
             const as_self: ?sema.MethodReceiver = if (i == 0 and callee.isKind(.member)) self_mode else null;
-            if (!try self.crossCheck(part, part_ty, as_self)) return self.t().invalid_id;
+            if (!try self.crossCheck(node, part, part_ty, as_self)) return self.t().invalid_id;
         }
         self.ctx.makes_tasks = true;
         return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
     }
 
-    /// Whether `part`, of type `part_ty`, an argument of a task or its
-    /// method's self (taken as `as_self` says), may go to the task on
-    /// another core, as it is passed: given (moved or copied) when its type moves,
-    /// lent to read when it shares, and lent to write when what it views
-    /// moves (`sema.Crossing`). Reports the part that cannot.
-    fn crossCheck(self: *Checker, part: Sexp, part_ty: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
+    /// Whether `part`, of type `part_ty`, an argument of the task `call`
+    /// or its method's self (taken as `as_self` says), may go to the task
+    /// as it is passed: given (moved or copied) when its type moves, lent
+    /// to read when it shares, and lent to write when what it views moves
+    /// (`sema.Crossing`), so the task may run on another core. A part that
+    /// stays on one thread (`sema.localBlocker`) makes the task local:
+    /// it and the task making it run on this thread from then on. Reports
+    /// the part that cannot go even to a local task.
+    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
         const k = self.ctx.types.get(part_ty);
         const Mode = enum { given, read, write };
         const mode: Mode = if (as_self) |r| switch (r) {
@@ -7798,13 +7802,17 @@ const Checker = struct {
         } else if (k == .read_view) .read else if (k == .write_view) .write else .given;
         const how: sema.Crossing = if (mode == .read) .shares else .moves;
         const inner = if (k == .read_view or k == .write_view) sema.unwrapViews(self.ctx, part_ty) else part_ty;
-        const blocker = sema.crossingBlocker(self.ctx, inner, how) orelse return true;
-        const passed = switch (mode) {
-            .given => "is given to it",
-            .read => "is lent to it to read",
-            .write => "is lent to it to write",
+        if (sema.crossingBlocker(self.ctx, inner, how) == null) return true;
+        const blocker = sema.localBlocker(self.ctx, inner, how) orelse {
+            try self.ctx.recordLocalTask(call);
+            return true;
         };
-        try self.errAt(part, "a task may run on another core, and `{s}` {s}: `{s}` {s}", .{ self.sourceText(part), passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
+        const passed = switch (mode) {
+            .given => "is given to a task",
+            .read => "is lent to a task to read",
+            .write => "is lent to a task to write",
+        };
+        try self.errAt(part, "`{s}` {s}: `{s}` {s}", .{ self.sourceText(part), passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
         return false;
     }
 

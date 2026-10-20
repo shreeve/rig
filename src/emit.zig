@@ -6833,11 +6833,11 @@ pub const Emitter = struct {
             const saved = self.read_place;
             defer self.read_place = saved;
             self.read_place = !self.receiverWrites(sexp);
-            try self.w.writeAll(".spawnMethod(");
+            try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnMethodLocal(" else ".spawnMethod(");
             try self.emitAddressOf(lentPlace(recv));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
         } else {
-            try self.w.writeAll(".spawn(");
+            try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else ".spawn(");
             try self.emitExpr(callee);
             try self.w.writeAll(", .{ ");
         }

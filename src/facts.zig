@@ -351,6 +351,9 @@ pub const Facts = struct {
     pub fn isHttpServe(f: Facts, call: Sexp) bool {
         return f.c().isHttpServe(call);
     }
+    pub fn isLocalTask(f: Facts, call: Sexp) bool {
+        return f.c().isLocalTask(call);
+    }
     pub fn isIsolateCall(f: Facts, call: Sexp) bool {
         return f.c().isIsolateCall(call);
     }
