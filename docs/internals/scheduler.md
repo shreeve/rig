@@ -271,6 +271,19 @@ every time; the suite runs each concurrency case again under seeds 1 to
     default), and ends a thread idle 10 s; a cancel or a deadline ends a
     wait on it (`rig.blockingStop`).
 
+13. **Checks of where work runs**: with `RIG_SCHED_STATS=1` set, a
+    program prints, as `main` ends, what each worker did, to stderr:
+
+    ```
+    rig: worker 0: ran 1203, pinned 1, stole 0, slept 4
+    ```
+
+    the fibers it ran (by handoff too), of them pinned ones, the fibers
+    it stole, and the times it slept, so a test can check where work ran
+    without timing it (`test/cli/sched_stats.sh`). A safe or debug build
+    panics when a pinned fiber resumes on a worker other than its home
+    (`sched.checkHome`), a load and a branch per switch.
+
 Each increment is held to the gate in `bench/tasks/README.md`
 (`bench-tasks --gate`), which fails a benchmark more than 1.5 times
 slower than the last recorded row. The

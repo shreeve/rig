@@ -112,6 +112,13 @@ const Worker = struct {
     next_sleeper: ?*Worker = null,
     searching: bool = false,
     rng: u32 = 1,
+    /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
+    /// (`printStats`): fibers it ran, of them pinned ones, fibers it
+    /// stole, and times it slept.
+    ran: u64 = 0,
+    ran_pinned: u64 = 0,
+    stole: u64 = 0,
+    slept: u64 = 0,
     thread: ?std.Thread = null,
 };
 
@@ -291,6 +298,7 @@ fn claimWaiting(w: *Worker) void {
     for (workers) |*v| {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
+            w.stole += 1;
             w.ring.push(f);
             return yield();
         }
@@ -1372,6 +1380,25 @@ fn stop(after: After) void {
     f.handoff = null;
     w.after = after;
     switchTo(&f.sp, w.sp);
+    checkHome(f);
+}
+
+/// In a safe build, a pinned fiber that resumes on a worker other than
+/// its home panics: the counts it shares with its home's fibers are not
+/// atomic (`pinHere`). A load and a branch per switch.
+inline fn checkHome(f: *Fiber) void {
+    if (!std.debug.runtime_safety) return;
+    const home = f.home orelse return;
+    if (me() != home) home_lost(f);
+}
+
+/// What `checkHome` does when a fiber resumes away from home; a test sets
+/// it to note so instead.
+var home_lost: *const fn (*Fiber) void = homeLost;
+
+fn homeLost(_: *Fiber) void {
+    @branchHint(.cold);
+    @panic("rig: a pinned task resumed on a worker other than its own");
 }
 
 /// Run fibers until `main`'s ends: `run(arg)` as the first fiber, on the
@@ -1413,6 +1440,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     if (deterministic) wake(&m.fiber) else workers[0].ring.push(&m.fiber);
     loop(&workers[0]);
     pool.stop();
+    printStats();
     for (workers[1..]) |*w| w.thread.?.join();
     timers.clear();
     for (workers) |*w| {
@@ -1432,6 +1460,19 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     waiting.store(0, .monotonic);
     next_quiet.store(false, .monotonic);
     ready.clearAndFree(std.heap.smp_allocator);
+}
+
+/// With `RIG_SCHED_STATS=1` set, print what each worker did to stderr,
+/// as `main` ends: so a test can check where work ran without timing it.
+fn printStats() void {
+    const p = rt.process orelse return;
+    const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
+    if (!std.mem.eql(u8, v, "1")) return;
+    var buf: [256]u8 = undefined;
+    for (workers, 0..) |*w, i| {
+        const line = std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept }) catch continue;
+        _ = std.posix.system.write(2, line.ptr, line.len);
+    }
 }
 
 /// Test only: run `run` as `main`, on a stack of its own, with `n`
@@ -1512,6 +1553,8 @@ fn loop(w: *Worker) void {
 }
 
 fn runFiber(w: *Worker, f: *Fiber) void {
+    w.ran += 1;
+    if (f.home != null) w.ran_pinned += 1;
     prepare(f);
     w.current = f;
     switchTo(&w.sp, f.sp);
@@ -1593,7 +1636,10 @@ fn search(w: *Worker) ?*Fiber {
     for (0..workers.len) |k| {
         const v = &workers[(start + k) % workers.len];
         if (v == w) continue;
-        if (w.ring.stealFrom(&v.ring)) |f| return f;
+        if (w.ring.stealFrom(&v.ring)) |f| {
+            w.stole += 1;
+            return f;
+        }
     }
     if (global.pop()) |f| return f;
     // No ring had any: take a fiber another worker has kept in its "run
@@ -1601,7 +1647,10 @@ fn search(w: *Worker) ?*Fiber {
     for (0..workers.len) |k| {
         const v = &workers[(start + k) % workers.len];
         if (v == w) continue;
-        if (stealNext(v)) |f| return f;
+        if (stealNext(v)) |f| {
+            w.stole += 1;
+            return f;
+        }
     }
     return null;
 }
@@ -1686,6 +1735,7 @@ fn wakeWorker(w: *Worker) void {
 /// timers come due on any worker, and those its poller's events make
 /// ready, and goes back to running them.
 fn sleep(w: *Worker) void {
+    w.slept += 1;
     if (waiting.load(.monotonic) != 0) waiting.store(0, .monotonic);
     w.woken.store(0, .seq_cst);
     w.idle.store(1, .seq_cst);
@@ -2365,9 +2415,12 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     f.handoff_epoch = e;
     prepare(f);
     w.current = f;
+    w.ran += 1;
+    if (f.home != null) w.ran_pinned += 1;
     switchTo(&waiter.sp, f.sp);
     // Back: the task ended straight back here, or stopped and later ended
     // the usual way, or a cancel woke this fiber first.
+    checkHome(waiter);
     const now = me().?;
     if (now.returned) |done| {
         now.returned = null;
@@ -3482,4 +3535,67 @@ test "a pool thread idle long enough ends" {
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u32, 0), Run.after);
+}
+
+test "RIG_SCHED_STATS counts: what each worker ran, stole, and slept" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var ran: u64 = 0;
+        var pinned: u64 = 0;
+        const Unit = struct {};
+        fn leaf(_: *Unit) u8 {
+            return 1;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            for (0..100) |_| {
+                const j = spawn(u8, Unit, leaf, .{}, .{}, true).job;
+                _ = j.join();
+                j.free();
+            }
+            for (workers) |*w| {
+                ran += w.ran;
+                pinned += w.ran_pinned;
+            }
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    // `main`, then each local task, pinned, and `main` again after each.
+    try std.testing.expect(Run.ran >= 101);
+    try std.testing.expect(Run.pinned >= 100);
+}
+
+test "a pinned fiber that resumes away from its home is caught" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    const Run = struct {
+        var lost = std.atomic.Value(u32).init(0);
+        var elsewhere: Worker = .{};
+        fn note(_: *Fiber) void {
+            _ = lost.fetchAdd(1, .seq_cst);
+        }
+        /// Queue the fiber on the ring of the worker it left, as no wake
+        /// of a pinned fiber does: a bug, for the check to catch.
+        fn misqueue(f: *Fiber, _: ?*anyopaque) void {
+            me().?.ring.push(f);
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const f = current().?;
+            // Pinned to a worker no fiber runs on.
+            f.home = &elsewhere;
+            stop(.{ .run = misqueue });
+            f.home = null;
+        }
+    };
+    home_lost = Run.note;
+    defer home_lost = homeLost;
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u32, 1), Run.lost.load(.seq_cst));
 }
