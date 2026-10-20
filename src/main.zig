@@ -1077,6 +1077,46 @@ fn runZig(io: std.Io, argv: []const []const u8) !u8 {
 
 const Ended = struct { code: u8, signal: ?u8 = null };
 
+/// A request to end this process (SIGTERM or SIGHUP), as a test runner's
+/// time limit sends one, passes on to the process `runZigReport` runs,
+/// which would otherwise run on with no parent, and this process then
+/// ends as the child does. One that comes before the child has started
+/// reaches it as it starts.
+const Ending = struct {
+    const signals = [_]std.posix.SIG{ .TERM, .HUP };
+    var child: std.atomic.Value(std.posix.pid_t) = .init(0);
+    var pending: std.atomic.Value(u32) = .init(0);
+
+    fn watch() void {
+        if (std.posix.Sigaction == void) return;
+        const act: std.posix.Sigaction = .{
+            .handler = .{ .handler = passOn },
+            .mask = std.posix.sigemptyset(),
+            .flags = 0,
+        };
+        for (signals) |sig| std.posix.sigaction(sig, &act, null);
+    }
+
+    fn started(pid: std.posix.pid_t) void {
+        child.store(pid, .seq_cst);
+        const sig = pending.swap(0, .seq_cst);
+        if (sig != 0) std.posix.kill(pid, @enumFromInt(sig)) catch {};
+    }
+
+    fn passOn(sig: std.posix.SIG) callconv(.c) void {
+        if (child.load(.seq_cst) == 0) {
+            pending.store(@intCast(@intFromEnum(sig)), .seq_cst);
+            // The child started meanwhile, and `started` may have missed
+            // the signal: whichever of the two takes it passes it on.
+            const pid = child.load(.seq_cst);
+            if (pid == 0 or pending.swap(0, .seq_cst) == 0) return;
+            std.posix.kill(pid, sig) catch {};
+            return;
+        }
+        std.posix.kill(child.load(.seq_cst), sig) catch {};
+    }
+};
+
 /// Run the Zig toolchain with inherited stdio (and `environ`, when given,
 /// as its environment); return its exit code and the signal that ended
 /// it, if one did. For `zig run` (`environ` given) these are the
@@ -1089,6 +1129,7 @@ fn runZigReport(io: std.Io, argv: []const []const u8, environ: ?*const std.proce
     // report either, though it still fails the run.
     var catcher: ?CrashCatcher = null;
     if (builtin.os.tag.isDarwin() and environ != null) catcher = CrashCatcher.start();
+    Ending.watch();
     var child = std.process.spawn(io, .{
         .argv = argv,
         .environ_map = environ,
@@ -1101,6 +1142,7 @@ fn runZigReport(io: std.Io, argv: []const []const u8, environ: ?*const std.proce
     };
     // This process's own handlers back: its own crashes are reported as ever.
     if (catcher) |*k| k.restore();
+    if (child.id) |pid| Ending.started(pid);
     return switch (try child.wait(io)) {
         .exited => |code| .{ .code = code },
         .signal => |sig| .{ .code = 128 +| @as(u8, @truncate(@backingInt(sig))), .signal = @truncate(@backingInt(sig)) },
