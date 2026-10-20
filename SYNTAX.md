@@ -1794,6 +1794,10 @@ another kind, or whose value the target sets, is compared in a guard:
 order, all of them, or by name, any of them: `.rect(w, h)` or
 `.rect(h: tall)`, never `.rect(w, h: tall)`.
 
+The same patterns that start with a dot follow `as` in an `if` or
+`while` condition, one at a time and without a guard:
+`if s as .circle(r) and r > 10` ([SPEC §12](SPEC.md#as-with-a-pattern)).
+
 ---
 
 ## Appendix: grammar summary

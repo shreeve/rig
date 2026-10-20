@@ -79,10 +79,22 @@ pub fn bindsInCondition(cond: Sexp) bool {
     return isAsPart(ir.get(cond, .right)) or bindsInCondition(ir.get(cond, .left));
 }
 
-/// A part of a condition that binds: `a as x`, or `f() as a, b`, which
-/// binds a call's several results (`as_results`).
+/// A part of a condition that binds: `a as x`, `f() as a, b`, which
+/// binds a call's several results (`as_results`), or `s as .circle(r)`,
+/// which binds a variant's fields (`as_match`).
 pub fn isAsPart(e: Sexp) bool {
-    return e.isKind(.as) or e.isKind(.as_results);
+    return e.isKind(.as) or e.isKind(.as_results) or e.isKind(.as_match);
+}
+
+/// The one-arm `match` an `as_match` part is (`Parser.asMatch`).
+pub fn asMatchOf(part: Sexp) Sexp {
+    return part.items()[1];
+}
+
+/// The one arm of the `match` an `as_match` part is: its pattern binds,
+/// and the rest of the condition and the body go on in it.
+pub fn asMatchArm(part: Sexp) Sexp {
+    return ir.Match.arms(asMatchOf(part))[0];
 }
 
 /// Whether `cond` joins two parts of a binding condition: an `and` on
@@ -196,7 +208,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -302,11 +314,13 @@ fn unitsOfStmt(stmt: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
 }
 
 /// The guard parts of a condition (`eachGuardPart`), each `and` operand
-/// of a part that binds nothing its own unit.
+/// of a part that binds nothing its own unit. A part `s as .circle(r)`
+/// is the selection of the `match` it is (`asMatchOf`).
 fn unitsOfCond(cond: Sexp, visitor: anytype) VisitError(@TypeOf(visitor))!void {
     const Parts = struct {
         v: @TypeOf(visitor),
         pub fn part(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
+            if (p.isKind(.as_match)) return unitOf(asMatchOf(p), .selection, self.v);
             try eachGuardOperand(p, self, @This().unit);
         }
         fn unit(self: @This(), p: Sexp) VisitError(@TypeOf(visitor))!void {
@@ -2424,7 +2438,10 @@ pub const Parser = struct {
             },
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
-            .post_if => "a postfix `if` guard must end a statement; write `a if c else b` for a value",
+            // After `s as .circle(r)`: no guard in the pattern, and one
+            // pattern (docs/AS-PATTERNS.md, rules 2 and 1).
+            .post_if => if (afterAsPattern(src, pos)) "a pattern after `as` takes no `if` guard: join the condition with `and`, `if s as .circle(r) and r > 10`" else "a postfix `if` guard must end a statement; write `a if c else b` for a value",
+            .comma => if (afterAsPattern(src, pos)) "after `as`, a pattern tests one variant; to test several, write a `match`" else self.format("unexpected `{s}`", .{src[pos..end]}),
             .ident => self.format("unexpected name `{s}`", .{src[pos..end]}),
             else => if (keyword(src[pos..end]) != null)
                 self.format("unexpected keyword `{s}`", .{src[pos..end]})
@@ -2649,6 +2666,33 @@ pub const Parser = struct {
             .ident, .not_sym, .question => if (precededBy(src, tok.pos, "drop")) "a drop body takes self in parentheses: `drop(!@)`" else null,
             else => null,
         };
+    }
+
+    /// Whether the source just before `pos`, on its line, is a pattern
+    /// after `as`: `as .name` or `as .name(...)`.
+    fn afterAsPattern(src: []const u8, pos: u32) bool {
+        var at: usize = pos;
+        while (at > 0 and src[at - 1] == ' ') at -= 1;
+        if (at > 0 and src[at - 1] == ')') {
+            var depth: usize = 0;
+            while (at > 0) : (at -= 1) {
+                const c = src[at - 1];
+                if (c == '\n') return false;
+                if (c == ')') depth += 1;
+                if (c == '(') {
+                    depth -= 1;
+                    if (depth == 0) {
+                        at -= 1;
+                        break;
+                    }
+                }
+            }
+        }
+        const name_end = at;
+        while (at > 0 and isIdentCont(src[at - 1])) at -= 1;
+        if (at == name_end or at == 0 or src[at - 1] != '.') return false;
+        at -= 1;
+        return precededBy(src, @intCast(at), "as");
     }
 
     /// Compile-time parameters and arguments written where Rig does not
@@ -2956,6 +3000,7 @@ pub const Parser = struct {
             .@"??" => return self.nearestFallback(out),
             .destructure => try self.destructureTargets(walked),
             .as_results => try self.resultNames(walked),
+            .as_pattern => return self.asMatch(out),
             .read, .write, .move => return self.receiverSigil(out),
             .share, .box => try self.noteParenSuffix(out),
             .weak => {
@@ -3000,6 +3045,23 @@ pub const Parser = struct {
             o.* = try self.base.newNode(.set, &.{ op, t, .nil, part }, at);
         }
         walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
+    }
+
+    /// `s as .circle(r)`: the `match` it is, `(as_match (match s (arm
+    /// .circle(r) _ pass) (arm _ _ pass)))`. Its first arm goes on with
+    /// the rest of the condition and the body; any other value takes the
+    /// second, which falls to the `else` (docs/AS-PATTERNS.md). Every pass
+    /// reads its subject and its pattern as a `match`'s, and emit writes
+    /// the `match`, which drops a value `<s` took when no arm keeps it.
+    fn asMatch(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const at = self.span(node);
+        const pattern = ir.AsPattern.pattern(node);
+        const pat_at = self.span(pattern);
+        const pass = try self.base.newNode(.pass, &.{}, pat_at);
+        const arm = try self.base.newNode(.arm, &.{ pattern, .nil, pass }, pat_at);
+        const other = try self.base.newNode(.arm, &.{ hiddenLeaf(pat_at.start, .discard), .nil, try self.base.newNode(.pass, &.{}, pat_at) }, pat_at);
+        const match = try self.base.newNode(.match, &.{ ir.AsPattern.value(node), arm, other }, at);
+        return self.base.newNode(.as_match, &.{match}, at);
     }
 
     /// `if f() as a, b`: each name but `_` is a new binding of the result

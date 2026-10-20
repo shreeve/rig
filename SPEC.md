@@ -4744,6 +4744,9 @@ small medium large
 something else: 7
 ```
 
+One arm that falls to `else` is written with `as`:
+`if s as .circle(r)` ([§12](#as-with-a-pattern)).
+
 A module constant's name, `NAME` or `m.NAME`, is a pattern when its
 value is an integer, a `Bool`, or an enum value that Rig knows when it
 checks the program. It compares with that value and binds nothing, and
@@ -8364,6 +8367,70 @@ sub main()
 
 ```error
 `as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`
+```
+
+### `as` with a pattern
+
+After `as` comes either a name, which binds an optional's value (or
+several results), or a pattern starting with a dot, which tests which
+variant an enum value is and binds its fields: `if s as .circle(r)`.
+The pattern is a `match` arm's ([SYNTAX §12](SYNTAX.md#12-patterns)):
+`.point`, `.circle(r)`, `.circle(_)`, `.rect(w, h)`, `.rect(h: tall)`.
+The form is a `match` with that one arm, whose other values fall to
+`else`, and it is not exhaustive. Its subject takes a `match`'s sigils,
+with their meaning ([match](#match)): `s` reads the fields where they
+are, `!s` binds write views of them, and `<s` hands the test the whole
+value, matched or not; a value made here gives the bindings its fields.
+Under `<s`, the fields a pattern leaves out drop at the end of the
+block, and a value it does not match drops as the test fails, before
+`else` runs.
+
+The form joins with `and` as a binding does ([Joined
+bindings](#joined-bindings)), each part seeing the bindings before it:
+`if s as .circle(r) and r > 10`, `if m as s and s as .circle(r)`.
+`while e as .item(x)` repeats while the value matches; its step cannot
+read the fields, which live only in the body.
+
+- One pattern: a comma after it does not list alternatives (after
+  `as`, a comma means several results); several variants take a
+  `match`.
+- No `if` guard in the pattern: the condition joins with `and`.
+- An enum with one variant always matches, and is rejected: bind its
+  fields with `match`.
+- An optional is rejected rather than failing to match on `none`: take
+  its value out first, `if m as s and s as .circle(r)`.
+- A bare name after `as` always binds, an optional's value; to compare
+  with a constant, use `==`.
+
+```rig
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+  point
+
+fun kind(s: Shape) -> ?String
+  if s as .circle(r) and r > 10
+    return "big circle"
+  if s as .rect(h: tall) and tall > 3
+    return "tall rect"
+  if s as .point
+    return "point"
+  "other"
+
+fun radius(m: Shape?) -> Int
+  if m as s and s as .circle(r)
+    r
+  else
+    0
+
+sub main()
+  print(kind(.circle(r: 20)), kind(.rect(w: 1, h: 5)), kind(.point), kind(.circle(r: 1)))
+  print(radius(.circle(r: 5)), radius(.point), radius(none))
+```
+
+```output
+big circle tall rect point other
+5 0 0
 ```
 
 ### The fallback of `??`

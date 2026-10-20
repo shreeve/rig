@@ -427,6 +427,8 @@ tokens
     if                          cond then else?
     as                          value name:leaf
     as_results                  value names:group  # `if f() as a, b`
+    as_pattern                  value pattern      # `if s as .circle(r)`, as parsed
+    as_match                    @wrapper           # the one-arm `match` it is (`Parser.asMatch`)
     while                       cond step? body:block else:block?
     for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block?
     match                       subject ...arms:arm
@@ -966,7 +968,14 @@ conj     = left:conj AND right:neg                  → (and)
 neg      = NOT operand:neg                          → (not)
          | value:@infix AS name:name                → (as)
          | value:@infix AS names:anames             → (as_results)
+         | value:@infix AS pattern:aspat            → (as_pattern)
          | @infix
+
+# A pattern after `as` starts with a dot: a variant, alone or with the
+# fields it binds, as a `match` arm writes it (`if s as .circle(r)`).
+aspat    = "." name:name                            → (enum_lit)
+         | "." name:name "(" ")"                    → (variant_pattern)
+         | "." name:name "(" bindings:pbinds ![","] ")" → (variant_pattern)
 
 # The names `as` binds from a call that gives several results; the
 # rewriter marks a `,` after `as name` outside brackets as AS_COMMA.

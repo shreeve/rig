@@ -1521,7 +1521,7 @@ pub const Emitter = struct {
             .@"if" => try self.emitIf(sexp),
             .@"while", .@"for" => try self.emitLoop(sexp, "", null),
             .labeled => try self.emitLabeled(sexp),
-            .match => try self.emitMatch(sexp, false),
+            .match => try self.emitMatch(sexp, false, null),
             .block => try self.emitBlock(sexp),
             // `raw` marks an audit boundary for sema; it lowers to a block.
             .raw_block => try self.emitBlock(ir.RawBlock.body(sexp)),
@@ -2422,6 +2422,7 @@ pub const Emitter = struct {
     /// Statement `if`: `(if cond then else?)`.
     fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
         const cond = ir.If.cond(sexp);
+        if (try self.hasAsMatch(cond)) return self.emitIfChain(sexp);
         if (rig.isConditionJoin(cond)) return self.emitIfJoined(sexp);
         // A value the condition holds (`Header.held`) lives in a block
         // around the `if`.
@@ -2533,6 +2534,108 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
             try self.closeBrace();
         }
+    }
+
+    /// Whether a condition has a part `s as .circle(r)` (`as_match`),
+    /// which `emitChain` writes.
+    fn hasAsMatch(self: *Emitter, cond: Sexp) Error!bool {
+        if (!rig.bindsInCondition(cond)) return false;
+        for (try self.conditionParts(cond)) |p| if (p.isKind(.as_match)) return true;
+        return false;
+    }
+
+    /// The parts of a condition from `parts[i]` on, each around the rest,
+    /// and `end` inside the last: a Bool part is an `if`, an `as` part an
+    /// `if` that binds (`emitCond`), and `s as .circle(r)` the `match` it
+    /// is (`rig.asMatchOf`), whose first arm goes on and whose other arm
+    /// (`_`, dropping what `<s` took) does not. A part that fails runs
+    /// `miss`, when given (`break` in a loop), and otherwise falls
+    /// through, past the parts.
+    /// `end.run(emitter)` writes what the innermost part goes on to.
+    fn emitChain(self: *Emitter, parts: []const Sexp, i: usize, end: anytype, miss: ?[]const u8) Error!void {
+        if (i == parts.len) return end.run(self);
+        const p = parts[i];
+        try self.writeIndent(self.indent);
+        if (p.isKind(.as_match)) {
+            const arms: ChainArms(@TypeOf(end)) = .{ .parts = parts, .i = i, .end = end, .miss = miss };
+            // The part is the selection unit of its `match`, which ends
+            // once the first arm has bound the pattern's fields: the rest
+            // of the condition and the body are units after it
+            // (`rig.eachUnit`).
+            const m = rig.asMatchOf(p);
+            _ = try self.enterUnit(m);
+            try self.emitMatch(m, false, &arms);
+            try self.endUnit(m);
+            return self.w.writeAll("\n");
+        }
+        try self.w.writeAll("if ");
+        const prelude = try self.emitCond(p);
+        try self.openBrace();
+        try self.emitPrelude(prelude);
+        try self.emitChain(parts, i + 1, end, miss);
+        try self.closeBrace();
+        if (miss) |m| try self.w.print(" else {s};", .{m});
+        try self.w.writeAll("\n");
+    }
+
+    /// The arms of the `match` a part `s as .circle(r)` is, in a chain
+    /// (`emitChain`): the first goes on with the parts after it, the other
+    /// runs the chain's `miss`, or falls through.
+    fn ChainArms(comptime End: type) type {
+        return struct {
+            parts: []const Sexp,
+            i: usize,
+            end: End,
+            miss: ?[]const u8,
+
+            fn arm(a: *const @This(), e: *Emitter, index: usize, prelude: Prelude) Error!void {
+                try e.openBrace();
+                try e.emitPrelude(prelude);
+                if (index == 0) {
+                    try e.endUnit(rig.asMatchOf(a.parts[a.i]));
+                    try e.emitChain(a.parts, a.i + 1, a.end, a.miss);
+                } else if (a.miss) |m| try e.line("{s};", .{m});
+                try e.closeBrace();
+            }
+        };
+    }
+
+    /// Statement `if` whose condition has a part `s as .circle(r)`: the
+    /// parts nested (`emitChain`), sharing one `else`, which a flag
+    /// cleared on the way into the body selects, as `emitIfJoined` does.
+    fn emitIfChain(self: *Emitter, sexp: Sexp) Error!void {
+        const else_ = ir.If.@"else"(sexp);
+        try self.openBrace();
+        var flag: ?[]const u8 = null;
+        if (else_ != .nil) {
+            flag = try self.fmt("__rig_else_{d}", .{self.nextId()});
+            try self.line("var {s} = true;", .{flag.?});
+        }
+        try self.pushScope();
+        const End = struct {
+            sexp: Sexp,
+            flag: ?[]const u8,
+            fn run(c: *const @This(), e: *Emitter) Error!void {
+                if (c.flag) |f| try e.line("{s} = false;", .{f});
+                try e.emitStmts(try e.stmtsOf(ir.If.then(c.sexp)));
+            }
+        };
+        const end: End = .{ .sexp = sexp, .flag = flag };
+        try self.emitChain(try self.conditionParts(ir.If.cond(sexp)), 0, &end, null);
+        try self.popScope();
+        if (flag) |f| {
+            try self.writeIndent(self.indent);
+            try self.w.print("if ({s}) ", .{f});
+            if (else_.isKind(.@"if")) {
+                try self.openBrace();
+                try self.writeIndent(self.indent);
+                try self.emitIf(else_);
+                try self.w.writeAll("\n");
+                try self.closeBrace();
+            } else try self.emitBranchStmt(else_);
+            try self.w.writeAll("\n");
+        }
+        try self.closeBrace();
     }
 
     /// `(cond) ` for `if`/`while`, or the head of `if expr as name`,
@@ -2737,6 +2840,33 @@ pub const Emitter = struct {
         // `while true` has no condition to fail.
         const always = cond == .src and std.mem.eql(u8, self.srcText(cond), "true");
         const parts: []const Sexp = if (always) &.{} else try self.conditionParts(cond);
+        // A part `s as .circle(r)` nests the rest in its `match`, and a
+        // value it does not match leaves the loop (`emitChain`).
+        if (!always and try self.hasAsMatch(cond)) {
+            const End = struct {
+                lp: *Loop,
+                sexp: Sexp,
+                step_inside: bool,
+                trace: ?*std.ArrayList(UnitEvent),
+                step_trace: *std.ArrayList(UnitEvent),
+                fn run(c: *const @This(), e: *Emitter) Error!void {
+                    try e.writeIndent(e.indent);
+                    const body = try e.openLoopBody(c.lp);
+                    try e.closeLoopBody(c.lp, body, ir.While.body(c.sexp));
+                    try e.w.writeAll("\n");
+                    if (c.trace) |t| try t.appendSlice(e.allocator, c.step_trace.items);
+                    if (c.step_inside) {
+                        try e.writeIndent(e.indent);
+                        try e.emitStep(ir.While.step(c.sexp), c.lp);
+                        try e.w.writeAll("\n");
+                    }
+                }
+            };
+            const end: End = .{ .lp = lp, .sexp = sexp, .step_inside = step_inside, .trace = trace, .step_trace = &step_trace };
+            try self.emitChain(parts, 0, &end, "break");
+            try self.closeBrace();
+            return self.closeLabeled(l);
+        }
         var opened: usize = 0;
         for (parts) |p| {
             try self.writeIndent(self.indent);
@@ -3043,7 +3173,10 @@ pub const Emitter = struct {
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
     /// yields a value. A match with a guarded arm picks its arm first
     /// (`emitGuardedMatch`).
-    fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool) Error!void {
+    /// `hook`, when not `null`, writes each arm's block in place of its
+    /// body, by `hook.arm(emitter, index, prelude)`: the arms of the
+    /// `match` an `as` with a pattern is (`emitChain`).
+    fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool, hook: anytype) Error!void {
         const scrutinee = ir.Match.subject(sexp);
         // An enum in a box or behind a handle is switched on where it is.
         const scrut_ty = self.facts.matchedType(sexp);
@@ -3135,7 +3268,7 @@ pub const Emitter = struct {
         try self.openBrace();
 
         var has_default = false;
-        for (ir.Match.arms(sexp)) |arm| {
+        for (ir.Match.arms(sexp), 0..) |arm, arm_i| {
             const pattern = ir.Arm.pattern(arm);
             const body = ir.Arm.body(arm);
             try self.writeIndent(self.indent);
@@ -3190,8 +3323,11 @@ pub const Emitter = struct {
                 }
             }
             // An arm runs after the selection.
-            const paused = try self.pauseUnit(sexp);
-            if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
+            // A hook's arms end the selection themselves (`ChainArms`).
+            const paused = if (@TypeOf(hook) != @TypeOf(null)) false else try self.pauseUnit(sexp);
+            if (@TypeOf(hook) != @TypeOf(null)) {
+                try hook.arm(self, arm_i, prelude);
+            } else if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
             try self.resumeUnit(sexp, paused);
             try self.w.writeAll(",\n");
         }
@@ -4967,7 +5103,7 @@ pub const Emitter = struct {
                 if (num) |t| {
                     try self.writeAsOpen(t);
                 } else if (!bare and head == .@"if") try self.w.writeAll("(");
-                if (head == .@"if") try self.emitIfExpr(sexp) else try self.emitMatch(sexp, true);
+                if (head == .@"if") try self.emitIfExpr(sexp) else try self.emitMatch(sexp, true, null);
                 if (num != null) try self.w.writeAll(")") else if (!bare and head == .@"if") try self.w.writeAll(")");
             },
             .block => try self.emitValueBlock(sexp, .{}, self.typeOf(sexp)),
@@ -6060,6 +6196,34 @@ pub const Emitter = struct {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
         if (else_ == .nil) return self.unsupported(sexp, "an `if` without `else` in value position");
+        if (try self.hasAsMatch(cond)) {
+            // A labeled block: the parts break out with the then-value;
+            // falling through, the `else` value (`emitChain`).
+            const label = try self.fmt("__rig_if_{d}", .{self.nextId()});
+            try self.w.print("{s}: ", .{label});
+            try self.openBrace();
+            try self.pushScope();
+            const End = struct {
+                sexp: Sexp,
+                label: []const u8,
+                result: ?TypeId,
+                how: Yield,
+                fn run(c: *const @This(), e: *Emitter) Error!void {
+                    try e.writeIndent(e.indent);
+                    try e.w.print("break :{s} ", .{c.label});
+                    try e.emitYieldBlock(ir.If.then(c.sexp), .{}, c.result, c.how);
+                    try e.w.writeAll(";\n");
+                }
+            };
+            const end: End = .{ .sexp = sexp, .label = label, .result = result, .how = how };
+            try self.emitChain(try self.conditionParts(cond), 0, &end, null);
+            try self.popScope();
+            try self.writeIndent(self.indent);
+            try self.w.print("break :{s} ", .{label});
+            try self.emitYieldBlock(else_, .{}, result, how);
+            try self.w.writeAll(";\n");
+            return self.closeBrace();
+        }
         if (rig.isConditionJoin(cond)) {
             // A labeled block: the nested `if`s of the parts break out
             // with the then-value; falling through, the `else` value.
@@ -8353,6 +8517,11 @@ pub const Emitter = struct {
         const resumed = self.paused.swapRemove(key);
         if (self.unit_trace) |t| try t.append(self.allocator, if (resumed) .{ .@"resume" = key } else .{ .enter = key });
         return true;
+    }
+
+    /// Leave the unit `root` when it is the one being written.
+    fn endUnit(self: *Emitter, root: Sexp) Error!void {
+        if (self.units.items.len > 0 and self.units.getLast() == root.list.id) self.leaveUnit(true);
     }
 
     fn leaveUnit(self: *Emitter, entered: bool) void {
