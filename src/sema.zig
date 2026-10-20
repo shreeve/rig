@@ -981,6 +981,8 @@ pub const Facts = struct {
     /// `*Actor(x)` calls (`Checker.actorMake`) and method calls through
     /// an actor's handle (`Checker.actorCall`).
     actor_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
+    actor_supervised: std.AutoHashMapUnmanaged(u64, void) = .empty,
     actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.isolate` (`Checker.isolateCall`).
     isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -3194,6 +3196,15 @@ pub const SemContext = struct {
     /// Whether `call` is `Actor(x)` (`recordActorMake`).
     pub fn isActorMake(self: *const SemContext, call: Sexp) bool {
         return self.facts.actor_makes.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordActorSupervised(self: *SemContext, call: Sexp) !void {
+        try self.facts.actor_supervised.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `Actor.supervised(f)` (`recordActorSupervised`).
+    pub fn isActorSupervised(self: *const SemContext, call: Sexp) bool {
+        return self.facts.actor_supervised.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordActorCall(self: *SemContext, call: Sexp) !void {

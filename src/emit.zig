@@ -6159,6 +6159,21 @@ pub const Emitter = struct {
             if (ir.Call.args(inner).len == 1) try self.w.writeAll(", 64");
             return self.w.writeAll(")");
         }
+        // `*Actor.supervised(f, ...)`: the runtime makes the actor from
+        // `f`, which it keeps, with each option or its default.
+        if (self.facts.isActorSupervised(inner)) {
+            const args = ir.Call.args(inner);
+            try self.w.writeAll("rig.actorSupervised(");
+            try self.emitExpr(args[0]);
+            for ([_][]const u8{ "mailbox", "restarts", "per" }, [_][]const u8{ "64", "-1", "0" }) |name, default| {
+                try self.w.writeAll(", ");
+                const given = for (args[1..]) |a| {
+                    if (std.mem.eql(u8, self.srcText(ir.Kwarg.name(a)), name)) break ir.Kwarg.value(a);
+                } else null;
+                if (given) |v| try self.emitExpr(v) else try self.w.writeAll(default);
+            }
+            return self.w.writeAll(")");
+        }
         // `*w` upgrading a weak handle: the runtime's `upgrade`, called on
         // a handle it reads where it stands; one it takes is dropped once
         // upgraded.
