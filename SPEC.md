@@ -9975,8 +9975,9 @@ The call's arguments are evaluated where it is written, and it gives at
 once a `Task[T]`, where `T` is what the call gives (`Void` for a
 `sub`): an owned value that holds the result once the task ends.
 
-`>t` waits for the task to end and takes its result: `&` sends the work
-off, and `>` takes what it gives back. A wait consumes the task, so `t`
+`>t` waits for the task to end and takes its result: `&`, the dispatch
+sigil, sends the work off, and `>`, the wait sigil, takes what it gives
+back. A wait consumes the task, so `t`
 is gone after it, and it ends the loans the task kept. A fallible result
 is passed on with `>t!` or handled with `catch`. `>` takes a name alone,
 and a `!` or `?` after it applies to what it gives: `>t!` is `(>t)!`.

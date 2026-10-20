@@ -121,7 +121,7 @@ For a value `x` of type `T`, a call `f(x)`, and a task `t`:
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
 | `e?` | `T` when `e : T?` | return `none` from the function | a branch |
-| `f(x)&` | `Task[T]` when `f` gives `T` | run the call as a task, which keeps its arguments' loans | a task start |
+| `f(x)&` | `Task[T]` when `f` gives `T` | run the call as a task, which keeps its arguments' loans | a dispatch |
 | `>t` | `T` when `t : Task[T]` | wait for the task and take its result | a wait |
 
 Each operation has one meaning, becomes one IR node, and succeeds
@@ -355,8 +355,8 @@ it.
 
 ### Sigils for starting and taking work
 
-Running a call at the same time is written `f(x)&`, and taking its
-result back is `>t`. In Rig the mechanics of the language are sigils and
+Running a call at the same time is written `f(x)&`, the dispatch
+sigil, and taking its result back is `>t`, the wait sigil. In Rig the mechanics of the language are sigils and
 the words are its libraries: moving a value is `<x`, lending it is `?x`
 or `!x`, and starting work is `&`. Taking that work back is the same
 kind of act, so it is the same kind of mark. The two read as a pair,
@@ -431,7 +431,7 @@ copy. Each instance the program makes is then checked against that
 record. There are no traits or bounds for now.
 
 What this buys: generics without a trait system, whose design space
-(dispatch, coherence, trait objects) Rig has not settled; any type that
+(method dispatch, coherence, trait objects) Rig has not settled; any type that
 supports what a body does works with it, with nothing to declare; and
 the model is Zig's, which Rig lowers to. Everything that does not depend
 on `T` is still checked once, in the body, and so is ownership: the body
@@ -450,7 +450,7 @@ module is checked there, and its note points into the declaring
 module's file. The recorded requirements are an unwritten contract: a
 library that starts applying a new operation to `T` can break its
 importers, who see the note in the library. Traits remain on the
-roadmap for when a design keeps dispatch and ownership visible.
+roadmap for when a design keeps method dispatch and ownership visible.
 
 ### Generic functions are called, not passed
 
@@ -566,8 +566,8 @@ goals, and says no where they don't.
 - a custom or LLVM backend: Zig does code generation
 - a reactive framework in the language
 - macros
-- traits and interfaces, until a design keeps dispatch and ownership
-  visible
+- traits and interfaces, until a design keeps method dispatch and
+  ownership visible
 - lifetime annotations, unless second-class views prove too weak
 - marketing Rig as an AI language: that tools can read it well follows
   from its design, and is not the goal

@@ -467,8 +467,9 @@ propagate the failure with `parse(s)!`
 
 ## Running at the same time
 
-The last two sigils run work concurrently. `f(x)&` runs the call as a
-**task**, and `>t` waits for the task and takes its result:
+The last two sigils run work concurrently. `f(x)&`, the **dispatch
+sigil**, runs the call as a **task**, and `>t`, the **wait sigil**,
+waits for the task and takes its result:
 
 ```rig
 fun sq(x: Int) -> Int

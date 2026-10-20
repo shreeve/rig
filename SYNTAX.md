@@ -466,7 +466,7 @@ sigil after the `]` of an array or slice type starts its element type: in
 
 Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`, and
 `+n.first()` clones what `first` returns. There are two exceptions: a
-self sigil, below, and a wait. `>` takes a name alone, and a `!` or
+self sigil, below, and the wait sigil. `>` takes a name alone, and a `!` or
 `?` after it applies to what the task gives: `>t!` is `(>t)!`. Anything
 else after it is written on the parenthesized wait, `(>t).len`, so it
 never reads as the task's own, and `>f(x)` is rejected: a call is made a

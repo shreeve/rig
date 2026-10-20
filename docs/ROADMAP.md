@@ -18,7 +18,7 @@ items, with their probe cases, are in
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `?String`).
 - **A labeled value loop on the right of a binding** (`x = $l: for ...`), which needs a grammar change without conflicts.
-- **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.
+- **Traits or bounds** whose method dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.
 - **Conditional compilation** on the target's operating system and CPU features and the build mode, as `std.target` gives the architecture (`target.arch`).
 - **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes computed from a compile-time parameter (`[n * 2]Int`, `[cap(n)]Int`), so a failure is a Rig diagnostic rather than a Zig error.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
