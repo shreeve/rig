@@ -1,0 +1,83 @@
+# concurrency: tests whose names start `within`.
+
+test "within value", '''
+  11
+  Stop.timeout true
+'''
+  # `time.within` gives what its block gives; a waiting point after the
+  # deadline fails with `task.Stop.timeout`, sleeping only until then.
+  use std.time
+
+  k = 10
+  print(time.within(time.SECOND, |+k| k + 1) catch 0)
+  start = time.now()
+  time.within(5 * time.MS, ||
+    time.sleep(10 * time.SECOND)!
+    print("slept")
+  ) catch |e| print(e, start.elapsed() < 5 * time.SECOND)
+
+test "within nested", '''
+  1 -1
+  0
+'''
+  # Inside another deadline, the earlier one holds, and the outer one is
+  # back once the inner block ends.
+  use std.time
+
+  fun slow(ms: Int) -> Int!
+    time.sleep(ms * time.MS)!
+    ms
+
+  m = time.within(50 * time.MS, ||
+    a = time.within(time.SECOND, || slow(1)!)!
+    b = time.within(10 * time.SECOND, || slow(10_000)!) catch -1
+    print(a, b)
+    a + b
+  ) catch -2
+  print(m)
+
+test "within tasks", release: true, '''
+  inherited -1 true
+  set -2
+  check -3
+  both -4
+  par -5
+  ok 1
+'''
+  # The tasks a block starts keep its deadline, and every fallible
+  # waiting point fails after it: `task.check`, and a wait on a task, a
+  # set, or `task.both`, whose tasks are canceled first.
+  use std.par
+  use std.task
+  use std.time
+
+  fun slow(ms: Int) -> Int!
+    time.sleep(ms * time.MS)!
+    ms
+
+  fun spin() -> Int!
+    while true
+      task.check()!
+
+  start = time.now()
+  r = time.within(10 * time.MS, ||
+    x = slow(10_000)&
+    <x.wait()!
+  ) catch -1
+  print("inherited", r, start.elapsed() < 5 * time.SECOND)
+  s = time.within(10 * time.MS, ||
+    ts = Tasks[Int!]()
+    !ts.add(slow(10_000)&)
+    !ts.add(slow(1)&)
+    <ts.wait_all()!.len
+  ) catch -2
+  print("set", s)
+  print("check", time.within(10 * time.MS, || spin()!) catch -3)
+  b = time.within(10 * time.MS, ||
+    p, q = task.both(slow(1)&, slow(10_000)&)!
+    p + q
+  ) catch -4
+  print("both", b)
+  xs = List([1, 2, 3, 4])
+  print("par", time.within(10 * time.MS, |?xs| par.map(xs, |x| slow(x * 10_000)!)!.len) catch -5)
+  print("ok", time.within(time.SECOND, || slow(1)!) catch -6)

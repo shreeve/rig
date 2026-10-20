@@ -7710,7 +7710,10 @@ drop 2
 With a type from context, the body is checked against its return type,
 and a body whose type can fail may propagate with `!`
 ([§13](#13-errors)), as one whose type returns an optional may return
-`none` with `?` ([§12](#12-optionals)).
+`none` with `?` ([§12](#12-optionals)). Where a generic call lends it
+as `?fun(...) -> R!`, the body may propagate too, and its value binds
+`R`; a body that gives nothing binds `R` to `Void`, as it does for
+`?fun(...) -> R`.
 Otherwise the closure returns the type of its last expression, or of
 its `return`s when it ends in one, and these give each other no type: a
 `return max(3, 4)` beside a `return x` of a `U8` is still an `Int`. A
@@ -10019,6 +10022,107 @@ Output from several tasks is written a whole `print` at a time. A panic in a tas
 `main` does. If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task
 runs on one thread, with no locks.
+
+### Deadlines
+
+`time.within(ns, f)` of `std.time` runs the closure `f` with a
+deadline `ns` nanoseconds from now, and gives what `f` gives. `f` may
+propagate with `!`, so the call can fail. Every fallible waiting point
+`f` reaches after the deadline fails with `task.Stop.timeout`:
+`time.sleep`, which sleeps only until the deadline, `task.check`, and
+a wait on a task, a set, or `task.both`, whose tasks are canceled first.
+
+- The tasks `f` starts keep the deadline.
+- Inside another deadline, the earlier one holds, and the outer one is
+  back once `f` returns.
+- A computation that reaches no waiting point is not stopped; a long one
+  calls `task.check()!` where stopping is safe.
+
+```rig
+use std.time
+
+fun slow(ms: Int) -> Int!
+  time.sleep(ms * time.MS)!
+  ms
+
+sub main()
+  print(time.within(time.SECOND, || slow(1)!) catch -1)
+  print(time.within(5 * time.MS, || slow(60_000)!) catch -1)
+  n = time.within(time.SECOND, ||
+    a = slow(1)!
+    b = time.within(5 * time.MS, || slow(60_000)!) catch 0
+    a + b
+  ) catch -1
+  print(n)
+```
+
+```output
+1
+-1
+1
+```
+
+### Each element on several tasks
+
+`par.map(?xs, f)` and `par.each(!xs, f)` of `std.par`
+([std.par](docs/STD.md#stdpar)) call `f` on each element of a List, an
+array, or a slice, on several tasks at once:
+
+- `par.map(?xs, f)` gives a `List` of each call's value, in the order of
+  `xs`; `f` takes each element as `?T`.
+- `par.each(!xs, f)` gives nothing; `f` takes each element as `!T`, and
+  may write it.
+- `limit: n`, after `f`, is how many tasks run at once, by default one
+  per worker. With one, or with few elements, the calls run in turn on
+  the calling task.
+- The tasks take chunks of the elements in turn, about eight for each
+  task, so one that finishes early takes more.
+- When `f` can fail, so can the call: the first failure stops the tasks
+  taking more elements and cancels them, and the call fails with its
+  error once all have ended. `par.map` drops the values already made.
+- A deadline (`time.within`) holds in each task.
+
+`f` is a closure written in the call, which can fail when its body
+propagates with `!`, or a function's name. Every task reads what the
+closure captures, so each capture must share, and none is a write
+view; a named closure (`?f`) or an owned one (`?cb`) is rejected,
+since its type does not show its captures. `par.map`'s elements must
+share, as every task reads them, and its values must move, as they come
+from other tasks; `par.each`'s elements must move.
+
+```rig
+use std.par
+
+fun square(n: Int) -> Int
+  n * n
+
+sub main()
+  xs = List([1, 2, 3, 4])
+  k = 10
+  print(par.map(?xs, |+k, x| x * k))
+  print(par.map(?xs, square, limit: 2))
+  par.each(!xs, |x| x += 1)
+  print(xs)
+```
+
+```output
+[10, 20, 30, 40]
+[1, 4, 9, 16]
+[2, 3, 4, 5]
+```
+
+```rig reject
+use std.par
+
+sub main()
+  xs = List([1, 2, 3])
+  total = 0
+  par.each(!xs, |!total, x| total += x)
+```
+
+```error
+`par.each` calls the closure on several tasks at once, and `|!total|` lends `total` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+total|`
+```
 
 ---
 

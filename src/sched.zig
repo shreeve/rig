@@ -617,6 +617,12 @@ fn startWorkers() void {
     for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
 }
 
+/// How many workers run tasks, starting them first if they have not.
+pub fn workersRunning() usize {
+    if (!started) startWorkers();
+    return workers.len;
+}
+
 fn workerCount() usize {
     if (workers_override) |n| return n;
     if (rt.process) |p| if (p.environ.getPosix("RIG_WORKERS")) |v| {
@@ -995,17 +1001,20 @@ pub const Header = struct {
     }
 
     /// Wait for the task to end, or, when `cancel` is given, for that
-    /// flag to be set first, when this gives false.
-    fn waitEnd(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
+    /// flag to be set first, or for `deadline` to pass, when this gives
+    /// false.
+    fn waitEnd(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
         if (!h.isEnded()) {
             const w = me().?;
             // Not started, and next on this worker: run it now. A fiber in
             // the "run next" slot may also be one woken partway, which
-            // goes on where it stopped instead.
-            if (w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel != null);
+            // goes on where it stopped instead. A wait with a deadline
+            // sleeps on its timer instead.
+            if (deadline == null and w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel != null);
         }
         while (!h.isEnded()) {
             if (cancel) |c| if (c.load(.seq_cst)) return false;
+            if (deadline) |d| if (nowNs() >= d) return false;
             const e = beginWait(cancel != null);
             h.waiter.store(current().?, .seq_cst);
             h.waiter_epoch.store(e, .seq_cst);
@@ -1013,7 +1022,7 @@ pub const Header = struct {
                 if (s != waited) continue;
             }
             if (cancel) |c| if (c.load(.seq_cst)) return false;
-            commitWait(e, null);
+            commitWait(e, deadline);
         }
         return true;
     }
@@ -1030,14 +1039,14 @@ pub fn Job(comptime T: type) type {
         /// Wait for the task to end and give its result. Waiting again
         /// gives the same result; the owner takes it once (`Task`).
         pub fn join(self: *Self) T {
-            _ = self.header.waitEnd(null);
+            _ = self.header.waitEnd(null, null);
             return self.result;
         }
 
         /// Wait for the task to end, unless the flag `cancel` is set
-        /// first: whether it has ended.
-        pub fn waitEnd(self: *Self, cancel: ?*const std.atomic.Value(bool)) bool {
-            return self.header.waitEnd(cancel);
+        /// or `deadline` passes first: whether it has ended.
+        pub fn waitEnd(self: *Self, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+            return self.header.waitEnd(cancel, deadline);
         }
 
         pub fn free(self: *Self) void {

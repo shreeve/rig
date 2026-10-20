@@ -2849,3 +2849,32 @@ fail "generic whole division", "11:7: `Wrap[Float]` cannot use `T = Float`: the 
       @v + 1 / 2
 
   print(Wrap(v: 3.0).half(), Wrap(v: 3).half())
+
+test "generic fallible closure", '''
+  8
+  -1
+  ran
+  Void
+'''
+  # A closure lent where `?fun() -> R!` goes may propagate with `!`: its
+  # body's value binds `R`, and one that gives nothing binds it to `Void`.
+  error Bad
+    no
+
+  fun half(n: Int) -> Int!
+    return Bad.no if n % 2 == 1
+    n / 2
+
+  fun guarded[R](f: ?fun() -> R!) -> R!
+    f()!
+
+  fun run[R](f: ?fun() -> R) -> R
+    f()
+
+  print(guarded(|| half(8)! * 2) catch 0)
+  print(guarded(|| half(3)!) catch -1)
+  guarded(||
+    half(2)!
+    print("ran")
+  ) catch print("failed")
+  run(|| print("Void"))

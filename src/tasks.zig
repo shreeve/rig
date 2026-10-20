@@ -1,6 +1,7 @@
 //! Tasks: a call running as a task of its own (`f(x)&`), sets of tasks
-//! (`Tasks[T]`), waiting for several (`task.both`, `task.all`), and how a
-//! task is canceled. The runtime (`runtime.zig`) imports this file and
+//! (`Tasks[T]`), waiting for several (`task.both`, `task.all`), how a
+//! task is canceled, deadlines (`time.within`), and calling a function
+//! on each element on several tasks (`par.map`, `par.each`). The runtime (`runtime.zig`) imports this file and
 //! gives emitted code its names (`rig.Task`, `rig.Tasks`,
 //! `rig.waitTasks`); `bin/rig` writes it beside the runtime as
 //! `rig/tasks.zig`.
@@ -41,22 +42,24 @@ pub fn Task(comptime T: type) type {
         pub const __rig_args = .{T};
         const fallible = @typeInfo(T) == .error_union;
 
-        /// `f(args...)&`: start the call as a task.
+        /// `f(args...)&`: start the call as a task, which keeps the
+        /// deadline of the task starting it.
         pub fn spawn(comptime f: anytype, args: anytype) Self {
             const Args = @TypeOf(args);
             // A fiber is on a stack of its own already, and the runtime
             // keeps its state per fiber. `run` gives `T` even where `f` is
             // generic.
             const Fiber = struct {
-                fn run(control: *Control, a: Args) T {
+                fn run(control: *Control, deadline: ?i96, a: Args) T {
                     task().control = control;
+                    task().deadline = deadline;
                     defer control.finish();
                     return @call(.auto, f, a);
                 }
             };
             // The task's record holds its `Control`: one allocation for
             // both.
-            const made = rt.sched.spawn(T, Control, Fiber.run, .{args});
+            const made = rt.sched.spawn(T, Control, Fiber.run, .{ task().deadline, args });
             return .{ .handle = .{ .job = made.job }, .control = made.extra };
         }
 
@@ -81,7 +84,10 @@ pub fn Task(comptime T: type) type {
         /// on a task that can fail is a fallible waiting point, so a
         /// canceled waiter drops the result and fails; waiting on one that
         /// cannot fail finishes, and the cancel stays for the waiter's
-        /// next waiting point.
+        /// next waiting point. Waiting on a task that can fail is also
+        /// stopped by the waiter's deadline (`time.within`): the task is
+        /// canceled and waited for, and the wait fails with
+        /// `task.Stop.timeout`.
         pub fn wait(self: Self) T {
             var t = self;
             defer t.release();
@@ -97,11 +103,18 @@ pub fn Task(comptime T: type) type {
             // waits for that task's end.
             const job = t.handle.job;
             const mine: ?*const std.atomic.Value(bool) = if (task().control) |c| &c.canceled else null;
-            if (!job.waitEnd(mine)) {
+            const deadline = if (fallible) task().deadline else null;
+            var timed_out = false;
+            if (!job.waitEnd(mine, deadline)) {
+                timed_out = !(if (mine) |c| c.load(.acquire) else false);
                 t.control.cancel();
-                _ = job.waitEnd(null);
+                _ = job.waitEnd(null, null);
             }
             result = job.result;
+            if (comptime fallible) if (timed_out) {
+                dropElement(T, &result);
+                return timeout_error;
+            };
             // Canceled while it waited, even when the task ended before
             // the cancel could reach it.
             const passed_on = t.control.canceled.load(.acquire) or (if (mine) |c| c.load(.acquire) else false);
@@ -232,8 +245,10 @@ const Wakeup = struct {
     }
 
     /// Sleep until a watched task ends after `seen` was read, the
-    /// deadline passes, or the waiter is canceled: a waiting point.
-    fn sleep(self: *Wakeup, seen: u32, deadline: ?i96) Stop!void {
+    /// deadline or the waiter's own passes, or the waiter is canceled: a
+    /// waiting point.
+    fn sleep(self: *Wakeup, seen: u32, within: ?i96) Stop!void {
+        const deadline = earlier(within, task().deadline);
         if (canceledHere()) return canceled_error;
         if (deadline) |d| if (nowNs() >= d) return timeout_error;
         // The fiber sleeps until a tick, the deadline, or a cancel wakes it.
@@ -335,6 +350,39 @@ fn nowNs() i96 {
 fn deadlineIn(within: ?Int) ?i96 {
     const ns = within orelse return null;
     return nowNs() + ns;
+}
+
+/// The earlier of two deadlines, either of which may be none.
+fn earlier(a: ?i96, b: ?i96) ?i96 {
+    const x = a orelse return b;
+    const y = b orelse return a;
+    return @min(x, y);
+}
+
+/// Whether the running task's deadline has passed.
+fn pastDeadline() bool {
+    const d = task().deadline orelse return false;
+    return nowNs() >= d;
+}
+
+/// A deadline as `time.within` keeps it in an `Int`: none is the
+/// largest.
+const never: Int = std.math.maxInt(Int);
+
+/// `time.within(ns, f)` begins: the running task's deadline becomes
+/// `ns` nanoseconds from now, unless the one it has is earlier. Gives
+/// the one it had, for `restoreDeadline`.
+pub fn enterDeadline(ns: Int) Int {
+    const t = task();
+    const outer = t.deadline;
+    t.deadline = earlier(outer, nowNs() + ns);
+    return if (outer) |d| @intCast(d) else never;
+}
+
+/// `time.within(ns, f)` ends: the running task's deadline is again the
+/// one `enterDeadline` gave.
+pub fn restoreDeadline(outer: Int) void {
+    task().deadline = if (outer == never) null else outer;
 }
 
 /// `task.Stop.timeout`, what a wait whose deadline passes fails with.
@@ -557,6 +605,143 @@ pub fn Tasks(comptime T: type) type {
     };
 }
 
+/// What a function lent as `f` (a `rig.FnRef`) returns.
+fn ReturnOf(comptime F: type) type {
+    return @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
+}
+
+/// What `par.map` gives for `f`: a List of each call's value, failing
+/// when `f` can.
+fn MapOut(comptime F: type) type {
+    const R = ReturnOf(F);
+    if (@typeInfo(R) == .error_union) return anyerror!List(@typeInfo(R).error_union.payload);
+    return List(R);
+}
+
+/// What `par.each` gives for `f`: nothing, failing when `f` can.
+fn EachOut(comptime F: type) type {
+    return if (@typeInfo(ReturnOf(F)) == .error_union) anyerror!void else void;
+}
+
+/// What the tasks of a `par.map` or `par.each` share: where the next
+/// chunk of the elements starts, how long a chunk is, and the first
+/// failure, which stops the others taking more.
+const ParState = struct {
+    next: std.atomic.Value(usize) = .init(0),
+    n: usize,
+    chunk: usize,
+    failed: std.atomic.Value(bool) = .init(false),
+    failure: anyerror = undefined,
+
+    /// Record `err`, unless a failure came first.
+    fn fail(self: *ParState, err: anyerror) void {
+        if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) self.failure = err;
+    }
+};
+
+/// Run `body(ctx, lo, hi)` over the chunks of `0..n`, on up to `limit`
+/// tasks, or one per worker when `limit` is not positive: the calling
+/// task and the ones it starts each take the next chunk in turn until
+/// none is left. About eight chunks go to each task, so one that ends
+/// early takes more, and a chunk holds at least one element. With one
+/// task, or one chunk, the calling task runs them all. The first chunk
+/// to fail stops the tasks taking more and cancels them, and once all
+/// have ended, the run fails with its error.
+fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype) if (fallible) anyerror!void else void {
+    if (n == 0) return;
+    const workers: usize = if (rt.scheduled) rt.sched.workersRunning() else 1;
+    const want: usize = if (limit > 0) @intCast(limit) else workers;
+    const count = @min(want, n);
+    const chunk = @max(1, n / (count * 8));
+    if (count <= 1 or chunk >= n) return body(ctx, 0, n);
+    var state: ParState = .{ .n = n, .chunk = chunk };
+    const Ctx = @TypeOf(ctx);
+    const Worker = struct {
+        fn run(s: *ParState, c: Ctx) void {
+            while (!s.failed.load(.acquire)) {
+                const lo = s.next.fetchAdd(s.chunk, .monotonic);
+                if (lo >= s.n) return;
+                const hi = @min(lo + s.chunk, s.n);
+                if (comptime fallible) {
+                    body(c, lo, hi) catch |err| return s.fail(err);
+                } else body(c, lo, hi);
+            }
+        }
+    };
+    const helpers = defaultAllocator().alloc(Task(void), count - 1) catch oom();
+    defer defaultAllocator().free(helpers);
+    for (helpers) |*t| t.* = Task(void).spawn(Worker.run, .{ &state, ctx });
+    Worker.run(&state, ctx);
+    if (fallible and state.failed.load(.acquire)) for (helpers) |t| t.control.cancel();
+    for (helpers) |t| t.wait();
+    if (comptime fallible) if (state.failed.load(.acquire)) return state.failure;
+}
+
+/// `par.map(?xs, f, limit: n)`: a List of `f(x)` for each element `x` of
+/// the slice `xs`, in its order, each call on one of up to `limit` tasks
+/// (`parRun`). Each task writes the values of its chunks in place. When
+/// a call fails, the values made are dropped: those that need it are
+/// marked as they are made.
+pub fn parMap(xs: anytype, f: anytype, limit: Int) MapOut(@TypeOf(f)) {
+    const F = @TypeOf(f);
+    const R = ReturnOf(F);
+    const fallible = @typeInfo(R) == .error_union;
+    const V = if (fallible) @typeInfo(R).error_union.payload else R;
+    var out = List(V).initCapacity(@intCast(xs.len));
+    const Ctx = struct {
+        xs: @TypeOf(xs),
+        f: F,
+        out: []V,
+        made: if (marked) []bool else void,
+
+        const marked = fallible and rt.needsDrop(V);
+
+        fn chunk(c: *const @This(), lo: usize, hi: usize) if (fallible) anyerror!void else void {
+            for (lo..hi) |i| {
+                if (comptime fallible) {
+                    c.out[i] = try c.f.call(.{rt.lend(&c.xs[i])});
+                    if (comptime marked) c.made[i] = true;
+                } else c.out[i] = c.f.call(.{rt.lend(&c.xs[i])});
+            }
+        }
+    };
+    const marked = Ctx.marked;
+    var ctx: Ctx = .{ .xs = xs, .f = f, .out = out.buf.ptr[0..xs.len], .made = undefined };
+    if (comptime marked) {
+        ctx.made = defaultAllocator().alloc(bool, xs.len) catch oom();
+        @memset(ctx.made, false);
+    }
+    defer if (comptime marked) defaultAllocator().free(ctx.made);
+    if (comptime fallible) {
+        parRun(true, xs.len, limit, &ctx, Ctx.chunk) catch |err| {
+            if (comptime marked) for (ctx.out, ctx.made) |*v, m| if (m) dropElement(V, v);
+            rt.drop(&out);
+            return err;
+        };
+    } else parRun(false, xs.len, limit, &ctx, Ctx.chunk);
+    out.len = xs.len;
+    return out;
+}
+
+/// `par.each(!xs, f, limit: n)`: `f(!x)` for each element `x` of the
+/// slice `xs`, each call on one of up to `limit` tasks (`parRun`).
+pub fn parEach(xs: anytype, f: anytype, limit: Int) EachOut(@TypeOf(f)) {
+    const F = @TypeOf(f);
+    const fallible = @typeInfo(ReturnOf(F)) == .error_union;
+    const Ctx = struct {
+        xs: @TypeOf(xs),
+        f: F,
+
+        fn chunk(c: *const @This(), lo: usize, hi: usize) if (fallible) anyerror!void else void {
+            for (lo..hi) |i| {
+                if (comptime fallible) try c.f.call(.{&c.xs[i]}) else c.f.call(.{&c.xs[i]});
+            }
+        }
+    };
+    const ctx: Ctx = .{ .xs = xs, .f = f };
+    return parRun(fallible, xs.len, limit, &ctx, Ctx.chunk);
+}
+
 /// `std.task`'s `Stop`, as the emitted code names its errors: what a
 /// waiting point of any `std` module may fail with (`expectShim`).
 pub const Stop = error{ @"std.task.Stop.canceled", @"std.task.Stop.timeout" };
@@ -577,25 +762,39 @@ fn markCanceled() void {
 }
 
 /// `task.check()`: a waiting point that waits for nothing. It fails
-/// when the running task is canceled, and otherwise lets other tasks
-/// run; in a program that makes none, it does nothing.
+/// when the running task is canceled or its deadline has passed, and
+/// otherwise lets other tasks run; in a program that makes none, it
+/// only checks the deadline.
 pub fn check() Stop!void {
     if (canceledHere()) return canceled_error;
+    if (pastDeadline()) return timeout_error;
     if (rt.scheduled) rt.sched.yield();
 }
 
 /// `time.sleep(ns)`: a waiting point that waits `ns` nanoseconds: the
-/// fiber sleeps until its timer, or a cancel, wakes it. A program that
-/// makes no tasks sleeps on its thread, where no cancel can come.
+/// fiber sleeps until its timer, or a cancel, wakes it. When the task's
+/// deadline comes first, it sleeps until then and fails with
+/// `task.Stop.timeout`. A program that makes no tasks sleeps on its
+/// thread, where no cancel can come.
 pub fn sleep(ns: i64) Stop!void {
     if (ns <= 0) return;
-    if (!rt.scheduled) return std.Io.sleep(io(), .fromNanoseconds(ns), .awake) catch {};
     const until = nowNs() + ns;
+    const deadline = task().deadline;
+    if (!rt.scheduled) {
+        const d = deadline orelse return std.Io.sleep(io(), .fromNanoseconds(ns), .awake) catch {};
+        if (d >= until) return std.Io.sleep(io(), .fromNanoseconds(ns), .awake) catch {};
+        const left = d - nowNs();
+        if (left > 0) std.Io.sleep(io(), .fromNanoseconds(@intCast(left)), .awake) catch {};
+        return timeout_error;
+    }
+    const wake_at = earlier(until, deadline);
     while (true) {
         if (canceledHere()) return canceled_error;
-        if (nowNs() >= until) return;
+        const now = nowNs();
+        if (now >= until) return;
+        if (deadline) |d| if (now >= d) return timeout_error;
         const e = rt.sched.beginWait(true);
         if (canceledHere()) return canceled_error;
-        rt.sched.commitWait(e, until);
+        rt.sched.commitWait(e, wake_at);
     }
 }

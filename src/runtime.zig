@@ -27,6 +27,10 @@ pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
 pub const taskCheck = tasks.check;
 pub const taskSleep = tasks.sleep;
+pub const parMap = tasks.parMap;
+pub const parEach = tasks.parEach;
+pub const enterDeadline = tasks.enterDeadline;
+pub const restoreDeadline = tasks.restoreDeadline;
 
 /// `f(args...)`, a call that may block its thread, as `std`'s shims make
 /// one (reading a file): on the scheduler, on its blocking pool, while the
@@ -179,7 +183,7 @@ fn isShared(comptime T: type) bool {
 /// tagged unions, arrays, and optionals) contains something that does.
 /// The mirror of sema's `typeHasDropGlue` for a Zig type: a unique type
 /// that needs no cleanup drops nothing.
-fn needsDrop(comptime T: type) bool {
+pub fn needsDrop(comptime T: type) bool {
     if (comptime isOptStruct(T)) return needsDrop(Payload(T));
     return switch (@typeInfo(T)) {
         .pointer => isShared(T),
@@ -3225,14 +3229,17 @@ pub const scheduled = makes_tasks;
 /// What the runtime keeps for the task that is running: the depth and
 /// queue of nested `*T` releases (`drainDropQueue`), how deep a `print`
 /// is inside the value it writes (`writeValue`), the guard below the
-/// task's stack (`mapStack`), and what it shares with its owner
-/// (`Control`), which `main` has none of.
+/// task's stack (`mapStack`), what it shares with its owner
+/// (`Control`), which `main` has none of, and the deadline its waiting
+/// points fail after (`time.within`), on the monotonic clock in
+/// nanoseconds.
 pub const TaskState = struct {
     drop_depth: u32 = 0,
     drop_queue: std.ArrayList(PendingDrop) = .empty,
     print_depth: u32 = 0,
     stack_guard: StackGuard = .{},
     control: ?*Control = null,
+    deadline: ?i96 = null,
 };
 
 threadlocal var thread_task: TaskState = .{};

@@ -6732,6 +6732,15 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
         }
+        // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
+        // by the runtime, with no limit but the workers' count when none
+        // is given.
+        if (self.facts.parCallOf(sexp)) |kind| {
+            try self.w.writeAll(if (kind == .map) "rig.parMap(" else "rig.parEach(");
+            try self.emitArgs(sexp);
+            if (args.len == 2) try self.w.writeAll(", 0");
+            return self.w.writeAll(")");
+        }
         // A set's wait, `<ts.wait_all(within: d)`: its deadline, or none.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));

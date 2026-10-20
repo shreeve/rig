@@ -975,6 +975,9 @@ pub const Facts = struct {
     /// The calls of `task.both` and `task.all`, which wait for the tasks
     /// they take (`Checker.taskJoin`).
     task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The calls of `par.map` and `par.each`, which run a function on
+    /// several tasks (`Checker.parCall`).
+    par_calls: std.AutoHashMapUnmanaged(u64, ParCall) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -1878,7 +1881,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        StringCall, Use, Upgrade => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall => try w.print(" {s}", .{@tagName(v)}),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
@@ -3171,6 +3174,16 @@ pub const SemContext = struct {
     /// Whether `call` is a `task.both` or `task.all` (`recordTaskJoin`).
     pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
         return self.facts.task_joins.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordParCall(self: *SemContext, call: Sexp, kind: ParCall) !void {
+        try self.facts.par_calls.put(self.allocator, recordExprKey(call) orelse return, kind);
+    }
+
+    /// Which of `par.map` and `par.each` `call` is, or null for any
+    /// other call (`recordParCall`).
+    pub fn parCallOf(self: *const SemContext, call: Sexp) ?ParCall {
+        return self.facts.par_calls.get(exprKey(call) orelse return null);
     }
 
     pub fn recordTestCheck(self: *SemContext, node: Sexp, shown: []const u8) !void {
@@ -5931,6 +5944,10 @@ pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// can be handed whole to another thread, and one that `shares` can be
 /// read through a view by another thread while this one also reads it.
 pub const Crossing = enum { moves, shares };
+
+/// `par.map(?xs, f)`, which gives each call's value, or `par.each(!xs,
+/// f)`, which writes each element.
+pub const ParCall = enum { map, each };
 
 /// Whether a value of `ty` meets `how` (`Crossing`): nothing it reaches
 /// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
