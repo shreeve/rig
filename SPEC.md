@@ -10359,6 +10359,13 @@ with `task.Stop.canceled` or `task.Stop.timeout`. A method that started
 runs to its end, and its caller waits for it, through a cancel too.
 `time.within` sets a deadline on calls ([Deadlines](#deadlines)).
 
+A call that finds the actor idle, with nothing in its mailbox, takes it
+in one atomic step and runs the method at once on the caller's stack,
+with no message and no switch, when that stack has room. The method
+still runs as the actor: it has started, so the caller's cancel and
+deadline do not stop it, and the caller meets them at its own next
+waiting point. Messages sent meanwhile go to the actor's own task.
+
 ```rig
 obj Ledger
   entries: List[Int]

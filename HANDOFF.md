@@ -107,8 +107,10 @@ from).
     method at a time: a call through a handle is a message in the
     caller's frame, waited for, or a task with `&` that takes a mailbox
     slot; a call not yet started is withdrawn on a cancel or deadline
-    (`tasks.Actor`, `typecheck.actorCall`). The idle path, deadlock
-    detection, and actor failure come next.
+    (`tasks.Actor`, `typecheck.actorCall`). A call that finds the actor
+    idle runs inline, as the actor, at about a lock's cost
+    (`Actor.claim`; bench/actors times it against a Go mutex and a Tokio
+    actor). Deadlock detection and actor failure come next.
   - **Deterministic tests:** `rig test` runs tasks on one thread with
     a virtual clock and a seed (`--seed`, `--seeds`, `RIG_SEED`), so a
     concurrent test fails the same way twice and sleeps take no time;
@@ -380,8 +382,8 @@ migration guide (`tools/migrate-0.3.py`).
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
 plan's second step, and its increments are done; the crossing facts, a
 `Cell` of one word across tasks, `par`, `time.within`, `task.isolate`,
-and actors' calls are built): an idle actor's calls run inline, deadlock
-detection, and actor failure with supervised actors; then I/O,
+and actors with their idle path are built): deadlock detection, and
+actor failure with supervised actors; then I/O,
 timers, and `http.serve` on Rig's own `std.Io`, whose blocking pool
 today serves only `std.file.read`.
 

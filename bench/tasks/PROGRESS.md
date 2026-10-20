@@ -26,6 +26,7 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-19 | #371: deterministic runs | rig-fast | 107 ns | 44 ns | 78.4 ms | 8 ns | 82.82 us | 17.0 KiB |
 | 2026-10-19 | #372: task.isolate | rig-fast | 110 ns | 44 ns | 77.8 ms | 10 ns | 93.15 us | 17.0 KiB |
 | 2026-10-20 | #383: actors | rig-fast | 109 ns | 45 ns | 80.0 ms | 10 ns | 102.17 us | 17.0 KiB |
+| 2026-10-20 | #386: the idle path | rig-fast | 99 ns | 47 ns | 86.8 ms | 11 ns | 106.03 us | 17.0 KiB |
 
 ## x86-64 (pup)
 
@@ -44,3 +45,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-19 | #371: deterministic runs | rig-fast | 272 ns | 82 ns | 99.6 ms | 9 ns | 46.50 us | 5.2 KiB |
 | 2026-10-19 | #372: task.isolate | rig-fast | 313 ns | 78 ns | 101.4 ms | 9 ns | 82.35 us | 5.2 KiB |
 | 2026-10-20 | #383: actors | rig-fast | 270 ns | 79 ns | 97.9 ms | 11 ns | 57.12 us | 5.2 KiB |
+| 2026-10-20 | #386: the idle path | rig-fast | 246 ns | 83 ns | 98.1 ms | 8 ns | 79.89 us | 5.2 KiB |

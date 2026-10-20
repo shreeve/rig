@@ -488,16 +488,17 @@ one sender run in the order sent.
 - A call made with `&` takes a slot of the actor's bounded mailbox when
   its `Task` is made, and waits for one if none is free.
 
-**The idle path.** When an actor is idle (not running, not scheduled,
-and with an empty mailbox), a caller takes it with one atomic step and
-runs the method on its own core, with no queue and no switch. The
-method still runs as the actor:
-- its cancel state, budget, and wait record are the actor's, not the
+**The idle path** (built). When an actor is idle (not running, not
+scheduled, and with an empty mailbox), a caller takes it with one atomic
+step and runs the method on its own core, with no queue and no switch.
+The method still runs as the actor:
+- its cancel state, deadline, and isolate are the actor's, not the
   caller's, so a canceled caller cannot interrupt it;
-- the call is made only when the caller's stack has room for the
-  method's proven bound;
+- the call is made only when the caller's stack has room: a quarter of
+  a task's stack left above its guard, until stack bounds are proven
+  per method;
 - a call through a handle to the same actor type counts as recursion in
-  the stack analysis.
+  the stack analysis, once there is one.
 
 Afterwards the caller hands any messages that arrived to the actor's
 own task rather than serving them itself. An idle actor called this way

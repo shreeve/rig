@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Time Rig's actors against a Go mutex and a Tokio actor (bench/actors/README.md).
+
+usage: bench/actors/bench-actors [options]
+
+  --variants a,b  what to build and time (default: rig-fast,tokio,go):
+                    rig-fast   bench/actors/actors.rig, rig build --release=fast
+                    rig-safe   the same, rig build --release (Zig's safe mode)
+                    tokio      bench/actors/tokio, cargo build --release: a
+                               task serving an mpsc channel, on Tokio's
+                               multi-threaded runtime
+                    go         bench/actors/go, go build: a sync.Mutex
+  --reps N        runs per variant, interleaved across variants; the
+                  fastest of each benchmark counts (default 5)
+  --out DIR       keep the builds in DIR and reuse them; with
+  --build-only    build and stop, and later
+  --time-only     time what DIR holds
+  --tokio DIR     the Tokio source to build against (default: the
+                  repository's misc/tokio clone, if it has one; else
+                  the crates.io release Cargo resolves)
+  --record NOTE   append the Rig variants' rows to bench/actors/PROGRESS.md,
+                  dated, with NOTE (say, "#384: the idle path")
+
+Each program prints `NAME NS CHECK` per benchmark; the checks must
+agree. The report gives each benchmark's time per call, and how each
+variant compares with Tokio.
+"""
+import argparse, datetime, os, shutil, subprocess, sys, tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+
+# How many calls each benchmark makes (the constants every program shares).
+CALLS = {
+    "solo": 1000000,
+    "contend": 8 * 100000,
+    "spread": 1000 * 1000,
+}
+
+
+def tokio_source(given):
+    if given:
+        return given
+    common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=HERE, capture_output=True, text=True).stdout.strip()
+    clone = os.path.join(os.path.dirname(os.path.abspath(os.path.join(HERE, common))), "misc", "tokio", "tokio")
+    return clone if os.path.isfile(os.path.join(clone, "Cargo.toml")) else None
+
+
+def build(v, out, tokio):
+    exe = os.path.join(out, v)
+    if os.path.exists(exe):
+        return exe
+    tmp = exe + ".new"
+    if v.startswith("rig-"):
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
+        flag = "--release" if v == "rig-safe" else "--release=fast"
+        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "actors.rig")], check=True, env=env)
+    elif v == "tokio":
+        target = os.path.join(out, "cargo")
+        cmd = ["cargo", "build", "--release", "-q", "--target-dir", target]
+        if tokio:
+            cmd += ["--config", 'patch.crates-io.tokio.path="%s"' % tokio]
+            print("tokio: built from %s" % tokio, file=sys.stderr)
+        subprocess.run(cmd, check=True, cwd=os.path.join(HERE, "tokio"))
+        shutil.copy(os.path.join(target, "release", "actors-tokio"), tmp)
+    elif v == "go":
+        subprocess.run(["go", "build", "-o", tmp, "."], check=True, cwd=os.path.join(HERE, "go"))
+    else:
+        sys.exit("bench-actors: no variant `%s`" % v)
+    os.rename(tmp, exe)
+    return exe
+
+
+def run(exe):
+    p = subprocess.run([exe], check=True, capture_output=True, text=True)
+    rows = {}
+    for line in p.stdout.splitlines():
+        name, ns, check = line.split()
+        rows[name] = (int(ns), check)
+    return rows
+
+
+def per_call(name, ns):
+    v = ns / CALLS[name]
+    if v >= 1e3:
+        return "%.2f us" % (v / 1e3)
+    if v >= 10:
+        return "%.0f ns" % v
+    return "%.1f ns" % v
+
+
+def record(note, variants, best):
+    """Append each Rig variant's row to PROGRESS.md: the date, the note,
+    the variant, and each benchmark's time per call."""
+    path = os.path.join(HERE, "PROGRESS.md")
+    day = datetime.date.today().isoformat()
+    with open(path, "a") as f:
+        for v in variants:
+            if v.startswith("rig-"):
+                cells = [per_call(n, best[v][n]) for n in CALLS]
+                f.write("| %s | %s | %s | %s |\n" % (day, note, v, " | ".join(cells)))
+    print("bench-actors: recorded in %s" % path, file=sys.stderr)
+
+
+def compare(ns, base):
+    if ns >= base:
+        return "%.1fx slower" % (ns / base)
+    return "%.1fx faster" % (base / ns)
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--variants", default="rig-fast,tokio,go")
+    ap.add_argument("--reps", type=int, default=5)
+    ap.add_argument("--out")
+    ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--time-only", action="store_true")
+    ap.add_argument("--tokio")
+    ap.add_argument("--record")
+    a = ap.parse_args()
+    variants = a.variants.split(",")
+    out = a.out or tempfile.mkdtemp(prefix="bench-actors-")
+    os.makedirs(out, exist_ok=True)
+    tokio = tokio_source(a.tokio) if "tokio" in variants else None
+    exes = {v: (os.path.join(out, v) if a.time_only else build(v, out, tokio)) for v in variants}
+    if a.build_only:
+        return
+    best = {v: {} for v in variants}
+    checks = {}
+    for _ in range(a.reps):
+        for v in variants:
+            for name, (ns, check) in run(exes[v]).items():
+                if name in checks and checks[name] != check:
+                    sys.exit("bench-actors: %s's %s check is %s, not %s" % (v, name, check, checks[name]))
+                checks[name] = check
+                best[v][name] = min(ns, best[v].get(name, ns))
+    base = "tokio" if "tokio" in variants else variants[0]
+    print("%-9s" % "" + "".join("%-12s" % v for v in variants) + "vs %s" % base)
+    for name in CALLS:
+        cells = "".join("%-12s" % (per_call(name, best[v][name]) + "/call") for v in variants)
+        ratios = ", ".join("%s %s" % (v, compare(best[v][name], best[base][name])) for v in variants if v != base)
+        print("%-9s%s%s" % (name, cells, ratios))
+    if a.record:
+        record(a.record, variants, best)
+    if not a.out:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()
