@@ -910,6 +910,11 @@ fn recordExprKey(node: Sexp) ?u64 {
     return exprKey(node);
 }
 
+/// A local task (`Facts.local_tasks`), for `rig check --tasks`: where
+/// its call starts, the call as written, and why it stays on one
+/// thread: the part that pins it and the type in it that does not cross.
+pub const LocalTask = struct { pos: u32, call: []const u8, why: []const u8 };
+
 pub const Facts = struct {
     /// Identifier leaf position -> the symbol it names.
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
@@ -996,8 +1001,8 @@ pub const Facts = struct {
     /// The calls of `http.serve` (`Checker.httpServe`).
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
-    /// that makes them (`Checker.crossCheck`).
-    local_tasks: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// that makes them (`Checker.crossCheck`), with what pins each.
+    local_tasks: std.AutoHashMapUnmanaged(u64, LocalTask) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -1905,6 +1910,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
+        LocalTask => try w.print(" \"{f}\"", .{std.zig.fmtString(v.why)}),
         ReadOnlyField => try w.print(" {s}.{s}.{s}", .{ v.module, v.owner, v.field }),
         JumpDest => {
             const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
@@ -3275,8 +3281,11 @@ pub const SemContext = struct {
         return self.facts.http_serves.contains(exprKey(call) orelse return false);
     }
 
-    pub fn recordLocalTask(self: *SemContext, call: Sexp) !void {
-        try self.facts.local_tasks.put(self.allocator, recordExprKey(call) orelse return, {});
+    /// Records that the task `call` makes is local, pinned by `local`;
+    /// the first part found to pin it is the one kept.
+    pub fn recordLocalTask(self: *SemContext, call: Sexp, local: LocalTask) !void {
+        const entry = try self.facts.local_tasks.getOrPut(self.allocator, recordExprKey(call) orelse return);
+        if (!entry.found_existing) entry.value_ptr.* = local;
     }
 
     /// Whether the task `call` makes is local (`recordLocalTask`).
@@ -6055,7 +6064,7 @@ fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
 /// The diagnostics of `misplaced`: a Cell's formatted with the type
 /// twice, a write view's once.
 pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
-pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, a receiver's, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
+pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, `self`'s, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
 
 /// Whether a value of `ty` can hold a marked view (see `Views`). A generic
 /// parameter holds none: an instantiation with a view is checked apart.

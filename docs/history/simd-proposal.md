@@ -2,7 +2,7 @@
 
 > **History.** This is the proposal that led to `Simd[T, n]`. The design as built is [docs/design/simd.md](../design/simd.md), and the rules are in [SPEC.md](../../SPEC.md). It is kept as written.
 
-Status: approved by the owner, with the decisions in [README.md](../design/simd.md). It is written against `main` at
+Status: approved by the owner, with the decisions in [design/simd.md](../design/simd.md). It is written against `main` at
 `8119e590`, and it assumes the `notwide` branch (`x.not()`, and a
 `@Vector`-based `readInt`). Every Zig behavior it relies on was checked
 with Zig 0.17.0. The programs are in `zig/` next to this file (see
@@ -436,7 +436,7 @@ re-derives anything from syntax.
 
 | Fact or classifier | Change |
 |---|---|
-| `sema.isScalar(ty)` (new; replaces `ownership.isScalar`'s private test) | `isCopyPrimitive(ty) or ty is .simd`. A vector is a by-value receiver and a by-value operand, so a method call on it never takes its address. `isCtValueType` keeps `isCopyPrimitive`: a vector is not a compile-time argument. |
+| `sema.isScalar(ty)` (new; replaces `ownership.isScalar`'s private test) | `isCopyPrimitive(ty) or ty is .simd`. A vector is a by-value `self` and a by-value operand, so a method call on it never takes its address. `isCtValueType` keeps `isCopyPrimitive`: a vector is not a compile-time argument. |
 | `sema.readsAsValue` | `isScalar or isPlainEnum`, so an operator reads a `?Simd` as its value, as it does a `?Int`. |
 | `sema.handsOver` | An `index` whose object's type is a `Simd` is `made` (a lane is an operator-like result), listed beside "an operator's result". This is the only classifier change that touches ownership. It goes through the one-branch-at-a-time rule, and the `classify` test keeps it the only classifier. |
 | `Question.splat` (new node fact) | Recorded by typecheck on a scalar operand of a lane-wise operator or of `select`, holding the `Simd` type it fills. Emit reads it through `facts.splatOf(node)`. |

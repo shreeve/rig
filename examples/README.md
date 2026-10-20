@@ -13,7 +13,7 @@ bin/rig run examples/ownership_tour.rig
 |---|---|
 | [hello.rig](hello.rig) | the smallest program: a `sub main()` and a `print` |
 | [ownership_tour.rig](ownership_tour.rig) | the ownership sigils at work: move `<x`, read lend `?x`, shared `*x`, clone `+x`, drop `<x`, and automatic drop at the end of scope |
-| [shapes.rig](shapes.rig) | data modeling: an enum with payload variants, exhaustive `match`, an object method with a `?@` receiver, and a generic `Pair[T]` |
+| [shapes.rig](shapes.rig) | data modeling: an enum with payload variants, exhaustive `match`, an object method with a `?@` self, and a generic `Pair[T]` |
 | [resources.rig](resources.rig) | a user-defined `drop` body, followed by the compiler-generated drop glue that releases a shared field |
 | [generics.rig](generics.rig) | a generic `Stack[T]` holding shared handles, a generic method `map[U]`, and generic functions whose type arguments are inferred (the value `pick` does not return is dropped); a ring buffer `Ring[T, n: Int]` whose capacity is part of its type, and an array length inferred from the argument (`total(recent.items)`) |
 | [sort.rig](sort.rig) | closures passed to functions: a generic `sort` taking a comparator `?fun(?T, ?T) -> Bool`, called with closure literals (one counting into a local with `\|!compares\|`) and a function, and a `map` that infers its result type from the closure |

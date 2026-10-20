@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What each class of std.json's surviving checks costs, in instructions.
 
-usage: cpuq run --cores 2 --label rig:json -- bench/json/checks/sizing.py OUT [--files a,b] [--variants a,b]
+usage: bench/json/checks/sizing.py OUT [--files a,b] [--variants a,b]
 
 Builds rig-safe for each corpus file (the programs `bench-json` makes),
 then copies of its emitted package with one class of checks made

@@ -11,7 +11,7 @@ fail "write call already lent", "`(!b)` already lends `b` to write: remove the o
   !(!b).ensure(1, List()).push(5)
   print(b.len)
 
-fail "write call hint value used", "10:5: write `(!@v).pop()`: a write call whose value is used puts its `!` in parentheses", "18:7: method `pop` needs its receiver lent to write; write `(!v).pop()`", "19:3: method `pop` needs its receiver lent to write; write `!v.pop()`", "20:5: `pop` does not consume its receiver; it writes it: `(!v).pop()`, and its result needs no `<`", "21:5: `pop` writes its receiver: write `(!v).pop()`; to lend the call's result, write `?(v.pop())`", "22:5: write `(!w).pop()`: the call writes `w`", "23:5: `take` changes its receiver, a temporary no name holds; add `!`: `(!mk()).take()`", errors: 7
+fail "write call hint value used", "10:5: write `(!@v).pop()`: a write call whose value is used puts its `!` in parentheses", "18:7: method `pop` needs `self` lent to write; write `(!v).pop()`", "19:3: method `pop` needs `self` lent to write; write `!v.pop()`", "20:5: `pop` does not consume `self`; it writes it: `(!v).pop()`, and its result needs no `<`", "21:5: `pop` writes `self`: write `(!v).pop()`; to lend the call's result, write `?(v.pop())`", "22:5: write `(!w).pop()`: the call writes `w`", "23:5: `take` changes `self`, a temporary no name holds; add `!`: `(!mk()).take()`", errors: 7
   # A hint that writes a write call writes it as the call is used: the
   # long form `(!v).m(...)` where its value is used, and the short form
   # where it is discarded, so following a hint never draws the error that
@@ -131,7 +131,7 @@ test "write lend function binding", '''
   setf(!h)
   print(h(2))
 
-fail "write receiver branches", "14:2: method `bump` writes its receiver, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes its receiver, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs its receiver lent to write; write `!p.bump()`", errors: 3
+fail "write receiver branches", "14:2: method `bump` writes `self`, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes `self`, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs `self` lent to write; write `!p.bump()`", errors: 3
   # A `!@` method writes its receiver: a branching value that may be a
   # name's would be written as a copy (plain data too), and a place is
   # lent with `!`.
@@ -525,7 +525,7 @@ test "write view bool", '''
   view: !Bool = !a
   print(view)
 
-fail "write view bool as not", "11:7: `!` lends to write; use `not` for negation", "15:6: `!` lends to write; use `not` for negation", "19:13: `!` lends to write; use `not` for negation", "23:20: `!` lends to write; use `not` for negation", "26:13: `!` lends to write; use `not` for negation", "29:15: `!` lends to write; use `not` for negation", "32:9: `ok` does not write its receiver; for negation use `not`", "36:6: `!` lends to write; use `not` for negation"
+fail "write view bool as not", "11:7: `!` lends to write; use `not` for negation", "15:6: `!` lends to write; use `not` for negation", "19:13: `!` lends to write; use `not` for negation", "23:20: `!` lends to write; use `not` for negation", "26:13: `!` lends to write; use `not` for negation", "29:15: `!` lends to write; use `not` for negation", "32:9: `ok` does not write `self`; for negation use `not`", "36:6: `!` lends to write; use `not` for negation"
   # `!` is a write view, never negation: a write view of a `Bool`
   # read as a `Bool` is rejected wherever it appears, and so is `!` before
   # a method that only reads its receiver (`!c.ok()`).

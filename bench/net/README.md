@@ -46,25 +46,9 @@ arm64 on the Mac and x86 on pup, on a quiet machine.
 
 ## Where it stands
 
-On 2026-10-20, with std.net, best of 3. On the Mac (an Apple M5 with 10
-cores):
-
-```text
-         rig-fast      tokio         go            vs tokio
-pingpong 14.79 us/trip 14.10 us/trip 16.01 us/trip rig-fast 1.0x slower, go 1.1x slower
-echo     5.98 us/trip  5.68 us/trip  5.68 us/trip  rig-fast 1.1x slower, go 1.0x faster
-connect  57.29 us/conn 57.43 us/conn 58.58 us/conn rig-fast 1.0x faster, go 1.0x slower
-```
-
-On pup (Linux, x86-64, 22 cores):
-
-```text
-         rig-fast      tokio         go            vs tokio
-pingpong 4.81 us/trip  5.07 us/trip  5.90 us/trip  rig-fast 1.1x faster, go 1.2x slower
-echo     1.10 us/trip  1.60 us/trip  949 ns/trip   rig-fast 1.5x faster, go 1.7x faster
-connect  25.86 us/conn 30.29 us/conn 49.63 us/conn rig-fast 1.2x faster, go 1.6x slower
-```
+The latest rows are in [PROGRESS.md](PROGRESS.md), which `--record`
+writes, and the headline numbers against Tokio and Go are in
+[docs/launch/benchmarks.md](../../docs/launch/benchmarks.md).
 
 On loopback, a round trip costs what the system calls and one wake each
-way cost, so the three runtimes stay close; Rig is ahead of Tokio on
-pup and even with it on the Mac.
+way cost, so the three runtimes stay close.

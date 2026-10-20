@@ -14,7 +14,7 @@ it showed up, what it costs, and a fix to consider.
 - *parked*: real, but not worth the change now;
 - *fixed*: on `main`.
 
-The measurements are in [json/RESULTS.md](json-results.md), and the
+The measurements are in [json-results.md](json-results.md), and the
 tools that take them in `bench/json/`.
 
 ## Asymmetries and inconsistencies

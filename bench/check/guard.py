@@ -20,7 +20,7 @@ Instruction counts come from `/usr/bin/time -l`, so the guard runs on
 macOS only. After a change meant to move the baseline (a faster pass, a
 new Zig), `--update` writes it, and it is committed.
 
-usage: cpuq run --cores 2 --label rig:check -- bench/check/guard.py [--update] [--rig PATH]
+usage: bench/check/guard.py [--update] [--rig PATH]
 
 Without --rig it builds the compiler (`zig build -Doptimize=safe`)
 into a temporary directory.

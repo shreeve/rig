@@ -83,8 +83,8 @@ if [[ $(uname -s) == Linux ]]; then
     cat >limits.rig <<'EOF2'
 use std.file
 
-sub main()
-  if file.read("/proc/self/limits") as s
+sub main()!
+  if file.read("/proc/self/limits")! as s
     print(s)
   else
     print("none")

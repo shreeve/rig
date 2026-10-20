@@ -1,5 +1,9 @@
-//! std.terminal's cell writes in Zig, where a vector can be widened and
-//! stored: a run of printable bytes becomes cells sixteen at a time.
+//! std.terminal's Zig shim. A run of printable bytes becomes cells sixteen
+//! at a time, written with `@Vector`: Zig 0.17 turns LLVM's loop
+//! vectorizer off (docs/internals/zig-0.17.md §16), so the same loop in
+//! Rig, or in plain Zig, runs a cell at a time, a third as fast. On Zig
+//! 0.18, whose LLVM vectorizes loops again, `widen` moves back into
+//! std/terminal.rig as a plain loop and this file goes (docs/ROADMAP.md).
 
 /// `dst[i] = src[i] | bits` for each `i` of the shorter of the two: each
 /// byte a rune in the low bits of its cell, with the style bits above.

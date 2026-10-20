@@ -20,11 +20,11 @@ starts; a program that makes none starts no workers.
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
-  never blocks; `std.file.read` does so today. Other system calls go
-  through a `Threaded` instance of Zig's `std.Io` (`rt.io`) on the
-  calling thread, which runs no tasks; a write to a full pipe holds its
-  worker until it returns. Rig's own `std.Io`, with the rest of I/O on
-  the pool or an event loop, comes with step 5 of the plan.
+  never blocks; every `std.file` call does so. Sockets are registered
+  with the workers' pollers and wait there (`net.zig`, increment 8).
+  Other system calls go through a `Threaded` instance of Zig's `std.Io`
+  (`rt.io`) on the calling thread, which runs no tasks; a write to a
+  full pipe holds its worker until it returns.
 
 ## Speed
 
@@ -40,7 +40,7 @@ starts; a program that makes none starts no workers.
   own stack, and the task switches straight back when it ends, past the
   queues (`sched.handoff`). Running the task on the waiter's own stack
   would be faster still, but is safe only for a task whose stack use is
-  proven to fit, which Rig does not yet prove.
+  proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
   searching at once; one that finds work wakes one more; workers with no
   work sleep in their poller (below).
@@ -77,7 +77,7 @@ overflow for frames that fit.
 A free stack's link in its worker's list is kept at its top, on the page
 the next fiber touches anyway, so a sleeping task holds one page of its
 stack and its record: about 17 KiB on the Mac, whose pages are 16 KiB,
-and 5 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
+and 5.2 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
 Go's about 3 KiB (`bench/tasks`, `memory`).
 
 ## Waiting
@@ -93,6 +93,19 @@ so the fiber goes straight back on a queue, and a stale waker finds a
 later number and does nothing. A cancel ends only a wait a cancel may
 end, and a task waiting on another passes its cancel on itself, hand
 over hand, so no cancel reaches a task through a chain another may free.
+
+A cancel is a handshake of two steps on each side: the canceler sets the
+task's flag and then looks at its wait, and the waiting fiber begins its
+wait and then looks at the flag. All four are sequentially consistent,
+so at least one side sees the other: a cancel that lands after the
+fiber last looked, but before its wait began, finds no wait to end, and
+the fiber, looking once more, sees the flag and goes on. Every waiting
+point a cancel ends looks so after it begins its wait: a wait on a
+task's end, on a set, a select, an actor's answer, a sleep, a
+descriptor (`sched.waitReady`), and a handoff to the task waited on.
+A poller that wakes a fiber waiting on a descriptor holds that waiter
+until it is done (`Registration.Waiter`), so the fiber, which takes
+itself back only after, never goes on and ends under it.
 
 ## Yield checks
 
@@ -117,6 +130,17 @@ fails, and yields only when other work waits.
   work and sleeps clears it too. A task that yields only puts itself
   back in line, so it never sets the flag, and busy tasks do not keep
   yielding to each other.
+
+A loop's check also keeps its worker's timers and descriptors going
+while it computes (`sched.serviceBusy`): it wakes the fibers whose
+timers are due on its worker, and looks at its worker's poller at most
+every 250 µs, a system call. It reads the clock only when its worker
+holds a timer or a descriptor. A 10 ms sleep of a task whose worker
+spins in `main` takes 10 ms, with one worker or eight, where it waited
+for the whole spin; a round trip on a socket registered with that
+worker takes about 1 ms, where it took 1.5 s. A recursive call's check
+reads only its flag, so a worker deep in recursion leaves its timers to
+the workers that sleep.
 
 The loop check costs a decrement and a branch per turn of an outermost
 loop: within noise on `bench/tasks`. The recursion check is a load and
@@ -144,6 +168,13 @@ deterministically (`sched.deterministic`, SPEC §3 "Tests"):
   to the earliest timer. Each yield check and `task.check()` moves it
   1 µs, so a fiber that computes without waiting still reaches its
   deadline, and fibers waiting on a timer behind it still wake.
+- **Descriptors.** A fiber waiting on a file descriptor wakes once it
+  is ready, at whatever virtual time. With no fiber ready, the poller is
+  looked at first; with descriptors registered, it is waited on for up
+  to 1 ms of real time before the clock jumps to a timer, since bytes
+  written to a socket may still be on their way (macOS delivers them on
+  loopback a moment later), and a jump past a wait's deadline would end
+  it spuriously.
 - **Deadlock.** With no fiber ready and no timer set, every task waits
   on another, and the program panics.
 
@@ -200,6 +231,17 @@ every time; the suite runs each concurrency case again under seeds 1 to
    home, and kicks the home's poller while that worker sleeps
    (`Worker.idle`).
 
-Each must not make `bench/tasks` slower on the benchmarks it touches;
-the step is done when `spawn`, `chain`, and `yield` are each within 1.2x
-of Tokio's time on the Mac (arm64) and on pup (x86_64).
+10. **Busy workers keep their timers and pollers going**: a loop's yield
+    check wakes its worker's due timers and looks at its poller (above,
+    "Yield checks"). A timer set earlier than any sleeping worker wakes
+    kicks one (`sched.kickForTimer`): the timer's worker publishes the
+    deadline, then reads when each sleeper wakes, and a worker about to
+    sleep notes that it may sleep for good, then reads the deadlines,
+    all sequentially consistent, so one of the two sees the other.
+
+Each increment is held to the gate in `bench/tasks/README.md`
+(`bench-tasks --gate`), which fails a benchmark more than 1.5 times
+slower than the last recorded row. The
+numbers against Tokio and Go are in
+[docs/launch/benchmarks.md](../launch/benchmarks.md), and
+`bench/tasks/PROGRESS.md` has a row for each increment.

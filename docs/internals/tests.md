@@ -206,7 +206,8 @@ with other messages, or printing something else), fails on any other
 failure (a timeout, a crash, a leak, a program that did not run), and
 fails the day it works, saying to make it ```` ```rig ````. A block that
 breaks these rules (an unknown word, an unclosed fence, an `output`
-block after `reject`) is a case that fails, saying how.
+block after `reject`) is a case that fails, saying how. A failure names the doc and the line of the
+opening fence (`SPEC.md:160`). `doc` names every doc's area.
 
 ## The pack
 
@@ -254,6 +255,70 @@ hint checked (`test/hints.py`). A test file a tool writes names the tool
 on its first line (`written by tools/NAME.py`), and a core job,
 `generated.<file>`, runs the tool's `--check`, which fails when the file
 is not what the tool would write now.
+
+## The reference ownership checker
+
+`test/oracle/` is a second ownership checker, written from
+[CORE](../CORE.md) and SPEC's ownership sections without
+reading `src/ownership.zig`, and built as `bin/rig-oracle` (`zig build
+oracle`; `src/lib.zig` is its view of the compiler, which `bin/rig`
+never imports). It lowers each function to a small core with its
+statement temporaries and evaluation order written out, then checks
+moves, loans, and drops with a dataflow over the function's control
+flow. Each function gets its verdict, accept or reject, or none when
+the function uses a form the oracle does not model yet. The suite's
+core runs it over three sets, and checks it with a lint:
+
+| Id | Programs |
+|---|---|
+| `oracle.lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
+| `oracle.tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
+| `oracle.docs` | every doc example but fragments |
+| `oracle.matrix` | the matrix programs (`test/matrix.py --oracle`) |
+
+A set fails when the compiler accepts a function the oracle rejects:
+that may be a soundness hole, and it can never be allowlisted. It also
+fails when the oracle's own rejections change: every function the
+oracle rejects is listed in `test/oracle/rejections` (`program
+function`), and a set fails on one not listed (`UNLISTED`: add it) and
+on a listed one the oracle decides and no longer rejects (`LOST`: the
+reference checker was weakened, whatever the compiler decides). A doc
+example is listed by its doc and a hash of its text
+(`doc/SPEC/0f3c9a1b2d4e`), so an edit that only moves it keeps its
+entry; one that changes its text renames it. So a change to the oracle that loses a rejection shows, though a
+stricter compiler alone would only be reported
+(`test/cli/oracle_rejections.sh` checks that both fire). When the
+compiler rejects a function the oracle accepts, the run reports it
+(`stricter`), and `test/oracle/differences` records it once classified
+(a compiler rejection the Core allows, an oracle gap, or a question the
+Core leaves open). A set also fails when a listed difference is gone
+(`FIXED`), or when the oracle decides fewer functions than the set's
+floor in `test/oracle/coverage`.
+
+A test may state the oracle's own verdict on one of its functions, in
+a comment line the oracle checks on every run, whatever the compiler
+decides (also where the compiler's semantic checks stop first):
+
+```text
+# oracle: main reject C2
+```
+
+The word after the function is `accept`, or `reject` with the rule
+the oracle names (C1–C9, B1–B4). A different verdict, or none, fails
+the set. These lines are
+the oracle's own tests: each of the oracle's header rules (a subject
+that is a place, a made value, a part of one, a lend of one, or a
+branching value) has tests that state its verdict, so the change that
+builds a planned rule can rely on the oracle to catch what it gets
+wrong. By hand:
+
+```bash
+bin/rig-oracle -v file.rig            # every function's two verdicts
+bin/rig-oracle --explain main file.rig  # the lowered core of `main`
+bin/rig-oracle --stats --list .zig-cache/rig-tests/oracle/tests.list  # why it abstains, by count
+bin/rig-oracle --sema -v file.rig     # also functions the compiler's
+                                      # semantic checks rejected
+```
 
 ## Why
 

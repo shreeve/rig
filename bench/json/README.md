@@ -112,8 +112,8 @@ by exclusive timing on both machines.
 ## Checks: `checks/`
 
 What std.json's safety checks cost after the compiler has removed the
-ones it proves. Both tools run on macOS; RESULTS.md, "Checks and IPC
-after proofs2", has what they found.
+ones it proves. Both tools run on macOS; docs/history/json-results.md, "Checks and
+IPC after proofs2", has what they found.
 
 ```sh
 D=$(mktemp -d)

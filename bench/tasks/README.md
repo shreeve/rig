@@ -1,8 +1,9 @@
 # Task benchmarks
 
 Times Rig's tasks (SPEC §18) against Tokio's and Go's on the same five
-benchmarks, so the scheduler's work can be measured against the
-runtimes it aims to match. It is not part of the test suite or CI.
+timed benchmarks and a memory measurement, so the scheduler's work can
+be measured against the runtimes it aims to match. It is not part of
+the test suite or CI.
 
 ```sh
 bench/tasks/bench-tasks
@@ -14,7 +15,8 @@ bench/tasks/bench-tasks --out $D --time-only --reps 9
 It needs `bin/rig` built first, Cargo, and Go. `bench/tasks/bench-tasks
 --help` lists the variants (`rig-fast`, `tokio` and `go` by default;
 `rig-safe` on request) and the options. The Rig programs run on the
-scheduler with one worker per core, or `RIG_WORKERS` when set. `--record "#PR: what changed"` adds the Rig rows to
+scheduler with one worker per core, or `RIG_WORKERS` when set.
+`--record "#PR: what changed"` adds the Rig rows to
 [PROGRESS.md](PROGRESS.md), which tracks each benchmark as the
 scheduler grows ([docs/internals/scheduler.md](../../docs/internals/scheduler.md)).
 
@@ -27,8 +29,8 @@ over the workers.
 
 ## The benchmarks
 
-Each program runs all five, times each with the monotonic clock, and
-prints `NAME NS CHECK`; the driver rejects a run whose checks differ
+Each program runs the five timed benchmarks, times each with the
+monotonic clock, and prints `NAME NS CHECK`; the driver rejects a run whose checks differ
 between programs. The driver also runs each program as `PROGRAM many`,
 which holds 10,000 tasks at once, each sleeping 200 ms, and as
 `PROGRAM idle`, which makes none; `memory` is the difference in their
@@ -43,6 +45,7 @@ one's times.
 | `fanout` | 10 tasks of CPU work (a 20-million-step loop each) at once | run |
 | `yield` | 100 tasks, each yielding 10,000 times | yield |
 | `hog` | 32 tasks of CPU work (a 20-million-step loop each) keep every core busy; meanwhile, 50 times: queue a task of CPU work (a 1-million-step loop), then start two tasks and wait for both | step |
+| `memory` | resident memory per task, with 10,000 tasks asleep (above) | task |
 
 `spawn` and `chain` measure what a task costs to start, schedule, finish
 and wake its waiter: in bulk, and one at a time on the critical path.
@@ -76,51 +79,14 @@ So the numbers compare like with like:
 
 ## Where it stands
 
-On 2026-10-19, after #358 sized each program's task guard to its
-frames, best of 7. On the Mac (an Apple M5 with 10 cores):
-
-```text
-        rig-fast          tokio             go                vs tokio
-spawn   107 ns/task       174 ns/task       232 ns/task       rig-fast 1.6x faster, go 1.3x slower
-chain   38 ns/task        161 ns/task       223 ns/task       rig-fast 4.2x faster, go 1.4x slower
-fanout  76.2 ms/run       68.5 ms/run       68.3 ms/run       rig-fast 1.1x slower, go 1.0x faster
-yield   9 ns/yield        41 ns/yield       247 ns/yield      rig-fast 4.7x faster, go 6.0x slower
-hog     97.06 us/step     3.2 ms/step       4.2 ms/step       rig-fast 33.4x faster, go 1.3x slower
-memory  17.0 KiB/task     264 B/task        2.9 KiB/task      rig-fast 66.1x more, go 11.1x more
-```
-
-On pup (Linux, x86-64, 22 cores):
-
-```text
-        rig-fast          tokio             go                vs tokio
-spawn   237 ns/task       255 ns/task       276 ns/task       rig-fast 1.1x faster, go 1.1x slower
-chain   70 ns/task        231 ns/task       316 ns/task       rig-fast 3.3x faster, go 1.4x slower
-fanout  98.0 ms/run       88.5 ms/run       84.2 ms/run       rig-fast 1.1x slower, go 1.1x faster
-yield   7 ns/yield        45 ns/yield       467 ns/yield      rig-fast 6.9x faster, go 10.4x slower
-hog     85.85 us/step     2.2 ms/step       1.9 ms/step       rig-fast 25.6x faster, go 1.2x faster
-memory  5.2 KiB/task      354 B/task        2.9 KiB/task      rig-fast 15.1x more, go 8.3x more
-```
+The latest rows are in [PROGRESS.md](PROGRESS.md), which `--record`
+writes, from the reference rows of Tokio and Go and the first Rig row,
+on Zig's `Threaded` backend, to the scheduler as it is. The headline
+numbers against Tokio and Go are in
+[docs/launch/benchmarks.md](../../docs/launch/benchmarks.md).
 
 Rig is ahead of Tokio wherever the scheduler is what is measured:
 starting, waiting for, and switching tasks, and keeping a task that
 waits behind a long computation from waiting for all of it. It is
 behind in memory, where a task holds a page of stack, and in `fanout`,
-whose gap is the compiled loop's. PROGRESS.md tracks each step.
-
-## Baseline
-
-The first numbers, on 2026-10-19, an Apple M5 with 10 cores, best of
-5, with Rig on Zig's `Threaded` backend, which starts an OS thread per
-task:
-
-```text
-        rig-fast          tokio             go                vs tokio
-spawn   12.28 us/task     171 ns/task       232 ns/task       rig-fast 72.0x slower, go 1.4x slower
-chain   10.29 us/task     167 ns/task       223 ns/task       rig-fast 61.5x slower, go 1.3x slower
-fanout  82.7 ms/run       69.0 ms/run       69.6 ms/run       rig-fast 1.2x slower, go 1.0x slower
-yield   412 ns/yield      40 ns/yield       233 ns/yield      rig-fast 10.4x slower, go 5.9x slower
-```
-
-Tokio is the target for `spawn`, `chain` and `yield`. In `fanout`,
-starting its 10 tasks costs about 0.1 ms even on this backend, so the
-rest of its gap is the compiled loop's, not the scheduler's.
+whose gap is the compiled loop's, not the scheduler's.

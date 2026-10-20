@@ -4,8 +4,8 @@ Rig is written in Zig 0.17 and compiles to Zig 0.17. This is a
 reference for the parts of Zig that Rig work touches: the compiler
 (`src/*.zig`), the runtime shipped with every program
 (`src/runtime.zig`), the standard library's Zig shims (`std/*.zig`),
-the Zig the emitter writes, `build.zig`, and the standard-library work
-ahead (I/O, allocators, collections, strings, processes, files).
+the Zig the emitter writes, `build.zig`, and the Zig behind the standard
+library's I/O, allocators, collections, strings, processes, and files.
 
 It is written for people and for AI agents whose knowledge of Zig
 comes from earlier releases. Zig 0.17's I/O, containers, entry point,
@@ -410,7 +410,7 @@ differently: `Reader.allocRemaining` accepts exactly `n` bytes, while
 
 `std.fs` holds only `std.fs.path` and a few constants. Files and
 directories are `std.Io.File` and `std.Io.Dir`, and nearly every
-method takes `io` right after the receiver.
+method takes `io` right after `self`.
 
 ```zig
 const std = @import("std");
@@ -1321,6 +1321,21 @@ pub fn build(b: *std.Build) void {
 | `error.OutOfMemory` from `std.process.spawn` with plenty of memory | spawning through `global_single_threaded` (its allocator always fails) | pass a real `Io` (`init.io`) |
 
 ## 16. Known Zig 0.17 issues Rig works around
+
+**LLVM's loop vectorizer is off.** Zig 0.17.0 builds every program with
+`PipelineTuningOptions.LoopVectorization = false` (src/zig_llvm.cpp),
+because an LLVM bug ([llvm/llvm-project#186922](https://github.com/llvm/llvm-project/issues/186922))
+miscompiled the Zig compiler itself; upstream turned it back on with
+LLVM 23, for 0.18. So no loop of a Rig program, or of Zig, is vectorized
+by the optimizer, however plain: `for (dst, src) |*d, b| d.* = @as(u64, b)
+| bits;` stays one element at a time on aarch64 and x86, where Zig 0.17's
+own LLVM, given the same IR through `zig cc -O3`, vectorizes it sixteen
+lanes wide. Vectors written out (`@Vector`, Rig's `Simd[T, n]`) are
+unaffected. Rig writes its hot loops with `Simd`; where a loop needs an
+operation `Simd` lacks, a std shim writes it with `@Vector`, as
+std/terminal.zig's `widen` does (3x the plain loop). Each such shim is
+for this release only: on Zig 0.18, check that the plain loop vectorizes,
+and move it back into Rig.
 
 **A NaN converted to an integer is not safety-checked.** In debug and
 safe builds, `@trunc`, `@floor`, `@ceil`, and

@@ -1,16 +1,16 @@
 # SIMD for Rig
 
 Portable vectors speed up the JSON parser (`std.json`), and later any
-scanner. Rig builds them as a general language feature. This folder
-holds the design work, written alongside the parser in the Trig project
-before it moved here.
+scanner. Rig builds them as a general language feature. The design work
+was written alongside the parser in the Trig project before it moved
+here, and these files hold it.
 
 | File | Contents |
 |---|---|
-| [PROPOSAL.md](../history/simd-proposal.md) | The design: type, operations, the Core paragraph, safety, implementation plan, effort |
-| [ZIG-LOWERING.md](../internals/simd-lowering.md) | What Zig 0.17's `@Vector` compiles to on aarch64, x86-64 and WASM, with pitfalls |
-| [OPCODES.md](../history/simd-opcodes.md) | The Apple silicon opcodes for this work, and the Rig operation that reaches each |
-| [zig/](../history/simd-zig/) | The Zig probes and benchmarks behind both documents |
+| [simd-proposal.md](../history/simd-proposal.md) | The design: type, operations, the Core paragraph, safety, implementation plan, effort |
+| [simd-lowering.md](../internals/simd-lowering.md) | What Zig 0.17's `@Vector` compiles to on aarch64, x86-64 and WASM, with pitfalls |
+| [simd-opcodes.md](../history/simd-opcodes.md) | The Apple silicon opcodes for this work, and the Rig operation that reaches each |
+| [simd-zig/](../history/simd-zig/) | The Zig probes and benchmarks behind both documents |
 
 ## Decisions
 
@@ -19,8 +19,7 @@ before it moved here.
 2. **Lane `+`** panics on overflow, like scalar `+`; `+%` wraps.
 3. **`v == w`** returns a lane mask. `if mask` is rejected with a hint to
    use `.any()` or `.all()`.
-4. **Timing:** start now, as an exception to the v0.3.0 feature freeze.
-   Vectors are plain data and do not touch ownership.
+4. **Ownership:** vectors are plain data and do not touch it.
 5. **Byte lookup** comes in round 2, with an out-of-range index giving 0.
    Round 1 uses comparisons only.
 
@@ -30,7 +29,8 @@ which both SWAR and SIMD code need.
 
 ## What the measurements said
 
-Apple M5, Zig 0.17. Details in ZIG-LOWERING.md and the JSON results.
+Apple M5, Zig 0.17. Details in [simd-lowering.md](../internals/simd-lowering.md) and the
+  [JSON results](../history/json-results.md).
 
 - **SIMD beats SWAR here.** A full 64-byte bit mask costs 0.8 ns with
   NEON's pairwise-add reduction, 1.2 ns with a plain `@bitCast`, and 2.7
@@ -47,7 +47,24 @@ Apple M5, Zig 0.17. Details in ZIG-LOWERING.md and the JSON results.
   needs a native lowering per target (`tbl`, `pshufb`, `i8x16.swizzle`).
 - **Projected gain** for the JSON parser from vectors alone: 1.09x
   (canada) to 1.55x (twitter). The rest of the gap to sonic-rs is the
-  runtime and compiler fixes in docs/json/.
+  runtime and compiler fixes recorded in
+  [json-results.md](../history/json-results.md).
+
+## Wanted
+
+- **Nothing for widening, yet.** std.terminal writes a run of printable
+  bytes into U64 cells, each byte or'd with the style bits. As a Rig
+  loop, with its checks proven away, it stays scalar: a load, an or, and
+  a store a cell, where sixteen lanes widened at a time (`uxtl`/`ushll`
+  on ARM, `pmovzx` on x86) run the text corpus of bench/terminal 35%
+  faster. The cause is not Rig's code nor the loop's shape: Zig 0.17
+  turns LLVM's loop vectorizer off ([zig-0.17.md](../internals/zig-0.17.md)
+  §16), and the same IR through `zig cc -O3` vectorizes sixteen lanes
+  wide. Until Zig 0.18, std/terminal.zig's `widen` writes it with
+  `@Vector`; then the plain loop should do, with no new operation. A
+  widening conversion (`Simd[U8, 16]` to `Simd[U64, 16]`) and a vector
+  store into a typed slice would still let a loop be vector whatever the
+  optimizer does; nothing needs that yet.
 
 ## Lessons from other languages
 

@@ -3,16 +3,17 @@
 Rig is a systems language for people who want Python's readability,
 Zig's cost model, and Rust's memory safety in one place. There is no
 garbage collector, and only the few types that own memory allocate it.
-Blocks are indented, types
-are inferred, and most lines look like pseudocode. The compiler checks
+Blocks are indented, types are inferred, and most lines look like
+pseudocode. The compiler checks
 the program, then writes [Zig](https://ziglang.org), and Zig optimizes,
 generates code, and links.
 
 This guide is for programmers arriving from another language. It shows
-Rig's central idea, tours five small programs, translates the forms you
-already know, and lists the habits that will trip you up, with what the
-compiler says when they do. [SYNTAX.md](SYNTAX.md) then shows how every
-form is written, and [SPEC.md](SPEC.md) says what each one means.
+Rig's central idea, translates the forms you already know, and lists
+the habits that will trip you up, with what the compiler says when they
+do. The [journeys](docs/learn/README.md) teach the language from the
+first line. [SYNTAX.md](SYNTAX.md) shows how every form is written, and
+[SPEC.md](SPEC.md) says what each one means.
 
 Every `rig` example here is compiled and run by the test suite. A
 program followed by an `output` block prints exactly that, with no
@@ -21,7 +22,7 @@ leaks; a program marked as rejected fails with the errors shown.
 ## Contents
 
 - [The central idea](#the-central-idea)
-- [A quick tour](#a-quick-tour)
+- [A first program](#a-first-program)
 - [Running a program](#running-a-program)
 - [From Rust and Zig](#from-rust-and-zig)
 - [From C, Python, Ruby, JavaScript, and Go](#from-c-python-ruby-javascript-and-go)
@@ -56,129 +57,45 @@ Next to Rust and Zig:
 | `?x` | lend `x` to read | `&x` | `x` or `&x` |
 | `!x` | lend `x` to write | `&mut x` | `&x` |
 | `+x` | clone: a new owner | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
-| `<x` alone on a line | drop now | `drop(x)` | `x.deinit()` |
 | `^x` | move into a box with one owner | `Box::new(x)` | `allocator.create(T)` |
 | `*x` | move into a shared, counted handle | `Rc::new(x)` | a hand-written refcounted box |
-| `~x` | weak handle | `Rc::downgrade(&x)` | a hand-written weak count |
-| `*w` of a weak handle | upgrade: a new handle, or `none` | `w.upgrade()` | a hand-written weak count check |
 | `e!` | propagate failure | `e?` | `try e` |
-| `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 | `f(x)&` | run the call as a task | `tokio::spawn(f(x))` | `std.Thread.spawn(...)` |
 | `>t` | wait for the task and take its result | `t.await` | `t.join()` |
 
-**Names say what a value is; sigils say how you hold it.** Every named
-type is an owner (`List[T]`, `String`, `Cell[T]`, an object of yours), and
-a view is never a name: it is written `?T` or `!T`, or is a slice `[]T`,
-so the read view of text is `?String`. `^T` is a box, a `T` alone on the
-heap, like Rust's `Box<T>`; `*T` is a counted pointer, like Rust's
-`Rc<T>`.
+The [sigils journey](docs/learn/01-sigils.md) teaches them one at a
+time, and [QUICK](docs/QUICK.md) fits them on a page. Four points are
+the ones that surprise readers from other languages:
 
-**Prefix or suffix.** A prefix sigil says how you hold a value (`?x`
-and `!x` lend it, `<x` moves it, `+x` clones it, `^x` boxes it, `*x` and
-`~x` make handles, and `>t` takes what a task gives back), and a suffix `?` or `!` is control flow (`e?` passes `none`
-up, `e!` passes a failure up). Types follow suit: `?T`
-and `!T` are views, `^T` a box, `*T` a shared handle and `~T` a weak one, while
-`T?` is an optional and `T!` a `T` that may fail. Rig has no `!` for
-"not": logical negation is `not`, so `!v.pop()` lends `v` to write,
-and never negates (`if !done` is an error that says to use `not`; see
-[below](#habits-that-trip-people-up)). A move to nowhere is a drop:
-`<x` standing alone as a statement drops `x` now, and `-n` is only ever
-arithmetic negation (`y = -n`):
-
-```rig
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  !v.push(2)
-  done = false
-  while not done
-    print((!v).pop() ?? 0)
-    done = v.len == 0
-```
-
-```output
-2
-1
-```
-
-Suffixes read left to right, and a view covers the whole type after
-it: `S?!` is an `S?` that may fail, `?D?` a view of a `D?`, and
-`(?D)?` an optional view of a `D`.
-
-**`?` and `!`, one idea each.** The two carry one idea each, in four
-positions:
-
-| | before a value | before a type | after a type | after an expression |
-|---|---|---|---|---|
-| `?` "maybe, just look" | `?x` lend to read | `?T` read view | `T?` optional | `e?` pass `none` up |
-| `!` "for real, act" | `!x` lend to write | `!T` write view | `T!` can fail | `e!` pass a failure up |
-
-`!` means "act": write, or fail. As in Ruby's `sort!` and Scheme's
-`set!`, it marks something that changes things. Rig spells negation
-`not`, so `!` never means "not". In every position the sigil touches
-what it marks: `?v`, `Int?`, `peek(?v)?`, `pop(!v)!`. A write call
-whose result is used goes in parentheses, `if (!set).insert(k)`, so
-its `!` never reads as "not"; one whose result is dropped is written
-`!set.insert(k)`.
-
-```rig
-error Stack
-  empty
-
-fun peek(v: ?List[Int]) -> Int?
-  return none if v.len == 0
-  v[v.len - 1]
-
-fun pop(v: !List[Int]) -> Int!
-  return Stack.empty if v.len == 0
-  (!v).pop() ?? 0
-
-fun next(v: ?List[Int]) -> Int?
-  peek(?v)? + 1
-
-fun drain(v: !List[Int]) -> Int!
-  pop(!v)! + pop(!v)!
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  !v.push(2)
-  print(next(?v))
-  print(drain(!v) catch -1)
-  print(next(?v), drain(!v) catch -1)
-```
-
-```output
-3
-3
-none -1
-```
-
-**You lend a view; the compiler remembers the loan.**
-
-- The `?` or `!` is written on the owner (`print(?v)`, `grow(!v)`), so
-  the owner **lends**.
-- What the receiver gets is a **view**: it reads the value, or with
-  `!` changes it. The receiver may return it, or store a read view; a
-  read view also copies, while a write view moves and is never stored
-  inside a value, so only one can change the value.
-- What stays behind is a **loan**: until the last use of every view,
-  the owner can't change, move, or drop what it lent.
-
-Rust calls all three a "borrow". Rig gives each its own word, named from
-the side the sigil is on ([CORE](docs/CORE.md)).
+- **Names say what a value is; sigils say how you hold it.** Every named
+  type is an owner (`List[T]`, `String`, `Cell[T]`, an object of yours),
+  and a view is never a name: it is written `?T` or `!T`, or is a slice
+  `[]T`, so the read view of text is `?String`. `^T` is a box, a `T`
+  alone on the heap, like Rust's `Box<T>`; `*T` is a counted pointer,
+  like Rust's `Rc<T>`.
+- **Prefix or suffix.** A prefix sigil says how you hold a value, and a
+  suffix `?` or `!` is control flow (`e?` passes `none` up, `e!` passes
+  a failure up). Types follow suit: `T?` is an optional and `T!` a `T`
+  that may fail. The by-position table of `?` and `!` is in
+  [the sigils journey](docs/learn/01-sigils.md#-and--one-idea-each).
+- **`!` is never "not".** Logical negation is `not`, so `!v.pop()` lends
+  `v` to write and never negates (`if !done` is an error that says to
+  use `not`; see [below](#habits-that-trip-people-up)). A move to
+  nowhere is a drop: `<x` standing alone as a statement drops `x` now,
+  and `-n` is only ever arithmetic negation.
+- **You lend a view; the compiler remembers the loan.** The owner
+  lends with `?` or `!`, what the callee gets is a view, and what stays
+  behind is a loan. Rust calls all three a "borrow"; Rig gives each its
+  own word, named from the owner's side ([CORE](docs/CORE.md)).
 
 A reader sees every move, clone, write, and failure path on the line
 where it happens; reading is unmarked, and, as in Rust, a value is
 dropped where its scope ends unless `<x` drops it sooner. The compiler
 checks each one: no use after move, no double free, no dangling view,
-no leak. The one leak it does
-not prevent is a cycle of strong handles, as in Rust and Swift; a weak
-handle breaks it.
+no leak. The one leak it does not prevent is a cycle of strong handles,
+as in Rust and Swift; a weak handle breaks it.
 
-## A quick tour
-
-### A first program
+## A first program
 
 ```rig
 fun label(n: Int) -> ?String
@@ -205,134 +122,8 @@ sub main()
 `fun` declares a function that returns a value, and `sub` one that
 returns nothing. The last expression of a `fun` is its value. `1..7`
 counts from 1 up to, not including, 7. `print` takes any number of
-values and separates them with spaces.
-
-### Objects, methods, and lending
-
-**An object is a value; `^` puts it on the heap and `*` shares it.** An `obj` is
-what Rust and Zig call a struct. Unlike a Python, Ruby, or Java object,
-it lives where it is declared and has no identity of its own: `b = a`
-copies a plain object and moves an owning one, never giving one object
-two names ([Core §1](docs/CORE.md#1-four-kinds-of-value)).
-
-```rig
-obj Account
-  owner: ?String
-  balance: Int
-
-  fun can_pay(?@, amount: Int) -> Bool
-    @balance >= amount
-
-  sub pay(!@, amount: Int)
-    @balance -= amount
-
-sub main()
-  a = Account(owner: "ada", balance: 100)
-  if a.can_pay(30)
-    !a.pay(30)
-  print(a.owner, a.balance)
-```
-
-```output
-ada 70
-```
-
-`?@` reads self and `!@` writes it. The call site says
-the same: a read is implicit (`a.can_pay(30)`), but a write is always
-spelled out, `!a.pay(30)`, so every mutation is visible, a change to a
-shared `Cell` included: `!count.set(5)`, which lends the handle `count`
-([SPEC §10](SPEC.md#cell)).
-A read is written when its view is kept: `xs = ?b.all()` and
-`r = head(?v)` keep `b` and `v` lent in a binding, while
-`print(b.all().len)` ends its loan with the statement.
-
-### Moves, clones, and drops
-
-```rig
-obj File
-  name: ?String
-
-  drop(!@)
-    print("closing", @name)
-
-sub archive(f: File)
-  print("archiving", f.name)
-
-sub main()
-  log = File(name: "log.txt")
-  archive(<log)
-  cfg = *File(name: "cfg.toml")
-  cfg2 = +cfg
-  <cfg
-  print("still open:", cfg2.name)
-```
-
-```output
-archiving log.txt
-closing log.txt
-still open: cfg.toml
-closing cfg.toml
-```
-
-`<log` moves the file into `archive`, which owns it and closes it on
-return. `*File(...)` puts a file in a reference-counted box, `+cfg`
-makes a second owner, `<cfg` alone on its line moves the first owner
-nowhere, so it drops now, and the file closes
-when `cfg2`, its last owner, goes out of scope.
-
-### Optionals and errors
-
-```rig
-error ParseError
-  empty
-
-fun parse_len(s: ?String) -> Int!
-  return ParseError.empty if s == ""
-  s.len
-
-fun first_even(xs: ?[4]Int) -> Int?
-  for x in xs
-    return x if x % 2 == 0
-  none
-
-sub main()
-  print(parse_len("four")!, parse_len("") catch -1)
-  print(first_even(?[1, 3, 4, 5]) ?? 0)
-```
-
-```output
-4 -1
-4
-```
-
-`Int!` may fail, and every call says what happens to the failure: `!`
-propagates it, `catch` handles it. `Int?` may be `none`, and `??`
-supplies a fallback. `return x if ...` is a guarded statement, Ruby's
-statement modifier.
-
-### Closures
-
-```rig
-sub main()
-  count: *Cell[Int] = *Cell(0)
-  step = 5
-  tick = |+count, +step| !count.set(count.get() + step)
-  tick()
-  tick()
-  print(count.get())
-```
-
-```output
-10
-```
-
-A closure has no keyword: it starts with its bar list. Each captured
-name carries a sigil that says how it is held: `+step` copies, `<x`
-would move, `?x` and `!x` would lend, and `~x` would hold a handle
-weakly. A bare name is a parameter, as `a` is in `|+step, a| a + step`;
-captures come first, and a parameter may not reuse a local's name, so
-`|step|` here would be rejected. `*Cell[Int]` is a shared cell, the way
-to share state that changes (a `*Signal` also tells its subscribers).
+values and separates them with spaces. Objects, moves, optionals,
+errors, and closures are taught in [docs/learn/](docs/learn/README.md).
 
 ## Running a program
 
@@ -370,7 +161,7 @@ support file.
 | result views one argument | `fn f<'a>(a: &'a T, b: &T) -> &'a T` | (no check) | `fun f(a: ?T, b: ?T) -> ?T from a` |
 | call | `f(a)` | `f(a)` | `f(a)` |
 | object literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
-| method receiver | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?@`, `!@`, `<@` |
+| method self | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?@`, `!@`, `<@` |
 | mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
 | enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)`, or `.circle(2)` for one field |
 | match | `match x { A => .., _ => .. }` | `switch (x) { .a => .., else => .. }` | `match x` / `.a => ..` / `_ => ..` |
@@ -500,7 +291,7 @@ program; [INTERNALS](docs/internals/INTERNALS.md) describes it.
 | counting loop | `for (i = 0; i < n; i++)` | `for i in range(n)` / `n.times` | `for i := 0; i < n; i++` | `for i in 0..n` |
 | index and element | by hand | `for i, x in enumerate(xs)` | `for i, x := range xs` | `for x, i in xs` (element first) |
 | class | `struct` + functions | `class` | `class` / `struct` + methods | `obj` with methods |
-| `this` / `@` | a pointer argument | `@` (implicit in Ruby) | `this` / a receiver | `@`, always written |
+| `this` / `@` | a pointer argument | `@` (implicit in Ruby) | `this` / a method's own parameter | `@`, always written |
 | switch | `switch` | `match` / `case` | `switch` | `match` |
 | a name as a value | an `enum` | a string / `:width` | a string constant | `:width`, a `Symbol` ([SPEC](SPEC.md#symbols)); `f(width: 3)` names an argument |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
@@ -727,8 +518,10 @@ sub main()
 ```
 
 ```error
-method `bump` needs its receiver lent to write
+method `bump` needs `self` lent to write
 ```
+
+[Writing is marked](docs/learn/01-sigils.md#writing-is-marked) teaches the rule.
 
 **Moves without `<`.** A bare name moves an owning value only where its
 scope ends with the move (`return x`, `break x` of a name the loop
@@ -753,6 +546,8 @@ sub main()
 ```error
 `eat` takes ownership of a `Res`, and `r` can't be copied: write `<r` to move it; if `eat` only reads it, make its parameter a `?Res`
 ```
+
+[Giving a value away](docs/learn/01-sigils.md#giving-a-value-away) and the [ownership journey](docs/learn/02-ownership.md) teach the rule.
 
 **Rust's `?` on a failure.** `?` propagates `none`; a failure propagates
 with `!`:
@@ -883,6 +678,11 @@ the compiler rejects as reserved or not supported yet, and the
 
 ## Where to go next
 
+- [docs/learn/](docs/learn/README.md): the journeys, which teach the
+  language from the first line
+- [docs/QUICK.md](docs/QUICK.md): the language on one page
+- [docs/BEYOND-RUST.md](docs/BEYOND-RUST.md): how Rig differs from
+  Rust's model, for readers who know Rust
 - [SYNTAX.md](SYNTAX.md): how every form is written
 - [SPEC.md](SPEC.md): what every form means, and the rules the compiler
   enforces
