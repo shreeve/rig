@@ -10281,7 +10281,9 @@ sub main()
 A local task still takes nothing that no two tasks may hold at once,
 even on one thread: a set of tasks, a task or a write view lent to
 read, or a function lent to read, which may lend what it captures to
-write. A channel's elements go to any task that holds a handle of it,
+write. A closure literal written in the task's call is lent to it, as
+`?f` is, and its captures live only until the statement ends, so it
+too is rejected: bind the work to a function the task calls. A channel's elements go to any task that holds a handle of it,
 so they cross cores even when a local task holds the channel.
 
 ```rig reject
