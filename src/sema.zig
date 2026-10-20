@@ -5560,6 +5560,16 @@ pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
 }
 
+/// A String (boxed or not, or viewed), a `?String`, or a `Static`: `==`
+/// compares any two of them by their bytes, and a `match` on one takes
+/// string patterns. A shared handle `*String` is not text: a handle has
+/// no `==` or `.hash()`.
+pub fn isText(ctx: *const SemContext, ty: TypeId) bool {
+    if (accessThroughShared(ctx, ty)) return false;
+    const t = if (unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
+    return t == ctx.types.string_id or t == ctx.types.string_view_id or t == ctx.types.static_id;
+}
+
 /// Peel `?T` / `!T`.
 pub fn unwrapViews(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;
@@ -8615,7 +8625,7 @@ fn namesTypeOrModule(ctx: *const SemContext, e: Sexp) bool {
 /// A number, string, character, or Bool literal's text.
 fn isLiteralLeafText(text: []const u8) bool {
     if (text.len == 0) return false;
-    if (text[0] == '"' or text[0] == '\'') return true;
+    if (isStringLiteralText(text)) return true;
     if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return true;
     return isIntLiteralText(text) or isFloatLiteralText(text);
 }
@@ -9389,6 +9399,30 @@ pub fn captureList(captures: Sexp) []const Sexp {
     if (captures == .nil) return &.{};
     return ir.Captures.caps(captures);
 }
+
+/// Whether literal text `text` is a string's, double- or single-quoted.
+pub fn isStringLiteralText(text: []const u8) bool {
+    return text.len > 0 and (text[0] == '"' or text[0] == '\'');
+}
+
+/// The bytes a single-quoted string holds, one at a time: its body as
+/// written, each `''` one `'`. The checker and emit both read a
+/// single-quoted string through it.
+pub const SingleQuoted = struct {
+    body: []const u8,
+    i: usize = 0,
+
+    pub fn init(lit: []const u8) SingleQuoted {
+        return .{ .body = lit[1 .. lit.len - 1] };
+    }
+
+    pub fn next(it: *SingleQuoted) ?u8 {
+        if (it.i >= it.body.len) return null;
+        const c = it.body[it.i];
+        it.i += if (c == '\'' and it.i + 1 < it.body.len and it.body[it.i + 1] == '\'') 2 else 1;
+        return c;
+    }
+};
 
 pub fn isIntLiteralText(text: []const u8) bool {
     if (text.len == 0 or text[0] < '0' or text[0] > '9') return false;

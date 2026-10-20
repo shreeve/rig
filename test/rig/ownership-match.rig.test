@@ -2542,3 +2542,20 @@ fail "match as a pattern moves and lends", "11:7: use of `s` after move", "18:9:
   if !u as .one(a: w)
     print(u)
     w.n = 2
+
+fail "match on text takes the String", "6:7: use of `s` after move"
+  # `match <s` takes the text whichever arm runs.
+  s = String("a")
+  match <s
+    "a" => print("a")
+    _ => pass
+  print(s)
+
+test "match on text arm assigns its subject", "b"
+  # A read match on text binds nothing of it in a string arm, so the arm
+  # may write the subject.
+  s = String("a")
+  match s
+    "a" => s = String("b")
+    _ => pass
+  print(s)

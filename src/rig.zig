@@ -2657,7 +2657,7 @@ pub const Parser = struct {
         // Only a function type's result must follow here.
         if (std.mem.eql(u8, expected, "`->`")) return "a function type writes its result after `->`: `fun(Int) -> Int`";
         return switch (tok.cat) {
-            .real, .string_sq, .string_dq, .bytes => if (in_pattern) "a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant" else null,
+            .real, .string_sq, .string_dq, .bytes => if (in_pattern) "a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant" else null,
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",

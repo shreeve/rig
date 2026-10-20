@@ -259,12 +259,12 @@ fail "match large enum", "27:3: duplicate member `op3` in `Op`", "33:6: duplicat
   o: Op = .op22
   print(cost(?o), Op.op3)
 
-fail "match on string", "cannot `match` on a value of type `Static`"
-  # `match` works on enums, integers, and Bool.
+test "match on text with only a catch-all", "a"
+  # A match on text may bind the whole of it in its one arm.
 
   s = "a"
   match s
-    other => print(2)
+    other => print(other)
 
 fail "match range pattern bounds", "empty range `3..3`", "the end of range `0..257` does not fit `U8`; it may be at most 256", "the bounds of a range pattern must be constant integers"
   # A range pattern is half-open: `n..n` matches nothing, its end may be
@@ -764,3 +764,170 @@ fail "match as a pattern in a loop step", "the loop step cannot use `n`, a field
   i = 0
   while f(i) as .a(n) : i += n
     print(n)
+
+test "match on text routes by string", "1 2 0"
+  # A string pattern matches text with the same bytes.
+  fun route(p: ?String) -> Int
+    match p
+      "/"     => 1
+      "/hits" => 2
+      _       => 0
+
+  print(route("/"), route("/hits"), route("/x"))
+
+test "match on text of every kind", '''
+  1 2 3 4 5
+  got a
+  view a
+  took a
+  made q
+  took r
+  static
+  box ok
+  handle 3
+  10
+  write m
+  n
+'''
+  # A String, a view of one, a `Static`, a box, a handle, and a value
+  # a call makes all match strings; `"` and `'` strings compare by the
+  # bytes they hold.
+  fun kind(s: String) -> Int
+    match s
+      "a", 'b' => 1
+      "it's" => 2
+      'say ''hi''' => 3
+      "\u{e9}" => 4
+      other => other.len
+
+  fun mk(t: ?String) -> String
+    String(t)
+
+  fun handle(p: *String) -> Int
+    match p
+      "a" => 1
+      x => x.len
+
+  print(kind(String("b")), kind(String("it's")), kind(String("say 'hi'")), kind(String("\u{e9}")), kind(String("hello")))
+  s = String("a")
+  match s
+    "a" => print("got a")
+    _ => print("not a")
+  match ?s
+    "a" => print("view a")
+    x => print("view", x)
+  match <s
+    "zz" => print("zz")
+    t => print("took", t)
+  match mk("q")
+    "q" => print("made q")
+    _ => pass
+  match <mk("r")
+    "r" => print("took r")
+    o => print(o)
+  x: Static = "lit"
+  match x
+    "lit" => print("static")
+    _ => pass
+  b = ^String("boxed")
+  match b
+    "boxed" => print("box ok")
+    _ => pass
+  print("handle", handle(*String("abc")))
+  n = match "w"
+    "w" if x.len > 1 => 10
+    "w" => 20
+    _ => 30
+  print(n)
+  m = String("m")
+  match !m
+    "m" => print("write m")
+    _ => pass
+  match !m
+    "m" => m = String("n")
+    _ => pass
+  print(m)
+
+test "match on a text field", '''
+  root 2
+  /long 1
+  short 0
+'''
+  obj Req
+    path: String
+    method: Static
+
+  fun pick(r: ?Req) -> ?String
+    match r.path
+      "/" => "root"
+      p if p.len > 3 => p
+      _ => "short"
+
+  fun verb(r: ?Req) -> Int
+    match r.method
+      "GET" => 1
+      "POST", "PUT" => 2
+      _ => 0
+
+  for r in [Req(path: String("/"), method: "PUT"), Req(path: String("/long"), method: "GET"), Req(path: String("/x"), method: "X")]
+    print(pick(r), verb(r))
+
+fail "match on text needs a catch-all", "`match` on text is not exhaustive without `_ =>`: no set of strings covers every text"
+  fun route(p: ?String) -> Int
+    match p
+      "/" => 1
+      "/hits" => 2
+
+  print(route("/"))
+
+fail "match on text with a repeated string", "4:5: duplicate arm for `'/'`: an earlier arm matches the same text", "3:5: first arm here", "5:15: duplicate arm for `\"a\"`"
+  fun route(p: ?String) -> Int
+    match p
+      "/" => 1
+      '/' => 2
+      "a", "b", "a" => 3
+      _ => 0
+
+  print(route("/"))
+
+test "match on text repeats a guarded string", "1 2"
+  # A guarded arm covers nothing, so a later arm may repeat its string.
+  fun f(p: ?String, n: Int) -> Int
+    match p
+      "a" if n > 0 => 1
+      "a" => 2
+      _ => 0
+
+  print(f("a", 1), f("a", 0))
+
+fail "match string on a non-text subject", "`\"/\"` is a string, which matches text: a `String`, a `?String`, or a `Static`; the subject is `Int`"
+  fun f(p: Int) -> Int
+    match p
+      "/" => 1
+      _ => 0
+
+  print(f(1))
+
+fail "match on text with an integer pattern", "type mismatch: expected `?String`, got `Int`"
+  fun f(p: ?String) -> Int
+    match p
+      1 => 1
+      _ => 0
+
+  print(f("a"))
+
+fail "match on text with a bad escape", "invalid escape `\\q` in a string"
+  fun f(p: ?String) -> Int
+    match p
+      "\q" => 1
+      _ => 0
+
+  print(f("a"))
+
+fail "match on text after its catch-all", "this arm never runs: the arms before it cover every value"
+  fun f(p: ?String) -> Int
+    match p
+      _ => 0
+      "a" => 1
+
+  print(f("a"))

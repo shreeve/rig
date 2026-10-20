@@ -492,13 +492,19 @@ fn isString(comptime T: type) bool {
 }
 
 /// The bytes of a `String`, a viewed, boxed, or shared `String`, or a `?String`.
-fn stringBytes(x: anytype) []const u8 {
+pub fn stringBytes(x: anytype) []const u8 {
     const X = @TypeOf(x);
     if (comptime !isString(X)) return x;
     if (comptime @typeInfo(X) == .pointer) return stringBytes(x.*);
     if (comptime @hasDecl(X, "__rig_box")) return stringBytes(x.value.*);
     if (comptime @hasDecl(X, "__rig_shared")) return stringBytes(x.value);
     return x.list.items;
+}
+
+/// Whether text `x` (`stringBytes`) has the bytes of `lit`: a string
+/// pattern's test.
+pub fn textIs(x: anytype, lit: []const u8) bool {
+    return std.mem.eql(u8, stringBytes(x), lit);
 }
 
 fn eqlAs(comptime T: type, a: T, b: T) bool {

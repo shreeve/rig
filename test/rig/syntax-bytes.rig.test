@@ -107,7 +107,7 @@ fail "byte literal with a raw control character", "1:9: control character in a b
 fail "byte string with a raw control character", "1:10: control character in a byte literal"
   print(b"a	")
 
-fail "byte string is not a pattern", "a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant"
+fail "byte string is not a pattern", "a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant"
   fun f(c: U8) -> Int
     match c
       b"A" => 1

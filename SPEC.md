@@ -4632,9 +4632,9 @@ value is not.
 ### match
 
 `match` runs the first arm whose pattern matches, and no other. It works
-on enums, integers, `Bool`, symbols ([Symbols](#symbols)), and error
+on enums, integers, `Bool`, symbols ([Symbols](#symbols)), error
 values (`catch |err|`,
-[§13](#naming-the-error)); [SYNTAX §12](SYNTAX.md#12-patterns) lists
+[§13](#naming-the-error)), and text; [SYNTAX §12](SYNTAX.md#12-patterns) lists
 the patterns. A range pattern's bounds are constants. Every match must
 cover every value, whether its value is used
 or it is a statement: its arms name every variant or value, or a
@@ -4743,6 +4743,45 @@ sub main()
 ```output
 small medium large
 something else: 7
+```
+
+A string pattern, `"/"` or `'/'`, matches text with the same bytes.
+The subject is text: a `String`, a `?String`, a `Static`, or a String a
+box or handle holds. No set of strings covers every text, so a match on
+text needs `_`, or a name that binds the rest as a catch-all binds any
+subject. A string an earlier arm matches is reported, however it is
+written. The arms test their strings in order, each by its bytes.
+
+```rig
+fun route(path: ?String) -> ?String
+  match path
+    "/" => "home"
+    "/hits", "/stats" => "counter"
+    p if p.len > 12 => "too long"
+    _ => "not found"
+
+sub main()
+  print(route("/"), route("/stats"), route("/nope"))
+  print(route("/a/long/path/here"))
+```
+
+```output
+home counter not found
+too long
+```
+
+```rig reject
+fun route(path: ?String) -> Int
+  match path
+    "/" => 1
+    "/hits" => 2
+
+sub main()
+  print(route("/"))
+```
+
+```error
+`match` on text is not exhaustive without `_ =>`
 ```
 
 One arm that falls to `else` is written with `as`:
@@ -10510,7 +10549,7 @@ not parse, and their words and sigils stay reserved:
 | `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
 | `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
 | `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
-| string, byte string, and float match patterns | `` a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant `` |
+| byte string and float match patterns | `` a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):

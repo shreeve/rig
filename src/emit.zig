@@ -3171,8 +3171,8 @@ pub const Emitter = struct {
     }
 
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
-    /// yields a value. A match with a guarded arm picks its arm first
-    /// (`emitGuardedMatch`).
+    /// yields a value. A match with a guarded arm, or on text, picks its
+    /// arm first (`emitGuardedMatch`).
     /// `hook`, when not `null`, writes each arm's block in place of its
     /// body, by `hook.arm(emitter, index, prelude)`: the arms of the
     /// `match` an `as` with a pattern is (`emitChain`).
@@ -3194,7 +3194,7 @@ pub const Emitter = struct {
         // a copy, which the checker records (`copiesHeader`).
         const held_view = try self.need(self.facts.holdsView(sexp), sexp);
         if (info.mode != .consume and !held_view) _ = try self.copiesSubject(sexp, info.subject);
-        const guarded = facts.syntax.matchGuarded(sexp);
+        const guarded = self.facts.matchSelects(sexp);
         // A `match !x` binding of the whole value points at the place, and
         // a `match <x` arm with alternatives drops the value from it: the
         // subject is read again.
@@ -3536,6 +3536,11 @@ pub const Emitter = struct {
         const local = self.usedPayloadLocal(pattern, used_in) orelse return &.{};
         const t = local.ty orelse return self.unsupported(pattern, "a catch-all binding of unknown type");
         if (info.mode == .write) return self.wholeAlias(pattern, try self.fmt("&{s}", .{subj}), used_in);
+        // A `?String` views the bytes of the text matched.
+        if (t == self.facts.types.string_view_id) {
+            const stored = try self.declare(payloadPointee(local, false), self.srcText(pattern));
+            return self.arena.allocator().dupe(Alias, &.{.{ .zig_name = stored.zig_name, .payload = try self.fmt("rig.stringBytes({s})", .{subj}), .field = "" }});
+        }
         const by_addr = try self.need(self.facts.catchAllCaptured(pattern), pattern);
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(pattern));
         const expr = if (by_addr) try self.fmt("&{s}", .{subj}) else subj;
@@ -3552,9 +3557,10 @@ pub const Emitter = struct {
         return self.ownedParts(captures, parts, used_in);
     }
 
-    /// A match with a guarded arm. A Zig `switch` has no guards, so the
-    /// arm is picked first, trying each in order (a guard sees the
-    /// bindings it names), and a `switch` on its index runs it:
+    /// A match with a guarded arm, or on text (`storage.matchSelects`). A
+    /// Zig `switch` has no guards and no strings, so the arm is picked
+    /// first, trying each in order (a guard sees the bindings it names),
+    /// and a `switch` on its index runs it:
     ///     { const arm = sel: { if (s == .a) { const r = s.a.r; if (r > 0) break :sel 0; } ... break :sel N; };
     ///       switch (arm) { 0 => { const r = s.a.r; body }, ..., else => unreachable } }
     /// The subject is read in place, or from a copy when it is not a
@@ -3638,6 +3644,12 @@ pub const Emitter = struct {
         if (pattern.isKind(.range_pattern)) {
             const b = try self.rangeBounds(pattern);
             return self.w.print("({s} >= {d} and {s} <= {d})", .{ subj, b[0], subj, b[1] });
+        }
+        // A string compares with the subject's bytes.
+        if (pattern == .src and facts.syntax.isStringLiteralText(self.srcText(pattern))) {
+            try self.w.print("rig.textIs({s}, ", .{subj});
+            try self.emitExpr(pattern);
+            return self.w.writeAll(")");
         }
         try self.w.print("{s} == ", .{subj});
         try self.writePatternHead(pattern, info);
@@ -8734,22 +8746,14 @@ fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
     }
 }
 
-/// A Rig single-quoted string as a Zig string literal.
+/// A Rig single-quoted string as a Zig string literal, of the bytes
+/// `facts.syntax.SingleQuoted` reads.
 fn writeSingleQuoted(w: *Writer, lit: []const u8) Error!void {
     try w.writeAll("\"");
-    const inner = lit[1 .. lit.len - 1];
-    var i: usize = 0;
-    while (i < inner.len) : (i += 1) {
-        const c = inner[i];
-        if (c == '\'' and i + 1 < inner.len and inner[i + 1] == '\'') {
-            try w.writeAll("'");
-            i += 1;
-        } else if (c == '"' or c == '\\') {
-            try w.writeByte('\\');
-            try w.writeByte(c);
-        } else {
-            try w.writeByte(c);
-        }
+    var it = facts.syntax.SingleQuoted.init(lit);
+    while (it.next()) |c| {
+        if (c == '"' or c == '\\') try w.writeByte('\\');
+        try w.writeByte(c);
     }
     try w.writeAll("\"");
 }
