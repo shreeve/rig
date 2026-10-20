@@ -264,3 +264,68 @@ fail "closure uses uncaptured local", "`m` is a local of the enclosing function;
   f = |+n|
     print(n + m)
   f()
+
+test "closure after keyword arguments", '''
+  run 1
+  run 2
+  block 1
+  block 2
+  hi
+  hi
+  hi
+  [10, 20, 30]
+  f
+  g
+  k 11
+'''
+  # A closure written last may follow the keyword arguments: it fills
+  # the parameter that takes a function, the last open one when several
+  # are, and the arguments are evaluated in the order written.
+  sub run(a: Int, n: Int, f: ?sub(Int))
+    for i in 0..n
+      f(a + i)
+
+  sub twice(f: ?sub(), times: Int = 2)
+    for 0..times
+      f()
+
+  fun scaled[T, U](xs: []T, by: Int = 1, f: ?fun(?T) -> U) -> List[U]
+    out: List[U] = List()
+    for x in xs
+      !out.push(f(?x))
+    out
+
+  sub both(f: ?sub(), g: ?sub(), n: Int = 1)
+    f()
+    g()
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    1
+
+  run(1, n: 2, |x| print("run", x))
+  run(1, n: 2, |x|
+    print("block", x)
+  )
+  twice(times: 3, || print("hi"))
+  xs = List([1, 2, 3])
+  k = 10
+  print(scaled(?xs, by: 2, |+k, x| x * k))
+  both(|| print("f"), n: 2, || print("g"))
+  run(0, n: bump(!k), |+k, x| print("k", k))
+
+fail "closure after keyword arguments misuse", "13:14: positional arguments must come before keyword arguments; only a closure written last may follow them", "14:17: a closure written after the keyword arguments fills the parameter that takes a function, and `run` has none left open", errors: 2
+  sub run(a: Int, n: Int, f: ?sub(Int))
+    for i in 0..n
+      f(a + i)
+
+  sub show(x: Int)
+    print(x)
+
+  # Only a closure written last follows the keyword arguments, and only
+  # where a parameter that takes a function is open.
+  #
+  #
+  #
+  run(1, n: 2, show)
+  run(1, f: show, |x| print(x))

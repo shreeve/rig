@@ -1324,6 +1324,32 @@ positional arguments must come before keyword arguments
 parameter `n` of `scaled` is given twice
 ```
 
+A closure written as a call's last argument may follow the keyword
+arguments. It fills the parameter whose type is a function (`?fun`,
+`?sub`, `fun`, or `sub`) that no other argument fills, the last of them
+when several are open, so a closure, inline or a block below its bar
+list, comes last and the call's options come before it. Arguments are
+still evaluated in the order written.
+
+```rig
+sub repeat(times: Int = 1, f: ?sub(Int))
+  for i in 0..times
+    f(i)
+
+sub main()
+  repeat(times: 2, |i| print("inline", i))
+  repeat(times: 2, |i|
+    print("block", i)
+  )
+```
+
+```output
+inline 0
+inline 1
+block 0
+block 1
+```
+
 A function name is a value of its function type, so it can be passed
 where a `fun(...)` or `sub(...)` is expected ([§11](#function-types)).
 
@@ -10072,9 +10098,10 @@ array, or a slice, on several tasks at once:
   `xs`; `f` takes each element as `?T`.
 - `par.each(!xs, f)` gives nothing; `f` takes each element as `!T`, and
   may write it.
-- `limit: n`, after `f`, is how many tasks run at once, by default one
-  per worker. With one, or with few elements, the calls run in turn on
-  the calling task.
+- `limit: n` is how many tasks run at once, by default one per worker:
+  after `f`, or before a closure written last ([§3](#functions)),
+  `par.each(!xs, limit: 4, |x| ...)`. With one, or with few elements,
+  the calls run in turn on the calling task.
 - The tasks take chunks of the elements in turn, about eight for each
   task, so one that finishes early takes more.
 - When `f` can fail, so can the call: the first failure stops the tasks

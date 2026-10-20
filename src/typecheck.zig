@@ -9051,14 +9051,17 @@ const Checker = struct {
         for (args, 0..) |a, i| {
             if (a.isKind(.kwarg)) {
                 if (first_kw == null) first_kw = i;
-            } else if (first_kw != null) {
-                try self.errAt(a, "positional arguments must come before keyword arguments", .{});
+            } else if (first_kw != null and !trailingClosure(args, i)) {
+                try self.errAt(a, "positional arguments must come before keyword arguments; only a closure written last may follow them", .{});
                 try self.synthArgs(args);
                 return;
             }
         }
         const positional = args[0 .. first_kw orelse args.len];
-        const keyword = args[positional.len..];
+        // A closure written last, after the keyword arguments, is the
+        // next positional argument.
+        const trailing: ?Sexp = if (first_kw != null and !args[args.len - 1].isKind(.kwarg)) args[args.len - 1] else null;
+        const keyword = args[positional.len .. args.len - @intFromBool(trailing != null)];
         if (keyword.len > 0 and info.names == null) {
             try self.errAt(keyword[0], "`{s}` takes positional arguments only", .{callee});
             try self.synthArgs(args);
@@ -9082,6 +9085,15 @@ const Checker = struct {
         for (positional, 0..) |a, i| {
             slots[i] = .{ .arg = @intCast(i) };
             try self.checkArg(a, f, i, lends);
+        }
+        if (trailing) |a| {
+            const idx = self.trailingParam(args, f.params, info.names) orelse {
+                try self.errAt(a, "a closure written after the keyword arguments fills the parameter that takes a function, and `{s}` has none left open", .{callee});
+                try self.synthArgs(args);
+                return;
+            };
+            slots[idx] = .{ .arg = @intCast(args.len - 1) };
+            try self.checkArg(a, f, idx, lends);
         }
         for (keyword, positional.len..) |kw, ai| {
             const kname_node = ir.Kwarg.name(kw);
@@ -9175,9 +9187,13 @@ const Checker = struct {
         const a = self.ctx.arena.allocator();
         const values = try a.alloc(Sexp, args.len);
         const types = try a.alloc(TypeId, args.len);
-        for (args, values, types, 0..) |arg, *v, *ty, i| {
+        // A closure written last, after the keyword arguments, fills the
+        // parameter that takes a function (`trailingParam`).
+        const trailing: ?usize = if (hasTrailingClosure(args)) self.trailingParam(args, f.params, info.names) else null;
+        for (args, values, types, 0..) |arg, *v, *ty, at| {
             v.* = .nil;
             ty.* = sema.type_invalid;
+            const i = if (trailing != null and at == args.len - 1) trailing.? else at;
             if (arg.isKind(.kwarg)) {
                 const names = info.names orelse continue;
                 const k = for (names, 0..) |n, j| {
@@ -9192,6 +9208,43 @@ const Checker = struct {
             }
         }
         return self.plainSlotLends(values, types);
+    }
+
+    /// Whether `args[i]` is a closure written as the call's last
+    /// argument, which may follow its keyword arguments
+    /// (`trailingParam`).
+    fn trailingClosure(args: []const Sexp, i: usize) bool {
+        return i == args.len - 1 and args[i].isKind(.lambda);
+    }
+
+    /// Whether the call's last argument is a closure written after its
+    /// keyword arguments.
+    fn hasTrailingClosure(args: []const Sexp) bool {
+        if (args.len < 2 or !trailingClosure(args, args.len - 1)) return false;
+        for (args[0 .. args.len - 1]) |a| if (a.isKind(.kwarg)) return true;
+        return false;
+    }
+
+    /// The parameter a closure written last, after the keyword
+    /// arguments, fills: the parameter that takes a function and no
+    /// other argument fills, the last of them when several do. Null
+    /// when none is open.
+    fn trailingParam(self: *Checker, args: []const Sexp, params: []const TypeId, names: ?[]const []const u8) ?usize {
+        var positional: usize = 0;
+        for (args[0 .. args.len - 1]) |a| {
+            if (!a.isKind(.kwarg)) positional += 1;
+        }
+        var i = params.len;
+        while (i > positional) {
+            i -= 1;
+            const named = if (names) |ns| for (args[0 .. args.len - 1]) |a| {
+                if (a.isKind(.kwarg) and i < ns.len and std.mem.eql(u8, ns[i], self.text(ir.Kwarg.name(a)))) break true;
+            } else false else false;
+            if (named) continue;
+            const ty = params[i];
+            if (sema.callableFnTy(self.ctx, ty) != null or self.ctx.types.get(ty) == .function) return i;
+        }
+        return null;
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool) Error!void {
@@ -9512,6 +9565,13 @@ const Checker = struct {
                         }
                         break :blk null;
                     },
+                };
+            } else if (number == args.len and hasTrailingClosure(args)) {
+                // A closure written after the keyword arguments fills the
+                // parameter that takes a function (`trailingParam`).
+                pattern = switch (from) {
+                    .fields, .payload => null,
+                    .params => |p| if (self.trailingParam(args, p.params, p.names)) |i| p.params[i] else null,
                 };
             } else {
                 // A struct's or variant's one field may be given
@@ -11084,9 +11144,11 @@ const Checker = struct {
             if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), "limit")) return try self.badCall(args, a, "`{s}` takes the elements, a function, and at most `limit:`, how many tasks run at once: `{s}`", .{ shown, example });
         }
         if (positional != 2 or args.len > 3) return try self.badCall(args, pos, "`{s}` takes the elements and a function, `{s}`, and `limit:`, how many tasks run at once", .{ shown, example });
+        // The function comes second, or last, after `limit:`, when it is a
+        // closure written there (`trailingParam`).
         const xs = args[0];
-        const f = args[1];
-        if (xs.isKind(.kwarg) or f.isKind(.kwarg)) return try self.badCall(args, if (xs.isKind(.kwarg)) xs else f, "positional arguments must come before keyword arguments: `{s}` takes `limit:` after the function, `{s}(..., f, limit: n)`", .{ shown, shown });
+        const f = if (hasTrailingClosure(args)) args[args.len - 1] else args[1];
+        if (xs.isKind(.kwarg) or f.isKind(.kwarg)) return try self.badCall(args, if (xs.isKind(.kwarg)) xs else f, "positional arguments must come before keyword arguments: `{s}` takes the elements, then the function, `{s}(?xs, f, limit: n)`, or `limit:` before a closure written last, `{s}(?xs, limit: n, |x| ...)`", .{ shown, shown, shown });
         const xs_ty = try self.argType(xs);
         if (self.isPoison(xs_ty)) return try self.skipCall(args);
         const elem = (if (kind == .each) sema.writeSliceElem(self.ctx, xs_ty) else null) orelse sema.lentElem(self.ctx, xs_ty) orelse switch (self.ctx.types.get(xs_ty)) {

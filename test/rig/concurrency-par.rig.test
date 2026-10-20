@@ -182,8 +182,19 @@ fail "par each writes", "`par.each` lends each element to write: lend the elemen
   xs = List([1, 2, 3])
   par.each(?xs, |x| x += 1)
 
-fail "par limit last", "positional arguments must come before keyword arguments: `par.map` takes `limit:` after the function, `par.map(..., f, limit: n)`", errors: 1
+test "par limit before closure", '''
+  [10, 20, 30]
+  [11, 21, 31]
+  [22, 42, 62]
+'''
+  # `limit:` comes before a closure written last.
   use std.par
 
   xs = List([1, 2, 3])
-  ys = par.map(?xs, limit: 2, |x| x)
+  par.each(!xs, limit: 3, |x| x *= 10)
+  print(xs)
+  par.each(!xs, limit: 3, |x|
+    x += 1
+  )
+  print(xs)
+  print(par.map(?xs, limit: 2, |x| x * 2))
