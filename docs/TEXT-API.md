@@ -56,6 +56,7 @@ A char is a grapheme: what a reader sees as one character.
 | `first_chars(s, n) -> ?String`, `last_chars(s, n) -> ?String` | built |
 | `char_boundary(s, i) -> Int` | built |
 | `width(s) -> Int`, `char_width(c) -> Int`: screen columns | built |
+| `CharBreak.new(tailored = false)`, `!b.next(r) -> Bool`: chars a rune at a time | built |
 
 ## ascii: one byte
 

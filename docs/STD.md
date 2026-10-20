@@ -1230,6 +1230,7 @@ functions return.
 | `first_chars(s: ?String, n: Int) -> ?String`, `last_chars(s: ?String, n: Int) -> ?String` | the first, or last, `n` chars of `s`, or all of `s` if it has fewer; panics when `n` is negative |
 | `char_boundary(s: ?String, i: Int) -> Int` | the char boundary at or before byte `i`: `i` where a char starts and at `s.len`, else the start of the char `i` is inside; panics unless `0 <= i <= s.len` |
 | `char_width(c: ?String) -> Int` | the terminal columns the first char of `c` takes, 0, 1, or 2 ([below](#chars)); 0 for `""` |
+| `CharBreak.new(tailored: Bool = false) -> CharBreak` | where chars start in text that comes a rune at a time: `!b.next(r) -> Bool` is whether a char starts at rune `r`, then reads it; `!b.reset()`. With `tailored`, Ghostty's rules ([below](#chars)) |
 | `width(s: ?String) -> Int` | the terminal columns `s` takes: `char_width` summed over its chars |
 | `parse_int(s: ?String, base: Int = 10) -> Int!` | `s` as an `Int` in base `base`, 2 to 36: an optional sign, `+` or `-`, then digits (letters `a` to `z`, in either case, are 10 to 35), and nothing else: no `0x`, no `_`; panics for another base |
 | `format_int(n: Int, base: Int = 10, upper: Bool = false) -> String` | `n` in base `base`, 2 to 36: a `-` if negative, then the digits, lower case unless `upper`; an owned `String`; panics for another base |
@@ -1448,6 +1449,35 @@ sub main()
 ```output
 1 1 2 2
 5 6 3 0
+```
+
+`CharBreak` finds the same chars a rune at a time, for text that comes
+in pieces, as a terminal reads it. With `tailored` its rules are
+Ghostty's, which tailor UAX #29 two ways: as UTS #51 has emoji modifier
+sequences, a skin tone joins only an emoji modifier base just before it;
+and a rune of class Control other than CR and LF (DEL, the soft hyphen,
+the zero-width space) joins as any rune does, since a terminal acts on
+the controls before they reach a char.
+
+```rig
+use std.text
+use std.utf8
+
+fun starts(tailored: Bool, s: ?String) -> Int
+  b = text.CharBreak.new(tailored)
+  n = 0
+  for r in utf8.runes(s)
+    n += 1 if (!b).next(r) else 0
+  n
+
+sub main()
+  print(starts(false, "a\u{1f3fd}"), starts(true, "a\u{1f3fd}"))
+  print(starts(false, "\u{1f44d}\u{1f3fd}"), starts(true, "\u{1f44d}\u{1f3fd}"))
+```
+
+```output
+1 2
+1 1
 ```
 
 ## std.utf8
@@ -1768,8 +1798,14 @@ and each ill-formed subpart shows as one U+FFFD; in a sequence a byte from
 read to their end and ignored. A rune takes the columns `unicode.width`
 gives it: a wide one takes a cell and a spacer after it, wraps whole
 (leaving a spacer at the end of the row it leaves), and is emptied whole
-when a write or an edit cuts it; a rune of width 0 changes nothing yet
-(Ghostty adds it to the cell before, as part of its char).
+when a write or an edit cuts it. A cell holds a whole char: a rune of
+width 0 joins the char before it, as Ghostty adds it (a variation
+selector only after an emoji), and the char's runes move, scroll, and
+erase with its cell. In mode 2027 runes join as Ghostty clusters them (a
+tailored `text.CharBreak`): an emoji ZWJ sequence, a flag, or a Hangul
+syllable is one char, and a char's width is its runes' together, so
+VS16 or a spacing mark makes it wide and VS15 narrow; a wide char at the
+last column wraps whole.
 
 | Member | Result |
 |---|---|

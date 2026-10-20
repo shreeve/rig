@@ -2978,7 +2978,7 @@ test "each regional indicator is wide alone", '''
   print(t.dump())
 
 test "zero-width runes change nothing", '''
-  |eabc
+  |éa​bc
   |
   cursor 0 4
 '''
@@ -2996,7 +2996,7 @@ test "a combining mark at the first column", '''
   print(t.dump())
 
 test "a zero-width rune keeps a pending wrap", '''
-  |abc
+  |abć
   |d
   cursor 1 1
 '''
@@ -3312,4 +3312,271 @@ test "the alternate screen has its own row flags", '''
 '''
   t = terminal.Terminal.new(5, 3)
   !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[?1047h\x1b[?1047l\x1b[1;1H\x1b[X")
+  print(t.dump())
+
+test "a combining mark joins the char before", '''
+  |éäb
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("e\xcc\x81a\xcc\x88b")
+  print(t.dump())
+
+test "marks join a wide char", '''
+  |中́̂x
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xe4\xb8\xad\xcc\x81\xcc\x82x")
+  print(t.dump())
+
+test "a mark at the first column is dropped", '''
+  |a
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xcc\x81a\x0d\xcc\x82")
+  print(t.dump())
+
+test "a mark joins the last char while a wrap is pending", '''
+  |abć
+  |d
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(3, 2)
+  !t.feed("abc\xcc\x81d")
+  print(t.dump())
+
+test "a mark after an empty cell is dropped", '''
+  |a b
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b[3G\xcc\x81b")
+  print(t.dump())
+
+test "VS16 joins an emoji only, outside mode 2027", '''
+  |❤️a👍
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xe2\x9d\xa4\xef\xb8\x8fa\xef\xb8\x8f\xf0\x9f\x91\x8d\xef\xb8\x8f")
+  print(t.dump())
+
+test "ZWJ joins, and the emoji after it is a char of its own", '''
+  |👨‍👩x
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9x")
+  print(t.dump())
+
+test "a char's runes go when its cell is written", '''
+  |e
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("e\xcc\x81\x0de")
+  print(t.dump())
+
+test "ICH and DCH move a char's runes with it", '''
+  | aéb
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("ae\xcc\x81b\x1b[1;1H\x1b[2@\x1b[1;1H\x1b[P")
+  print(t.dump())
+
+test "ECH and EL drop a char's runes", '''
+  | ê
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("e\xcc\x81e\xcc\x82e\xcc\x83\x1b[1;1H\x1b[X\x1b[1;3H\x1b[K")
+  print(t.dump())
+
+test "a char's runes scroll with its row", '''
+  |
+  |
+  cursor 1 0
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("e\xcc\x81\x0d\x0a\x0d\x0a")
+  print(t.dump())
+
+test "a char's runes stay on their screen", '''
+  |é
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("e\xcc\x81\x1b[?1049ha\xcc\x82\x1b[?1049l")
+  print(t.dump())
+
+test "mode 2027 joins an emoji ZWJ sequence", '''
+  |👨‍👩‍👧x
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x91\xa7x")
+  print(t.dump())
+
+test "mode 2027 joins a flag", '''
+  |🇺🇸🇦x
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xf0\x9f\x87\xba\xf0\x9f\x87\xb8\xf0\x9f\x87\xa6x")
+  print(t.dump())
+
+test "mode 2027: VS16 makes a char wide", '''
+  |❤️x
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xe2\x9d\xa4\xef\xb8\x8fx")
+  print(t.dump())
+
+test "mode 2027: VS15 makes a wide char narrow", '''
+  |⌚︎x
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xe2\x8c\x9a\xef\xb8\x8ex")
+  print(t.dump())
+
+test "mode 2027: a variation selector after a letter is dropped", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027ha\xef\xb8\x8fb")
+  print(t.dump())
+
+test "mode 2027: a skin tone joins a modifier base only", '''
+  |👍🏽a🏽
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xf0\x9f\x91\x8d\xf0\x9f\x8f\xbda\xf0\x9f\x8f\xbd")
+  print(t.dump())
+
+test "mode 2027: a spacing mark makes a char wide", '''
+  |किक्ष
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xe0\xa4\x95\xe0\xa4\xbf\xe0\xa4\x95\xe0\xa5\x8d\xe0\xa4\xb7")
+  print(t.dump())
+
+test "mode 2027: Hangul jamo join into one wide char", '''
+  |각x
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xe1\x84\x80\xe1\x85\xa1\xe1\x86\xa8x")
+  print(t.dump())
+
+test "mode 2027: a char made wide at the last column wraps", '''
+  |abc
+  |❤️x
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("\x1b[?2027habc\xe2\x9d\xa4\xef\xb8\x8fx")
+  print(t.dump())
+
+test "mode 2027: a char with runes made wide at the last column wraps with them", '''
+  |abc
+  |❤́िx
+  |
+  ~0 0-3 bg=1
+  ~1 0-2 bg=2
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("\x1b[?2027h\x1b[41mabc\xe2\x9d\xa4\xcc\x81\x1b[42m\xe0\xa4\xbfx")
+  print(t.dump())
+
+test "mode 2027: with autowrap off a char at the last column stays narrow", '''
+  |abcx
+  |
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("\x1b[?2027h\x1b[?7labc\xe2\x9d\xa4\xef\xb8\x8fx")
+  print(t.dump())
+
+test "mode 2027: a zero-width rune that starts a char is dropped", '''
+  |a
+  |b
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027ha\x0d\x0a\xe2\x80\x8b\xcc\x81b")
+  print(t.dump())
+
+test "mode 2027 set later reads runes already joined", '''
+  |❤́x
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xe2\x9d\xa4\xcc\x81\x1b[?2027h\xef\xb8\x8fx")
+  print(t.dump())
+
+test "mode 2027: DEL and the soft hyphen join marks as other runes", '''
+  |́­̎x
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\x7f\xcc\x81\xc2\xad\xcc\x8ex")
+  print(t.dump())
+
+test "mode 2027: a prepend joins a bidi mark", '''
+  |؀‎x
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\xd8\x80\xe2\x80\x8ex")
+  print(t.dump())
+
+test "mode 2027 joins after a zero-width space attached before it", '''
+  |«​‍x
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xc2\xab\xe2\x80\x8b\x1b[?2027h\xe2\x80\x8dx")
+  print(t.dump())
+
+test "DECRQM reports mode 2027", '''
+  |
+  |
+  reply \e[?2027;1$y\e[?2027;2$y
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[?2027h\x1b[?2027$p\x1b[?2027l\x1b[?2027$p")
   print(t.dump())

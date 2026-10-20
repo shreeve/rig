@@ -288,6 +288,7 @@ What a reader sees, by the rules of Unicode's text segmentation (UAX
 | `text.char_boundary(s, i) -> Int` | the char boundary at or before byte `i` |
 | `text.char_width(c) -> Int` | the terminal columns one char `c` takes, 0, 1, or 2, as Ghostty counts them: its first rune's `unicode.width` (by East Asian Width, UAX #11; 0 for a combining mark or a zero-width rune), 2 when a later rune takes a column of its own, and 2 or 1 after an emoji or text variation selector |
 | `text.width(s) -> Int` | the terminal columns `s` takes: `char_width` summed over its chars |
+| `text.CharBreak.new(tailored = false)` | where chars start in text that comes a rune at a time (`!b.next(r) -> Bool`); `tailored`, Ghostty's rules, which join a skin tone only to an emoji modifier base and treat DEL and the soft hyphen as any rune |
 
 ```rig
 use std.text

@@ -15,7 +15,8 @@
 //! each a line `case COLS ROWS LEN`, then LEN bytes, then a newline.
 //! Output: each case's dump, then a line `end`. A dump is a line per row,
 //! `|` and the row's text with its trailing blanks dropped (an empty cell
-//! is a space, and the second cell of a wide character is left out); then
+//! is a space, a cell shows its whole char, its grapheme's runes after
+//! its own, and the second cell of a wide character is left out); then
 //! a line `~Y FIRST-LAST ATTRS` for each run of cells in row Y with the same
 //! style other than the default, in order; a line `reply BYTES` when the
 //! terminal answered (each byte below 0x20 or above 0x7E written `\xNN`,
@@ -147,6 +148,12 @@ fn dumpScreen(gpa: std.mem.Allocator, out: *std.Io.Writer, t: *vt.Terminal, cols
             var enc: [4]u8 = undefined;
             const n = try std.unicode.utf8Encode(if (cp == 0) ' ' else cp, &enc);
             try line.appendSlice(gpa, enc[0..n]);
+            if (got.cell.hasGrapheme()) {
+                for (got.node.page().lookupGrapheme(got.cell) orelse &.{}) |g| {
+                    const m = try std.unicode.utf8Encode(g, &enc);
+                    try line.appendSlice(gpa, enc[0..m]);
+                }
+            }
         }
         const text = std.mem.trimEnd(u8, line.items, " ");
         try out.print("|{s}\n", .{text});

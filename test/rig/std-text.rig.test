@@ -205,6 +205,43 @@ test "text chars", release: true, '''
     n += c.len
   print(n == owned.len, text.char_count(owned))
 
+test "text char break", '''
+  |x |x |xx |xxx |xx |xxx |xxx |xx|x |x|x |x|xx
+  |x |x |xx |xx|x |x|x |xxx |xxx |xx|x |xx |x|xx
+  true
+'''
+  # CharBreak finds where chars start a rune at a time. Plain, its breaks
+  # are those of `chars`; tailored, Ghostty's: a skin tone joins only an
+  # emoji modifier base, and DEL or the soft hyphen joins as any rune.
+  use std.utf8
+
+  fun splits(tailored: Bool, s: ?String) -> String
+    b = text.CharBreak.new(tailored)
+    out = String()
+    for r in utf8.runes(s)
+      !out.add("|" if (!b).next(r) else "")
+      !out.add("x")
+    out
+
+  sub main()
+    texts = ["a", "\u{e9}", "e\u{301}", "\u{1f44d}\u{1f3fd}\u{1f3fd}", "a\u{1f3fd}", "\u{1f468}\u{200d}\u{1f469}", "\u{915}\u{94d}\u{915}", "\u{1f1fa}\u{1f1f8}\u{1f1e6}", "\u{7f}\u{301}", "a\r\n"]
+    plain = String()
+    tailored = String()
+    agree = true
+    for s in texts
+      !plain.add(" ") if plain.len > 0
+      !tailored.add(" ") if tailored.len > 0
+      !plain.add(splits(false, s))
+      !tailored.add(splits(true, s))
+      b = text.CharBreak.new()
+      n = 0
+      for r in utf8.runes(s)
+        n += 1 if (!b).next(r) else 0
+      agree = agree and n == text.char_count(s)
+    print(plain)
+    print(tailored)
+    print(agree)
+
 test "text class end", release: true, '''
   3 7 7
   2 2 0

@@ -108,6 +108,48 @@ fn widthOf(s: []const u8, i: usize, end: usize) i64 {
     return w;
 }
 
+// ---- Tailored chars -----------------------------------------------------------
+
+// Ghostty's chars (uucode's grapheme breaks, without controls) tailor
+// UAX #29 two ways. As UTS #51 has emoji modifier sequences, an emoji
+// modifier (a skin tone) joins only an emoji modifier base just before
+// it, and is no Extend otherwise, so it starts a char of its own after
+// anything else; the classes `emoji_modifier` and `emoji_base` carry
+// that, which the table never gives and only `classOf` with `tailored`
+// refines into. And a rune of class `control` (DEL, the soft hyphen, the
+// zero-width space, the bidi marks) is of class `other`: a terminal acts
+// on the C0 and C1 controls, so the rest join chars as other runes do.
+
+/// The class of rune `r`, a code point; with `tailored`, Ghostty's.
+fn classOf(r: u21, tailored: bool) Class {
+    const c = tables.of(r);
+    if (!tailored) return c;
+    return switch (c) {
+        .extend, .incb_extend => if (tables.isEmojiModifier(r)) .emoji_modifier else c,
+        .pict => if (tables.isEmojiBase(r)) .emoji_base else c,
+        .control => .other,
+        else => c,
+    };
+}
+
+/// One step of a char break read a rune at a time (`text.CharBreak`):
+/// from `state`, the state after the runes so far (negative before the
+/// first), the state after rune `r`, with bit 7 set when a char starts at
+/// `r`. A value that is not a rune reads as U+FFFD.
+pub fn char_step(state: i64, r: i64, tailored: bool) i64 {
+    const cp: u21 = if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
+    const c = classOf(cp, tailored);
+    if (state < 0) return dfa.start[@intFromEnum(c)] | Dfa.split;
+    return step(@truncate(@as(u64, @bitCast(state))), c);
+}
+
+/// The class of rune `r` as `char_step` with `tailored` reads it, by its
+/// number in `Class`.
+pub fn char_class(r: i64, tailored: bool) i64 {
+    const cp: u21 = if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
+    return @intFromEnum(classOf(cp, tailored));
+}
+
 // ---- Runes -----------------------------------------------------------------
 
 const Rune = struct { cp: u21, len: u3 };
@@ -187,19 +229,24 @@ fn runeStartAtOrBefore(s: []const u8, i: usize) usize {
 const Pair = enum(u8) { split, join, conjunct, emoji, flag };
 
 fn rule(p: Class, c: Class) Pair {
-    const pi = @intFromEnum(p);
     const ci = @intFromEnum(c);
     if (p == .cr and c == .lf) return .join; // GB3
-    if (pi >= @intFromEnum(Class.control) or ci >= @intFromEnum(Class.control)) return .split; // GB4, GB5
+    if (isControl(p) or isControl(c)) return .split; // GB4, GB5
     if (p == .l and (c == .l or c == .v or c == .lv or c == .lvt)) return .join; // GB6
     if ((p == .lv or p == .v) and (c == .v or c == .t)) return .join; // GB7
     if ((p == .lvt or p == .t) and c == .t) return .join; // GB8
     if (ci >= @intFromEnum(Class.extend) and ci <= @intFromEnum(Class.zwj)) return .join; // GB9
     if (c == .spacing_mark or p == .prepend) return .join; // GB9a, GB9b
     if (c == .consonant and inConjunct(p)) return .conjunct; // GB9c
-    if (p == .zwj and c == .pict) return .emoji; // GB11
+    if (p == .zwj and (c == .pict or c == .emoji_base)) return .emoji; // GB11
+    if (p == .emoji_base and c == .emoji_modifier) return .join; // tailored
     if (p == .ri and c == .ri) return .flag; // GB12, GB13
     return .split; // GB999
+}
+
+/// CR, LF, and the other controls, which GB4 and GB5 break around.
+inline fn isControl(c: Class) bool {
+    return c == .control or c == .cr or c == .lf;
 }
 
 const n_classes = @typeInfo(Class).@"enum".field_names.len;
@@ -207,6 +254,7 @@ const n_classes = @typeInfo(Class).@"enum".field_names.len;
 /// a bounds check; the entries past the classes are never read.
 const class_range = 32;
 const pairs: [class_range][class_range]Pair = blk: {
+    @setEvalBranchQuota(10_000);
     var t: [class_range][class_range]Pair = @splat(@splat(.split));
     for (0..n_classes) |p| {
         for (0..n_classes) |c| t[p][c] = rule(@enumFromInt(p), @enumFromInt(c));
@@ -249,8 +297,9 @@ const State = struct {
     fn add(st: *State, c: Class) void {
         st.odd_flags = c == .ri and !(st.prev == .ri and st.odd_flags);
         st.emoji = switch (c) {
-            .pict => 1,
+            .pict, .emoji_base => 1,
             .extend, .incb_extend, .linker => if (st.emoji == 1) 1 else 0,
+            .emoji_modifier => if (st.prev == .emoji_base) 1 else 0,
             .zwj => if (st.emoji == 1) 2 else 0,
             else => 0,
         };
