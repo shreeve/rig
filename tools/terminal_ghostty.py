@@ -45,7 +45,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -340,6 +340,45 @@ CASES = [
     ("utf8", "a high byte in CSI is ignored", 10, 3, b"\x1b[2\xa0;3HX"),
     ("utf8", "a mapped charset shows non-ASCII as space", 10, 2, "\x1b(0é".encode()),
     ("utf8", "the British set keeps non-ASCII", 10, 2, "\x1b(Aé#".encode()),
+
+    ("wide", "wide runes take two cells", 10, 2, "中文字".encode()),
+    ("wide", "emoji, fullwidth forms, and Hangul are wide", 16, 2, "😀👍Ａ￤한".encode()),
+    ("wide", "each regional indicator is wide alone", 10, 2, "🇺🇸!".encode()),
+    ("wide", "zero-width runes change nothing", 10, 2, "e\u0301a\u200bb\ufe0fc".encode()),
+    ("wide", "a combining mark at the first column", 10, 2, "\u0301x\r\u0301y".encode()),
+    ("wide", "a zero-width rune keeps a pending wrap", 3, 2, "abc\u0301d".encode()),
+    ("wide", "a wide rune at the last column wraps, leaving a spacer", 5, 2, "abcd中e".encode()),
+    ("wide", "a wide rune wraps with a pending wrap", 4, 2, "abcd中".encode()),
+    ("wide", "with autowrap off a wide rune at the last column is not written", 5, 2, "\x1b[?7labcd中x".encode()),
+    ("wide", "a wide rune in a single column", 1, 2, "中a".encode()),
+    ("wide", "a wide rune at the bottom right scrolls", 4, 2, "abcdefg中".encode()),
+    ("wide", "a narrow rune over the first half empties the second", 6, 2, "中文\x1b[1;1Hx".encode()),
+    ("wide", "a narrow rune over the second half empties the first", 6, 2, "中文\x1b[1;2Hx".encode()),
+    ("wide", "a wide rune over halves of two", 8, 2, "中文\x1b[1;2H字".encode()),
+    ("wide", "a spacer keeps the style the rune had", 6, 2, "\x1b[41m中\x1b[0m\x1b[1;2Hx".encode()),
+    ("wide", "REP repeats a wide rune", 10, 2, "中\x1b[3b".encode()),
+    ("wide", "a single shift is spent on the spacer of a wrapping rune", 5, 2, "\x1b*0abcd\x1b[\x8e中q".encode()),
+    ("wide", "a mapped charset writes a wide rune as two blank cells", 6, 2, "\x1b(0a中b".encode()),
+    ("wide", "insert mode makes room for both cells", 8, 2, "abcd\x1b[1;1H\x1b[4h中".encode()),
+    ("wide", "insert mode at the next to last column", 5, 2, "abcde\x1b[1;4H\x1b[4h中".encode()),
+    ("wide", "ICH on a spacer empties its rune", 8, 2, "ab中cd\x1b[1;4H\x1b[2@".encode()),
+    ("wide", "ICH pushing a spacer off the row empties its rune", 5, 2, "abc中\x1b[1;1H\x1b[@".encode()),
+    ("wide", "DCH from a spacer", 8, 2, "a中b文c\x1b[1;3H\x1b[P".encode()),
+    ("wide", "DCH ending in the middle of a rune", 8, 2, "a中b文c\x1b[1;1H\x1b[4P".encode()),
+    ("wide", "ECH on a spacer", 8, 2, "a中b\x1b[1;3H\x1b[X".encode()),
+    ("wide", "ECH ending on a first half takes the second", 8, 2, "ab中c\x1b[1;1H\x1b[3X".encode()),
+    ("wide", "EL to the end from a spacer", 8, 2, "a中b\x1b[1;3H\x1b[K".encode()),
+    ("wide", "EL to the start from a first half", 8, 2, "a中b\x1b[1;2H\x1b[1K".encode()),
+    ("wide", "ECH empties the spacer of a wrapped row", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[1;1H\x1b[X".encode()),
+    ("wide", "DCH to the end empties the spacer of a wrapped row", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[1;2H\x1b[9P".encode()),
+    ("wide", "DCH at the start of a wrapped-into row empties the spacer above", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[2;1H\x1b[P".encode()),
+    ("wide", "after IL a row no longer wraps", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[1;1H\x1b[L\x1b[2;1H\x1b[X".encode()),
+    ("wide", "after SU at the top a row still wraps", 5, 3, "\n\x1b[41mabcd中\x1b[0m\x1b[S\x1b[1;1H\x1b[X".encode()),
+    ("wide", "after SU in a region a row no longer wraps", 5, 4, "\x1b[2;4r\x1b[2;1H\x1b[41mabcd中\x1b[0m\x1b[S\x1b[2;1H\x1b[X".encode()),
+    ("wide", "a row scrolled by a line feed still wraps", 5, 2, "\x1b[41mabcd中\x1b[0m\n\x1b[1;1H\x1b[X".encode()),
+    ("wide", "a narrow rune over a wrapped-into rune unmarks the spacer above", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[2;1Hx\x1b[2;1H\x1b[P".encode()),
+    ("wide", "DECALN clears wide runes and wraps", 5, 3, "abcd中\x1b#8\x1b[1;1H\x1b[X".encode()),
+    ("wide", "the alternate screen has its own row flags", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[?1047h\x1b[?1047l\x1b[1;1H\x1b[X".encode()),
 ]
 
 
@@ -538,18 +577,29 @@ def piece(rng, every):
     return b"\x1b" + rng.choice([b"]0;", b"]2;", b"P", b"_", b"^", b"X"]) + body + end
 
 
-# Runes of width 1 everywhere, for UTF-8 until widths are compared too.
+# Runes of width 1, 2, and 0, and any rune but a surrogate.
 NARROW = [range(0xA1, 0xAD), range(0xAE, 0x100), range(0x391, 0x3A2), range(0x3A3, 0x3CA), range(0x410, 0x450), range(0x2500, 0x2580), [0xFFFD, 0x20AC]]
+WIDE = [range(0x4E00, 0x4E40), range(0x3041, 0x3097), range(0xAC00, 0xAC40), range(0xFF01, 0xFF61), range(0xFFE0, 0xFFE7), range(0x1F300, 0x1F650), range(0x1F1E6, 0x1F200)]
+ZERO = [range(0x300, 0x370), range(0x200B, 0x2010), range(0xFE00, 0xFE10), range(0x1160, 0x1200), [0xAD, 0x20E3, 0x1F3FB]]
+
+
+def any_rune(rng):
+    while True:
+        c = rng.randrange(0xA0, 0x110000)
+        if not 0xD800 <= c < 0xE000:
+            return c
 
 
 def utf8_piece(rng):
-    """Runes of width 1, bytes that never start a rune, or a rune cut short."""
+    """Runes of each width, bytes that never start a rune, or a rune cut short."""
     k = rng.random()
     if k < 0.6:
-        return "".join(chr(rng.choice(rng.choice(NARROW))) for _ in range(rng.randint(1, 6))).encode()
+        kinds = [NARROW, NARROW, WIDE, WIDE, ZERO]
+        return "".join(chr(any_rune(rng) if rng.random() < 0.1 else rng.choice(rng.choice(rng.choice(kinds))))
+                       for _ in range(rng.randint(1, 6))).encode()
     if k < 0.8:
         return bytes(rng.choice(list(range(0x80, 0xC2)) + list(range(0xF5, 0x100))) for _ in range(rng.randint(1, 3)))
-    whole = chr(rng.choice(rng.choice(NARROW))).encode()
+    whole = chr(rng.choice(rng.choice(NARROW + WIDE))).encode()
     return whole[: rng.randint(1, max(1, len(whole) - 1))]
 
 

@@ -21,6 +21,7 @@
 
 const std = @import("std");
 const tables = @import("char_tables.zig");
+const widths = @import("width_tables.zig");
 const Class = tables.Class;
 
 // ---- The text tools --------------------------------------------------------
@@ -61,6 +62,50 @@ pub fn char_boundary(s: []const u8, i: i64) i64 {
     var j = runeStartAtOrBefore(s, at);
     while (j > 0 and !back.isBoundary(s, j)) j -= runeBefore(s, j).len;
     return @intCast(j);
+}
+
+/// The terminal columns the first char of `s` takes; 0 when `s` is "".
+pub fn char_width(s: []const u8) i64 {
+    if (s.len == 0) return 0;
+    return widthOf(s, 0, charEnd(s, 0));
+}
+
+/// The terminal columns `s` takes: `char_width` summed over its chars.
+pub fn width(s: []const u8) i64 {
+    var total: i64 = 0;
+    var i: usize = 0;
+    while (i < s.len) {
+        const end = charEnd(s, i);
+        total += widthOf(s, i, end);
+        i = end;
+    }
+    return total;
+}
+
+// ---- Widths ----------------------------------------------------------------
+
+/// The columns of the char `s[i..end]`, as Ghostty measures a char
+/// (`graphemeWidth`): the width of its first rune; then a later rune that
+/// takes a column of its own makes it 2, and a variation selector after a
+/// rune that may take one makes it 2 (U+FE0F, emoji style) or 1 (U+FE0E,
+/// text style). A variation selector after any other rune is passed over.
+fn widthOf(s: []const u8, i: usize, end: usize) i64 {
+    var r = decode(s, i);
+    var prev = widths.props(r.cp);
+    var w: i64 = prev & 3;
+    var j = i + r.len;
+    while (j < end) : (j += r.len) {
+        r = decode(s, j);
+        const p = widths.props(r.cp);
+        if (r.cp == 0xFE0F or r.cp == 0xFE0E) {
+            if (prev & widths.vs_base == 0) continue;
+            w = if (r.cp == 0xFE0F) 2 else 1;
+        } else if (p & widths.zero_in_char == 0) {
+            w = 2;
+        }
+        prev = p;
+    }
+    return w;
 }
 
 // ---- Runes -----------------------------------------------------------------

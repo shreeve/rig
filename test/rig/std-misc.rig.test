@@ -2590,7 +2590,7 @@ test "unicode ids", '''
   print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
   print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
   print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
-  print(unicode.VERSION)
+  print(unicode.ID_VERSION)
   bad = 0
   for c in 0..128
     letter = (c >= 65 and c <= 90) or (c >= 97 and c <= 122)

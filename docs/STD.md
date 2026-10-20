@@ -45,7 +45,7 @@ never read as the library's.
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
-| [`std.unicode`](#stdunicode) | rune properties: identifier classes and white space |
+| [`std.unicode`](#stdunicode) | rune properties: widths, white space, and identifier classes |
 | [`std.json`](#stdjson) | a JSON parser (experimental) |
 | [`std.terminal`](#stdterminal) | a terminal emulator as a library: bytes in, screen out (experimental) |
 
@@ -1104,6 +1104,8 @@ functions return.
 | `char_count(s: ?String) -> Int` | how many chars `s` holds |
 | `first_chars(s: ?String, n: Int) -> ?String`, `last_chars(s: ?String, n: Int) -> ?String` | the first, or last, `n` chars of `s`, or all of `s` if it has fewer; panics when `n` is negative |
 | `char_boundary(s: ?String, i: Int) -> Int` | the char boundary at or before byte `i`: `i` where a char starts and at `s.len`, else the start of the char `i` is inside; panics unless `0 <= i <= s.len` |
+| `char_width(c: ?String) -> Int` | the terminal columns the first char of `c` takes, 0, 1, or 2 ([below](#chars)); 0 for `""` |
+| `width(s: ?String) -> Int` | the terminal columns `s` takes: `char_width` summed over its chars |
 | `parse_int(s: ?String, base: Int = 10) -> Int!` | `s` as an `Int` in base `base`, 2 to 36: an optional sign, `+` or `-`, then digits (letters `a` to `z`, in either case, are 10 to 35), and nothing else: no `0x`, no `_`; panics for another base |
 | `format_int(n: Int, base: Int = 10, upper: Bool = false) -> String` | `n` in base `base`, 2 to 36: a `-` if negative, then the digits, lower case unless `upper`; an owned `String`; panics for another base |
 | `parse_float(s: ?String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
@@ -1253,7 +1255,7 @@ ff FF -10
 
 A char is an extended grapheme cluster of Unicode's text segmentation
 ([UAX #29](https://unicode.org/reports/tr29/), rules GB1 to GB13 and
-GB999) by the tables of Unicode 15.1.0, the version of `std.unicode`:
+GB999) by the tables of Unicode 17.0.0, the version of `std.unicode`:
 one character as a reader sees it, of one rune or several. Text that is
 not UTF-8 is read as Go reads it: each byte that starts no well-formed
 sequence is one rune, U+FFFD, of one byte. So every byte is in exactly
@@ -1302,6 +1304,26 @@ so no lookup needs a bounds check. It also writes two tests: every line of Unico
 GraphemeBreakTest.txt, through each char tool at every byte, and a
 census that puts every code point in texts whose char counts tell its
 class apart.
+
+A char's width is the terminal columns it takes, as Ghostty counts
+them: `char_width(c)` is the `unicode.width` of its first rune; then a
+later rune that takes a column of its own (a spacing mark, say) makes it
+2, and a variation selector after a rune that may take one makes it 2
+(U+FE0F, emoji style) or 1 (U+FE0E, text style). `width(s)` sums the
+widths of its chars.
+
+```rig
+use std.text
+
+sub main()
+  print(text.char_width("e\u{301}"), text.char_width("\u{2764}"), text.char_width("\u{2764}\u{fe0f}"), text.char_width("\u{1f44b}\u{1f3fd}"))
+  print(text.width("h\u{e9}llo"), text.width("\u{65e5}\u{672c}\u{8a9e}"), text.width("\u{1f1fa}\u{1f1f8}!"), text.width(""))
+```
+
+```output
+1 1 2 2
+5 6 3 0
+```
 
 ## std.utf8
 
@@ -1528,8 +1550,15 @@ The case `utf16 go` of `test/rig/std-misc.rig.test` runs Go's `unicode/utf16` te
 ## std.unicode
 
 Properties of one rune, from the Unicode Character Database of the
-version in `unicode.VERSION`, 15.1.0, the version of TypeScript's
-scanner. The identifier classes are those of
+version in `unicode.VERSION`, 17.0.0. `width(r)` is the columns `r`
+takes in a terminal, by the rules of Ghostty's tables: 0 for a control,
+a line or paragraph separator, a surrogate, a nonspacing or enclosing
+mark, a Hangul vowel or trailing consonant, and a default-ignorable rune
+but the soft hyphen; 2 for an East Asian Wide or Fullwidth rune
+([UAX #11](https://unicode.org/reports/tr11/)), a regional indicator,
+and the two- and three-em dashes; else 1. The identifier classes are of
+`unicode.ID_VERSION`, 15.1.0, the version of TypeScript's scanner, so a
+scanner built on them reads the identifiers tsc reads. They are those of
 [UAX #31](https://unicode.org/reports/tr31/): `is_id_start(r)` is
 ID_Start (letters, letter numbers, and Other_ID_Start) and
 `is_id_continue(r)` is ID_Continue (ID_Start, marks, decimal digits,
@@ -1543,7 +1572,9 @@ has no property.
 
 | Name | Meaning |
 |---|---|
-| `VERSION` | the Unicode version of every property, `"15.1.0"` |
+| `VERSION` | the Unicode version of every property but the identifier classes, `"17.0.0"` |
+| `ID_VERSION` | the Unicode version of the identifier classes, `"15.1.0"` |
+| `width(r: Int) -> Int` | the columns `r` takes in a terminal, 0, 1, or 2; 0 for a value that is not a rune |
 | `is_id_start(r: Int) -> Bool`, `is_id_continue(r: Int) -> Bool` | whether `r` may begin an identifier, or continue one |
 | `is_space(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
 
@@ -1555,7 +1586,8 @@ sub main()
   print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
   print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
   print(unicode.is_space(0x20), unicode.is_space(0x85), unicode.is_space(0x3000), unicode.is_space(0xFEFF))
-  print(unicode.VERSION)
+  print(unicode.width(0x61), unicode.width(0x4E00), unicode.width(0x301), unicode.width(0x1F600), unicode.width(0x200B))
+  print(unicode.VERSION, unicode.ID_VERSION)
 ```
 
 ```output
@@ -1563,19 +1595,22 @@ true false true
 true false true
 false true true
 true true true false
-15.1.0
+1 2 0 2 0
+17.0.0 15.1.0
 ```
 
-The identifier tables are generated: `tools/gen-unicode.py` reads the
-pinned `DerivedCoreProperties.txt` of the Unicode Character Database
-(checking its sha256, and fetching it when absent) and writes
-`std/unicode_tables.zig`, a two-level bitmap of about 11 KB with an
-ASCII fast path. To move to a newer Unicode, change the pinned version
-and hashes, run the generator, and review the diff of the census test it
-also writes. `tools/verify-unicode.py` compares every code point with the
-database and with Python's `unicodedata`, the identifier classes and
-White_Space both; run both with `RIG_UCD` naming a
-directory of the database.
+The tables are generated: `tools/gen-unicode.py` reads the pinned files
+of the Unicode Character Database (checking each one's sha256, and
+fetching it when absent) and writes `std/unicode_tables.zig`, a
+two-level bitmap of about 11 KB with an ASCII fast path, and
+`std/width_tables.zig`, a two-level table of four bits a code point,
+20 KB, in the shape of the char table. To move to a newer Unicode,
+change the pinned version and hashes, run the generator, and review the
+diff of the census tests it also writes. `tools/verify-unicode.py`
+compares every code point with the database and with Python's
+`unicodedata`, the identifier classes and White_Space both; run both
+with `RIG_UCD` naming a directory that holds a directory of each
+version's files (the default is `~/.cache/rig-ucd`).
 
 ## std.terminal
 
@@ -1605,14 +1640,18 @@ flags (pushed, popped, and set per screen). In the ground state bytes
 are UTF-8, read by `utf8.Decoder`, so a rune may be cut between two feeds
 and each ill-formed subpart shows as one U+FFFD; in a sequence a byte from
 0x80 to 0x9F is a C1 control. Strings (OSC, DCS, SOS, PM, and APC) are
-read to their end and ignored. So far every rune is one column wide.
+read to their end and ignored. A rune takes the columns `unicode.width`
+gives it: a wide one takes a cell and a spacer after it, wraps whole
+(leaving a spacer at the end of the row it leaves), and is emptied whole
+when a write or an edit cuts it; a rune of width 0 changes nothing yet
+(Ghostty adds it to the cell before, as part of its char).
 
 | Member | Result |
 |---|---|
 | `Terminal.new(cols: Int, rows: Int) -> Terminal` | an empty terminal, the cursor at the top left |
 | `!t.feed(bytes: ?String)` | take `bytes` as a program's output, in order |
 | `t.replies` | a `String`: the bytes the terminal answers with (DA, DSR and CPR, DECRQM, XTVERSION, the kitty keyboard flags), in order, for the caller to send to the program and then `!t.replies.clear()` |
-| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`); a line `reply BYTES` when there are replies (ESC as `\e`, other controls as `\xNN`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
+| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped and the spacer of each wide rune left out; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`); a line `reply BYTES` when there are replies (ESC as `\e`, other controls as `\xNN`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
 
 ```rig
 use std.terminal

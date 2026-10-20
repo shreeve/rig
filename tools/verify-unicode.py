@@ -15,9 +15,10 @@ PropList.txt, and its identifier runs, code point by code point, with:
    Pattern_White_Space are in neither;
 3. the same derivation from Python's `unicodedata`, which has its own
    Unicode version. The difference between versions is accounted for: a
-   code point may differ only when it is unassigned in 15.1 (a later version
-   assigned it) or the later version moved it to another general category,
-   and every such code point is listed by range.
+   code point may differ only when it is unassigned in 15.1, the version
+   of the identifier classes (a later version assigned it), or the later
+   version moved it to another general category, and every such code
+   point is listed by range.
 
 Exits non-zero on any difference of White_Space, 1, or 2.
 """
@@ -127,10 +128,10 @@ def main():
     bad += len(diff("continue vs DerivedCoreProperties", got_c, der_c))
 
     # 2. UAX #31 from UnicodeData and PropList
-    pl = gen.property_ranges(gen.ucd_file(ucd, "PropList.txt"),
+    pl = gen.property_ranges(gen.ucd_file(ucd, "PropList.txt", gen.ID_VERSION),
                              ["Other_ID_Start", "Other_ID_Continue", "Pattern_Syntax", "Pattern_White_Space", "White_Space"])
     bad += len(diff("space vs White_Space", got_w, mark(pl["White_Space"])))
-    cat = unicode_data(gen.ucd_file(ucd, "UnicodeData.txt"))
+    cat = unicode_data(gen.ucd_file(ucd, "UnicodeData.txt", gen.ID_VERSION))
     pattern = mark(pl["Pattern_Syntax"] + pl["Pattern_White_Space"])
     oid_s, oid_c = mark(pl["Other_ID_Start"]), mark(pl["Other_ID_Continue"])
     ind_s, ind_c = derive(lambda c: cat[c], oid_s, oid_c, pattern)
@@ -147,7 +148,7 @@ def main():
         other = [c for c in cps if cat[c] != "Cn" and cat[c] == unicodedata.category(chr(c))]
         allowed += len(unassigned) + len(moved)
         print("%s vs unicodedata %s: %d differ; %d unassigned in %s, %d changed category %s; %d unexplained %s" % (
-            name, unicodedata.unidata_version, len(cps), len(unassigned), gen.VERSION, len(moved),
+            name, unicodedata.unidata_version, len(cps), len(unassigned), gen.ID_VERSION, len(moved),
             " ".join(spans(moved)[:12]), len(other), " ".join(spans(other)[:12])))
         bad += len(other)
     n = sum(got_s), sum(got_c)

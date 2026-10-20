@@ -1,13 +1,18 @@
 # std.unicode: properties of one rune, an `Int`, from the Unicode
 # Character Database of the version in `VERSION`. The identifier classes
-# are those of UAX #31, generated into `unicode_tables.zig` by
-# `tools/gen-unicode.py`; white space is the White_Space property of
-# PropList.txt. A value that is not a rune (a negative, a surrogate, or
-# past 0x10FFFF) has no property. The classes are the Unicode ones: a
-# language that begins identifiers with `$` or `_` adds those itself.
+# are those of UAX #31 at `ID_VERSION`, generated into
+# `unicode_tables.zig` by `tools/gen-unicode.py`, and the widths are
+# generated into `width_tables.zig`; white space is the White_Space
+# property of PropList.txt. A value that is not a rune (a negative, a
+# surrogate, or past 0x10FFFF) has no property. The classes are the
+# Unicode ones: a language that begins identifiers with `$` or `_` adds
+# those itself.
 
-# The Unicode version of every property here.
-pub VERSION = "15.1.0"
+# The Unicode version of every property here but the identifier classes.
+pub VERSION = "17.0.0"
+# The Unicode version of the identifier classes: TypeScript's, so a
+# scanner built on them reads the identifiers tsc reads.
+pub ID_VERSION = "15.1.0"
 
 # Whether `r` is white space: the 25 runes of Unicode's White_Space
 # property, ASCII's tab, line feed, vertical tab, form feed, carriage
@@ -28,3 +33,12 @@ extern zig "unicode_tables.zig"
   # identifier. ID_Start, marks, decimal digits, connector punctuation,
   # and Other_ID_Continue.
   pub fun is_id_continue(r: Int) -> Bool
+
+extern zig "width_tables.zig"
+  # The columns `r` takes in a terminal, 0, 1, or 2, by the rules of
+  # Ghostty's tables: 0 for a control, a separator, a surrogate, a
+  # nonspacing or enclosing mark, a Hangul vowel or trailing consonant,
+  # and a default-ignorable rune but the soft hyphen; 2 for an East Asian
+  # Wide or Fullwidth rune, a regional indicator, and the two- and
+  # three-em dashes; else 1. 0 for a value that is not a rune.
+  pub fun width(r: Int) -> Int

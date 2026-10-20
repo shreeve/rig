@@ -17,6 +17,10 @@ usage: bench/terminal/bench-terminal [options]
                                       no scrollback, as std.terminal has none
                       ghostty-scroll  the same with 10 MB of scrollback, Ghostty's
                                       default
+                      dispatch        Dispatch's engine (Term, Swift, swiftc -O
+                                      -wmo), no scrollback and mode 2027 off, as
+                                      Ghostty's; only when $DISPATCH names a
+                                      Dispatch checkout (bench/terminal/dispatch.swift)
                     and an experiment, only when named:
                       rig-nocheck     rig-fast with Rig's index, slice, and read
                                       bounds checks removed from its runtime (as
@@ -40,7 +44,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import terminal_ghostty  # noqa: E402
 
 FILES = ["text", "scroll", "sgr", "tui"]
-VARIANTS = ["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"]
+VARIANTS = ["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"] + (["dispatch"] if os.environ.get("DISPATCH") else [])
 SIZE = 4_000_000
 
 
@@ -74,6 +78,8 @@ def corpus(name, cols, rows):
 def build(variant, out):
     if variant.startswith("ghostty"):
         return [terminal_ghostty.bench_exe()]
+    if variant == "dispatch":
+        return [build_dispatch(out)]
     exe = os.path.join(out, variant)
     flag = "--release" if variant == "rig-safe" else "--release=fast"
     emitted = os.path.join(out, variant + ".out")
@@ -87,6 +93,24 @@ def build(variant, out):
         if r.returncode != 0:
             sys.exit("bench-terminal: building rig-nocheck failed:\n%s" % r.stderr)
     return [exe]
+
+
+def build_dispatch(out):
+    """bench/terminal/dispatch.swift compiled into Term, Dispatch's engine, from $DISPATCH."""
+    src = os.path.join(os.environ.get("DISPATCH", ""), "Vendor", "Term", "Sources", "Term")
+    if not os.path.isdir(src):
+        sys.exit("bench-terminal: set DISPATCH to a Dispatch checkout (it has Vendor/Term/Sources/Term)")
+    build = os.path.join(out, "dispatch.build")
+    os.makedirs(build, exist_ok=True)
+    main = os.path.join(build, "main.swift")
+    with open(os.path.join(ROOT, "bench", "terminal", "dispatch.swift")) as f, open(main, "w") as g:
+        g.write(f.read())
+    exe = os.path.join(out, "dispatch")
+    sources = sorted(os.path.join(src, f) for f in os.listdir(src) if f.endswith(".swift"))
+    r = subprocess.run(["swiftc", "-O", "-wmo", "-module-name", "Term", "-o", exe] + sources + [main], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("bench-terminal: building dispatch failed:\n%s" % r.stderr[-2000:])
+    return exe
 
 
 def bench_json():
@@ -104,6 +128,8 @@ def bench_json():
 def time_it(cmd, variant, path, n, cols, rows):
     if variant.startswith("ghostty"):
         args = cmd + ["bench", path, str(n), str(cols), str(rows), "0" if variant == "ghostty" else "10000000"]
+    elif variant == "dispatch":
+        args = cmd + [path, str(n), str(cols), str(rows), "0"]
     else:
         args = cmd + [path, str(n), str(cols), str(rows)]
     r = subprocess.run(args, capture_output=True, text=True)

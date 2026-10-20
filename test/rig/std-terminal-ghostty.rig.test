@@ -2949,3 +2949,367 @@ test "the British set keeps non-ASCII", '''
   t = terminal.Terminal.new(10, 2)
   !t.feed("\x1b(A\xc3\xa9#")
   print(t.dump())
+
+test "wide runes take two cells", '''
+  |中文字
+  |
+  cursor 0 6
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97")
+  print(t.dump())
+
+test "emoji, fullwidth forms, and Hangul are wide", '''
+  |😀👍Ａ￤한
+  |
+  cursor 0 10
+'''
+  t = terminal.Terminal.new(16, 2)
+  !t.feed("\xf0\x9f\x98\x80\xf0\x9f\x91\x8d\xef\xbc\xa1\xef\xbf\xa4\xed\x95\x9c")
+  print(t.dump())
+
+test "each regional indicator is wide alone", '''
+  |🇺🇸!
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xf0\x9f\x87\xba\xf0\x9f\x87\xb8!")
+  print(t.dump())
+
+test "zero-width runes change nothing", '''
+  |eabc
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("e\xcc\x81a\xe2\x80\x8bb\xef\xb8\x8fc")
+  print(t.dump())
+
+test "a combining mark at the first column", '''
+  |y
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xcc\x81x\x0d\xcc\x81y")
+  print(t.dump())
+
+test "a zero-width rune keeps a pending wrap", '''
+  |abc
+  |d
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(3, 2)
+  !t.feed("abc\xcc\x81d")
+  print(t.dump())
+
+test "a wide rune at the last column wraps, leaving a spacer", '''
+  |abcd
+  |中e
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(5, 2)
+  !t.feed("abcd\xe4\xb8\xade")
+  print(t.dump())
+
+test "a wide rune wraps with a pending wrap", '''
+  |abcd
+  |中
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\xe4\xb8\xad")
+  print(t.dump())
+
+test "with autowrap off a wide rune at the last column is not written", '''
+  |abcdx
+  |
+  cursor 0 4 wrap
+'''
+  t = terminal.Terminal.new(5, 2)
+  !t.feed("\x1b[?7labcd\xe4\xb8\xadx")
+  print(t.dump())
+
+test "a wide rune in a single column", '''
+  |
+  |a
+  cursor 1 0 wrap
+'''
+  t = terminal.Terminal.new(1, 2)
+  !t.feed("\xe4\xb8\xada")
+  print(t.dump())
+
+test "a wide rune at the bottom right scrolls", '''
+  |efg
+  |中
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcdefg\xe4\xb8\xad")
+  print(t.dump())
+
+test "a narrow rune over the first half empties the second", '''
+  |x 文
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("\xe4\xb8\xad\xe6\x96\x87\x1b[1;1Hx")
+  print(t.dump())
+
+test "a narrow rune over the second half empties the first", '''
+  | x文
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("\xe4\xb8\xad\xe6\x96\x87\x1b[1;2Hx")
+  print(t.dump())
+
+test "a wide rune over halves of two", '''
+  | 字
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\xe4\xb8\xad\xe6\x96\x87\x1b[1;2H\xe5\xad\x97")
+  print(t.dump())
+
+test "a spacer keeps the style the rune had", '''
+  | x
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("\x1b[41m\xe4\xb8\xad\x1b[0m\x1b[1;2Hx")
+  print(t.dump())
+
+test "REP repeats a wide rune", '''
+  |中中中中
+  |
+  cursor 0 8
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xe4\xb8\xad\x1b[3b")
+  print(t.dump())
+
+test "a single shift is spent on the spacer of a wrapping rune", '''
+  |abcd
+  |中q
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(5, 2)
+  !t.feed("\x1b*0abcd\x1b[\xc2\x8e\xe4\xb8\xadq")
+  print(t.dump())
+
+test "a mapped charset writes a wide rune as two blank cells", '''
+  |▒ ␉
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("\x1b(0a\xe4\xb8\xadb")
+  print(t.dump())
+
+test "insert mode makes room for both cells", '''
+  |中abcd
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("abcd\x1b[1;1H\x1b[4h\xe4\xb8\xad")
+  print(t.dump())
+
+test "insert mode at the next to last column", '''
+  |abc中
+  |
+  cursor 0 4 wrap
+'''
+  t = terminal.Terminal.new(5, 2)
+  !t.feed("abcde\x1b[1;4H\x1b[4h\xe4\xb8\xad")
+  print(t.dump())
+
+test "ICH on a spacer empties its rune", '''
+  |ab    cd
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("ab\xe4\xb8\xadcd\x1b[1;4H\x1b[2@")
+  print(t.dump())
+
+test "ICH pushing a spacer off the row empties its rune", '''
+  | abc
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(5, 2)
+  !t.feed("abc\xe4\xb8\xad\x1b[1;1H\x1b[@")
+  print(t.dump())
+
+test "DCH from a spacer", '''
+  |a b文c
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("a\xe4\xb8\xadb\xe6\x96\x87c\x1b[1;3H\x1b[P")
+  print(t.dump())
+
+test "DCH ending in the middle of a rune", '''
+  |文c
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("a\xe4\xb8\xadb\xe6\x96\x87c\x1b[1;1H\x1b[4P")
+  print(t.dump())
+
+test "ECH on a spacer", '''
+  |a  b
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("a\xe4\xb8\xadb\x1b[1;3H\x1b[X")
+  print(t.dump())
+
+test "ECH ending on a first half takes the second", '''
+  |    c
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("ab\xe4\xb8\xadc\x1b[1;1H\x1b[3X")
+  print(t.dump())
+
+test "EL to the end from a spacer", '''
+  |a
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("a\xe4\xb8\xadb\x1b[1;3H\x1b[K")
+  print(t.dump())
+
+test "EL to the start from a first half", '''
+  |   b
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("a\xe4\xb8\xadb\x1b[1;2H\x1b[1K")
+  print(t.dump())
+
+test "ECH empties the spacer of a wrapped row", '''
+  | bcd
+  |中
+  |
+  ~0 1-3 bg=1
+  ~1 0-1 bg=1
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[1;1H\x1b[X")
+  print(t.dump())
+
+test "DCH to the end empties the spacer of a wrapped row", '''
+  |a
+  |中
+  |
+  ~0 0-0 bg=1
+  ~1 0-1 bg=1
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[1;2H\x1b[9P")
+  print(t.dump())
+
+test "DCH at the start of a wrapped-into row empties the spacer above", '''
+  |abcd
+  |
+  |
+  ~0 0-3 bg=1
+  cursor 1 0
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[2;1H\x1b[P")
+  print(t.dump())
+
+test "after IL a row no longer wraps", '''
+  |
+  | bcd
+  |中
+  ~1 1-4 bg=1
+  ~2 0-1 bg=1
+  cursor 1 0
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[1;1H\x1b[L\x1b[2;1H\x1b[X")
+  print(t.dump())
+
+test "after SU at the top a row still wraps", '''
+  | bcd
+  |中
+  |
+  ~0 1-3 bg=1
+  ~1 0-1 bg=1
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("\x0a\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[S\x1b[1;1H\x1b[X")
+  print(t.dump())
+
+test "after SU in a region a row no longer wraps", '''
+  |
+  |
+  |
+  |
+  cursor 1 0
+'''
+  t = terminal.Terminal.new(5, 4)
+  !t.feed("\x1b[2;4r\x1b[2;1H\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[S\x1b[2;1H\x1b[X")
+  print(t.dump())
+
+test "a row scrolled by a line feed still wraps", '''
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(5, 2)
+  !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x0a\x1b[1;1H\x1b[X")
+  print(t.dump())
+
+test "a narrow rune over a wrapped-into rune unmarks the spacer above", '''
+  |abcd
+  |
+  |
+  ~0 0-4 bg=1
+  cursor 1 0
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[2;1Hx\x1b[2;1H\x1b[P")
+  print(t.dump())
+
+test "DECALN clears wide runes and wraps", '''
+  | EEEE
+  |EEEEE
+  |EEEEE
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("abcd\xe4\xb8\xad\x1b#8\x1b[1;1H\x1b[X")
+  print(t.dump())
+
+test "the alternate screen has its own row flags", '''
+  | bcd
+  |中
+  |
+  ~0 1-3 bg=1
+  ~1 0-1 bg=1
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(5, 3)
+  !t.feed("\x1b[41mabcd\xe4\xb8\xad\x1b[0m\x1b[?1047h\x1b[?1047l\x1b[1;1H\x1b[X")
+  print(t.dump())

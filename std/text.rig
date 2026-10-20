@@ -435,6 +435,14 @@ extern zig "text.zig"
 extern zig "char.zig"
   # How many chars `s` holds.
   pub fun char_count(s: ?String) -> Int
+  # The terminal columns the first char of `c` takes, 0, 1, or 2, as
+  # Ghostty counts them: the `unicode.width` of its first rune; then a
+  # later rune of width 1 or 2 makes it 2, and a variation selector makes
+  # it 2 (U+FE0F, emoji style) or 1 (U+FE0E, text style) after a rune that
+  # takes one. 0 when `c` is "".
+  pub fun char_width(c: ?String) -> Int
+  # The terminal columns `s` takes: `char_width` summed over its chars.
+  pub fun width(s: ?String) -> Int
   # The char boundary at or before byte `i`: `i` itself when a char
   # starts there or `i` is `s.len`, else the start of the char `i` is
   # inside. `s[..text.char_boundary(s, n)]` is the most of `s` that fits
