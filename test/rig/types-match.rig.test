@@ -587,3 +587,14 @@ test "match constant pattern in each mode", '''
     match <t
       POINT => print("moved point")
       .circle(_) => pass
+
+fail "match constant pattern hidden by a local", "8:5: pattern binding `ESC` shadows the local `ESC`; use a different name"
+  # A local made with `new` hides the constant, as it does anywhere
+  # else: the name in the pattern binds, and shadows that local.
+  ESC = 27
+
+  fun f(n: Int) -> Int
+    new ESC = 5
+    match n
+      ESC => 1
+      _ => 0
