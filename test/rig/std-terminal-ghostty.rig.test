@@ -164,3 +164,582 @@ test "a one-column terminal", '''
   t = terminal.Terminal.new(1, 3)
   !t.feed("abc")
   print(t.dump())
+
+test "tab moves to the next stop", '''
+  |a       b       c
+  |
+  cursor 0 17
+'''
+  t = terminal.Terminal.new(20, 2)
+  !t.feed("a\x09b\x09c")
+  print(t.dump())
+
+test "tab stops at the last column", '''
+  |                   X
+  |
+  cursor 0 19 wrap
+'''
+  t = terminal.Terminal.new(20, 2)
+  !t.feed("\x09\x09\x09\x09X")
+  print(t.dump())
+
+test "tab with a wrap pending", '''
+  |abcdefgh
+  |X
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("abcdefgh\x09X")
+  print(t.dump())
+
+test "bell and other controls print nothing", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x07\x00\x01\x05\x0e\x0f\x1fb")
+  print(t.dump())
+
+test "DEL is printed as a character", '''
+  |ab
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x7fb")
+  print(t.dump())
+
+test "CUP moves to a row and column", '''
+  |
+  |    X
+  |
+  |
+  cursor 1 5
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[2;5HX")
+  print(t.dump())
+
+test "CUP with no parameters goes home", '''
+  |Xbc
+  |de
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x0d\x0ade\x1b[HX")
+  print(t.dump())
+
+test "CUP clamps to the screen", '''
+  |
+  |
+  |
+  |         X
+  cursor 3 9 wrap
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[99;99HX")
+  print(t.dump())
+
+test "CUP with zeros is one", '''
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[3;3H\x1b[0;0HX")
+  print(t.dump())
+
+test "CUP with only a row", '''
+  |
+  |
+  |X
+  |
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[3HX")
+  print(t.dump())
+
+test "CUP with only a column", '''
+  |   X
+  |
+  |
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[;4HX")
+  print(t.dump())
+
+test "HVP is CUP", '''
+  |
+  |  X
+  |
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[2;3fX")
+  print(t.dump())
+
+test "CUU stops at the top", '''
+  |  X
+  |
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[3;3H\x1b[5AX")
+  print(t.dump())
+
+test "CUD stops at the bottom", '''
+  |
+  |
+  |
+  |X
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[9BX")
+  print(t.dump())
+
+test "CUF stops at the right edge", '''
+  |         X
+  |
+  |
+  |
+  cursor 0 9 wrap
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[20CX")
+  print(t.dump())
+
+test "CUB stops at the left edge", '''
+  |Xbc
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x1b[9DX")
+  print(t.dump())
+
+test "a count of zero moves one", '''
+  |
+  | X
+  |
+  |
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[3;3H\x1b[0A\x1b[0DX")
+  print(t.dump())
+
+test "CNL and CPL go to the first column", '''
+  |abc
+  |Y
+  |X
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x1b[2EX\x1b[1FY")
+  print(t.dump())
+
+test "CHA sets the column", '''
+  |abc   X
+  |
+  |
+  |
+  cursor 0 7
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x1b[7GX")
+  print(t.dump())
+
+test "HPA sets the column", '''
+  |abc X
+  |
+  |
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x1b[5`X")
+  print(t.dump())
+
+test "VPA sets the row", '''
+  |abc
+  |
+  |   X
+  |
+  cursor 2 4
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x1b[3dX")
+  print(t.dump())
+
+test "HPR and VPR move right and down", '''
+  |a   X
+  |
+  |     Y
+  |
+  cursor 2 6
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("a\x1b[3aX\x1b[2eY")
+  print(t.dump())
+
+test "movement clears a pending wrap", '''
+  |abXd
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("abcd\x1b[DX")
+  print(t.dump())
+
+test "CUF from a pending wrap", '''
+  |abcX
+  |
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("abcd\x1b[CX")
+  print(t.dump())
+
+test "CUP clears a pending wrap", '''
+  |Xbcd
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("abcd\x1b[1;1HX")
+  print(t.dump())
+
+test "CHT and CBT move by tab stops", '''
+  |                Y
+  |
+  cursor 0 17
+'''
+  t = terminal.Terminal.new(30, 2)
+  !t.feed("\x1b[2IX\x1b[ZY")
+  print(t.dump())
+
+test "CBT stops at the first column", '''
+  |Xbc
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(30, 2)
+  !t.feed("abc\x1b[5ZX")
+  print(t.dump())
+
+test "two parameters to CUU do nothing", '''
+  |
+  |
+  |  X
+  |
+  cursor 2 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[3;3H\x1b[1;1AX")
+  print(t.dump())
+
+test "IND moves down", '''
+  |ab
+  |  X
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1bDX")
+  print(t.dump())
+
+test "IND at the bottom scrolls", '''
+  |2
+  | X
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("1\x0d\x0a2\x1bDX")
+  print(t.dump())
+
+test "NEL moves to the next line", '''
+  |ab
+  |X
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1bEX")
+  print(t.dump())
+
+test "RI moves up", '''
+  |
+  |  X
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[3;3H\x1bMX")
+  print(t.dump())
+
+test "RI at the top scrolls down", '''
+  |X
+  |1
+  |2
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[H\x1bMX")
+  print(t.dump())
+
+test "HTS sets a tab stop", '''
+  |   X
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(20, 2)
+  !t.feed("\x1b[4G\x1bH\x0d\x09X")
+  print(t.dump())
+
+test "TBC 0 clears the stop at the cursor", '''
+  |                X
+  |
+  cursor 0 17
+'''
+  t = terminal.Terminal.new(20, 2)
+  !t.feed("\x1b[9G\x1b[0g\x0d\x09X")
+  print(t.dump())
+
+test "TBC with no parameter does nothing", '''
+  |        X
+  |
+  cursor 0 9
+'''
+  t = terminal.Terminal.new(20, 2)
+  !t.feed("\x1b[9G\x1b[g\x0d\x09X")
+  print(t.dump())
+
+test "TBC 3 clears every stop", '''
+  |                   X
+  |
+  cursor 0 19 wrap
+'''
+  t = terminal.Terminal.new(20, 2)
+  !t.feed("\x1b[3g\x09X")
+  print(t.dump())
+
+test "DECSC and DECRC save the position", '''
+  |abY
+  |
+  |    X
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1b7\x1b[3;5HX\x1b8Y")
+  print(t.dump())
+
+test "DECRC with nothing saved goes home", '''
+  |X
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[2;2H\x1b8X")
+  print(t.dump())
+
+test "DECRC restores a pending wrap", '''
+  |abcd
+  |X
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("abcd\x1b7\x1b[2;1H\x1b8X")
+  print(t.dump())
+
+test "an unknown escape is ignored", '''
+  |abc
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1bQb\x1b(Bc")
+  print(t.dump())
+
+test "CAN cancels a sequence", '''
+  |a;3HX
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b[2\x18;3HX")
+  print(t.dump())
+
+test "SUB cancels a sequence", '''
+  |aHX
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b[\x1aHX")
+  print(t.dump())
+
+test "ESC restarts a sequence", '''
+  |
+  | X
+  |
+  |
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[3\x1b[2;2HX")
+  print(t.dump())
+
+test "a control inside CSI runs", '''
+  |abX
+  |
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x1b[2\x0dCX")
+  print(t.dump())
+
+test "a late control inside CSI is dropped", '''
+  |abc  X
+  |
+  |
+  |
+  cursor 0 6
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x1b[2\x11CX")
+  print(t.dump())
+
+test "a private CSI is not a movement", '''
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[?5CX")
+  print(t.dump())
+
+test "an intermediate makes CSI unknown", '''
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[3 CX")
+  print(t.dump())
+
+test "a colon makes CSI unknown", '''
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[1:2HX")
+  print(t.dump())
+
+test "a leading colon is ignored", '''
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[:2HX")
+  print(t.dump())
+
+test "too many parameters do nothing", '''
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;2HX")
+  print(t.dump())
+
+test "a huge parameter is clamped", '''
+  |         X
+  |
+  |
+  |
+  cursor 0 9 wrap
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[99999999999CX")
+  print(t.dump())
+
+test "OSC is ignored to BEL", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b]0;title\x07b")
+  print(t.dump())
+
+test "OSC is ignored to ST", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b]0;title\x1b\\b")
+  print(t.dump())
+
+test "DCS is ignored to ST", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1bPq#0;1\x1b\\b")
+  print(t.dump())
+
+test "APC is ignored to ST", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b_Gx=1\x1b\\b")
+  print(t.dump())
+
+test "DEL inside CSI is ignored", '''
+  |  X
+  |
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[2\x7fCX")
+  print(t.dump())

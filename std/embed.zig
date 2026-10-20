@@ -24,6 +24,7 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "target.zig", @embedFile("target.zig") },
     .{ "task.rig", @embedFile("task.rig") },
     .{ "task.zig", @embedFile("task.zig") },
+    .{ "terminal/parser.rig", @embedFile("terminal/parser.rig") },
     .{ "terminal/terminal.rig", @embedFile("terminal/terminal.rig") },
     .{ "text.rig", @embedFile("text.rig") },
     .{ "text.zig", @embedFile("text.zig") },

@@ -1,0 +1,208 @@
+# The parser of std.terminal: the DEC state machine of vt100.net
+# (https://vt100.net/emu/dec_ansi_parser), as Ghostty runs it, turning
+# bytes into the operations of terminal.rig. Strings (OSC, DCS, SOS, PM,
+# and APC) are read to their end and ignored so far, and so are bytes of
+# 0x80 and up.
+
+ESC: U8 = b'\x1b'
+CAN: U8 = b'\x18'
+SUB: U8 = b'\x1a'
+DEL: U8 = b'\x7f'
+
+# Where the parser is in a sequence.
+enum State
+  ground
+  escape
+  escape_intermediate
+  csi_entry
+  csi_param
+  csi_intermediate
+  csi_ignore
+  osc
+  string
+
+# The most parameters a CSI sequence may have; one with more does nothing.
+MAX_PARAMS = 24
+
+# The largest parameter value; a larger one is this.
+MAX_PARAM = 65535
+
+# Take `bytes` as a program's output, in order.
+pub sub Terminal.feed(!@, bytes: ?String)
+  for b in bytes
+    (!@).step(b)
+
+sub Terminal.step(!@, b: U8)
+  return if b >= 0x80
+  if b == ESC
+    (!@).clear()
+    @state = .escape
+    return
+  if b == CAN or b == SUB
+    @state = .ground
+    return
+  match @state
+    .ground
+      # Ghostty prints DEL as a character, where xterm ignores it.
+      if b >= 0x20
+        (!@).print(U32(b))
+      else
+        (!@).execute(b)
+    .escape
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .escape_intermediate
+      else if b == b'['
+        @state = .csi_entry
+      else if b == b']'
+        @state = .osc
+      else if b == b'P' or b == b'X' or b == b'^' or b == b'_'
+        @state = .string
+      else if b != DEL
+        @state = .ground
+        (!@).esc_dispatch(b)
+    .escape_intermediate
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+      else if b != DEL
+        @state = .ground
+        (!@).esc_dispatch(b)
+    .csi_entry
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .csi_intermediate
+      else if b == b':'
+        @state = .csi_ignore
+      else if b < 0x3C
+        (!@).param(b)
+        @state = .csi_param
+      else if b < 0x40
+        (!@).collect(b)
+        @state = .csi_param
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_param
+      # Ghostty executes only C0 bytes below 0x10 here, and drops the rest.
+      if b < 0x10
+        (!@).execute(b)
+      else if b < 0x20
+        pass
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .csi_intermediate
+      else if b < 0x3C
+        (!@).param(b)
+      else if b < 0x40
+        @state = .csi_ignore
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_intermediate
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+      else if b < 0x40
+        @state = .csi_ignore
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_ignore
+      if b < 0x20
+        (!@).execute(b)
+      else if b >= 0x40 and b != DEL
+        @state = .ground
+    .osc
+      @state = .ground if b == b'\x07' else .osc
+    .string => pass
+
+sub Terminal.clear(!@)
+  @count = 0
+  @acc = 0
+  @digits = false
+  @colon = false
+  @inter = 0
+  @inter_count = 0
+
+# An intermediate (or a private marker such as `?`), up to four.
+sub Terminal.collect(!@, b: U8)
+  if @inter_count < 4
+    @inter = @inter << 8 | Int(b)
+    @inter_count += 1
+
+# A digit of a parameter, or a `;` or `:` that ends one.
+sub Terminal.param(!@, b: U8)
+  if b == b';' or b == b':'
+    @colon = true if b == b':'
+    if @count < MAX_PARAMS
+      @params[@count] = @acc
+    @count += 1
+    @acc = 0
+    @digits = false
+    return
+  @acc = @acc * 10 + Int(b - b'0')
+  @acc = MAX_PARAM if @acc > MAX_PARAM
+  @digits = true
+
+# A C0 control.
+sub Terminal.execute(!@, b: U8)
+  match b
+    b'\x08' => (!@).backspace()
+    b'\t' => (!@).tab(1)
+    b'\n', b'\x0b', b'\x0c' => (!@).index()
+    b'\r' => (!@).carriage_return()
+    _ => pass
+
+sub Terminal.esc_dispatch(!@, b: U8)
+  return if @inter != 0
+  match b
+    b'7' => (!@).save_cursor()
+    b'8' => (!@).restore_cursor()
+    b'D' => (!@).index()
+    b'E'
+      (!@).index()
+      (!@).carriage_return()
+    b'H' => (!@).tab_set()
+    b'M' => (!@).reverse_index()
+    _ => pass
+
+# The final byte of a CSI sequence: the parameters are complete.
+sub Terminal.csi_final(!@, b: U8)
+  @state = .ground
+  if @digits
+    if @count < MAX_PARAMS
+      @params[@count] = @acc
+    @count += 1
+  return if @count > MAX_PARAMS
+  return if @colon and b != b'm'
+  return if @inter != 0
+  n = @count
+  p0 = @params[0] if n > 0 else 0
+  p1 = @params[1] if n > 1 else 0
+  # The count of a movement: 1 when it is left out or 0.
+  move = (1 if p0 == 0 else p0) if n <= 1 else -1
+  match b
+    b'A', b'k' if move > 0 => (!@).cursor_up(move)
+    b'B' if move > 0 => (!@).cursor_down(move)
+    b'C' if move > 0 => (!@).cursor_right(move)
+    b'D', b'j' if move > 0 => (!@).cursor_left(move)
+    b'E' if move > 0
+      (!@).cursor_down(move)
+      (!@).carriage_return()
+    b'F' if move > 0
+      (!@).cursor_up(move)
+      (!@).carriage_return()
+    b'G', b'`' if move > 0 => (!@).cursor_to(@row + 1, move)
+    b'a' if move > 0 => (!@).cursor_right(move)
+    b'd' if move > 0 => (!@).cursor_to(move, @col + 1)
+    b'e' if move > 0 => (!@).cursor_down(move)
+    b'H', b'f' if n <= 2 => (!@).cursor_to(p0, p1)
+    b'I' if move > 0 => (!@).tab(move)
+    b'Z' if move > 0 => (!@).tab_back(move)
+    # Ghostty's TBC needs its parameter: `CSI g` alone does nothing.
+    b'g' if n == 1 => (!@).tab_clear(p0)
+    _ => pass
