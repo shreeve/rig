@@ -1255,6 +1255,7 @@ sub main()
 | `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-string-and-signal) |
 | `Task[T]` | a call running as a task, `f(x)&`, and the `T` it gives | [§18](#18-tasks) |
 | `Tasks[T]` | a set of tasks of one type, waited for together | [§18](#sets-of-tasks) |
+| `Actor[T]` | a `T` that runs its methods one at a time, behind shared handles, `*Actor[T]` | [§18](#actors) |
 | `String` | owned, growable text | [§10](#string) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
 | `Arch` | built-in enum: the target's processor architecture, `target.arch` | [§3](#the-target) |
@@ -6875,7 +6876,7 @@ leak-free, with no use of freed memory, under the sanitizing allocator.
 ## 10. Cell, List, Box, String, and Signal
 
 These built-in types are part of the language's substrate. Their names
-are reserved.
+are reserved, as `Actor` is, which [§18](#actors) describes.
 
 ### Cell
 
@@ -10315,6 +10316,75 @@ sub main()
 1
 -1
 1
+```
+
+### Actors
+
+An actor holds a value that many tasks change, one method at a time.
+`*Actor(x)` moves `x` into it and gives a `*Actor[T]`, a shared handle
+to it; `*Actor(x, mailbox: n)` sets how many calls made with `&` it
+holds at once, 64 by default. `x` is an object or enum, whose fields
+move and hold no view: nothing in its declaration changes. `Actor(x)`
+stands only as the operand of `*`.
+
+The handle is counted atomically, so it crosses to other tasks: `+a`
+makes another, for a holder of its own; a read view `?a` lends one; and
+`~a` is weak. The actor lives until its last handle goes, and then its
+value drops, once.
+
+A method called through a handle is a message: the actor runs its
+methods one at a time, each to its end, and the call waits for the
+answer.
+- A `?@` method is called bare, `a.count()`, through a handle or a read
+  view of one.
+- A `!@` method is marked, `!a.add(x)`, or `(!a).add(x)` where its value
+  is used, and needs a handle you hold: through `?a` it is rejected. The
+  `!` marks the call, and lends nothing: the actor changes its own value.
+- A `<@` method, or one whose signature has `keeps` or `from`, cannot be
+  called through a handle, and an actor's fields are reached only by its
+  methods.
+- An argument moves, is copied, or is a read view of what shares; a
+  write view is rejected. The result moves, and holds no view of the
+  actor's state.
+
+With `&`, the call is a task that the actor runs in its turn. As any
+task, it keeps the loans of its arguments, but it keeps none of the
+handle, which may be used again while it runs. It takes a slot of
+the actor's mailbox while it runs, and waits for one when every slot is
+taken.
+
+A call of a method that can fail, which has not started when its caller
+is canceled or the caller's deadline passes, is withdrawn, and fails
+with `task.Stop.canceled` or `task.Stop.timeout`. A method that started
+runs to its end, and its caller waits for it, through a cancel too.
+`time.within` sets a deadline on calls ([Deadlines](#deadlines)).
+
+```rig
+obj Ledger
+  entries: List[Int]
+
+  sub post(!@, n: Int)
+    !@entries.push(n)
+
+  fun count(?@) -> Int
+    @entries.len
+
+sub work(l: *Actor[Ledger])
+  for 0..100
+    !l.post(1)
+
+sub main()
+  l = *Actor(Ledger(entries: List[Int]()))
+  ts = Tasks[Void]()
+  for 0..4
+    !ts.add(work(+l)&)
+  <ts.wait_all()
+  t = l.count()&
+  print(<t.wait())
+```
+
+```output
+400
 ```
 
 ### Each element on several tasks

@@ -28,6 +28,10 @@ pub const waitTasks = tasks.waitTasks;
 pub const taskCheck = tasks.check;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
+pub const Actor = tasks.Actor;
+pub const actor = tasks.actor;
+pub const actorCall = tasks.actorCall;
+pub const actorSpawn = tasks.actorSpawn;
 pub const isolate = tasks.isolate;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEach = tasks.parEach;
@@ -674,7 +678,10 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
 /// program that makes tasks (`Cell.__rig_word`). The allocation behind
 /// a `*` of it counts its handles atomically, so they cross cores.
 fn synchronized(comptime T: type) bool {
-    return @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_word") and T.__rig_word;
+    if (@typeInfo(T) != .@"struct") return false;
+    // An actor's handles go to other tasks (`tasks.Actor`).
+    if (@hasDecl(T, "__rig_actor")) return true;
+    return @hasDecl(T, "__rig_word") and T.__rig_word;
 }
 
 /// The counted allocation behind `*T`. `strong` counts owning handles;

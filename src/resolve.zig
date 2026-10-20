@@ -3037,6 +3037,14 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
+    // Actor[T]: a value one task at a time changes, the actor's own,
+    // behind `*`: `*Actor(x)`. A method of `T` called through a handle
+    // is a message (`Checker.actorCall`); it has no members of its own.
+    {
+        const g = try addGeneric(ctx, module_scope, module_scope, "Actor", &.{"T"});
+        ctx.actor_sym_id = g.sym;
+    }
+
     // List[T]: growable buffer that owns its elements.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "List", &.{"T"});

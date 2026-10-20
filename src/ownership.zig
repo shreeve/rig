@@ -4345,7 +4345,10 @@ pub const Checker = struct {
         // it calls, or a receiver that is no place) is copied there, so it
         // is held until the call runs (`holdRead`).
         const callee_found = self.errors_found;
-        if (callee.isKind(.member) and self.callsFunctionField(node, callee)) {
+        // An actor call's `!` marks the call, not a lend: the call reads
+        // the handle, and the actor changes its own value.
+        const actor_call = if (self.sema) |ctx| ctx.isActorCall(node) else false;
+        if (callee.isKind(.member) and !actor_call and self.callsFunctionField(node, callee)) {
             // A function held in a field is called with the arguments
             // alone; it reaches nothing of the value holding it.
             result = try self.walk(ir.Member.object(callee));
@@ -4359,6 +4362,7 @@ pub const Checker = struct {
                 obj = ir.get(obj, .operand);
             }
             recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
+            if (actor_call) recv_mode = .read;
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
                 const found = self.errors_found;
@@ -4380,7 +4384,7 @@ pub const Checker = struct {
                     // A built-in's methods hand out values, never views
                     // of the receiver.
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
-                    recv_value = if (self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .path = p.path, .kind = kind, .pos = pos }));
+                    recv_value = if (actor_call or self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .path = p.path, .kind = kind, .pos = pos }));
                 }
             } else if (recv_mode == .value) {
                 // A consuming receiver is taken like an argument: a name
@@ -4391,7 +4395,7 @@ pub const Checker = struct {
                 if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
                 // A built-in's methods hand out values, never views of
                 // the receiver.
-                if ((recv_mode == .read or recv_mode == .write) and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
+                if ((recv_mode == .read or recv_mode == .write) and !actor_call and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
                     // A receiver the call holds in storage of its own is
                     // lent from there; any other is lent where its leaves

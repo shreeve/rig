@@ -112,6 +112,7 @@ pub const Facts = struct {
     cell_sym_id: SymbolId,
     list_sym_id: SymbolId,
     signal_sym_id: SymbolId,
+    actor_sym_id: SymbolId,
     task_sym_id: SymbolId,
     tasks_sym_id: SymbolId,
     box_sym_id: SymbolId,
@@ -132,6 +133,7 @@ pub const Facts = struct {
             .cell_sym_id = ctx.cell_sym_id,
             .list_sym_id = ctx.list_sym_id,
             .signal_sym_id = ctx.signal_sym_id,
+            .actor_sym_id = ctx.actor_sym_id,
             .task_sym_id = ctx.task_sym_id,
             .tasks_sym_id = ctx.tasks_sym_id,
             .box_sym_id = ctx.box_sym_id,
@@ -322,6 +324,12 @@ pub const Facts = struct {
     }
     pub fn isTaskJoin(f: Facts, call: Sexp) bool {
         return f.c().isTaskJoin(call);
+    }
+    pub fn isActorMake(f: Facts, call: Sexp) bool {
+        return f.c().isActorMake(call);
+    }
+    pub fn isActorCall(f: Facts, call: Sexp) bool {
+        return f.c().isActorCall(call);
     }
     pub fn isIsolateCall(f: Facts, call: Sexp) bool {
         return f.c().isIsolateCall(call);

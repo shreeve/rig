@@ -6736,6 +6736,8 @@ const Checker = struct {
                 const tname = if (decl.module_id != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ decl.ctx.name, owner.name }) else owner.name;
                 try self.err(pos, "method `{s}` must be called; to pass it as a function that takes the receiver first, name it through its type: `{s}.{s}`", .{ field, tname, field });
             }
+        } else if (sema.actorOfHandle(self.ctx, obj_ty) orelse sema.actorValue(self.ctx, obj_ty)) |value| {
+            try self.err(pos, "an actor's fields are its own: reach `{s}` through a method of `{s}`", .{ field, try self.tyName(value) });
         } else if (owner.fields == null) {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {
@@ -7709,6 +7711,13 @@ const Checker = struct {
             try self.errAt(callee, "a call that gives several results cannot be a task; make it a call, or have the function give one value", .{});
             return self.t().invalid_id;
         }
+        // `c.m(x)&` through an actor's handle: the call as a task, which
+        // holds a handle of its own; `actorCall` checked what crosses, and
+        // a `!` marks the call, lending nothing to write.
+        if (self.ctx.isActorCall(node)) {
+            self.ctx.makes_tasks = true;
+            return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+        }
         const target = self.ctx.callTargetOf(node) orelse .none;
         if (target != .function) {
             try self.errAt(callee, "a task runs a call of a function or a method: `f(x)&`, `(!v).m(x)&`", .{});
@@ -7858,6 +7867,7 @@ const Checker = struct {
                     }
                     if (sym_id == self.ctx.simd_sym_id) return self.badCall(args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
+                    if (sym_id == self.ctx.actor_sym_id) return self.actorMake(node, callee, args);
                     return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
                 },
                 .module => return self.badCall(args, callee, "module `{s}` cannot be called", .{name}),
@@ -10748,6 +10758,7 @@ const Checker = struct {
             return obj_ty;
         }
 
+        if (sema.actorOfHandle(self.ctx, obj_ty)) |value| return self.actorCall(callee, obj, obj_ty, value, method, pos, args, ct);
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| {
             const reads = switch (std.meta.stringToEnum(sema.ElemOp, method) orelse .copy) {
                 .read, .sum => true,
@@ -10939,6 +10950,117 @@ const Checker = struct {
         if (receiver == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.lent & sema.paramBit(0) != 0 and self.implicitReceiver(obj)) {
             if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
         }
+        return f.returns;
+    }
+
+    /// `*Actor(x)` and `*Actor(x, mailbox: n)`: an actor of `x`, which
+    /// it takes, behind its first handle. Its value goes to a task of its
+    /// own: an object or enum whose fields move and hold no loan.
+    /// `mailbox` is how many calls made with `&` may be in flight at
+    /// once (64 by default).
+    fn actorMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) Error!TypeId {
+        if (!sameNode(node, self.shared_operand)) return self.badCall(args, callee, "an actor lives only behind a shared handle: write `*Actor(x)`", .{});
+        var positional: usize = 0;
+        for (args) |a| {
+            if (!a.isKind(.kwarg)) {
+                positional += 1;
+                continue;
+            }
+            if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), "mailbox")) return self.badCall(args, a, "`Actor` takes the value it runs, and `mailbox:`, how many calls made with `&` it holds at once: `*Actor(x, mailbox: 16)`", .{});
+        }
+        if (positional != 1 or args[0].isKind(.kwarg)) return self.badCall(args, callee, "`Actor` takes the value it runs: `*Actor(Counter(hits: 0))`", .{});
+        const value = args[0];
+        const ty = self.canonical(try self.argType(value));
+        if (self.isPoison(ty)) return self.skipCall(args);
+        const shown = self.sourceText(value);
+        const declared = switch (self.ctx.types.get(ty)) {
+            .nominal, .imported_nominal => true,
+            .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, pn.sym),
+            else => false,
+        };
+        if (!declared) {
+            return self.badCall(args, value, "an actor runs an object or an enum, whose methods its handles call; `{s}` has type `{s}`", .{ shown, try self.tyName(ty) });
+        }
+        if (sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
+            return self.badCall(args, value, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
+        }
+        if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, value, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
+        const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+        const params: []const TypeId = &.{ ty, self.t().int_id };
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = actor, .is_sub = false };
+        try self.noteCallee(call);
+        try self.checkArgs(args, call, .{ .names = &.{ "value", "mailbox" } }, "Actor", self.startOf(callee), .{ .declared = call.params });
+        if (self.current_call) |c| try self.ctx.recordActorMake(c);
+        self.ctx.makes_tasks = true;
+        return actor;
+    }
+
+    /// `c.m(args)` through a handle `c` of an actor of `value`: a message,
+    /// which waits for the method to run on the actor's task and gives
+    /// its result. A `?@` method is called bare, through a handle or a
+    /// read view of one; a `!@` method is marked, `!c.m(...)`, through a
+    /// handle the caller holds. A method that takes its value, or whose
+    /// signature has `keeps` or `from`, is not called through a handle:
+    /// the actor holds no loan, and nothing it gives views its state. Its
+    /// arguments go to the actor's task (given ones move, lent ones
+    /// share), and so does its result, which moves.
+    fn actorCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, value: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        if (ct) |b| return self.badCall(args, b, "a method called through an actor's handle takes no compile-time arguments", .{});
+        const shown = try self.plainText(stripSigil(obj));
+        const m = (try sema.lookupMethod(self.ctx, value, method)) orelse {
+            if (try self.hasDataField(value, method)) return self.badCall(args, pos, "an actor's fields are its own: reach `{s}` through a method of `{s}`", .{ method, try self.tyName(value) });
+            return self.badCall(args, pos, "no method `{s}` on `{s}`, the value of actor `{s}`", .{ method, try self.tyName(value), shown });
+        };
+        const receiver = m.field.receiver;
+        switch (receiver) {
+            .none => return self.badCall(args, pos, "`{s}` takes no self: call it through its type, `{s}.{s}(...)`", .{ method, try self.tyName(value), method }),
+            .value => return self.badCall(args, pos, "`{s}` takes its value, which the actor keeps: a handle calls a `?@` or `!@` method", .{method}),
+            .read => if (obj.isKind(.write)) return self.badCall(args, obj, "`{s}` only reads the actor: call it bare, `{s}.{s}(...)`", .{ method, shown, method }),
+            .write => {
+                if (!obj.isKind(.write)) return self.badCall(args, obj, "`{s}` changes the actor: mark the call, `!{s}.{s}(...)`", .{ method, shown, method });
+                if (self.ctx.typeOf(stripSigil(obj))) |held| if (self.ctx.types.get(held) == .read_view) {
+                    return self.badCall(args, obj, "`{s}` changes the actor, and `{s}` is a read view of its handle, which only reads: call it through a handle you hold", .{ method, shown });
+                };
+            },
+        }
+        const o = m.field.origins;
+        if (o.declared or o.stores & o.lent != 0) return self.badCall(args, pos, "`{s}` has `keeps` or `from`, and an actor holds no loan, nor gives a view of its state: a handle cannot call it", .{method});
+        const f = m.fn_ty;
+        const rest: FunctionType = .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub };
+        _ = try self.noteMethod(callee, receiver, f.returns);
+        try self.noteCallee(rest);
+        const info = methodParams(m.field, true, self.declSource(m.nominal_sym));
+        const mark = self.ctx.diagnostics.items.len;
+        try self.checkArgs(args, rest, info, method, pos, .{ .declared = rest.params });
+        if (self.ctx.diagnostics.items.len != mark) return f.returns;
+        // What crosses to the actor's task.
+        for (args) |a| {
+            const arg = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            const ty = self.ctx.typeOf(arg) orelse continue;
+            if (self.isPoison(ty)) continue;
+            const k = self.ctx.types.get(ty);
+            if (k == .write_view) {
+                try self.errAt(arg, "a method an actor runs takes no write view: `{s}` lends `{s}` to write", .{ self.sourceText(arg), try self.plainText(stripSigil(arg)) });
+                return self.t().invalid_id;
+            }
+            const how: sema.Crossing = if (k == .read_view) .shares else .moves;
+            const inner = if (k == .read_view) sema.unwrapViews(self.ctx, ty) else ty;
+            if (sema.crossingBlocker(self.ctx, inner, how)) |blocker| {
+                try self.errAt(arg, "an actor runs its methods on a task of its own, and `{s}` {s}: `{s}` {s}", .{ self.sourceText(arg), if (how == .shares) "is lent to it to read" else "is given to it", try self.tyName(ty), try self.blockerReason(blocker, how == .shares, if (blocker == ty) "is" else if (blocker == inner) "views" else null) });
+                return self.t().invalid_id;
+            }
+        }
+        const result = if (self.ctx.types.get(f.returns) == .fallible) self.ctx.types.get(f.returns).fallible else f.returns;
+        if (sema.mayHoldView(self.ctx, result)) {
+            try self.err(pos, "`{s}` gives a `{s}`, which may view the actor's state; a method called through a handle gives a value", .{ method, try self.tyName(result) });
+            return self.t().invalid_id;
+        }
+        if (sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
+            try self.err(pos, "`{s}` gives a value made on the actor's task, and `{s}` {s}", .{ method, try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
+            return self.t().invalid_id;
+        }
+        _ = obj_ty;
+        if (self.current_call) |c| try self.ctx.recordActorCall(c);
         return f.returns;
     }
 

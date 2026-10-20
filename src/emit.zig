@@ -6151,6 +6151,14 @@ pub const Emitter = struct {
     fn emitShare(self: *Emitter, sexp: Sexp) Error!void {
         const inner = ir.Share.operand(sexp);
         if (inner.isKind(.lambda)) return self.emitOwnedClosure(inner);
+        // `*Actor(x)`, `*Actor(x, mailbox: n)`: the runtime makes the
+        // actor behind its first handle.
+        if (self.facts.isActorMake(inner)) {
+            try self.w.writeAll("rig.actor(");
+            try self.emitArgs(inner);
+            if (ir.Call.args(inner).len == 1) try self.w.writeAll(", 64");
+            return self.w.writeAll(")");
+        }
         // `*w` upgrading a weak handle: the runtime's `upgrade`, called on
         // a handle it reads where it stands; one it takes is dropped once
         // upgraded.
@@ -6770,6 +6778,15 @@ pub const Emitter = struct {
     /// receiver by value (`spawnMethod`).
     fn emitTask(self: *Emitter, sexp: Sexp) Error!void {
         const callee = self.facts.calleeOf(sexp);
+        // `c.m(x)&` through an actor's handle (`rig.actorSpawn`).
+        if (self.facts.isActorCall(sexp)) {
+            const obj = ir.Member.object(callee);
+            try self.w.writeAll("rig.actorSpawn(");
+            try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
+            try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
+            try self.emitArgs(sexp);
+            return self.w.writeAll(" })");
+        }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
         if (self.receiverOf(sexp)) |recv| {
             const saved = self.read_place;
@@ -6905,6 +6922,16 @@ pub const Emitter = struct {
         // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
         // by the runtime, with no limit but the workers' count when none
         // is given.
+        // `c.m(args)` through an actor's handle: a message the runtime
+        // sends, which waits for the answer.
+        if (self.facts.isActorCall(sexp)) {
+            const obj = ir.Member.object(callee);
+            try self.w.writeAll("rig.actorCall(");
+            try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
+            try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
+            try self.emitArgs(sexp);
+            return self.w.writeAll(" })");
+        }
         // `task.isolate(f)`: run apart by the runtime.
         if (self.facts.isIsolateCall(sexp)) {
             try self.w.writeAll("rig.isolate(");
