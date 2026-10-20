@@ -37,6 +37,13 @@ pub fn width(r: i64) i64 {
     return props(@truncate(@as(u64, @bitCast(r)))) & 3;
 }
 
+/// The width bits of rune `r` (see `props`); 0 for a value that is not a
+/// rune.
+pub fn width_props(r: i64) i64 {
+    if (r < 0 or r > 0x10FFFF) return 0;
+    return props(@truncate(@as(u64, @bitCast(r))));
+}
+
 const index: [4096]u7 = .{
     0, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
     15, 16, 1, 17, 1, 1, 1, 18, 19, 20, 21, 22, 23, 24, 1, 1,

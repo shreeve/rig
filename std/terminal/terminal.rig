@@ -9,8 +9,28 @@
 # This file holds the screen and the operations on it; parser.rig turns
 # bytes into those operations.
 
+use std.hash
+use std.text
 use std.unicode
 use std.utf8
+
+extern zig "char.zig"
+  # The class of rune `r` among std.text's chars (Class in
+  # std/char_tables.zig), with `tailored` as Ghostty's.
+  fun char_class(r: Int, tailored: Bool) -> Int
+
+extern zig "width_tables.zig"
+  # The width bits of rune `r`: its width, ZERO_IN_CHAR, and VS_BASE.
+  fun width_props(r: Int) -> Int
+
+# The class `pict` of char_class: Extended_Pictographic, an emoji modifier
+# base aside when tailored.
+CLASS_PICT = 1
+
+# Bits of width_props: the rune takes no column of its own inside a char;
+# a variation selector may follow it to ask for text or emoji style.
+ZERO_IN_CHAR = 4
+VS_BASE = 8
 
 # The index of `s` in `styles`, added when it is new.
 fun intern(styles: !List[Style], s: ?Style) -> Int
@@ -81,24 +101,29 @@ TAIL: U64 = 0x80000000
 HEAD: U64 = 0xC0000000
 KIND: U64 = 0xC0000000
 
+# A cell holds a char of more than one rune: the runes after its first
+# are in `extras`, by the cell's index (Ghostty's grapheme map).
+EXTRA: U64 = 0x20000000
+
 # The flags of a row, kept by its place in `cells`, so they move with it:
 # it wraps into the next row, it is wrapped into from the row before, and
-# it may hold cells of wide runes.
+# it may hold cells of wide runes, and cells with EXTRA.
 ROW_WRAP: U8 = 1
 ROW_CONT: U8 = 2
 ROW_WIDE: U8 = 4
+ROW_MORE: U8 = 8
 
 # The rune of a cell.
 fun rune(c: U64) -> Int
-  Int(c & 0x3FFFFFFF)
+  Int(c & 0x1FFFFF)
 
 # The style index of a cell.
 fun mark(c: U64) -> Int
   Int(c >> 32)
 
 # A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune
-# in the low 30 bits (0 for empty), its kind (WIDE, TAIL, HEAD, or 0) in
-# the next 2, and its style, an index into `styles`, in the high 32. The
+# in the low 21 bits (0 for empty), EXTRA in bit 29, its kind (WIDE, TAIL,
+# HEAD, or 0) in the next 2, and its style, an index into `styles`, in the high 32. The
 # screen's rows are kept in any order: row `y` is cells `map[y] * cols` to
 # `map[y] * cols + cols - 1`, and its flags are `flags[map[y]]`, so a
 # scroll moves entries of `map`, not cells.
@@ -111,6 +136,9 @@ pub obj Terminal
   cells: List[U64]
   map: List[Int]
   flags: List[U8]
+  # The runes after the first of each cell with EXTRA, by its index in
+  # `cells`.
+  extras: hash.Map[Int, List[U32]]
   # The styles cells use, the first the plain one.
   styles: List[Style]
   # The style the next rune is printed in (SGR), and its index; the index
@@ -139,6 +167,9 @@ pub obj Terminal
   # Modes: autowrap (DECAWM), origin (DECOM), insert (IRM), and new line
   # (LNM, a line feed also returns).
   autowrap: Bool
+  # Mode 2027: runes join into chars as Ghostty clusters them, and a char
+  # takes the width of its runes together.
+  graphemes: Bool
   origin: Bool
   insert: Bool
   newline: Bool
@@ -168,6 +199,7 @@ pub obj Terminal
   other_cells: List[U64]
   other_map: List[Int]
   other_flags: List[U8]
+  other_extras: hash.Map[Int, List[U32]]
   other_saved: Saved
   # The background of the other screen's cursor when it was left, which a
   # screen is erased with as 1049 enters it, before the cursor comes over.
@@ -197,13 +229,13 @@ pub obj Terminal
     map = List[Int].filled(rows, 0)
     for y in 0..rows
       map[y] = y
-    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, flags: List[U8].filled(rows, 0),
+    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, flags: List[U8].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
       styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
-      autowrap: true, origin: false, insert: false, newline: false, cursor_visible: true,
+      autowrap: true, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
       modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
       kitty: [8 of 0], kitty_idx: 0, other_kitty: [8 of 0], other_kitty_idx: 0, replies: String(),
-      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_flags: List(), other_saved: Saved.none(), other_bg: NONE,
+      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_flags: List(), other_extras: hash.Map[Int, List[U32]].new(), other_saved: Saved.none(), other_bg: NONE,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0, decoder: utf8.Decoder.new())
 
   # REP: the last rune printed, `n` more times (at least once).
@@ -236,13 +268,18 @@ pub obj Terminal
   # Write `r` at the cursor and move right, wrapping first when a wrap is
   # pending. A rune of width 2 takes a second cell, a spacer, and at the
   # last column wraps first, leaving a spacer there (or, with autowrap
-  # off, is not written). One of width 0 changes nothing: Ghostty adds it
-  # to the cell before, as part of its char, which the cells here do not
-  # hold yet.
+  # off, is not written). One of width 0 joins the char before (`attach`).
+  # In mode 2027 a rune past 0xFF that continues the char before joins it
+  # (`join`), and one of width 0 that does not is dropped.
   sub print(!@, r: U32)
-    w = 1 if r <= 0xFF else unicode.width(Int(r))
-    return if w == 0
-    @last = Int(r)
+    c = Int(r)
+    if c > 0xFF and @graphemes and @col > 0
+      return if (!@).join(c)
+    w = 1 if c <= 0xFF else unicode.width(c)
+    if w == 0
+      (!@).attach(c) if not @graphemes
+      return
+    @last = c
     (!@).wrap() if @pending_wrap and @autowrap
     (!@).insert_blanks(w) if @insert and @col + w < @cols
     if w == 1
@@ -279,14 +316,111 @@ pub obj Terminal
     old = @cells[i] & KIND
     if old != kind and (old == WIDE or old == TAIL)
       if old == TAIL
-        @cells[i - 1] = @blank_cell
+        (!@).blank(i - 1, i)
       else if @col < @cols - 1
-        @cells[i + 1] = @blank_cell
+        (!@).blank(i + 1, i + 2)
       if @row > 0 and @col <= 1
         j = @map[@row - 1] * @cols + @cols - 1
         @cells[j] ^= HEAD if @cells[j] & KIND == HEAD
+    if @cells[i] & EXTRA != 0
+      _ = (!@extras).take(i)
     @cells[i] = U64(shown) | kind | @pen_bits
     @flags[p] |= ROW_WIDE if kind != 0
+
+  # Rune `c` added to the char of cell `i`, after its runes.
+  sub append(!@, i: Int, c: Int)
+    if @cells[i] & EXTRA == 0
+      @cells[i] |= EXTRA
+      !@extras.put(i, List[U32]())
+    if (!@extras).edit(i) as l
+      !l.push(U32(c))
+    @flags[i / @cols] |= ROW_MORE
+
+  # Ghostty's rune of width 0 outside mode 2027: added to the char before
+  # the cursor (the cursor's own when a wrap is pending), when there is
+  # one; a variation selector only after an emoji that is no modifier base.
+  sub attach(!@, c: Int)
+    left = 0 if @autowrap and @pending_wrap else 1
+    return if @col < left
+    i = @map[@row] * @cols + @col - left
+    i -= 1 if @cells[i] & KIND == TAIL else 0
+    first = rune(@cells[i])
+    return if first == 0
+    return if (c == 0xFE0F or c == 0xFE0E) and char_class(first, true) != CLASS_PICT
+    (!@).append(i, c)
+
+  # Mode 2027: whether `c` continues the char that ends before the cursor
+  # (or at it, with a wrap pending), as Ghostty clusters runes (a tailored
+  # text.CharBreak); if so it joins that char. A variation selector after
+  # a rune that may take one makes the char wide (VS16) or narrow (VS15),
+  # and after any other is dropped; a rune that takes a column of its own
+  # makes it wide. A char made wide at the last column wraps whole, or
+  # with autowrap off stays as it was.
+  fun join(!@, c: Int) -> Bool
+    base = @map[@row] * @cols
+    left = 1
+    if @autowrap
+      left = 0 if @pending_wrap else 1
+    else if @col == @cols - 1
+      left = 1 if rune(@cells[base + @col]) == 0 else 0
+    x = @col - left
+    x -= 1 if @cells[base + x] & KIND == TAIL else 0
+    i = base + x
+    first = rune(@cells[i])
+    return false if first == 0
+    b = text.CharBreak.new(true)
+    _ = (!b).next(first)
+    last = first
+    if @cells[i] & EXTRA != 0
+      if @extras.get(i) as l
+        for e in l
+          _ = (!b).next(Int(e))
+          last = Int(e)
+    return false if (!b).next(c)
+    effect = 0
+    if c == 0xFE0F or c == 0xFE0E
+      return true if width_props(last) & VS_BASE == 0
+      effect = 2 if c == 0xFE0F else 1
+    else if width_props(c) & ZERO_IN_CHAR == 0
+      effect = 2
+    if effect == 2 and @cells[i] & KIND != WIDE
+      @col = x
+      if x == @cols - 1
+        return true if not @autowrap
+        @flags[@map[@row]] |= ROW_WRAP
+        if @cells[i] & EXTRA != 0
+          # The char moves to the next row with its runes; its cell keeps
+          # its style, as a spacer.
+          runes = (!@extras).take(i) ?? List[U32]()
+          @cells[i] = ((@cells[i] >> 32) << 32) | HEAD
+          @flags[@map[@row]] |= ROW_WIDE
+          (!@).wrap()
+          (!@).put(U32(first), WIDE)
+          i = @map[@row] * @cols + @col
+          @cells[i] |= EXTRA
+          !@extras.put(i, <runes)
+          @flags[@map[@row]] |= ROW_MORE
+        else
+          (!@).put(0, HEAD)
+          (!@).wrap()
+          (!@).put(U32(first), WIDE)
+          i = @map[@row] * @cols + @col
+      else
+        @cells[i] = (@cells[i] ^ (@cells[i] & KIND)) | WIDE
+        @flags[@map[@row]] |= ROW_WIDE
+      @col += 1
+      (!@).put(0, TAIL)
+      if @col == @cols - 1
+        @pending_wrap = true
+      else
+        @col += 1
+    else if effect == 1 and @cells[i] & KIND == WIDE
+      @cells[i] ^= WIDE
+      @cells[i + 1] ^= TAIL if x < @cols - 1 and @cells[i + 1] & KIND == TAIL
+      @pending_wrap = false
+      @col = x + 1 if x + 1 < @cols - 1 else @cols - 1
+    (!@).append(i, c)
+    true
 
   # Ghostty's printWrap: to the first column of the next row, scrolling at
   # the bottom margin. From the last column the row is marked as wrapping
@@ -316,7 +450,7 @@ pub obj Terminal
         (!@).put(U32(s[to - 1]), 0)
         @last = Int(s[to - 1])
         return
-      if @flags[@map[@row]] & ROW_WIDE != 0
+      if @flags[@map[@row]] & (ROW_WIDE | ROW_MORE) != 0
         # A row that may hold wide runes: a rune at a time, as `print`
         # writes it over their halves.
         (!@).print(U32(s[k]))
@@ -377,16 +511,15 @@ pub obj Terminal
       else
         break
       w = 1 if r <= 0xFF else unicode.width(r)
-      continue if w == 0
-      if not fast
+      if w == 0 or not fast or (@graphemes and r > 0xFF)
         (!@).print(U32(r))
         continue
       (!@).wrap() if @pending_wrap and @autowrap
       p = @map[@row]
       i = p * @cols + @col
-      if w == 1 and @cells[i] & KIND == 0
+      if w == 1 and @cells[i] & (KIND | EXTRA) == 0
         @cells[i] = U64(r) | @pen_bits
-      else if w == 2 and @col < @cols - 1 and (@cells[i] | @cells[i + 1]) & KIND == 0
+      else if w == 2 and @col < @cols - 1 and (@cells[i] | @cells[i + 1]) & (KIND | EXTRA) == 0
         @cells[i] = U64(r) | WIDE | @pen_bits
         @cells[i + 1] = TAIL | @pen_bits
         @flags[p] |= ROW_WIDE
@@ -425,6 +558,11 @@ pub obj Terminal
   # Cells `from` to `to` (not included) of `cells`, within one row, erased:
   # empty, keeping the pen's background.
   sub blank(!@, from: Int, to: Int)
+    return if from >= to
+    if @flags[from / @cols] & ROW_MORE != 0
+      for i in from..to
+        if @cells[i] & EXTRA != 0
+          _ = (!@extras).take(i)
     !@cells[from..to].fill(@blank_cell)
 
   # Rows `first` to `last` (not included) erased, and their flags cleared.
@@ -441,7 +579,7 @@ pub obj Terminal
   sub unwrap_rows(!@, first: Int, last: Int)
     for y in first..last + 1
       p = @map[y]
-      @flags[p] &= ROW_WIDE
+      @flags[p] &= ROW_WIDE | ROW_MORE
       j = p * @cols + @cols - 1
       @cells[j] ^= HEAD if @cells[j] & KIND == HEAD
 
@@ -471,7 +609,7 @@ pub obj Terminal
     return if @flags[p] & ROW_WRAP == 0
     @flags[p] ^= ROW_WRAP
     if @row < @rows - 1
-      @flags[@map[@row + 1]] &= ROW_WRAP | ROW_WIDE
+      @flags[@map[@row + 1]] &= ROW_WRAP | ROW_WIDE | ROW_MORE
     j = p * @cols + @cols - 1
     @cells[j] = @blank_cell if @cells[j] & KIND == HEAD
 
@@ -556,6 +694,14 @@ pub obj Terminal
     keep = @cols - @col - k
     if keep > 0 and @cells[base + @col + keep - 1] & KIND == WIDE
       (!@).blank(base + @col + keep - 1, base + @col + keep + 1)
+    if @flags[@map[@row]] & ROW_MORE != 0
+      # Each char's runes move with its cell, or go with it off the row.
+      x = @cols
+      while x > @col
+        x -= 1
+        if @cells[base + x] & EXTRA != 0
+          if (!@extras).take(base + x) as runes
+            !@extras.put(base + x + k, <runes) if x + k < @cols
     x = @cols
     while x > @col + k
       x -= 1
@@ -571,6 +717,13 @@ pub obj Terminal
     (!@).split_at(@col)
     (!@).split_at(@col + k)
     (!@).split_at(@cols)
+    if @flags[@map[@row]] & ROW_MORE != 0
+      # The runes of the chars deleted go, and the rest move with their
+      # cells.
+      for x in @col..@cols
+        if @cells[base + x] & EXTRA != 0
+          if (!@extras).take(base + x) as runes
+            !@extras.put(base + x - k, <runes) if x >= @col + k
     for x in @col..@cols - k
       @cells[base + x] = @cells[base + x + k]
     (!@).blank(base + @cols - k, base + @cols)
@@ -646,6 +799,7 @@ pub obj Terminal
     (!@).cursor_to(1, 1)
     !@cells[..].fill(U64(0x45) | @pen_bits)
     !@flags[..].fill(0)
+    !@extras.clear()
 
   sub backspace(!@)
     @pending_wrap = false
@@ -753,10 +907,12 @@ pub obj Terminal
         map[y] = y
       @other_map = <map
       @other_flags = List[U8].filled(@rows, 0)
+      @other_extras = hash.Map[Int, List[U32]].new()
       @alt_made = true
     swap(!@cells, !@other_cells)
     swap(!@map, !@other_map)
     swap(!@flags, !@other_flags)
+    swap(!@extras, !@other_extras)
     swap(!@saved, !@other_saved)
     swap(!@kitty, !@other_kitty)
     swap(!@kitty_idx, !@other_kitty_idx)
@@ -854,6 +1010,7 @@ pub obj Terminal
         @origin = on
         (!@).cursor_to(1, 1)
       7 => @autowrap = on
+      2027 => @graphemes = on
       25 => @cursor_visible = on
       1048
         if on
@@ -885,8 +1042,8 @@ pub obj Terminal
       _ => pass
 
   # The screen and cursor as text: a line per row, `|` and the row's runes
-  # with its trailing blanks dropped (an empty cell is a space, and the
-  # spacer of a wide rune is left out); a line
+  # with its trailing blanks dropped (an empty cell is a space, a cell
+  # shows its whole char, and the spacer of a wide rune is left out); a line
   # `~ROW FIRST-LAST STYLE` per run of cells in a row with the same style
   # other than the plain one (Style.text); a line `reply BYTES` when there
   # are replies, each byte below 0x20 or above 0x7E written `\xNN`, ESC
@@ -897,13 +1054,17 @@ pub obj Terminal
     for y in 0..@rows
       start = @map[y] * @cols
       end = start + @cols
-      while end > start and (rune(@cells[end - 1]) == 0 or rune(@cells[end - 1]) == 0x20)
+      while end > start and @cells[end - 1] & EXTRA == 0 and (rune(@cells[end - 1]) == 0 or rune(@cells[end - 1]) == 0x20)
         end -= 1
       !out.push(b'|')
       for i in start..end
         continue if @cells[i] & KIND == TAIL
         r = rune(@cells[i])
         utf8.push_rune(!out, 0x20 if r == 0 else r)
+        if @cells[i] & EXTRA != 0
+          if @extras.get(i) as runes
+            for e in runes
+              utf8.push_rune(!out, Int(e))
       !out.push(b'\n')
     for y in 0..@rows
       base = @map[y] * @cols

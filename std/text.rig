@@ -252,6 +252,33 @@ pub fun first_chars(s: ?String, n: Int) -> ?String
 pub fun last_chars(s: ?String, n: Int) -> ?String
   s[last_chars_start(s, n)..]
 
+# Where chars start in text that comes a rune at a time, as a terminal
+# reads it: `!b.next(r)` is whether a char starts at rune `r`, the next of
+# the text, and reads it. The rules are those of `chars`; with `tailored`
+# they are Ghostty's (uucode's), which tailor UAX #29 as UTS #51 has emoji
+# modifier sequences: an emoji modifier (a skin tone) joins only an emoji
+# modifier base just before it, and starts a char of its own after
+# anything else; and a rune of the class Control other than CR and LF
+# (DEL, the soft hyphen, the zero-width space) joins as any other rune.
+pub obj CharBreak
+  state: Int
+  tailored: Bool
+
+  # A break before any rune.
+  pub fun new(tailored: Bool = false) -> CharBreak
+    CharBreak(state: -1, tailored: tailored)
+
+  # Whether a char starts at `r`; then `r` is read. The first rune starts
+  # one. A value that is not a rune reads as U+FFFD.
+  pub fun next(!@, r: Int) -> Bool
+    s = char_step(@state, r, @tailored)
+    @state = s & 0x7F
+    s & 0x80 != 0
+
+  # Back to before any rune.
+  pub sub reset(!@)
+    @state = -1
+
 # ---- Parsing -------------------------------------------------------------
 
 # `true` for "true" and `false` for "false"; fails with
@@ -450,6 +477,9 @@ extern zig "char.zig"
   pub fun char_boundary(s: ?String, i: Int) -> Int
   # The byte where the char that starts at byte `i` ends.
   fun char_end(s: ?String, i: Int) -> Int
+  # One step of CharBreak: the state after rune `r` from `state`, bit 7
+  # set when a char starts at `r`.
+  fun char_step(state: Int, r: Int, tailored: Bool) -> Int
   # The bytes the first `n` chars of `s` take.
   fun first_chars_end(s: ?String, n: Int) -> Int
   # The byte where the last `n` chars of `s` start.

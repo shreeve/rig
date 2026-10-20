@@ -48,7 +48,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide", "grapheme"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -382,6 +382,36 @@ CASES = [
     ("wide", "a narrow rune over a wrapped-into rune unmarks the spacer above", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[2;1Hx\x1b[2;1H\x1b[P".encode()),
     ("wide", "DECALN clears wide runes and wraps", 5, 3, "abcd中\x1b#8\x1b[1;1H\x1b[X".encode()),
     ("wide", "the alternate screen has its own row flags", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[?1047h\x1b[?1047l\x1b[1;1H\x1b[X".encode()),
+
+    ("grapheme", "a combining mark joins the char before", 10, 2, "e\u0301a\u0308b".encode()),
+    ("grapheme", "marks join a wide char", 10, 2, "中\u0301\u0302x".encode()),
+    ("grapheme", "a mark at the first column is dropped", 10, 2, "\u0301a\r\u0302".encode()),
+    ("grapheme", "a mark joins the last char while a wrap is pending", 3, 2, "abc\u0301d".encode()),
+    ("grapheme", "a mark after an empty cell is dropped", 10, 2, "a\x1b[3G\u0301b".encode()),
+    ("grapheme", "VS16 joins an emoji only, outside mode 2027", 10, 2, "\u2764\ufe0fa\ufe0f\U0001f44d\ufe0f".encode()),
+    ("grapheme", "ZWJ joins, and the emoji after it is a char of its own", 10, 2, "\U0001f468\u200d\U0001f469x".encode()),
+    ("grapheme", "a char's runes go when its cell is written", 10, 2, "e\u0301\re".encode()),
+    ("grapheme", "ICH and DCH move a char's runes with it", 10, 2, "ae\u0301b\x1b[1;1H\x1b[2@\x1b[1;1H\x1b[P".encode()),
+    ("grapheme", "ECH and EL drop a char's runes", 10, 2, "e\u0301e\u0302e\u0303\x1b[1;1H\x1b[X\x1b[1;3H\x1b[K".encode()),
+    ("grapheme", "a char's runes scroll with its row", 10, 2, "e\u0301\r\n\r\n".encode()),
+    ("grapheme", "a char's runes stay on their screen", 10, 2, "e\u0301\x1b[?1049ha\u0302\x1b[?1049l".encode()),
+    ("grapheme", "mode 2027 joins an emoji ZWJ sequence", 10, 2, "\x1b[?2027h\U0001f468\u200d\U0001f469\u200d\U0001f467x".encode()),
+    ("grapheme", "mode 2027 joins a flag", 10, 2, "\x1b[?2027h\U0001f1fa\U0001f1f8\U0001f1e6x".encode()),
+    ("grapheme", "mode 2027: VS16 makes a char wide", 10, 2, "\x1b[?2027h\u2764\ufe0fx".encode()),
+    ("grapheme", "mode 2027: VS15 makes a wide char narrow", 10, 2, "\x1b[?2027h\u231a\ufe0ex".encode()),
+    ("grapheme", "mode 2027: a variation selector after a letter is dropped", 10, 2, "\x1b[?2027ha\ufe0fb".encode()),
+    ("grapheme", "mode 2027: a skin tone joins a modifier base only", 10, 2, "\x1b[?2027h\U0001f44d\U0001f3fda\U0001f3fd".encode()),
+    ("grapheme", "mode 2027: a spacing mark makes a char wide", 10, 2, "\x1b[?2027h\u0915\u093f\u0915\u094d\u0937".encode()),
+    ("grapheme", "mode 2027: Hangul jamo join into one wide char", 10, 2, "\x1b[?2027h\u1100\u1161\u11a8x".encode()),
+    ("grapheme", "mode 2027: a char made wide at the last column wraps", 4, 3, "\x1b[?2027habc\u2764\ufe0fx".encode()),
+    ("grapheme", "mode 2027: a char with runes made wide at the last column wraps with them", 4, 3, "\x1b[?2027h\x1b[41mabc\u2764\u0301\x1b[42m\u093fx".encode()),
+    ("grapheme", "mode 2027: with autowrap off a char at the last column stays narrow", 4, 3, "\x1b[?2027h\x1b[?7labc\u2764\ufe0fx".encode()),
+    ("grapheme", "mode 2027: a zero-width rune that starts a char is dropped", 10, 2, "\x1b[?2027ha\r\n\u200b\u0301b".encode()),
+    ("grapheme", "mode 2027 set later reads runes already joined", 10, 2, "\u2764\u0301\x1b[?2027h\ufe0fx".encode()),
+    ("grapheme", "mode 2027: DEL and the soft hyphen join marks as other runes", 10, 2, "\x1b[?2027h\x7f\u0301\u00ad\u030ex".encode()),
+    ("grapheme", "mode 2027: a prepend joins a bidi mark", 10, 2, "\x1b[?2027h\u0600\u200ex".encode()),
+    ("grapheme", "mode 2027 joins after a zero-width space attached before it", 10, 2, "\u00ab\u200b\x1b[?2027h\u200dx".encode()),
+    ("grapheme", "DECRQM reports mode 2027", 10, 2, b"\x1b[?2027h\x1b[?2027$p\x1b[?2027l\x1b[?2027$p"),
 ]
 
 
@@ -574,7 +604,7 @@ def piece(rng, every):
         return sgr(rng)
     if k < 0.90:
         private = rng.random() < 0.6
-        modes = [rng.choice([6, 7, 25, 1, 5, 47, 1047, 1048, 1049, 2004, 1000] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
+        modes = [rng.choice([6, 7, 25, 1, 5, 47, 1047, 1048, 1049, 2004, 1000, 2027, 2027] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
         if private and rng.random() < 0.3:
             return b"\x1b[?%d$p" % rng.choice([6, 7, 25, 47, 117, 1000, 1004, 1048, 1049, 2004, 2027, 999])
         if private and rng.random() < 0.2:
@@ -594,7 +624,10 @@ def piece(rng, every):
 # Runes of width 1, 2, and 0, and any rune but a surrogate.
 NARROW = [range(0xA1, 0xAD), range(0xAE, 0x100), range(0x391, 0x3A2), range(0x3A3, 0x3CA), range(0x410, 0x450), range(0x2500, 0x2580), [0xFFFD, 0x20AC]]
 WIDE = [range(0x4E00, 0x4E40), range(0x3041, 0x3097), range(0xAC00, 0xAC40), range(0xFF01, 0xFF61), range(0xFFE0, 0xFFE7), range(0x1F300, 0x1F650), range(0x1F1E6, 0x1F200)]
-ZERO = [range(0x300, 0x370), range(0x200B, 0x2010), range(0xFE00, 0xFE10), range(0x1160, 0x1200), [0xAD, 0x20E3, 0x1F3FB]]
+ZERO = [range(0x300, 0x370), range(0x200B, 0x2010), range(0xFE00, 0xFE10), range(0x1160, 0x1200), [0xAD, 0x20E3, 0x1F3FB, 0xFE0F, 0xFE0E, 0x200D]]
+# Runes that make chars of several: bases and what joins them.
+JOINING = [[0x2764, 0x231A, 0x1F44D, 0x1F468, 0x1F469, 0x261D, 0x1F1FA, 0x1F1F8, 0x23, 0x915, 0x1100, 0xAC00, 0x600],
+           [0xFE0F, 0xFE0E, 0x200D, 0x1F3FD, 0x20E3, 0x301, 0x93F, 0x94D, 0x1161, 0x11A8, 0x1F1E6]]
 
 
 def any_rune(rng):
@@ -607,6 +640,8 @@ def any_rune(rng):
 def utf8_piece(rng):
     """Runes of each width, bytes that never start a rune, or a rune cut short."""
     k = rng.random()
+    if k < 0.15:
+        return "".join(chr(rng.choice(JOINING[rng.random() < 0.55])) for _ in range(rng.randint(1, 6))).encode()
     if k < 0.6:
         kinds = [NARROW, NARROW, WIDE, WIDE, ZERO]
         return "".join(chr(any_rune(rng) if rng.random() < 0.1 else rng.choice(rng.choice(rng.choice(kinds))))
