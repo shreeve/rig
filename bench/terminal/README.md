@@ -111,3 +111,21 @@ written straight into their cells (load average about 4; 5 runs):
 
 utf8 went from 221.9 to 389.8 MB/s; the other corpora do not reach the
 new path.
+
+2026-10-20, with erasing that clears only the cells a row has written
+(a row keeps how far it has been written, and an empty cell with no
+background is 0, which is cleared at memset's speed), a full-screen
+scroll that moves one entry of the row map, and CR LF taken at once
+(load average about 4; 5 runs):
+
+| corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | ghostty, SIMD | dispatch | rig-fast / best Ghostty |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| text | 825.5 MB/s | 1201.8 MB/s | 1006.9 MB/s | 940.4 MB/s | 1008.4 MB/s | 857.7 MB/s | 1.19 |
+| scroll | 251.3 MB/s | 280.2 MB/s | 176.0 MB/s | 187.3 MB/s | 173.3 MB/s | 129.7 MB/s | 1.50 |
+| sgr | 265.2 MB/s | 275.5 MB/s | 175.6 MB/s | 195.5 MB/s | 175.5 MB/s | 145.5 MB/s | 1.41 |
+| tui | 309.3 MB/s | 320.1 MB/s | 184.7 MB/s | 177.4 MB/s | 180.6 MB/s | 147.4 MB/s | 1.73 |
+| utf8 | 307.7 MB/s | 356.4 MB/s | 232.3 MB/s | 224.3 MB/s | 299.6 MB/s | 195.3 MB/s | 1.19 |
+
+A scroll had cost 36 ns, three quarters of it filling the new row with
+an erased cell: Zig's `@memset` of a U64 that is not 0 stores one cell
+at a time. It now costs about 8 ns, where Ghostty's costs 18.

@@ -123,10 +123,10 @@ fun mark(c: U64) -> Int
 
 # A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune
 # in the low 21 bits (0 for empty), EXTRA in bit 29, its kind (WIDE, TAIL,
-# HEAD, or 0) in the next 2, and its style, an index into `styles`, in the high 32. The
-# screen's rows are kept in any order: row `y` is cells `map[y] * cols` to
-# `map[y] * cols + cols - 1`, and its flags are `flags[map[y]]`, so a
-# scroll moves entries of `map`, not cells.
+# HEAD, or 0) in the next 2, and its style, an index into `styles`, in
+# the high 32. The screen's rows are kept in any order: row `y` is cells
+# `map[rot + y] * cols` to `map[rot + y] * cols + cols - 1`, and its flags
+# are `flags[map[rot + y]]`, so a scroll moves entries of `map`, not cells.
 pub obj Terminal
   # The bytes the terminal answers with (DA, DSR, DECRQM, XTVERSION, ...),
   # in order, for the caller to send to the program and then clear.
@@ -134,8 +134,15 @@ pub obj Terminal
   cols: Int
   rows: Int
   cells: List[U64]
+  # Row `y` is cells `map[rot + y] * cols` on: `map` holds two screens'
+  # worth of entries, and `rot` is where the screen's window starts.
   map: List[Int]
+  rot: Int
   flags: List[U8]
+  # Past `ends[map[rot + y]]` every cell of row `y` is 0, an empty cell
+  # with no background, so erasing a row, as a scroll does, clears only
+  # the cells written.
+  ends: List[Int]
   # The runes after the first of each cell with EXTRA, by its index in
   # `cells`.
   extras: hash.Map[Int, List[U32]]
@@ -198,7 +205,9 @@ pub obj Terminal
   alt_made: Bool
   other_cells: List[U64]
   other_map: List[Int]
+  other_rot: Int
   other_flags: List[U8]
+  other_ends: List[Int]
   other_extras: hash.Map[Int, List[U32]]
   other_saved: Saved
   # The background of the other screen's cursor when it was left, which a
@@ -226,16 +235,16 @@ pub obj Terminal
     tabs = List[Bool].filled(cols, false)
     for x in 0..cols
       tabs[x] = x % 8 == 0
-    map = List[Int].filled(rows, 0)
+    map = List[Int].filled(2 * rows, 0)
     for y in 0..rows
       map[y] = y
-    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, flags: List[U8].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
+    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
       styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
       modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
       kitty: [8 of 0], kitty_idx: 0, other_kitty: [8 of 0], other_kitty_idx: 0, replies: String(),
-      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_flags: List(), other_extras: hash.Map[Int, List[U32]].new(), other_saved: Saved.none(), other_bg: NONE,
+      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_rot: 0, other_flags: List(), other_ends: List(), other_extras: hash.Map[Int, List[U32]].new(), other_saved: Saved.none(), other_bg: NONE,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0, decoder: utf8.Decoder.new())
 
   # REP: the last rune printed, `n` more times (at least once).
@@ -263,7 +272,7 @@ pub obj Terminal
 
   # The index in `cells` of row `y`, column `x`.
   fun at(?@, y: Int, x: Int) -> Int
-    @map[y] * @cols + x
+    @map[@rot + y] * @cols + x
 
   # Write `r` at the cursor and move right, wrapping first when a wrap is
   # pending. A rune of width 2 takes a second cell, a spacer, and at the
@@ -289,7 +298,7 @@ pub obj Terminal
     else
       if @col == @cols - 1
         return if not @autowrap
-        @flags[@map[@row]] |= ROW_WRAP
+        @flags[@map[@rot + @row]] |= ROW_WRAP
         (!@).put(0, HEAD)
         (!@).wrap()
       (!@).put(r, WIDE)
@@ -311,7 +320,7 @@ pub obj Terminal
     slot = @single if @single >= 0 else @gl
     @single = -1
     shown = map_rune(@g[slot], r)
-    p = @map[@row]
+    p = @map[@rot + @row]
     i = p * @cols + @col
     old = @cells[i] & KIND
     if old != kind and (old == WIDE or old == TAIL)
@@ -320,11 +329,12 @@ pub obj Terminal
       else if @col < @cols - 1
         (!@).blank(i + 1, i + 2)
       if @row > 0 and @col <= 1
-        j = @map[@row - 1] * @cols + @cols - 1
+        j = @map[@rot + @row - 1] * @cols + @cols - 1
         @cells[j] ^= HEAD if @cells[j] & KIND == HEAD
     if @cells[i] & EXTRA != 0
       _ = (!@extras).take(i)
     @cells[i] = U64(shown) | kind | @pen_bits
+    @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
     @flags[p] |= ROW_WIDE if kind != 0
 
   # Rune `c` added to the char of cell `i`, after its runes.
@@ -342,7 +352,7 @@ pub obj Terminal
   sub attach(!@, c: Int)
     left = 0 if @autowrap and @pending_wrap else 1
     return if @col < left
-    i = @map[@row] * @cols + @col - left
+    i = @map[@rot + @row] * @cols + @col - left
     i -= 1 if @cells[i] & KIND == TAIL else 0
     first = rune(@cells[i])
     return if first == 0
@@ -357,7 +367,7 @@ pub obj Terminal
   # makes it wide. A char made wide at the last column wraps whole, or
   # with autowrap off stays as it was.
   fun join(!@, c: Int) -> Bool
-    base = @map[@row] * @cols
+    base = @map[@rot + @row] * @cols
     left = 1
     if @autowrap
       left = 0 if @pending_wrap else 1
@@ -387,27 +397,27 @@ pub obj Terminal
       @col = x
       if x == @cols - 1
         return true if not @autowrap
-        @flags[@map[@row]] |= ROW_WRAP
+        @flags[@map[@rot + @row]] |= ROW_WRAP
         if @cells[i] & EXTRA != 0
           # The char moves to the next row with its runes; its cell keeps
           # its style, as a spacer.
           runes = (!@extras).take(i) ?? List[U32]()
           @cells[i] = ((@cells[i] >> 32) << 32) | HEAD
-          @flags[@map[@row]] |= ROW_WIDE
+          @flags[@map[@rot + @row]] |= ROW_WIDE
           (!@).wrap()
           (!@).put(U32(first), WIDE)
-          i = @map[@row] * @cols + @col
+          i = @map[@rot + @row] * @cols + @col
           @cells[i] |= EXTRA
           !@extras.put(i, <runes)
-          @flags[@map[@row]] |= ROW_MORE
+          @flags[@map[@rot + @row]] |= ROW_MORE
         else
           (!@).put(0, HEAD)
           (!@).wrap()
           (!@).put(U32(first), WIDE)
-          i = @map[@row] * @cols + @col
+          i = @map[@rot + @row] * @cols + @col
       else
         @cells[i] = (@cells[i] ^ (@cells[i] & KIND)) | WIDE
-        @flags[@map[@row]] |= ROW_WIDE
+        @flags[@map[@rot + @row]] |= ROW_WIDE
       @col += 1
       (!@).put(0, TAIL)
       if @col == @cols - 1
@@ -427,10 +437,10 @@ pub obj Terminal
   # into the next, and the next as wrapped into.
   sub wrap(!@)
     marks = @col == @cols - 1
-    @flags[@map[@row]] |= ROW_WRAP if marks
+    @flags[@map[@rot + @row]] |= ROW_WRAP if marks
     @col = 0
     (!@).index()
-    @flags[@map[@row]] |= ROW_CONT if marks
+    @flags[@map[@rot + @row]] |= ROW_CONT if marks
 
   # Print the bytes `from` to `to` (not included) of `s`, every one of
   # them a rune of one byte (0x20 to 0x7F), as `print` would one at a time:
@@ -450,17 +460,19 @@ pub obj Terminal
         (!@).put(U32(s[to - 1]), 0)
         @last = Int(s[to - 1])
         return
-      if @flags[@map[@row]] & (ROW_WIDE | ROW_MORE) != 0
+      if @flags[@map[@rot + @row]] & (ROW_WIDE | ROW_MORE) != 0
         # A row that may hold wide runes: a rune at a time, as `print`
         # writes it over their halves.
         (!@).print(U32(s[k]))
         k += 1
         continue
       take = @cols - @col if @cols - @col < to - k else to - k
-      base = @map[@row] * @cols + @col
+      p = @map[@rot + @row]
+      base = p * @cols + @col
       bits = @pen_bits
       for t in 0..take
         @cells[base + t] = U64(s[k + t]) | bits
+      @ends[p] = @col + take if @ends[p] < @col + take else @ends[p]
       k += take
       # As `print` does, a pending wrap (kept with autowrap off, after CBT)
       # stays when the run ends short of the last column.
@@ -515,7 +527,7 @@ pub obj Terminal
         (!@).print(U32(r))
         continue
       (!@).wrap() if @pending_wrap and @autowrap
-      p = @map[@row]
+      p = @map[@rot + @row]
       i = p * @cols + @col
       if w == 1 and @cells[i] & (KIND | EXTRA) == 0
         @cells[i] = U64(r) | @pen_bits
@@ -527,6 +539,7 @@ pub obj Terminal
       else
         (!@).print(U32(r))
         continue
+      @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
       @last = r
       if @col == @cols - 1
         @pending_wrap = true
@@ -556,21 +569,39 @@ pub obj Terminal
       (!@).cursor_up(1)
 
   # Cells `from` to `to` (not included) of `cells`, within one row, erased:
-  # empty, keeping the pen's background.
+  # empty, keeping the pen's background. With none they are 0, and only
+  # those up to the row's end are written.
   sub blank(!@, from: Int, to: Int)
     return if from >= to
-    if @flags[from / @cols] & ROW_MORE != 0
-      for i in from..to
+    p = from / @cols
+    (!@).blank_in(p, from - p * @cols, to - p * @cols)
+
+  # Columns `from` to `to` (not included) of the cells at `p * cols`, as
+  # `blank` erases them.
+  sub blank_in(!@, p: Int, from: Int, to: Int)
+    base = p * @cols
+    if @flags[p] & ROW_MORE != 0
+      for i in base + from..base + to
         if @cells[i] & EXTRA != 0
           _ = (!@extras).take(i)
-    !@cells[from..to].fill(@blank_cell)
+    if @blank_cell == 0
+      end = @ends[p]
+      return if from >= end
+      if to >= end
+        !@cells[base + from..base + end].fill(0)
+        @ends[p] = from
+      else
+        !@cells[base + from..base + to].fill(0)
+    else
+      !@cells[base + from..base + to].fill(@blank_cell)
+      @ends[p] = to if @ends[p] < to else @ends[p]
 
   # Rows `first` to `last` (not included) erased, and their flags cleared.
   sub blank_rows(!@, first: Int, last: Int)
     for y in first..last
-      base = @map[y] * @cols
-      (!@).blank(base, base + @cols)
-      @flags[@map[y]] = 0
+      p = @map[@rot + y]
+      (!@).blank_in(p, 0, @cols)
+      @flags[p] = 0
 
   # Rows `first` to `last` (included) are about to move by lines (IL, DL,
   # and the scrolls Ghostty makes of them): as in Ghostty, they no longer
@@ -578,7 +609,7 @@ pub obj Terminal
   # cell.
   sub unwrap_rows(!@, first: Int, last: Int)
     for y in first..last + 1
-      p = @map[y]
+      p = @map[@rot + y]
       @flags[p] &= ROW_WIDE | ROW_MORE
       j = p * @cols + @cols - 1
       @cells[j] ^= HEAD if @cells[j] & KIND == HEAD
@@ -588,14 +619,14 @@ pub obj Terminal
   # the spacer of a wide rune that wrapped; at its start, the spacer a wide
   # rune that wrapped into it left in the row before.
   sub split_at(!@, x: Int)
-    p = @map[@row]
+    p = @map[@rot + @row]
     base = p * @cols
     if x == @cols
       if @flags[p] & ROW_WRAP != 0 and @cells[base + x - 1] & KIND == HEAD
         @cells[base + x - 1] = @blank_cell
       return
     if x <= 1 and @row > 0 and @flags[p] & ROW_CONT != 0 and @cells[base] & KIND == WIDE
-      j = @map[@row - 1] * @cols + @cols - 1
+      j = @map[@rot + @row - 1] * @cols + @cols - 1
       @cells[j] = @blank_cell if @cells[j] & KIND == HEAD
     if x > 0 and @cells[base + x - 1] & KIND == WIDE
       (!@).blank(base + x - 1, base + x + 1)
@@ -605,11 +636,11 @@ pub obj Terminal
   # emptied.
   sub reset_wrap(!@)
     @pending_wrap = false
-    p = @map[@row]
+    p = @map[@rot + @row]
     return if @flags[p] & ROW_WRAP == 0
     @flags[p] ^= ROW_WRAP
     if @row < @rows - 1
-      @flags[@map[@row + 1]] &= ROW_WRAP | ROW_WIDE | ROW_MORE
+      @flags[@map[@rot + @row + 1]] &= ROW_WRAP | ROW_WIDE | ROW_MORE
     j = p * @cols + @cols - 1
     @cells[j] = @blank_cell if @cells[j] & KIND == HEAD
 
@@ -618,9 +649,9 @@ pub obj Terminal
     i = a
     j = b
     while i < j
-      t = @map[i]
-      @map[i] = @map[j]
-      @map[j] = t
+      t = @map[@rot + i]
+      @map[@rot + i] = @map[@rot + j]
+      @map[@rot + j] = t
       i += 1
       j -= 1
 
@@ -630,9 +661,22 @@ pub obj Terminal
     k = n if n < last - first + 1 else last - first + 1
     if k == 1
       # The common scroll, by one row: the top row's entry moves to the
-      # bottom, two moves of `map` in memory.
-      y = (!@map).remove(first)
-      !@map.insert(last, y)
+      # bottom. When the whole screen scrolls, the window of `map` moves
+      # down one entry instead, and back to the start of `map` once a
+      # screen's worth of rows has scrolled.
+      if first == 0 and last == @rows - 1
+        @map[@rot + @rows] = @map[@rot]
+        @rot += 1
+        if @rot == @rows
+          for y in 0..@rows
+            @map[y] = @map[@rows + y]
+          @rot = 0
+        (!@).blank_rows(last, last + 1)
+        return
+      top = @map[@rot + first]
+      for y in first..last
+        @map[@rot + y] = @map[@rot + y + 1]
+      @map[@rot + last] = top
       (!@).blank_rows(last, last + 1)
       return
     (!@).reverse_rows(first, first + k - 1)
@@ -688,13 +732,13 @@ pub obj Terminal
   sub insert_blanks(!@, n: Int)
     @pending_wrap = false
     return if n == 0
-    base = @map[@row] * @cols
+    base = @map[@rot + @row] * @cols
     (!@).blank(base + @col - 1, base + @col + 1) if @cells[base + @col] & KIND == TAIL
     k = n if n < @cols - @col else @cols - @col
     keep = @cols - @col - k
     if keep > 0 and @cells[base + @col + keep - 1] & KIND == WIDE
       (!@).blank(base + @col + keep - 1, base + @col + keep + 1)
-    if @flags[@map[@row]] & ROW_MORE != 0
+    if @flags[@map[@rot + @row]] & ROW_MORE != 0
       # Each char's runes move with its cell, or go with it off the row.
       x = @cols
       while x > @col
@@ -706,18 +750,20 @@ pub obj Terminal
     while x > @col + k
       x -= 1
       @cells[base + x] = @cells[base + x - k]
+    p = @map[@rot + @row]
+    @ends[p] = @ends[p] + k if @ends[p] + k < @cols else @cols
     (!@).blank(base + @col, base + @col + k)
 
   # DCH: `n` cells from the cursor go, pulling the rest of the row left. A
   # wide rune cut at either end is emptied, and the row no longer wraps.
   sub delete_chars(!@, n: Int)
     return if n == 0
-    base = @map[@row] * @cols
+    base = @map[@rot + @row] * @cols
     k = n if n < @cols - @col else @cols - @col
     (!@).split_at(@col)
     (!@).split_at(@col + k)
     (!@).split_at(@cols)
-    if @flags[@map[@row]] & ROW_MORE != 0
+    if @flags[@map[@rot + @row]] & ROW_MORE != 0
       # The runes of the chars deleted go, and the rest move with their
       # cells.
       for x in @col..@cols
@@ -734,7 +780,7 @@ pub obj Terminal
   sub erase_chars(!@, n: Int)
     k = n if n > 0 else 1
     k = k if k < @cols - @col else @cols - @col
-    base = @map[@row] * @cols
+    base = @map[@rot + @row] * @cols
     k += 1 if @col + k < @cols and @cells[base + @col + k - 1] & KIND == WIDE else 0
     (!@).split_at(@col)
     (!@).split_at(@col + k)
@@ -745,7 +791,7 @@ pub obj Terminal
   # cursor, 2 the whole row; a wide rune the cursor is on is erased whole.
   # Erasing to the end, the row no longer wraps.
   sub erase_line(!@, how: Int)
-    base = @map[@row] * @cols
+    base = @map[@rot + @row] * @cols
     match how
       0
         from = @col - 1 if @col > 0 and @cells[base + @col] & KIND == TAIL else @col
@@ -799,6 +845,7 @@ pub obj Terminal
     (!@).cursor_to(1, 1)
     !@cells[..].fill(U64(0x45) | @pen_bits)
     !@flags[..].fill(0)
+    !@ends[..].fill(@cols)
     !@extras.clear()
 
   sub backspace(!@)
@@ -902,16 +949,20 @@ pub obj Terminal
     return @pen.bg if @alt == alt
     if not @alt_made
       @other_cells = List[U64].filled(@cols * @rows, 0)
-      map = List[Int].filled(@rows, 0)
+      map = List[Int].filled(2 * @rows, 0)
       for y in 0..@rows
         map[y] = y
       @other_map = <map
+      @other_rot = 0
       @other_flags = List[U8].filled(@rows, 0)
+      @other_ends = List[Int].filled(@rows, 0)
       @other_extras = hash.Map[Int, List[U32]].new()
       @alt_made = true
     swap(!@cells, !@other_cells)
     swap(!@map, !@other_map)
+    swap(!@rot, !@other_rot)
     swap(!@flags, !@other_flags)
+    swap(!@ends, !@other_ends)
     swap(!@extras, !@other_extras)
     swap(!@saved, !@other_saved)
     swap(!@kitty, !@other_kitty)
@@ -1052,7 +1103,7 @@ pub obj Terminal
   pub fun dump(?@) -> String
     out = String()
     for y in 0..@rows
-      start = @map[y] * @cols
+      start = @map[@rot + y] * @cols
       end = start + @cols
       while end > start and @cells[end - 1] & EXTRA == 0 and (rune(@cells[end - 1]) == 0 or rune(@cells[end - 1]) == 0x20)
         end -= 1
@@ -1067,7 +1118,7 @@ pub obj Terminal
               utf8.push_rune(!out, Int(e))
       !out.push(b'\n')
     for y in 0..@rows
-      base = @map[y] * @cols
+      base = @map[@rot + y] * @cols
       first = 0
       for x in 0..@cols + 1
         m = mark(@cells[base + x]) if x < @cols else -1

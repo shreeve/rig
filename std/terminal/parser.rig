@@ -61,6 +61,11 @@ pub sub Terminal.feed(!@, bytes: ?String)
           # The commonest controls, run here without the state machine.
           if b == b'\r'
             (!@).carriage_return()
+            if i + 1 < n and bytes[i + 1] == b'\n'
+              # CR LF, the commonest line end, at once.
+              (!@).index()
+              i += 2
+              continue
           else if b == b'\n'
             (!@).index()
             (!@).carriage_return() if @newline
