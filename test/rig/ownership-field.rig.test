@@ -1035,6 +1035,40 @@ test "field view local across arms", '''
   p.scanner.kind = .Num
   print((!p).literal(), p.ast.bytes)
 
+test "field view loop elements view the list", '''
+  ["ada", "bob"]
+'''
+  # A loop over a read view held in a field walks the view it reads, so
+  # its elements view the List, not the value holding the field; the
+  # value may store them, as it may store `?s.names[0]`. The List stays
+  # lent to read for as long as they are held.
+
+  obj Shortlist
+    names: ?List[String]
+    short: List[?String]
+
+  names: List[String] = List()
+  !names.push(String("ada"))
+  !names.push(String("bob"))
+  s = Shortlist(names: ?names, short: List())
+  for n in s.names
+    !s.short.push(?n)
+  print(s.short)
+
+fail "field view loop elements keep the list lent", "cannot lend `names` to write while a read loan is live", errors: 1
+  # The loop's elements view the List the field views, so the List
+  # cannot change while the loop walks it.
+
+  obj Shortlist
+    names: ?List[String]
+
+  names: List[String] = List()
+  !names.push(String("ada"))
+  s = Shortlist(names: ?names)
+  for n in s.names
+    print(n)
+    !names.push(String("bob"))
+
 fail "field write param whole assign", "13:3: cannot reassign `p` while `p.name` is lent", errors: 1
   # Through a write view `p: !P`, `p = P(...)` writes the whole value the
   # caller owns, dropping the String `r` views.
