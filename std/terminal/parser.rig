@@ -69,6 +69,12 @@ pub sub Terminal.feed(!@, bytes: ?String)
           else if b == b'\n'
             (!@).index()
             (!@).carriage_return() if @newline
+          else if b == ESC and i + 2 < n and bytes[i + 1] == b'['
+            j = (!@).csi_run(bytes, i + 2)
+            if j > 0
+              i = j
+              continue
+            (!@).step(b)
           else
             (!@).step(b)
           i += 1
@@ -80,6 +86,28 @@ pub sub Terminal.feed(!@, bytes: ?String)
       continue
     (!@).step(b)
     i += 1
+
+# A CSI sequence whose parameters start at byte `from` of `s`, read
+# whole when it is the common kind: digits and `;`, then a final byte, all
+# in `s`. Its parameters and final go where the state machine would put
+# them, and where it ends is returned; for any other kind (a private
+# marker, a colon, an intermediate, a control, or the end of `s` before
+# the final) nothing has acted, and 0 is returned, for the state machine
+# to read it from its ESC.
+fun Terminal.csi_run(!@, s: ?String, from: Int) -> Int
+  (!@).clear()
+  k = from
+  while k < s.len
+    b = s[k]
+    if b >= b'0' and b <= b';' and b != b':'
+      (!@).param(b)
+    else if b >= 0x40 and b <= 0x7E
+      (!@).csi_final(b)
+      return k + 1
+    else
+      return 0
+    k += 1
+  0
 
 # The first byte at or after `i` that is not printable in the ground state
 # (below 0x20, or 0x80 and up), or `s.len`. Most runs between sequences are
