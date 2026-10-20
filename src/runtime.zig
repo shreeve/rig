@@ -413,7 +413,9 @@ pub fn rt(value: anytype) @TypeOf(value) {
 
 /// Allocate one `T` with the default allocator.
 pub fn create(comptime T: type) *T {
-    return defaultAllocator().create(T) catch oom();
+    if (fills or @sizeOf(T) == 0) return defaultAllocator().create(T) catch oom();
+    const p = defaultAllocator().rawAlloc(@sizeOf(T), .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
+    return @ptrCast(@alignCast(p));
 }
 
 // -----------------------------------------------------------------------------
@@ -771,11 +773,11 @@ pub fn Shared(comptime T: type) type {
         fn releaseValue(self: *Self) void {
             dropElement(T, &self.value);
             if (atomic_count) {
-                if (@atomicRmw(usize, &self.weak, .Sub, 1, .acq_rel) == 1) defaultAllocator().destroy(self);
+                if (@atomicRmw(usize, &self.weak, .Sub, 1, .acq_rel) == 1) destroy(self);
                 return;
             }
             self.weak -= 1;
-            if (self.weak == 0) defaultAllocator().destroy(self);
+            if (self.weak == 0) destroy(self);
         }
 
         fn releaseErased(box: *anyopaque) void {
@@ -843,12 +845,12 @@ pub fn Weak(comptime T: type) type {
 
         pub fn dropWeak(self: Self) void {
             if (atomic_count) {
-                if (@atomicRmw(usize, &self.ptr.weak, .Sub, 1, .acq_rel) == 1) defaultAllocator().destroy(self.ptr);
+                if (@atomicRmw(usize, &self.ptr.weak, .Sub, 1, .acq_rel) == 1) destroy(self.ptr);
                 return;
             }
             std.debug.assert(self.ptr.weak > 0);
             self.ptr.weak -= 1;
-            if (self.ptr.weak == 0) defaultAllocator().destroy(self.ptr);
+            if (self.ptr.weak == 0) destroy(self.ptr);
         }
 
         pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -1002,7 +1004,7 @@ pub fn Box(comptime T: type) type {
         /// `<b.unbox()`: the value, moved out; the box's memory is freed.
         pub fn unbox(self: Self) T {
             const v = self.value.*;
-            defaultAllocator().destroy(self.value);
+            destroy(self.value);
             return v;
         }
 
@@ -1010,7 +1012,7 @@ pub fn Box(comptime T: type) type {
         pub const __rig_box = {};
 
         pub fn __rig_drop(self: *Self) void {
-            if (comptime !needsDrop(T)) return defaultAllocator().destroy(self.value);
+            if (comptime !needsDrop(T)) return destroy(self.value);
             const t = task();
             if (t.drop_depth >= max_drop_depth) {
                 t.drop_queue.append(std.heap.smp_allocator, .{ .box = @ptrCast(self.value), .release = releaseErased }) catch oom();
@@ -1024,7 +1026,7 @@ pub fn Box(comptime T: type) type {
 
         fn release(p: *T) void {
             dropElement(T, p);
-            defaultAllocator().destroy(p);
+            destroy(p);
         }
 
         fn releaseErased(p: *anyopaque) void {
@@ -1214,7 +1216,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
                 fn dropEnv(ctx: *anyopaque) void {
                     const e: *Env = @ptrCast(@alignCast(ctx));
                     dropFields(e);
-                    defaultAllocator().destroy(e);
+                    destroy(e);
                 }
             };
             return .{ .ctx = env, .invoke_fn = erased.invoke, .drop_fn = erased.dropEnv };
@@ -1398,7 +1400,7 @@ pub fn List(comptime T: type) type {
                 v.reserve(capacity);
                 return v;
             }
-            return .{ .buf = defaultAllocator().alloc(T, n) catch oom() };
+            return .{ .buf = allocSlice(T, n) };
         }
 
         /// `List(a)`: a new List holding a copy of each element of `a`,
@@ -1455,7 +1457,7 @@ pub fn List(comptime T: type) type {
                 self.buf = self.buf.ptr[0..std.math.maxInt(usize)];
                 return;
             }
-            self.buf = defaultAllocator().realloc(self.buf, @max(want, 4, self.buf.len * 2)) catch oom();
+            self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len * 2));
         }
 
         /// `len <= buf.len` always holds. When the buffer is full, `grow`
@@ -1587,7 +1589,7 @@ pub fn List(comptime T: type) type {
         pub fn filled(n: Int, value: T) Self {
             const count = std.math.cast(usize, n) orelse @panic("negative size");
             if (count == 0) return .empty;
-            const buf = defaultAllocator().alloc(T, count) catch oom();
+            const buf = allocSlice(T, count);
             @memset(buf, value);
             return .{ .buf = buf, .len = count };
         }
@@ -1608,7 +1610,7 @@ pub fn List(comptime T: type) type {
 
         pub fn __rig_drop(self: *Self) void {
             self.clear();
-            defaultAllocator().free(self.buf);
+            freeSlice(T, self.buf);
             self.buf = &.{};
         }
     };
@@ -1760,7 +1762,13 @@ pub const String = struct {
     }
 
     noinline fn grow(self: *String, extra: usize) void {
-        self.list.ensureUnusedCapacity(defaultAllocator(), extra) catch oom();
+        const l = &self.list;
+        const want = std.math.add(usize, l.items.len, extra) catch oom();
+        if (want <= l.capacity) return;
+        const used = l.items.len;
+        const buf = reallocSlice(u8, l.allocatedSlice(), @max(want, 16, l.capacity +| l.capacity / 2));
+        l.items = buf[0..used];
+        l.capacity = buf.len;
     }
 
     /// `!t.clear()`: empty, keeping the buffer.
@@ -1781,12 +1789,16 @@ pub const String = struct {
     /// `+t`: a new String holding the same bytes.
     pub fn clone(self: String) String {
         var t: String = .empty;
-        t.list.appendSlice(defaultAllocator(), self.list.items) catch oom();
+        if (self.list.items.len == 0) return t;
+        const buf = allocSlice(u8, self.list.items.len);
+        @memcpy(buf, self.list.items);
+        t.list.items = buf;
+        t.list.capacity = buf.len;
         return t;
     }
 
     pub fn __rig_drop(self: *String) void {
-        self.list.deinit(defaultAllocator());
+        freeSlice(u8, self.list.allocatedSlice());
         self.list = .empty;
     }
 };
@@ -3306,6 +3318,60 @@ var leak_checker: LeakChecker = .{};
 /// The allocator behind every runtime allocation.
 pub fn defaultAllocator() std.mem.Allocator {
     return if (leak_checked) leak_checker.allocator() else std.heap.smp_allocator;
+}
+
+// Rig's own allocations skip the fill Zig's safe builds write over every
+// new, moved, and freed buffer (`std.mem.Allocator.alloc`, `realloc`,
+// `free`, `create`, `destroy` set the bytes to `undefined`, 0xAA): bounds
+// checks keep safe Rig from reading a byte it never wrote, so the fill
+// buys it nothing, and it was 4 to 8% of a compiler's time in a safe
+// build. A sanitized build (`RIG_SANITIZE`) keeps it, so freed memory
+// still reads as poison there.
+const fills = sanitize;
+
+/// `n` new `T`s, their bytes unwritten.
+pub fn allocSlice(comptime T: type, n: usize) []T {
+    if (fills or n == 0 or @sizeOf(T) == 0) return defaultAllocator().alloc(T, n) catch oom();
+    const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
+    const p = defaultAllocator().rawAlloc(bytes, .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
+    return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+}
+
+/// `old`'s `T`s in a buffer of `n`: grown or shrunk in place when the
+/// allocator can, otherwise copied to a new one.
+pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
+    if (fills or @sizeOf(T) == 0) return defaultAllocator().realloc(old, n) catch oom();
+    if (old.len == 0) return allocSlice(T, n);
+    if (n == 0) {
+        freeSlice(T, old);
+        return &.{};
+    }
+    const a = defaultAllocator();
+    const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
+    const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
+    const old_bytes = std.mem.sliceAsBytes(old);
+    if (a.rawRemap(old_bytes, alignment, bytes, @returnAddress())) |p| return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+    const p = a.rawAlloc(bytes, alignment, @returnAddress()) orelse oom();
+    const kept = @min(bytes, old_bytes.len);
+    @memcpy(p[0..kept], old_bytes[0..kept]);
+    a.rawFree(old_bytes, alignment, @returnAddress());
+    return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+}
+
+/// Free what `allocSlice` or `reallocSlice` gave.
+pub fn freeSlice(comptime T: type, buf: []T) void {
+    if (fills) return defaultAllocator().free(buf);
+    const bytes = std.mem.sliceAsBytes(buf);
+    if (bytes.len == 0) return;
+    defaultAllocator().rawFree(bytes, .fromByteUnits(@alignOf(T)), @returnAddress());
+}
+
+/// Free what `create` gave.
+pub fn destroy(ptr: anytype) void {
+    const T = @typeInfo(@TypeOf(ptr)).pointer.child;
+    if (fills or @sizeOf(T) == 0) return defaultAllocator().destroy(ptr);
+    const bytes: [*]u8 = @ptrCast(ptr);
+    defaultAllocator().rawFree(bytes[0..@sizeOf(T)], .fromByteUnits(@alignOf(T)), @returnAddress());
 }
 
 /// Tracks every live allocation by address. Its own table lives in
