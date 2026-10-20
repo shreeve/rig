@@ -27,10 +27,58 @@ MAX_PARAMS = 24
 # The largest parameter value; a larger one is this.
 MAX_PARAM = 65535
 
-# Take `bytes` as a program's output, in order.
+# Take `bytes` as a program's output, in order. In the ground state a run
+# of printable bytes goes to `print_run` whole.
 pub sub Terminal.feed(!@, bytes: ?String)
-  for b in bytes
-    (!@).step(b)
+  i = 0
+  n = bytes.len
+  while i < n
+    if @state == .ground
+      j = printable_end(bytes, i)
+      if j > i
+        (!@).print_run(bytes, i, j)
+        i = j
+        continue
+      # The commonest controls, run here without the state machine.
+      b = bytes[i]
+      if b == b'\r'
+        (!@).carriage_return()
+        i += 1
+        continue
+      if b == b'\n'
+        (!@).index()
+        (!@).carriage_return() if @newline
+        i += 1
+        continue
+    (!@).step(bytes[i])
+    i += 1
+
+# The first byte at or after `i` that is not printable in the ground state
+# (below 0x20, or 0x80 and up), or `s.len`. Most runs between sequences are
+# short, so the first 16 bytes are tested one at a time; a longer run is
+# tested 16 bytes at once, and its last bytes by reading the last 16 of
+# `s` again.
+fun printable_end(s: ?String, i: Int) -> Int
+  if i >= 0
+    k = i
+    stop = i + 16 if i + 16 < s.len else s.len
+    while k < stop
+      b = s[k]
+      return k if b < 0x20 or b >= 0x80
+      k += 1
+    while k + 16 <= s.len
+      v = s.read[Simd[U8, 16]](k)
+      if ((v < 0x20) | (v >= 0x80)).first() as j
+        return k + j
+      k += 16
+    if k < s.len
+      seen = k + 16 - s.len
+      v = s.read[Simd[U8, 16]](s.len - 16)
+      if (((v < 0x20) | (v >= 0x80)) & (LANES >= U8(seen))).first() as j
+        return k + j - seen
+  s.len
+
+LANES = Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
 
 sub Terminal.step(!@, b: U8)
   return if b >= 0x80

@@ -18,20 +18,34 @@ fun intern(styles: !List[Style], s: ?Style) -> Int
   !styles.push(+s)
   styles.len - 1
 
-# A terminal of `cols` columns and `rows` rows. A cell holds a rune, 0 for
-# empty; row `y` is cells `y * cols` to `y * cols + cols - 1`.
+# The rune of a cell.
+fun rune(c: U64) -> Int
+  Int(c & 0xFFFFFFFF)
+
+# The style index of a cell.
+fun mark(c: U64) -> Int
+  Int(c >> 32)
+
+# A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune
+# in the low 32 bits (0 for empty) and its style, an index into `styles`,
+# in the high 32. The screen's rows are kept in any order: row `y` is
+# cells `map[y] * cols` to `map[y] * cols + cols - 1`, so a scroll moves
+# entries of `map`, not cells.
 pub obj Terminal
   cols: Int
   rows: Int
-  cells: List[U32]
-  # Each cell's style, an index into `styles`, whose first is the plain one.
-  marks: List[Int]
+  cells: List[U64]
+  map: List[Int]
+  # The styles cells use, the first the plain one.
   styles: List[Style]
-  # The style the next rune is printed in (SGR), and its index; and the
-  # index of an erased cell, which keeps only the pen's background.
+  # The style the next rune is printed in (SGR), and its index; the index
+  # of an erased cell, which keeps only the pen's background; and both as
+  # the high bits of a cell.
   pen: Style
   pen_id: Int
   blank_id: Int
+  pen_bits: U64
+  blank_cell: U64
   row: Int
   col: Int
   # The cursor is past the last column: the next printed rune wraps first.
@@ -81,8 +95,11 @@ pub obj Terminal
     tabs = List[Bool].filled(cols, false)
     for x in 0..cols
       tabs[x] = x % 8 == 0
-    Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), marks: List[Int].filled(cols * rows, 0),
-      styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0,
+    map = List[Int].filled(rows, 0)
+    for y in 0..rows
+      map[y] = y
+    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map,
+      styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, top: 0, bottom: rows - 1,
       autowrap: true, origin: false, insert: false, newline: false, cursor_visible: true,
       kept_origin: false, kept_autowrap: true, kept_cursor_visible: true,
@@ -105,6 +122,12 @@ pub obj Terminal
     erased = Style.plain()
     erased.bg = @pen.bg
     @blank_id = intern(!@styles, ?erased)
+    @pen_bits = U64(@pen_id) << 32
+    @blank_cell = U64(@blank_id) << 32
+
+  # The index in `cells` of row `y`, column `x`.
+  fun at(?@, y: Int, x: Int) -> Int
+    @map[y] * @cols + x
 
   # Write `r` at the cursor and move right, wrapping first when a wrap is
   # pending.
@@ -114,9 +137,7 @@ pub obj Terminal
       @col = 0
       (!@).index()
     (!@).insert_blanks(1) if @insert
-    i = @row * @cols + @col
-    @cells[i] = r
-    @marks[i] = @pen_id
+    @cells[@map[@row] * @cols + @col] = U64(r) | @pen_bits
     @last = Int(r)
     # At the last column a wrap is pending even with autowrap off, as in
     # Ghostty: the next rune only wraps once autowrap is on again.
@@ -124,6 +145,41 @@ pub obj Terminal
       @pending_wrap = true
     else
       @col += 1
+
+  # Print the bytes `from` to `to` (not included) of `s`, every one of
+  # them a rune of one byte (0x20 to 0x7F), as `print` would one at a time:
+  # whole stretches go into a row at once.
+  sub print_run(!@, s: ?String, from: Int, to: Int)
+    if @insert
+      for i in from..to
+        (!@).print(U32(s[i]))
+      return
+    k = from
+    while k < to
+      if @pending_wrap and @autowrap
+        @pending_wrap = false
+        @col = 0
+        (!@).index()
+      else if @pending_wrap and @col == @cols - 1
+        # Autowrap is off at the last column: every rune left overwrites
+        # it, and the last one stays.
+        @cells[@map[@row] * @cols + @col] = U64(s[to - 1]) | @pen_bits
+        @last = Int(s[to - 1])
+        return
+      take = @cols - @col if @cols - @col < to - k else to - k
+      base = @map[@row] * @cols + @col
+      bits = @pen_bits
+      for t in 0..take
+        @cells[base + t] = U64(s[k + t]) | bits
+      k += take
+      # As `print` does, a pending wrap (kept with autowrap off, after CBT)
+      # stays when the run ends short of the last column.
+      if @col + take == @cols
+        @col = @cols - 1
+        @pending_wrap = true
+      else
+        @col += take
+    @last = Int(s[to - 1])
 
   sub carriage_return(!@)
     @col = 0
@@ -145,40 +201,51 @@ pub obj Terminal
     else
       (!@).cursor_up(1)
 
-  # Row `src` copied over row `dst`.
-  sub copy_row(!@, dst: Int, src: Int)
-    for x in 0..@cols
-      @cells[dst * @cols + x] = @cells[src * @cols + x]
-      @marks[dst * @cols + x] = @marks[src * @cols + x]
-
-  # Cell `src` copied over cell `dst`.
-  sub copy_cell(!@, dst: Int, src: Int)
-    @cells[dst] = @cells[src]
-    @marks[dst] = @marks[src]
-
-  # Cells `from` to `to` (not included) of the screen, as one run, erased:
+  # Cells `from` to `to` (not included) of `cells`, within one row, erased:
   # empty, keeping the pen's background.
   sub blank(!@, from: Int, to: Int)
-    for i in from..to
-      @cells[i] = 0
-      @marks[i] = @blank_id
+    !@cells[from..to].fill(@blank_cell)
+
+  # Rows `first` to `last` (not included) erased.
+  sub blank_rows(!@, first: Int, last: Int)
+    for y in first..last
+      base = @map[y] * @cols
+      (!@).blank(base, base + @cols)
+
+  # The entries `a` to `b` of `map`, both included, in reverse order.
+  sub reverse_rows(!@, a: Int, b: Int)
+    i = a
+    j = b
+    while i < j
+      t = @map[i]
+      @map[i] = @map[j]
+      @map[j] = t
+      i += 1
+      j -= 1
 
   # The rows `first` to `last` move up `n`; the `n` at the bottom are
-  # blank.
+  # blank. Rows move as entries of `map`: a rotation, by three reversals.
   sub shift_up(!@, first: Int, last: Int, n: Int)
     k = n if n < last - first + 1 else last - first + 1
-    for y in first..last + 1 - k
-      (!@).copy_row(y, y + k)
-    (!@).blank((last + 1 - k) * @cols, (last + 1) * @cols)
+    if k == 1
+      # The common scroll, by one row: the top row's entry moves to the
+      # bottom, two moves of `map` in memory.
+      y = (!@map).remove(first)
+      !@map.insert(last, y)
+      (!@).blank_rows(last, last + 1)
+      return
+    (!@).reverse_rows(first, first + k - 1)
+    (!@).reverse_rows(first + k, last)
+    (!@).reverse_rows(first, last)
+    (!@).blank_rows(last + 1 - k, last + 1)
 
   # The rows `first` to `last` move down `n`; the `n` at the top are blank.
   sub shift_down(!@, first: Int, last: Int, n: Int)
     k = n if n < last - first + 1 else last - first + 1
-    y = last + 1
-    while y > first + k
-      y -= 1
-      (!@).copy_row(y, y - k)
-    (!@).blank(first * @cols, (first + k) * @cols)
+    (!@).reverse_rows(first, last)
+    (!@).reverse_rows(first, first + k - 1)
+    (!@).reverse_rows(first + k, last)
+    (!@).blank_rows(first, first + k)
 
   # The scroll region moves up `n` rows (SU); the cursor stays.
   sub scroll_up(!@, n: Int)
@@ -208,21 +275,21 @@ pub obj Terminal
   # ICH: `n` blank cells at the cursor, pushing the rest of the row right.
   sub insert_blanks(!@, n: Int)
     @pending_wrap = false
-    base = @row * @cols
+    base = @map[@row] * @cols
     k = n if n < @cols - @col else @cols - @col
     x = @cols
     while x > @col + k
       x -= 1
-      (!@).copy_cell(base + x, base + x - k)
+      @cells[base + x] = @cells[base + x - k]
     (!@).blank(base + @col, base + @col + k)
 
   # DCH: `n` cells from the cursor go, pulling the rest of the row left.
   sub delete_chars(!@, n: Int)
     return if n == 0
-    base = @row * @cols
+    base = @map[@row] * @cols
     k = n if n < @cols - @col else @cols - @col
     for x in @col..@cols - k
-      (!@).copy_cell(base + x, base + x + k)
+      @cells[base + x] = @cells[base + x + k]
     (!@).blank(base + @cols - k, base + @cols)
     @pending_wrap = false
 
@@ -230,14 +297,14 @@ pub obj Terminal
   sub erase_chars(!@, n: Int)
     k = n if n > 0 else 1
     k = k if k < @cols - @col else @cols - @col
-    base = @row * @cols + @col
+    base = @map[@row] * @cols + @col
     (!@).blank(base, base + k)
     @pending_wrap = false
 
   # EL: 0 from the cursor to the end of the row, 1 from its start to the
   # cursor, 2 the whole row.
   sub erase_line(!@, how: Int)
-    base = @row * @cols
+    base = @map[@row] * @cols
     match how
       0 => (!@).blank(base + @col, base + @cols)
       1 => (!@).blank(base, base + @col + 1)
@@ -251,12 +318,12 @@ pub obj Terminal
     match how
       0
         (!@).erase_line(0)
-        (!@).blank((@row + 1) * @cols, @rows * @cols)
+        (!@).blank_rows(@row + 1, @rows)
       1
         (!@).erase_line(1)
-        (!@).blank(0, @row * @cols)
+        (!@).blank_rows(0, @row)
       2
-        (!@).blank(0, @rows * @cols)
+        (!@).blank_rows(0, @rows)
         @pending_wrap = false
       _ => pass
 
@@ -282,9 +349,7 @@ pub obj Terminal
     @bottom = @rows - 1
     @origin = false
     (!@).cursor_to(1, 1)
-    for i in 0..@rows * @cols
-      @cells[i] = 0x45
-      @marks[i] = @pen_id
+    !@cells[..].fill(U64(0x45) | @pen_bits)
 
   sub backspace(!@)
     @pending_wrap = false
@@ -418,21 +483,22 @@ pub obj Terminal
   pub fun dump(?@) -> String
     out = String()
     for y in 0..@rows
-      start = y * @cols
+      start = @map[y] * @cols
       end = start + @cols
-      while end > start and (@cells[end - 1] == 0 or @cells[end - 1] == 0x20)
+      while end > start and (rune(@cells[end - 1]) == 0 or rune(@cells[end - 1]) == 0x20)
         end -= 1
       !out.push(b'|')
       for i in start..end
-        r = @cells[i]
-        utf8.push_rune(!out, 0x20 if r == 0 else Int(r))
+        r = rune(@cells[i])
+        utf8.push_rune(!out, 0x20 if r == 0 else r)
       !out.push(b'\n')
     for y in 0..@rows
+      base = @map[y] * @cols
       first = 0
       for x in 0..@cols + 1
-        m = @marks[y * @cols + x] if x < @cols else -1
-        if x == @cols or m != @marks[y * @cols + first]
-          k = @marks[y * @cols + first]
+        m = mark(@cells[base + x]) if x < @cols else -1
+        if x == @cols or m != mark(@cells[base + first])
+          k = mark(@cells[base + first])
           if k != 0 and not @styles[k].is_plain()
             !out.add("~", y, " ", first, "-", x - 1, " ")
             line = String()

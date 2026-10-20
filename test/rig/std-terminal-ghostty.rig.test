@@ -219,6 +219,28 @@ test "REP after a control repeats the rune", '''
   !t.feed("a\x0d\x1b[2b")
   print(t.dump())
 
+test "a long run wraps across rows", '''
+  |0123456789abcdef
+  |0123456789abcdef
+  |0123456789abcdef
+  |xyz
+  cursor 3 3
+'''
+  t = terminal.Terminal.new(16, 4)
+  !t.feed("0123456789abcdef0123456789abcdef0123456789abcdefxyz")
+  print(t.dump())
+
+test "a long run ending at the last column", '''
+  |0123456789abcdef
+  |0123456789abcdef
+  |
+  |
+  cursor 1 15 wrap
+'''
+  t = terminal.Terminal.new(16, 4)
+  !t.feed("0123456789abcdef0123456789abcdef")
+  print(t.dump())
+
 test "tab moves to the next stop", '''
   |a       b       c
   |
@@ -2027,4 +2049,22 @@ test "XTRESTORE of origin mode homes the cursor", '''
 '''
   t = terminal.Terminal.new(10, 3)
   !t.feed("\x1b[2;2H\x1b[?6rX")
+  print(t.dump())
+
+test "a run after CBT with autowrap off and a wrap pending", '''
+  |vwZY|_&
+  |
+  cursor 0 2 wrap
+'''
+  t = terminal.Terminal.new(7, 2)
+  !t.feed("\x1b[?7leVZY|_&\x1b[Zvw")
+  print(t.dump())
+
+test "a long run with autowrap off", '''
+  |0123456j
+  |
+  cursor 0 7 wrap
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1b[?7l0123456789abcdefghij")
   print(t.dump())

@@ -23,12 +23,14 @@ and prints `<ns> <check>`. The check is a hash of the final screen and
 cursor, the same `dump` the differential tests compare, so every run also
 checks that std.terminal ends where Ghostty does on 16 MB of input.
 
-## Baseline
+## Results
 
-2026-10-20, Apple M5, arm64, 120x40, fastest of 3 interleaved runs,
-before any of std.terminal's fast paths; Ghostty without its C++ SIMD
-paths. The machine was busy (load average about 28), so every number is
-low; the variants ran interleaved, so their ratios hold.
+Apple M5, arm64, 120x40, fastest of interleaved runs, Ghostty without its
+C++ SIMD paths. The machine was busy both times (load average about 28,
+then about 55), so every number is low; variants ran interleaved, so the
+ratios within a table hold.
+
+2026-10-20, before std.terminal's fast paths (3 runs):
 
 | corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback |
 |---|---:|---:|---:|---:|
@@ -37,6 +39,17 @@ low; the variants ran interleaved, so their ratios hold.
 | sgr | 10.7 MB/s | 22.8 MB/s | 119.4 MB/s | 132.4 MB/s |
 | tui | 108.8 MB/s | 133.6 MB/s | 139.3 MB/s | 143.1 MB/s |
 
-std.terminal matches Ghostty where little scrolls (tui) and falls behind
-as scrolling grows, because each scroll copies the whole screen; the
-row map that makes a scroll a rotation of row indices comes next.
+2026-10-20, with cells packed in one list behind a row map (a scroll
+moves map entries), printable runs found 16 bytes at a time and written
+whole, and CR and LF outside the state machine (5 runs):
+
+| corpus | rig-fast | rig-nocheck | ghostty | rig-fast / ghostty |
+|---|---:|---:|---:|---:|
+| text | 570.8 MB/s | 617.8 MB/s | 628.9 MB/s | 0.91 |
+| scroll | 93.2 MB/s | 96.0 MB/s | 109.2 MB/s | 0.85 |
+| sgr | 178.5 MB/s | 187.1 MB/s | 110.2 MB/s | 1.62 |
+| tui | 226.3 MB/s | 249.1 MB/s | 138.2 MB/s | 1.64 |
+
+Rig's bounds checks cost 3 to 10% (rig-nocheck). Ghostty's SIMD paths
+would speed its text most; building them needs a Zig whose libc++ builds
+against the macOS SDK, or a Linux machine.

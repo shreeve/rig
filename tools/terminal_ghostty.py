@@ -245,6 +245,10 @@ CASES = [
     ("mode", "XTRESTORE with nothing saved restores the default", 4, 2, b"\x1b[?7l\x1b[?7rabcdef"),
     ("mode", "XTSAVE and XTRESTORE", 4, 2, b"\x1b[?7l\x1b[?7s\x1b[?7h\x1b[?7rabcdef"),
     ("mode", "XTRESTORE of origin mode homes the cursor", 10, 3, b"\x1b[2;2H\x1b[?6rX"),
+    ("mode", "a run after CBT with autowrap off and a wrap pending", 7, 2, b"\x1b[?7leVZY|_&\x1b[Zvw"),
+    ("print", "a long run wraps across rows", 16, 4, b"0123456789abcdef" * 3 + b"xyz"),
+    ("print", "a long run ending at the last column", 16, 4, b"0123456789abcdef0123456789abcdef"),
+    ("mode", "a long run with autowrap off", 8, 2, b"\x1b[?7l0123456789abcdefghij"),
 ]
 
 
@@ -412,7 +416,10 @@ def piece(rng, every):
     """One piece of a stream, as bytes."""
     k = rng.random()
     if k < 0.30:
-        return bytes(rng.choice(range(0x20, 0x7F)) for _ in range(rng.randint(1, 12)))
+        # Mostly short runs, as between sequences, and some long enough for
+        # the 16-byte scans and their tails.
+        n = rng.randint(1, 12) if rng.random() < 0.7 else rng.randint(13, 90)
+        return bytes(rng.choice(range(0x20, 0x80)) for _ in range(n))
     if k < 0.40:
         return bytes([rng.choice([8, 9, 10, 11, 12, 13, 7, 0, 5, 14, 15, 0x18, 0x1A, 0x1B, 0x7F])])
     if k < 0.70:
