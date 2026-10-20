@@ -165,6 +165,60 @@ test "a one-column terminal", '''
   !t.feed("abc")
   print(t.dump())
 
+test "REP repeats the last rune", '''
+  |abbbb
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("ab\x1b[3b")
+  print(t.dump())
+
+test "REP with no count repeats once", '''
+  |abb
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("ab\x1b[b")
+  print(t.dump())
+
+test "REP of zero repeats once", '''
+  |abb
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("ab\x1b[0b")
+  print(t.dump())
+
+test "REP before any rune does nothing", '''
+  |X
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[3bX")
+  print(t.dump())
+
+test "REP wraps", '''
+  |abbb
+  |bbb
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("ab\x1b[5b")
+  print(t.dump())
+
+test "REP after a control repeats the rune", '''
+  |aa
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x0d\x1b[2b")
+  print(t.dump())
+
 test "tab moves to the next stop", '''
   |a       b       c
   |
@@ -456,6 +510,55 @@ test "two parameters to CUU do nothing", '''
   !t.feed("\x1b[3;3H\x1b[1;1AX")
   print(t.dump())
 
+test "CHT of zero does nothing", '''
+  |X
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(20, 2)
+  !t.feed("\x1b[0IX")
+  print(t.dump())
+
+test "CBT keeps a pending wrap", '''
+  |abcdefghijklm
+  |X
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(13, 2)
+  !t.feed("abcdefghijklm\x1b[ZX")
+  print(t.dump())
+
+test "HPR of zero stays and ends a pending wrap", '''
+  |abcX
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x1b[0aX")
+  print(t.dump())
+
+test "VPR of zero stays and ends a pending wrap", '''
+  |abcX
+  |
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("abcd\x1b[0eX")
+  print(t.dump())
+
+test "VPR in origin mode counts from the margin", '''
+  |
+  |
+  |
+  |X
+  |
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[2;4r\x1b[?6h\x1b[1eX")
+  print(t.dump())
+
 test "IND moves down", '''
   |ab
   |  X
@@ -578,6 +681,36 @@ test "an unknown escape is ignored", '''
 '''
   t = terminal.Terminal.new(10, 2)
   !t.feed("a\x1bQb\x1b(Bc")
+  print(t.dump())
+
+test "CSI s and CSI u save and restore the cursor", '''
+  |abY
+  |
+  |    X
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1b[s\x1b[3;5HX\x1b[uY")
+  print(t.dump())
+
+test "CSI s with parameters does nothing", '''
+  |Yb
+  |
+  |    X
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1b[2s\x1b[3;5HX\x1b[uY")
+  print(t.dump())
+
+test "RIS resets everything", '''
+  |X
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[2;3r\x1b[1;31m\x1b[?7lab\x1bcX")
   print(t.dump())
 
 test "CAN cancels a sequence", '''
@@ -1658,6 +1791,28 @@ test "DECALN uses the pen", '''
   !t.feed("\x1b[33m\x1b#8")
   print(t.dump())
 
+test "DECALN keeps only the pen's colors", '''
+  |EEEE
+  |EEEE
+  ~0 0-3 fg=2 bg=4
+  ~1 0-3 fg=2 bg=4
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("\x1b[1;5;32;44m\x1b#8")
+  print(t.dump())
+
+test "after DECALN the flags stay off", '''
+  |EEEE
+  |XEEE
+  ~0 0-3 fg=2
+  ~1 0-3 fg=2
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("\x1b[1;32m\x1b#8\x1b[2;1HX")
+  print(t.dump())
+
 test "DECAWM off overwrites the last column", '''
   |abcf
   |
@@ -1844,4 +1999,32 @@ test "DECTCEM changes nothing on screen", '''
 '''
   t = terminal.Terminal.new(10, 2)
   !t.feed("\x1b[?25lab\x1b[?25hc")
+  print(t.dump())
+
+test "XTRESTORE with nothing saved restores the default", '''
+  |abcd
+  |ef
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("\x1b[?7l\x1b[?7rabcdef")
+  print(t.dump())
+
+test "XTSAVE and XTRESTORE", '''
+  |abcf
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("\x1b[?7l\x1b[?7s\x1b[?7h\x1b[?7rabcdef")
+  print(t.dump())
+
+test "XTRESTORE of origin mode homes the cursor", '''
+  |X
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[2;2H\x1b[?6rX")
   print(t.dump())

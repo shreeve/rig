@@ -1,0 +1,26 @@
+# std.terminal's side of tools/terminal_ghostty.py: the cases in the file
+# named by the first argument, in the form tools/terminal_ghostty.zig reads
+# (a line `case COLS ROWS LEN`, LEN bytes, a newline), each fed to a new
+# terminal and dumped, then a line `end`, as that program prints Ghostty's.
+
+use std.file
+use std.os
+use std.terminal
+use std.text
+
+sub main()!
+  data = file.read(os.args()[1]) ?? String()
+  at = 0
+  while at < data.len
+    rest = ?data[at..]
+    eol = text.find(rest, "\n") ?? rest.len
+    fields = text.split(rest[..eol], " ")
+    _ = !fields.next()
+    cols = text.parse_int((!fields).next() ?? "")!
+    rows = text.parse_int((!fields).next() ?? "")!
+    len = text.parse_int((!fields).next() ?? "")!
+    t = terminal.Terminal.new(cols, rows)
+    !t.feed(rest[eol + 1..eol + 1 + len])
+    print(t.dump())
+    print("end")
+    at += eol + 1 + len + 1

@@ -36,6 +36,8 @@ pub obj Terminal
   col: Int
   # The cursor is past the last column: the next printed rune wraps first.
   pending_wrap: Bool
+  # The last rune printed, for REP; -1 before any, and after RIS.
+  last: Int
   # The scroll margins (DECSTBM): the first and last rows that scroll.
   top: Int
   bottom: Int
@@ -46,6 +48,11 @@ pub obj Terminal
   insert: Bool
   newline: Bool
   cursor_visible: Bool
+  # What XTSAVE saved of the private modes, for XTRESTORE; their defaults
+  # until then.
+  kept_origin: Bool
+  kept_autowrap: Bool
+  kept_cursor_visible: Bool
   # Whether a tab stop is set at each column.
   tabs: List[Bool]
   # What DECSC saved, for DECRC: the position and the pending wrap.
@@ -76,10 +83,21 @@ pub obj Terminal
       tabs[x] = x % 8 == 0
     Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), marks: List[Int].filled(cols * rows, 0),
       styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0,
-      row: 0, col: 0, pending_wrap: false, top: 0, bottom: rows - 1,
+      row: 0, col: 0, pending_wrap: false, last: -1, top: 0, bottom: rows - 1,
       autowrap: true, origin: false, insert: false, newline: false, cursor_visible: true,
+      kept_origin: false, kept_autowrap: true, kept_cursor_visible: true,
       tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false, saved_pen: Style.plain(), saved_origin: false,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0)
+
+  # REP: the last rune printed, `n` more times (at least once).
+  sub repeat(!@, n: Int)
+    return if @last < 0
+    for _ in 0..(n if n > 1 else 1)
+      (!@).print(U32(@last))
+
+  # RIS: everything as a new terminal of the same size has it.
+  sub full_reset(!@)
+    @ = Terminal.new(@cols, @rows)
 
   # The pen changed: find its index, and the index of an erased cell.
   sub pen_changed(!@)
@@ -99,6 +117,7 @@ pub obj Terminal
     i = @row * @cols + @col
     @cells[i] = r
     @marks[i] = @pen_id
+    @last = Int(r)
     # At the last column a wrap is pending even with autowrap off, as in
     # Ghostty: the next rune only wraps once autowrap is on again.
     if @col == @cols - 1
@@ -251,8 +270,14 @@ pub obj Terminal
     @bottom = b - 1
     (!@).cursor_to(1, 1)
 
-  # DECALN: the screen full of `E`, the margins reset, the cursor home.
+  # DECALN: the screen full of `E`, the margins reset, the cursor home. As
+  # in Ghostty, the pen keeps only its colors, and stays so.
   sub align(!@)
+    colors = Style.plain()
+    colors.fg = @pen.fg
+    colors.bg = @pen.bg
+    @pen = <colors
+    (!@).pen_changed()
     @top = 0
     @bottom = @rows - 1
     @origin = false
@@ -308,9 +333,9 @@ pub obj Terminal
         @col += 1
       k -= 1
 
-  # Back to the previous tab stop, `n` times, stopping at the first column.
+  # Back to the previous tab stop, `n` times, stopping at the first column;
+  # as in Ghostty, a pending wrap stays.
   sub tab_back(!@, n: Int)
-    @pending_wrap = false
     k = n
     while k > 0 and @col > 0
       @col -= 1
@@ -351,6 +376,23 @@ pub obj Terminal
       @pen = Style.plain()
       @origin = false
     (!@).pen_changed()
+
+  # XTSAVE: remember private mode `m`.
+  sub save_mode(!@, m: Int)
+    match m
+      6 => @kept_origin = @origin
+      7 => @kept_autowrap = @autowrap
+      25 => @kept_cursor_visible = @cursor_visible
+      _ => pass
+
+  # XTRESTORE: set private mode `m` as XTSAVE remembered it, with the
+  # effects of setting it.
+  sub restore_mode(!@, m: Int)
+    match m
+      6 => (!@).set_mode(6, true, @kept_origin)
+      7 => (!@).set_mode(7, true, @kept_autowrap)
+      25 => (!@).set_mode(25, true, @kept_cursor_visible)
+      _ => pass
 
   # SM and RM (`private` false) or DECSET and DECRST: mode `m` on or off.
   sub set_mode(!@, m: Int, private: Bool, on: Bool)

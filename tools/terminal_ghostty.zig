@@ -4,6 +4,13 @@
 //! in the form std.terminal's `dump` prints them. tools/terminal_ghostty.py
 //! builds and runs this with Ghostty's Zig.
 //!
+//! `terminal_ghostty bench FILE N COLS ROWS SCROLLBACK` instead feeds
+//! FILE's bytes to N new terminals of COLS by ROWS, with SCROLLBACK bytes
+//! of scrollback (`none` for no limit), and prints `<ns> <check>`: the
+//! nanoseconds the N feeds took, and the 64-bit FNV-1a hash of the last
+//! one's dump without its final newline, which std.terminal's dump of the
+//! same bytes must equal (bench/terminal).
+//!
 //! Input, a file named by the first argument: cases one after another,
 //! each a line `case COLS ROWS LEN`, then LEN bytes, then a newline.
 //! Output: each case's dump, then a line `end`. A dump is a line per row,
@@ -25,6 +32,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
+    if (args.len == 7 and std.mem.eql(u8, args[1], "bench")) return bench(io, gpa, args[2..]);
     if (args.len != 2) return error.Usage;
     const input = try std.Io.Dir.cwd().readFileAlloc(io, args[1], gpa, .limited(1 << 30));
     defer gpa.free(input);
@@ -48,12 +56,47 @@ pub fn main(init: std.process.Init) !void {
     try out.flush();
 }
 
+fn bench(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
+    const data = try std.Io.Dir.cwd().readFileAlloc(io, args[0], gpa, .limited(1 << 30));
+    defer gpa.free(data);
+    const n = try std.fmt.parseInt(usize, args[1], 10);
+    const cols = try std.fmt.parseInt(u16, args[2], 10);
+    const rows = try std.fmt.parseInt(u16, args[3], 10);
+    const scrollback: ?usize = if (std.mem.eql(u8, args[4], "none")) null else try std.fmt.parseInt(usize, args[4], 10);
+    var ns: i96 = 0;
+    var check: u64 = 0;
+    for (0..n) |i| {
+        var t: vt.Terminal = try .init(io, gpa, .{ .cols = cols, .rows = rows, .max_scrollback_bytes = scrollback });
+        defer t.deinit(gpa);
+        var stream = t.vtStream();
+        const start = std.Io.Clock.awake.now(io);
+        stream.nextSlice(data);
+        ns += start.durationTo(std.Io.Clock.awake.now(io)).nanoseconds;
+        if (i == n - 1) {
+            var aw: std.Io.Writer.Allocating = .init(gpa);
+            defer aw.deinit();
+            try dumpScreen(gpa, &aw.writer, &t, cols, rows);
+            const text = aw.written();
+            check = std.hash.Fnv1a_64.hash(text[0 .. text.len - 1]);
+        }
+    }
+    var buf: [256]u8 = undefined;
+    var fw = std.Io.File.stdout().writerStreaming(io, &buf);
+    try fw.interface.print("{d} {d}\n", .{ ns, check });
+    try fw.interface.flush();
+}
+
 fn dumpCase(io: std.Io, gpa: std.mem.Allocator, out: *std.Io.Writer, cols: u16, rows: u16, bytes: []const u8) !void {
     var t: vt.Terminal = try .init(io, gpa, .{ .cols = cols, .rows = rows });
     defer t.deinit(gpa);
     var stream = t.vtStream();
     stream.nextSlice(bytes);
+    try dumpScreen(gpa, out, &t, cols, rows);
+    try out.writeAll("end\n");
+}
 
+/// The dump of `t`, ending with a newline.
+fn dumpScreen(gpa: std.mem.Allocator, out: *std.Io.Writer, t: *vt.Terminal, cols: u16, rows: u16) !void {
     const screen = t.screens.active;
     var line: std.ArrayList(u8) = .empty;
     defer line.deinit(gpa);
@@ -91,7 +134,7 @@ fn dumpCase(io: std.Io, gpa: std.mem.Allocator, out: *std.Io.Writer, cols: u16, 
         }
     }
     const cursor = screen.cursor;
-    try out.print("cursor {d} {d}{s}\nend\n", .{ cursor.y, cursor.x, if (cursor.pending_wrap) " wrap" else "" });
+    try out.print("cursor {d} {d}{s}\n", .{ cursor.y, cursor.x, if (cursor.pending_wrap) " wrap" else "" });
 }
 
 /// A cell's style as ATTRS (see the top of this file); empty for the default.
