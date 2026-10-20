@@ -1593,7 +1593,9 @@ cells (IL, DL, ICH, DCH), styles (SGR: the flags, underline styles, 16,
 background), the modes IRM, LNM, DECOM, DECAWM, and DECTCEM (and XTSAVE
 and XTRESTORE of the private ones), REP, `CSI s` and `CSI u`, RIS, and
 character sets (SCS into G0 to G3 of ASCII, British, and DEC Special
-Graphics, with SO, SI, SS2, SS3, LS2, and LS3).
+Graphics, with SO, SI, SS2, SS3, LS2, and LS3), and the alternate screen
+(modes 47, 1047, and 1049, as xterm switches them). `dump` shows the
+screen in use.
 Strings
 (OSC, DCS,
 APC, and the rest) are read to their end and ignored, and so are bytes of

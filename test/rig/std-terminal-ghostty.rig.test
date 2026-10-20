@@ -2204,3 +2204,215 @@ test "RIS resets the sets", '''
   t = terminal.Terminal.new(10, 2)
   !t.feed("\x1b(0\x1bcq")
   print(t.dump())
+
+test "1049 shows a blank alternate screen", '''
+  |
+  |
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("main\x1b[?1049h")
+  print(t.dump())
+
+test "1049 keeps the cursor's place", '''
+  |
+  |  X
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x0d\x0acd\x1b[?1049hX")
+  print(t.dump())
+
+test "1049 back restores the primary and its cursor", '''
+  |mainY
+  |
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("main\x1b[?1049halt\x1b[3;3HX\x1b[?1049lY")
+  print(t.dump())
+
+test "1049 clears the alternate screen each time", '''
+  |
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[?1049hfirst\x1b[?1049l\x1b[?1049h")
+  print(t.dump())
+
+test "1049 keeps the pen", '''
+  |X
+  |
+  |
+  ~0 0-0 bold fg=1
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[1;31m\x1b[?1049hX")
+  print(t.dump())
+
+test "1049 erases with the pen's background", '''
+  |
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[44m\x1b[?1049h")
+  print(t.dump())
+
+test "1049 back restores the pen", '''
+  |Y
+  |
+  |
+  ~0 0-0 fg=2
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[32m\x1b[?1049h\x1b[0;35m\x1b[?1049lY")
+  print(t.dump())
+
+test "1049 twice saves the cursor on the alternate", '''
+  |abX
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1b[?1049h\x1b[3;5H\x1b[?1049h\x1b[?1049lX")
+  print(t.dump())
+
+test "47 keeps the alternate screen's cells", '''
+  |    one
+  |
+  |
+  cursor 0 7
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("main\x1b[?47hone\x1b[?47l\x1b[?47h")
+  print(t.dump())
+
+test "47 back keeps the cursor where it was moved", '''
+  |main
+  |
+  |      X
+  cursor 2 7
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("main\x1b[?47h\x1b[3;7H\x1b[?47lX")
+  print(t.dump())
+
+test "1047 clears the alternate screen on the way back", '''
+  |
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[?1047hone\x1b[?1047l\x1b[?1047h")
+  print(t.dump())
+
+test "1047 back keeps the cursor", '''
+  |main
+  |     X
+  |
+  cursor 1 6
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("main\x1b[?1047h\x1b[2;6H\x1b[?1047lX")
+  print(t.dump())
+
+test "leaving the primary screen does nothing", '''
+  |Xain
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("main\x1b[?1049lX")
+  print(t.dump())
+
+test "each screen keeps its own saved cursor", '''
+  |
+  |
+  |  Y
+  cursor 2 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1b7\x1b[?47h\x1b[3;3H\x1b7\x1b[?47l\x1b8X\x1b[?47h\x1b8Y")
+  print(t.dump())
+
+test "margins carry over", '''
+  |
+  |X
+  |
+  |
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[2;3r\x1b[?1049h\x1b[3;1H\x0aX\x0a")
+  print(t.dump())
+
+test "a scroll on the alternate screen", '''
+  |2
+  |3
+  |4
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[?1049h1\x0d\x0a2\x0d\x0a3\x0d\x0a4")
+  print(t.dump())
+
+test "RIS goes back to a new primary screen", '''
+  |X
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("main\x1b[?1049halt\x1bcX")
+  print(t.dump())
+
+test "charsets carry over", '''
+  |─
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b(0\x1b[?1049hq\x1b[?1049lq")
+  print(t.dump())
+
+test "1049 erases with the background the alternate screen was left with", '''
+  |
+  |
+  ~0 0-5 bg=1
+  ~1 0-5 bg=1
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("\x1b[?1049h\x1b[41m\x1b[?1049l\x1b[44m\x1b[?1049h")
+  print(t.dump())
+
+test "1049 keeps a pending wrap", '''
+  |
+  |X
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x1b[?1049hX")
+  print(t.dump())
+
+test "1049 on the alternate screen ends a pending wrap", '''
+  |   X
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("\x1b[?1049habcd\x1b[?1049hX")
+  print(t.dump())

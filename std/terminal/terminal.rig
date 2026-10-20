@@ -18,6 +18,22 @@ fun intern(styles: !List[Style], s: ?Style) -> Int
   !styles.push(+s)
   styles.len - 1
 
+# A cursor DECSC saved: its place, pending wrap, pen, origin mode, and
+# character sets; `set` is false before the first save.
+obj Saved
+  set: Bool
+  row: Int
+  col: Int
+  wrap: Bool
+  pen: Style
+  origin: Bool
+  g: [4]Int
+  gl: Int
+  single: Int
+
+  fun none() -> Saved
+    Saved(set: false, row: 0, col: 0, wrap: false, pen: Style.plain(), origin: false, g: [4 of UTF8], gl: 0, single: -1)
+
 # Character sets.
 UTF8 = 0
 ASCII = 1
@@ -93,16 +109,19 @@ pub obj Terminal
   kept_cursor_visible: Bool
   # Whether a tab stop is set at each column.
   tabs: List[Bool]
-  # What DECSC saved, for DECRC: the position and the pending wrap.
-  saved: Bool
-  saved_row: Int
-  saved_col: Int
-  saved_wrap: Bool
-  saved_pen: Style
-  saved_origin: Bool
-  saved_g: [4]Int
-  saved_gl: Int
-  saved_single: Int
+  # What DECSC saved, for DECRC.
+  saved: Saved
+  # The other screen, primary or alternate (47, 1047, 1049): its cells, row
+  # map, and saved cursor, swapped with these at a switch. The alternate
+  # screen is made blank the first time it is used.
+  alt: Bool
+  alt_made: Bool
+  other_cells: List[U64]
+  other_map: List[Int]
+  other_saved: Saved
+  # The background of the other screen's cursor when it was left, which a
+  # screen is erased with as 1049 enters it, before the cursor comes over.
+  other_bg: Int
   # The parser (parser.rig): its state, the CSI parameters so far, and the
   # intermediate bytes, packed with the first in the highest byte.
   state: State
@@ -130,8 +149,7 @@ pub obj Terminal
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, origin: false, insert: false, newline: false, cursor_visible: true,
       kept_origin: false, kept_autowrap: true, kept_cursor_visible: true,
-      tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false, saved_pen: Style.plain(), saved_origin: false,
-      saved_g: [4 of UTF8], saved_gl: 0, saved_single: -1,
+      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_saved: Saved.none(), other_bg: NONE,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0)
 
   # REP: the last rune printed, `n` more times (at least once).
@@ -453,26 +471,18 @@ pub obj Terminal
         @tabs[x] = false
 
   sub save_cursor(!@)
-    @saved = true
-    @saved_g = @g
-    @saved_gl = @gl
-    @saved_single = @single
-    @saved_row = @row
-    @saved_col = @col
-    @saved_wrap = @pending_wrap
-    @saved_pen = +@pen
-    @saved_origin = @origin
+    @saved = Saved(set: true, row: @row, col: @col, wrap: @pending_wrap, pen: +@pen, origin: @origin, g: @g, gl: @gl, single: @single)
 
   sub restore_cursor(!@)
-    if @saved
-      @row = @saved_row
-      @col = @saved_col
-      @pending_wrap = @saved_wrap
-      @pen = +@saved_pen
-      @origin = @saved_origin
-      @g = @saved_g
-      @gl = @saved_gl
-      @single = @saved_single
+    if @saved.set
+      @row = @saved.row
+      @col = @saved.col
+      @pending_wrap = @saved.wrap
+      @pen = +@saved.pen
+      @origin = @saved.origin
+      @g = @saved.g
+      @gl = @saved.gl
+      @single = @saved.single
     else
       @row = 0
       @col = 0
@@ -483,6 +493,37 @@ pub obj Terminal
       @gl = 0
       @single = -1
     (!@).pen_changed()
+
+  # To the alternate screen (`alt`) or back to the primary; nothing when
+  # already there. The cursor, the pen, the character sets, the margins,
+  # and the modes stay as they are; the cells and the saved cursor are the
+  # other screen's. The background of the cursor the screen had when it
+  # was left, or of this one when there is no switch.
+  fun switch_screen(!@, alt: Bool) -> Int
+    return @pen.bg if @alt == alt
+    if not @alt_made
+      @other_cells = List[U64].filled(@cols * @rows, 0)
+      map = List[Int].filled(@rows, 0)
+      for y in 0..@rows
+        map[y] = y
+      @other_map = <map
+      @alt_made = true
+    swap(!@cells, !@other_cells)
+    swap(!@map, !@other_map)
+    swap(!@saved, !@other_saved)
+    stale = @other_bg
+    @other_bg = @pen.bg
+    @alt = alt
+    stale
+
+  # ED 2 with the background `bg` instead of the pen's.
+  sub erase_with(!@, bg: Int)
+    kept = @blank_cell
+    erased = Style.plain()
+    erased.bg = bg
+    @blank_cell = U64(intern(!@styles, ?erased)) << 32
+    (!@).erase_display(2)
+    @blank_cell = kept
 
   # XTSAVE: remember private mode `m`.
   sub save_mode(!@, m: Int)
@@ -515,6 +556,28 @@ pub obj Terminal
         (!@).cursor_to(1, 1)
       7 => @autowrap = on
       25 => @cursor_visible = on
+      # As xterm (and Ghostty): 47 switches; 1047 also clears the alternate
+      # screen on the way back; 1049 saves the cursor and clears the
+      # alternate screen on the way in, and restores the cursor on the
+      # primary on the way back.
+      47 => _ = (!@).switch_screen(on)
+      1047
+        (!@).erase_display(2) if not on and @alt
+        _ = (!@).switch_screen(on)
+      1049
+        if on
+          # The erase is of the alternate screen's own cursor; the cursor
+          # coming over after it keeps its pending wrap, unless there was
+          # no switch to bring it.
+          (!@).save_cursor()
+          came = not @alt
+          wrap = @pending_wrap
+          bg = (!@).switch_screen(true)
+          (!@).erase_with(bg)
+          @pending_wrap = wrap if came else false
+        else
+          _ = (!@).switch_screen(false)
+          (!@).restore_cursor()
       _ => pass
 
   # The screen and cursor as text: a line per row, `|` and the row's runes

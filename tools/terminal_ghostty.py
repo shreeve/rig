@@ -45,7 +45,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -264,6 +264,27 @@ CASES = [
     ("charset", "REP maps the rune again", 10, 2, b"q\x1b(0\x1b[3b"),
     ("charset", "DECSC and DECRC save the sets", 10, 2, b"\x1b(0\x1b7\x1b(Bq\x1b8q"),
     ("charset", "RIS resets the sets", 10, 2, b"\x1b(0\x1bcq"),
+    ("screen", "1049 shows a blank alternate screen", 10, 3, b"main\x1b[?1049h"),
+    ("screen", "1049 keeps the cursor's place", 10, 3, b"ab\r\ncd\x1b[?1049hX"),
+    ("screen", "1049 back restores the primary and its cursor", 10, 3, b"main\x1b[?1049halt\x1b[3;3HX\x1b[?1049lY"),
+    ("screen", "1049 clears the alternate screen each time", 10, 3, b"\x1b[?1049hfirst\x1b[?1049l\x1b[?1049h"),
+    ("screen", "1049 keeps the pen", 10, 3, b"\x1b[1;31m\x1b[?1049hX"),
+    ("screen", "1049 erases with the pen's background", 10, 3, b"\x1b[44m\x1b[?1049h"),
+    ("screen", "1049 back restores the pen", 10, 3, b"\x1b[32m\x1b[?1049h\x1b[0;35m\x1b[?1049lY"),
+    ("screen", "1049 twice saves the cursor on the alternate", 10, 3, b"ab\x1b[?1049h\x1b[3;5H\x1b[?1049h\x1b[?1049lX"),
+    ("screen", "47 keeps the alternate screen's cells", 10, 3, b"main\x1b[?47hone\x1b[?47l\x1b[?47h"),
+    ("screen", "47 back keeps the cursor where it was moved", 10, 3, b"main\x1b[?47h\x1b[3;7H\x1b[?47lX"),
+    ("screen", "1047 clears the alternate screen on the way back", 10, 3, b"\x1b[?1047hone\x1b[?1047l\x1b[?1047h"),
+    ("screen", "1047 back keeps the cursor", 10, 3, b"main\x1b[?1047h\x1b[2;6H\x1b[?1047lX"),
+    ("screen", "leaving the primary screen does nothing", 10, 3, b"main\x1b[?1049lX"),
+    ("screen", "each screen keeps its own saved cursor", 10, 3, b"ab\x1b7\x1b[?47h\x1b[3;3H\x1b7\x1b[?47l\x1b8X\x1b[?47h\x1b8Y"),
+    ("screen", "margins carry over", 10, 4, b"\x1b[2;3r\x1b[?1049h\x1b[3;1H\nX\n"),
+    ("screen", "a scroll on the alternate screen", 10, 3, b"\x1b[?1049h1\r\n2\r\n3\r\n4"),
+    ("screen", "RIS goes back to a new primary screen", 10, 3, b"main\x1b[?1049halt\x1bcX"),
+    ("screen", "charsets carry over", 10, 3, b"\x1b(0\x1b[?1049hq\x1b[?1049lq"),
+    ("screen", "1049 erases with the background the alternate screen was left with", 6, 2, b"\x1b[?1049h\x1b[41m\x1b[?1049l\x1b[44m\x1b[?1049h"),
+    ("screen", "1049 keeps a pending wrap", 4, 2, b"abcd\x1b[?1049hX"),
+    ("screen", "1049 on the alternate screen ends a pending wrap", 4, 2, b"\x1b[?1049habcd\x1b[?1049hX"),
 ]
 
 
@@ -443,7 +464,7 @@ def piece(rng, every):
         return sgr(rng)
     if k < 0.90:
         private = rng.random() < 0.6
-        modes = [rng.choice([6, 7, 25, 1, 5] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
+        modes = [rng.choice([6, 7, 25, 1, 5, 47, 1047, 1049] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
         return b"\x1b[" + (b"?" if private else b"") + b";".join(b"%d" % m for m in modes) + rng.choice([b"h", b"l"])
     if k < 0.93:
         return b"\x1b" + rng.choice([b"7", b"8", b"D", b"E", b"H", b"M", b"#8", b"Q", b"=", b">"])
