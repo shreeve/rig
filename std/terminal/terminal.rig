@@ -470,8 +470,15 @@ pub obj Terminal
       p = @map[@rot + @row]
       base = p * @cols + @col
       bits = @pen_bits
-      for t in 0..take
-        @cells[base + t] = U64(s[k + t]) | bits
+      # Over a view of the row and one of the bytes, whose lengths the
+      # loop's guard tests, so no index needs a check of its own and the
+      # loop can run a vector at a time.
+      row = !@cells[base..base + take]
+      src = s[k..k + take]
+      t = 0
+      while t < row.len and t < src.len
+        row[t] = U64(src[t]) | bits
+        t += 1
       @ends[p] = @col + take if @ends[p] < @col + take else @ends[p]
       k += take
       # As `print` does, a pending wrap (kept with autowrap off, after CBT)
