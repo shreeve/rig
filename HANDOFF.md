@@ -111,7 +111,9 @@ from).
     idle runs inline, as the actor, at about a lock's cost
     (`Actor.claim`; bench/actors times it against a Go mutex and a Tokio
     actor). A wait that closes a cycle of actor calls and task waits
-    panics, naming the calls (`sched.block`). Actor failure comes next.
+    panics, naming the calls (`sched.block`). A panic in an actor's
+    method ends the actor and panics in its caller, and later calls
+    panic (`Actor.kill`, `tasks.actorsDie`). Supervised actors come next.
   - **Deterministic tests:** `rig test` runs tasks on one thread with
     a virtual clock and a seed (`--seed`, `--seeds`, `RIG_SEED`), so a
     concurrent test fails the same way twice and sleeps take no time;
@@ -383,8 +385,8 @@ migration guide (`tools/migrate-0.3.py`).
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
 plan's second step, and its increments are done; the crossing facts, a
 `Cell` of one word across tasks, `par`, `time.within`, `task.isolate`,
-and actors with their idle path and deadlock detection are built): actor
-failure with supervised actors; then I/O,
+and actors with their idle path, deadlock detection, and failure are
+built): supervised actors; then I/O,
 timers, and `http.serve` on Rig's own `std.Io`, whose blocking pool
 today serves only `std.file.read`.
 

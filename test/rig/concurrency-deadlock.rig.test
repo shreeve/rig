@@ -162,3 +162,30 @@ test "deadlock chains that end", seeds: 20, '''
   v = look(+b)&
   x, y = task.both(<u, <v)
   print(x + y - 6)
+
+test "deadlock fails one isolate", seeds: 20, '''
+  Stop.panicked
+  -1 after
+'''
+  # A deadlock found in an actor's method ends the actors that task runs,
+  # and its isolate stops the panic: the program goes on.
+  use std.task
+
+  obj Counter
+    hits: Int
+
+    sub bump(!@, me: *Actor[Counter])
+      @hits += me.get()
+
+    fun get(?@) -> Int
+      @hits
+
+  fun work(c: *Actor[Counter]) -> Int
+    !c.bump(+c)
+    1
+
+  c = *Actor(Counter(hits: 1))
+  r = task.isolate(|+c| work(+c)) catch |e|
+    print(e)
+    -1
+  print(r, "after")

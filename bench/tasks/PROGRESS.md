@@ -28,6 +28,7 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-20 | #383: actors | rig-fast | 109 ns | 45 ns | 80.0 ms | 10 ns | 102.17 us | 17.0 KiB |
 | 2026-10-20 | #386: the idle path | rig-fast | 99 ns | 47 ns | 86.8 ms | 11 ns | 106.03 us | 17.0 KiB |
 | 2026-10-20 | #389: deadlock detection | rig-fast | 104 ns | 47 ns | 86.6 ms | 11 ns | 91.37 us | 17.0 KiB |
+| 2026-10-20 | #391: actor failure | rig-fast | 101 ns | 44 ns | 80.8 ms | 10 ns | 79.27 us | 17.0 KiB |
 
 ## x86-64 (pup)
 
@@ -48,3 +49,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-20 | #383: actors | rig-fast | 270 ns | 79 ns | 97.9 ms | 11 ns | 57.12 us | 5.2 KiB |
 | 2026-10-20 | #386: the idle path | rig-fast | 246 ns | 83 ns | 98.1 ms | 8 ns | 79.89 us | 5.2 KiB |
 | 2026-10-20 | #389: deadlock detection | rig-fast | 278 ns | 79 ns | 98.0 ms | 8 ns | 69.41 us | 5.2 KiB |
+| 2026-10-20 | #391: actor failure | rig-fast | 298 ns | 78 ns | 99.4 ms | 8 ns | 69.97 us | 5.2 KiB |

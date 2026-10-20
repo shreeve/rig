@@ -3312,6 +3312,30 @@ const LeakChecker = struct {
         return iso.id;
     }
 
+    /// Mark what the `bytes` bytes at `from` lead to as left by a panic:
+    /// each word that is a live allocation's address, and in turn what
+    /// that allocation's words lead to.
+    fn leaveFrom(self: *LeakChecker, from: usize, bytes: usize) void {
+        const Span = struct { at: usize, len: usize };
+        var work: std.ArrayList(Span) = .empty;
+        defer work.deinit(table_allocator);
+        work.append(table_allocator, .{ .at = from, .len = bytes }) catch oom();
+        while (work.pop()) |span| {
+            const word = @sizeOf(usize);
+            var addr = std.mem.alignForward(usize, span.at, word);
+            while (addr + word <= span.at + span.len) : (addr += word) {
+                const p = @as(*const usize, @ptrFromInt(addr)).*;
+                const size = self.live.get(p) orelse continue;
+                const tag = self.tags.getOrPut(table_allocator, p) catch oom();
+                if (tag.found_existing and tag.value_ptr.* == left) continue;
+                tag.value_ptr.* = left;
+                self.left_count += 1;
+                self.left_bytes += size;
+                work.append(table_allocator, .{ .at = p, .len = size }) catch oom();
+            }
+        }
+    }
+
     /// Whether isolate `id` is `ancestor` or inside it.
     fn within(self: *LeakChecker, id: u32, ancestor: u32) bool {
         var step = id;
@@ -3644,6 +3668,35 @@ pub fn isolatePanicked(id: u32) void {
         leak_checker.left_count += 1;
         leak_checker.left_bytes += leak_checker.live.get(e.key_ptr.*).?;
     }
+}
+
+/// A dead actor's value is abandoned (`tasks.Actor.kill`): in a build
+/// that checks leaks, what it owns, which a pointer in it or in what it
+/// owns leads to, is left by a panic, counted apart from leaks. An
+/// actor's value holds no view, so each pointer it owns leads to the
+/// start of an allocation.
+pub fn abandonValue(comptime T: type, value: *const T) void {
+    if (!leak_checked) return;
+    LeakChecker.lock();
+    defer LeakChecker.unlock();
+    leak_checker.leaveFrom(@intFromPtr(value), @sizeOf(T));
+}
+
+/// A panic leaves the running task's frames where they stand: in a build
+/// that checks leaks, what they own, as a handle to a value made outside
+/// them, is left by the panic too, not leaked. Each word from the running
+/// frame to the top of the stack that is a live allocation's address,
+/// and what that leads to, is marked so (`LeakChecker.leaveFrom`).
+pub fn leaveFrames() void {
+    if (!leak_checked or !scheduled) return;
+    const g = task().stack_guard;
+    if (g.hi == 0) return;
+    const from = @frameAddress();
+    const top = g.hi + task_stack_size - unwind_headroom;
+    if (from < g.hi or from >= top) return;
+    LeakChecker.lock();
+    defer LeakChecker.unlock();
+    leak_checker.leaveFrom(from, top - from);
 }
 
 /// Report the allocations live now beyond `before`; true when there are any.
@@ -4037,7 +4090,7 @@ pub fn finish() void {
     unlockOutput();
     if (leak_checked and leak_checker.left_count > 0) {
         const n = leak_checker.left_count;
-        std.debug.print("note: rig: {d} allocation{s} ({d} bytes) left by a panic that `task.isolate` stopped\n", .{ n, if (n == 1) "" else "s", leak_checker.left_bytes });
+        std.debug.print("note: rig: {d} allocation{s} ({d} bytes) left by a panic that `task.isolate` or an actor stopped\n", .{ n, if (n == 1) "" else "s", leak_checker.left_bytes });
     }
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
@@ -4337,6 +4390,13 @@ fn flushForPanic() void {
 /// A panic that an isolate stops: its report, with the stack trace in a
 /// debug build, then the isolate (`tasks.panicked`).
 fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) noreturn {
+    reportPanic(msg, first_trace_addr);
+    tasks.panicked(iso);
+}
+
+/// Write a panic that a boundary stops: its message, and in a debug
+/// build its trace, while the program goes on.
+fn reportPanic(msg: []const u8, first_trace_addr: usize) void {
     flushForPanic();
     {
         var buf: [256]u8 = undefined;
@@ -4346,19 +4406,35 @@ fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) 
         ls.file_writer.interface.flush() catch {};
     }
     if (builtin.mode == .debug) std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr });
-    tasks.panicked(iso);
 }
 
 /// A task this one waited for, or dropped, panicked: the panic passes to
 /// this task's nearest isolate, or, with none, ends the program.
 pub fn passPanic() noreturn {
+    passPanicFrom("a task this one waited for panicked");
+}
+
+/// A panic elsewhere passes to this task, as `passPanic`: `what` says
+/// where it came from, when it ends the program.
+pub fn passPanicFrom(what: []const u8) noreturn {
     @branchHint(.cold);
+    if (tasks.actorsDie()) {
+        leaveFrames();
+        sched.abandonDetached();
+    }
     if (panicBoundary()) |iso| tasks.panicked(iso);
-    panicAfterFlush("a task this one waited for panicked", @returnAddress());
+    panicAfterFlush(what, @returnAddress());
 }
 
 fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
     @branchHint(.cold);
+    // A panic in an actor's method, on its runner, stops there, once it
+    // is reported: the actor dies, and so does the call that waits on it.
+    if (tasks.actorsDie()) {
+        reportPanic(msg, first_trace_addr orelse @returnAddress());
+        leaveFrames();
+        sched.abandonDetached();
+    }
     if (panicBoundary()) |iso| isolatedPanic(iso, msg, first_trace_addr orelse @returnAddress());
     beginPanic();
     {

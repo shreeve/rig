@@ -555,12 +555,15 @@ boundary. Three things are boundaries:
   this way, so a bug fails that request with a 500, stops its tasks and
   closes its files, leaving only its memory, and leaves every other
   request running.
-- **An actor.** An actor owns its state, so a panic in one of its
-  methods kills that actor: its state, possibly half-changed, is
-  dropped and never served again. The caller waiting on that method
-  panics too, as an Erlang link does, failing the caller's own request
-  rather than handing it an error it cannot reason about. A later call
-  to an actor that has died panics in its caller.
+- **An actor** (built). An actor owns its state, so a panic in one of
+  its methods kills that actor: its state, possibly half-changed, is
+  abandoned, not dropped, and never served again. The caller waiting on
+  that method panics too, as an Erlang link does, failing the caller's
+  own request rather than handing it an error it cannot reason about.
+  A method run on the actor's own task stops the panic there; one run
+  inline panics in the caller as it stands, ending every actor the
+  caller runs a method of. A queued or later call to an actor that has
+  died panics in its caller, naming the method that ended it.
 
 Why this is sound without a runtime that knows the heap: loans point only
 from tasks into their owners, never the other way. So when a boundary's

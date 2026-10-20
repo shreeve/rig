@@ -127,3 +127,19 @@ fail "isolate gives a task", "a task started in `task.isolate` ends in it, and `
     n * n
 
   c = task.isolate(|| sq(2)&) catch 0
+
+test "isolate leaves a handle it holds", seeds: 20, "-1 after"
+  # What the frames a panic leaves hold, such as a handle to a value made
+  # outside the isolate, is left by the panic, not leaked: the value
+  # stays, since a handle to it was never dropped.
+  use std.task
+
+  obj Box2
+    n: Int
+
+  fun boom(b: *Box2, i: Int) -> Int
+    [1, 2, 3][i] + b.n
+
+  b = *Box2(n: 1)
+  r = task.isolate(|+b| boom(+b, 9)) catch -1
+  print(r, "after")
