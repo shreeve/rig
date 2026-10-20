@@ -344,8 +344,11 @@ the value is an optional, several results, or a variant.
   arm, dropping what `<s` took, falls to `else` or leaves the loop. The
   selection is its own unit (`rig.eachUnit`), ended once the first arm
   binds.
-- **The reference ownership checker** (`test/oracle/`) does not check
-  the form yet: it abstains, as it does for a joined `and` chain.
+- **The reference ownership checker** (`test/oracle/`) lowers a
+  condition's parts in order (`condChain`): the part as its `match`,
+  the subject held in the part's region with the fields it binds, a
+  failing part leaving the regions so far for the `else`, and a joined
+  `and` chain the same way.
 - **Tests**: `types-match` and `ownership-match`, the cases named
   `match as a pattern`, and this page's examples.
 
