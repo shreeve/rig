@@ -9725,7 +9725,9 @@ panic (an index out of range, an overflow) is the same event: it writes
 out the buffered output and writes `panic: ` and its message, with no
 location (and a stack trace in a debug build), and ends with status 134.
 In a test, a panic ends the run after `FAIL  name: panicked` and the
-count so far.
+count so far. Inside `task.isolate(f)`, a panic writes the same report
+and stops at that boundary instead, and the program goes on
+([§18](#isolating-a-panic)).
 
 A `panic` needs a message. It gives no value, so it stands where a
 statement can or where a branch's value is taken: as a statement, as a
@@ -10064,9 +10066,52 @@ below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in
-`main` does. If no stack can be had for a task, the program
+`main` does, unless an isolate stops it ([below](#isolating-a-panic)). If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task
 runs on one thread, with no locks.
+
+### Isolating a panic
+
+`task.isolate(f)` of `std.task` runs `f`, which takes nothing, and gives
+what it gives. A panic in `f`, or in a task started under it, stops at
+this boundary: its report is written as ever, and `isolate` fails with
+`task.Stop.panicked`. The program goes on. `f` may propagate with `!`,
+so the call fails as `f` fails too; it always can fail.
+
+- The tasks started under the isolate, by `f` or by those tasks, are
+  canceled, and the isolate waits for them to end, since they may
+  point into `f`'s frames. A task's panic passes to its owner at its
+  wait or drop, up to the isolate.
+- `f`'s frames stop where they stand: their drops and `defer`s do not
+  run, and what they own stays allocated. A debug build reports it
+  apart from leaks, as left by a panic.
+- Nothing outside `f` is lent to it to write, so all a panic could have
+  half-changed is `f`'s own: `f` is a closure written in the call with
+  no `|!x|` capture, or a function's name. A shared `*Cell` it changes
+  keeps the changes made before the panic.
+- A task started in `f` ends in it: `f` gives no value that holds one.
+- Inside another isolate, the nearest one stops a panic. With none, a
+  panic ends the program as before.
+
+```rig
+use std.task
+
+fun pick(xs: [3]Int, i: Int) -> Int
+  xs[i]
+
+sub main()
+  print(task.isolate(|| pick([1, 2, 3], 1)) catch -1)
+  r = task.isolate(|| pick([1, 2, 3], 7)) catch |e|
+    print(e)
+    -1
+  print(r)
+```
+
+```output
+2
+Stop.panicked
+-1
+```
 
 ### Deadlines
 

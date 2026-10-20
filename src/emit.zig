@@ -6735,6 +6735,12 @@ pub const Emitter = struct {
         // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
         // by the runtime, with no limit but the workers' count when none
         // is given.
+        // `task.isolate(f)`: run apart by the runtime.
+        if (self.facts.isIsolateCall(sexp)) {
+            try self.w.writeAll("rig.isolate(");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
+        }
         if (self.facts.parCallOf(sexp)) |kind| {
             try self.w.writeAll(if (kind == .map) "rig.parMap(" else "rig.parEach(");
             try self.emitArgs(sexp);

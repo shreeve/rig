@@ -99,6 +99,10 @@ from).
     (`Stop`, `check`), and a fallible `time.sleep`.
   - **Sets and joins:** `Tasks[T]` with `wait_all`, `wait_first`, and
     `within:` deadlines; `task.both` and `task.all`.
+  - **Isolating a panic:** `task.isolate(f)` stops a panic in `f`, or
+    in a task under it, cancels and waits for those tasks, leaves `f`'s
+    frames where they stand, and fails with `task.Stop.panicked`
+    (`tasks.Isolate`, `sched.runApart`).
   - **Deterministic tests:** `rig test` runs tasks on one thread with
     a virtual clock and a seed (`--seed`, `--seeds`, `RIG_SEED`), so a
     concurrent test fails the same way twice and sleeps take no time;

@@ -35,7 +35,7 @@ never read as the library's.
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
-| [`std.task`](#stdtask) | stopping a task, and waiting for several: `Stop`, `check`, `both`, `all` |
+| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
@@ -368,10 +368,11 @@ same waiting points fail with `Stop.timeout`.
 
 | Member | Result |
 |---|---|
-| `error Stop` | `canceled`, the request to stop, and `timeout` |
+| `error Stop` | `canceled`, the request to stop, `timeout`, and `panicked` |
 | `check()!` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other threads a turn |
 | `both(a, b)` | wait for two tasks of any types, and give each one's value as two results; it can fail when either task can, and then the first to fail cancels the other |
 | `all(a, b, ...)` | `both` for two tasks or more |
+| `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 
 A long computation calls `task.check()!` where stopping is safe:
 

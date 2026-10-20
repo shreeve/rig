@@ -978,6 +978,8 @@ pub const Facts = struct {
     /// The calls of `par.map` and `par.each`, which run a function on
     /// several tasks (`Checker.parCall`).
     par_calls: std.AutoHashMapUnmanaged(u64, ParCall) = .empty,
+    /// The calls of `task.isolate` (`Checker.isolateCall`).
+    isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -3174,6 +3176,15 @@ pub const SemContext = struct {
     /// Whether `call` is a `task.both` or `task.all` (`recordTaskJoin`).
     pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
         return self.facts.task_joins.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordIsolateCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.isolate_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is a `task.isolate` (`recordIsolateCall`).
+    pub fn isIsolateCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.isolate_calls.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordParCall(self: *SemContext, call: Sexp, kind: ParCall) !void {
@@ -5998,6 +6009,47 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoH
         },
         else => null,
     };
+}
+
+/// Whether a value of `ty` holds a task or a set of tasks: in an
+/// element, an argument, a field, or a payload. A task started in
+/// `task.isolate(f)` ends in `f`, so `f` gives no value that holds one.
+pub fn holdsTask(ctx: *const SemContext, ty: TypeId) bool {
+    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    defer seen.deinit(ctx.allocator);
+    return taskIn(ctx, ty, &seen);
+}
+
+fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
+    return switch (ctx.types.get(ty)) {
+        .read_view, .write_view, .optional, .fallible, .shared, .weak, .range => |inner| taskIn(ctx, inner, seen),
+        .array => |a| taskIn(ctx, a.elem, seen),
+        .slice => |sl| taskIn(ctx, sl.elem, seen),
+        .results => |parts| for (parts) |part| {
+            if (taskIn(ctx, part, seen)) break true;
+        } else false,
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk true;
+            for (pn.args) |a| if (taskIn(ctx, a, seen)) break :blk true;
+            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk false;
+            break :blk fieldsHoldTask(ctx, pn.sym, seen);
+        },
+        .nominal => |sym| fieldsHoldTask(ctx, sym, seen),
+        .imported_nominal => blk: {
+            const decl = nominalDecl(ctx, ty) orelse break :blk false;
+            break :blk fieldsHoldTask(decl.ctx, decl.sym, seen);
+        },
+        else => false,
+    };
+}
+
+fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
+    const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return false;
+    if (got.found_existing) return false;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
+        for (dataFields(f)) |d| if (taskIn(ctx, d.ty, seen)) return true;
+    }
+    return false;
 }
 
 /// What in the fields and payloads of a declared type keeps it from

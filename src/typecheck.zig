@@ -10597,6 +10597,7 @@ const Checker = struct {
         if (try self.moduleNamed(obj)) |id| {
             if (ct == null) if (try self.taskJoin(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.parCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
+            if (ct == null) if (try self.isolateCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         }
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
@@ -11201,6 +11202,82 @@ const Checker = struct {
         if (self.current_call) |c| try self.ctx.recordParCall(c, kind);
         self.ctx.makes_tasks = true;
         return result;
+    }
+
+    /// `task.isolate(f)` of `std.task`: run `f`, which takes nothing, and
+    /// give what it gives, failing as it fails and with
+    /// `task.Stop.panicked` when a panic in it, or in a task it started,
+    /// reached this boundary. The call is typed here, as `taskJoin` types
+    /// its own: `f` is a closure written in the call, which fails when its
+    /// body propagates, or a function's name. Its frames are dropped at a
+    /// panic with whatever they half-changed, so nothing outside `f` is
+    /// lent to it to write: no capture is `|!x|`. A task started in `f`
+    /// ends in it, so `f` gives no value that holds one. Null when
+    /// `module_sym` is not `std.task`, or `name` not `isolate`.
+    fn isolateCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
+        if (!std.mem.eql(u8, foreign.name, "std.task") or !std.mem.eql(u8, name, "isolate")) return null;
+        if (args.len != 1 or args[0].isKind(.kwarg)) return try self.badCall(args, pos, "`task.isolate` takes the function to run, `task.isolate(|| work()!)`", .{});
+        const f = args[0];
+        var fn_ty: TypeId = undefined;
+        if (f.isKind(.lambda)) {
+            // Checked quietly first as a closure that cannot fail: one
+            // whose body needs to fail is checked as one that can.
+            const quiet = try self.isolateLambdaType(f, false);
+            fn_ty = if (quiet.clean) quiet.ty else blk: {
+                const failing = try self.isolateLambdaType(f, true);
+                break :blk if (failing.clean) failing.ty else quiet.ty;
+            };
+        } else {
+            const ty = try self.argType(f);
+            if (self.isPoison(ty)) return try self.skipCall(args);
+            if (sema.callableFnTy(self.ctx, ty) != null or sema.ownedClosureFn(self.ctx, ty) != null) {
+                return try self.badCall(args, f, "`task.isolate` drops what a panic in `{s}` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", .{self.sourceText(f)});
+            }
+            if (self.ctx.types.get(ty) != .function or self.ctx.types.get(ty).function.params.len != 0) {
+                return try self.badCall(args, f, "`task.isolate` runs a function that takes nothing, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ self.sourceText(f), try self.tyName(ty) });
+            }
+            fn_ty = ty;
+        }
+        const returns = self.ctx.types.get(fn_ty).function.returns;
+        const fails = self.ctx.types.get(returns) == .fallible;
+        const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible else returns);
+        if (f.isKind(.lambda)) {
+            const gives = if (fails) try self.ctx.intern(.{ .fallible = value }) else value;
+            fn_ty = try self.ctx.intern(.{ .function = .{ .params = &.{}, .returns = gives, .is_sub = sema.returnsNothing(self.ctx, gives) } });
+        }
+        if (sema.holdsTask(self.ctx, value)) {
+            return try self.badCall(args, f, "a task started in `task.isolate` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ self.sourceText(f), try self.tyName(value) });
+        }
+        const result = try self.ctx.intern(.{ .fallible = value });
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{try sema.callableOfFn(self.ctx, fn_ty)}), .returns = result, .is_sub = value == self.t().void_id };
+        try self.noteCallee(call);
+        try self.checkArgs(args, call, .{}, "task.isolate", pos, .{ .declared = call.params });
+        if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
+            if (sema.captureModeOf(cap) != .cap_write) continue;
+            const n = self.text(sema.captureNameNode(cap).?);
+            try self.errAt(sema.captureNameNode(cap).?, "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!{s}|` lends `{s}` so: give the change back as its value, or keep it in a `*Cell`, captured `|+{s}|`", .{ n, n, n });
+            return self.t().invalid_id;
+        };
+        if (self.current_call) |c| try self.ctx.recordIsolateCall(c);
+        self.ctx.makes_tasks = true;
+        return result;
+    }
+
+    /// The type closure literal `f` has where `task.isolate` runs it,
+    /// checked quietly; one that `fails` may propagate with `!`.
+    fn isolateLambdaType(self: *Checker, f: Sexp, fails: bool) Error!ParLambda {
+        const mark = self.ctx.diagnostics.items.len;
+        self.ctx.quiet += 1;
+        self.tentative += 1;
+        defer {
+            self.ctx.quiet -= 1;
+            self.tentative -= 1;
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        }
+        const ty = try self.checkLambdaGiven(f, null, &.{}, fails);
+        return .{ .ty = ty, .clean = self.ctx.diagnostics.items.len == mark };
     }
 
     /// The function type of `f`, the function `par.map` or `par.each`

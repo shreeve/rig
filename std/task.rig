@@ -2,10 +2,13 @@
 # with `Stop.canceled` at its next fallible waiting point (`check`,
 # `time.sleep`, or a wait on a task that can fail), and at every one
 # after, until it ends. Its `defer`s and drops run as for any failure.
+# `isolate(f)`, which the checker types, is the boundary a panic stops
+# at: it fails with `Stop.panicked`.
 
 pub error Stop
   canceled
   timeout
+  panicked
 
 extern zig "task.zig"
   # A waiting point that waits for nothing: fail with `Stop.canceled`

@@ -323,6 +323,9 @@ pub const Facts = struct {
     pub fn isTaskJoin(f: Facts, call: Sexp) bool {
         return f.c().isTaskJoin(call);
     }
+    pub fn isIsolateCall(f: Facts, call: Sexp) bool {
+        return f.c().isIsolateCall(call);
+    }
     pub fn parCallOf(f: Facts, call: Sexp) ?sema.ParCall {
         return f.c().parCallOf(call);
     }
