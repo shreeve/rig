@@ -10,6 +10,8 @@ zig build                                   # bin/rig
 bench/terminal/bench-terminal               # every corpus and variant
 bench/terminal/bench-terminal --files tui --variants rig-fast,ghostty --reps 9
 DISPATCH=~/src/dispatch bench/terminal/bench-terminal    # and Dispatch
+GHOSTTY_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
+  bench/terminal/bench-terminal                           # and Ghostty's SIMD build
 ```
 
 `bench/terminal/bench-terminal --help` lists the corpora, the variants,
@@ -21,7 +23,11 @@ Debug build, with Ghostty's slow safety checks, which runs a hundred times
 slower. Dispatch is built from `$DISPATCH`, a Dispatch checkout: its Term
 sources and `dispatch.swift` as one module, `swiftc -O -wmo`, with no
 scrollback and mode 2027 off, as Ghostty starts (Dispatch's app turns it
-on).
+on). `ghostty-simd` is Ghostty with its C++ SIMD paths (simdutf and
+Highway). Zig 0.16's libc++ does not build against the macOS 27 SDK
+(`INFINITY` is undeclared), and Zig asks `xcrun --sdk macosx` for the
+SDK, ignoring `SDKROOT`; with `$GHOSTTY_SDK` set to an older SDK the
+build runs with an `xcrun` that answers with it.
 
 Each program feeds a whole corpus to new terminals, untimed setup aside,
 and prints `<ns> <check>`. The check is a hash of the final screen and
@@ -72,3 +78,18 @@ added; a quieter machine (load average about 4; 5 runs):
 
 A run just before wide runes, at a load average of about 6, gave
 rig-fast / ghostty ratios of 0.79, 0.73, 1.64, and 1.71.
+
+2026-10-20, Ghostty with its SIMD paths too, built against the macOS
+26.5 SDK (load average about 3; 5 runs):
+
+| corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | ghostty, SIMD | dispatch | rig-fast / best Ghostty |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| text | 601.6 MB/s | 789.6 MB/s | 1027.4 MB/s | 951.0 MB/s | 1014.9 MB/s | 860.9 MB/s | 0.77 |
+| scroll | 121.9 MB/s | 128.0 MB/s | 176.5 MB/s | 187.8 MB/s | 178.0 MB/s | 132.5 MB/s | 0.68 |
+| sgr | 254.0 MB/s | 276.0 MB/s | 175.1 MB/s | 195.6 MB/s | 175.5 MB/s | 149.6 MB/s | 1.41 |
+| tui | 302.3 MB/s | 329.8 MB/s | 203.9 MB/s | 202.6 MB/s | 205.6 MB/s | 169.0 MB/s | 1.60 |
+
+On these corpora, all ASCII, the SIMD paths change Ghostty's speed by
+no more than the noise: its time goes to printing and scrolling, not to
+decoding or finding escapes. The SIMD build answers every case of the
+differential file as the plain one does.

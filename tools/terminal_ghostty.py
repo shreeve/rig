@@ -24,7 +24,10 @@ it under .zig-cache/terminal-ghostty; its first build fetches Ghostty's
 dependencies. Ghostty is built without its SIMD paths (`simd = false`,
 pure Zig): they are C++ that Zig 0.16's libc++ does not build against
 every macOS SDK, and they change Ghostty's speed, not what it shows. It
-runs no rig.
+runs no rig. bench/terminal also times a build with them, under
+.zig-cache/terminal-ghostty-simd; on macOS 27 that needs $GHOSTTY_SDK, an
+older SDK (Zig 0.16 asks `xcrun` for the SDK, so the build runs with an
+`xcrun` that answers with this one).
 
 A case is in AREAS, the parts of the terminal std.terminal implements;
 the file holds only those areas' cases, so a case that fails is a bug,
@@ -413,10 +416,11 @@ def ghostty_tree():
     return tree
 
 
-def dumper():
-    """tools/terminal_ghostty.zig built against Ghostty; its path."""
+def dumper(simd=False):
+    """tools/terminal_ghostty.zig built against Ghostty, with its SIMD
+    paths or without; its path."""
     tree = ghostty_tree()
-    build = os.path.join(CACHE, "terminal-ghostty")
+    build = os.path.join(CACHE, "terminal-ghostty-simd" if simd else "terminal-ghostty")
     os.makedirs(build, exist_ok=True)
     zon = """.{
     .name = .terminal_ghostty,
@@ -452,20 +456,30 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(b.addExecutable(.{ .name = "terminal_ghostty", .root_module = mod }));
     b.installArtifact(b.addExecutable(.{ .name = "terminal_ghostty_bench", .root_module = fast }));
 }
-""".replace("DUMPER", DUMPER)
+""".replace("DUMPER", DUMPER).replace(".simd = false", ".simd = %s" % ("true" if simd else "false"))
     with open(os.path.join(build, "build.zig"), "w") as f:
         f.write(zig_build)
     with open(os.path.join(build, "build.zig.zon"), "w") as f:
         f.write(zon.replace("FINGERPRINT", fingerprint(build, zon, zig_build)))
-    run = subprocess.run([zig_for_ghostty(), "build", "install"], cwd=build, capture_output=True, text=True)
+    env = dict(os.environ)
+    if simd and os.environ.get("GHOSTTY_SDK"):
+        shim = os.path.join(build, "sdk")
+        os.makedirs(shim, exist_ok=True)
+        with open(os.path.join(shim, "xcrun"), "w") as f:
+            f.write('#!/bin/sh\nfor a in "$@"; do [ "$a" = --show-sdk-path ] && { echo "%s"; exit 0; }; done\nexec /usr/bin/xcrun "$@"\n'
+                    % os.environ["GHOSTTY_SDK"])
+        os.chmod(os.path.join(shim, "xcrun"), 0o755)
+        env["PATH"] = shim + os.pathsep + env.get("PATH", "")
+    run = subprocess.run([zig_for_ghostty(), "build", "install"], cwd=build, capture_output=True, text=True, env=env)
     if run.returncode != 0:
-        sys.exit("terminal_ghostty: building the dumper failed:\n" + run.stderr)
+        hint = " (on macOS 27, set GHOSTTY_SDK to an older SDK)" if simd else ""
+        sys.exit("terminal_ghostty: building the dumper failed%s:\n%s" % (hint, run.stderr[-3000:]))
     return os.path.join(build, "zig-out", "bin", "terminal_ghostty")
 
 
-def bench_exe():
+def bench_exe(simd=False):
     """The ReleaseFast build of tools/terminal_ghostty.zig, for bench/terminal."""
-    return os.path.join(os.path.dirname(dumper()), "terminal_ghostty_bench")
+    return os.path.join(os.path.dirname(dumper(simd)), "terminal_ghostty_bench")
 
 
 def fingerprint(build, zon, zig_build):

@@ -17,6 +17,9 @@ usage: bench/terminal/bench-terminal [options]
                                       no scrollback, as std.terminal has none
                       ghostty-scroll  the same with 10 MB of scrollback, Ghostty's
                                       default
+                      ghostty-simd    ghostty with its C++ SIMD paths (simdutf,
+                                      Highway); only when $GHOSTTY_SDK names a
+                                      macOS SDK Zig 0.16's libc++ builds against
                       dispatch        Dispatch's engine (Term, Swift, swiftc -O
                                       -wmo), no scrollback and mode 2027 off, as
                                       Ghostty's; only when $DISPATCH names a
@@ -44,7 +47,8 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import terminal_ghostty  # noqa: E402
 
 FILES = ["text", "scroll", "sgr", "tui"]
-VARIANTS = ["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"] + (["dispatch"] if os.environ.get("DISPATCH") else [])
+VARIANTS = (["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"] + (["ghostty-simd"] if os.environ.get("GHOSTTY_SDK") else [])
+            + (["dispatch"] if os.environ.get("DISPATCH") else []))
 SIZE = 4_000_000
 
 
@@ -77,7 +81,7 @@ def corpus(name, cols, rows):
 
 def build(variant, out):
     if variant.startswith("ghostty"):
-        return [terminal_ghostty.bench_exe()]
+        return [terminal_ghostty.bench_exe(variant == "ghostty-simd")]
     if variant == "dispatch":
         return [build_dispatch(out)]
     exe = os.path.join(out, variant)
@@ -127,7 +131,7 @@ def bench_json():
 
 def time_it(cmd, variant, path, n, cols, rows):
     if variant.startswith("ghostty"):
-        args = cmd + ["bench", path, str(n), str(cols), str(rows), "0" if variant == "ghostty" else "10000000"]
+        args = cmd + ["bench", path, str(n), str(cols), str(rows), "10000000" if variant == "ghostty-scroll" else "0"]
     elif variant == "dispatch":
         args = cmd + [path, str(n), str(cols), str(rows), "0"]
     else:
