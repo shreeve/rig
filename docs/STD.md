@@ -1819,10 +1819,11 @@ The tables are generated: `tools/gen-unicode.py` reads the pinned files
 of the Unicode Character Database (checking each one's sha256, and
 fetching it when absent) and writes `std/unicode_tables.zig`, a
 two-level bitmap of about 11 KB with an ASCII fast path, and
-`std/width_tables.zig`, a two-level table of four bits a code point,
-20 KB, in the shape of the char table. To move to a newer Unicode,
-change the pinned version and hashes, run the generator, and review the
-diff of the census tests it also writes. `tools/verify-unicode.py`
+`std/width_tables.zig`, a two-level table of a byte a code point,
+36 KB, in the shape of the char table, which holds each code point's
+char class beside its width so a terminal finds both in one lookup. To
+move to a newer Unicode, change the pinned version and hashes, run the
+generator, and review the diff of the census tests it also writes. `tools/verify-unicode.py`
 compares every code point with the database and with Python's
 `unicodedata`, the identifier classes and White_Space both; run both
 with `RIG_UCD` naming a directory that holds a directory of each

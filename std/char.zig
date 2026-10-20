@@ -144,12 +144,21 @@ pub fn char_step(state: i64, r: i64, tailored: bool) i64 {
 }
 
 /// `char_step` with the tailored rules, and rune `r`'s width
-/// (`unicode.width`) in bits 8 and 9: the two lookups a terminal makes of
-/// each rune in mode 2027, in one call, which a CPU can overlap.
+/// (`unicode.width`) in bits 8 and 9: what a terminal needs of each rune
+/// in mode 2027, from one lookup of the width table, which holds the char
+/// class too.
 pub fn char_step_width(state: i64, r: i64) i64 {
     const cp: u21 = if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
-    const w: i64 = widths.props(cp) & 3;
-    const c = classOf(cp, true);
+    const e = widths.entry(cp);
+    const w: i64 = e & 3;
+    // The class in the width table's high bits, tailored as classOf does.
+    const plain: Class = @enumFromInt(@as(u4, @truncate(e >> 4)));
+    const c: Class = switch (plain) {
+        .extend, .incb_extend => if (tables.isEmojiModifier(cp)) .emoji_modifier else plain,
+        .pict => if (tables.isEmojiBase(cp)) .emoji_base else plain,
+        .control => .other,
+        else => plain,
+    };
     const next: i64 = if (state < 0) dfa.start[@intFromEnum(c)] | Dfa.split else step(@truncate(@as(u64, @bitCast(state))), c);
     return next | (w << 8);
 }
