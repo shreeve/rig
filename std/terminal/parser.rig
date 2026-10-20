@@ -233,6 +233,7 @@ sub Terminal.esc_dispatch(!@, b: U8)
     b'H' => (!@).tab_set()
     b'M' => (!@).reverse_index()
     b'c' => (!@).full_reset()
+    b'Z' => (!@).device_attributes(0)
     # SS2 and SS3: G2 or G3 for the next rune; LS2 and LS3: into GL.
     b'N' => @single = 2
     b'O' => @single = 3
@@ -249,10 +250,43 @@ sub Terminal.csi_final(!@, b: U8)
     @count += 1
   return if @count > MAX_PARAMS
   return if @colon and b != b'm'
+  n = @count
+  p0 = @params[0] if n > 0 else 0
+  p1 = @params[1] if n > 1 else 0
   # ED and EL with `?` (selective erase) erase as plain ED and EL do while
   # no cell is protected.
   if @inter == Int(b'?') and (b == b'J' or b == b'K')
     @inter = 0
+  # Replies, and the kitty keyboard flags.
+  if b == b'c' and (@inter == 0 or @inter == Int(b'>') or @inter == Int(b'='))
+    (!@).device_attributes(@inter)
+    return
+  if b == b'n' and n == 1 and (@inter == 0 or @inter == Int(b'?'))
+    if @inter == 0 and p0 == 5
+      !@replies.add("\x1b[0n")
+    else if @inter == 0 and p0 == 6
+      (!@).report_cursor()
+    return
+  if b == b'p' and @inter == 0x3F24 and n == 1
+    (!@).report_mode(p0)
+    return
+  if b == b'q' and @inter == Int(b'>')
+    !@replies.add("\x1bP>|", NAME, "\x1b\\")
+    return
+  if b == b'u' and @inter == Int(b'?')
+    (!@).report_kitty()
+    return
+  if b == b'u' and @inter == Int(b'>')
+    (!@).kitty_push(p0 if n == 1 else 0) if n != 1 or p0 <= 31
+    return
+  if b == b'u' and @inter == Int(b'<')
+    (!@).kitty_pop(p0 if n == 1 else 1)
+    return
+  if b == b'u' and @inter == Int(b'=')
+    how = p1 if n >= 2 else 1
+    v = p0 if n >= 1 else 0
+    (!@).kitty_set(v, how) if v <= 31 and how >= 1 and how <= 3
+    return
   if (b == b's' or b == b'r') and @inter == Int(b'?')
     for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
       if b == b's'
@@ -265,9 +299,6 @@ sub Terminal.csi_final(!@, b: U8)
       (!@).set_mode(@params[k], @inter != 0, b == b'h')
     return
   return if @inter != 0
-  n = @count
-  p0 = @params[0] if n > 0 else 0
-  p1 = @params[1] if n > 1 else 0
   # The count of a movement: 1 when it is left out or 0.
   move = (1 if p0 == 0 else p0) if n <= 1 else -1
   # The count of an edit: 1 when it is left out, and 0 when it is 0.

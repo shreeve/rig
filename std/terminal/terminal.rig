@@ -18,6 +18,25 @@ fun intern(styles: !List[Style], s: ?Style) -> Int
   !styles.push(+s)
   styles.len - 1
 
+# Every mode Ghostty knows, DEC private and ANSI, and each one's default,
+# in Ghostty's order (modes.zig). A mode the terminal does nothing for is
+# still set, reset, saved, and reported.
+MODE_VALUES = [2, 4, 12, 20, 1, 3, 4, 5, 6, 7, 8, 9, 12, 25, 40, 45, 47, 66, 67, 69, 1000, 1002, 1003, 1004, 1005, 1006, 1007, 1015, 1016, 1035, 1036, 1039, 1045, 1047, 1048, 1049, 2004, 2026, 2027, 2031, 2033, 2048]
+MODE_ANSI_COUNT = 4
+MODE_DEFAULTS = [false, false, true, false, false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, true, true, false, false, false, false, false, false, false, false, false, false, false]
+
+# The index of mode `m` in MODE_VALUES, ANSI or DEC private; -1 when
+# Ghostty knows no such mode.
+fun mode_index(m: Int, ansi: Bool) -> Int
+  first = 0 if ansi else MODE_ANSI_COUNT
+  last = MODE_ANSI_COUNT if ansi else MODE_VALUES.len
+  for i in first..last
+    return i if MODE_VALUES[i] == m
+  -1
+
+# What XTVERSION names the terminal.
+NAME = "std.terminal"
+
 # A cursor DECSC saved: its place, pending wrap, pen, origin mode, and
 # character sets; `set` is false before the first save.
 obj Saved
@@ -66,6 +85,9 @@ fun mark(c: U64) -> Int
 # cells `map[y] * cols` to `map[y] * cols + cols - 1`, so a scroll moves
 # entries of `map`, not cells.
 pub obj Terminal
+  # The bytes the terminal answers with (DA, DSR, DECRQM, XTVERSION, ...),
+  # in order, for the caller to send to the program and then clear.
+  pub replies: String
   cols: Int
   rows: Int
   cells: List[U64]
@@ -104,9 +126,17 @@ pub obj Terminal
   cursor_visible: Bool
   # What XTSAVE saved of the private modes, for XTRESTORE; their defaults
   # until then.
-  kept_origin: Bool
-  kept_autowrap: Bool
-  kept_cursor_visible: Bool
+  # Every mode Ghostty knows (MODE_VALUES), set or not, as SM, RM, DECSET,
+  # and DECRST leave it, whether or not it does anything here yet; and what
+  # XTSAVE saved of each, their defaults until then.
+  modes: List[Bool]
+  saved_modes: List[Bool]
+  # The kitty keyboard flags: a ring of 8 entries and the one in use, per
+  # screen (`other_kitty` the other screen's).
+  kitty: [8]Int
+  kitty_idx: Int
+  other_kitty: [8]Int
+  other_kitty_idx: Int
   # Whether a tab stop is set at each column.
   tabs: List[Bool]
   # What DECSC saved, for DECRC.
@@ -148,7 +178,8 @@ pub obj Terminal
       styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, origin: false, insert: false, newline: false, cursor_visible: true,
-      kept_origin: false, kept_autowrap: true, kept_cursor_visible: true,
+      modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
+      kitty: [8 of 0], kitty_idx: 0, other_kitty: [8 of 0], other_kitty_idx: 0, replies: String(),
       tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_saved: Saved.none(), other_bg: NONE,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0)
 
@@ -158,9 +189,13 @@ pub obj Terminal
     for _ in 0..(n if n > 1 else 1)
       (!@).print(U32(@last))
 
-  # RIS: everything as a new terminal of the same size has it.
+  # RIS: everything as a new terminal of the same size has it, but the
+  # replies already made, which are sent.
   sub full_reset(!@)
+    sent = String()
+    swap(!sent, !@replies)
     @ = Terminal.new(@cols, @rows)
+    swap(!sent, !@replies)
 
   # The pen changed: find its index, and the index of an erased cell.
   sub pen_changed(!@)
@@ -398,7 +433,7 @@ pub obj Terminal
     (!@).pen_changed()
     @top = 0
     @bottom = @rows - 1
-    @origin = false
+    (!@).set_origin(false)
     (!@).cursor_to(1, 1)
     !@cells[..].fill(U64(0x45) | @pen_bits)
 
@@ -479,7 +514,7 @@ pub obj Terminal
       @col = @saved.col
       @pending_wrap = @saved.wrap
       @pen = +@saved.pen
-      @origin = @saved.origin
+      (!@).set_origin(@saved.origin)
       @g = @saved.g
       @gl = @saved.gl
       @single = @saved.single
@@ -488,7 +523,7 @@ pub obj Terminal
       @col = 0
       @pending_wrap = false
       @pen = Style.plain()
-      @origin = false
+      (!@).set_origin(false)
       @g = [4 of UTF8]
       @gl = 0
       @single = -1
@@ -511,6 +546,8 @@ pub obj Terminal
     swap(!@cells, !@other_cells)
     swap(!@map, !@other_map)
     swap(!@saved, !@other_saved)
+    swap(!@kitty, !@other_kitty)
+    swap(!@kitty_idx, !@other_kitty_idx)
     stale = @other_bg
     @other_bg = @pen.bg
     @alt = alt
@@ -525,25 +562,75 @@ pub obj Terminal
     (!@).erase_display(2)
     @blank_cell = kept
 
-  # XTSAVE: remember private mode `m`.
+  # XTSAVE: remember DEC private mode `m`.
   sub save_mode(!@, m: Int)
-    match m
-      6 => @kept_origin = @origin
-      7 => @kept_autowrap = @autowrap
-      25 => @kept_cursor_visible = @cursor_visible
-      _ => pass
+    i = mode_index(m, false)
+    @saved_modes[i] = @modes[i] if i >= 0
 
-  # XTRESTORE: set private mode `m` as XTSAVE remembered it, with the
+  # XTRESTORE: set DEC private mode `m` as XTSAVE remembered it, with the
   # effects of setting it.
   sub restore_mode(!@, m: Int)
-    match m
-      6 => (!@).set_mode(6, true, @kept_origin)
-      7 => (!@).set_mode(7, true, @kept_autowrap)
-      25 => (!@).set_mode(25, true, @kept_cursor_visible)
-      _ => pass
+    i = mode_index(m, false)
+    (!@).set_mode(m, true, @saved_modes[i]) if i >= 0
+
+  # DECRQM: the DECRPM report of DEC private mode `m`: 1 set, 2 reset, 0
+  # unknown, and, as Ghostty answers for DECECM (117), 4 permanently reset.
+  sub report_mode(!@, m: Int)
+    i = mode_index(m, false)
+    state = 4 if m == 117 else (0 if i < 0 else (1 if @modes[i] else 2))
+    !@replies.add("\x1b[?", m, ";", state, "$y")
+
+  # DA: the primary (`which` 0), secondary (`>`), or tertiary (`=`) device
+  # attributes, as Ghostty's defaults give them: a VT220 with ANSI color.
+  sub device_attributes(!@, which: Int)
+    if which == 0
+      !@replies.add("\x1b[?62;22c")
+    else if which == Int(b'>')
+      !@replies.add("\x1b[>1;0;0c")
+    else
+      !@replies.add("\x1bP!|00000000\x1b\\")
+
+  # DSR 6: the cursor's row and column from 1, from the top margin in
+  # origin mode.
+  sub report_cursor(!@)
+    y = @row - @top if @origin and @row >= @top else (0 if @origin else @row)
+    !@replies.add("\x1b[", y + 1, ";", @col + 1, "R")
+
+  # The kitty keyboard flags in use (CSI ? u).
+  sub report_kitty(!@)
+    !@replies.add("\x1b[?", @kitty[@kitty_idx], "u")
+
+  # CSI > u: push `flags`, the oldest falling off a full ring.
+  sub kitty_push(!@, flags: Int)
+    @kitty_idx = (@kitty_idx + 1) % 8
+    @kitty[@kitty_idx] = flags
+
+  # CSI < u: pop `n`; 8 or more empties the ring.
+  sub kitty_pop(!@, n: Int)
+    if n >= 8
+      @kitty = [8 of 0]
+      @kitty_idx = 0
+      return
+    for _ in 0..n
+      @kitty[@kitty_idx] = 0
+      @kitty_idx = (@kitty_idx + 7) % 8
+
+  # CSI = u: set (1), add (2), or clear (3) the bits of `flags`.
+  sub kitty_set(!@, flags: Int, how: Int)
+    f = @kitty[@kitty_idx]
+    @kitty[@kitty_idx] = flags if how == 1 else (f | flags if how == 2 else f & flags.not() & 31)
+
+  # Origin mode on or off, in the mode table too, without moving the
+  # cursor (DECRC and DECALN set it so).
+  sub set_origin(!@, on: Bool)
+    @origin = on
+    @modes[mode_index(6, false)] = on
 
   # SM and RM (`private` false) or DECSET and DECRST: mode `m` on or off.
   sub set_mode(!@, m: Int, private: Bool, on: Bool)
+    i = mode_index(m, not private)
+    return if i < 0
+    @modes[i] = on
     if not private
       match m
         4 => @insert = on
@@ -556,6 +643,11 @@ pub obj Terminal
         (!@).cursor_to(1, 1)
       7 => @autowrap = on
       25 => @cursor_visible = on
+      1048
+        if on
+          (!@).save_cursor()
+        else
+          (!@).restore_cursor()
       # As xterm (and Ghostty): 47 switches; 1047 also clears the alternate
       # screen on the way back; 1049 saves the cursor and clears the
       # alternate screen on the way in, and restores the cursor on the
@@ -583,8 +675,10 @@ pub obj Terminal
   # The screen and cursor as text: a line per row, `|` and the row's runes
   # with its trailing blanks dropped (an empty cell is a space); a line
   # `~ROW FIRST-LAST STYLE` per run of cells in a row with the same style
-  # other than the plain one (Style.text); then `cursor ROW COL`, with
-  # ` wrap` when a wrap is pending.
+  # other than the plain one (Style.text); a line `reply BYTES` when there
+  # are replies, each byte below 0x20 or above 0x7E written `\xNN`, ESC
+  # `\e`, and `\` doubled; then `cursor ROW COL`, with ` wrap` when a wrap
+  # is pending.
   pub fun dump(?@) -> String
     out = String()
     for y in 0..@rows
@@ -610,6 +704,20 @@ pub obj Terminal
             @styles[k].text(!line)
             !out.add(line, "\n")
           first = x
+    if @replies.len > 0
+      !out.add("reply ")
+      for b in @replies
+        if b == 0x1B
+          !out.add("\\e")
+        else if b == b'\\'
+          !out.add("\\\\")
+        else if b < 0x20 or b > 0x7E
+          !out.add("\\x")
+          !out.push(HEX[b >> 4])
+          !out.push(HEX[b & 15])
+        else
+          !out.push(b)
+      !out.push(b'\n')
     !out.add("cursor ", @row, " ", @col)
     !out.add(" wrap") if @pending_wrap
     out

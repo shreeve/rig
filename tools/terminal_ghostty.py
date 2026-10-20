@@ -45,7 +45,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -285,6 +285,33 @@ CASES = [
     ("screen", "1049 erases with the background the alternate screen was left with", 6, 2, b"\x1b[?1049h\x1b[41m\x1b[?1049l\x1b[44m\x1b[?1049h"),
     ("screen", "1049 keeps a pending wrap", 4, 2, b"abcd\x1b[?1049hX"),
     ("screen", "1049 on the alternate screen ends a pending wrap", 4, 2, b"\x1b[?1049habcd\x1b[?1049hX"),
+    ("reply", "DA1", 10, 2, b"\x1b[c"),
+    ("reply", "DA1 with a parameter", 10, 2, b"\x1b[0c\x1b[5c"),
+    ("reply", "DA2 and DA3", 10, 2, b"\x1b[>c\x1b[=c"),
+    ("reply", "DECID is DA1", 10, 2, b"\x1bZ"),
+    ("reply", "DSR 5 reports OK", 10, 2, b"\x1b[5n"),
+    ("reply", "CPR reports the cursor", 10, 4, b"\x1b[3;7H\x1b[6n"),
+    ("reply", "CPR with a wrap pending", 4, 2, b"abcd\x1b[6n"),
+    ("reply", "CPR in origin mode counts from the margin", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b[2;3H\x1b[6n"),
+    ("reply", "an unknown DSR is ignored", 10, 2, b"\x1b[7n\x1b[?6n\x1b[?996n"),
+    ("reply", "DECRQM reports set, reset, and unknown modes", 10, 2, b"\x1b[?7$p\x1b[?6$p\x1b[?999$p"),
+    ("reply", "DECRQM follows DECSET and DECRST", 10, 2, b"\x1b[?2004h\x1b[?1000h\x1b[?7l\x1b[?2004$p\x1b[?1000$p\x1b[?7$p"),
+    ("reply", "DECRQM of DECECM is permanently reset", 10, 2, b"\x1b[?117$p"),
+    ("reply", "an ANSI DECRQM is ignored", 10, 2, b"\x1b[4$p"),
+    ("reply", "DECRQM with two parameters is ignored", 10, 2, b"\x1b[?7;6$p"),
+    ("reply", "XTSAVE and XTRESTORE of any mode", 10, 2, b"\x1b[?2004h\x1b[?2004s\x1b[?2004l\x1b[?2004r\x1b[?2004$p"),
+    ("reply", "RIS resets the modes", 10, 2, b"\x1b[?2004h\x1bc\x1b[?2004$p"),
+    ("reply", "XTVERSION", 10, 2, b"\x1b[>q\x1b[>0q"),
+    ("reply", "kitty keyboard flags start at 0", 10, 2, b"\x1b[?u"),
+    ("reply", "kitty keyboard push and pop", 10, 2, b"\x1b[>5u\x1b[?u\x1b[>1u\x1b[?u\x1b[<u\x1b[?u\x1b[<5u\x1b[?u"),
+    ("reply", "kitty keyboard set, or, and not", 10, 2, b"\x1b[=5u\x1b[?u\x1b[=2;2u\x1b[?u\x1b[=4;3u\x1b[?u\x1b[=9;9u\x1b[?u"),
+    ("reply", "kitty keyboard flags past 31 are ignored", 10, 2, b"\x1b[>40u\x1b[?u\x1b[=40u\x1b[?u"),
+    ("reply", "kitty keyboard ring of eight", 10, 2, b"\x1b[>1u\x1b[>2u\x1b[>3u\x1b[>4u\x1b[>5u\x1b[>6u\x1b[>7u\x1b[>8u\x1b[>9u\x1b[?u\x1b[<8u\x1b[?u"),
+    ("reply", "each screen has its own kitty flags", 10, 2, b"\x1b[>3u\x1b[?1049h\x1b[?u\x1b[>1u\x1b[?1049l\x1b[?u"),
+    ("reply", "1048 saves and restores the cursor", 10, 3, b"ab\x1b[?1048h\x1b[3;5HX\x1b[?1048lY"),
+    ("reply", "RIS keeps replies already made", 10, 2, b"\x1b[c\x1bc\x1b[5n"),
+    ("reply", "DECRC restores origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b8\x1b[?6$p\x1b[?6h\x1b[u\x1b[?6$p"),
+    ("reply", "DECALN resets origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b#8\x1b[?6$p"),
 ]
 
 
@@ -443,8 +470,8 @@ def text(cases, dumps):
 # zero, and the large and huge.
 VALUES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 20, 25, 99, 255, 300, 65535, 99999]
 # CSI finals std.terminal implements; FINALS_ALL adds ones Ghostty does too.
-FINALS = "ABCDEFG`adeHfIZgJKXLM@PSTrmhlbsu"
-FINALS_ALL = FINALS + "cnqtpkjxyzvw{|}~^_"
+FINALS = "ABCDEFG`adeHfIZgJKXLM@PSTrmhlbsucnq"
+FINALS_ALL = FINALS + "tpkjxyzvw{|}~^_"
 SGR = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 21, 22, 23, 24, 25, 27, 28, 29, 31, 37, 39, 42, 49, 53, 55, 59, 91, 103, 38, 48, 58]
 
 
@@ -464,7 +491,11 @@ def piece(rng, every):
         return sgr(rng)
     if k < 0.90:
         private = rng.random() < 0.6
-        modes = [rng.choice([6, 7, 25, 1, 5, 47, 1047, 1049] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
+        modes = [rng.choice([6, 7, 25, 1, 5, 47, 1047, 1048, 1049, 2004, 1000] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
+        if private and rng.random() < 0.3:
+            return b"\x1b[?%d$p" % rng.choice([6, 7, 25, 47, 117, 1000, 1004, 1048, 1049, 2004, 2027, 999])
+        if private and rng.random() < 0.2:
+            return b"\x1b[?%d" % rng.choice([7, 25, 1048, 2004]) + rng.choice([b"s", b"r"])
         return b"\x1b[" + (b"?" if private else b"") + b";".join(b"%d" % m for m in modes) + rng.choice([b"h", b"l"])
     if k < 0.93:
         return b"\x1b" + rng.choice([b"7", b"8", b"D", b"E", b"H", b"M", b"#8", b"Q", b"=", b">"])

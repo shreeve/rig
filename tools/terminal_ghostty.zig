@@ -17,8 +17,12 @@
 //! `|` and the row's text with its trailing blanks dropped (an empty cell
 //! is a space, and the second cell of a wide character is left out); then
 //! a line `~Y FIRST-LAST ATTRS` for each run of cells in row Y with the same
-//! style other than the default, in order; then `cursor Y X`, with ` wrap`
-//! when a wrap is pending. ATTRS is the style's flags (`bold italic faint
+//! style other than the default, in order; a line `reply BYTES` when the
+//! terminal answered (each byte below 0x20 or above 0x7E written `\xNN`,
+//! ESC `\e`, and `\` doubled); then `cursor Y X`, with ` wrap` when a wrap
+//! is pending. The terminal answers through its write_pty effect, with
+//! Ghostty's default device attributes and XTVERSION's name set to
+//! std.terminal's. ATTRS is the style's flags (`bold italic faint
 //! blink inverse invisible strike overline`, in that order, those set),
 //! then `ul=single|double|curly|dotted|dashed`, `fg=`, `bg=`, and `ulc=`
 //! when set, a color written as a palette index or `#rrggbb`. An empty
@@ -26,6 +30,36 @@
 
 const std = @import("std");
 const vt = @import("ghostty-vt");
+
+const Handler = @FieldType(vt.TerminalStream, "handler");
+const Effects = @FieldType(Handler, "effects");
+const DaFn = @typeInfo(@FieldType(Effects, "device_attributes")).optional.child;
+const Attributes = @typeInfo(@typeInfo(DaFn).pointer.child).@"fn".return_type.?;
+
+/// What the terminal of the case being dumped has answered.
+var replies: std.ArrayList(u8) = .empty;
+var replies_gpa: std.mem.Allocator = undefined;
+
+fn writePty(_: *Handler, data: []const u8) void {
+    replies.appendSlice(replies_gpa, data) catch @panic("out of memory");
+}
+
+fn deviceAttributes(_: *Handler) Attributes {
+    return .{};
+}
+
+fn xtversion(_: *Handler) []const u8 {
+    return "std.terminal";
+}
+
+/// A stream for `t` whose answers go to `replies`.
+fn answering(t: *vt.Terminal) vt.TerminalStream {
+    var stream = t.vtStream();
+    stream.handler.effects.write_pty = &writePty;
+    stream.handler.effects.device_attributes = &deviceAttributes;
+    stream.handler.effects.xtversion = &xtversion;
+    return stream;
+}
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -37,6 +71,7 @@ pub fn main(init: std.process.Init) !void {
     const input = try std.Io.Dir.cwd().readFileAlloc(io, args[1], gpa, .limited(1 << 30));
     defer gpa.free(input);
 
+    replies_gpa = gpa;
     var buf: [1 << 16]u8 = undefined;
     var fw = std.Io.File.stdout().writerStreaming(io, &buf);
     const out = &fw.interface;
@@ -65,10 +100,12 @@ fn bench(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
     const scrollback: ?usize = if (std.mem.eql(u8, args[4], "none")) null else try std.fmt.parseInt(usize, args[4], 10);
     var ns: i96 = 0;
     var check: u64 = 0;
+    replies_gpa = gpa;
     for (0..n) |i| {
         var t: vt.Terminal = try .init(io, gpa, .{ .cols = cols, .rows = rows, .max_scrollback_bytes = scrollback });
         defer t.deinit(gpa);
-        var stream = t.vtStream();
+        replies.clearRetainingCapacity();
+        var stream = answering(&t);
         const start = std.Io.Clock.awake.now(io);
         stream.nextSlice(data);
         ns += start.durationTo(std.Io.Clock.awake.now(io)).nanoseconds;
@@ -89,7 +126,8 @@ fn bench(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
 fn dumpCase(io: std.Io, gpa: std.mem.Allocator, out: *std.Io.Writer, cols: u16, rows: u16, bytes: []const u8) !void {
     var t: vt.Terminal = try .init(io, gpa, .{ .cols = cols, .rows = rows });
     defer t.deinit(gpa);
-    var stream = t.vtStream();
+    replies.clearRetainingCapacity();
+    var stream = answering(&t);
     stream.nextSlice(bytes);
     try dumpScreen(gpa, out, &t, cols, rows);
     try out.writeAll("end\n");
@@ -132,6 +170,16 @@ fn dumpScreen(gpa: std.mem.Allocator, out: *std.Io.Writer, t: *vt.Terminal, cols
             try run.appendSlice(gpa, attr.items);
             first = x;
         }
+    }
+    if (replies.items.len > 0) {
+        try out.writeAll("reply ");
+        for (replies.items) |b| switch (b) {
+            0x1B => try out.writeAll("\\e"),
+            '\\' => try out.writeAll("\\\\"),
+            0x20...0x5B, 0x5D...0x7E => try out.writeByte(b),
+            else => try out.print("\\x{x:0>2}", .{b}),
+        };
+        try out.writeAll("\n");
     }
     const cursor = screen.cursor;
     try out.print("cursor {d} {d}{s}\n", .{ cursor.y, cursor.x, if (cursor.pending_wrap) " wrap" else "" });

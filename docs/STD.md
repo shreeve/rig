@@ -1595,7 +1595,10 @@ and XTRESTORE of the private ones), REP, `CSI s` and `CSI u`, RIS, and
 character sets (SCS into G0 to G3 of ASCII, British, and DEC Special
 Graphics, with SO, SI, SS2, SS3, LS2, and LS3), and the alternate screen
 (modes 47, 1047, and 1049, as xterm switches them). `dump` shows the
-screen in use.
+screen in use. It answers DA (primary, secondary, tertiary, and DECID),
+DSR 5 and 6, DECRQM of every mode Ghostty knows (which SM, RM, DECSET,
+DECRST, XTSAVE, and XTRESTORE keep), XTVERSION, and the kitty keyboard
+flags (pushed, popped, and set per screen).
 Strings
 (OSC, DCS,
 APC, and the rest) are read to their end and ignored, and so are bytes of
@@ -1605,7 +1608,8 @@ APC, and the rest) are read to their end and ignored, and so are bytes of
 |---|---|
 | `Terminal.new(cols: Int, rows: Int) -> Terminal` | an empty terminal, the cursor at the top left |
 | `!t.feed(bytes: ?String)` | take `bytes` as a program's output, in order |
-| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
+| `t.replies` | a `String`: the bytes the terminal answers with (DA, DSR and CPR, DECRQM, XTVERSION, the kitty keyboard flags), in order, for the caller to send to the program and then `!t.replies.clear()` |
+| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`); a line `reply BYTES` when there are replies (ESC as `\e`, other controls as `\xNN`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
 
 ```rig
 use std.terminal
