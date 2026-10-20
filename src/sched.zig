@@ -699,11 +699,16 @@ const Poller = struct {
     /// ready; whether any. One who cannot take the lock does nothing,
     /// unless it means to wait. A look that takes the poller's kick
     /// leaves it there again: a worker looks at the pollers of others as
-    /// it goes to sleep (`serviceAll`), and one of them may be between
-    /// its last look for work and its sleep, when a kick taken from under
-    /// it would leave it asleep with work queued for it.
+    /// it goes to sleep (`serviceAll`), and at its own, and one of them,
+    /// or itself, may be between its last look for work and its sleep,
+    /// when a kick taken from under it would leave it asleep with work
+    /// queued for it.
     fn poll(p: *Poller, timeout: ?i96) bool {
-        const look = timeout != null and timeout.? == 0;
+        // A look, which leaves a kick it takes; but a deterministic run,
+        // on one thread, has no worker to leave it for, and waits a
+        // moment in its poller after a look (`advanceClock`), which a
+        // kick left there would end.
+        const look = timeout != null and timeout.? == 0 and !deterministic;
         var kicked = false;
         defer if (kicked) p.kick();
         if (look) {
