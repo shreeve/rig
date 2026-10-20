@@ -38,6 +38,7 @@ never read as the library's.
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing |
+| [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -497,6 +498,63 @@ sub main()!
 ```output
 hello
 5
+```
+
+## std.http
+
+An HTTP/1.1 server. `http.serve(<listener, f)` takes connections on a
+`net.Listener` ([std.net](#stdnet)), which it takes, each a task of its
+own, and answers each request on them with the `Response` that `f`
+gives for it, keeping a connection open between requests unless the
+client asks to close it. It runs until its task is canceled, or the
+listener fails, and fails then; the connections' tasks end before it
+returns. The checker types it, as it does `par.map`: `f` is a closure
+written in the call, or a function's name, of type
+`fun(?http.Request) -> http.Response`, and every connection's task
+calls it, so each capture must share, and none is a write view. Each
+request runs isolated (`task.isolate`): a panic in `f` answers 500, and
+the server goes on.
+
+| Member | Result |
+|---|---|
+| `serve(<l, f)!` | serve `f`'s answers on the listener `l`, until canceled |
+| `Request` | `method`, `path` (the target before any `?`), `query` (after it), `head` (the request line and headers as they came), and `body` |
+| `req.arg(name)` | the value of query parameter `name`, as written, or `none` |
+| `req.header(name)` | the value of header `name`, any case, or `none` |
+| `Response` | `status`, `type` (its content type), and `body` |
+| `text(body)`, `json(body)`, `html(body)` | a 200 response of plain text, JSON written already, or HTML |
+| `status(code, body)` | a response of status `code` and plain text `body` |
+| `not_found()` | 404 |
+
+```rig
+use std.http
+use std.net
+
+fun serve(l: net.Listener) -> Int!
+  http.serve(<l, |req|
+    match req.path
+      "/" => http.text("Hello from Rig!")
+      _ => http.not_found()
+  )!
+  0
+
+sub main()!
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = serve(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  (!c).write("GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
+  got = String()
+  while true
+    n = (!c).read(!got, 4096)!
+    if n == 0
+      break
+  print(?got[..15])
+  _ = <t.cancel() catch -1
+```
+
+```output
+HTTP/1.1 200 OK
 ```
 
 ## std.target

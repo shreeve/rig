@@ -49,6 +49,10 @@ pub const tasks_source = @embedFile("tasks.zig");
 /// The scheduler (`src/sched.zig`), written beside the runtime too.
 pub const sched_filename = "rig/sched.zig";
 pub const sched_source = @embedFile("sched.zig");
+
+/// Sockets and the HTTP server (`src/net.zig`), written beside the runtime too.
+pub const net_filename = "rig/net.zig";
+pub const net_source = @embedFile("net.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.
@@ -6958,6 +6962,12 @@ pub const Emitter = struct {
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
+        }
+        // `http.serve(<listener, f)`: the runtime's server.
+        if (self.facts.isHttpServe(sexp)) {
+            try self.w.writeAll("rig.httpServe(");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
         }
         // `task.isolate(f)`: run apart by the runtime.
         if (self.facts.isIsolateCall(sexp)) {

@@ -1,0 +1,58 @@
+# std.http: an HTTP/1.1 server. `http.serve(<listener, |req| ...)`
+# takes connections on a listener (std.net), each a task of its own, and
+# answers each request with the `Response` the handler gives for it,
+# until the call is canceled or the listener fails. The checker types
+# `serve`, as it does `par.map`: the handler is a closure written in the
+# call, or a function's name, and every connection's task calls it, so
+# each capture must share and none is a write view. Each request runs
+# isolated (`task.isolate`): a panic in the handler answers 500, and the
+# server goes on.
+
+use std.net
+
+# A request. `path` is the target before any `?`, and `query` what
+# follows it; `head` is the request line and headers as they came.
+pub obj Request
+  pub method: String
+  pub path: String
+  pub query: String
+  pub head: String
+  pub body: String
+
+  # The value of the query parameter `name`, as written, or none.
+  pub fun arg(?@, name: ?String) -> String?
+    arg_of(?@query, name)
+
+  # The value of the header `name`, any case, or none.
+  pub fun header(?@, name: ?String) -> String?
+    header_of(?@head, name)
+
+# A response: its status, its content type, and its body.
+pub obj Response
+  pub status: Int
+  pub type: String
+  pub body: String
+
+# A 200 response of plain text.
+pub fun text(body: ?String) -> Response
+  Response(status: 200, type: String("text/plain; charset=utf-8"), body: String(body))
+
+# A 200 response of JSON, `body` written as JSON already.
+pub fun json(body: ?String) -> Response
+  Response(status: 200, type: String("application/json"), body: String(body))
+
+# A 200 response of HTML.
+pub fun html(body: ?String) -> Response
+  Response(status: 200, type: String("text/html; charset=utf-8"), body: String(body))
+
+# A response of status `code` and plain text `body`.
+pub fun status(code: Int, body: ?String) -> Response
+  Response(status: code, type: String("text/plain; charset=utf-8"), body: String(body))
+
+# 404, not found.
+pub fun not_found() -> Response
+  status(404, "not found\n")
+
+extern zig "http.zig"
+  fun arg_of(query: ?String, name: ?String) -> String?
+  fun header_of(head: ?String, name: ?String) -> String?

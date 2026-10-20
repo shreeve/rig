@@ -1,0 +1,104 @@
+# std.http: tests whose names start `http`.
+use std.http
+use std.net
+
+test "http serve", seeds: 20, '''
+  200 Hello from Rig!
+  200 {"hits":2}
+  200 hi rig
+  404 not found
+  500 internal server error
+  200 {"hits":6}
+  -1
+'''
+  # A handler routes on the path with string arms, reads a query
+  # argument, counts in a shared Cell, and panics on one route, which
+  # answers 500 while the server goes on. Canceling the server ends it.
+  use std.text
+
+  fun route(req: ?http.Request, hits: *Cell[Int]) -> http.Response
+    !hits.add(1)
+    match req.path
+      "/" => http.text("Hello from Rig!")
+      "/hits" => http.json(String("{\"hits\":", hits.get(), "}"))
+      "/hi" => http.text(String("hi ", req.arg("name") ?? String("you")))
+      "/boom" => http.text(String([1, 2][hits.get()]))
+      _ => http.not_found()
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req| route(req, +hits))!
+    0
+
+  # The status and the body of a request for `path`.
+  fun get(port: Int, path: ?String) -> String!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    while true
+      n = (!c).read(!got, 4096)!
+      if n == 0
+        break
+    status = ?got[9..12]
+    at = text.find(?got, "\r\n\r\n") ?? 0
+    String(status, " ", text.trim(?got[at..]))
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  for p in ["/", "/hits", "/hi?name=rig", "/nope", "/boom", "/hits"]
+    print(get(port, p)!)
+  print(<t.cancel() catch -1)
+
+test "http keep alive", seeds: 20, "500 500"
+  # Many clients, each sending its requests on one connection.
+  use std.text
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req|
+      !hits.add(1)
+      http.text(req.path)
+    )!
+    0
+
+  fun client(port: Int, n: Int) -> Int!
+    c = net.connect(String("127.0.0.1:", port))!
+    ok = 0
+    for i in 0..n
+      (!c).write(String("GET /p", i, " HTTP/1.1\r\nHost: x\r\n\r\n"))!
+      got = String()
+      want = String("/p", i)
+      while text.find(?got, ?want) == none
+        _ = (!c).read(!got, 4096)!
+      ok += 1
+    ok
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  cs = Tasks[Int!]()
+  for 0..10
+    !cs.add(client(port, 50)&)
+  xs = <cs.wait_all()!
+  sum = 0
+  for x in xs
+    sum += x
+  print(sum, hits.get())
+  _ = <t.cancel() catch -1
+
+fail "http serve captures share", "`http.serve` calls the closure on several tasks at once, and `|!count|` lends `count` to write"
+  fun run(l: net.Listener) -> Int!
+    count = 0
+    http.serve(<l, |!count, req| http.text(req.path))!
+    count
+
+  l = net.listen("127.0.0.1:0")!
+  _ = run(<l)
+
+fail "http serve takes a listener", "`http.serve` takes connections on a `net.Listener`, which it takes"
+  fun run() -> Int!
+    http.serve(":8080", |req| http.text(req.path))!
+    0
+
+  _ = run()

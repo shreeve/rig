@@ -10764,6 +10764,7 @@ const Checker = struct {
             if (ct == null) if (try self.taskJoin(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.parCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.isolateCall(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
+            if (ct == null) if (try self.httpServe(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         }
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
@@ -11615,6 +11616,52 @@ const Checker = struct {
         if (self.current_call) |c| try self.ctx.recordIsolateCall(c);
         self.ctx.makes_tasks = true;
         return result;
+    }
+
+    /// `http.serve(<listener, f)` of `std.http`: take connections on a
+    /// `net.Listener`, which it takes, and answer each request with what
+    /// `f` gives for it, a `fun(?http.Request) -> http.Response`: a
+    /// closure written in the call, or a function's name. Every
+    /// connection's task calls `f`, so each capture must share and none
+    /// is a write view, as `par.map`'s. It fails as the listener fails, or
+    /// when its task is canceled. Null when `module_sym` is not
+    /// `std.http`, or `name` not `serve`.
+    fn httpServe(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const origin = self.ctx.module_refs.get(module_sym) orelse return null;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
+        if (!std.mem.eql(u8, foreign.name, "std.http") or !std.mem.eql(u8, name, "serve")) return null;
+        const example = "`http.serve(<listener, |req| http.text(\"hi\"))`";
+        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return try self.badCall(args, pos, "`http.serve` takes a `net.Listener` and the function that answers each request: {s}", .{example});
+        const req_sym = self.foreignLookup(module_sym, "Request") orelse return null;
+        const resp_sym = self.foreignLookup(module_sym, "Response") orelse return null;
+        const req = try self.ctx.intern(.{ .imported_nominal = .{ .module_id = req_sym.module_id, .sym_id = req_sym.id } });
+        const resp = try self.ctx.intern(.{ .imported_nominal = .{ .module_id = resp_sym.module_id, .sym_id = resp_sym.id } });
+        const listener = try self.argType(args[0]);
+        if (self.isPoison(listener)) return try self.skipCall(args);
+        if (!self.namesForeignType(listener, "std.net", "Listener")) return try self.badCall(args, args[0], "`http.serve` takes connections on a `net.Listener`, which it takes: `http.serve(<l, ...)`; `{s}` is a `{s}`", .{ self.sourceText(args[0]), try self.tyName(listener) });
+        const f = args[1];
+        const fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = req })}), .returns = resp, .is_sub = false } });
+        const result = try self.ctx.intern(.{ .fallible = self.t().void_id });
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ listener, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = true };
+        try self.noteCallee(call);
+        try self.checkArgs(args, call, .{ .names = &.{ "listener", "f" } }, "http.serve", pos, .{ .declared = call.params });
+        if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
+            if (!try self.parCapture(cap, "http.serve")) return self.t().invalid_id;
+        };
+        if (self.current_call) |c| try self.ctx.recordHttpServe(c);
+        self.ctx.makes_tasks = true;
+        return result;
+    }
+
+    /// Whether `ty` is type `name` of the standard library's module
+    /// `module`.
+    fn namesForeignType(self: *Checker, ty: TypeId, module: []const u8, name: []const u8) bool {
+        const n = switch (self.ctx.types.get(ty)) {
+            .imported_nominal => |n| n,
+            else => return false,
+        };
+        const foreign = self.ctx.foreign_semas.get(n.module_id) orelse return false;
+        return std.mem.eql(u8, foreign.name, module) and std.mem.eql(u8, foreign.symbols.items[n.sym_id].name, name);
     }
 
     /// The type closure literal `f` has where `task.isolate` runs it,

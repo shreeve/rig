@@ -334,6 +334,9 @@ pub const Facts = struct {
     pub fn isActorSupervised(f: Facts, call: Sexp) bool {
         return f.c().isActorSupervised(call);
     }
+    pub fn isHttpServe(f: Facts, call: Sexp) bool {
+        return f.c().isHttpServe(call);
+    }
     pub fn isIsolateCall(f: Facts, call: Sexp) bool {
         return f.c().isIsolateCall(call);
     }

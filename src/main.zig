@@ -832,6 +832,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
         .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
         .{ .path = emit.sched_filename, .contents = emit.sched_source },
+        .{ .path = emit.net_filename, .contents = emit.net_source },
         .{ .path = "main.zig", .contents = root.written() },
         .{ .path = "programs", .contents = list.written() },
     });
@@ -839,7 +840,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
     // A Zig that cannot say what it is (`zigIdentity`) builds every time.
     const zig_identity = zigIdentity(allocator, io, env);
-    for ([_][]const u8{ emit.runtime_source, emit.tasks_source, emit.sched_source, root.written(), env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
+    for ([_][]const u8{ emit.runtime_source, emit.tasks_source, emit.sched_source, emit.net_source, root.written(), env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     inputs.final(&digest);
     const hex = std.fmt.bytesToHex(digest, .lower);
@@ -1305,6 +1306,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
         try files.append(allocator, .{ .path = emit.tasks_filename, .contents = emit.tasks_source });
         try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
+        try files.append(allocator, .{ .path = emit.net_filename, .contents = emit.net_source });
     }
 
     var root_source: []const u8 = "";
