@@ -1,19 +1,19 @@
 # concurrency: tests whose names start `sets`.
 
 test "sets wait all", seeds: 20, '''
-  4 <4 tasks>
+  4
   [0, 1, 4, 9]
 '''
-  # `Tasks[T]` holds tasks of one type; `wait_all` gives their results in
-  # the order added.
+  # `Tasks[T]` holds tasks of one type; `>ts` waits for them all and gives
+  # their results in the order added.
   fun sq(x: Int) -> Int
     x * x
 
   ts = Tasks[Int]()
   for i in 0..4
     !ts.add(sq(i)&)
-  print(ts.len, ts)
-  print(<ts.wait_all())
+  print(ts.len)
+  print(>ts)
 
 test "sets order added", seeds: 20, "[10, 20]"
   # The second task ends first; the results keep the order added.
@@ -26,7 +26,7 @@ test "sets order added", seeds: 20, "[10, 20]"
   ts = Tasks[Int!]()
   !ts.add(fetch(1, 20)&)
   !ts.add(fetch(2, 1)&)
-  <ts.wait_all()!
+  >ts!
 
 test "sets first error", seeds: 20, release: true, '''
   slow 1 stops
@@ -53,7 +53,7 @@ test "sets first error", seeds: 20, release: true, '''
     ts = Tasks[Int!]()
     !ts.add(slow(1)&)
     !ts.add(fail_soon()&)
-    xs = <ts.wait_all()!
+    xs = >ts!
     xs.len
 
   start = time.now()
@@ -146,7 +146,7 @@ test "sets drop cancels", seeds: 20, '''
     ts = Tasks[Int!]()
     !ts.add(slow()&)
     return 0 if early
-    xs = <ts.wait_all()!
+    xs = >ts!
     xs.len
 
   run(true) catch 0
@@ -168,7 +168,7 @@ test "sets void", seeds: 20, '''
   time.sleep(20 * time.MS)!
   !ts.add(say(30)&)
   print(ts.len)
-  <ts.wait_all()
+  >ts
   print("done", 3)
 
 test "sets both", seeds: 20, '''
@@ -229,7 +229,7 @@ test "sets all", seeds: 20, "4 9 16 25"
   a, b, c, d = task.all(sq(2)&, sq(3)&, sq(4)&, <t)
   print(a, b, c, d)
 
-fail "sets wait first infallible", "`wait_first` takes the first task to succeed and cancels the rest, and the tasks of `Tasks[Int]` cannot fail, so they cannot be canceled: wait for all of them, `<ts.wait_all()`", errors: 1
+fail "sets wait first infallible", "`wait_first` takes the first task to succeed and cancels the rest, and the tasks of `Tasks[Int]` cannot fail, so they cannot be canceled: wait for all of them, `>ts`", errors: 1
   fun sq(x: Int) -> Int
     x * x
 
@@ -262,7 +262,7 @@ fail "sets loans", "cannot lend `xs` to write while a read loan is live", errors
   ts = Tasks[Int]()
   !ts.add(total(?xs)&)
   !xs.push(1)
-  print(<ts.wait_all())
+  print(>ts)
 
 fail "sets write loan", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound", errors: 1
   fun fill(xs: !List[Int]) -> Int
@@ -272,7 +272,7 @@ fail "sets write loan", "this task is lent to write, and keeps its write loan wh
   xs: List[Int] = List()
   ts = Tasks[Int]()
   !ts.add(fill(!xs)&)
-  print(<ts.wait_all())
+  print(>ts)
 
 fail "sets lost", "the tasks of `ws` can fail, and they are dropped where its scope ends without being waited for, so their errors would be lost", errors: 1
   fun sq(x: Int) -> Int!

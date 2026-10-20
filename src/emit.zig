@@ -7038,8 +7038,13 @@ pub const Emitter = struct {
             if (args.len == 2) try self.w.writeAll(", 0");
             return self.w.writeAll(")");
         }
-        // A set's wait, `<ts.wait_all(within: d)`: its deadline, or none.
+        // A set's wait, `<ts.wait_all(within: d)`: its deadline, or none;
+        // `>ts` waits for them all, with none.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
+            if (rig.isWaitMember(callee)) {
+                try self.emitMemberNamed(callee, "wait_all");
+                return self.w.writeAll("(null)");
+            }
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "wait_all") or std.mem.eql(u8, m, "wait_first")) {
                 try self.emitExpr(callee);

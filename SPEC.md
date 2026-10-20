@@ -6983,7 +6983,7 @@ sub main()
   ts = Tasks[Void]()
   for 0..8
     !ts.add(work(+hits)&)
-  <ts.wait_all()
+  >ts
   print(hits.get())
 ```
 
@@ -9986,9 +9986,16 @@ constructor is not.
 
 The call's arguments are evaluated where it is written, and it gives at
 once a `Task[T]`, where `T` is what the call gives (`Void` for a
-`sub`): an owned value that holds the result once the task ends. `<t.wait()` waits for the task to
-end and takes its result. A fallible result is passed on with
-`<t.wait()!` or handled with `catch`.
+`sub`): an owned value that holds the result once the task ends.
+
+`>t` waits for the task to end and takes its result: `&` sends the work
+off, and `>` takes what it gives back. A wait consumes the task, so `t`
+is gone after it, and it ends the loans the task kept. A fallible result
+is passed on with `>t!` or handled with `catch`. `>` takes a name alone,
+and a `!` or `?` after it applies to what it gives: `>t!` is `(>t)!`.
+Anything else is written on the parenthesized wait, `(>t).len`, so it
+never reads as the task's own; a call is made a task and bound first,
+`t = f(x)&`, then waited for, `>t`.
 
 ```rig
 fun total(xs: ?List[Int]) -> Int
@@ -10006,7 +10013,7 @@ sub main()
   !xs.push(4)
   t = sq(5)&
   u = total(?xs)&
-  print(<t.wait(), <u.wait())
+  print(>t, >u)
 ```
 
 ```output
@@ -10016,10 +10023,10 @@ sub main()
 **Loans.** A task keeps the loans of its arguments and its receiver
 until it ends: `total(?xs)&` lends `xs` to read for the task's whole
 life, so the task reads it in place and nothing changes it meanwhile.
-After `<u.wait()`, `xs` can be lent to write again. A task lent to write
+After `>u`, `xs` can be lent to write again. A task lent to write
 keeps its write loan while it runs, and no value holds a write view
 ([Write views](#write-views)), so it is bound to a local where it is
-made, `t = fill(!xs, 3)&`, and waited for there, `<t.wait()`; it is not
+made, `t = fill(!xs, 3)&`, and waited for there, `>t`; it is not
 moved, held in a list, or returned. A method's receiver is lent as the
 method takes it: `?c.get()&` to read, `(<c).into()&` to move it in, and
 `(!c).bump(2)&` to write, in parentheses as any write call whose value
@@ -10033,7 +10040,7 @@ sub fill(xs: !List[Int], n: Int)
 sub main()
   xs: List[Int] = List()
   t = fill(!xs, 3)&
-  <t.wait()
+  >t
   print(xs)
 ```
 
@@ -10049,7 +10056,7 @@ sub main()
   xs: List[Int] = List()
   u = total(?xs)&
   !xs.push(1)
-  print(<u.wait())
+  print(>u)
 ```
 
 ```error
@@ -10076,8 +10083,8 @@ fun half(x: Int) -> Int!
 fun both(a: Int, b: Int) -> Int!
   t = half(a)&
   u = half(b)&
-  x = <t.wait()!
-  y = <u.wait()!
+  x = >t!
+  y = >u!
   x + y
 
 sub main()
@@ -10149,7 +10156,7 @@ sub main()
 ```
 
 ```error
-`Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `<t.wait()`
+`Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `>t`
 ```
 
 ### Sets of tasks
@@ -10158,16 +10165,17 @@ sub main()
 and the set keeps its loans as the task did; `ts.len` counts the tasks
 it holds.
 
-- `<ts.wait_all()` waits for every task and gives the results in the
-  order added: a `List[U]`, or `List[U]!` when the tasks can fail. Then
+- `>ts` waits for every task, as `>t` waits for one, and gives the
+  results in the order added: a `List[U]`, or `List[U]!` when the tasks can fail. Then
   the first task to fail, in the order they end, cancels the rest, and
   the wait fails with its error.
 - `<ts.wait_first()` gives the first result to succeed and cancels the
   rest; when every task fails, it fails with the last error. It is only
   for tasks that can fail, since the rest must be stopped.
-- `within: ns` on either wait is a deadline, in nanoseconds: when it
-  passes, the tasks still running are canceled, and the wait fails with
-  `task.Stop.timeout`. It too is only for tasks that can fail.
+- `<ts.wait_all(within: ns)` and `<ts.wait_first(within: ns)` take a
+  deadline, in nanoseconds: when it passes, the tasks still running are
+  canceled, and the wait fails with `task.Stop.timeout`. It too is only
+  for tasks that can fail.
 - Waiting on tasks that can fail is a waiting point: a canceled waiter
   cancels them all and fails with `Stop.canceled`.
 - Dropping a set cancels the tasks that can fail, all of them first,
@@ -10263,7 +10271,7 @@ fun val(n: ?*Node) -> Int
 sub main()
   n = *Node(v: 1)
   t = val(?n)&
-  print(<t.wait())
+  print(>t)
 ```
 
 ```output
@@ -10286,15 +10294,15 @@ fun peek(t: ?Task[Int]) -> Int
 sub main()
   a = one()&
   t = peek(?a)&
-  print(<t.wait(), <a.wait())
+  print(>t, >a)
 ```
 
 ```error
 `?a` is lent to a task to read: `?Task[Int]` views a task, which only the one that holds it may wait for
 ```
 
-**The value.** A task is not copied, cloned, or compared, and `print`
-writes it as `<task>`. `Task[T]` holds a call's result, so its `T` may
+**The value.** A task is not copied, cloned, or compared, and it is not
+printed or formatted: what is meant is what it gives, `>t`. `Task[T]` holds a call's result, so its `T` may
 be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs them on Rig's scheduler:
@@ -10500,9 +10508,9 @@ sub main()
   ts = Tasks[Void]()
   for 0..4
     !ts.add(work(+l)&)
-  <ts.wait_all()
+  >ts
   t = l.count()&
-  print(<t.wait())
+  print(>t)
 ```
 
 ```output
@@ -10556,7 +10564,7 @@ sub main()!
     if v < 0
       break
     sum += v
-  <p.wait()!
+  >p!
   print(sum)
   quit = *Chan[Int](1)
   !quit.send(1)!

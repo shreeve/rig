@@ -33,7 +33,7 @@ fun serve(l: net.Listener, conns: Int) -> Int!
   ts = Tasks[Int!]()
   for 0..conns
     !ts.add(echo(l.accept()!)&)
-  xs = <ts.wait_all()!
+  xs = >ts!
   sum = 0
   for x in xs
     sum += x
@@ -65,7 +65,7 @@ called sub pingpong()!
   t = time.now()
   back = client(port, ?msg, PING)!
   ns = t.elapsed()
-  echoed = <s.wait()!
+  echoed = >s!
   print("pingpong", ns, back + echoed)
 
 called sub echoes()!
@@ -77,12 +77,12 @@ called sub echoes()!
   cs = Tasks[Int!]()
   for 0..ECHO_CONNS
     !cs.add(client(port, ?msg, ECHO_TRIPS)&)
-  ys = <cs.wait_all()!
+  ys = >cs!
   ns = t.elapsed()
   back = 0
   for y in ys
     back += y
-  print("echo", ns, back + <s.wait()!)
+  print("echo", ns, back + >s!)
 
 called sub connects()!
   msg = message()
@@ -94,7 +94,7 @@ called sub connects()!
   for 0..CONNECTS
     back += client(port, ?msg, 1)!
   ns = t.elapsed()
-  print("connect", ns, back + <s.wait()!)
+  print("connect", ns, back + >s!)
 
 sub main()!
   pingpong()!

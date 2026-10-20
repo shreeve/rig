@@ -209,6 +209,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        // `>t`, rewritten to a call before any pass reads a statement.
+        .wait => .none,
     };
 }
 
@@ -1822,7 +1824,7 @@ fn isLabelJump(cat: TokenCat) bool {
 
 fn isSigil(cat: TokenCat) bool {
     return switch (cat) {
-        .minus, .lt, .plus, .star, .question, .not_sym, .tilde, .caret => true,
+        .minus, .lt, .gt, .plus, .star, .question, .not_sym, .tilde, .caret => true,
         else => false,
     };
 }
@@ -1865,6 +1867,13 @@ pub fn isIdentStart(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
 }
 
+/// The name that starts at `at`.
+fn identAt(src: []const u8, at: usize) []const u8 {
+    var e = at;
+    while (e < src.len and isIdentCont(src[e])) e += 1;
+    return src[at..e];
+}
+
 fn isIdentCont(c: u8) bool {
     return isIdentStart(c) or (c >= '0' and c <= '9');
 }
@@ -1885,6 +1894,9 @@ const HiddenName = enum(u16) {
     discard = 2,
     /// The type of each byte of a byte string, `[U8(65), U8(66)]`.
     u8 = 3,
+    /// The method a wait calls: `>t` is `<t.wait()`, and on a set of
+    /// tasks, `<ts.wait_all()` (`isWaitCall`).
+    wait = 4,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -1892,9 +1904,24 @@ const HiddenName = enum(u16) {
             .iterator => "for iterator",
             .discard => "_",
             .u8 => "U8",
+            .wait => "wait",
         };
     }
 };
+
+/// Whether `node` is a wait, `>t`: the call the wrapper builds for it,
+/// whose method is the hidden `wait` (`Parser.waitCall`).
+pub fn isWaitCall(node: Sexp) bool {
+    return node.isKind(.call) and isWaitMember(ir.Call.callee(node));
+}
+
+/// Whether `member` is the callee of a wait, `>t`: its name is the
+/// hidden `wait`.
+pub fn isWaitMember(member: Sexp) bool {
+    if (!member.isKind(.member)) return false;
+    const name = ir.Member.name(member);
+    return name == .src and name.src.id == hidden_id_base + @intFromEnum(HiddenName.wait);
+}
 
 /// The name of the binding that holds a `for` loop's source.
 pub fn hiddenIteratorName() []const u8 {
@@ -2240,6 +2267,7 @@ pub const Parser = struct {
         if (op.len != 1) return null;
         return switch (op[0]) {
             '<' => .{ .infix = "compare", .prefix = "move" },
+            '>' => .{ .infix = "compare", .prefix = "wait for" },
             '-' => .{ .infix = "subtract", .prefix = "negate" },
             '+' => .{ .infix = "add", .prefix = "clone" },
             '*' => .{ .infix = "multiply", .prefix = "share" },
@@ -2450,7 +2478,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint(failure.state);
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse chainedComparison(src, tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse self.waitHint(src, tok) orelse chainedComparison(src, tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -2853,6 +2881,19 @@ pub const Parser = struct {
         };
     }
 
+    /// A wait whose `>` the token before it took: `x=>t` is the match
+    /// arm's `=>`, and `->t` a function's `->`.
+    fn waitHint(self: *Parser, src: []const u8, tok: Token) ?[]const u8 {
+        const end = tok.pos + tok.len;
+        if (end >= src.len or !isIdentStart(src[end])) return null;
+        const name = identAt(src, end);
+        return switch (tok.cat) {
+            .fat_arrow => self.format("`=>` ends a match arm's pattern; to wait for the task `{s}`, write `= >{s}`", .{ name, name }),
+            .arrow => self.format("`->` gives a function's result type; to negate what the task `{s}` gives, write `-(>{s})`", .{ name, name }),
+            else => null,
+        };
+    }
+
     /// A comparison operator after a value, where the parser takes none:
     /// a second comparison in a chain (`a == b | c == d` reads as
     /// `a == (b | c) == d`, since `|`, `&`, and `^` bind tighter).
@@ -3002,6 +3043,12 @@ pub const Parser = struct {
             .as_results => try self.resultNames(walked),
             .as_pattern => return self.asMatch(out),
             .read, .write, .move => return self.receiverSigil(out),
+            .wait => {
+                self.touchesOperand(out);
+                return self.waitCall(out);
+            },
+            .member, .index, .inst => self.waitTakesName(out, ir.get(out, .object)),
+            .call => self.waitTakesName(out, ir.Call.callee(out)),
             .share, .box => try self.noteParenSuffix(out),
             .weak => {
                 self.touchesOperand(out);
@@ -3370,7 +3417,7 @@ pub const Parser = struct {
         const src = self.base.source;
         // The view inside `^?T` has no sigil of its own: the box's `^?` is
         // checked as one token pair.
-        if (at >= src.len or std.mem.findScalar(u8, "<+-?!*~^", src[at]) == null) return;
+        if (at >= src.len or std.mem.findScalar(u8, "<>+-?!*~^", src[at]) == null) return;
         if (!isSpace(if (at + 1 < src.len) src[at + 1] else 0) or self.failure != null) return;
         self.failure = .{ .severity = .@"error", .pos = at, .end = at + 1, .message = self.detachedPrefix(.{ .cat = .err, .pre = 0, .pos = at, .len = 1 }) };
     }
@@ -3390,6 +3437,56 @@ pub const Parser = struct {
         const moved = try self.receiverSigil(lent);
         if (moved.list.id == lent.list.id) return;
         try self.loop_receivers.put(self.allocator(), loop.list.id, moved);
+    }
+
+    /// `>t`: the call `<t.wait()` makes, `(call _ (member (move t) wait))`,
+    /// with a hidden `wait` (`isWaitCall`). Every node spans the `>t`, so
+    /// a message quotes it as written, and the move is a receiver sigil,
+    /// as the one `<t.wait()` writes is.
+    fn waitCall(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const at = self.span(node);
+        const moved = try self.base.newNode(.move, &.{ir.get(node, .operand)}, at);
+        try self.receiver_sigils.put(self.allocator(), moved.list.id, {});
+        const member = try self.base.newNode(.member, &.{ moved, hiddenLeaf(at.start, .wait) }, at);
+        return self.base.newNode(.call, &.{ .nil, member }, at);
+    }
+
+    /// A wait takes a name alone, and a `!` or `?` after it applies to
+    /// what it gives: `>t!` is `(>t)!`. Anything else after it is written
+    /// on the parenthesized wait, so it never reads as the task's own:
+    /// `(>t).len`, not `>t.len`.
+    fn waitTakesName(self: *Parser, node: Sexp, head: Sexp) void {
+        var w = head;
+        while (w.isKind(.propagate) or w.isKind(.propagate_none)) w = ir.get(w, .value);
+        if (!isWaitCall(w) or self.failure != null) return;
+        const src = self.base.source;
+        var after = self.span(head).end;
+        while (after < src.len and (src[after] == ' ' or src[after] == '\t')) after += 1;
+        if (after < src.len and src[after] == ')') return;
+        const whole = self.span(node);
+        const written = diag.textBetween(src, self.span(head).start, self.span(head).end);
+        const rest = diag.textBetween(src, self.span(head).end, whole.end);
+        // `>f(x)` and `>f(x)&`: a wait takes a task that is held, which a
+        // call is not.
+        if (node.isKind(.call) and w.list.id == head.list.id) {
+            const call = diag.textBetween(src, self.span(head).start + 1, whole.end);
+            self.failure = .{
+                .severity = .@"error",
+                .pos = self.span(head).start,
+                .end = whole.end,
+                .message = (if (ir.Call.task(node) != .nil)
+                    std.fmt.allocPrint(self.allocator(), "`>{s}` starts a task and waits for it at once, which is the call itself: write `{s}`", .{ call, call[0 .. call.len - 1] })
+                else
+                    std.fmt.allocPrint(self.allocator(), "`>` waits for a task that is held: make the call a task and bind it, `t = {s}&`, then wait for it, `>t`", .{call})) catch "a wait takes a task that is held: `t = f(x)&`, then `>t`",
+            };
+            return;
+        }
+        self.failure = .{
+            .severity = .@"error",
+            .pos = self.span(head).end,
+            .end = whole.end,
+            .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}`", .{ written, rest, written, rest }) catch "a wait takes a name alone: write `(>t).x`",
+        };
     }
 
     /// The source of the `for` loop `loop` with its sigil on the

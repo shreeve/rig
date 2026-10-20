@@ -90,7 +90,8 @@ pub const Parsed = struct {
     /// A leaf's span; null for one that holds no text of the source (a
     /// repaired hole, or a name a rewrite made).
     fn leafSpan(self: *const Parsed, leaf: Sexp) ?parser.Span {
-        if (leaf != .src or leaf.src.len == 0) return null;
+        // A name a rewrite built, such as a wait's `wait`, has no text.
+        if (leaf != .src or leaf.src.len == 0 or rig.isHiddenLeaf(leaf)) return null;
         const source = self.p.base.source;
         if (leaf.src.pos >= source.len) return null;
         return .{ .start = leaf.src.pos, .end = @min(rig.leafEnd(source, leaf.src), @as(u32, @intCast(source.len))) };
@@ -228,7 +229,7 @@ const Class = struct {
 const Cats = std.EnumSet(TokenCat);
 
 /// The categories of the sigils: `<` `?` `!` `+` `^` `*` `~`.
-const sigil_cats: Cats = .initMany(&.{ .lt, .question, .not_sym, .plus, .caret, .star, .tilde });
+const sigil_cats: Cats = .initMany(&.{ .lt, .gt, .question, .not_sym, .plus, .caret, .star, .tilde });
 
 /// The class of a token by its category alone (the tree's classes come
 /// first). Null for a token left to the editor's grammar.

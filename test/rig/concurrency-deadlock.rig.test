@@ -75,7 +75,7 @@ bomb "deadlock two tasks", seeds: 20, "Ledger.audit -> Bank.balance", prints: "b
   print("before")
   t = one(+b, +l)&
   u = two(+b, +l)&
-  print(<t.wait() catch -1, <u.wait() catch -1)
+  print(>t catch -1, >u catch -1)
 
 bomb "deadlock method waits on its task", seeds: 20, "deadlock: these calls wait on each other, and none can go on: Hub.run -> a task -> Hub.get", prints: "before"
   # A method that waits on a task that calls its own actor.
@@ -87,7 +87,7 @@ bomb "deadlock method waits on its task", seeds: 20, "deadlock: these calls wait
 
     fun run(!@, me: *Actor[Hub]) -> Int
       t = peek(<me)&
-      <t.wait()
+      >t
 
   fun peek(h: *Actor[Hub]) -> Int
     h.get()
@@ -111,7 +111,7 @@ bomb "deadlock method waits on its set", seeds: 20, "deadlock: these calls wait 
       ts = Tasks[Int!]()
       for 0..3
         !ts.add(peek(+me)&)
-      xs = <ts.wait_all()!
+      xs = >ts!
       xs.len
 
   fun peek(h: *Actor[Hub]) -> Int!
@@ -157,7 +157,7 @@ test "deadlock chains that end", seeds: 20, '''
   b = *Actor(Bank(money: 10))
   l = *Actor(Ledger(n: 0))
   t = spend(+b, +l)&
-  print(<t.wait(), (!l).post() - 1)
+  print(>t, (!l).post() - 1)
   u = look(+b)&
   v = look(+b)&
   x, y = task.both(<u, <v)

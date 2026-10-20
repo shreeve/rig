@@ -11,6 +11,7 @@ states the ownership model in full; [SYNTAX](../SYNTAX.md) and
 | `<` | `<x` moves `x`; alone on a line, drops it now | |
 | `+` | `+x` clones: a new owner, or another handle | |
 | `^` `*` `~` | `^<x` moves `x` into a box; `*<x` moves `x` into a counted handle; `~h` is a weak handle, and `*w` upgrades it to a `*T?` | `^T`, `*T`, `~T` |
+| `&` `>` | `t = f(x)&` runs the call as a task; `>t` waits for it and takes its result | |
 
 After a type, `T?` may be `none` and `T!` may fail; after an
 expression, `e?` passes `none` up and `e!` passes a failure up.

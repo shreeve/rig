@@ -1,0 +1,239 @@
+# concurrency: tests whose names start `wait`.
+
+test "wait basics", seeds: 20, '''
+  25 7
+  [3, 4, 5]
+  30
+'''
+  # `&` sends the work off and `>` takes what it gives back. A wait takes
+  # the task, and ends the loans it kept: `xs` is lent to write after.
+  fun total(xs: ?List[Int]) -> Int
+    xs.sum()
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  xs = List([3, 4])
+  t = sq(5)&
+  u = total(?xs)&
+  print(>t, >u)
+  !xs.push(5)
+  print(xs)
+  v = sq(5)&
+  w = sq(1)&
+  print(>v + >w + 4)
+
+test "wait failure", seeds: 20, '''
+  4 -1
+  -9
+  caught Parity.odd
+'''
+  # A `!` or `?` after a wait applies to what it gives: `>t!` is `(>t)!`.
+  error Parity
+    odd
+
+  fun half(x: Int) -> Int!
+    return Parity.odd if x % 2 == 1
+    x / 2
+
+  fun both(a: Int, b: Int) -> Int!
+    t = half(a)&
+    u = half(b)&
+    >t! + >u!
+
+  print(both(2, 6) catch -1, both(4, 3) catch -1)
+  v = half(3)&
+  print(>v catch -9)
+  w = half(5)&
+  _ = >w catch |e|
+    print("caught", e)
+    -1
+
+test "wait positions", seeds: 20, '''
+  big
+  37
+  -36
+  true
+  [1, 2]
+'''
+  # A wait stands wherever a value does: in a condition, beside an
+  # operator, parenthesized for a member or a negation, and in a return.
+  fun sq(x: Int) -> Int
+    x * x
+
+  fun pair() -> List[Int]
+    List([1, 2])
+
+  fun six() -> Int
+    t = sq(6)&
+    return >t
+
+  t = sq(6)&
+  if >t > 30
+    print("big")
+  u = sq(6)&
+  print(>u + 1)
+  print(-(six()))
+  v = sq(2)&
+  print(4 == >v)
+  p = pair()&
+  print(>p)
+
+test "wait member of the result", seeds: 20, "2 2"
+  fun pair() -> List[Int]
+    List([1, 2])
+
+  p = pair()&
+  q = pair()&
+  print((>p).len, (>q)[1])
+
+test "wait set", seeds: 20, '''
+  [0, 1, 4, 9]
+  [10, 20]
+  4
+  done
+'''
+  # `>ts` waits for every task of a set, as `>t` waits for one.
+  use std.time
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  fun fetch(n: Int, ms: Int) -> Int!
+    time.sleep(ms * time.MS)!
+    n * 10
+
+  sub work()
+    pass
+
+  fun two() -> List[Int]!
+    ts = Tasks[Int!]()
+    !ts.add(fetch(1, 20)&)
+    !ts.add(fetch(2, 1)&)
+    >ts!
+
+  ts = Tasks[Int]()
+  for i in 0..4
+    !ts.add(sq(i)&)
+  print(>ts)
+  print(two() catch List[Int]())
+  us = Tasks[Int]()
+  for i in 0..4
+    !us.add(sq(i)&)
+  print((>us).len)
+  vs = Tasks[Void]()
+  !vs.add(work()&)
+  >vs
+  print("done")
+
+test "wait void and write loan", seeds: 20, "[0, 1, 2]"
+  # A task lent to write is waited for where it is bound.
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  xs: List[Int] = List()
+  t = fill(!xs, 3)&
+  >t
+  print(xs)
+
+test "wait comparisons unchanged", "true true 2 8"
+  a = 5
+  b = 3
+  x = 16
+  x >>= 1
+  print(a > b, a>=b, 8 >> 2, x)
+
+fail "wait a member", "`>t` waits for a task, and `.len` applies to what it gives: write `(>t).len`"
+  fun pair() -> List[Int]
+    List([1, 2])
+
+  t = pair()&
+  print(>t.len)
+
+fail "wait a member after a failure", "`>t!` waits for a task, and `.len` applies to what it gives: write `(>t!).len`"
+  fun pair() -> List[Int]!
+    List([1, 2])
+
+  sub main()!
+    t = pair()&
+    print(>t!.len)
+
+fail "wait a call", "`>` waits for a task that is held: make the call a task and bind it, `t = sq(5)&`, then wait for it, `>t`"
+  fun sq(x: Int) -> Int
+    x * x
+
+  print(>sq(5))
+
+fail "wait a task started at once", "`>sq(5)&` starts a task and waits for it at once, which is the call itself: write `sq(5)`"
+  fun sq(x: Int) -> Int
+    x * x
+
+  print(>sq(5)&)
+
+fail "wait a value", "`>` waits for a task, and `x` has type `Int`; a task is a call made with `&`, `t = f(x)&`"
+  x = 5
+  print(>x)
+
+fail "wait a view", "`>t` takes the task, and `t` is a view of it, `?Task[Int]`: only the one that holds a task waits for it"
+  fun sq(x: Int) -> Int
+    x * x
+
+  fun peek(t: ?Task[Int]) -> Int
+    >t
+
+  t = sq(5)&
+  print(peek(?t))
+
+fail "wait a fallible task unhandled", "the task `t` can fail: pass its failure on, `>t!`, or handle it, `>t catch ...`"
+  fun sq(x: Int) -> Int!
+    x * x
+
+  t = sq(5)&
+  print(>t)
+
+fail "wait twice", "use of `t` after move"
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  print(>t, >t)
+
+fail "wait spaced", "a prefix `>` touches its operand: write `>t`"
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  x = > t
+  print(x)
+
+fail "wait beside a value", "`a >t`: an operator has the same spacing on both sides; write `a > t` to compare, or `a, >t` to wait for `t` as a value of its own"
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  a = 3
+  print(a >t)
+
+fail "wait after equals", "`=>` ends a match arm's pattern; to wait for the task `t`, write `= >t`"
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  x=>t
+  print(x)
+
+fail "wait negated", "`->` gives a function's result type; to negate what the task `t` gives, write `-(>t)`"
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  x = ->t
+  print(x)
+
+fail "wait print a task", "`t` is a task, which `print` cannot show: wait for what it gives, `>t`"
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  print(t)

@@ -494,7 +494,7 @@ sub main()!
     _ = (!c).read(!got, 100)!
   print(got)
   _ = <c
-  print(<t.wait()!)
+  print(>t!)
 ```
 
 ```output

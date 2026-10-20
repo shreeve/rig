@@ -68,7 +68,7 @@ test "cancel through wait", seeds: 20, '''
 
   fun outer() -> Int!
     t = inner()&
-    x = <t.wait()!
+    x = >t!
     x + 1
 
   o = outer()&
@@ -91,7 +91,7 @@ test "cancel infallible wait", seeds: 20, '''
   fun patient() -> Int!
     q = quick()&
     time.sleep(10 * time.SECOND) catch print("sleep canceled")
-    n = <q.wait()
+    n = >q
     print("waited", n)
     task.check()!
     n
@@ -117,7 +117,7 @@ test "cancel on drop", seeds: 20, '''
   fun first(early: Bool) -> Int!
     t = nap()&
     return 7 if early
-    <t.wait()!
+    >t!
 
   start = time.now()
   print(first(true) catch -1)
@@ -137,7 +137,7 @@ test "cancel passes to owned", seeds: 20, '''
   fun owner() -> Int!
     q = quiet()&
     time.sleep(10 * time.SECOND)!
-    <q.wait()
+    >q
     1
 
   o = owner()&
@@ -170,7 +170,7 @@ test "cancel write loan", seeds: 20, '''
   print(<t.cancel() catch -1)
   print(xs.len)
 
-fail "cancel infallible", "`Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `<t.wait()`", errors: 1
+fail "cancel infallible", "`Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `>t`", errors: 1
   fun sq(x: Int) -> Int
     x * x
 
@@ -195,17 +195,17 @@ test "cancel storm", seeds: 20, "true"
 
   fun inner(us: Int) -> Int!
     t = nap(us)&
-    <t.wait()!
+    >t!
 
   fun outer(us: Int) -> Int!
     t = inner(us)&
-    x = <t.wait()!
+    x = >t!
     x + 1
 
   fun early(i: Int) -> Int!
     d = nap(100000)&
     return 1 if i >= 0
-    <d.wait()!
+    >d!
 
   fun round(i: Int) -> Int
     got = 0

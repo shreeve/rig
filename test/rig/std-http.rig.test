@@ -80,7 +80,7 @@ test "http keep alive", seeds: 20, "500 500"
   cs = Tasks[Int!]()
   for 0..10
     !cs.add(client(port, 50)&)
-  xs = <cs.wait_all()!
+  xs = >cs!
   sum = 0
   for x in xs
     sum += x

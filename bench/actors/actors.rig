@@ -48,7 +48,7 @@ called sub contend()
   ts = Tasks[Void]()
   for 0..CONTEND_TASKS
     !ts.add(hammer(+c, CONTEND_CALLS)&)
-  <ts.wait_all()
+  >ts
   print("contend", t.elapsed(), c.get())
 
 called sub spread()
@@ -56,7 +56,7 @@ called sub spread()
   ts = Tasks[Int]()
   for 0..SPREAD_TASKS
     !ts.add(own(SPREAD_CALLS)&)
-  xs = <ts.wait_all()
+  xs = >ts
   sum = 0
   for x in xs
     sum += x
