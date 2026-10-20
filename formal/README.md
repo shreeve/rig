@@ -36,6 +36,9 @@ warning is an error. Run it after changing `formal/`.
 | `LambdaRig/Steps.lean` | One theorem per form: each step the checker accepts keeps `Rel` |
 | `LambdaRig/Sound.lean` | `sound`, the induction over programs, and `accepts_runs` |
 | `LambdaRig/Examples.lean` | Programs, whether the checker accepts each, and how each run ends |
+| `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
+| `LambdaRig/Tasks.lean` | The task machine: parents, cores, pins, and the values that stay on one thread |
+| `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
 
 ## What the first slice covers
 
@@ -80,6 +83,53 @@ states it. It says nothing about the checker; `accepts_runs` does.
 **`Examples.lean`**: eleven programs, each with whether `check` accepts
 it and how its run ends. Four are accepted and end well; seven are
 rejected, and each stops at the fault its rejection prevents.
+
+## Tasks and waits
+
+The first slice of the concurrency model's proofs (docs/CONCURRENCY.md,
+"Proof obligations"), over machines of their own rather than λRig's
+expressions, since the runtime, not the expression, decides these.
+
+**`Wait.lean`** models one fiber's wait word (src/sched.zig, `Wait`):
+`beginWait`, giving the wait up, `fallAsleep`, `interrupt` by a waker
+or a cancel, `claim` by a fiber handed the worker, and resuming. Each
+step is one sequentially consistent instruction, so any order of steps
+is a run. Of every state reached:
+
+- `one_waker`: at most one waker ends a wait;
+- `queued_once`: the fiber is queued at most once for it;
+- `woken_queued`: once the fiber has switched away, a wait that was
+  ended has queued it, so no wakeup is lost;
+- `cancel_delivered`: a cancel that comes while the fiber sleeps in a
+  wait a cancel may end queues it;
+- `late_waker`: a waker of an earlier wait changes nothing.
+
+**`Tasks.lean`** models tasks: each with its parent, which holds its
+handle, its core, its pin, whether it was made local, the values it
+holds that stay on one thread, and whether it ended or was canceled.
+Its steps are a free spawn (given nothing that stays on one thread),
+a local spawn (pinning the task and its maker to the maker's core), a
+worker stealing a task that is not pinned, making and dropping such a
+value, cancel, finish (after waiting for every task of its own), and
+wait (the parent takes what the task held). **`TasksSound.lean`**
+proves one invariant kept by every step: every task's parent is
+running, a pinned task runs on its pin's core, and the holders of each
+value are one root and local descendants of it, pinned with it. Of
+every state reached:
+
+- `no_orphans`: every task's parent is running, so no task outlives,
+  unwaited, the task that holds its handle;
+- `confined`: two tasks holding one such value are pinned to one core
+  and run there, so no two cores touch it;
+- `pin_kept`: a pinned task stays on its core from then on;
+- `cancel_sticky`: a cancel is never taken back.
+
+`localTask_reach` is a run that reaches a state with two holders, so
+the invariant is not vacuous.
+
+Not yet: a task's handle handed to another task, `Tasks` sets, actors
+and channels (whose contents the crossing rule restricts), the
+deadlock walk, and unwinding to a boundary.
 
 ## What is not proved
 
