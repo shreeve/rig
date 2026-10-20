@@ -10,7 +10,7 @@
 # with --release; this script checks what a case cannot see: the trace,
 # and --release=fast.
 #
-# The program runs on the stack the runtime maps (docs/INTERNALS.md,
+# The program runs on the stack the runtime maps (docs/internals/INTERNALS.md,
 # "The program's stack"), and the trace's walk must not fault at its
 # top, which the outermost frame there reaches: a List index (a runtime
 # function's check) and a fixed array's index (an inline one) both run

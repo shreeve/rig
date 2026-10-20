@@ -5,7 +5,7 @@
 # fills `doc`'s tape and returns true, or records the first error and
 # its byte offset and returns false. Nothing is lazy: every string's
 # escapes are decoded and its UTF-8 checked, and every number is
-# converted, exactly, before `parse` returns. docs/json/DESIGN.md
+# converted, exactly, before `parse` returns. docs/design/json.md
 # explains the design.
 #
 # The tape holds one `Int` per value, in document order:
@@ -36,7 +36,7 @@
 # surrogates, and raw bytes must be UTF-8 (RFC 3629).
 #
 # Workarounds that stand in for missing Rig capabilities are marked
-# NEEDS; docs/json/DESIGN.md ("Open items") lists them.
+# NEEDS; docs/design/json.md ("Open items") lists them.
 
 use std.target
 use std.text
@@ -715,7 +715,7 @@ fun eight_digits(d: U64) -> U64
 # before it goes on 16 bytes at a time with SIMD: most keys end within
 # them, and most string bytes are in values beyond them. On x86_64 a
 # vector compare's mask reaches a general register cheaply, so the scan
-# starts with SIMD there (6% faster by geomean; docs/json/RESULTS.md).
+# starts with SIMD there (6% faster by geomean; docs/history/json-results.md).
 TIER = 0 if target.arch == .x86_64 else 16
 
 ONES64: U64 = 0x0101010101010101

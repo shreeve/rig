@@ -29,7 +29,7 @@ fail "method consume through view", "cannot consume through a view"
   u = User(name: String("Steve"))
   get_ref(?u).consume()
 
-fail "method consume without move", "method `consume` consumes the receiver; write `<u.consume()`"
+fail "method consume without move", "method `consume` consumes `self`; write `<u.consume()`"
   # A method that consumes self (`<@`), called on a value that moves,
   # needs an explicit move at the call site: `<u.consume()`, not
   # `u.consume()`. (A receiver whose value copies is taken as a copy, as
@@ -356,7 +356,7 @@ test "method writes self", '''
   u = User(name: "Steve")
   !u.modify("Bob")
 
-fail "method write without bang", "method `rename` needs its receiver lent to write"
+fail "method write without bang", "method `rename` needs `self` lent to write"
   # A method that writes self (`!@`) needs its receiver lent to write
   # at the call: `!u.rename(...)`.
 

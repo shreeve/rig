@@ -17,11 +17,11 @@ changing. Rig names each from where it sits
 | Rust | Rig | What it is | Where it lives |
 |---|---|---|---|
 | borrow `v` (`&v`, `&mut v`) | `v` **lends** (`?v`, `!v`) | the act | the owner's side, where the sigil is written |
-| a reference, a slice, a `&str` | a **view** (`?T`, `!T`, `[]T`, `![]T`, `?String`) | the value handed over | travels with the receiver |
+| a reference, a slice, a `&str` | a **view** (`?T`, `!T`, `[]T`, `![]T`, `?String`) | the value handed over | travels with the callee |
 | "`v` is borrowed" | a **loan** of `v` | the record | stays with the owner, and limits it until every view is done |
 
 The sigil is written on the owner in both languages, at the place where
-the owner hands something over. Rust names that act from the receiver's
+the owner hands something over. Rust names that act from the callee's
 side; Rig names it from the owner's, where the code shows it. So an
 error can say exactly which act meets which record: *cannot lend `v` to
 write while a read loan is live*.
@@ -41,11 +41,6 @@ same rules cover all of them ([CORE §4](CORE.md#4-one-lend-table)).
 does nothing with it. Rig says the same with no function: `<x` alone on
 a line moves `x` nowhere, so it drops now
 ([CORE sentence 2](CORE.md#2-the-core-in-ten-sentences)).
-
-**Precise words show where the model is not yet uniform.** In Rust's
-vocabulary, a rule that treats two kinds of reference differently goes
-unnoticed. In Rig's, it stands out as "a view that is not like the
-others", which is a prompt to unify it.
 
 ## 2. Loans without lifetimes
 
@@ -74,10 +69,11 @@ fn get_or_add(b: &mut Bag) -> &Item {
 }
 ```
 
-Rust's current checker rejects this, because the returned reference's
-lifetime must hold on every path, including the one that writes `b`.
-Polonius was designed to accept it. Rig accepts it today: the path that
-returns `r` ends there, so its loan never reaches the path that writes.
+Rust's non-lexical-lifetimes checker rejects this, because the returned
+reference's lifetime must hold on every path, including the one that
+writes `b`. Polonius, the next-generation checker, is designed to accept
+it. Rig accepts it: the path that returns `r` ends there, so its loan
+never reaches the path that writes.
 
 ```rig
 obj Item
@@ -122,10 +118,11 @@ fun get_and_add(b: !Bag) -> ?Item
 cannot assign to `b.items[0]`
 ```
 
-The trade: Rust can say with explicit lifetimes which argument a
-result views, and Rig cannot. A function lent two values whose result
-views only one of them keeps both lent while the result lives. Rig
-accepts that cost so a reader never solves lifetime equations ([DESIGN](DESIGN.md#views-without-lifetimes)).
+The trade: `from a` names the one argument a result views, but Rig has
+no way to relate the views of several results to different arguments,
+or to put a lifetime on a view an object stores beyond saying which
+parameters a method keeps (`keeps`). Rig accepts that cost so a reader
+never solves lifetime equations ([DESIGN](DESIGN.md#views-without-lifetimes)).
 
 ## 3. A checker that is tested, not trusted
 
@@ -143,18 +140,21 @@ rule from several independent directions ([test/README](../test/README.md)):
   writes is kept, and must be rejected with a diagnostic or run clean.
 - **A form × context × type matrix.** Generated programs place each
   expression form (a name, a ternary, `o?`, `??`, a call, `<x`, ...) in
-  each context (an argument, a binding, a receiver, a block's tail, a
-  `match` subject, ...) for each kind of type.
+  each context (an argument, a binding, the value a method is called
+  on, a block's tail, a `match` subject, ...) for each kind of type.
 - **An equivalence check.** `tools/equiv.py` runs two compilers over
   every program and doc example and compares the parse tree, the
   semantic IR, the diagnostics, sema's facts, and the emitted Zig, so a
   refactor proves it changed nothing.
-
-**Direction: a reference checker.** A small, deliberately simple
-ownership checker, written straight from CORE's sentences and sharing
-no code with the production checker, would run beside it in the test
-suite only. Where the two disagree on a program, one of them has a bug:
-if the production checker accepts what the reference rejects, that is a
-likely soundness hole, found at check time rather than when a program
-happens to touch freed memory. It would never run in `rig check`, and
-it would add nothing to compiled programs.
+- **A reference checker.** A small, deliberately simple ownership
+  checker, written straight from CORE's sentences and sharing no code
+  with the production checker (`bin/rig-oracle`, `test/oracle/`), runs
+  beside it in the test suite only. It checks the tests, the doc
+  examples, and the matrix. Where the two disagree on a program, one of
+  them has a bug. If the production checker accepts what the reference
+  rejects, that is a likely soundness hole, and the run fails: it cannot
+  be allowlisted. If the production checker rejects what the reference
+  accepts, the difference is listed with its class (the compiler is
+  stricter than the Core, the reference is less precise, or the Core does
+  not decide it). It never runs in `rig check`, and it adds nothing to
+  compiled programs ([test/README](../test/README.md)).

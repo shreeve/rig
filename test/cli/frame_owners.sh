@@ -1,6 +1,6 @@
 # timeout: 1500
 # Every place Zig writes a frame of its own is a frame owner
-# (docs/INTERNALS.md, "Frame owners"): a function or method, each instance
+# (docs/internals/INTERNALS.md, "Frame owners"): a function or method, each instance
 # of a generic one, a closure, a test block, a `drop` body, and `main`.
 # The functions the automatic rule inlines into an owner are held to its
 # account: at most 64 KiB, each counted at every call and at every copy Zig

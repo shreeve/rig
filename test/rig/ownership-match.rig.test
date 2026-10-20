@@ -583,7 +583,7 @@ test "match made part cell holder", '''
   2
 '''
   # A `match` on a part of a value its header makes holds that value for
-  # the match (Core §3, docs/INTERNALS.md "Header subjects"): `H(...).e`,
+  # the match (Core §3, docs/internals/INTERNALS.md "Header subjects"): `H(...).e`,
   # `mkh(n).e`, `[...][0]`, and `mk(n)[0]` are held, so each payload is
   # read where it is, a `*Counter` handle through which a `!@` method
   # or a marked `Cell.set` changes a Cell (Core s9).

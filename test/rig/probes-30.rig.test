@@ -1563,7 +1563,7 @@ test "review-step10-r2-h15 lent generic local explicit", '''
   print(direct(5))
   print(hoisted(5))
 
-fail "review-step2-p1-h1", "cannot lend `a` to write while the receiver's read of it is in use"
+fail "review-step2-p1-h1", "cannot lend `a` to write while `self`'s read of it is in use"
   obj P
     v: List[Int]
 

@@ -19,6 +19,10 @@ usage: bench/tasks/bench-tasks [options]
                   the crates.io release Cargo resolves)
   --record NOTE   append the Rig variants' rows to bench/tasks/PROGRESS.md,
                   dated, with NOTE (say, "#348: fibers on one worker")
+  --gate          fail when rig-fast takes more than 1.5 times the last
+                  rig-fast row PROGRESS.md holds for this machine's
+                  architecture, on any benchmark: run by hand before a
+                  change to the scheduler or to tasks lands
 
 Each program prints `NAME NS CHECK` per benchmark; the checks must
 agree. The report gives each benchmark's time per operation, the
@@ -164,6 +168,45 @@ def record(note, variants, best):
     print("bench-tasks: recorded in %s" % path, file=sys.stderr)
 
 
+def recorded():
+    """The last rig-fast row PROGRESS.md holds for this machine's
+    architecture (its first table for arm64, the x86-64 one for x86-64),
+    as each benchmark's time per operation in ns, and memory in bytes."""
+    import platform
+    x86 = platform.machine() in ("x86_64", "AMD64")
+    units = {"ns": 1, "us": 1e3, "ms": 1e6, "s": 1e9, "B": 1, "KiB": 1024, "MiB": 1024 * 1024}
+    row, section = None, "arm64"
+    for line in open(os.path.join(HERE, "PROGRESS.md")):
+        if line.startswith("## x86-64"):
+            section = "x86"
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if section == ("x86" if x86 else "arm64") and len(cells) == 9 and cells[2] == "rig-fast":
+            row = cells
+    if row is None:
+        return None
+    names = list(OPS) + ["memory"]
+    out = {}
+    for name, c in zip(names, row[3:]):
+        n, unit = c.split()
+        out[name] = float(n) * units[unit]
+    return out
+
+
+def gate(best):
+    """Fail when rig-fast is over 1.5 times the last recorded row."""
+    last = recorded()
+    if last is None:
+        sys.exit("bench-tasks: --gate found no rig-fast row for this machine in PROGRESS.md")
+    slow = []
+    for name in list(OPS) + ["memory"]:
+        now = best["rig-fast"][name] / (OPS[name][1] if name in OPS else 1)
+        if now > 1.5 * last[name]:
+            slow.append("%s %.1fx the recorded row" % (name, now / last[name]))
+    if slow:
+        sys.exit("bench-tasks: --gate: " + ", ".join(slow))
+    print("bench-tasks: --gate: within 1.5x of the recorded row", file=sys.stderr)
+
+
 def compare(ns, base):
     if ns >= base:
         return "%.1fx slower" % (ns / base)
@@ -179,8 +222,11 @@ def main():
     ap.add_argument("--time-only", action="store_true")
     ap.add_argument("--tokio")
     ap.add_argument("--record")
+    ap.add_argument("--gate", action="store_true")
     a = ap.parse_args()
     variants = a.variants.split(",")
+    if a.gate and "rig-fast" not in variants:
+        variants.insert(0, "rig-fast")
     out = a.out or tempfile.mkdtemp(prefix="bench-tasks-")
     os.makedirs(out, exist_ok=True)
     tokio = tokio_source(a.tokio) if "tokio" in variants else None
@@ -217,6 +263,8 @@ def main():
         record(a.record, variants, best)
     if not a.out:
         shutil.rmtree(out, ignore_errors=True)
+    if a.gate:
+        gate(best)
 
 
 if __name__ == "__main__":

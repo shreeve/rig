@@ -1,15 +1,19 @@
-# std.file.read: a file's exact bytes in a String sized to them, or
-# `none` when it cannot be read; in debug (sanitized) and --release.
+# std.file.read: a file's exact bytes in a String sized to them, `none`
+# when nothing is there, and a FileError when it cannot be read; in
+# debug (sanitized) and --release.
 # timeout: 300
 source "$ROOT/test/cli/_lib.sh"
 
-# Each path's length and first bytes, or `none`.
+# Each path's length and first bytes, `none`, or the error.
 cat >show.rig <<'EOF2'
 use std.file
 use std.os
 
 sub show(path: ?String)
-  if file.read(path) as s
+  got = file.read(path) catch |e|
+    print(e)
+    return
+  if got as s
     b = ?s[..]
     line = String(b.len, ":")
     i = 0
@@ -30,8 +34,8 @@ EOF2
 cat >big.rig <<'EOF2'
 use std.file
 
-sub main()
-  s = file.read("big.dat") ?? String()
+sub main()!
+  s = file.read("big.dat")! ?? String()
   wrong = 0
   b = ?s[..]
   i = 0
@@ -48,8 +52,8 @@ EOF2
 cat >past.rig <<'EOF2'
 use std.file
 
-sub main()
-  s = file.read("text.txt") ?? String()
+sub main()!
+  s = file.read("text.txt")! ?? String()
   b = ?s[..]
   print(b.len)
   print(b[b.len])
@@ -61,13 +65,13 @@ printf 'a\0b\xff\n' >binary.dat
 mkdir adir
 python3 -c "import sys; sys.stdout.buffer.write(bytes(i % 251 for i in range(8 << 20)))" >big.dat
 paths=(text.txt binary.dat empty.dat missing.dat adir)
-want=$'6: 104 101 108 108 111 10\n5: 97 0 98 255 10\n0:\nnone\nnone'
+want=$'6: 104 101 108 108 111 10\n5: 97 0 98 255 10\n0:\nnone\nFileError.is_directory'
 # An unreadable file; root reads it anyway, so it is left out then.
 if [[ $(id -u) -ne 0 ]]; then
     printf 'secret\n' >locked.dat
     chmod 000 locked.dat
     paths+=(locked.dat)
-    want+=$'\nnone'
+    want+=$'\nFileError.denied'
 fi
 
 for mode in debug release; do
@@ -96,8 +100,8 @@ obj Node
   text: String
   next: *Cell[*Node?]
 
-sub main()
-  a = *Node(text: file.read("leak.dat") ?? String(), next: *Cell(none))
+sub main()!
+  a = *Node(text: file.read("leak.dat")! ?? String(), next: *Cell(none))
   !a.next.set(+a)
   print(a.text.len)
 EOF2

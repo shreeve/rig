@@ -28,7 +28,7 @@
 //!
 //! Sema records what it learned about each IR node so later passes can
 //! ask instead of re-deriving it by name (`symbolOf`, `typeOf`, and the
-//! other queries on `SemContext`); `docs/INTERNALS.md` (The facts table)
+//! other queries on `SemContext`); `docs/internals/INTERNALS.md` (The facts table)
 //! says what each answers. A call's callee gets a type too:
 //! a function name its signature, and a method callee `(member obj m)`
 //! the resolved method signature with the receiver's generic arguments
@@ -181,7 +181,7 @@ pub const FrameSlot = struct { ty: TypeId, name: []const u8, copy: bool = false,
 /// functions is read from it.
 pub const InlineCall = struct { fun: FnRef, subst: TypeSubst };
 
-/// A place Zig writes a stack frame of its own for (docs/INTERNALS.md,
+/// A place Zig writes a stack frame of its own for (docs/internals/INTERNALS.md,
 /// "Frame owners"), decided once, by a positive list
 /// (`typecheck.recordFrameOwners`): a function or method (each instance of
 /// a generic one is a frame of this owner), a closure, a test block, and
@@ -391,7 +391,7 @@ pub const Type = union(enum) {
     /// inside `T!` or `T?` there), never a value's: a call that gives it
     /// stands only where each result is bound at once (`q, r = f()`), or
     /// is returned whole. Its facts are its parts' together, as an
-    /// object's are its fields' (docs/INTERNALS.md, "Several results").
+    /// object's are its fields' (docs/internals/INTERNALS.md, "Several results").
     results: []const TypeId,
     /// What a callable view `?fun(...) -> R` views, written as
     /// such: a closure, a function, or an owned closure of function type
@@ -652,7 +652,7 @@ pub const SymbolFlags = packed struct(u16) {
     /// A read match's binding of a payload, or the whole value, that is
     /// not plain data, of a subject the match reads as a copy (not
     /// `storage.matchesInPlace`): usable within its arm only
-    /// (docs/INTERNALS.md, "Header subjects").
+    /// (docs/internals/INTERNALS.md, "Header subjects").
     arm_view: bool = false,
     /// A `!T` or `![]T` local assigned a view somewhere
     /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.
@@ -910,6 +910,11 @@ fn recordExprKey(node: Sexp) ?u64 {
     return exprKey(node);
 }
 
+/// A local task (`Facts.local_tasks`), for `rig check --tasks`: where
+/// its call starts, the call as written, and why it stays on one
+/// thread: the part that pins it and the type in it that does not cross.
+pub const LocalTask = struct { pos: u32, call: []const u8, why: []const u8 };
+
 pub const Facts = struct {
     /// Identifier leaf position -> the symbol it names.
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
@@ -996,8 +1001,8 @@ pub const Facts = struct {
     /// The calls of `http.serve` (`Checker.httpServe`).
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
-    /// that makes them (`Checker.crossCheck`).
-    local_tasks: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// that makes them (`Checker.crossCheck`), with what pins each.
+    local_tasks: std.AutoHashMapUnmanaged(u64, LocalTask) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -1121,7 +1126,7 @@ pub const UnitEvent = union(enum) {
     jump: struct { node: NodeKey, to: JumpDest.To },
 };
 
-/// Which of a node's tests are known to pass (docs/INTERNALS.md, "Proven
+/// Which of a node's tests are known to pass (docs/internals/INTERNALS.md, "Proven
 /// checks"): recorded by `src/proofs.zig` alone, on an index, a `read` or
 /// `write` element call's callee, a `+`, or a `+=` set, and read by emit
 /// through `Facts.provenOf`. A node with no entry keeps every test.
@@ -1140,7 +1145,7 @@ pub const Proven = packed struct(u8) {
 };
 
 /// What a function bounds of its result on every path that returns
-/// (docs/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
+/// (docs/internals/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
 /// itself, an `Int`, or of named `Int` fields of the struct it returns.
 /// Written only by `src/proofs.zig`, for a module the ownership checker
 /// accepted, and read by the proof pass of each module that calls it.
@@ -1161,7 +1166,7 @@ pub const ResultBound = struct {
 pub const FieldBound = struct { name: []const u8, hi: u64 };
 
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
-/// subject that is not plain data (docs/INTERNALS.md, "Header subjects").
+/// subject that is not plain data (docs/internals/INTERNALS.md, "Header subjects").
 pub const Header = enum {
     /// A place, read where it stands as `?p` would lend it: each element
     /// or payload is a view of the place's own.
@@ -1178,7 +1183,7 @@ pub const Header = enum {
 /// A header's `Header`, and the value it holds when `held`.
 pub const HeaderFact = struct { how: Header, base: Sexp = .nil };
 
-/// Where a `break` or `continue` goes (docs/INTERNALS.md, "Loops"): the
+/// Where a `break` or `continue` goes (docs/internals/INTERNALS.md, "Loops"): the
 /// construct it names and the point of it it goes to. The type checker
 /// resolves every jump once, lexically (`Checker.resolveJump`), and emit
 /// and the ownership checker read the answer.
@@ -1204,7 +1209,7 @@ pub const JumpDest = struct {
 };
 
 /// A hidden storage location emit makes for an expression or construct
-/// (docs/INTERNALS.md, "Storage facts"): decided once, before ownership
+/// (docs/internals/INTERNALS.md, "Storage facts"): decided once, before ownership
 /// is checked, so the ownership checker walks the storage the emitted
 /// program has, and emit declares no storage without one
 /// (`SemContext.storageOf`).
@@ -1666,7 +1671,7 @@ pub fn paramBit(i: usize) ParamMask {
 }
 
 /// Which arguments a call of a function passes loans on from (Core
-/// sentence 7; docs/INTERNALS.md, "Call origins"): its result carries
+/// sentence 7; docs/internals/INTERNALS.md, "Call origins"): its result carries
 /// the loans of the arguments that fill the parameters in `result`, and
 /// it may store in what its write arguments lead to only the loans of
 /// those in `stores`. Set on each function and method where it is
@@ -1701,7 +1706,7 @@ pub const ParamFill = union(enum) {
 };
 
 /// A checked call's parameters: what fills each, in the callee's order,
-/// and its callee's `Origins` (docs/INTERNALS.md, "Call origins").
+/// and its callee's `Origins` (docs/internals/INTERNALS.md, "Call origins").
 pub const CallParams = struct {
     fills: []const ParamFill,
     origins: Origins,
@@ -1905,6 +1910,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
+        LocalTask => try w.print(" \"{f}\"", .{std.zig.fmtString(v.why)}),
         ReadOnlyField => try w.print(" {s}.{s}.{s}", .{ v.module, v.owner, v.field }),
         JumpDest => {
             const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
@@ -2672,7 +2678,7 @@ pub const SemContext = struct {
     /// is no view (it owns or copies its value): the access typecheck
     /// recorded (`Symbol.access`), or, for a parameter or local, the one
     /// its type declares. The one fact of a binding's mode
-    /// (docs/INTERNALS.md, "Binding access").
+    /// (docs/internals/INTERNALS.md, "Binding access").
     pub fn bindingAccess(self: *const SemContext, sym: SymbolId) ?Access {
         const s = self.symbols.items[sym];
         if (s.access) |a| return a;
@@ -3275,8 +3281,11 @@ pub const SemContext = struct {
         return self.facts.http_serves.contains(exprKey(call) orelse return false);
     }
 
-    pub fn recordLocalTask(self: *SemContext, call: Sexp) !void {
-        try self.facts.local_tasks.put(self.allocator, recordExprKey(call) orelse return, {});
+    /// Records that the task `call` makes is local, pinned by `local`;
+    /// the first part found to pin it is the one kept.
+    pub fn recordLocalTask(self: *SemContext, call: Sexp, local: LocalTask) !void {
+        const entry = try self.facts.local_tasks.getOrPut(self.allocator, recordExprKey(call) orelse return);
+        if (!entry.found_existing) entry.value_ptr.* = local;
     }
 
     /// Whether the task `call` makes is local (`recordLocalTask`).
@@ -3674,7 +3683,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
 /// read view, a slice, a `?String`, or a type parameter's value read where
 /// it is, and none a value, owned or copied. A binding typed some other
 /// way than from its access is a compiler bug, reported where the
-/// binding is declared (docs/INTERNALS.md, "Binding access"). Debug and
+/// binding is declared (docs/internals/INTERNALS.md, "Binding access"). Debug and
 /// test builds only, of a module typecheck accepted: after an error a
 /// binding may hold the type that error left.
 fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
@@ -4355,7 +4364,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         .parameterized_nominal => |pn| blk: {
             // A task keeps the loans of its call's arguments, which its
             // type does not name, so it may always hold a view: a shared
-            // home never holds one (docs/CONCURRENCY.md, "Loans and
+            // home never holds one (docs/design/concurrency.md, "Loans and
             // structure"). Its loans are never write views by type: a
             // task lent to write stays where it is bound. A set of tasks
             // keeps the loans of each.
@@ -4574,10 +4583,9 @@ pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
 }
 
 /// A built-in function called by name unless a declaration hides it:
-/// `print`, `warn`, `swap`, and `replace`, which is retired: its call is
-/// reported, with `swap` to write in its place.
+/// `print`, `warn`, and `swap`.
 pub fn isBuiltinCallName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
+    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "swap");
 }
 
 /// Whether the built-in `swap`'s second argument `arg`, of type `ty`
@@ -5538,7 +5546,7 @@ pub const LoopMode = enum { write, take, read };
 
 /// Whether a write may go through the binding `site` describes; null for
 /// one that is no view: it owns or copies what it binds. The one decider
-/// of a binding's mode (docs/INTERNALS.md, "Binding access"), by a
+/// of a binding's mode (docs/internals/INTERNALS.md, "Binding access"), by a
 /// positive list over every kind of binding. Typecheck derives the
 /// binding's type from it, ownership the loan a lend of it makes
 /// (`lendTarget`), and emit how it binds.
@@ -6056,7 +6064,7 @@ fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
 /// The diagnostics of `misplaced`: a Cell's formatted with the type
 /// twice, a write view's once.
 pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
-pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, a receiver's, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
+pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, `self`'s, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
 
 /// Whether a value of `ty` can hold a marked view (see `Views`). A generic
 /// parameter holds none: an instantiation with a view is checked apart.
@@ -6106,7 +6114,7 @@ pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// The two facts that say what may go to a task on another core
-/// (docs/CONCURRENCY.md, "What may cross cores"): a value that `moves`
+/// (docs/design/concurrency.md, "What may cross cores"): a value that `moves`
 /// can be handed whole to another thread, and one that `shares` can be
 /// read through a view by another thread while this one also reads it.
 pub const Crossing = enum { moves, shares };
@@ -6364,7 +6372,7 @@ pub fn holdsViewOnly(ctx: *const SemContext, ty: TypeId) bool {
 // -----------------------------------------------------------------------------
 
 /// How a value of a holder type leads to the memory a view points into
-/// (docs/INTERNALS.md, "Call origins"). One classifier answers both
+/// (docs/internals/INTERNALS.md, "Call origins"). One classifier answers both
 /// questions sentence 7 asks of a type: whether a value of it could hold
 /// what a view views (`!= .none`), and whether that memory may be its
 /// own (`== .owned`) rather than a read view's it holds.
@@ -8020,7 +8028,7 @@ pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
 
 /// Call `visitor.jump(j)` for each `break` and `continue` that names
 /// construct `c`, labeled `label` (or ""), in the order they appear: the
-/// one rule of which construct a jump names (docs/INTERNALS.md, "Loops"),
+/// one rule of which construct a jump names (docs/internals/INTERNALS.md, "Loops"),
 /// which the type checker records as each jump's `JumpDest` and the
 /// walks of a loop's value read. An unlabeled jump names the innermost
 /// loop around it, and a labeled one the innermost loop or labeled

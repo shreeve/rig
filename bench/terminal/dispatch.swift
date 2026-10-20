@@ -32,7 +32,7 @@ func fnv(_ s: [UInt8]) -> UInt64 {
     return h
 }
 
-/// The screen and cursor as `Terminal.dump` writes them (std/terminal/terminal.rig).
+/// The screen and cursor as `Terminal.dump` writes them (std/terminal.rig).
 func dump(_ t: Terminal) -> [UInt8] {
     let screen = t.active
     var out: [UInt8] = []

@@ -4,7 +4,10 @@ Where Rig is going, one line each. Nothing here is scheduled; the order
 follows what real programs need, and each item lands only when it can
 be checked as thoroughly as what exists. The forms the compiler
 rejects today as not supported yet are listed, with their diagnostics,
-in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
+in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms). Where the
+work stands is in [HANDOFF](../HANDOFF.md), and the decided engineering
+items, with their probe cases, are in
+[internals/backlog](internals/backlog.md).
 
 ## Language
 
@@ -15,28 +18,35 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `?String`).
 - **A labeled value loop on the right of a binding** (`x = $l: for ...`), which needs a grammar change without conflicts.
-- **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.
+- **Traits or bounds** whose method dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.
 - **Conditional compilation** on the target's operating system and CPU features and the build mode, as `std.target` gives the architecture (`target.arch`).
 - **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes computed from a compile-time parameter (`[n * 2]Int`, `[cap(n)]Int`), so a failure is a Rig diagnostic rather than a Zig error.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Drop bodies for enums and generic types.**
 
+- **Errors that carry data**, after `error` the type: declared sets (`T!E`, `error L = A | B`) and the typed `catch` binding, then member fields moved up through `!`, then `std.json`'s fallible API ([SPEC §13](../SPEC.md#declared-sets-and-fields)).
+- **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
 - **Several results**, after their first form (SPEC "Several results"):
   in registers when small, `from` per result, and a `for` that binds
   them each step.
 
 ## Speed
 
-- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`.
+- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`, and one load for 4- and 8-byte byte-lane reads on ARM.
+- **Zig 0.18**: LLVM's loop vectorizer, which Zig 0.17 turns off
+  (docs/internals/zig-0.17.md §16), is back; measure plain loops again,
+  and move std/terminal.zig's `widen` back into std/terminal.rig.
 - **Checker-proved check elimination**: bounds and overflow checks the checker proves redundant, redesigned around units.
 - **A frame-size guard** for every function.
 
 ## Concurrency
 
-- **Task groups**: tasks spawned in a group that always ends, with cancellation and no orphans; a local group runs on one thread, a parallel group across cores, on Zig's `std.Io`. Users write no threads, fibers, `Pin`, or async functions ([FORMAL-RIG](FORMAL-RIG.md)).
-- **Channels**: sending moves a value, so tasks share no mutable state; `select` waits on several.
-- **What may cross**: the facts *moves* and *shares*, derived for Rig objects and declared for Zig-backed types; `Mutex` and atomics only if a measurement asks.
-- **Actors**: a task and its channel, in std: a typed, bounded mailbox, `receive` as a `match`, and supervisors that restart a task that ends with an error. A panic stays fatal.
+The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.md#18-tasks)): tasks (`f(x)&`, `>t`) owned by their scope, cancellation and deadlines, sets of tasks, `par`, channels and `select`, actors with their idle path, deadlock detection, failure and supervision, `task.isolate`, seeded deterministic tests, and `std.net` and `std.http` on a poller per worker. What comes next is the concurrency panel's ([concurrency/panel](design/concurrency-panel/README.md)):
+
+- **Files and I/O**: a file layer with one `read`/`write` shape for files, sockets, and HTTP bodies; DNS; then TLS and an HTTP client.
+- **Deadlines**: `time.within` calling its closure exactly once, which replaces `within:`, `wait_all`, and `task.both`.
+- **Checking the runtime**: the next slices of the model's proofs ([design/concurrency](design/concurrency.md), "Proof obligations"), model checking (TLA+, GenMC) before more hand proofs, and `no_orphans` restated over whoever holds a task.
+- **Later**: thread-sanitizer annotations for fibers, freeing a long-sleeping task's stack, and io_uring.
 
 ## Kernels and freestanding code
 
@@ -63,7 +73,8 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 - **Assertions** for `test` blocks, and running one test by name.
 - **Sema facts in `rig check --facts`**: add sema's facts table (symbols, types, ownership operations, captures) to the syntax facts it prints today, in a versioned format for tools.
 - **A formatter** that writes the canonical style, such as one blank line between top-level declarations.
-- **A language server**: `rig lsp` gives diagnostics, semantic tokens, the outline, and folding; next, types on hover and go to definition, built on the facts table.
+- **Machine-readable diagnostics**: `rig check --json`, with machine-applicable fixes. Many diagnostics already name the fix, such as "write `rd(?n)`"; the JSON gives each fix as an edit to apply. Later, `rig explain`.
+- **A language server**: `rig lsp` gives diagnostics, semantic tokens, the outline, and folding; next, types on hover and go to definition, completion, rename, and formatting, built on the facts table, and a file of a directory module checked as part of its module.
 - **The language server in Rig**: someday, rewrite `rig lsp` in Rig itself, on Rig's std.json, reaching the compiler through `extern zig` (src/lib.zig), as a long-running, leak-free real-world Rig program.
 - **C-ABI-friendly `extern` types.**
 - **Drop plans from the ownership checker**: which bindings are consumed on every path, so the emitter can drop their alive flags and emit a plain `defer` or none.

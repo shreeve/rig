@@ -966,7 +966,7 @@ test "bytes wide", '''
     !m.push(U8(i))
   print(m.read[U128, .big](2), m.read[U128, .little](4))
 
-fail "bytes write read only", "5:3: cannot `write` a `[]U8`; its elements are read-only", "6:4: cannot lend a `[]U8` to write: its elements are read-only", "10:1: cannot `write` a `[]U8`; its elements are read-only", "12:1: cannot `write` a `?String`; a `?String` is read-only", "14:7: `read` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, or a `?String`; got `[4]Int`", "15:1: `write` writes the elements; write the receiver with `!`"
+fail "bytes write read only", "5:3: cannot `write` a `[]U8`; its elements are read-only", "6:4: cannot lend a `[]U8` to write: its elements are read-only", "10:1: cannot `write` a `[]U8`; its elements are read-only", "12:1: cannot `write` a `?String`; a `?String` is read-only", "14:7: `read` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, or a `?String`; got `[4]Int`", "15:1: `write` writes the elements; lend `self` with `!`"
   # `write` needs writable bytes: not those of a read slice, a String, or
   # anything but a byte buffer; and `read` reads bytes only.
 
@@ -1959,7 +1959,7 @@ test "constant run time arithmetic", '''
   i = 1
   print(s[i], "xyz"[2])
 
-fail "consume receiver part", "19:7: method `into` takes its self with `<@`, and `<` cannot move `k.d` out of the value that holds it; exchange it out first: `swap(!k.d, v).into(...)`", "19:19: method `into` takes its self with `<@`, and `<` cannot move `ds[0]` out of the value that holds it; exchange it out first: `swap(!ds[0], v).into(...)`", "19:33: method `into` consumes its receiver, and `mk().d` is a part of a temporary its statement drops; bind the value to a name first", errors: 3
+fail "consume receiver part", "19:7: method `into` takes its self with `<@`, and `<` cannot move `k.d` out of the value that holds it; exchange it out first: `swap(!k.d, v).into(...)`", "19:19: method `into` takes its self with `<@`, and `<` cannot move `ds[0]` out of the value that holds it; exchange it out first: `swap(!ds[0], v).into(...)`", "19:33: method `into` consumes `self`, and `mk().d` is a part of a temporary its statement drops; bind the value to a name first", errors: 3
   # A method that consumes its receiver cannot take a field or element
   # that moves: the owner keeps it, and `<` cannot move it out, nor out of
   # a temporary. (One that copies is taken as a copy.)
@@ -2464,7 +2464,7 @@ fail "elem method as value", "5:7: `read` is a method of `[2]U8`, only called: `
   g = b.fill
   print(f, g)
 
-fail "elem method on temporary", "7:1: `fill` writes the elements; write the receiver with `!`: `!mk().fill(0)`", errors: 1
+fail "elem method on temporary", "7:1: `fill` writes the elements; lend `self` with `!`: `!mk().fill(0)`", errors: 1
   # `fill` writes the elements of its receiver in place, so the receiver
   # is lent to write, which `!` marks, a temporary's too: `!mk().fill(0)`.
 
@@ -5247,7 +5247,7 @@ fail "is empty no len", "4:9: type `Int` has no method `is_empty`", errors: 1
   n = 3
   print(n.is_empty())
 
-fail "is empty not write", "4:7: `is_empty` does not write its receiver; for negation use `not`", errors: 1
+fail "is empty not write", "4:7: `is_empty` does not write `self`; for negation use `not`", errors: 1
   # `is_empty` only reads, so no `!` before its receiver.
 
   v: List[Int] = List()
@@ -5491,7 +5491,7 @@ fail "list filled rejected", "13:10: `List.filled` copies its value into every e
   j = List.filled(3)
   print(a, b, c, d, e, f, g, i, j)
 
-fail "list resize rejected", "19:4: `resize` copies its value into every element it adds, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for xs.len..n` with `!xs.push(+x)`); `!xs.keep(n)` shrinks any List", "20:4: `resize` copies its value into every element it adds, and a `String` owns a resource", "22:4: `resize` copies its value into every element it adds, and a `Named` owns a resource", "24:3: method `resize` needs its receiver lent to write; write `!v.resize(3, 0)`", "25:14: type mismatch: expected `Int`, got `Static`", "26:1: `grow[String]` cannot use `T = String`", "14:4: cannot lend to write through a read view `?List[Int]`", errors: 7
+fail "list resize rejected", "19:4: `resize` copies its value into every element it adds, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for xs.len..n` with `!xs.push(+x)`); `!xs.keep(n)` shrinks any List", "20:4: `resize` copies its value into every element it adds, and a `String` owns a resource", "22:4: `resize` copies its value into every element it adds, and a `Named` owns a resource", "24:3: method `resize` needs `self` lent to write; write `!v.resize(3, 0)`", "25:14: type mismatch: expected `Int`, got `Static`", "26:1: `grow[String]` cannot use `T = String`", "14:4: cannot lend to write through a read view `?List[Int]`", errors: 7
   # `!v.resize(n, x)` copies `x` into every element it adds, so the element
   # type must copy, even when the call would only shrink (line 20 shrinks
   # a List of two Strings to one): a List of owners grows by a loop that

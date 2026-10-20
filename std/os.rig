@@ -1,5 +1,17 @@
 # std.os: the process's arguments, environment, and working directory.
 
+use std.file
+
+# The working directory, as an absolute path, every symbolic link in it
+# resolved. Like std.file's calls, it runs on the blocking pool and is a
+# fallible waiting point; it fails with `file.FileError.not_found` when
+# the directory was removed, and with another `file.FileError` when it
+# cannot be read.
+pub fun cwd() -> String!
+  if file.realpath(".")! as path
+    return path
+  return file.FileError.not_found
+
 extern zig "os.zig"
   # Every argument, the program's name first. The text lives as long as
   # the program, like a literal's.
@@ -10,6 +22,3 @@ extern zig "os.zig"
   # environment the process started with, which nothing in std changes
   # (a `set_env` would have to revisit this `Static`).
   pub fun env(name: ?String) -> Static?
-
-  # The working directory, as an absolute path.
-  pub fun cwd() -> String

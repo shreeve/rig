@@ -955,14 +955,14 @@ pub const Checker = struct {
         } else if (loan.held_read != .none) {
             const uses = switch (loan.held_read) {
                 .none, .argument => "the call uses it after its later arguments run",
-                .receiver => "the call uses it as the receiver after its arguments run",
+                .receiver => "the call uses it as `self` after its arguments run",
                 .callee => "the call runs it after its arguments run",
                 .operand => "the operator uses it after its right operand runs",
                 .base => "it is indexed after its index runs",
             };
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ lent, uses });
         } else if (loan.reserved) {
-            try self.note(loan.pos, "`{s}` lent to write here, as the receiver, which is read until the call starts", .{lent});
+            try self.note(loan.pos, "`{s}` lent to write here, as `self`, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
             try self.note(loan.pos, "`{s}` lent to write here, and kept lent to read by a view that only reads it", .{lent});
         } else if (self.kept_lends.get(loan.pos)) |k| {
@@ -1013,7 +1013,7 @@ pub const Checker = struct {
     fn heldReadClause(self: *Checker, reader: Reader, of: []const u8) Error![]const u8 {
         const who = switch (reader) {
             .none, .argument => "an earlier argument's",
-            .receiver => "the receiver's",
+            .receiver => "`self`'s",
             .callee => "the callee's",
             .operand => "the left operand's",
             .base => "the indexed value's",
@@ -2754,7 +2754,7 @@ pub const Checker = struct {
         if (v.loans.len == 0) return v;
         // A task is its call, still running: it keeps every loan of its
         // arguments as lent, a write loan to write, whatever its result's
-        // type could view (docs/CONCURRENCY.md, "Loans and structure").
+        // type could view (docs/design/concurrency.md, "Loans and structure").
         // A set of tasks keeps those of each.
         if (sema.isTask(ctx, t) or sema.isTaskSet(ctx, t)) return v;
         if (!self.viewsOnlyRead(t)) return v;
@@ -3066,7 +3066,7 @@ pub const Checker = struct {
     };
 
     /// What a lend of var `v` puts a loan on, from the binding's access
-    /// (`SemContext.bindingAccess`, docs/INTERNALS.md "Binding access"):
+    /// (`SemContext.bindingAccess`, docs/internals/INTERNALS.md "Binding access"):
     /// a binding a write may go through is a write view, one no write goes
     /// through a read view, and any other var (one that owns or copies its
     /// value, or a value no binding names) an owner.
@@ -4435,7 +4435,7 @@ pub const Checker = struct {
             return .{};
         }
         // Every handle to a Cell or Signal reaches what it holds, so what
-        // goes in (`Cell(v)`, `set`, `replace`, `subscribe`) may
+        // goes in (`Cell(v)`, `set`, `swap`, `subscribe`) may
         // not hold a view.
         const into = if (callee.isKind(.member) and !self.namesType(callee))
             self.builtinName(self.exprType(ir.Member.object(callee)))
@@ -4620,7 +4620,7 @@ pub const Checker = struct {
     /// which the statement's end drops (`dropStmtTemps`), when its drop
     /// runs a `drop` body; any other reads none of its views. This walks
     /// the desugaring: the results statement temporaries, each taken by
-    /// its binding (docs/INTERNALS.md, "Several results").
+    /// its binding (docs/internals/INTERNALS.md, "Several results").
     fn walkDestructure(self: *Checker, node: Sexp) Error!void {
         const value = ir.Destructure.value(node);
         const targets = ir.Destructure.targets(node).items();
@@ -5687,7 +5687,7 @@ pub const Checker = struct {
         if (!cond.isKind(.as)) return self.walkStmt(cond);
         // A bare place is bound as `if ?p as x` binds it, and a part of a
         // made value in a hidden var the `if` holds, in a scope the
-        // caller ends with the body's (docs/INTERNALS.md, "Header
+        // caller ends with the body's (docs/internals/INTERNALS.md, "Header
         // subjects").
         const header = self.headerOf(cond);
         const saved_held = self.held;
@@ -5805,7 +5805,7 @@ pub const Checker = struct {
             self.arm_take = saved_arm[2];
         }
         // A bare place is matched as `match ?p`; a part of a made value
-        // in a hidden var the match holds (docs/INTERNALS.md, "Header
+        // in a hidden var the match holds (docs/internals/INTERNALS.md, "Header
         // subjects").
         const header = self.headerOf(match);
         const saved_held = self.held;
@@ -6078,7 +6078,7 @@ pub const Checker = struct {
         // A read match's binding that is no plain data of a subject emit
         // matches as a copy (not `storage.matchesInPlace`) is usable
         // within its arm only, so a view of it never outlives the copy
-        // (docs/INTERNALS.md, "Header subjects").
+        // (docs/internals/INTERNALS.md, "Header subjects").
         if (self.sema) |ctx| if (ctx.symbolAt(pos)) |sym| if (ctx.symbols.items[sym].flags.arm_view) {
             const arm = self.arm_var orelse blk: {
                 const id = try self.addVar(.{ .name = "", .decl = pos, .kind = .hidden, .arm_of = self.arm_subject, .arm_take = self.arm_take }, .{});
@@ -6181,7 +6181,7 @@ pub const Checker = struct {
         };
         // A bare place is walked as `for x in ?p`, an array made here as
         // `for x in <e`, and a part of a made value in a hidden var the
-        // loop holds (docs/INTERNALS.md, "Header subjects").
+        // loop holds (docs/internals/INTERNALS.md, "Header subjects").
         const header = self.headerOf(node);
         const saved_held = self.held;
         defer self.held = saved_held;
@@ -6326,7 +6326,7 @@ pub const Checker = struct {
             if (!spec.cond_always_true) exit = try self.exitTo(.{ .to = ctx.point, .resume_at = resumeAt(ir.get(spec.node, .@"else"), spec.node) });
         }
         // The loop is `while true { x = a or break; body: { body }; step }`
-        // (docs/INTERNALS.md, "Loops"): a `continue` in the body leaves
+        // (docs/internals/INTERNALS.md, "Loops"): a `continue` in the body leaves
         // the body's block for the step. A step that runs after the body
         // (`storage.StepPoint`) runs in the bindings' scope, after the
         // body's own scope ends; any other runs after the bindings' scope
@@ -6628,7 +6628,7 @@ pub const Checker = struct {
 
     /// A task or a set of tasks that can fail, still held where its scope
     /// ends normally, would be dropped without being waited for, and its
-    /// error lost (docs/CONCURRENCY.md, "Tasks"). On an early exit
+    /// error lost (docs/design/concurrency.md, "Tasks"). On an early exit
     /// (`return`, `!`, a `break`) the drop is what cancels it, and is not
     /// reported.
     fn checkLostTasks(self: *Checker, start: u32) Error!void {

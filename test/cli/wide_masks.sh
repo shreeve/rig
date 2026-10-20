@@ -1,6 +1,6 @@
 # timeout: 120
 # Masks of 32 and 64 lanes lower to the fast form on every target, read
-# from the assembly Zig writes for each (docs/INTERNALS.md, "Vectors"):
+# from the assembly Zig writes for each (docs/internals/INTERNALS.md, "Vectors"):
 # - NEON: `bits()` is the pairwise-add reduction, four `addp` for 64 lanes,
 #   and `m.not().bits()` flips the bits after it (`rig.maskBitsNot`), with
 #   no `mvn` per 16 lanes;

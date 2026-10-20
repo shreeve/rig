@@ -1,6 +1,6 @@
 # The Rig Language Reference
 
-This is the reference for Rig as the compiler implements it today: what
+This is the reference for Rig as the compiler implements it: what
 each form means, and the rules `rig check` enforces. How each form is
 written (layout, names, literals, operators and their precedence, and
 the grammar) is in [SYNTAX.md](SYNTAX.md), and a guided start from
@@ -16,9 +16,10 @@ and *Core §3* is CORE's section 3. Where CORE marks a rule *planned*,
 this reference states today's rule.
 
 **Three words.** *You lend a view; the compiler remembers the loan.*
-`?x` **lends** `x` to read and `!x` to write; the receiver gets a
+`?x` **lends** `x` to read and `!x` to write; the callee gets a
 **view**, and the owner keeps a **loan**, which limits it while it is
-live.
+live. [CORE](docs/CORE.md) explains
+the three.
 
 Every example is run by the test suite (`swarm test/rig.rip doc`): a
 program followed by an `output` block must print exactly that output
@@ -383,26 +384,13 @@ long as the program ([Static](#static)); one taken from a `String`
 UTF-8 by convention, and nothing checks it: lengths and indexes count
 bytes, and a slice checks only its bounds.
 
-Text is measured in four units, each with one name
-([TEXT](docs/TEXT.md)): a **byte**,
-what `s.len` counts; a **rune**, one code point; a **unit**, one UTF-16
-code unit, what JavaScript's string length counts; and a **char**, what
-a reader sees as one character. A char is a grapheme and nothing else:
-one character, as a person counts it, however many bytes it takes.
-Other languages spend "char" on a byte (C), a UTF-16 unit (Java,
-JavaScript), or a code point (Rust); Rig names those byte, unit, and
-rune. Each of these is one char:
+Text is measured in four units, each with one name: a **byte**, what
+`s.len` counts; a **rune**, one code point; a **unit**, one UTF-16 code
+unit; and a **char**, what a reader sees as one character. The four
+words, a table of one char at 1, 2, 3, 8, and 18 bytes, and each unit's
+module are in [TEXT](docs/TEXT.md#four-units-four-words).
 
-| Text | Written as | Bytes | Runes | Units | Chars |
-|---|---|---:|---:|---:|---:|
-| `a` | U+0061 | 1 | 1 | 1 | 1 |
-| `é` | U+00E9, one rune | 2 | 1 | 1 | 1 |
-| `é` | `e` U+0065, then a combining acute U+0301 | 3 | 2 | 2 | 1 |
-| `👋🏽` | waving hand U+1F44B, then skin tone U+1F3FD | 8 | 2 | 4 | 1 |
-| `👨‍👩‍👧` | man, zero-width joiner, woman, joiner, girl | 18 | 5 | 8 | 1 |
-
-The two `é`s look the same and are one char each, but take 2 and 3
-bytes. A `String` holds UTF-8 by convention: a byte from 0 to 127 is
+A `String` holds UTF-8 by convention: a byte from 0 to 127 is
 ASCII and a whole rune on its own; every other rune takes 2 to 4 bytes,
 each from 128 to 255, none of them a rune by itself. `s.len` counts
 bytes:
@@ -618,7 +606,7 @@ argument passed by value, a copy of a place, the value of an `if`, `??`,
 or `catch`, a constructor's) in a temporary of its own, so a function's
 code may take more stack than the values it keeps. Its *reach*, the
 values it keeps and every value its code makes or copies (a `defer` or
-`errdefer` body once for each exit it covers, a receiver taken by value
+`errdefer` body once for each exit it covers, a self taken by value
 at each call, and a function inlined into it, small or marked `inline`,
 at each call and at each copy of a `defer` body that calls it), times 4
 is at most 512 MiB, and a function, closure, or `drop` body whose reach
@@ -635,7 +623,7 @@ guard, stops with a stack-overflow error (`error: rig: stack overflow`)
 before writing beyond the stack, in every build mode. A program that
 cannot reserve its stack and the guard stops before it runs, with `rig:
 cannot reserve the program's stack and the guard below it` and exit
-status 1 ([INTERNALS](docs/INTERNALS.md#the-programs-stack) describes the
+status 1 ([INTERNALS](docs/internals/INTERNALS.md#the-programs-stack) describes the
 mechanism).
 
 ```rig reject
@@ -882,15 +870,15 @@ cannot lend `a` to write while a write loan is live
 ```
 
 Three methods write the elements of a `![]T`, an array, or a List,
-whose receiver is written `!xs` (or is a `![]T` binding):
+called on `!xs` (or on a `![]T` binding):
 `!dst.copy(src)` copies a `[]T` of the same length into them, and
 panics in every build mode when the lengths differ; `!s.fill(v)` sets
 every element to `v`; `!s.swap(i, j)` exchanges two elements of any
 type, with both indexes checked. `copy` and `fill` duplicate values, as
 `[n of x]` does, so their elements are values that copy
 ([§2](#kinds-of-value)): plain data or read views, each copy of a view
-carrying its loan. `copy`'s receiver and argument never overlap:
-the write view of the receiver excludes a read of the same value.
+carrying its loan. `copy`'s self and argument never overlap:
+the write view of self excludes a read of the same value.
 
 ```rig
 sub main()
@@ -1245,8 +1233,8 @@ sub main()
 | `T?` | optional: a `T` or `none` | [§12](#12-optionals) |
 | `T!` | fallible: a `T` or an error; only where a call's result is named: a return type, a function type's, or a task's, `Task[T!]` | [§13](#13-errors) |
 | `?T` | read view of a `T` (parameters, returns, locals, fields) | [§7](#7-ownership) |
-| `!T` | write view of a `T` (parameters, receivers, returns, locals) | [§7](#write-views) |
-| `^T` | box: one `T` alone on the heap, with one owner | [§10](#box) |
+| `!T` | write view of a `T` (parameters, self, returns, locals) | [§7](#write-views) |
+| `^T` | box: one `T` alone on the heap, with one owner | [§10](#boxes-t) |
 | `*T` | shared handle: reference-counted, single-threaded | [§9](#9-shared-and-weak-handles) |
 | `~T` | weak handle to a shared value | [§9](#9-shared-and-weak-handles) |
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§11](#11-closures) |
@@ -1270,7 +1258,7 @@ How the sigils of a type combine (`*User?` is an optional handle,
 Two kinds of type stand only in some places (Core §5 and sentence 9):
 
 - A write view, `!T` or `![]T` (also as `(!T)?` and `(!T)!`), is only a
-  parameter's, a receiver's, a result's, or a local or header binding's
+  parameter's, self's, a result's, or a local or header binding's
   type. It is never a field's, an element's, a type argument, or what
   an optional, a read view, or a handle holds
   ([Write views](#write-views)).
@@ -1700,7 +1688,7 @@ words that ask for a speed and never change what the program means:
   out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
-([INTERNALS](docs/INTERNALS.md), "Inlining"). A marker applies to every
+([INTERNALS](docs/internals/INTERNALS.md), "Inlining"). A marker applies to every
 instance of a function with compile-time parameters, and a method
 takes one as any function does, in its type's body or outside it.
 
@@ -1841,8 +1829,7 @@ self says how it uses the value, and the call site says the same thing:
 | `<@` | consumes the value | `<p.m()`, or on a temporary; `p.m()` takes a copy of a value that copies |
 
 Self is written with its sigil and no type; `@: Self` is rejected. In
-a method's body `@` is self, the value the method was called on (its
-receiver at the call), and `@name` is self's member `name`, the name
+a method's body `@` is self, the value the method was called on, and `@name` is self's member `name`, the name
 touching the `@` (`@n`, `@bump()`); `@.n` is rejected. A method that
 takes no self, or a function, has no `@`, and nothing else is named
 `@`.
@@ -1873,14 +1860,14 @@ sub main()
 write `!@bump()`: the call writes `@`
 ```
 
-A `?`, `!`, or `<` before a place and a method call marks the receiver:
-`!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](SYNTAX.md#receiver-sigils)).
-Writing `?` is optional, since a read receiver is lent without it. The
+A `?`, `!`, or `<` before a place and a method call marks self:
+`!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](SYNTAX.md#self-sigils)).
+Writing `?` is optional, since a read self is lent without it. The
 short form is checked against the method: `!` before a method that
 does not take `!@` is rejected (it reads as negation, which is
 `not`), `<` before one that does not take `<@`, `?` before one that
 takes `!@` or `<@`, and any of them before a function with no
-receiver (`Point.origin()`). A
+self (`Point.origin()`). A
 write call whose value is used, whatever its type, is written in the
 long form, `(!set).insert(k)`, wherever the value goes (a condition, an
 `as` header, an operand, a binding, an argument, a return value, a
@@ -1934,7 +1921,7 @@ sub main()
 ```
 
 ```error
-`is_empty` does not write its receiver; for negation use `not`
+`is_empty` does not write `self`; for negation use `not`
 ```
 
 ```rig reject
@@ -1950,7 +1937,7 @@ sub main()
 ```
 
 ```error
-`top` does not consume its receiver; remove the `<`
+`top` does not consume `self`; remove the `<`
 ```
 
 ```rig reject
@@ -2042,7 +2029,7 @@ the type (`other: ?Point`).
 A method named through its type, `Type.method`, is a function value
 whose first parameter is what the method takes as self:
 `Counter.bump` has type `sub(!Counter)`. Named through a value, `c.bump`
-must be called, since a value would have to capture its receiver
+must be called, since a value would have to capture its self
 unseen; write a closure instead. Methods of generic types cannot be
 named as values.
 
@@ -2642,7 +2629,7 @@ order:
 1. **From the arguments.** Each parameter's type is matched against
    its argument's type (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
    `[N]T`, `Wrap[T]`, `fun(T) -> U`, `?fun(T) -> U`), and a method's
-   receiver gives its type's parameters. Every argument must agree, and
+   self gives its type's parameters. Every argument must agree, and
    an argument whose type does not have its parameter's shape is a type
    mismatch. An argument that is not a literal keeps the type it gives,
    even where the result is expected to have another.
@@ -3523,7 +3510,7 @@ cannot assign to `w?`: only a call that returns a write view (`!T`), or that cal
 ```
 
 A write view is never stored inside a value (Core §5): `!T`,
-also as `(!T)?` and `(!T)!`, is only a parameter's, a receiver's, a
+also as `(!T)?` and `(!T)!`, is only a parameter's, self's, a
 result's, or a local or header binding's type, never a field's, an
 element's, or a type argument. To change a value from another one,
 pass `!x` to each call that changes it, or hold the value itself.
@@ -3607,9 +3594,9 @@ The operators and their precedence are in
 [SYNTAX §6](SYNTAX.md#6-operators-and-precedence), and how they are
 spaced in [SYNTAX §5](SYNTAX.md#5-prefixes-infixes-and-suffixes): an
 infix operator has the same spacing on both sides, and a sigil touches
-what it marks. A receiver sigil
-applies to a method's receiver ([§3](#objects)); a call of a field
-holding functions (`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil
+what it marks. A sigil before a method call
+applies to the method's self ([§3](#objects)); a call of a field
+holding functions (`!p.f()`, `!p.fs[0]()`) has no self, so a sigil
 there is rejected.
 
 Arithmetic needs numeric operands of one type (a literal adapts to the
@@ -3773,7 +3760,7 @@ its bit pattern, so a negative value counts as its two's complement.
 an `Int`: the zero bits above the highest set bit, the zero bits below
 the lowest, and the set bits. For `0` both zero counts are the bit count of
 its type, and `(-1).count_ones()` is 64. `x.swap_bytes()` reverses the
-bytes, in the integer's own type. A receiver that is not an integer is
+bytes, in the integer's own type. A value that is not an integer is
 rejected.
 
 ```rig
@@ -4436,7 +4423,7 @@ written decides what the loop does with it:
 | `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while (!it).next() as x` |
 | `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
 | `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
-| `?b.each()`: a method call whose `?` reaches its receiver, as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent to read while the loop holds `h` |
+| `?b.each()`: a method call whose `?` reaches its self, as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent to read while the loop holds `h` |
 | `?it` | rejected: reading an iterator cannot advance it |
 
 A type with a `next` of another shape (`next(?@)`, one that takes
@@ -4861,7 +4848,7 @@ expected. `match !e` needs a place that may be
 written, as `!e` does, and while one of its bindings is live `e` cannot
 be used otherwise. `match <e` needs a value `e` owns, not a view. A
 boxed enum is matched where the box holds it, `match b` (as `match ?b`)
-or `match !b` ([§10](#box)), and so is the value a handle holds,
+or `match !b` ([§10](#boxes-t)), and so is the value a handle holds,
 `match h`, which reads it. A write view the subject makes, a call's
 result (`match get(!h)`) or a branch whose every leaf is a write lend,
 a call's result, or a write view taken with `<w`
@@ -5093,7 +5080,7 @@ value that is not moved is dropped where its scope ends, with no mark:
 | `!x` | lend to write | a write view, the only view while it lives |
 | `+x` | clone | a new owner, as the type says ([Clone](#clone)) |
 | `<x` (a statement) | drop | release `x` now |
-| `^x` | box | move `x` into a new box with one owner ([§10](#box)) |
+| `^x` | box | move `x` into a new box with one owner ([§10](#boxes-t)) |
 | `*x` | share | move `x` into a new shared handle ([§9](#9-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§9](#9-shared-and-weak-handles)) |
 
@@ -5121,7 +5108,7 @@ use of `n` after move
 An expression either **takes** its value or only **reads** it. A
 binding, an argument to a parameter that owns it, `return`, a stored
 field or element, and `<` take. A `print` or `String(...)` argument, an
-`==` operand, `?e`, a `?@` receiver, and a field or element read
+`==` operand, `?e`, a `?@` self, and a field or element read
 only read. Reading never moves a name, whatever form reads it: a read
 passes through `a if c else b`, `??`, `catch`, `e!`, and `e?` to their
 operands, so `print(a if c else b)` reads `a` or `b` where it is and
@@ -5377,7 +5364,7 @@ takes `!@` ([Changes and shared storage](#changes-and-shared-storage),
 [§10](#cell)). A write lend is always written. A read lend may go unwritten
 where its view lasts only for the use: an argument to a view parameter
 (`balance_of(acct)` is `balance_of(?acct)`, and a slice is lent the
-way its name is: `total(w[1..3])` is `total(?w[1..3])`), a method's receiver
+way its name is: `total(w[1..3])` is `total(?w[1..3])`), a method's self
 ([§3](#objects)), the subject of a `for`, `if … as`, or `match`
 ([§6](#6-control-flow)), and a held view or a function name lent on to
 read ([§11](#callable-views)). `print(...)` and `String(...)` read their
@@ -5477,14 +5464,14 @@ are rejected. A local binding is no constant, whatever it holds:
 
 So `sort.sort(!v)` works on a List as it does on an array, and one `fun
 area(s: ?Shape)` takes `?s` of a `Shape`, a `^Shape`, and a
-`*Shape` ([§9](#shared-handles), [§10](#box)). A slice `x[a..b]` is the
+`*Shape` ([§9](#shared-handles), [§10](#boxes-t)). A slice `x[a..b]` is the
 same lend, of part of `x` ([§2](#slices)), and as an argument it goes
 unwritten where `x` does.
 
 A written `!` must lend to write
 ([Core 4](docs/CORE.md#2-the-core-in-ten-sentences)): `!x` is kept only
 where the type it goes to is a write view (a `!T` parameter, a write
-receiver, a type spelled or expected with one, or a value
+self, a type spelled or expected with one, or a value
 whose type it gives: a binding with no type, an array literal, or an
 `if`, `match`, or loop each of whose values is one), and rejected
 wherever `x` is only read. A written `!x` binds a generic's `T` to the
@@ -5568,7 +5555,7 @@ is kept in its statement's slot until the statement ends
 ([Temporaries](#temporaries)), where the change is seen, and a view of
 it may be used only within the statement. A branching value that may
 be a name's (`!(a if c else b)`), or a field, element, or method
-receiver reached through one (`!(a if c else b).w`), would be lent as a
+self reached through one (`!(a if c else b).w`), would be lent as a
 copy, which the change would miss, so it is rejected: lend each branch,
 `!a if c else !b`. A constant is no temporary, and is never lent to write (above).
 
@@ -5619,8 +5606,8 @@ whole path (`!p.items.push(3)`, `if !arr[0] as v`, `match !p.e`,
 (`p.x = 5`, `arr[i] += 7`, `v.len`). A part of a temporary is not
 assigned to or bound by a header: bind the value to a name first. A
 read lend is not written through, `(?p).x = 5`. Three forms are not this
-rule's: a method's receiver, `(!s).insert(k)`
-([SYNTAX §5](SYNTAX.md#receiver-sigils)); a value that branches,
+rule's: a method's self, `(!s).insert(k)`
+([SYNTAX §5](SYNTAX.md#self-sigils)); a value that branches,
 `(!a if c else !b).x`, whose lends pick the place its path reaches; and
 a lend of a slice, `(?t[..])[0]`, which makes the view the path
 indexes. A written `!` on such a slice the path only reads,
@@ -5716,7 +5703,7 @@ cannot lend `u` to write while a read loan is live
 
 A view passed to a call ends when the call returns, so two calls in one
 statement may each lend the same value to write. A method call lends
-its receiver for the whole call, so `rc.show(<rc)` is rejected. A view
+its self for the whole call, so `rc.show(<rc)` is rejected. A view
 stored in a binding, or in a view ([below](#second-class-views)), lasts
 until its last use. Every later use counts: a use further on, a use
 anywhere in a loop around it that the binding was declared outside of
@@ -5810,7 +5797,7 @@ would see a stale value, or memory already freed: `print(v, grow(!v))`
 is rejected ([CORE §6](docs/CORE.md#6-bindings-and-assignment)). Plain
 data is copied whole when it is read, so `print(v.len, grow(!v))` and
 `print(p, bump(!p))` for a plain object `p` are accepted, and print the
-values as they were read. A write receiver's arguments may read it,
+values as they were read. A write self's arguments may read it,
 `!v.push(v.len)`, since they finish before the call writes.
 
 ```rig
@@ -5839,7 +5826,7 @@ P(x: 1) 2 P(x: 2)
 ```
 
 The same holds wherever a value is read in place before a later
-operand of the same form runs: a read receiver that is no place
+operand of the same form runs: a read self that is no place
 (`(a if c else b).peek(!a)`), the value a call calls (`h.f(reset(!h))`
 for an owned closure in a field), the left operand of `==`, `!=`, or an
 ordering operator while its right operand runs, and a value that is no
@@ -5862,7 +5849,7 @@ cannot lend `a` to write while the left operand's read of it is in use
 ```
 
 A view of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
-receiver of a method call) finds the place up to each index before the
+self of a method call) finds the place up to each index before the
 index runs, so an index cannot write lend or move the place's root:
 it could grow or free the memory the place is in. A place that is read
 or taken (`<v[i]`) is found up to each index before the index runs too.
@@ -5955,10 +5942,10 @@ the checker tracks where every one came from.
   the List, not `c`.
 - A call keeps only what its signature shows. A view lent to it (a
   `?T`, `!T`, `[]T`, `![]T`, `?String`, an optional of one, or a `?@`
-  or `!@` receiver) it keeps only when the signature names that
+  or `!@` self) it keeps only when the signature names that
   parameter in `keeps`: `sub watch(!@, s: ?String) keeps s` (also
   `keeps s, t` and `keeps @`, after the result type and any `from`).
-  It may then store what the view sees in what its write receiver and
+  It may then store what the view sees in what its write self and
   write arguments lead to, and the loan lasts while that holder is used;
   every other lend ends when the call returns. A value passed by value
   is the callee's, which may keep it, and its loans, wherever its type
@@ -5974,7 +5961,7 @@ the checker tracks where every one came from.
   written: `!b.watch(?t)`, `?a.register(!out)`.
 - An object holding a view keeps the viewed value lent while the
   object is alive. So does a stack closure that captured a view, and
-  a value a call may have stored a view into (its receiver lent to
+  a value a call may have stored a view into (its self lent to
   write, and what its `!` arguments and other write views lead to):
   a view of each argument the call keeps, as above.
 - A view may not outlive the value it views: not past the end of
@@ -6150,7 +6137,7 @@ sub main()
 A `!@` method called on a temporary, or on a field or element of
 one, lends it to write, and every change is marked by `!`: without one
 the call is rejected, with the hint to add it. `!Counter(n: 1).bump()`
-is `(!Counter(n: 1)).bump()` ([SYNTAX §5](SYNTAX.md#receiver-sigils)).
+is `(!Counter(n: 1)).bump()` ([SYNTAX §5](SYNTAX.md#self-sigils)).
 The method sees the temporary in its statement's slot, and its result
 may be used, or not:
 
@@ -6166,7 +6153,7 @@ sub main()
 ```
 
 ```error
-`bump` changes its receiver, a temporary no name holds; add `!`: `!Counter(n: 1).bump()`
+`bump` changes `self`, a temporary no name holds; add `!`: `!Counter(n: 1).bump()`
 ```
 
 ```rig
@@ -6301,13 +6288,13 @@ sub main()
 this header binds a copy of its subject, since a temporary it makes ends with the header
 ```
 
-A `?@` or `!@` receiver is lent as `?e` or `!e` would be when the
+A `?@` or `!@` self is lent as `?e` or `!e` would be when the
 method may keep a view of it, in its result or through a write
-argument. A temporary receiver, plain data included, then lives until
+argument. A temporary self, plain data included, then lives until
 its statement ends, so the view may be used there and nowhere after (a
-`!@` method's temporary receiver is written `!e`:
+`!@` method's temporary self is written `!e`:
 [Temporaries](#temporaries)). A
-receiver that branches lends each leaf where it is:
+self that branches lends each leaf where it is:
 `(a if c else b).name()` keeps a loan on `a` and on `b`, so neither may
 change while the view lives.
 
@@ -6567,10 +6554,10 @@ sub main()
 cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
 ```
 
-A method's view result carries a loan on all of its receiver, where
-the receiver's type could hold what it views (here `value`). Saying
-which part of the receiver it views (`-> ?String from @text`) is
-planned, and would let the caller write the receiver's other fields
+A method's view result carries a loan on all of its self, where
+self's type could hold what it views (here `value`). Saying
+which part of self it views (`-> ?String from @text`) is
+planned, and would let the caller write self's other fields
 while the result lives:
 
 ```rig pending
@@ -6872,7 +6859,7 @@ it, so `w` is moved and its weak count dropped once upgraded, and a
 later use of `w` is a use after move. A weak handle made there (`*~h`,
 `*f()`) is taken the same way. So no counted handle holds a weak one:
 `*~T` is rejected, as every holding sigil over a held value is
-([§10](#box)). A suffix binds tighter than a prefix, so
+([§10](#boxes-t)). A suffix binds tighter than a prefix, so
 `*w?` is `*(w?)`; to return `none` from the function once the value is
 gone, write `(*w)?`. In a generic body, `*x` of a `T` copies `x` into a
 new handle, whatever `T` an instance gives it, so a `T` that is a weak
@@ -6993,7 +6980,7 @@ sub main()
 
 Every call that changes a Cell is marked: `set`, `swap`, `push`,
 `pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
-and `subscribe`. They take `!@`, so the receiver-sigil rule enforces
+and `subscribe`. They take `!@`, so the self-sigil rule enforces
 the mark, and a read view (`?Cell[T]`, a `?@` method of an object
 holding one) cannot change a Cell. `!c` where `c` is a handle lends the
 handle: `bump(!local)` with `local: *Cell[Int]`, and `bump(!k.hits)` with
@@ -7008,7 +6995,7 @@ sub main()
 ```
 
 ```error
-method `set` needs its receiver lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`
+method `set` needs `self` lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`
 ```
 
 ```rig reject
@@ -7327,7 +7314,7 @@ left 1
 drop 1
 ```
 
-### Box
+### Boxes, `^T`
 
 `^T` is a box: one `T` alone on the heap, with one owner. An object or
 enum can hold itself through a box (`next: ^Node?`), since a box is a
@@ -9988,8 +9975,9 @@ The call's arguments are evaluated where it is written, and it gives at
 once a `Task[T]`, where `T` is what the call gives (`Void` for a
 `sub`): an owned value that holds the result once the task ends.
 
-`>t` waits for the task to end and takes its result: `&` sends the work
-off, and `>` takes what it gives back. A wait consumes the task, so `t`
+`>t` waits for the task to end and takes its result: `&`, the dispatch
+sigil, sends the work off, and `>`, the wait sigil, takes what it gives
+back. A wait consumes the task, so `t`
 is gone after it, and it ends the loans the task kept. A fallible result
 is passed on with `>t!` or handled with `catch`. `>` takes a name alone,
 and a `!` or `?` after it applies to what it gives: `>t!` is `(>t)!`.
@@ -10020,17 +10008,17 @@ sub main()
 25 7
 ```
 
-**Loans.** A task keeps the loans of its arguments and its receiver
+**Loans.** A task keeps the loans of its arguments and its self
 until it ends: `total(?xs)&` lends `xs` to read for the task's whole
 life, so the task reads it in place and nothing changes it meanwhile.
 After `>u`, `xs` can be lent to write again. A task lent to write
 keeps its write loan while it runs, and no value holds a write view
 ([Write views](#write-views)), so it is bound to a local where it is
 made, `t = fill(!xs, 3)&`, and waited for there, `>t`; it is not
-moved, held in a list, or returned. A method's receiver is lent as the
+moved, held in a list, or returned. A method's self is lent as the
 method takes it: `?c.get()&` to read, `(<c).into()&` to move it in, and
 `(!c).bump(2)&` to write, in parentheses as any write call whose value
-is used is ([Receiver sigils](SYNTAX.md#receiver-sigils)).
+is used is ([Self sigils](SYNTAX.md#self-sigils)).
 
 ```rig
 sub fill(xs: !List[Int], n: Int)
@@ -10237,6 +10225,10 @@ one also reads it:
 - lent to read, `?x` or a `?@` method's self, it must share;
 - lent to write, `!x` or a `!@` method's self, what it views must move.
 
+What the task gives goes back to the task that waits for it, so it must
+move too, unless the task is local (below) and runs on the waiter's
+thread.
+
 | Type | moves | shares |
 |---|---|---|
 | plain data, `String`, `List[T]`, `^T`, objects and enums | when every part moves | when every part shares |
@@ -10259,7 +10251,13 @@ stays on that thread from then on, so no count they share changes on two
 cores at once. Such tasks take turns on one core, at their waits and
 yield checks; the code reads the same as for any task, and the compiler
 picks which a task is. So a GUI program's `*T`, `Cell`, and `Signal`
-code can use `&`.
+code can use `&`. `rig check --tasks` lists each local task, with the
+argument that pins it and the type in that argument that stays on one
+thread:
+
+```text
+main.rig:8:7: `val(?n)&` is local, pinned to its maker's thread by `?n`: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once
+```
 
 ```rig
 obj Node
@@ -10281,7 +10279,9 @@ sub main()
 A local task still takes nothing that no two tasks may hold at once,
 even on one thread: a set of tasks, a task or a write view lent to
 read, or a function lent to read, which may lend what it captures to
-write. A channel's elements go to any task that holds a handle of it,
+write. A closure literal written in the task's call is lent to it, as
+`?f` is, and its captures live only until the statement ends, so it
+too is rejected: bind the work to a function the task calls. A channel's elements go to any task that holds a handle of it,
 so they cross cores even when a local task holds the channel.
 
 ```rig reject
@@ -10310,7 +10310,7 @@ each is a fiber on a stack of its own as large as `main`'s, run by a
 worker thread per core (`RIG_WORKERS` sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
-([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
+([docs/internals/scheduler.md](docs/internals/scheduler.md)).
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in
 `main` does, unless an isolate stops it ([below](#isolating-a-panic)). If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task
@@ -10527,7 +10527,7 @@ view. `Chan[T](n)` stands only as the operand of `*`.
 - `!ch.send(<v)!` waits for room and sends `v`.
 - `(!ch).recv()!` waits for a value and gives it as `T?`; once the
   channel is closed and empty it gives `none`.
-- `!ch.close()` ends sending: receivers waiting get `none`, the values
+- `!ch.close()` ends sending: tasks waiting to receive get `none`, the values
   sent before still come out, and a later send panics.
 
 Sending and receiving change the channel, so each is marked with `!`
