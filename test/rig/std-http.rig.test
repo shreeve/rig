@@ -110,6 +110,86 @@ test "http pipelined", seeds: 20, "/a: /b:hello /c:"
   print("/a:" if a >= 0 else "?", "/b:hello" if b > a else "?", "/c:" if d > b else "?")
   _ = <t.cancel() catch -1
 
+test "http expect continue", seeds: 20, '''
+  100 then /e:hello
+  417
+  /f:
+'''
+  # A client that sends `Expect: 100-continue` waits for `100 Continue`
+  # before it sends the body; the server asks for it, in any case, and
+  # answers 417 to an expectation it does not know.
+  use std.text
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| http.text(String(req.path, ":", req.body)))!
+    0
+
+  # Read from `c` onto `got` until it holds `want`, or the other end
+  # closes.
+  sub until(c: !net.Stream, got: !String, want: ?String)!
+    while text.find(?got, want) == none
+      if (!c).read(!got, 4096)! == 0
+        return
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  (!c).write("POST /e HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\nExpect: 100-Continue\r\n\r\n")!
+  got = String()
+  until(!c, !got, "\r\n\r\n")!
+  first = String(?got[9..12])
+  (!c).write("hello")!
+  until(!c, !got, "/e:hello")!
+  print(first, "then", ?got[(text.find(?got, "/e:") ?? 0)..])
+  d = net.connect(String("127.0.0.1:", port))!
+  (!d).write("POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nExpect: later\r\n\r\nx")!
+  got = String()
+  until(!d, !got, "\r\n\r\n")!
+  print(?got[9..12])
+  # With no body to ask for, the answer comes at once.
+  (!c).write("GET /f HTTP/1.1\r\nHost: x\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n")!
+  got = String()
+  until(!c, !got, "/f:")!
+  print(?got[(text.find(?got, "/f:") ?? 0)..])
+  _ = <t.cancel() catch -1
+
+test "http body limit", seeds: 20, '''
+  413 0
+  413 0
+  200 /ok
+'''
+  # A body over 16 MiB is answered 413 before any of it is read, and
+  # the connection closes once the client has seen the answer; one that
+  # waits for `100 Continue` is never asked for. The server goes on.
+  use std.text
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| http.text(req.path))!
+    0
+
+  # The status of the answer to `head`, and how many bytes follow the
+  # end of the answer's body before the server closes.
+  fun send(port: Int, head: ?String) -> String!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(head)!
+    got = String()
+    while (!c).read(!got, 4096)! > 0
+      pass
+    at = (text.find(?got, "\r\n\r\n") ?? 0) + 4
+    body = ?got[at..]
+    if text.starts_with(?got, "HTTP/1.1 200")
+      return String(?got[9..12], " ", body)
+    String(?got[9..12], " ", body.len - "content too large\n".len)
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  print(send(port, "POST /big HTTP/1.1\r\nHost: x\r\nContent-Length: 16777217\r\n\r\nabc")!)
+  print(send(port, "PUT /big HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\nExpect: 100-continue\r\n\r\n")!)
+  print(send(port, "GET /ok HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!)
+  _ = <t.cancel() catch -1
+
 fail "http serve captures share", "`http.serve` calls the closure on several tasks at once, and `|!count|` lends `count` to write"
   fun run(l: net.Listener) -> Int!
     count = 0

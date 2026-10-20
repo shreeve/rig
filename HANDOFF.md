@@ -138,6 +138,10 @@ from).
     and Go: as fast as hyper on the Mac and about three and a half
     times its requests on pup, at 8.6 to 16.6 KiB per idle connection, below
     Tokio's and Go's: an idle connection holds no buffer (`net.Conn`).
+    The server answers `Expect: 100-continue`, refuses a body over
+    16 MiB with 413, closes a connection idle 60 s or a request head
+    slower than 10 s, and pauses accepting when out of descriptors
+    (docs/STD.md, std.http).
   - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
     `task.select` commits exactly one of its arms (`tasks.Chan`,
     `selectArms`). `task.supervise(f, restarts:, per:)` runs a
