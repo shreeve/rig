@@ -482,9 +482,18 @@ fn advanceClock() void {
         }
         @panic("every task is waiting on another, and none can run: a deadlock");
     }
+    // Bytes written to a socket may still be on their way to the other
+    // end, which macOS delivers on loopback a moment later: wait that
+    // moment, in real time, before the clock jumps past a deadline a
+    // wait on them set.
+    if (p.count.load(.monotonic) != 0 and p.poll(settle_ns)) return;
     advanceTo(due);
     fireDue();
 }
+
+/// How long, in real time, a deterministic run with descriptors
+/// registered waits for their events before its clock jumps to a timer.
+const settle_ns: i96 = std.time.ns_per_ms;
 
 /// Wake each fiber whose deadline the virtual clock has reached: the
 /// clock also moves while fibers compute (`computed`).
@@ -2840,4 +2849,61 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.napped_in_time);
     try std.testing.expect(Run.read_in_time);
+}
+
+/// A connected pair of loopback TCP sockets that do not block.
+fn testTcpPair() [2]i32 {
+    const posix = std.posix;
+    const sys = posix.system;
+    const l: i32 = @intCast(sys.socket(posix.AF.INET, posix.SOCK.STREAM, 0));
+    var sa: sys.sockaddr.in = .{ .port = 0, .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
+    var len: posix.socklen_t = @sizeOf(sys.sockaddr.in);
+    _ = sys.bind(l, @ptrCast(&sa), len);
+    _ = sys.listen(l, 1);
+    _ = sys.getsockname(l, @ptrCast(&sa), &len);
+    const c: i32 = @intCast(sys.socket(posix.AF.INET, posix.SOCK.STREAM, 0));
+    _ = sys.connect(c, @ptrCast(&sa), len);
+    const a: i32 = @intCast(sys.accept(l, null, null));
+    _ = sys.close(l);
+    for ([2]i32{ a, c }) |fd| {
+        if (builtin.os.tag == .linux) {
+            _ = std.os.linux.fcntl(fd, std.os.linux.F.SETFL, @as(u32, @bitCast(std.os.linux.O{ .NONBLOCK = true })));
+        } else {
+            _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
+        }
+    }
+    return .{ a, c };
+}
+
+test "a deterministic run waits for bytes on their way on a socket before its clock jumps past the wait's deadline" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var timeouts: u32 = 0;
+        const Unit = struct {};
+        fn writer(_: *Unit, fd: i32) u8 {
+            _ = std.posix.system.write(fd, "x", 1);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            for (0..200) |_| {
+                const fds = testTcpPair();
+                const r = register(fds[0]).?;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
+                if (waitReady(r, Registration.readable, nowNs() + std.time.ns_per_ms, false) != .ready) timeouts += 1;
+                _ = j.join();
+                j.free();
+                deregister(r);
+                _ = std.posix.system.close(fds[0]);
+                _ = std.posix.system.close(fds[1]);
+            }
+        }
+    };
+    seed(1);
+    defer deterministic = false;
+    workers_override = 1;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
 }

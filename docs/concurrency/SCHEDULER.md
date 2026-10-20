@@ -168,6 +168,13 @@ deterministically (`sched.deterministic`, SPEC §3 "Tests"):
   to the earliest timer. Each yield check and `task.check()` moves it
   1 µs, so a fiber that computes without waiting still reaches its
   deadline, and fibers waiting on a timer behind it still wake.
+- **Descriptors.** A fiber waiting on a file descriptor wakes once it
+  is ready, at whatever virtual time. With no fiber ready, the poller is
+  looked at first; with descriptors registered, it is waited on for up
+  to 1 ms of real time before the clock jumps to a timer, since bytes
+  written to a socket may still be on their way (macOS delivers them on
+  loopback a moment later), and a jump past a wait's deadline would end
+  it spuriously.
 - **Deadlock.** With no fiber ready and no timer set, every task waits
   on another, and the program panics.
 
