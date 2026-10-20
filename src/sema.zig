@@ -6064,7 +6064,7 @@ fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
 /// The diagnostics of `misplaced`: a Cell's formatted with the type
 /// twice, a write view's once.
 pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
-pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, a receiver's, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
+pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, `self`'s, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
 
 /// Whether a value of `ty` can hold a marked view (see `Views`). A generic
 /// parameter holds none: an instantiation with a view is checked apart.

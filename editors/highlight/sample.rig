@@ -43,6 +43,19 @@ obj Pair[T]
   fun first(?@) -> ?T from @
     ?@left
 
+obj Random unique
+  seed: U64
+  name: ?String
+
+  fun pick(?@, xs: []?String, from: Int) -> ?String from xs
+    xs[from]
+
+  sub watch(!@, s: ?String) keeps s
+    @name = s
+
+fun table() -> String from static
+  "fixed"
+
 called fun hot(n: Int) -> Int
   n *% 3 +% 1
 
@@ -135,6 +148,25 @@ fun closures(xs: !List[Int]) -> Int
   tail = xs[1..]
   all = xs[..]
   count
+
+fun holds(u: ?*Point, v: ^?Point, cells: [2]*Point, xs: ![]Int, q: Point) -> Int?!
+  boxed = ^<q
+  weak = ~cells[0]
+  each(2, *|i| print(i))
+  unique = xs[0]*LIMIT + xs[1]*n
+  unique
+
+fun tasks(xs: ?List[Int], ts: !Tasks[Int]) -> Int!
+  t = total(?xs)&
+  u = half(4)&
+  v = find(?xs)&
+  !ts.add(sq(3)&)
+  x = >t
+  y = >u!
+  z = >v?
+  all = >ts
+  m = f()&b
+  x + y + z + all.len + m if x > y and x >= y and x>y else x >> 1
 
 fun shapes(s: ?Shape) -> Int
   match s

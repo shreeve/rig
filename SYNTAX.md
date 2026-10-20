@@ -466,21 +466,21 @@ sigil after the `]` of an array or slice type starts its element type: in
 
 Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`, and
 `+n.first()` clones what `first` returns. There are two exceptions: a
-receiver sigil, below, and a wait. `>` takes a name alone, and a `!` or
+self sigil, below, and the wait sigil. `>` takes a name alone, and a `!` or
 `?` after it applies to what the task gives: `>t!` is `(>t)!`. Anything
 else after it is written on the parenthesized wait, `(>t).len`, so it
 never reads as the task's own, and `>f(x)` is rejected: a call is made a
 task and bound first, `t = f(x)&`. Where `=` and `>` touch they are the
 match arm's `=>`, so a wait is spaced `x = >t`.
 
-### Receiver sigils
+### Self sigils
 
 `?`, `!`, or `<` directly before a *place* (a name, then any `.field`
 or `[index]` steps) that a method call follows applies to the place,
-the method's receiver. Postfixes after the call apply to its result.
-In a chain, it reaches the receiver of the first method call
+the value the method is called on, its self. Postfixes after the call
+apply to its result. In a chain, it reaches the self of the first method call
 (`!a.b().c(x)` is `(!a).b().c(x)`). `!` lends any value to write
-([CORE](docs/CORE.md) sentence 4), so it also reaches a receiver no
+([CORE](docs/CORE.md) sentence 4), so it also reaches a self no
 name holds, and the fields and elements after it: the value a call
 that is no method call makes (`!mk().pop()`), a literal
 (`![a, b][0].bump()`), or a parenthesized expression (`!(+s).bump()`).
@@ -499,19 +499,19 @@ reaches `lib`: the checker says so, and the call in parentheses,
 | `(!v).put[2](x)` | `!v.put[2](x)` | a method with compile-time arguments |
 | `(!mk()).pop()` | `!mk().pop()` | lend the value `mk()` makes to write, a temporary |
 | `(!mk().items).push(k)` | `!mk().items.push(k)` | a field of that temporary |
-| `(!(+s)).bump()` | `!(+s).bump()` | a parenthesized receiver |
+| `(!(+s)).bump()` | `!(+s).bump()` | a parenthesized self |
 | `((!v).pop())?` | `!v.pop()?` | the suffix applies to the result |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
 | `(?p).dist(q)` | `?p.dist(q)` | lend `p` to read; the same as `p.dist(q)` |
 
-Only `?`, `!`, and `<` reach the receiver, since they are the modes a
+Only `?`, `!`, and `<` reach self, since they are the modes a
 method declares (`?@`, `!@`, `<@`). Every other prefix, and
 `?`, `!`, or `<` with no method call after the place, applies to the
 whole expression: `*Point.origin()` shares the new `Point`, `-a.len`
 negates the length, `!x.v` lends the field, `<p.f` takes the optional
 field, and `?xs[0]` lends the element. A `?` or `<` before a value a call
 makes applies to the whole expression too: `?f(x).g()` lends what `g`
-returns, since a made receiver is read or taken without a sigil. With
+returns, since a made self is read or taken without a sigil. With
 parentheses around the call, `?(p.m())` and `!(p.m())` lend its
 result. The long form is valid everywhere; it is
 required for a write call whose value is used, whatever its type:
@@ -593,8 +593,8 @@ operator does, and which types it takes, is in
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
 | read view | `?T` | [SPEC §7](SPEC.md#lending) |
-| write view | `!T` | a parameter's, a receiver's, a result's, or a binding's type ([SPEC §2](SPEC.md#composite-and-handle-types)) |
-| box | `^T` | [SPEC §10](SPEC.md#box) |
+| write view | `!T` | a parameter's, self's, a result's, or a binding's type ([SPEC §2](SPEC.md#composite-and-handle-types)) |
+| box | `^T` | [SPEC §10](SPEC.md#boxes-t) |
 | shared handle | `*T` | [SPEC §9](SPEC.md#9-shared-and-weak-handles) |
 | weak handle | `~T` | |
 | array | `[4]Int`, `[LIMIT * 2]U8`, `[n]T` | a length known at compile time |
@@ -792,8 +792,8 @@ Inside a method, `@` is self, the value the method was called on, and
 field `x`, and `@norm()` calls the method `norm`. Read `@x` as "my x":
 `@hits += 1` is "my hits go up by one", and `!out.push(@)` is "push me
 onto `out`". A name with no `@` is a local or parameter, never a
-member. At the call, the value before the `.` (`p` in `p.m()`) is the
-receiver: it is what self is inside the method.
+member. At the call, the value before the `.` (`p` in `p.m()`) is
+what self is inside the method.
 
 | Takes self as | Called as |
 |---|---|
@@ -1414,7 +1414,7 @@ An `if` or `while` condition binds the value inside an optional with
 | `if ?a as x`, `if !a as x` | a read or write view of the value inside `a` |
 | `if <p.f as x` | the value taken out of a field, which is left `none` |
 | `while a as x` | each value `a` produces |
-| `while (!q).pop() as x` | what a call that lends its receiver to write returns |
+| `while (!q).pop() as x` | what a call that lends its self to write returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
 | `if f() as a, b`, `while f() as a, b` | each of the several results inside the optional a call gives, `-> (A, B)?` |
@@ -1481,8 +1481,8 @@ sub main()
 
 A closure whose body is an assignment (`|!total, n| total += n`) is the
 last argument of a call. A method is called on a value, `p.m(args)`,
-with a receiver sigil when it writes or consumes the receiver
-([§5](#receiver-sigils)); an associated function through its type,
+with a self sigil when it writes or consumes self
+([§5](#self-sigils)); an associated function through its type,
 `Point.origin()`; and a builtin with `$`: `$size(Int)`.
 
 A call with `&` touching its `)` runs as a task, concurrently with what
@@ -1556,7 +1556,7 @@ A lend of a place is never the base of a path: `(!p).x`, `(?xs)[0]`,
 and `(<(!p)).x` are rejected, and written `p.x` where the path is read
 or assigned, and `!p.x` or `?xs[0]` where it is lent
 ([SPEC](SPEC.md#lending)). A
-method's receiver, `(!s).insert(k)`, a value that branches,
+method's self, `(!s).insert(k)`, a value that branches,
 `(!a if c else !b).x`, and a lend of a slice, `(?t[..])[0]`, are not
 this rule's.
 
@@ -1914,6 +1914,6 @@ atom      = name | integer | float | string | "true" | "false" | "." name
 The grammar reads `!v.push(x)` as `!` applied to `v.push(x)`, like any
 prefix; the compiler then moves a `?`, `!`, or `<` before a place and a
 method call onto the place, giving the tree of `(!v).push(x)`
-([§5](#receiver-sigils)). A `x[...]` with one expression in it is an
+([§5](#self-sigils)). A `x[...]` with one expression in it is an
 index or compile-time arguments by what `x` names
 ([§11](#compile-time-arguments)).

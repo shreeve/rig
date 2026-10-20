@@ -88,7 +88,7 @@ sub main()
 true true
 ```
 
-The Float constants NaN and infinity, and `frexp` (`fraction` and `exponent`), are methods of the number types, not of this module: `Float.nan()`, `Float.inf()`, `x.fraction()`, `x.exponent()` ([SPEC](../SPEC.md#numbers)).
+The Float constants NaN and infinity, and `frexp` (`fraction` and `exponent`), are methods of the number types, not of this module: `Float.nan()`, `Float.inf()`, `x.fraction()`, `x.exponent()` ([SPEC](../SPEC.md#numeric-conversions)).
 
 Float functions, from Zig's. They follow IEEE 754: a result out of
 range is an infinity, and an undefined one (the square root of a
@@ -1196,21 +1196,12 @@ sub main()
 
 ## Text: bytes, runes, units, chars
 
-The whole text API, built and planned, is listed in [TEXT-API](history/text-api.md).
-
-Every text API is described in four words, each with one meaning:
-
-| Word | What it is | Size |
-|---|---|---|
-| **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
-| **rune** | one Unicode code point other than a surrogate (a scalar value): a code point's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
-| **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
-| **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
-
-A char is a grapheme and nothing else: one character, as a person
-counts it, however many bytes it takes. The table of one char at 1, 2,
-3, 8, and 18 bytes is in [SPEC, Strings](../SPEC.md#strings), and the
-whole design, with each unit's module, is [TEXT](TEXT.md).
+Every text API is described in four words, each with one meaning: a
+**byte**, what a `String` stores; a **rune**, one Unicode scalar value;
+a **unit**, one UTF-16 code unit; and a **char**, what a reader sees as
+one character. The units, the table of one char at 1, 2, 3, 8, and 18
+bytes, how a measure is spelled, and each unit's module are in
+[TEXT](TEXT.md#four-units-four-words).
 
 Counting chars, runes, and units scans the text, so each is a call
 that names its unit:
@@ -1971,7 +1962,7 @@ fast today, not as a settled API.
 A JSON parser (RFC 8259) in safe Rig, written for speed: it validates
 the whole document in one pass and builds a tape, a flat list with one
 entry for each value in document order. On Apple silicon it runs at 1.9 to 7.0 GB/s on the standard
-benchmark files ([docs/json/](history/json-results.md)), 3 to 11 times Zig's `std.json`, with
+benchmark files ([docs/history/json-results.md](history/json-results.md)), 3 to 11 times Zig's `std.json`, with
 every bounds and overflow check kept in `--release`. Nothing is lazy:
 `parse` decodes every escape, checks all UTF-8, and converts every number
 before it returns.
@@ -2048,5 +2039,5 @@ eof at byte 5
 
 `bench/json/check/compare.py` checks it against Python's `json` module on 10,511
 inputs, sanitizer-clean (`bench/json/check/README.md`); the design and the
-measurements are in [json/DESIGN.md](design/json.md) and
-[json/RESULTS.md](history/json-results.md).
+measurements are in [docs/design/json.md](design/json.md) and
+[docs/history/json-results.md](history/json-results.md).

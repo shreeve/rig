@@ -1,24 +1,21 @@
 # Concurrency in Rig
 
-**A proposal for discussion. Nothing here is built.** It draws on three
-expert reviews, which an adversarial review then attacked:
+The record of why Rig's tasks, actors, and failure rules are what they
+are. The rules themselves are in [SPEC.md §18](../../SPEC.md#18-tasks),
+the engine is described in [docs/internals/scheduler.md](../internals/scheduler.md),
+the proofs in [formal/README.md](../../formal/README.md), and the review
+of the model as built in [concurrency-panel](concurrency-panel/README.md).
+
+It draws on three expert reviews, which an adversarial review then
+attacked:
 - Tokio's runtime source;
 - the models of Go, Erlang/BEAM, Java Loom, .NET, and JavaScript;
 - Zig 0.17's `std.Io`, structured-concurrency theory, scheduling theory,
   and soundness.
 
-The reports are in [docs/history/concurrency/](../history/concurrency/):
-[the runtime engineers](../history/concurrency/1-runtime-engineers.md),
-[the language models](../history/concurrency/2-language-models.md),
-[Zig and theory](../history/concurrency/3-zig-and-theory.md),
-and [the adversarial review](../history/concurrency/4-adversarial-review.md),
-of a draft that git keeps. They
-review earlier drafts of this document, so a few of their findings
-are already folded in, and a few of their proposals were set aside
-here.
-Decisions are listed at the end, each with the answer this document
-assumes. Once they are settled, the examples become
-```` ```rig pending ```` blocks and SPEC gains the rules.
+The reports reviewed earlier drafts and are not kept: their findings are
+folded into the model below, and a few of their proposals were set aside
+here. Decisions are listed at the end.
 
 ## The model
 
@@ -99,12 +96,12 @@ aim to match it in the rest.
 **Where Tokio is still ahead:**
 
 - **I/O.** Tokio's engine for sockets, files and timers (epoll, kqueue,
-  io_uring) is tuned by years of real load. Rig's is the plan's fifth
-  step ("The engine").
+  io_uring) is tuned by years of real load. Rig's is newer: a poller for
+  each worker, kqueue or epoll ([the scheduler](../internals/scheduler.md)).
 - **Memory for a task at rest.** A Tokio task can be a few hundred
   bytes; a Rig task holds a page of its stack, 17 KiB on the Mac and
-  5 KiB on Linux. Closing that gap, by stacks sized to a proven bound
-  and stacks smaller still, is measured work ("The engine").
+  5.2 KiB on Linux. Closing that gap, with smaller committed stacks, is
+  measured work ([the scheduler](../internals/scheduler.md), "Stacks").
 - **Maturity.** Its ecosystem, its tooling, and its years in
   production.
 
@@ -112,9 +109,9 @@ aim to match it in the rest.
 waiting, spreading work over cores, switching, and waiting behind a
 long computation, and measures the memory a task takes. Rig is ahead
 of Tokio wherever the scheduler is what is measured, and behind in
-memory ([bench/tasks/README.md](../../bench/tasks/README.md), "Where it
-stands"), and `bench/tasks/PROGRESS.md` records each step of the
-scheduler ([docs/internals/scheduler.md](../internals/scheduler.md)).
+memory ([docs/launch/benchmarks.md](../launch/benchmarks.md)), and
+`bench/tasks/PROGRESS.md` records each step of the scheduler
+([docs/internals/scheduler.md](../internals/scheduler.md)).
 
 ## What a program writes
 
@@ -213,8 +210,8 @@ goes only where a value holding those views may go:
 - no task, whatever its loans, is ever placed in a shared home (below).
   So a task cannot be leaked, and there are no orphans.
 
-**When a task can't be made.** If the runtime cannot get a stack or a
-thread for a task, the program panics, as it does when memory runs out.
+**When a task can't be made.** If the runtime cannot get a stack for a
+task, the program panics, as it does when memory runs out.
 
 **Misuse the checker rejects:**
 - A task whose value is thrown away. `log(e)&` as a statement would be
@@ -380,8 +377,8 @@ the closure where the library is called, with the closure in hand:
 - `par.map`'s body lends `f` to several tasks at once, so the closure
   passed to `par.map` must share: its captures share, and it captures
   nothing with `!`;
-- `http.serve` takes its handler by value and gives each task a copy, so
-  the handler's captures must move.
+- `http.serve` gives every connection's task the one handler, so, as
+  with `par.map`, its captures must share and none is a write view.
 
 A closure that breaks the rule is rejected where it is passed:
 
@@ -391,14 +388,13 @@ par.map(?docs, |!counts, d| tally(!counts, d))
 #   `|!counts|` lends `counts` to write, which no two tasks may hold at once
 ```
 
-Today `par.map` and `par.each` are typed by the checker itself, and take
-a closure written in the call, whose captures it sees, or a function's
-name; reading the requirement from a library's body comes with
-`http.serve`.
+The checker types `par.map`, `par.each`, and `http.serve` itself: each
+takes a closure written in the call, whose captures it sees, or a
+function's name. A general rule that reads the requirement from a
+library's body is not built.
 
 A function value stored in a field and called from many tasks later is
-checked where it is stored, as a closure placed in an owned home is
-today.
+checked where it is stored, as a closure placed in an owned home is.
 
 A `*T` of a type that is not synchronized never crosses, because its
 count is not atomic. It is confined
@@ -580,9 +576,9 @@ running them would cost every owned value a record on the normal path.
 A task's panic passes to its owner, at its wait or drop, up to the
 boundary. Three things are boundaries:
 
-- **`main`.** A panic that reaches it ends the program, as today, with
-  status 134. A program with no other boundary keeps today's behaviour
-  exactly: the program ends where the panic stands, with no unwinding.
+- **`main`.** A panic that reaches it ends the program, with
+  status 134. A program with no other boundary ends where the panic
+  stands, with no unwinding.
 - **`task.isolate(f)`** (built) runs `f` and gives `T!` with
   `task.Stop.panicked` in the set; its message and location go to
   stderr, and become the error's data once errors carry data. Nothing outside
@@ -655,81 +651,17 @@ need.
 
 ## The engine
 
-The reviews agree on what makes a runtime fast and solid. Tokio is fast
-because of its scheduler, not because its tasks are stackless. Each
-principle below names the mechanism that carries it.
-
-1. **Keep work on the core that made it.**
-   - Each worker owns a bounded ring of ready tasks. Its owner pushes
-     with one store, and pops and steals use a compare-and-swap.
-   - A slot runs the task just woken next, while its data is still in
-     cache. It is capped at three in a row, and can be stolen once its
-     owner overruns its budget.
-2. **Make a task cheap until it runs.**
-   - `&` places a small task record in the ring. Its fiber stack is taken
-     only when the task first runs.
-   - A waiter that finds its task not yet started runs it on its own
-     stack, with one compare-and-swap, when the stack has room for the
-     task's proven bound. This keeps fine-grained fan-out nearly free.
-   - It is never done inside `wait_first` or under a deadline, where
-     the waiter must stay free to give up.
-3. **Touch shared memory only to balance load.**
-   - An idle worker steals half of a random victim's ring.
-   - A global queue takes work from outside the runtime, and each worker
-     checks it at a self-tuning interval.
-   - At most half the workers search for work at once.
-   - A worker that finds work wakes one more, so wakeups spread in a
-     chain, not a herd.
-4. **One atomic word per task.** The task's state flags and its
-   reference count share one word, so waking a task is one
-   compare-and-swap, and a task is queued at most once.
-5. **No task owns a core.**
-   - Every waiting point that completes at once spends from a budget of
-     about 128.
-   - The compiler's loop-nest checks catch computation that never waits.
-   - A monitor thread flags a task that runs for more than about 10 ms.
-   - Preemption by signal at safe points is held in reserve, if
-     measurement shows the checks cost too much.
-6. **Ready work never starves I/O.**
-   - A worker polls for I/O and timers every 61 tasks, even under load,
-     and its loops' yield checks wake its due timers and look at its
-     poller every 250 µs while it computes (built).
-   - Timers sit in a heap per worker, as Go keeps them, with one kernel
-     timeout per sleeping worker for the earliest deadline; a timer set
-     earlier wakes a sleeping worker for it (built).
-7. **Stacks are cheap and safe.**
-   - Fiber stacks are carved from one large reservation, with per-worker
-     free lists, never an `mmap` per task.
-   - A task whose stack bound is proven gets an exact slab. The bound
-     comes from the emitted code (`.stack_sizes`), so it counts Zig,
-     runtime, and inlined frames. It includes a red zone the size of the
-     platform's largest signal frame, and each worker installs an
-     alternate signal stack. In practice this applies to leaf compute
-     tasks: a task that allocates or does I/O calls through Zig's
-     interfaces, which the bound cannot see through.
-   - Any other task gets a lazily committed stack. Its guard is at
-     least as large as the largest frame, or the compiler emits stack
-     probes, because a large frame could otherwise jump a small guard.
-   - A call into C switches to the worker's own system stack.
-   - Stacks never move, because loans point into them.
-8. **Blocking is isolated.** A call that blocks the thread (C code, DNS,
-   a large file) runs on a blocking pool, or hands the worker's core to
-   another thread for its duration.
-9. **Know what every task waits on.** One pointer per task gives:
-   - deadlock detection;
-   - a dump of what every task waits on;
-   - later, priority inheritance, so an actor that a high-priority
-     caller waits on runs at that priority.
-10. **Tests are deterministic** (built). `rig test` runs on a single-thread
-    backend with virtual time and a seed, so a concurrent test fails the
-    same way twice.
-
-**The substrate.** Rig writes its own implementation of Zig's `std.Io`
-interface, and its own scheduler, beneath it. Zig code and Zig-backed
-Rig declarations run on it unchanged, because they see only `Io`. It
-takes the system-call code of Zig's backends (io_uring on Linux, kqueue
-on macOS and the BSDs) and binds them statically, with no vtable call per
-operation.
+The reviews agree on what makes a runtime fast and solid: Tokio is fast
+because of its scheduler, not because its tasks are stackless. Rig's
+tasks are fibers, each on a stack of its own, run by one worker thread
+per core. The workers keep ready tasks in rings and steal from each
+other; each sleeps in a poller of its own, kqueue or epoll, which also
+serves its timers; a long loop or a recursive function yields to the
+tasks waiting behind it; and a call that blocks its thread runs on a
+blocking pool. What each mechanism is, how the increments built it, and
+what it measures are in [docs/internals/scheduler.md](../internals/scheduler.md);
+the numbers against Tokio and Go are in
+[docs/launch/benchmarks.md](../launch/benchmarks.md).
 
 Zig 0.17's own evented backends are not a foundation:
 - each fiber reserves 60 MiB with no guard page;
@@ -737,9 +669,11 @@ Zig 0.17's own evented backends are not a foundation:
 - network streams are unfinished on Linux and macOS;
 - the kqueue backend cannot cancel.
 
-Tasks run on Rig's own scheduler (docs/internals/scheduler.md). The
-first step was built on Zig's `Threaded` backend, which is complete and
-preemptive: it proved the language rules, and measured nothing.
+So Rig has its own scheduler. Zig code that a program calls runs on a
+`Threaded` instance of `std.Io` on the calling thread, which runs no
+tasks. The first step of the order of work (decision 15) ran on that
+backend alone, which is complete and preemptive: it proved the language
+rules, and measured nothing.
 
 **The memory model.** User code has no data races, and the operations
 of a Cell of one word are sequentially consistent, so a program sees sequential
@@ -751,36 +685,31 @@ consistency. The edges that order it:
 - taking an idle actor before its method runs inline;
 - a cancel request before the `Canceled` it causes.
 
-**The target.** It is measured, not assumed, on Linux and macOS, against
-Tokio and Go (built: bench/tasks, bench/actors, bench/net, bench/http):
+**The target** is measured, not assumed, on Linux and macOS, against
+Tokio and Go (bench/tasks, bench/actors, bench/net, bench/http):
 - an HTTP server's requests per second and p99 latency;
 - an actor round trip;
 - fan-out and fan-in of CPU-bound work;
-- memory for a million idle connections.
+- memory for idle tasks and idle connections.
 
-That last one is stated honestly: a task with an unproven stack costs at
-least a page (4 KiB on x86, 16 KiB on Apple Silicon), against Tokio's
-hundreds of bytes per task. An HTTP connection that waits for its next
-request holds no buffer (its worker lends it one per request), so an
-idle connection costs 8.6 KiB on x86 and 16.6 KiB on Apple Silicon,
-below Tokio's 10.8 and 18.6 with hyper, and Go's (bench/http).
-Smaller committed stacks and io_uring buffer rings are measured work
-beyond that, not a promise.
+Memory is the one place Rig trails, and the design says so: a task
+holds at least a page of stack, against Tokio's hundreds of bytes. An
+HTTP connection that waits for its next request holds no buffer (its
+worker lends it one per request), so an idle connection costs less than
+Tokio's or Go's. Smaller committed stacks and io_uring buffer rings are
+measured work beyond that, not a promise.
 
 ## What else this needs
 
 - **No new keywords or forms.** `Actor`, `Chan`, and `Tasks`
   are types, shared with the `*` Rig already has. `async` and `await`
   stay reserved and unused.
-- **Unwinding.** Zig has none. Inside a boundary, a panic travels as a
-  hidden error that nothing can catch, and the drops Rig already emits
-  as Zig `defer`s run on the way up. The price is an error-union return
-  at the Zig level, one branch after each call, which the scheduler-core
-  step measures. A program whose only boundary is `main` keeps today's
-  immediate exit, so it pays nothing.
-- **The runtime's global state moves into each task's or worker's
-  context** before the first step, as described under "What may cross
-  cores".
+- **Unwinding.** Zig has none, so a boundary abandons the frames
+  between it and the panic (see "Failure") and runs none of their
+  drops. Nothing is paid on the normal path, and a program whose only
+  boundary is `main` ends where the panic stands.
+- **The runtime's global state lives in each task's context**
+  (`TaskState`), as described under "What may cross cores".
 
 ## Proof obligations
 
@@ -795,44 +724,13 @@ These fit the existing λRig work in `formal/`, in this order:
 6. unwinding to a boundary frees nothing a surviving task can reach, and
    nothing outside the boundary that its code could change.
 
-The first slice is proved (formal/README.md, "Tasks and waits"), over
-a machine of tasks apart from λRig's expressions:
-
-- **3, no orphans** (`Tasks.no_orphans`, `main_last`): every task is
-  held by a running task, directly or through results not yet taken,
-  as handles pass to new tasks and back through results;
-- **1, for what stays on one thread** (`Tasks.confined`, `pin_kept`):
-  two tasks that hold such a value are pinned to one core and stay
-  there, which is what local tasks rely on. It needs the rule that a
-  task's result moves unless the task is local;
-- **5, delivery** (`Wait.cancel_delivered`, `one_waker`, `queued_once`,
-  `woken_queued`): the wait protocol queues a waiting fiber exactly
-  once when a waker or a cancel ends its wait, and loses no wakeup;
-  a cancel is never taken back (`Tasks.cancel_sticky`).
-  `test/cli/wait_sync.sh` keeps Wait.lean's word and steps in step
-  with src/sched.zig.
-
-The runtime's handshakes are model-checked before more hand proofs
-(formal/README.md, "Model checks of the runtime"): the ring's steal,
-and how workers search, sleep, and are woken, with the pinned queue's
-`idle` flag. Every interleaving within the bounds checked loses no
-fiber and takes none twice. One gap shows: work into the global queue,
-made while a worker searches, can wait while another sleeps, until
-the first worker's next yield check.
-
-The proofs take each step of the wait protocol as sequentially
-consistent, so the runtime makes every step of a handshake that has
-two sides so: a canceler's store of the flag and load of the wait, and
-a waiting fiber's store that begins its wait and load of the flag
-(docs/internals/scheduler.md, "Waiting"). A weaker load there lets
-the two pass each other on arm64, where both would miss.
-
-Sets, actors, channels, dropping a handle (cancel and wait), the
-deadlock walk, and unwinding are the next slices.
+What is proved, what is model-checked, and what is next, with the names
+of the theorems, is in [formal/README.md](../../formal/README.md),
+"Tasks and waits" and "Model checks of the runtime".
 
 ## Decisions
 
-Each item gives the answer this document assumes.
+Each item gives the answer the model takes.
 
 1. **The model:** tasks (`f(x)&`), ownership of tasks, actors, and the
    crossing facts, with everything else in `std`. *Yes.*
@@ -889,14 +787,14 @@ Each item gives the answer this document assumes.
       (which `http.serve` uses for each request), or an actor;
     - a dead actor's waiting caller panics too;
     - supervisors restart actors and functions;
-    - a program whose only boundary is `main` keeps today's exit.
+    - a program whose only boundary is `main` ends where the panic stands.
 
     *Yes.*
 13. **Local tasks**, pinned to one thread, so that `*T`, `Cell`, and
     `Signal` code (GUI programs) can use `&`; the checker makes a task
     local when what it is passed stays on one thread. *Yes* (built).
-14. **The engine:** Rig's own `std.Io` implementation and scheduler, on
-    the ten principles above. *Yes.*
+14. **The engine:** Rig's own scheduler, as described in
+    [docs/internals/scheduler.md](../internals/scheduler.md). *Yes.*
 15. **Order of work**, each step its own pull request:
     1. moving the runtime's global state into task context, then `&`,
        `Task`, `Tasks`, the loan and cancellation rules, and

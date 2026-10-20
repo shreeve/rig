@@ -14,8 +14,7 @@ in [CORE](../CORE.md) and [SPEC](../../SPEC.md). What Rig takes from Rust and
 what it leaves, feature by feature, is in [RUST-TRIAGE](../history/rust-triage.md);
 this page builds on it and says where it should change. It comes from a
 panel of six reviewers (Rust soundness, formal methods, types and traits,
-systems and foreign code, concurrency, simplicity and assurance),
-2026-10-16.
+systems and foreign code, concurrency, simplicity and assurance).
 
 ## The bar Rust sets
 
@@ -67,16 +66,17 @@ principles:
    Code that needs them is a Zig-backed declaration with a Rig
    signature, and each such declaration is proved on its own.
 4. **Safety never rests on a drop running.** A cycle of `*T` handles can
-   leak, as in Rust (#24292). A task group ends when its closure returns,
-   never in a guard's drop.
+   leak, as in Rust (#24292). A task is owned: dropping one cancels it and
+   waits, and a value that carries a loan is never leaked ([concurrency](concurrency.md),
+   "Loans and structure").
 5. **The Core has a budget.** The rules a proof covers are capped at 12
    rules and 600 words. A new rule retires an old one, or changes the
    Core through its own process (CORE §10). For comparison, the "ten
-   sentences" of CORE §2 run to about 1,600 words today.
-6. **Concurrency is tasks and channels.** A program spawns tasks in a
-   group and passes values between them on channels. Threads, fibers,
-   `Pin`, async functions, and atomic orderings are how it runs, not
-   what a programmer writes.
+   sentences" of CORE §2 run to about 1,600 words.
+6. **Concurrency is tasks and actors.** A program starts tasks with `&`,
+   owns them, and shares state through actors, channels, and a `Cell`.
+   Threads, fibers, `Pin`, async functions, and atomic orderings are how
+   it runs, not what a programmer writes.
 
 ## Leave out, and it dissolves
 
@@ -90,15 +90,15 @@ proof, and how a Rig programmer copes without it.
 | Associated types and generic associated types | Type projection and normalization | Trait type parameters. Lending iterators already work (below) |
 | Specialization | Overlapping impls (#40582, #31844) | Fast paths come from kind facts |
 | Blanket impls, `impl Trait` results, auto-trait leakage | Global reasoning about impls | A generic function, a named type, or `^Tr` |
-| Trait objects of traits that are not object-safe | #57893 | Every trait is object-safe by its shape: no generic methods, no `Self` but the receiver |
+| Trait objects of traits that are not object-safe | #57893 | Every trait is object-safe by its shape: no generic methods, no `Self` but the `self` parameter |
 | The `Fn` / `FnMut` / `FnOnce` hierarchy | Reentrant closures that write their captures | An owned closure's environment never changes. A stack closure that captures a write view cannot reach itself |
 | `Pin` and self-referential values | #66544 and the `Pin` API | Not needed at all (below) |
 | `#[may_dangle]` | The drop-check escape hatch | A drop reads the views a value holds only if its type has a `drop` body |
 | Raw pointers, `transmute`, inline asm, untagged unions in Rig | An aliasing model for user code | Zig-backed declarations in trusted packages |
-| Guards whose drop keeps the program safe | #41622 and leaked join guards (#24292) | A task group that takes a closure |
-| Threads as a concept, detached `spawn`, thread-locals | `'static` bounds, orphan threads | Tasks spawned in a group that always ends; pass a context |
+| Guards whose drop keeps the program safe | #41622 and leaked join guards (#24292) | An owned task, whose drop cancels it and waits |
+| Threads as a concept, detached `spawn`, thread-locals | `'static` bounds, orphan threads | Tasks owned by their scope; pass a context |
 | Async functions, futures, and function coloring | Futures that point into themselves | A task runs on its own stack, which never moves; code stays straight-line |
-| `Mutex`, `Arc`, atomics, and their five orderings | Shared mutable state, and a weak memory model for user code | Channels that move values; a task that owns state answers messages; added later only if measured |
+| `Mutex`, `Arc`, atomics, and their five orderings | Shared mutable state, and a weak memory model for user code | Actors, channels, and a `Cell` of one word, all sequentially consistent; no `Mutex` |
 | `mem::forget` as safe | Leaks counted as safe | A leak is a compiler bug, except a `*T` cycle |
 | Macros, editions, compile-time type functions | Checking code that does not exist until expansion | Libraries in userland; a migrator for each breaking release |
 
@@ -137,7 +137,7 @@ it has no pin: no form, no rules, and no proof.
 
 | Why Rust pins | Where it goes in Rig |
 |---|---|
-| A future keeps views into its own frame, and the frame may move | A task's frame is on its own stack, a thread's now and a fiber's later, and that stack never moves |
+| A future keeps views into its own frame, and the frame may move | A task's frame is on its own stack, a fiber's, and that stack never moves |
 | A value points into itself | "A value never holds a view of itself"; arenas with IDs |
 | An intrusive list needs nodes that keep their address | Written in trusted Zig, as std's channel keeps its waiters |
 | C or the operating system holds an address | `^T`: moving a box moves the handle, not the value it owns |
@@ -153,8 +153,8 @@ that carry data, `yields !T`) stay as they are.
    no-op for every node kind. A default body is a generic body with
    `Self: Tr`. Iterators as values come from `trait Iter[T]` here, not
    from `*fun` adaptors. About two weeks.
-2. **Generic `drop`, and arrays of owning values in generic code.** Today
-   a `drop` body is allowed only on a non-generic object, and a generic
+2. **Generic `drop`, and arrays of owning values in generic code.** A
+   `drop` body is allowed only on a non-generic object, and a generic
    object cannot keep a `T` that owns a resource in an array. Both are
    needed for small-vector storage. About a week.
 3. **Trait values with downcast (round R3).** `?Shape` and `^Shape` as
@@ -162,64 +162,11 @@ that carry data, `yields !T`) stay as they are.
    need them, so this is a must for parity. It is specified as a
    closed-world enum: a trait value is a variant, a call is a match, and
    a downcast is a match. It needs no new typing rule. About three weeks.
-4. **Tasks and channels.** Concurrency free of data races, with nothing
-   for users to learn but a group, a task, and a channel:
-   - **A task group** ends when its closure returns, after every task
-     spawned in it has finished; cancellation reaches every task, and no
-     task outlives its group. A **local** group runs its tasks on one
-     thread, so they may capture anything, `*T` and `Cell` among them;
-     GPUI's foreground tasks are this case. A **parallel** group spreads
-     them across cores.
-   - **Channels** carry values by moving them, `ch.send(<msg)`. The
-     sender cannot touch a value it sent, and a view is never sent, so
-     tasks share no mutable state. A `select` waits on several channels.
-   - **Two facts** decide what a parallel task may capture or send:
-     *moves*, meaning it may move to another thread, and *shares*,
-     meaning two threads may read it at once. A `?x` capture needs `x`
-     to share; `!x`, `<x` and `+x` need it to move, and so does a value
-     sent on a channel. A Rig object's facts come from its parts, as its
-     kind does (CORE §1). Each Zig-backed type *declares* both, with no
-     default, because deriving them for a library type is how #41622
-     happened. `*T`, `~T`, `*fun`, `Cell` and `Signal` do neither.
-   - **The engine is Zig's.** Zig 0.17's `std.Io` has futures, groups,
-     queues and `Select`. Rig adds the surface and the rules, not a
-     scheduler. In Zig 0.17.0 only its threaded backend works: each task
-     is an operating-system thread, cancellation is prompt, and the
-     system's thread limit caps how many tasks run at once (about 8,500
-     on macOS and 97,000 on Linux in a probe). Its event-loop backends,
-     on io_uring, kqueue and Dispatch, do not compile. So tasks and
-     channels are built on the threaded backend first, behind an API
-     narrow enough to move to fibers, and cheap tasks by the hundred
-     thousand, when Zig's event loops work.
-   - **Costs.** Fibers are cooperative: a task that computes without
-     waiting holds its thread, so heavy work goes in a parallel group. A
-     cache many tasks write, or a hot counter, costs a message where an
-     atomic step would do; `Mutex` and `Atomic` come back only if a
-     measurement asks. Deadlock stays possible, as in Rust and Go. A
-     parallel checker cannot share a tree of `*T` nodes; it reads one
-     through `?` captures, or uses arenas with IDs. A task keeps its own
-     stack, so an idle task costs kilobytes where a Rust future costs
-     hundreds of bytes: the price of having no `Pin` and no async
-     functions, paid in memory per idle connection, not in speed.
-   - **Actors are a task and its channel.** They live in std, built on
-     round R2's traits, so they add no rule to prove. The channel is the
-     actor's mailbox, and the actor's address is the channel's sending
-     end. A mailbox is typed and bounded, so a sender waits while it is
-     full. `receive` is a `match` on the next message, taken in order;
-     there is no selective receive.
-   - **A supervisor** is a group that restarts a task that ends with an
-     error. The task starts again from fresh state, up to a limit, and
-     past the limit the supervisor fails too. A restart is safe because
-     the task shared nothing and everything it owned was dropped when it
-     ended. A panic stays fatal for the whole program: it means a bug,
-     and Rig runs no cleanup after one. Pony is the precedent.
-   - **Preemption** may come later: a countdown on each loop's back edge
-     that yields when it reaches zero, kept only if the speed rule
-     allows it.
-
-   About six weeks after the probe.
+4. **Tasks, channels, and actors** are built: [concurrency.md](concurrency.md)
+   is their design, and [formal/README.md](../../formal/README.md) their
+   proofs so far.
 5. **Trusted packages.** Only std may bind declarations to Zig with
-   `extern zig` today (SPEC §15). A package that opts in as `trusted`
+   `extern zig` (SPEC §15). A package that opts in as `trusted`
    may do so too, and `rig check` lists every trusted file it compiled.
    With it come:
    - **Zig-backed types** (`obj Window owns`): each declares its kind,
@@ -280,7 +227,8 @@ show:
 - every way out of a scope reports the loans it ends;
 - each check the compiler omits as proven really holds;
 - for trait values, that their desugaring adds no rule;
-- for parallel task groups, freedom from data races.
+- for tasks, freedom from data races (the first slice is proved:
+  [formal/README.md](../../formal/README.md), "Tasks and waits").
 
 Iris treats values as droppable at any time, so it cannot prove Rig's
 leak claim. That part needs Iron (Bizjak et al., POPL 2019) or explicit
@@ -301,7 +249,7 @@ signature's semantic type:
 - its drop frees exactly what it owns;
 - its declared thread facts hold.
 
-The task group and `Channel` are proved in a logic for weak memory
+The scheduler's handshakes and `Chan` are proved in a logic for weak memory
 (iRC11); user code never needs one. Because Rig has no raw pointers, this is one lemma per
 declaration, about 6–12 person-months, not the 36–60 an open-world proof
 like RustBelt's would take.
@@ -357,7 +305,7 @@ lies outside the claim.
 
 - **The machine-checked proof** moves from "Might want" to "Should add
   soon" for stages 1 and 2.
-- **Concurrency** is task groups and channels, not scoped threads,
+- **Concurrency** is tasks and actors, not scoped threads,
   `Shared`, or async. It needs both thread facts, though not as traits:
   derived for Rig objects, declared for Zig-backed types.
 - **The narrow raw-pointer facility** is replaced by trusted packages
@@ -385,6 +333,6 @@ The panel split on these. The default comes first in each.
 
 ## Next step
 
-The probe of `std.Io` is done (What to build for reach, item 4). Next is
-the design round for tasks and channels on the threaded backend, and a
-new probe of Zig's event-loop backends at each Zig release.
+The proofs of the runtime continue with sets of tasks, actors,
+channels, and unwinding to a boundary (formal/README.md, "Tasks and
+waits" and "Next").

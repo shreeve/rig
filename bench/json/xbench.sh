@@ -1,8 +1,8 @@
 #!/bin/bash
 # The string-scan sweep and the competitors, on one machine.
-#   xbench.sh build OUT   build every variant and competitor (under cpuq, any load)
+#   xbench.sh build OUT   build every variant and competitor (any load)
 #   xbench.sh time OUT    time them, interleaved, fastest of $REPS (default 15)
-#                         (run it on a quiet machine: cpuq run --exclusive)
+#                         (run it on a quiet machine)
 #   xbench.sh perf OUT    cycles and instructions per byte (Linux perf stat)
 # Rig variants: rig-safe@TIER=T is the landed 16-lane scan with a SWAR stage
 # of T bytes (1000000000: SWAR only); rig-safe@src=json32+TIER=T is the same

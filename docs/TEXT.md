@@ -4,13 +4,12 @@ How Rig stores, measures, and walks text: four units, each with one
 name; one rule for how a measure is spelled; and the standard library
 that follows from them. This page is the design. [SPEC,
 Strings](../SPEC.md#strings) states what the language does, and
-[STD](STD.md) lists each module's functions, and [TEXT-API](history/text-api.md)
-lists every name of the text API in one place, built and planned.
+[STD](STD.md) lists each module's functions.
 
-**Status.** Every layer below is built: a `String` holds UTF-8 bytes,
-and `s.len`, `s[i]`, slicing, and `std.text` work on them; `std.utf8`,
-`std.utf16`, and `std.unicode` read and write runes and units; and
-`std.text`'s char tools read chars, on its char tables, made from Unicode's data.
+A `String` holds UTF-8 bytes, and `s.len`, `s[i]`, slicing, and
+`std.text` work on them; `std.utf8`, `std.utf16`, and `std.unicode` read
+and write runes and units; and `std.text`'s char tools read chars, on
+its char tables, made from Unicode's data.
 
 ## Four units, four words
 
@@ -74,6 +73,27 @@ sub main()
 ```output
 18 1 5 8
 ```
+
+## How names are chosen
+
+1. **One kind of thing per module.** Whole strings are `std.text`; one
+   rune's properties are `std.unicode`; `std.utf8` and `std.utf16` are
+   the encodings (decoding, encoding, checks, and conversions). One
+   byte's ASCII class is a `text` function that takes a `U8`
+   (`text.is_digit(b)`), and a whole-string ASCII check is
+   `utf8.is_ascii(s)`.
+2. **The string comes first.** A byte position is named `i`, a rune `r`,
+   a UTF-16 unit `u`, a char `c`, a count `n`. A function that converts
+   between units names each side by its unit (`bytes`, `units`).
+3. **A `find` may fail, so it returns `Int?`; an `_end` always lands
+   somewhere, so it returns `Int`** (`s.len` when the run reaches the
+   end).
+4. **"find" is the verb, "index" the noun, and "char" a grapheme.**
+   Iterators are plural nouns (`runes`, `chars`, `lines`, `words`).
+   There are no sentinel values: a missing answer is `none`.
+
+There is no module-level `unit_index(s, bytes)`; the one-off form is
+`utf16.unit_count(s[..i])`.
 
 ## Bytes: the default
 

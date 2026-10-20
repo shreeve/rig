@@ -3555,7 +3555,7 @@ test "read receiver sigil", '''
   while i < 2 : ?p.show("step")
     i += 1
 
-fail "read receiver sigil on writer", "21:1: `bump` writes its receiver: write `!c.bump()`", "22:7: `done` consumes its receiver: write `<c.done()`; to lend the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no receiver; to lend the call's result, write `?(Counter.make())`"
+fail "read receiver sigil on writer", "21:1: `bump` writes `self`: write `!c.bump()`", "22:7: `done` consumes `self`: write `<c.done()`; to lend the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no `self`; to lend the call's result, write `?(Counter.make())`"
   # `?p.m()` names a read receiver: a method that writes or consumes its
   # receiver is called with `!` or `<`, and a call's result is lent
   # with `?(p.m())`.

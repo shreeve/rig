@@ -57,7 +57,7 @@ only sizes what a feature would give.
   `addr2line -i`), so work inlined into `document` still lands in its
   own category.
 
-The raw outputs are in `bench/json/opcodes/results/`.
+The raw outputs are in git, at commit 28669042b: `git show 28669042b:bench/json/opcodes/results/mac-profile.md`.
 
 ## Where the time goes
 
@@ -116,7 +116,7 @@ index and read bounds checks (`rig.at`, `index`, `byteOffset`,
 - **Bounds checks are the leaf of a quarter to nearly half of all
   samples.** The largest single site is `skip_space`'s `s[i]`, which
   checks every byte it reads. That is the proofs work, not an opcode,
-  but it is the biggest instruction cost on x86 (RESULTS.md, pup: 37-80%
+  but it is the biggest instruction cost on x86 (json-results.md, pup: 37-80%
   more instructions per byte than sonic-rs on four files).
 - **Float conversion is already the right instructions.**
   `normal_float_bits` compiles to `clz`, `umulh`, `mul`, and the
@@ -390,7 +390,7 @@ with `d >= 10` (`m.first()`).
 `scan_tbl`: simdjson's two nibble lookups and an AND in place of
 `(v == '"') | (v == '\\') | (v < 0x20) | (v >= 0x80)`, at the landed
 width and SWAR stage (16 lanes, `TIER = 16`). The width and stage sweep
-is the xbench study's (RESULTS.md, "Linux x86 (pup)").
+is the xbench study's (json-results.md, "Linux x86 (pup)").
 
 | file | Mac | pup |
 |---|---|---|

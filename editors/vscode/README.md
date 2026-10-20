@@ -1,8 +1,9 @@
 # Rig for VS Code
 
 Syntax highlighting for [Rig](https://github.com/shreeve/rig) (`.rig`
-files): keywords, types, ownership sigils (`<x ?x !x +x ^x *x ~x`),
-builtins, labels, strings with escapes, and the forms Rig rejects.
+files): keywords, types, the sigils (`<x ?x !x +x ^x *x ~x`, `f()!`
+and `T?`, the wait `>t`, and the task `f(x)&`), builtins, labels,
+strings with escapes, and the forms Rig rejects.
 
 With `rig` installed, the extension also starts its language server,
 `rig lsp`: the diagnostics `rig check` gives (on open and save, and

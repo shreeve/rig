@@ -96,7 +96,7 @@ test "receiver by what it hands over", '''
   print((<w if not c else <x).take(), "take")
   print(q.id)
 
-fail "receiver field read then written", "21:36: cannot lend `a` to write while the receiver's read of it is in use", errors: 1
+fail "receiver field read then written", "21:36: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
   # A field of a value that is no place, used as a receiver, is read
   # where the value is: a later argument cannot lend what the value may
   # be to write.
@@ -137,7 +137,7 @@ fail "receiver plain struct later write", "16:18: cannot lend `a` to write while
   a = P(x: 1)
   _ = a.show(bump(!a))
 
-fail "receiver read then moved", "21:34: cannot move `a` while the receiver's read of it is in use", errors: 1
+fail "receiver read then moved", "21:34: cannot move `a` while `self`'s read of it is in use", errors: 1
   # A read receiver that is no place is held until the call runs: a later
   # argument cannot move what it may be.
 
@@ -160,7 +160,7 @@ fail "receiver read then moved", "21:34: cannot move `a` while the receiver's re
   c = true
   print((a if c else b).sum(takep(<a)))
 
-fail "receiver read then written", "21:29: cannot lend `a` to write while the receiver's read of it is in use", errors: 1
+fail "receiver read then written", "21:29: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
   # A read receiver that is no place is copied where it runs, before the
   # arguments: a later argument cannot lend what it may be to write, or
   # the call would read the copy after its buffer was freed.
@@ -183,7 +183,7 @@ fail "receiver read then written", "21:29: cannot lend `a` to write while the re
   c = true
   print((a if c else b).peek(!a))
 
-fail "receiver sigil parenthesized", "6:9: method `pop` needs its receiver lent to write; write `(!v).pop()`", errors: 1
+fail "receiver sigil parenthesized", "6:9: method `pop` needs `self` lent to write; write `(!v).pop()`", errors: 1
   # Parentheses around the call make `!` apply to its value, a temporary,
   # not to the receiver, which the call then needs lent to write.
 

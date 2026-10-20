@@ -229,7 +229,7 @@ test "slice copy into param", '''
   !x.fill(0)
   print(x, y, v)
 
-fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read-only", "13:1: `fill` writes the elements; write the receiver with `!`: `!a.fill(0)`", "15:1: cannot `swap` a `?String`; a `?String` is read-only", "17:5: `fill` copies its value into every element, and a `*P` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for i in 0..xs.len` with `xs[i] = +x`)", "19:9: type mismatch: expected `[]Int`, got `[]U8`", "20:12: index `2` is out of bounds for an array of length 2", "`swap` takes two arguments, the indexes of the elements to swap; got 1 argument", "`fill` takes no compile-time arguments", "24:1: `fill` does not consume its receiver; remove the `<`"
+fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read-only", "13:1: `fill` writes the elements; lend `self` with `!`: `!a.fill(0)`", "15:1: cannot `swap` a `?String`; a `?String` is read-only", "17:5: `fill` copies its value into every element, and a `*P` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for i in 0..xs.len` with `xs[i] = +x`)", "19:9: type mismatch: expected `[]Int`, got `[]U8`", "20:12: index `2` is out of bounds for an array of length 2", "`swap` takes two arguments, the indexes of the elements to swap; got 1 argument", "`fill` takes no compile-time arguments", "24:1: `fill` does not consume `self`; remove the `<`"
   # `copy`, `fill`, and `swap` write the elements: the receiver is written
   # `!xs` (or is a `![]T`), never moved, and a String or a `[]T` is
   # read-only. `fill` and `copy` copy values in, so the elements are plain

@@ -20,11 +20,11 @@ starts; a program that makes none starts no workers.
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
-  never blocks; `std.file`'s calls do so. Other system calls go
-  through a `Threaded` instance of Zig's `std.Io` (`rt.io`) on the
-  calling thread, which runs no tasks; a write to a full pipe holds its
-  worker until it returns. Rig's own `std.Io`, with the rest of I/O on
-  the pool or an event loop, comes with step 5 of the plan.
+  never blocks; every `std.file` call does so. Sockets are registered
+  with the workers' pollers and wait there (`net.zig`, increment 8).
+  Other system calls go through a `Threaded` instance of Zig's `std.Io`
+  (`rt.io`) on the calling thread, which runs no tasks; a write to a
+  full pipe holds its worker until it returns.
 
 ## Speed
 
@@ -40,7 +40,7 @@ starts; a program that makes none starts no workers.
   own stack, and the task switches straight back when it ends, past the
   queues (`sched.handoff`). Running the task on the waiter's own stack
   would be faster still, but is safe only for a task whose stack use is
-  proven to fit, which Rig does not yet prove.
+  proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
   searching at once; one that finds work wakes one more; workers with no
   work sleep in their poller (below).
@@ -77,7 +77,7 @@ overflow for frames that fit.
 A free stack's link in its worker's list is kept at its top, on the page
 the next fiber touches anyway, so a sleeping task holds one page of its
 stack and its record: about 17 KiB on the Mac, whose pages are 16 KiB,
-and 5 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
+and 5.2 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
 Go's about 3 KiB (`bench/tasks`, `memory`).
 
 ## Waiting
@@ -239,6 +239,9 @@ every time; the suite runs each concurrency case again under seeds 1 to
     sleep notes that it may sleep for good, then reads the deadlines,
     all sequentially consistent, so one of the two sees the other.
 
-Each must not make `bench/tasks` slower on the benchmarks it touches;
-the step is done when `spawn`, `chain`, and `yield` are each within 1.2x
-of Tokio's time on the Mac (arm64) and on pup (x86_64).
+Each increment is held to the gate in `bench/tasks/README.md`
+(`bench-tasks --gate`), which fails a benchmark more than 1.5 times
+slower than the last recorded row. The
+numbers against Tokio and Go are in
+[docs/launch/benchmarks.md](../launch/benchmarks.md), and
+`bench/tasks/PROGRESS.md` has a row for each increment.

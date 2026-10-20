@@ -87,7 +87,7 @@ Which document answers which question:
 | How are tests written and run? | docs/internals/tests.md, test/README.md |
 | Why is Rig this way? | docs/DESIGN.md, docs/design/mantras.md |
 | Which Zig 0.17 APIs does Rig use? | docs/internals/zig-0.17.md |
-| What is decided but not started? | TODO.md, docs/ROADMAP.md |
+| What is decided but not started? | docs/ROADMAP.md, docs/internals/backlog.md |
 
 ## Workflow
 
@@ -156,7 +156,7 @@ until its rule is built. docs/internals/tests.md has the rest.
    branched from `origin/main`. Never work in the main checkout.
 2. **Design first,** for anything beyond a small fix: what it fits in
    the Core, what it desugars into, which tests show it. A change to an
-   ownership rule, or a new std module outside HANDOFF's plan, goes to
+   ownership rule, or a new std module outside the ROADMAP, goes to
    the owner before code.
 3. **A failing case first.** A bug fix starts with a case that fails;
    mark it `known: true` only if it will not be fixed in the same change.
@@ -166,8 +166,8 @@ until its rule is built. docs/internals/tests.md has the rest.
    facts once rather than re-deriving them downstream.
 5. **Docs in the same change.** SPEC, CORE, STD, and the others say what
    is now true. Building a planned rule turns its `rig pending` example
-   into an ordinary one and its *(planned)* into *(built)*. HANDOFF gets
-   the status.
+   into an ordinary one and its *(planned)* into *(built)*. CHANGELOG gets
+   the change, and HANDOFF the status.
 6. **The full suite:** `swarm test/rig.rip all`, green. A change to the
    runtime or scheduler is also checked on pup (below).
 7. **PR,** opened early as a draft whose body is a checklist of the
@@ -256,5 +256,5 @@ Machine-specific practice (the owner's machines):
   compiler-only rejections are recorded in `test/oracle/differences`.
 - **Emit decides nothing.** Emit reads `src/facts.zig`, not sema; a
   decision it needs is a recorded fact. Never take the address of a Zig
-  temporary no storage fact names (HANDOFF, "Weak spots").
+  temporary no storage fact names (docs/internals/weak-spots.md).
 - **Timeouts under load** are not failures until a case times out alone.

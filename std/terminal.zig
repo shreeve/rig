@@ -1,5 +1,9 @@
-//! std.terminal's cell writes in Zig, where a vector can be widened and
-//! stored: a run of printable bytes becomes cells sixteen at a time.
+//! std.terminal's Zig shim: what it needs that Rig cannot yet say. A run
+//! of printable bytes becomes cells sixteen at a time, which takes a
+//! widening vector conversion (u8 lanes to u64) and a vector store into a
+//! slice of U64; Rig has neither, and LLVM leaves the plain loop scalar.
+//! When Rig gains both (docs/ROADMAP.md, Speed), `widen` moves back into
+//! std/terminal.rig and this file goes.
 
 /// `dst[i] = src[i] | bits` for each `i` of the shorter of the two: each
 /// byte a rune in the low bits of its cell, with the style bits above.
