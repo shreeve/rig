@@ -111,9 +111,9 @@ one small reactive type in the runtime
 
 ## Why no traits or interfaces?
 
-Not yet: any design has to keep dispatch and ownership visible at call
-sites and in the IR, and `trait`, `impl`, and `where` are reserved for
-it. Until then, generics have no bounds: a generic body may do with `T`
+Not yet: any design has to keep method dispatch and ownership visible
+at call sites and in the IR, and `trait`, `impl`, and `where` are
+reserved for it. Until then, generics have no bounds: a generic body may do with `T`
 whatever each instance supports, and each instance a program makes is
 checked, with an error at the call and a note at the body line
 ([more](docs/DESIGN.md#per-instance-checking-instead-of-traits)).

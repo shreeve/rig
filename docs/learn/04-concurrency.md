@@ -30,7 +30,8 @@ shows.
 
 ## Send it off, take it back
 
-`&` after a call runs it as a task. `>` takes its result back:
+`&` after a call, the dispatch sigil, runs it as a task. `>`, the wait
+sigil, takes its result back:
 
 ```rig
 fun total(xs: ?List[Int]) -> Int
