@@ -131,6 +131,17 @@ fails, and yields only when other work waits.
   back in line, so it never sets the flag, and busy tasks do not keep
   yielding to each other.
 
+A loop's check also keeps its worker's timers and descriptors going
+while it computes (`sched.serviceBusy`): it wakes the fibers whose
+timers are due on its worker, and looks at its worker's poller at most
+every 250 µs, a system call. It reads the clock only when its worker
+holds a timer or a descriptor. A 10 ms sleep of a task whose worker
+spins in `main` takes 10 ms, with one worker or eight, where it waited
+for the whole spin; a round trip on a socket registered with that
+worker takes about 1 ms, where it took 1.5 s. A recursive call's check
+reads only its flag, so a worker deep in recursion leaves its timers to
+the workers that sleep.
+
 The loop check costs a decrement and a branch per turn of an outermost
 loop: within noise on `bench/tasks`. The recursion check is a load and
 a branch per call: free in any function that does work, but a
@@ -157,6 +168,13 @@ deterministically (`sched.deterministic`, SPEC §3 "Tests"):
   to the earliest timer. Each yield check and `task.check()` moves it
   1 µs, so a fiber that computes without waiting still reaches its
   deadline, and fibers waiting on a timer behind it still wake.
+- **Descriptors.** A fiber waiting on a file descriptor wakes once it
+  is ready, at whatever virtual time. With no fiber ready, the poller is
+  looked at first; with descriptors registered, it is waited on for up
+  to 1 ms of real time before the clock jumps to a timer, since bytes
+  written to a socket may still be on their way (macOS delivers them on
+  loopback a moment later), and a jump past a wait's deadline would end
+  it spuriously.
 - **Deadlock.** With no fiber ready and no timer set, every task waits
   on another, and the program panics.
 
@@ -212,6 +230,14 @@ every time; the suite runs each concurrency case again under seeds 1 to
    fibers and its ring by turns. A wake from elsewhere queues it at
    home, and kicks the home's poller while that worker sleeps
    (`Worker.idle`).
+
+10. **Busy workers keep their timers and pollers going**: a loop's yield
+    check wakes its worker's due timers and looks at its poller (above,
+    "Yield checks"). A timer set earlier than any sleeping worker wakes
+    kicks one (`sched.kickForTimer`): the timer's worker publishes the
+    deadline, then reads when each sleeper wakes, and a worker about to
+    sleep notes that it may sleep for good, then reads the deadlines,
+    all sequentially consistent, so one of the two sees the other.
 
 Each must not make `bench/tasks` slower on the benchmarks it touches;
 the step is done when `spawn`, `chain`, and `yield` are each within 1.2x

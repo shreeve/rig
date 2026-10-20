@@ -685,10 +685,12 @@ principle below names the mechanism that carries it.
    - Preemption by signal at safe points is held in reserve, if
      measurement shows the checks cost too much.
 6. **Ready work never starves I/O.**
-   - A worker polls for I/O and timers every 61 tasks, even under load
-     (built).
+   - A worker polls for I/O and timers every 61 tasks, even under load,
+     and its loops' yield checks wake its due timers and look at its
+     poller every 250 µs while it computes (built).
    - Timers sit in a heap per worker, as Go keeps them, with one kernel
-     timeout per sleeping worker for the earliest deadline (built).
+     timeout per sleeping worker for the earliest deadline; a timer set
+     earlier wakes a sleeping worker for it (built).
 7. **Stacks are cheap and safe.**
    - Fiber stacks are carved from one large reservation, with per-worker
      free lists, never an `mmap` per task.
