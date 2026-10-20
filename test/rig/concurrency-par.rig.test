@@ -1,6 +1,6 @@
 # concurrency: tests whose names start `par`.
 
-test "par map", '''
+test "par map", seeds: 20, '''
   [0, 3, 6, 9, 12]
   1000 2997 1498500
   999000
@@ -25,7 +25,7 @@ test "par map", '''
   words = ["a", "bb", "ccc"]
   print(par.map(?words, |w| w.len))
 
-test "par each", '''
+test "par each", seeds: 20, '''
   [10, 20, 30, 40]
   1 4 4
   499500
@@ -44,7 +44,7 @@ test "par each", '''
   par.each(!xs[0..4], |x| x -= 1)
   print(xs.sum())
 
-test "par fails", release: true, '''
+test "par fails", seeds: 20, release: true, '''
   Bad.odd true
   499500
 '''
@@ -71,7 +71,7 @@ test "par fails", release: true, '''
   ok = par.map(?xs, |x| slow(x + 1000)! - 1000, limit: 1000) catch List[Int]()
   print(ok.sum())
 
-test "par fails drops", '''
+test "par fails drops", seeds: 20, '''
   0
   ["n1", "n2", "n3"]
 '''
@@ -94,7 +94,7 @@ test "par fails drops", '''
   print(names.len)
   print(par.map(?xs[1..4], |x| name(x)!) catch List[String]())
 
-test "par limit", release: true, "true true"
+test "par limit", seeds: 20, release: true, "true true"
   # No more than `limit` calls run at once.
   use std.par
   use std.time
@@ -116,7 +116,7 @@ test "par limit", release: true, "true true"
   par.each(!xs, |+active, +most, x| watch(+active, +most), limit: 3)
   print(most.get() <= 3, most.get() > 1)
 
-test "par one task", "[2, 4, 6]"
+test "par one task", seeds: 20, "[2, 4, 6]"
   # With `limit: 1`, the calls run in turn on the calling task.
   use std.par
 
@@ -182,7 +182,7 @@ fail "par each writes", "`par.each` lends each element to write: lend the elemen
   xs = List([1, 2, 3])
   par.each(?xs, |x| x += 1)
 
-test "par limit before closure", '''
+test "par limit before closure", seeds: 20, '''
   [10, 20, 30]
   [11, 21, 31]
   [22, 42, 62]

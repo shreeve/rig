@@ -1,6 +1,6 @@
 # concurrency: tests whose names start `sets`.
 
-test "sets wait all", '''
+test "sets wait all", seeds: 20, '''
   4 <4 tasks>
   [0, 1, 4, 9]
 '''
@@ -15,7 +15,7 @@ test "sets wait all", '''
   print(ts.len, ts)
   print(<ts.wait_all())
 
-test "sets order added", "[10, 20]"
+test "sets order added", seeds: 20, "[10, 20]"
   # The second task ends first; the results keep the order added.
   use std.time
 
@@ -28,7 +28,7 @@ test "sets order added", "[10, 20]"
   !ts.add(fetch(2, 1)&)
   <ts.wait_all()!
 
-test "sets first error", release: true, '''
+test "sets first error", seeds: 20, release: true, '''
   slow 1 stops
   Fetch.missing
   true
@@ -60,7 +60,7 @@ test "sets first error", release: true, '''
   run() catch |e| print(e)
   print(start.elapsed() < 5 * time.SECOND)
 
-test "sets deadline", '''
+test "sets deadline", seeds: 20, '''
   slow stops
   Stop.timeout true
 '''
@@ -81,7 +81,7 @@ test "sets deadline", '''
 
   run() catch |e| print(e, e == task.Stop.timeout)
 
-test "sets wait first", '''
+test "sets wait first", seeds: 20, '''
   slow stops
   50
 '''
@@ -107,7 +107,7 @@ test "sets wait first", '''
   !ts.add(fetch(5, 5)&)
   print(<ts.wait_first()!)
 
-test "sets wait first all fail", "Fetch.late"
+test "sets wait first all fail", seeds: 20, "Fetch.late"
   # When every task fails, `wait_first` fails with the last error.
   use std.time
 
@@ -130,7 +130,7 @@ test "sets wait first all fail", "Fetch.late"
 
   run() catch |e| print(e)
 
-test "sets drop cancels", '''
+test "sets drop cancels", seeds: 20, '''
   slow stops
   done
 '''
@@ -152,7 +152,7 @@ test "sets drop cancels", '''
   run(true) catch 0
   print("done")
 
-test "sets void", '''
+test "sets void", seeds: 20, '''
   1
   done 3
 '''
@@ -171,7 +171,7 @@ test "sets void", '''
   <ts.wait_all()
   print("done", 3)
 
-test "sets both", '''
+test "sets both", seeds: 20, '''
   user2 6
   6
 '''
@@ -193,7 +193,7 @@ test "sets both", '''
 
   print(both(2) catch -1)
 
-test "sets both fails", '''
+test "sets both fails", seeds: 20, '''
   slow stops
   -1
 '''
@@ -218,7 +218,7 @@ test "sets both fails", '''
 
   print(run() catch -1)
 
-test "sets all", "4 9 16 25"
+test "sets all", seeds: 20, "4 9 16 25"
   # `task.all` takes two tasks or more; a moved task too.
   use std.task
 

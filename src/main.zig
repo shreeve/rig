@@ -37,7 +37,8 @@ const usage =
     \\  check     Check the program and its imports
     \\  run       Check, build, and run the program
     \\  build     Check and build a native executable
-    \\  test      Check, build, and run the program's `test` blocks
+    \\  test      Check, build, and run the program's `test` blocks,
+    \\            deterministically (`--seed`)
     \\  emit      Check, then print the root module's Zig to stdout
     \\  batch     Build many programs into one executable, <dir>/bin, with
     \\            one copy of the runtime (build), and run program <n> of it
@@ -72,6 +73,14 @@ const usage =
     \\                         keeps overflow and bounds checks;
     \\                         `--release=fast` is its fast mode. Default:
     \\                         debug, leak-checked.
+    \\  --seed=<n>             Run deterministically with seed n (run, test):
+    \\                         on one thread, with a virtual clock that
+    \\                         sleeps take no time on, the seed choosing
+    \\                         which ready task runs next, so the same seed
+    \\                         runs the same way again. `rig test` runs so
+    \\                         with seed 1 unless given one
+    \\  --seeds=<k>            Run the tests with each seed from 1 to k,
+    \\                         stopping at the first that fails (test)
     \\  -o <path>              Executable to write (build; default ./<name>)
     \\  -h, --help             Show this help
     \\  -V, --version          Show the version
@@ -103,6 +112,8 @@ const usage =
     \\                   it ran. Any failure before the program starts
     \\                   prints `rig: the program did not run` and exits
     \\                   125
+    \\  RIG_SEED         A program started with it set runs as `--seed`
+    \\                   does, with that seed
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
@@ -161,6 +172,10 @@ const Options = struct {
     tests: bool = false,
     /// `rig run file.rig -- args...`: the program's own arguments.
     program_args: []const []const u8 = &.{},
+    /// `--seed=n`: run deterministically with seed `n` (run, test).
+    seed: ?u64 = null,
+    /// `rig test --seeds=k`: run the tests with each seed from 1 to `k`.
+    seeds: ?u64 = null,
 };
 
 const Env = struct {
@@ -286,6 +301,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var out_path: ?[]const u8 = null;
     var facts: Facts = .none;
     var time = false;
+    var seed: ?u64 = null;
+    var seeds: ?u64 = null;
     var tests = false;
     var program_args: []const []const u8 = &.{};
     var i: usize = 0;
@@ -311,6 +328,11 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             mode = .fast;
         } else if (eql(arg, "--tests")) {
             tests = true;
+        } else if (std.mem.startsWith(u8, arg, "--seed=")) {
+            seed = std.fmt.parseInt(u64, arg["--seed=".len..], 10) catch usageError("`--seed` takes a whole number: `--seed=7`", .{});
+        } else if (std.mem.startsWith(u8, arg, "--seeds=")) {
+            seeds = std.fmt.parseInt(u64, arg["--seeds=".len..], 10) catch usageError("`--seeds` takes a count of seeds: `--seeds=20`", .{});
+            if (seeds.? == 0) usageError("`--seeds` takes a count of seeds, at least 1: `--seeds=20`", .{});
         } else if (eql(arg, "--facts")) {
             facts = .syntax;
         } else if (eql(arg, "--facts=sema")) {
@@ -347,6 +369,9 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
     if (time and cmd != .check) usageError("`--time` applies to check", .{});
     if (tests and cmd != .check) usageError("`--tests` applies to check; `rig test` builds the tests already", .{});
+    if (seed != null and cmd != .run and cmd != .@"test") usageError("`--seed` applies to run and test", .{});
+    if (seeds != null and cmd != .@"test") usageError("`--seeds` applies to test", .{});
+    if (seed != null and seeds != null) usageError("give `--seed` for one seed or `--seeds` for several, not both", .{});
     if (cmd == .clean) {
         if (path != null) usageError("`rig clean` takes no file", .{});
         return .{ .command = cmd, .path = "" };
@@ -361,7 +386,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tests = tests, .program_args = program_args };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
 }
 
 fn eql(a: []const u8, b: []const u8) bool {
@@ -626,13 +651,31 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     else
         dir;
     std.Io.Dir.cwd().createDirPath(io, started_dir) catch |err| notRun("cannot create `{s}`: {s}", .{ started_dir, @errorName(err) });
+    // The seed a deterministic run takes: `--seed`, or for `rig test`
+    // the caller's RIG_SEED, else 1; `--seeds=k` runs seeds 1 to k in
+    // turn, stopping at the first run that fails.
+    const testing = opts.command == .@"test";
+    const first_seed: ?u64 = opts.seed orelse if (opts.seeds != null) 1 else if (testing) (if (env.get("RIG_SEED")) |v| std.fmt.parseInt(u64, v, 10) catch 1 else 1) else null;
+    const last_seed: ?u64 = opts.seeds orelse first_seed;
+    var seed = first_seed;
+    while (true) : (seed = seed.? + 1) {
+        if (seed) |s| try environ.put("RIG_SEED", try allocator.print("{d}", .{s}));
+        try runStarted(allocator, io, env, &environ, argv, started_dir, home, dir, zig_cache, root);
+        if (seed == null or seed.? >= last_seed.?) return;
+    }
+}
+
+/// Run the program `rig run` or `rig test` built, by `argv`, with
+/// `environ`, until it is seen to start (`program_started_var`); exit
+/// with its status when it fails, and return when it succeeds.
+fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.process.Environ.Map, argv: []const []const u8, started_dir: []const u8, home: ?[]const u8, dir: []const u8, zig_cache: []const u8, root: []const u8) !void {
     var attempt: u32 = 0;
     while (true) : (attempt += 1) {
         var name: [8]u8 = undefined;
         io.random(&name);
         const started = try std.fs.path.join(allocator, &.{ started_dir, try allocator.print(".started-{x}", .{&name}) });
         try environ.put(program_started_var, started);
-        const ended = try runZigReport(io, argv, &environ);
+        const ended = try runZigReport(io, argv, environ);
         const code = ended.code;
         const ran = if (std.Io.Dir.cwd().statFile(io, started, .{})) |st| st.kind == .file else |_| false;
         std.Io.Dir.cwd().deleteFile(io, started) catch {};

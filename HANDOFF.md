@@ -99,6 +99,10 @@ from).
     (`Stop`, `check`), and a fallible `time.sleep`.
   - **Sets and joins:** `Tasks[T]` with `wait_all`, `wait_first`, and
     `within:` deadlines; `task.both` and `task.all`.
+  - **Deterministic tests:** `rig test` runs tasks on one thread with
+    a virtual clock and a seed (`--seed`, `--seeds`, `RIG_SEED`), so a
+    concurrent test fails the same way twice and sleeps take no time;
+    the suite's concurrency cases run again under 20 seeds.
   - **Deadlines and parallel loops:** `time.within(ns, || ...)`, a
     deadline every fallible waiting point honors, kept by the tasks it
     starts; `par.map` and `par.each` (`std.par`), typed by the checker

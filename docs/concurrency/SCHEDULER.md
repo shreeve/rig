@@ -129,6 +129,28 @@ worker waits for one slice of that loop, not all of it (`bench/tasks`
 to 3 ms, the whole loop. Go stops a goroutine after 10 ms, by a
 signal; Tokio never does.
 
+## Deterministic runs
+
+A program started with `RIG_SEED` set, as `rig test` starts one, runs
+deterministically (`sched.deterministic`, SPEC §3 "Tests"):
+
+- **One thread.** No other worker starts, and no timer or pool thread:
+  a blocking call runs in place. The ready fibers sit in one list, and
+  the seed (splitmix64, then xorshift64*) picks the next to run, and
+  whether a yield check yields. `par` still splits its elements among
+  four tasks, so the seed tries their interleavings.
+- **A virtual clock.** `sched.nowNs` reads it. Before each pick, the
+  timers it has reached wake their fibers; when none is ready, it jumps
+  to the earliest timer. Each yield check and `task.check()` moves it
+  1 µs, so a fiber that computes without waiting still reaches its
+  deadline, and fibers waiting on a timer behind it still wake.
+- **Deadlock.** With no fiber ready and no timer set, every task waits
+  on another, and the program panics.
+
+The same seed makes the same choices, so a run prints the same thing
+every time; the suite runs each concurrency case again under seeds 1 to
+20 (`seeds: 20`, docs/RIG-TESTS.md).
+
 ## Increments
 
 1. **Fibers on one worker**: the switch, start, wait, yield, and the

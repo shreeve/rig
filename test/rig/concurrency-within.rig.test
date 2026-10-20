@@ -1,6 +1,6 @@
 # concurrency: tests whose names start `within`.
 
-test "within value", '''
+test "within value", seeds: 20, '''
   11
   Stop.timeout true
 '''
@@ -16,7 +16,7 @@ test "within value", '''
     print("slept")
   ) catch |e| print(e, start.elapsed() < 5 * time.SECOND)
 
-test "within nested", '''
+test "within nested", seeds: 20, '''
   1 -1
   0
 '''
@@ -36,7 +36,7 @@ test "within nested", '''
   ) catch -2
   print(m)
 
-test "within tasks", release: true, '''
+test "within tasks", seeds: 20, release: true, '''
   inherited -1 true
   set -2
   check -3

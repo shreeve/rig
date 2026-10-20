@@ -1,6 +1,6 @@
 # concurrency: tests whose names start `cancel`.
 
-test "cancel check", '''
+test "cancel check", seeds: 20, '''
   Stop.canceled true
   -1
 '''
@@ -20,7 +20,7 @@ test "cancel check", '''
     -1
   print(r)
 
-test "cancel sleep", release: true, '''
+test "cancel sleep", seeds: 20, release: true, '''
   nap stops
   -1
   true
@@ -38,7 +38,7 @@ test "cancel sleep", release: true, '''
   print(<u.cancel() catch -1)
   print(start.elapsed() < 5 * time.SECOND)
 
-test "cancel sticky", '''
+test "cancel sticky", seeds: 20, '''
   caught once
   -2
 '''
@@ -54,7 +54,7 @@ test "cancel sticky", '''
   v = stubborn()&
   print(<v.cancel() catch -2)
 
-test "cancel through wait", '''
+test "cancel through wait", seeds: 20, '''
   inner stops
   -1
 '''
@@ -75,7 +75,7 @@ test "cancel through wait", '''
   time.sleep(10 * time.MS)!
   print(<o.cancel() catch -1)
 
-test "cancel infallible wait", '''
+test "cancel infallible wait", seeds: 20, '''
   sleep canceled
   waited 5
   -1
@@ -100,7 +100,7 @@ test "cancel infallible wait", '''
   time.sleep(10 * time.MS)!
   print(<p.cancel() catch -1)
 
-test "cancel on drop", '''
+test "cancel on drop", seeds: 20, '''
   nap stops
   7
   true
@@ -123,7 +123,7 @@ test "cancel on drop", '''
   print(first(true) catch -1)
   print(start.elapsed() < 5 * time.SECOND)
 
-test "cancel passes to owned", '''
+test "cancel passes to owned", seeds: 20, '''
   quiet woken
   -1
 '''
@@ -144,7 +144,7 @@ test "cancel passes to owned", '''
   time.sleep(10 * time.MS)!
   print(<o.cancel() catch -1)
 
-test "cancel finished", "4"
+test "cancel finished", seeds: 20, "4"
   # A task with no waiting point runs to its end, and `cancel` gives its
   # result.
   fun four() -> Int!
@@ -153,7 +153,7 @@ test "cancel finished", "4"
   t = four()&
   <t.cancel() catch -1
 
-test "cancel write loan", '''
+test "cancel write loan", seeds: 20, '''
   -1
   0
 '''
@@ -183,7 +183,7 @@ fail "cancel sleep unhandled", "fallible call to `time.sleep` must be wrapped wi
   sub nap()
     time.sleep(time.MS)
 
-test "cancel storm", "true"
+test "cancel storm", seeds: 20, "true"
   # Cancels that race with waits ending: a chain of waits canceled as its
   # sleep may end, a set whose deadline may or may not pass first, and a
   # sleeping task dropped on an early return, many times over.

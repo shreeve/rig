@@ -9,7 +9,7 @@ fn nanoseconds(clock: std.Io.Clock) i64 {
 }
 
 pub fn monotonic() i64 {
-    return nanoseconds(.awake);
+    return rig.monotonicNs();
 }
 
 pub fn unix_ns() i64 {

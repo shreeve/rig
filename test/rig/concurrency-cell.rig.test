@@ -1,6 +1,6 @@
 # concurrency: tests whose names start `cell`.
 
-test "cell count across tasks", "8000"
+test "cell count across tasks", seeds: 20, "8000"
   # A Cell of one word goes to other tasks, each through a handle of its
   # own (`+hits`), and no change is lost.
   sub work(hits: *Cell[Int])
@@ -14,7 +14,7 @@ test "cell count across tasks", "8000"
   <ts.wait_all()
   print(hits.get())
 
-test "cell count across tasks released", release: true, "80000"
+test "cell count across tasks released", seeds: 20, release: true, "80000"
   # The same, with more changes than a build in Zig's safe mode can make
   # by luck alone.
   sub work(hits: *Cell[Int])
@@ -28,7 +28,7 @@ test "cell count across tasks released", release: true, "80000"
   <ts.wait_all()
   print(hits.get())
 
-test "cell claim once", "1"
+test "cell claim once", seeds: 20, "1"
   # The first of many tasks to flip a flag wins: `compare_swap` checks
   # and stores at once, so exactly one sees `true`.
   sub claim(flag: *Cell[Bool], wins: *Cell[Int])
@@ -43,7 +43,7 @@ test "cell claim once", "1"
   <ts.wait_all()
   print(wins.get())
 
-test "cell word operations", '''
+test "cell word operations", seeds: 20, '''
   5 7
   true false 9
   5 15
@@ -80,7 +80,7 @@ test "cell word operations", '''
   w = ~n
   print(w)
 
-test "cell print shared", "Cell(value: 3) 4"
+test "cell print shared", seeds: 20, "Cell(value: 3) 4"
   # A Cell many tasks change prints as any Cell does.
   fun one() -> Int
     1

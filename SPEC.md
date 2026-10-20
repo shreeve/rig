@@ -3024,6 +3024,24 @@ line `false`, where it is (`reached false on line 12`).
 `rig run` ignores test blocks. `rig check --tests X` checks what
 `rig test X` builds, without building or running it.
 
+`rig test` runs deterministically, so a test that makes tasks passes or
+fails the same way every time:
+
+- the tasks run on one thread, and a seed picks which ready task runs
+  next, and whether a long loop lets another run;
+- the monotonic clock (`time.now`, `time.sleep`, deadlines) is virtual:
+  it starts at 0, and when no task can run, it jumps to the next timer,
+  so a sleep takes no time. Each yield check and `task.check()` moves it
+  1 µs, so a computation that never waits still reaches its deadline;
+- when every task waits on another and no timer is set, none can ever
+  run, and the program panics, naming the deadlock.
+
+The seed is 1, `--seed=N` gives another, and `--seeds=K` runs the
+tests with each seed from 1 to K, stopping at the first that fails. A
+run with failures ends with the seed that runs it the same way again.
+`rig run --seed=N`, or a program started with `RIG_SEED=N` set, runs
+so too. The wall clock, `time.unix_ns()`, stays real.
+
 ```rig
 error Parse
   empty
@@ -3079,6 +3097,7 @@ FAIL  test "sum is wrong on purpose": sum([1, 2, 3]) == 7 is false
 9
 ok    test "prints and passes"
 5 passed, 1 failed
+seed 1: `rig test --seed=1` runs these tests the same way again
 ```
 
 ### Constants

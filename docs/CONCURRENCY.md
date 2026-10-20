@@ -661,7 +661,7 @@ principle below names the mechanism that carries it.
    - a dump of what every task waits on;
    - later, priority inheritance, so an actor that a high-priority
      caller waits on runs at that priority.
-10. **Tests are deterministic.** `rig test` runs on a single-thread
+10. **Tests are deterministic** (built). `rig test` runs on a single-thread
     backend with virtual time and a seed, so a concurrent test fails the
     same way twice.
 
