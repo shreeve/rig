@@ -598,3 +598,24 @@ bomb "task stack overflow deep frames", "rig: stack overflow", prints: "before",
     print("before")
     t = start()&
     print(>t)
+
+code "task free spawns free", ".spawn(spin, "
+  # A task given only what crosses cores starts free, to run on any
+  # worker (test/cli/task_spread.sh checks that it does).
+  fun spin(n: Int) -> Int
+    n
+
+  t = spin(3)&
+  print(>t)
+
+code "task local spawns local", ".spawnLocal(peek, "
+  # A task given a `*T` starts local, pinned with its maker.
+  obj Node
+    v: Int
+
+  fun peek(n: ?*Node) -> Int
+    n.v
+
+  n = *Node(v: 1)
+  t = peek(?n)&
+  print(>t)

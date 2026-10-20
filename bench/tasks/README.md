@@ -18,6 +18,13 @@ scheduler with one worker per core, or `RIG_WORKERS` when set. `--record "#PR: w
 [PROGRESS.md](PROGRESS.md), which tracks each benchmark as the
 scheduler grows ([docs/concurrency/SCHEDULER.md](../../docs/concurrency/SCHEDULER.md)).
 
+Before a change to the scheduler or to tasks lands, run
+`bench/tasks/bench-tasks --variants rig-fast --gate` on a quiet machine:
+it fails when any benchmark takes more than 1.5 times the last `rig-fast`
+row PROGRESS.md holds for the machine's architecture. The suite checks
+results, not speed; `test/cli/task_spread.sh` checks that tasks spread
+over the workers.
+
 ## The benchmarks
 
 Each program runs all five, times each with the monotonic clock, and
