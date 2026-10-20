@@ -118,6 +118,14 @@ fun printable_end(s: ?String, i: Int) -> Int
   if i >= 0
     k = i
     stop = i + 16 if i + 16 < s.len else s.len
+    # Eight bytes at a time as one U64: a byte below 0x20 borrows in the
+    # subtraction, and one of 0x80 or more has its top bit, so the lowest
+    # top bit set marks the first byte not printable.
+    while k + 8 <= stop
+      x = s.read[U64, .little](k)
+      m = ((x -% 0x2020202020202020) | x) & 0x8080808080808080
+      return k + (m.trailing_zeros() >> 3) if m != 0
+      k += 8
     while k < stop
       b = s[k]
       return k if b < 0x20 or b >= 0x80
