@@ -315,6 +315,7 @@ CASES = [
     ("reply", "RIS keeps replies already made", 10, 2, b"\x1b[c\x1bc\x1b[5n"),
     ("reply", "DECRC restores origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b8\x1b[?6$p\x1b[?6h\x1b[u\x1b[?6$p"),
     ("reply", "DECALN resets origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b#8\x1b[?6$p"),
+    ("style", "past 32 styles, each is found again", 20, 6, ("".join("\x1b[38;2;%d;%d;%dm%c" % (i * 5, 255 - i * 3, i * 7 % 256, 65 + i % 26) for i in range(48)) + "".join("\x1b[38;2;%d;%d;%dm%c\x1b[4m%c\x1b[0m" % (i * 5, 255 - i * 3, i * 7 % 256, 97 + i % 26, 48 + i % 10) for i in range(0, 48, 3))).encode()),
     ("utf8", "two-byte runes", 10, 2, "café ñ ü".encode()),
     ("utf8", "three-byte runes of width 1", 10, 2, "─│┌€".encode()),
     ("utf8", "Greek and Cyrillic", 12, 2, "Ωμέγα Жизнь".encode()),
