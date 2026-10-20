@@ -763,13 +763,29 @@ pub const Registration = struct {
     /// The other end closed, or the descriptor failed: every wait ends.
     pub const closed: u32 = 4;
 
+    /// The fiber waiting, and the epoch of its wait. A poller waking it
+    /// holds it (`waking` in place of the fiber) until it is done, and
+    /// the fiber takes itself back only once no poller holds it
+    /// (`leave`), so a fiber that goes on and ends is never touched
+    /// after.
     const Waiter = struct {
         fiber: std.atomic.Value(?*Fiber) = .init(null),
         epoch: std.atomic.Value(u32) = .init(0),
 
+        const waking: *Fiber = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(Fiber)));
+
         fn wakeIt(w: *Waiter) bool {
             const f = w.fiber.load(.seq_cst) orelse return false;
+            if (f == waking) return false;
+            if (w.fiber.cmpxchgStrong(f, waking, .seq_cst, .seq_cst) != null) return false;
+            defer w.fiber.store(f, .seq_cst);
             return interrupt(f, w.epoch.load(.seq_cst), false);
+        }
+
+        /// The fiber `f` is done waiting: take it back, once no poller
+        /// holds it.
+        fn leave(w: *Waiter, f: *Fiber) void {
+            while (w.fiber.cmpxchgWeak(f, null, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
         }
     };
 
@@ -820,15 +836,49 @@ pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bo
             spendBudget();
             return .ready;
         }
-        if (cancelable and f.state.control != null and f.state.control.?.canceled.load(.seq_cst)) return .canceled;
+        if (cancelable and isCanceled(f)) return .canceled;
         if (deadline) |d| if (nowNs() >= d) return .timeout;
+        pausePoint();
         const e = beginWait(cancelable);
         waiter.epoch.store(e, .seq_cst);
         waiter.fiber.store(f, .seq_cst);
-        // Readiness the poller saw before this waiter was there.
-        if (r.ready_bits.load(.seq_cst) & (interest | Registration.closed) == 0) commitWait(e, deadline);
-        waiter.fiber.store(null, .seq_cst);
+        // Readiness the poller saw before this waiter was there, and a
+        // cancel that came before the wait began, which found no wait to
+        // end: either one, and the fiber goes on.
+        const seen = r.ready_bits.load(.seq_cst) & (interest | Registration.closed) != 0;
+        if (!seen and !(cancelable and isCanceled(f))) commitWait(e, deadline);
+        waiter.leave(f);
     }
+}
+
+/// Whether the task `f` runs is canceled: a sequentially consistent load,
+/// which a canceler's store of the flag, then its load of the wait's
+/// word (`interruptForCancel`), pairs with, so of the fiber that begins
+/// a wait and then looks, and the canceler, at least one sees the other.
+fn isCanceled(f: *Fiber) bool {
+    const control = f.state.control orelse return false;
+    return control.canceled.load(.seq_cst);
+}
+
+/// Test only: a handshake held open at a point a test names
+/// (`pausePoint`), until the test lets it go, so the test can land
+/// another thread's step there.
+pub const Pause = struct {
+    reached: std.atomic.Value(bool) = .init(false),
+    go: std.atomic.Value(bool) = .init(false),
+};
+
+/// The pause the next `pausePoint` holds, set by a test.
+pub var test_pause: std.atomic.Value(?*Pause) = .init(null);
+
+/// In a test that set `test_pause`, hold here until it lets go: between
+/// a waiting point's last look at its cancel flag and the wait it begins.
+inline fn pausePoint() void {
+    if (!builtin.is_test) return;
+    if (test_pause.load(.monotonic) == null) return;
+    const p = test_pause.swap(null, .seq_cst) orelse return;
+    p.reached.store(true, .seq_cst);
+    while (!p.go.load(.seq_cst)) std.atomic.spinLoopHint();
 }
 
 /// How many waits that end at once a fiber makes before it yields.
@@ -1828,7 +1878,7 @@ pub const Header = struct {
             // the "run next" slot may also be one woken partway, which
             // goes on where it stopped instead. A wait with a deadline
             // sleeps on its timer instead.
-            if (deadline == null and w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel != null);
+            if (deadline == null and w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel);
         }
         while (!h.isEnded()) {
             if (cancel) |c| if (c.load(.seq_cst)) return false;
@@ -1887,12 +1937,15 @@ pub fn Job(comptime T: type) type {
 /// straight to it, on its own stack, and straight back when it ends,
 /// past the queues. The fiber waiting sleeps as it hands its worker over,
 /// recorded as the task's waiter, so a task that stops on the way ends
-/// the usual way and wakes it.
-fn handoff(w: *Worker, h: *Header, cancelable: bool) void {
+/// the usual way and wakes it. A cancel that came before the wait began,
+/// when `cancel` is given, leaves the task where it is.
+fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void {
     const waiter = w.current.?;
     const f = &h.fiber;
+    pausePoint();
+    const e = beginWait(cancel != null);
+    if (cancel) |c| if (c.load(.seq_cst)) return;
     w.lifo = null;
-    const e = beginWait(cancelable);
     h.waiter.store(waiter, .seq_cst);
     h.waiter_epoch.store(e, .seq_cst);
     h.status.store(Header.waited, .seq_cst);
@@ -2485,19 +2538,8 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
             return 0;
         }
 
-        fn pipe() [2]i32 {
-            var fds: [2]i32 = undefined;
-            if (builtin.os.tag == .linux) {
-                _ = std.os.linux.pipe2(&fds, .{ .NONBLOCK = true });
-            } else {
-                _ = std.c.pipe(&fds);
-                for (fds) |fd| _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
-            }
-            return fds;
-        }
-
         fn first(_: *anyopaque) callconv(.c) void {
-            const fds = pipe();
+            const fds = testPipe();
             const r = register(fds[0]).?;
             const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
             while (true) {
@@ -2526,4 +2568,123 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
     try std.testing.expect(Run.waited);
     try std.testing.expectEqual(@as(u8, 'x'), Run.got);
     try std.testing.expect(Run.timed_out);
+}
+
+/// The type of a task's cancel flag and the fiber a cancel wakes
+/// (`tasks.Control`), for the tests below.
+const TestControl = @typeInfo(@typeInfo(@FieldType(rt.TaskState, "control")).optional.child).pointer.child;
+
+fn testPipe() [2]i32 {
+    var fds: [2]i32 = undefined;
+    if (builtin.os.tag == .linux) {
+        _ = std.os.linux.pipe2(&fds, .{ .NONBLOCK = true });
+    } else {
+        _ = std.c.pipe(&fds);
+        for (fds) |fd| _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
+    }
+    return fds;
+}
+
+test "a cancel that lands after a wait on a descriptor last looked, but before it began, still ends it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .ready;
+        var took: i96 = 0;
+        var ctl: TestControl = .{};
+        var pause: Pause = .{};
+        const Unit = struct {};
+
+        /// Wait to read a pipe no one writes, for up to 2 s: only a
+        /// cancel ends the wait sooner.
+        fn reader(_: *Unit, r: *Registration) Readiness {
+            const f = current().?;
+            f.state.control = &ctl;
+            ctl.fiber = f;
+            return waitReady(r, Registration.readable, nowNs() + 2 * std.time.ns_per_s, true);
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            test_pause.store(&pause, .seq_cst);
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            while (!pause.reached.load(.seq_cst)) yield();
+            ctl.cancel();
+            const start = nowNs();
+            pause.go.store(true, .seq_cst);
+            got = j.join();
+            took = nowNs() - start;
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.canceled, Run.got);
+    // Ended by the cancel, not by the deadline, after which the wait
+    // looks at the flag again.
+    try std.testing.expect(Run.took < std.time.ns_per_s);
+}
+
+test "a cancel that lands as a waiter is about to hand its worker to a task still ends the wait" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var waited: bool = true;
+        var got: Readiness = .ready;
+        var outer: TestControl = .{};
+        var inner: TestControl = .{};
+        var pause: Pause = .{};
+        const Unit = struct {};
+
+        /// The task waited on: it waits to read a pipe no one writes, for
+        /// up to 2 s, unless it is canceled first.
+        fn reader(_: *Unit, r: *Registration) Readiness {
+            const f = current().?;
+            f.state.control = &inner;
+            inner.fiber = f;
+            return waitReady(r, Registration.readable, nowNs() + 2 * std.time.ns_per_s, true);
+        }
+
+        /// The waiter: it makes the reader and waits for it at once, by
+        /// handoff, unless its own cancel comes first, when it passes the
+        /// cancel on.
+        fn waiter(_: *Unit, r: *Registration) u8 {
+            const f = current().?;
+            f.state.control = &outer;
+            outer.fiber = f;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            waited = j.waitEnd(&outer.canceled, null);
+            if (!waited) inner.cancel();
+            got = j.join();
+            j.free();
+            return 0;
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            test_pause.store(&pause, .seq_cst);
+            const j = spawn(u8, Unit, waiter, .{r}, .{}, false).job;
+            while (!pause.reached.load(.seq_cst)) yield();
+            outer.cancel();
+            pause.go.store(true, .seq_cst);
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(!Run.waited);
+    try std.testing.expectEqual(Readiness.canceled, Run.got);
 }

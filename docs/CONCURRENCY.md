@@ -800,6 +800,13 @@ a machine of tasks apart from λRig's expressions:
   once when a waker or a cancel ends its wait, and loses no wakeup;
   a cancel is never taken back (`Tasks.cancel_sticky`).
 
+The proofs take each step of the wait protocol as sequentially
+consistent, so the runtime makes every step of a handshake that has
+two sides so: a canceler's store of the flag and load of the wait, and
+a waiting fiber's store that begins its wait and load of the flag
+(docs/concurrency/SCHEDULER.md, "Waiting"). A weaker load there lets
+the two pass each other on arm64, where both would miss.
+
 Handing a task's handle to another task, sets, actors, channels, the
 deadlock walk, and unwinding are the next slices.
 

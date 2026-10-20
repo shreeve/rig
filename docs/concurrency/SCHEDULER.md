@@ -94,6 +94,19 @@ later number and does nothing. A cancel ends only a wait a cancel may
 end, and a task waiting on another passes its cancel on itself, hand
 over hand, so no cancel reaches a task through a chain another may free.
 
+A cancel is a handshake of two steps on each side: the canceler sets the
+task's flag and then looks at its wait, and the waiting fiber begins its
+wait and then looks at the flag. All four are sequentially consistent,
+so at least one side sees the other: a cancel that lands after the
+fiber last looked, but before its wait began, finds no wait to end, and
+the fiber, looking once more, sees the flag and goes on. Every waiting
+point a cancel ends looks so after it begins its wait: a wait on a
+task's end, on a set, a select, an actor's answer, a sleep, a
+descriptor (`sched.waitReady`), and a handoff to the task waited on.
+A poller that wakes a fiber waiting on a descriptor holds that waiter
+until it is done (`Registration.Waiter`), so the fiber, which takes
+itself back only after, never goes on and ends under it.
+
 ## Yield checks
 
 A fiber yields only at a waiting point, so a task that computes without
