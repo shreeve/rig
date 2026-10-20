@@ -20,8 +20,11 @@ brew install elan-init
 cd formal && lake build
 ```
 
-`lake build` checks every proof and runs every example program. Every
-warning is an error. Run it after changing `formal/`.
+`lake build` checks every proof, runs every example program, and runs
+the model checks of the runtime (`Models/Checks.lean`, about 30
+seconds, rerun only when a model changes). Every warning is an error.
+Run it after changing `formal/`. `lake build Models.Deep` runs larger
+model checks, by hand: several minutes and 8 GB.
 
 ## Layout
 
@@ -39,6 +42,11 @@ warning is an error. Run it after changing `formal/`.
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
 | `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
+| `Models/Explore.lean` | An explicit-state model checker: every state a system of atomic steps reaches |
+| `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, steal, and the overflow |
+| `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, and the pinned queue's `idle` flag |
+| `Models/Checks.lean` | The model checks `lake build` runs, with the counts each gave |
+| `Models/Deep.lean` | Larger model checks, by hand |
 
 ## What the first slice covers
 
@@ -163,6 +171,79 @@ Not yet: `Tasks` sets, actors and channels (whose contents the crossing
 rule restricts), that dropping a handle cancels and waits (the model
 has a task wait before it ends instead), the deadlock walk, and
 unwinding to a boundary.
+
+## Model checks of the runtime
+
+The scheduler's handshakes are checked by exploring every
+interleaving of their atomic steps, within bounds, before more of them
+are proved by hand. No TLA+ or GenMC is installed here (and no Java),
+so `Models/Explore.lean` is a small explicit-state checker in Lean,
+compiled (`precompileModules`) and run while `lake build` elaborates
+`Models/Checks.lean`. It is a check, not a proof: it covers each model
+within its bounds, and every step is sequentially consistent, so it
+says nothing of weaker orderings (the ring's acquire and monotonic
+loads, or a Dekker handshake whose loads are not `.seq_cst`; those need
+GenMC or herd7). Of every state reached it checks the model's rules;
+of every state where no step is enabled (a worker waiting in its
+poller for a kick no one sends) it checks that nothing is lost; and it
+checks that from every state some run reaches such a state, so no
+thread loops for ever.
+
+**`Ring.lean`** (src/sched.zig, `Ring`): the owner pushes and pops,
+thieves steal half (copy, then compare-and-swap `head`), and a push to
+a full ring hands the older half to the global queue; each load,
+store, and compare-and-swap of `head`, `tail`, or a slot is a step.
+Checked: no fiber is taken twice, `head` stays within `size` behind
+`tail`, and when all are done every fiber pushed was taken once or is
+still in the ring once. Bounds: a ring of 4 with 5 pushes, 2 pops, and
+2 thieves stealing once each (515,484 states), and a ring of 2 with 4
+pushes, 2 pops, and a thief stealing twice. Counters do not wrap.
+
+**`Sleep.lean`** (`loop`, `next`, `search`, `notify`, `notifyNew`,
+`sleep`, `waitWoken`, `wakeHome`): workers take work from their ring,
+their pinned queue, and the global queue, then search (counted in
+`searching`, at most half of them), and sleep: clear `woken`, set
+`idle`, list themselves in `sleepers`, look once more for work unless a
+worker searches, then wait in the poller. Fibers make work into their
+ring (`wake`, `wakeLast`) or another worker's pinned queue
+(`wakeHome`); a thread outside makes work into the global queue or a
+pinned queue. A fiber may run on for ever, never yielding: the worst
+case, where its worker's ring must be stolen. Checked: `searching`
+counts the workers searching, `sleepers` lists none twice, and no
+worker waits in its poller while there is work it could take. Bounds:
+2 workers with 2 pieces of work, made each way; 3 workers, the others
+asleep at first, with 1 piece into a ring, 2 into pinned queues, or 1
+into the global queue. `Deep.lean` runs 3 workers with 2 pieces into a
+ring (7,734,406 states), and 2 workers making work every way at once,
+with `relook` (1,301,655 states). Three workers with 2 pieces into the
+global queue pass 30 million states, too many to finish.
+
+The pinned queue's `idle` handshake holds (as the panel found by
+reading). So does the `searching`/`sleepers` handshake for work made
+into a ring. Work made into the global queue (a blocking call's end,
+or a thread outside the workers) can wait while a worker sleeps:
+
+1. Worker 0 searches and finds nothing.
+2. Worker 1 sees a worker searching and sleeps without a last look.
+3. Two pieces of work arrive. `notifyNew` sees worker 0 searching and
+   wakes no one.
+4. Worker 0 stops searching. Its last look before sleeping finds the
+   work, and it takes one piece and runs on.
+5. The other piece waits in the global queue, with worker 1 asleep,
+   until worker 0's next yield check.
+
+Work found in that last look is not taken while searching, so no
+`notify` follows. With `relook` (a worker that finds work in its last
+look counts itself as searching again, as Go's scheduler does) the
+check passes. `Checks.lean` pins both.
+
+Each check is shown not to be vacuous by breaking the protocol on
+purpose: a thief that claims with a plain store takes a fiber twice, a
+`sleep` with no last look leaves a ring's work, and a `wakeHome` that
+never kicks leaves pinned work.
+
+Not modeled: the run-next slot, timers, the poller's events, `waiting`
+and the yield checks, `stopping`, and the blocking pool.
 
 ## What is not proved
 

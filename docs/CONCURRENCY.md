@@ -804,6 +804,14 @@ a machine of tasks apart from λRig's expressions:
   `test/cli/wait_sync.sh` keeps Wait.lean's word and steps in step
   with src/sched.zig.
 
+The runtime's handshakes are model-checked before more hand proofs
+(formal/README.md, "Model checks of the runtime"): the ring's steal,
+and how workers search, sleep, and are woken, with the pinned queue's
+`idle` flag. Every interleaving within the bounds checked loses no
+fiber and takes none twice. One gap shows: work into the global queue,
+made while a worker searches, can wait while another sleeps, until
+the first worker's next yield check.
+
 Sets, actors, channels, dropping a handle (cancel and wait), the
 deadlock walk, and unwinding are the next slices.
 
