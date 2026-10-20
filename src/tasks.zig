@@ -458,7 +458,7 @@ pub fn Tasks(comptime T: type) type {
         items: std.ArrayList(Task(T)) = .empty,
         wakeup: ?*Wakeup = null,
         /// How many tasks the set holds: `ts.len`.
-        len: usize = 0,
+        len: Int = 0,
 
         const Self = @This();
         /// Its arguments, for `typeName`.
@@ -485,7 +485,7 @@ pub fn Tasks(comptime T: type) type {
                 w.watch(t.control);
             }
             self.items.append(defaultAllocator(), t) catch oom();
-            self.len = self.items.items.len;
+            self.len = @intCast(self.items.items.len);
         }
 
         /// Drop each task that has ended well, keeping one that failed
@@ -926,6 +926,455 @@ pub fn panicked(iso: *Isolate) noreturn {
     iso.stop(false);
     if (task().control) |c| c.finish();
     rt.sched.abandon();
+}
+
+// -----------------------------------------------------------------------------
+// Channels
+// -----------------------------------------------------------------------------
+
+/// `Chan(T)`: a bounded channel, behind a shared handle counted
+/// atomically (`*Chan[T](n)`), so its handles go to any task. `send`
+/// waits for room, `recv` for a value, and both are fallible waiting
+/// points; a closed channel gives its receivers what it holds, then
+/// none. Every operation is a select of its own (`selectArms`): one
+/// record (`Sel`) the first operation that can complete claims with one
+/// compare-and-swap, so of a select's arms exactly one commits.
+pub fn Chan(comptime T: type) type {
+    return struct {
+        lock: rt.sched.SpinLock = .{},
+        buf: []T,
+        head: usize = 0,
+        len: usize = 0,
+        closed: bool = false,
+        /// Operations waiting to receive and to send, oldest first.
+        receivers: Queue = .{},
+        senders: Queue = .{},
+
+        const Self = @This();
+        /// Marks the type for `rt.Shared`'s atomic counts.
+        pub const __rig_chan = {};
+        /// Its arguments, for `typeName`.
+        pub const __rig_args = .{T};
+        pub const Item = T;
+
+        pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("<chan>");
+        }
+
+        pub fn __rig_drop(self: *Self) void {
+            while (self.len > 0) {
+                var v = self.take();
+                dropElement(T, &v);
+            }
+            defaultAllocator().free(self.buf);
+        }
+
+        /// A waiting operation: an arm of a select, in its caller's
+        /// frame. A receiver's `value` is filled when a sender claims it;
+        /// a sender's is taken when a receiver does.
+        pub const Node = struct {
+            sel: *Sel,
+            arm: u32,
+            value: T = undefined,
+            /// A receiver that a close claimed, not a value.
+            closed: bool = false,
+            next: ?*Node = null,
+            prev: ?*Node = null,
+        };
+
+        const Queue = struct {
+            first: ?*Node = null,
+            last: ?*Node = null,
+
+            fn push(q: *Queue, n: *Node) void {
+                n.next = null;
+                n.prev = q.last;
+                if (q.last) |l| l.next = n else q.first = n;
+                q.last = n;
+            }
+
+            fn remove(q: *Queue, n: *Node) void {
+                if (n.prev) |p| p.next = n.next else if (q.first == n) q.first = n.next else return;
+                if (n.next) |x| x.prev = n.prev else q.last = n.prev;
+                n.next = null;
+                n.prev = null;
+            }
+
+            /// The oldest node whose select this claims for it, taken
+            /// off the queue; nodes whose select is over are dropped.
+            fn claim(q: *Queue) ?*Node {
+                while (q.first) |n| {
+                    q.remove(n);
+                    if (n.sel.claim(n.arm)) return n;
+                }
+                return null;
+            }
+        };
+
+        pub fn make(capacity: Int) Self {
+            const cap: usize = @intCast(@max(capacity, 1));
+            return .{ .buf = defaultAllocator().alloc(T, cap) catch oom() };
+        }
+
+        fn put(self: *Self, v: T) void {
+            self.buf[(self.head + self.len) % self.buf.len] = v;
+            self.len += 1;
+        }
+
+        fn take(self: *Self) T {
+            const v = self.buf[self.head];
+            self.head = (self.head + 1) % self.buf.len;
+            self.len -= 1;
+            return v;
+        }
+
+        /// Receive at once, under the lock, into `out`: a value buffered
+        /// (moving a waiting sender's into its place), or one a waiting
+        /// sender hands over, or none when closed; false when it would
+        /// wait.
+        fn recvNow(self: *Self, out: *?T) bool {
+            if (self.len > 0) {
+                out.* = self.take();
+                if (self.senders.claim()) |n| {
+                    self.put(n.value);
+                    n.sel.wake();
+                }
+                return true;
+            }
+            if (self.senders.claim()) |n| {
+                out.* = n.value;
+                n.sel.wake();
+                return true;
+            }
+            if (self.closed) {
+                out.* = null;
+                return true;
+            }
+            return false;
+        }
+
+        /// Send `v` at once, under the lock: to a waiting receiver, or
+        /// into the buffer; false when it would wait.
+        fn sendNow(self: *Self, v: T) bool {
+            if (self.closed) @panic("send on a closed channel");
+            if (self.receivers.claim()) |n| {
+                n.value = v;
+                n.sel.wake();
+                return true;
+            }
+            if (self.len < self.buf.len) {
+                self.put(v);
+                return true;
+            }
+            return false;
+        }
+
+        /// `!ch.send(<v)!`: wait for room, and send `v`.
+        pub fn send(self: *Self, v: T) anyerror!void {
+            var arms = .{SendArm(T, void){ .chan = self, .value = v, .f = {} }};
+            _ = try selectArms(&arms);
+        }
+
+        /// `(!ch).recv()!`: wait for a value, or none once the channel is
+        /// closed and empty.
+        pub fn recv(self: *Self) anyerror!?T {
+            var arms = .{RecvArm(T, void){ .chan = self, .f = {} }};
+            _ = try selectArms(&arms);
+            return arms[0].got;
+        }
+
+        /// `!ch.close()`: no more sends; receivers waiting get none, and a
+        /// sender waiting panics.
+        pub fn close(self: *Self) void {
+            self.lock.lock();
+            defer self.lock.unlock();
+            if (self.closed) return;
+            self.closed = true;
+            while (self.receivers.claim()) |n| {
+                n.closed = true;
+                n.sel.wake();
+            }
+            if (self.senders.first != null) @panic("a channel was closed while a task waited to send on it");
+        }
+    };
+}
+
+/// `*Chan[T](n)`: a channel of `n` slots (at least one), behind its first
+/// handle.
+pub fn chan(comptime T: type, capacity: Int) *rt.Shared(Chan(T)) {
+    return rt.shared(Chan(T).make(capacity));
+}
+
+/// What a select waits on: claimed by the first arm that completes
+/// (`state` is its index plus one), and the fiber to wake then.
+const Sel = struct {
+    state: std.atomic.Value(u32) = .init(open),
+    fiber: *rt.sched.Fiber,
+    epoch: std.atomic.Value(u32) = .init(0),
+
+    const open = 0;
+    /// Claimed by the select itself, as it gives up.
+    const gave_up = std.math.maxInt(u32);
+
+    fn claim(sel: *Sel, arm: u32) bool {
+        return sel.state.cmpxchgStrong(open, arm + 1, .acq_rel, .acquire) == null;
+    }
+
+    fn wake(sel: *Sel) void {
+        _ = rt.sched.interrupt(sel.fiber, sel.epoch.load(.seq_cst), false);
+    }
+};
+
+/// A receiving arm: `(!ch).on_recv(f)`, or `recv` alone (`F` void).
+pub fn RecvArm(comptime T: type, comptime F: type) type {
+    return struct {
+        chan: *Chan(T),
+        f: F,
+        node: Chan(T).Node = undefined,
+        got: ?T = null,
+
+        pub const Value = ?T;
+
+        fn key(a: *@This()) usize {
+            return @intFromPtr(a.chan);
+        }
+
+        fn now(a: *@This()) bool {
+            return a.chan.recvNow(&a.got);
+        }
+
+        fn wait(a: *@This(), sel: *Sel, arm: u32) void {
+            a.node = .{ .sel = sel, .arm = arm };
+            a.chan.receivers.push(&a.node);
+        }
+
+        fn unwait(a: *@This()) void {
+            a.chan.receivers.remove(&a.node);
+        }
+
+        /// It won while waiting: what the sender or the close left.
+        fn won(a: *@This()) void {
+            a.got = if (a.node.closed) null else a.node.value;
+        }
+
+        /// It lost: nothing of it to drop.
+        fn lost(_: *@This()) void {}
+    };
+}
+
+/// A sending arm: `(!ch).on_send(<v, f)`, or `send` alone (`F` void).
+pub fn SendArm(comptime T: type, comptime F: type) type {
+    return struct {
+        chan: *Chan(T),
+        value: T,
+        f: F,
+        node: Chan(T).Node = undefined,
+
+        fn key(a: *@This()) usize {
+            return @intFromPtr(a.chan);
+        }
+
+        fn now(a: *@This()) bool {
+            return a.chan.sendNow(a.value);
+        }
+
+        fn wait(a: *@This(), sel: *Sel, arm: u32) void {
+            a.node = .{ .sel = sel, .arm = arm, .value = a.value };
+            a.chan.senders.push(&a.node);
+        }
+
+        fn unwait(a: *@This()) void {
+            a.chan.senders.remove(&a.node);
+        }
+
+        fn won(_: *@This()) void {}
+
+        /// It lost: the value it held is dropped.
+        fn lost(a: *@This()) void {
+            dropElement(T, &a.value);
+        }
+    };
+}
+
+/// `rig.recvArm(handle, f)` and `rig.sendArm(handle, v, f)`: the arms
+/// `task.select` takes.
+pub fn recvArm(handle: anytype, f: anytype) RecvArm(ChanItem(@TypeOf(handle)), @TypeOf(f)) {
+    return .{ .chan = &chanBox(handle).value, .f = f };
+}
+
+pub fn sendArm(handle: anytype, v: anytype, f: anytype) SendArm(ChanItem(@TypeOf(handle)), @TypeOf(f)) {
+    return .{ .chan = &chanBox(handle).value, .value = v, .f = f };
+}
+
+fn chanBox(handle: anytype) ChanBox(@TypeOf(handle)) {
+    return if (@typeInfo(@typeInfo(@TypeOf(handle)).pointer.child) == .pointer) handle.* else handle;
+}
+
+fn ChanBox(comptime H: type) type {
+    const Child = @typeInfo(H).pointer.child;
+    return if (@typeInfo(Child) == .pointer) Child else H;
+}
+
+fn ChanItem(comptime H: type) type {
+    return @FieldType(@typeInfo(ChanBox(H)).pointer.child, "value").Item;
+}
+
+/// Wait until one of `arms` (a tuple, behind a pointer) completes, and
+/// give its index: at once when one can, trying them from a place the
+/// scheduler's random choice or a counter picks, so none starves; else
+/// each waits on its channel, and the first to complete claims the
+/// select, which wakes and takes the others back. A fallible waiting
+/// point: a cancel or the deadline ends it, unless an arm won first.
+/// Every arm but the winner is `lost`.
+fn selectArms(arms: anytype) anyerror!u32 {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    if (canceledHere()) return dropAll(arms, canceled_error);
+    if (pastDeadline()) return dropAll(arms, timeout_error);
+    lockAll(arms);
+    const start = rotation() % n;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const at = (start + i) % n;
+        var done = false;
+        inline for (0..n) |k| if (k == at) {
+            done = arms[k].now();
+        };
+        if (done) {
+            unlockAll(arms);
+            loseAllBut(arms, @intCast(at));
+            return @intCast(at);
+        }
+    }
+    const f = rt.sched.current() orelse {
+        unlockAll(arms);
+        @panic("a channel waited outside a task");
+    };
+    var sel: Sel = .{ .fiber = f };
+    var e = rt.sched.beginWait(true);
+    sel.epoch.store(e, .seq_cst);
+    inline for (0..n) |k| arms[k].wait(&sel, k);
+    unlockAll(arms);
+    while (true) {
+        if (sel.state.load(.acquire) != Sel.open) break;
+        if (canceledHere() or pastDeadline()) {
+            if (sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .acq_rel, .acquire) == null) break;
+            break;
+        }
+        rt.sched.commitWait(e, task().deadline);
+        if (sel.state.load(.acquire) != Sel.open) break;
+        e = rt.sched.beginWait(true);
+        sel.epoch.store(e, .seq_cst);
+    }
+    // Take back the arms still waiting; the winner's claimer is done with
+    // it, since it held that channel's lock.
+    lockAll(arms);
+    inline for (0..n) |k| arms[k].unwait();
+    unlockAll(arms);
+    const state = sel.state.load(.acquire);
+    if (state == Sel.gave_up) {
+        inline for (0..n) |k| arms[k].lost();
+        return if (canceledHere()) canceled_error else timeout_error;
+    }
+    const winner: u32 = state - 1;
+    inline for (0..n) |k| if (k == winner) arms[k].won();
+    loseAllBut(arms, winner);
+    return winner;
+}
+
+var select_turn: std.atomic.Value(u32) = .init(0);
+
+fn rotation() usize {
+    return select_turn.fetchAdd(1, .monotonic);
+}
+
+fn dropAll(arms: anytype, err: anyerror) anyerror!u32 {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    inline for (0..n) |k| arms[k].lost();
+    return err;
+}
+
+fn loseAllBut(arms: anytype, winner: u32) void {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    inline for (0..n) |k| if (k != winner) arms[k].lost();
+}
+
+/// Lock each channel of `arms` once, in the order of their addresses, so
+/// two selects never wait on each other's locks.
+fn lockAll(arms: anytype) void {
+    var keys = chanKeys(arms);
+    std.mem.sort(usize, keys.slice(), {}, std.sort.asc(usize));
+    var last: usize = 0;
+    for (keys.slice()) |k| {
+        if (k == last) continue;
+        last = k;
+        lockAt(arms, k);
+    }
+}
+
+fn unlockAll(arms: anytype) void {
+    var keys = chanKeys(arms);
+    std.mem.sort(usize, keys.slice(), {}, std.sort.asc(usize));
+    var last: usize = 0;
+    for (keys.slice()) |k| {
+        if (k == last) continue;
+        last = k;
+        unlockAt(arms, k);
+    }
+}
+
+fn ChanKeys(comptime n: usize) type {
+    return struct {
+        items: [n]usize,
+        fn slice(k: *@This()) []usize {
+            return &k.items;
+        }
+    };
+}
+
+fn chanKeys(arms: anytype) ChanKeys(@typeInfo(@TypeOf(arms.*)).@"struct".field_types.len) {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    var keys: ChanKeys(n) = undefined;
+    inline for (0..n) |k| keys.items[k] = arms[k].key();
+    return keys;
+}
+
+fn lockAt(arms: anytype, key: usize) void {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    inline for (0..n) |k| if (arms[k].key() == key) {
+        arms[k].chan.lock.lock();
+        return;
+    };
+}
+
+fn unlockAt(arms: anytype, key: usize) void {
+    const n = @typeInfo(@TypeOf(arms.*)).@"struct".field_types.len;
+    inline for (0..n) |k| if (arms[k].key() == key) {
+        arms[k].chan.lock.unlock();
+        return;
+    };
+}
+
+/// `task.select(arm, ...)`: wait until one arm's channel operation
+/// completes, commit that one alone, and give what its function gives:
+/// for `on_recv`, called with the value received, or none once the
+/// channel is closed and empty; for `on_send`, called once the value is
+/// sent. The values of the sending arms that lose are dropped.
+pub fn select(arms_in: anytype) SelectOut(@TypeOf(arms_in)) {
+    var arms = arms_in;
+    const n = @typeInfo(@TypeOf(arms)).@"struct".field_types.len;
+    const winner = try selectArms(&arms);
+    inline for (0..n) |k| if (k == winner) {
+        const A = @TypeOf(arms[k]);
+        if (@hasDecl(A, "Value")) return arms[k].f.call(.{arms[k].got});
+        return arms[k].f.call(.{});
+    };
+    unreachable;
+}
+
+fn SelectOut(comptime Arms: type) type {
+    const F = @typeInfo(Arms).@"struct".field_types[0];
+    const R = ReturnOf(@FieldType(F, "f"));
+    return anyerror!(if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R);
 }
 
 // -----------------------------------------------------------------------------

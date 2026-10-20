@@ -10469,6 +10469,69 @@ sub main()
 400
 ```
 
+### Channels
+
+`*Chan[T](n)` is a bounded channel of `n` slots (at least one), behind
+a shared handle counted atomically, as a Cell of one word is: its
+handles go to other tasks when `T` moves, and what it carries holds no
+view. `Chan[T](n)` stands only as the operand of `*`.
+
+- `!ch.send(<v)!` waits for room and sends `v`.
+- `(!ch).recv()!` waits for a value and gives it as `T?`; once the
+  channel is closed and empty it gives `none`.
+- `!ch.close()` ends sending: receivers waiting get `none`, the values
+  sent before still come out, and a later send panics.
+
+Sending and receiving change the channel, so each is marked with `!`
+through a handle the task holds, and each is a fallible waiting point,
+as `time.sleep` is: a canceled task fails there with
+`task.Stop.canceled`, and past its deadline with `task.Stop.timeout`.
+
+`task.select(arm, ...)` waits until one of its arms can complete,
+commits that one alone, and gives what its function gives:
+
+- `(!ch).on_recv(f)` receives; `f` takes the value as `T?`, `none`
+  once the channel is closed and empty.
+- `(!ch).on_send(<v, f)` sends `v`; `f` takes nothing. A send arm that
+  loses drops its value.
+
+Each `f` is a closure written in the arm, or a function's name, and all
+give the same type. Of arms ready at once, the select takes them in an
+order that turns, so none starves. It is a fallible waiting point too.
+
+```rig
+use std.task
+
+sub produce(ch: *Chan[Int], n: Int)!
+  for i in 0..n
+    !ch.send(i)!
+  !ch.close()
+
+sub main()!
+  ch = *Chan[Int](4)
+  p = produce(+ch, 5)&
+  sum = 0
+  while true
+    v = (!ch).recv()! ?? -1
+    if v < 0
+      break
+    sum += v
+  <p.wait()!
+  print(sum)
+  quit = *Chan[Int](1)
+  !quit.send(1)!
+  r = task.select(
+    (!ch).on_recv(|v| "value" if v != none else "closed"),
+    (!quit).on_recv(|_| "quit"),
+  )!
+  print(r == "closed" or r == "quit")
+```
+
+```output
+10
+true
+```
+
 ### Each element on several tasks
 
 `par.map(?xs, f)` and `par.each(!xs, f)` of `std.par`

@@ -4347,7 +4347,7 @@ pub const Checker = struct {
         const callee_found = self.errors_found;
         // An actor call's `!` marks the call, not a lend: the call reads
         // the handle, and the actor changes its own value.
-        const actor_call = if (self.sema) |ctx| ctx.isActorCall(node) else false;
+        const actor_call = if (self.sema) |ctx| ctx.isActorCall(node) or ctx.selectArmOf(node) != null else false;
         if (callee.isKind(.member) and !actor_call and self.callsFunctionField(node, callee)) {
             // A function held in a field is called with the arguments
             // alone; it reaches nothing of the value holding it.
@@ -4969,6 +4969,7 @@ pub const Checker = struct {
                 if (pn.sym == ctx.cell_sym_id) return "Cell";
                 if (pn.sym == ctx.signal_sym_id) return "Signal";
                 if (pn.sym == ctx.list_sym_id) return "List";
+                if (pn.sym == ctx.chan_sym_id) return "Chan";
                 return null;
             },
             else => return null,

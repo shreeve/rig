@@ -113,6 +113,7 @@ pub const Facts = struct {
     list_sym_id: SymbolId,
     signal_sym_id: SymbolId,
     actor_sym_id: SymbolId,
+    chan_sym_id: SymbolId,
     task_sym_id: SymbolId,
     tasks_sym_id: SymbolId,
     box_sym_id: SymbolId,
@@ -134,6 +135,7 @@ pub const Facts = struct {
             .list_sym_id = ctx.list_sym_id,
             .signal_sym_id = ctx.signal_sym_id,
             .actor_sym_id = ctx.actor_sym_id,
+            .chan_sym_id = ctx.chan_sym_id,
             .task_sym_id = ctx.task_sym_id,
             .tasks_sym_id = ctx.tasks_sym_id,
             .box_sym_id = ctx.box_sym_id,
@@ -330,6 +332,15 @@ pub const Facts = struct {
     }
     pub fn isActorCall(f: Facts, call: Sexp) bool {
         return f.c().isActorCall(call);
+    }
+    pub fn isChanMake(f: Facts, call: Sexp) bool {
+        return f.c().isChanMake(call);
+    }
+    pub fn isSelect(f: Facts, call: Sexp) bool {
+        return f.c().isSelect(call);
+    }
+    pub fn selectArmOf(f: Facts, call: Sexp) ?sema.SelectArm {
+        return f.c().selectArmOf(call);
     }
     pub fn isActorSupervised(f: Facts, call: Sexp) bool {
         return f.c().isActorSupervised(call);
