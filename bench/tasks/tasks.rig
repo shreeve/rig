@@ -103,21 +103,25 @@ called sub hog()
     sum += y
   print("hog", ns, sum)
 
-sub nap()!
+fun nap() -> Int!
   time.sleep(MANY_NAP_MS * time.MS)!
+  1
 
 called sub many()
   t = time.now()
-  ts = Tasks[Void!]()
+  ts = Tasks[Int!]()
   for 0..MANY
     !ts.add(nap()&)
-  <ts.wait_all() catch |e| print("many failed", e)
-  print("many", t.elapsed(), MANY)
+  xs = <ts.wait_all() catch List[Int]()
+  sum = 0
+  for x in xs
+    sum += x
+  print("many", t.elapsed(), sum)
 
 called sub idle()
   t = time.now()
-  nap() catch |e| print("idle failed", e)
-  print("idle", t.elapsed(), 1)
+  n = nap() catch 0
+  print("idle", t.elapsed(), n)
 
 sub main()
   args = os.args()
