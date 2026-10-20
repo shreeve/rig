@@ -341,9 +341,16 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
     return err;
 }
 
-/// The monotonic clock, in nanoseconds: the time a deadline counts on.
+/// The monotonic clock, in nanoseconds: the time a deadline counts on,
+/// virtual in a deterministic run (`rt.sched.deterministic`).
 fn nowNs() i96 {
-    return std.Io.Timestamp.now(io(), .awake).nanoseconds;
+    return rt.sched.nowNs();
+}
+
+/// `time.monotonic()`: the monotonic clock, which a deterministic run
+/// keeps virtual.
+pub fn monotonicNs() Int {
+    return @intCast(nowNs());
 }
 
 /// The deadline `within` nanoseconds from now, or none.
@@ -650,7 +657,9 @@ const ParState = struct {
 fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype) if (fallible) anyerror!void else void {
     if (n == 0) return;
     const workers: usize = if (rt.scheduled) rt.sched.workersRunning() else 1;
-    const want: usize = if (limit > 0) @intCast(limit) else workers;
+    // Deterministic, on one thread, the elements are still split among
+    // tasks, so the seed tries their interleavings.
+    const want: usize = if (limit > 0) @intCast(limit) else if (rt.sched.deterministic) 4 else workers;
     const count = @min(want, n);
     const chunk = @max(1, n / (count * 8));
     if (count <= 1 or chunk >= n) return body(ctx, 0, n);
@@ -766,6 +775,7 @@ fn markCanceled() void {
 /// otherwise lets other tasks run; in a program that makes none, it
 /// only checks the deadline.
 pub fn check() Stop!void {
+    if (rt.sched.deterministic) rt.sched.computed();
     if (canceledHere()) return canceled_error;
     if (pastDeadline()) return timeout_error;
     if (rt.scheduled) rt.sched.yield();
@@ -780,6 +790,14 @@ pub fn sleep(ns: i64) Stop!void {
     if (ns <= 0) return;
     const until = nowNs() + ns;
     const deadline = task().deadline;
+    // Deterministic and with no tasks, the clock jumps.
+    if (!rt.scheduled and rt.sched.deterministic) {
+        if (deadline) |d| if (d < until) {
+            rt.sched.advanceTo(d);
+            return timeout_error;
+        };
+        return rt.sched.advanceTo(until);
+    }
     if (!rt.scheduled) {
         const d = deadline orelse return std.Io.sleep(io(), .fromNanoseconds(ns), .awake) catch {};
         if (d >= until) return std.Io.sleep(io(), .fromNanoseconds(ns), .awake) catch {};

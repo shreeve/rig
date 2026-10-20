@@ -28,6 +28,7 @@ pub const waitTasks = tasks.waitTasks;
 pub const taskCheck = tasks.check;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
+pub const monotonicNs = tasks.monotonicNs;
 pub const parEach = tasks.parEach;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
@@ -3865,6 +3866,15 @@ pub fn start(init: std.process.Init.Minimal) void {
     // saves and puts back when `finish` joins it. Its own allocations are
     // outside the leak count.
     if (makes_tasks) threaded = .init(std.heap.smp_allocator, .{ .argv0 = .init(init.args), .environ = init.environ });
+    // `RIG_SEED=n`, as `rig test` sets it: run deterministically, with a
+    // virtual clock and seed `n` (`sched.deterministic`).
+    if (init.environ.getPosix("RIG_SEED")) |v| {
+        const n = std.fmt.parseInt(u64, v, 10) catch {
+            std.debug.print("rig: RIG_SEED must be a whole number; got `{s}`\n", .{v});
+            std.process.exit(2);
+        };
+        sched.seed(n);
+    }
     // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
     // panics on purpose: Linux passes its death to no crash handler
     // (apport). It still dies by its signal, its report on stderr
@@ -4210,6 +4220,7 @@ fn beginPanic() void {
     if (current_test) |t| {
         stdout().print("FAIL  {f}: panicked\n", .{t}) catch {};
         stdout().print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed + 1 }) catch {};
+        printSeed(stdout());
     }
     flushQuietly();
 }
@@ -4346,9 +4357,17 @@ fn runTestsHere(modules: []const TestModule) void {
     };
     running_tests = false;
     w.print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed }) catch {};
+    if (tests_failed > 0) printSeed(w);
     flush();
     releaseProcess();
     if (tests_failed > 0) std.process.exit(1);
+}
+
+/// After failing tests, the seed of a deterministic run: with it, the
+/// tests run the same way again.
+fn printSeed(w: *std.Io.Writer) void {
+    if (!sched.deterministic) return;
+    w.print("seed {d}: `rig test --seed={d}` runs these tests the same way again\n", .{ sched.seed_value, sched.seed_value }) catch {};
 }
 
 /// `?String`: a string literal (`*const [N:0]u8`) or a `?String` slice. An

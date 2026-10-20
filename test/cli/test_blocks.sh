@@ -66,7 +66,7 @@ test "never runs"
 EOF
 RIG_NO_CRASH_REPORT=1 rig test failing.rig >out.txt 2>err.txt; rc=$?
 expect_rc $rc 134 "a run a test panicked in"
-expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycle": memory leak\n0\nFAIL  test "fails with an error": Bad.oops\nFAIL  test "panics": panicked\n1 passed, 3 failed' "failing report"
+expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycle": memory leak\n0\nFAIL  test "fails with an error": Bad.oops\nFAIL  test "panics": panicked\n1 passed, 3 failed\nseed 1: `rig test --seed=1` runs these tests the same way again' "failing report"
 expect_has "$(cat err.txt)" "memory leak detected: 2 allocations" "leak detail"
 expect_has "$(cat err.txt)" "index out of bounds" "panic detail"
 
@@ -135,7 +135,7 @@ test "a failing bang"
 EOF
 rig test bool.rig >out.txt 2>&1; rc=$?
 expect_rc $rc 1 "a run a test gave false in"
-expect_eq "$(cat out.txt)" $'ok    test "sum adds the elements"\nok    test "a list grows and shrinks"\nok    test "parse reads text"\nok    test "parse rejects empty text"\nFAIL  test "sum is wrong on purpose": sum([1, 2, 3]) == 7 is false\n9\nok    test "prints and passes"\nok    test "make sure move works"\nFAIL  test "an early return false": return false if n > 2\nFAIL  test "no error comes": reached false on line 52\nFAIL  test "another error comes": e == Parse.empty is false\nFAIL  test "a failing bang": Parse.long\n6 passed, 5 failed' "Bool report"
+expect_eq "$(cat out.txt)" $'ok    test "sum adds the elements"\nok    test "a list grows and shrinks"\nok    test "parse reads text"\nok    test "parse rejects empty text"\nFAIL  test "sum is wrong on purpose": sum([1, 2, 3]) == 7 is false\n9\nok    test "prints and passes"\nok    test "make sure move works"\nFAIL  test "an early return false": return false if n > 2\nFAIL  test "no error comes": reached false on line 52\nFAIL  test "another error comes": e == Parse.empty is false\nFAIL  test "a failing bang": Parse.long\n6 passed, 5 failed\nseed 1: `rig test --seed=1` runs these tests the same way again' "Bool report"
 
 cat >none.rig <<'EOF'
 sub main()

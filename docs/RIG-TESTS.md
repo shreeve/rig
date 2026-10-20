@@ -85,7 +85,9 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
   in Zig's safe mode), `timeout: SECONDS` (default 120), `exit: N` (the
   status a `test` exits with), `errors: N` (exactly N errors, for a
   `fail`), `prints: "TEXT"` (what a `bomb` prints before it panics),
-  `stderr: "TEXT"` (what a `test` writes to stderr), `whole: true` (the
+  `stderr: "TEXT"` (what a `test` writes to stderr), `seeds: K` (a
+`test` or `bomb` also runs deterministically with each seed from 1 to
+K, `RIG_SEED`, and gives the same result each time), `whole: true` (the
   body is a whole program, used as written), `file: "NAME.rig"` (the
   name of the case's program file, by default its name, `split_on_a_space.rig`;
   what a program prints about its own place names it), `known: true` (a

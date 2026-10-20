@@ -13,6 +13,10 @@
 //! queued, or recorded as waiting, only once it has switched away, by
 //! the worker it left (`After`), so no other worker resumes it while its
 //! registers are still being saved.
+//!
+//! A program started with `RIG_SEED` set runs deterministically instead
+//! (`deterministic`): on one thread, with a virtual clock, and with the
+//! seed choosing which ready fiber runs next.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -132,6 +136,7 @@ pub fn current() ?*Fiber {
 /// fiber to take, and none is looking (`notify`). Outside the workers,
 /// `f` goes to the global queue.
 pub fn wake(f: *Fiber) void {
+    if (deterministic) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     const w = me() orelse {
         global.push(f);
         return notifyNew();
@@ -146,6 +151,7 @@ pub fn wake(f: *Fiber) void {
 
 /// Make `f` ready to run after the fibers already ready on this worker.
 fn wakeLast(f: *Fiber) void {
+    if (deterministic) return wake(f);
     if (me()) |w| w.ring.push(f) else global.push(f);
     notify();
 }
@@ -165,6 +171,13 @@ fn requeue(f: *Fiber, _: ?*anyopaque) void {
 /// a sleeping or searching worker can take is left to it.
 pub noinline fn tick() void {
     const w = me() orelse return;
+    // Deterministic: computing costs virtual time, and the seed decides
+    // whether to yield to ready work.
+    if (deterministic) {
+        computed();
+        if (ready.items.len > 0 and random(2) == 0) yield();
+        return;
+    }
     if (hasOwnWork(w)) return yield();
     if (waiting.load(.monotonic) != 0) claimWaiting(w);
 }
@@ -311,7 +324,91 @@ pub fn interruptForCancel(f: *Fiber) void {
 
 /// The monotonic clock, in nanoseconds: what deadlines count on.
 pub fn nowNs() i96 {
+    if (deterministic) return virtual_now;
     return std.Io.Timestamp.now(rt.io(), .awake).nanoseconds;
+}
+
+// -----------------------------------------------------------------------------
+// The deterministic mode
+// -----------------------------------------------------------------------------
+
+/// Whether the program runs deterministically: started with `RIG_SEED`
+/// set (`rt.start`, `seed`), as `rig test` starts one. It then runs on
+/// one thread, every blocking call in place; the monotonic clock is
+/// virtual, starting at 0 and jumping to the earliest timer whenever no
+/// fiber is ready (`advanceClock`); and the seed picks which ready fiber
+/// runs next and whether a yield check yields (`random`). So a run with
+/// the same seed makes the same choices, and a sleep takes no time. Each
+/// yield check and `task.check()` moves the clock 1 µs (`computed`), so
+/// a computation that never waits reaches its deadline too.
+pub var deterministic = false;
+/// The seed it runs with.
+pub var seed_value: u64 = 0;
+var rng_state: u64 = 1;
+/// The virtual monotonic clock, in nanoseconds.
+var virtual_now: i96 = 0;
+/// The fibers ready to run, in place of the workers' rings.
+var ready: std.ArrayList(*Fiber) = .empty;
+
+/// Run deterministically with seed `s` (`deterministic`).
+pub fn seed(s: u64) void {
+    deterministic = true;
+    seed_value = s;
+    // splitmix64 of the seed, so nearby seeds start far apart, and
+    // never 0, which xorshift would keep.
+    var z = s +% 0x9e3779b97f4a7c15;
+    z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9;
+    z = (z ^ (z >> 27)) *% 0x94d049bb133111eb;
+    rng_state = (z ^ (z >> 31)) | 1;
+}
+
+/// A number below `n` from the seeded generator (xorshift64*).
+fn random(n: usize) usize {
+    rng_state ^= rng_state >> 12;
+    rng_state ^= rng_state << 25;
+    rng_state ^= rng_state >> 27;
+    return @intCast((rng_state *% 0x2545f4914f6cdd1d) % n);
+}
+
+/// What a yield check or `task.check()` costs on the virtual clock: so
+/// a computation that never waits still reaches its deadline.
+const check_cost: i96 = 1_000;
+
+/// A yield check or `task.check()` ran: move the virtual clock on.
+pub fn computed() void {
+    virtual_now += check_cost;
+}
+
+/// Move the virtual clock forward to `t`, never back: a program that
+/// makes no tasks sleeps so (`rt.taskSleep`).
+pub fn advanceTo(t: i96) void {
+    if (t > virtual_now) virtual_now = t;
+}
+
+/// No fiber is ready: move the virtual clock to the earliest timer and
+/// wake each fiber whose deadline that reaches. With no timer either,
+/// every task waits on another, and none can ever run: a deadlock.
+fn advanceClock() void {
+    const earliest = blk: {
+        timers.lock.lock();
+        defer timers.lock.unlock();
+        if (timers.heap.items.len == 0) @panic("every task is waiting on another, and none can run: a deadlock");
+        break :blk timers.heap.items[0].wait.deadline;
+    };
+    advanceTo(earliest);
+    fireDue();
+}
+
+/// Wake each fiber whose deadline the virtual clock has reached: the
+/// clock also moves while fibers compute (`computed`).
+fn fireDue() void {
+    timers.lock.lock();
+    defer timers.lock.unlock();
+    while (timers.heap.items.len > 0 and timers.heap.items[0].wait.deadline <= virtual_now) {
+        const f = timers.heap.items[0];
+        timers.removeAt(0);
+        _ = interrupt(f, f.wait.timer_epoch, false);
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -336,6 +433,8 @@ const Timers = struct {
         t.heap.append(std.heap.smp_allocator, f) catch rt.oom();
         f.wait.heap_index = t.heap.items.len - 1;
         t.up(f.wait.heap_index);
+        // Deterministic, the worker fires timers itself (`advanceClock`).
+        if (deterministic) return t.lock.unlock();
         if (t.thread == null) t.thread = std.Thread.spawn(.{}, timerMain, .{t}) catch rt.oom();
         t.lock.unlock();
         if (earliest) t.poke();
@@ -515,6 +614,9 @@ fn poolMain(p: *Pool) void {
 /// Outside every fiber, it runs here.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
+    // Deterministic, it runs here: no other thread could end its wait
+    // in an order the seed decides.
+    if (deterministic) return @call(.auto, f, args);
     const fiber = current() orelse return @call(.auto, f, args);
     const C = struct {
         call: Call,
@@ -585,7 +687,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot = &workers[0];
-    workers[0].ring.push(&m.fiber);
+    if (deterministic) wake(&m.fiber) else workers[0].ring.push(&m.fiber);
     loop(&workers[0]);
     timers.stop();
     pool.stop();
@@ -600,6 +702,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     sleepers = .{};
     searching.store(0, .seq_cst);
     waiting.store(0, .monotonic);
+    ready.clearAndFree(std.heap.smp_allocator);
 }
 
 /// The most workers a program runs.
@@ -612,7 +715,7 @@ var started = false;
 /// program that makes none starts none.
 fn startWorkers() void {
     started = true;
-    const n = @min(workerCount(), all_workers.len);
+    const n = if (deterministic) 1 else @min(workerCount(), all_workers.len);
     workers = all_workers[0..n];
     for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
 }
@@ -642,6 +745,14 @@ fn workerMain(w: *Worker) void {
 /// is none, until `main` ends.
 fn loop(w: *Worker) void {
     while (!stopping.load(.acquire)) {
+        if (deterministic) {
+            const f = next(w) orelse {
+                advanceClock();
+                continue;
+            };
+            runFiber(w, f);
+            continue;
+        }
         const f = next(w) orelse {
             if (w.searching) {
                 w.searching = false;
@@ -693,6 +804,13 @@ fn prepare(f: *Fiber) void {
 /// it is never starved), this worker's "run next" fiber, its ring's, the
 /// global queue's, or one stolen.
 fn next(w: *Worker) ?*Fiber {
+    // Deterministic: any ready fiber, as the seed picks, once the timers
+    // the clock has reached have woken theirs.
+    if (deterministic) {
+        fireDue();
+        if (ready.items.len == 0) return null;
+        return ready.orderedRemove(random(ready.items.len));
+    }
     w.tick +%= 1;
     if (w.tick % 61 == 0) if (global.pop()) |f| return f;
     if (w.lifo) |f| {
@@ -739,6 +857,7 @@ fn search(w: *Worker) ?*Fiber {
 /// worker is looking or asleep, every one is busy, and their yield
 /// checks are told it waits (`waiting`).
 fn notifyNew() void {
+    if (deterministic) return;
     if (searching.load(.seq_cst) == 0 and sleepers.count.load(.seq_cst) == 0) {
         if (waiting.load(.monotonic) == 0) waiting.store(1, .monotonic);
         return;
@@ -750,6 +869,7 @@ fn notifyNew() void {
 /// counting it as searching from now, so the next work made does not
 /// wake another before this one has looked.
 fn notify() void {
+    if (deterministic) return;
     if (searching.load(.seq_cst) != 0) return;
     if (sleepers.count.load(.seq_cst) == 0) return;
     if (sleepers.pop()) |w| {

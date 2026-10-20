@@ -1,6 +1,6 @@
 # concurrency: tests whose names start `task`.
 
-test "task wait", '''
+test "task wait", seeds: 20, '''
   16 3
 '''
   # `f(x)&` starts the call as a task and gives a `Task[T]` at once;
@@ -20,7 +20,7 @@ test "task wait", '''
   u = total(?xs)&
   print(<t.wait(), <u.wait())
 
-test "task read loan ends at wait", '''
+test "task read loan ends at wait", seeds: 20, '''
   1
 '''
   # A task keeps its loans until it is waited for; then `xs` can be
@@ -34,7 +34,7 @@ test "task read loan ends at wait", '''
   !xs.push(n)
   print(xs.len)
 
-test "task write loan", release: true, '''
+test "task write loan", seeds: 20, release: true, '''
   3
   3 4
 '''
@@ -55,7 +55,7 @@ test "task write loan", release: true, '''
   n = <u.wait()
   print(n, xs.len)
 
-test "task methods", '''
+test "task methods", seeds: 20, '''
   3
   3
   n is 3
@@ -84,7 +84,7 @@ test "task methods", '''
   v = (<c).into()&
   print(<v.wait())
 
-test "task generic", "[7, 7]"
+test "task generic", seeds: 20, "[7, 7]"
   fun twice[T](x: T) -> List[T]
     out: List[T] = List()
     !out.push(x)
@@ -94,7 +94,7 @@ test "task generic", "[7, 7]"
   w = twice[Int](7)&
   <w.wait()
 
-test "task many", release: true, '''
+test "task many", seeds: 20, release: true, '''
   101152559
 '''
   # Tasks held in a List, each waited for in turn.
@@ -112,7 +112,7 @@ test "task many", release: true, '''
     sum += <t.wait()
   print(sum)
 
-test "task dropped waits", '''
+test "task dropped waits", seeds: 20, '''
   started
   end
   drop 1
@@ -132,7 +132,7 @@ test "task dropped waits", '''
   print("started")
   print("end")
 
-test "task fallible", '''
+test "task fallible", seeds: 20, '''
   2
   -1
 '''
@@ -153,7 +153,7 @@ test "task fallible", '''
   print(both(2, 2) catch -1)
   print(both(4, 3) catch -1)
 
-test "task print", '''
+test "task print", seeds: 20, '''
   <task>
   2
 '''
@@ -164,7 +164,7 @@ test "task print", '''
   print(t)
   print(<t.wait())
 
-test "task defer before", "0"
+test "task defer before", seeds: 20, "0"
   # A defer declared before the task runs after the task is dropped.
   fun total(xs: ?List[Int]) -> Int
     xs.len
@@ -177,7 +177,7 @@ test "task defer before", "0"
   u = total(?xs)&
   print(<u.wait())
 
-test "task prints", '''
+test "task prints", seeds: 20, '''
   in the task
   done
 '''
@@ -188,7 +188,7 @@ test "task prints", '''
   <t.wait()
   print("done")
 
-test "task amp spacing", '''
+test "task amp spacing", seeds: 20, '''
   2 2 16
 '''
   # `&` touching a `)` with nothing touching its other side starts a
@@ -273,7 +273,7 @@ fail "task crossing task lent", "a task may run on another core, and `?a` is len
   t = peek(?a)&
   print(<t.wait(), <a.wait())
 
-test "task crossing passed", '''
+test "task crossing passed", seeds: 20, '''
   6
   3
   5
@@ -318,7 +318,7 @@ test "task crossing passed", '''
   <e.wait()
   print(c.n)
 
-test "task moved into a task", "17"
+test "task moved into a task", seeds: 20, "17"
   # A task moves to another task, which waits for it.
   fun square(n: Int) -> Int
     n * n

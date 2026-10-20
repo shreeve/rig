@@ -761,7 +761,16 @@ packed = (c) ->
     throw new Error('its pack was never built') if Date.now() - waited > 1800 * 1000
     await Bun.sleep(100)
 
+# A case with `seeds: K` runs again deterministically with each seed
+# from 1 to K (RIG_SEED, docs/RIG-TESTS.md), and must give the same
+# result each time.
 checkRun = (c) ->
+  await checkRunWith(c, {}, '')
+  if c.opts.seeds?
+    for s in [1..Number(c.opts.seeds)]
+      await checkRunWith(c, { RIG_SEED: String(s) }, " (seed #{s})")
+
+checkRunWith = (c, seedEnv, seedNote) ->
   panic = if c.verb is 'bomb' then (if c.args.length > 0 then printed(c.args[0]) else null) else null
   throw new Error('a `bomb` names its panic') if c.verb is 'bomb' and not panic?
   seconds = Number(c.opts.timeout ?? 120)
@@ -772,8 +781,8 @@ checkRun = (c) ->
   # As the suite always has, a case that ends a program on purpose runs
   # with RIG_NO_CRASH_REPORT=1.
   quiet = if c.verb is 'bomb' or c.opts.exit? then { RIG_NO_CRASH_REPORT: '1' } else {}
-  r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: c.path + (if c.release then '.release' else '.debug'), ...quiet }, seconds)
-  mode = if c.release then ' (release)' else ''
+  r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: c.path + (if c.release then '.release' else '.debug'), ...quiet, ...seedEnv }, seconds)
+  mode = (if c.release then ' (release)' else '') + seedNote
   throw new Error("timed out after #{seconds}s#{mode}") unless r.code?
   rejected = r.err.match(/(\S+\.rig):(\d+):(\d+): error: (.*)/)
   throw new Error("rejected by rig at #{bodyAt(c, rejected[1], Number(rejected[2]), Number(rejected[3]))}: #{rejected[4]}") if rejected and r.code is 1 and not inPack
