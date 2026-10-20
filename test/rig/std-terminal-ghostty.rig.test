@@ -743,3 +743,580 @@ test "DEL inside CSI is ignored", '''
   t = terminal.Terminal.new(10, 4)
   !t.feed("\x1b[2\x7fCX")
   print(t.dump())
+
+test "EL 0 erases to the end of the row", '''
+  |abc
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;4H\x1b[K")
+  print(t.dump())
+
+test "EL 1 erases to the cursor", '''
+  |    efghij
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;4H\x1b[1K")
+  print(t.dump())
+
+test "EL 2 erases the row", '''
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;4H\x1b[2K")
+  print(t.dump())
+
+test "EL with an unknown parameter", '''
+  |abcdefghij
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;4H\x1b[5K")
+  print(t.dump())
+
+test "EL clears a pending wrap", '''
+  |abcX
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x1b[KX")
+  print(t.dump())
+
+test "selective EL erases", '''
+  |abc
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;4H\x1b[?K")
+  print(t.dump())
+
+test "ED 0 erases to the end of the screen", '''
+  |abcdefghij
+  |abc
+  |
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abcdefghijabcdefghijabcdefghijabcdefghij\x1b[2;4H\x1b[J")
+  print(t.dump())
+
+test "ED 1 erases to the cursor", '''
+  |
+  |    efghij
+  |abcdefghij
+  |abcdefghij
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abcdefghijabcdefghijabcdefghijabcdefghij\x1b[2;4H\x1b[1J")
+  print(t.dump())
+
+test "ED 2 erases the screen", '''
+  |
+  |
+  |
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abcdefghijabcdefghijabcdefghijabcdefghij\x1b[2;4H\x1b[2J")
+  print(t.dump())
+
+test "ED 3 keeps the screen", '''
+  |abcdefghij
+  |abcdefghij
+  |abcdefghij
+  |abcdefghij
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abcdefghijabcdefghijabcdefghijabcdefghij\x1b[2;4H\x1b[3J")
+  print(t.dump())
+
+test "ED with a wrap pending", '''
+  |abcX
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x1b[JX")
+  print(t.dump())
+
+test "ECH erases cells", '''
+  |ab   fghij
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[3X")
+  print(t.dump())
+
+test "ECH with no count erases one", '''
+  |ab defghij
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[X")
+  print(t.dump())
+
+test "ECH of zero erases one", '''
+  |ab defghij
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[0X")
+  print(t.dump())
+
+test "ECH stops at the row's end", '''
+  |abcdefg
+  |
+  cursor 0 7
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;8H\x1b[9X")
+  print(t.dump())
+
+test "ECH clears a pending wrap", '''
+  |abcX
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x1b[XX")
+  print(t.dump())
+
+test "DECALN fills the screen with E", '''
+  |EEEEEE
+  |EEEEEE
+  |EEEEEE
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(6, 3)
+  !t.feed("ab\x1b[2;3r\x1b[3;3H\x1b#8")
+  print(t.dump())
+
+test "ICH inserts blanks", '''
+  |ab  cdefgh
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[2@")
+  print(t.dump())
+
+test "ICH with no count inserts one", '''
+  |abXcdef
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdef\x1b[1;3H\x1b[@X")
+  print(t.dump())
+
+test "ICH past the row's end", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[20@")
+  print(t.dump())
+
+test "ICH clears a pending wrap", '''
+  |abcX
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x1b[@X")
+  print(t.dump())
+
+test "DCH deletes cells", '''
+  |abefghij
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[2P")
+  print(t.dump())
+
+test "DCH of zero does nothing", '''
+  |abcdefghij
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[0P")
+  print(t.dump())
+
+test "DCH past the row's end", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("abcdefghij\x1b[1;3H\x1b[20P")
+  print(t.dump())
+
+test "DCH clears a pending wrap", '''
+  |abcX
+  |
+  cursor 0 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x1b[PX")
+  print(t.dump())
+
+test "IL inserts lines", '''
+  |1
+  |X
+  |2
+  |3
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2;3H\x1b[LX")
+  print(t.dump())
+
+test "IL of many clears to the bottom", '''
+  |1
+  |X
+  |
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2;3H\x1b[9LX")
+  print(t.dump())
+
+test "IL of zero does nothing", '''
+  |1
+  |2 X
+  |3
+  |4
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2;3H\x1b[0LX")
+  print(t.dump())
+
+test "DL deletes lines", '''
+  |1
+  |X
+  |4
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2;3H\x1b[MX")
+  print(t.dump())
+
+test "DL of many clears to the bottom", '''
+  |1
+  |X
+  |
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2;3H\x1b[9MX")
+  print(t.dump())
+
+test "IL inside the scroll region", '''
+  |1
+  |2
+  |X
+  |3
+  |5
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[3;2H\x1b[LX")
+  print(t.dump())
+
+test "DL inside the scroll region", '''
+  |1
+  |X
+  |4
+  |
+  |5
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[2;2H\x1b[MX")
+  print(t.dump())
+
+test "IL outside the scroll region does nothing", '''
+  |1
+  |2
+  |3
+  |4
+  |5X
+  cursor 4 2
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[5;2H\x1b[LX")
+  print(t.dump())
+
+test "IL clears a pending wrap", '''
+  |X
+  |abcd
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("abcd\x1b[LX")
+  print(t.dump())
+
+test "DECSTBM homes the cursor", '''
+  |X
+  |
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[3;3H\x1b[2;4rX")
+  print(t.dump())
+
+test "LF at the bottom margin scrolls the region", '''
+  |1
+  |3
+  |4
+  |X
+  |5
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[4;1H\x0aX")
+  print(t.dump())
+
+test "LF below the region moves down", '''
+  |1
+  |2
+  |
+  |
+  |X
+  cursor 4 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x1b[2;3r\x1b[4;1H\x0aX")
+  print(t.dump())
+
+test "LF at the last row below the region", '''
+  |1
+  |2
+  |
+  |
+  |X
+  cursor 4 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x1b[2;3r\x1b[5;1H\x0aX")
+  print(t.dump())
+
+test "RI at the top margin scrolls the region down", '''
+  |1
+  |X
+  |2
+  |3
+  |5
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[2;1H\x1bMX")
+  print(t.dump())
+
+test "RI at the top margin keeps a pending wrap", '''
+  |1
+  |
+  |Xbcd
+  |
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(4, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[2;3r\x1b[2;1Habcd\x1bMX")
+  print(t.dump())
+
+test "CUU stops at the top margin", '''
+  |
+  |X
+  |
+  |
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[2;4r\x1b[4;1H\x1b[9AX")
+  print(t.dump())
+
+test "CUD stops at the bottom margin", '''
+  |
+  |
+  |
+  |X
+  |
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[2;4r\x1b[2;1H\x1b[9BX")
+  print(t.dump())
+
+test "CUU above the region stops at the top", '''
+  |X
+  |
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[3;4r\x1b[2;1H\x1b[9AX")
+  print(t.dump())
+
+test "CUD below the region stops at the bottom", '''
+  |
+  |
+  |
+  |
+  |X
+  cursor 4 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[2;3r\x1b[4;1H\x1b[9BX")
+  print(t.dump())
+
+test "CUP ignores the region", '''
+  |
+  |
+  |
+  |
+  |    X
+  cursor 4 5
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[2;3r\x1b[5;5HX")
+  print(t.dump())
+
+test "a region of one row is ignored", '''
+  |2
+  |3
+  |
+  |
+  |X
+  cursor 4 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[3;3r\x1b[5;1H\x0aX")
+  print(t.dump())
+
+test "DECSTBM with no parameters resets", '''
+  |2
+  |3
+  |4
+  |5
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[2;3r\x1b[r1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5")
+  print(t.dump())
+
+test "a bottom past the screen is the last row", '''
+  |1
+  |3
+  |4
+  |5
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x1b[2;99r1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5")
+  print(t.dump())
+
+test "SU scrolls the region up", '''
+  |1
+  |3
+  |4 X
+  |
+  |5
+  cursor 2 3
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[3;3H\x1b[SX")
+  print(t.dump())
+
+test "SD scrolls the region down", '''
+  |1
+  |
+  |  X
+  |2
+  |5
+  cursor 2 3
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[3;3H\x1b[2TX")
+  print(t.dump())
+
+test "SU of many clears the region", '''
+  |1
+  |
+  |
+  |
+  |5
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[9S")
+  print(t.dump())
+
+test "SU keeps a pending wrap", '''
+  |abcd
+  |
+  |X
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("1\x0d\x0aabcd\x1b[SX")
+  print(t.dump())
+
+test "SU of zero", '''
+  |1
+  |2
+  |3
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[0S")
+  print(t.dump())
+
+test "SD of zero", '''
+  |1
+  |2
+  |3
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[0T")
+  print(t.dump())
+
+test "wrapping at the bottom margin scrolls the region", '''
+  |2
+  |abcd
+  |ef
+  |4
+  cursor 2 2
+'''
+  t = terminal.Terminal.new(4, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[1;3r\x1b[3;1Habcdef")
+  print(t.dump())

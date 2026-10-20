@@ -1586,7 +1586,9 @@ autowrap with a pending wrap, and the C0 controls BS, HT, LF, VT, FF,
 and CR; escape and control sequences, parsed by the DEC state machine
 (https://vt100.net/emu/dec_ansi_parser), for cursor movement (CUU, CUD,
 CUF, CUB, CNL, CPL, CHA, HPA, HPR, VPA, VPR, CUP, HVP), tab stops (HT,
-CHT, CBT, HTS, TBC), IND, NEL, RI, and DECSC/DECRC. Strings (OSC, DCS,
+CHT, CBT, HTS, TBC), IND, NEL, RI, DECSC/DECRC, scroll margins (DECSTBM,
+SU, SD), erasing (ED, EL, ECH, DECALN), and inserting and deleting lines
+and cells (IL, DL, ICH, DCH). Strings (OSC, DCS,
 APC, and the rest) are read to their end and ignored, and so are bytes of
 0x80 and up.
 
