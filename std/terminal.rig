@@ -6,8 +6,9 @@
 # test/rig/std-terminal-ghostty.rig.test hold Ghostty's answers
 # (tools/terminal_ghostty.py records them).
 #
-# This file holds the screen and the operations on it; parser.rig turns
-# bytes into those operations.
+# The file is in three parts: the styles cells take (what SGR sets, and
+# how a dump writes them); the screen and the operations on it; and the
+# parser, the DEC state machine that turns bytes into those operations.
 
 use std.hash
 use std.text
@@ -33,6 +34,167 @@ extern zig "cells.zig"
 extern zig "width_tables.zig"
   # The width bits of rune `r`: its width, ZERO_IN_CHAR, and VS_BASE.
   fun width_props(r: Int) -> Int
+
+# ---- Styles --------------------------------------------------------------
+
+# What SGR sets, and how a style is written in a dump. A color is NONE, a
+# palette index (0 to 255), or RGB | 0xRRGGBB.
+
+NONE = -1
+RGB = 0x1000000
+
+# Flag bits, in the order a dump writes them.
+BOLD = 1
+ITALIC = 2
+FAINT = 4
+BLINK = 8
+INVERSE = 16
+INVISIBLE = 32
+STRIKE = 64
+OVERLINE = 128
+
+FLAG_NAMES = ["bold", "italic", "faint", "blink", "inverse", "invisible", "strike", "overline"]
+UNDERLINE_NAMES = ["none", "single", "double", "curly", "dotted", "dashed"]
+
+# How a cell looks besides its rune.
+obj Style
+  flags: Int
+  # 0 none, then single, double, curly, dotted, dashed.
+  underline: Int
+  fg: Int
+  bg: Int
+  ulc: Int
+
+  fun plain() -> Style
+    Style(flags: 0, underline: 0, fg: NONE, bg: NONE, ulc: NONE)
+
+  fun same(?@, o: ?Style) -> Bool
+    @flags == o.flags and @underline == o.underline and @fg == o.fg and @bg == o.bg and @ulc == o.ulc
+
+  fun is_plain(?@) -> Bool
+    @flags == 0 and @underline == 0 and @fg == NONE and @bg == NONE and @ulc == NONE
+
+  # The style as a dump writes it: the flags set, then ul=, fg=, bg=, ulc=.
+  sub text(?@, out: !String)
+    for name, k in FLAG_NAMES
+      if @flags & (1 << k) != 0
+        !out.push(b' ') if out.len > 0
+        !out.add(name)
+    if @underline != 0
+      !out.push(b' ') if out.len > 0
+      !out.add("ul=", UNDERLINE_NAMES[@underline])
+    color_text(!out, "fg=", @fg)
+    color_text(!out, "bg=", @bg)
+    color_text(!out, "ulc=", @ulc)
+
+sub color_text(out: !String, name: ?String, c: Int)
+  return if c == NONE
+  !out.push(b' ') if out.len > 0
+  !out.add(name)
+  if c < RGB
+    !out.add(c)
+    return
+  !out.push(b'#')
+  for shift in [16, 8, 0]
+    v = (c >> shift) & 0xFF
+    !out.push(HEX[v >> 4])
+    !out.push(HEX[v & 15])
+
+HEX = b"0123456789abcdef"
+
+# SGR: each attribute of the parameters, in order, applied to the pen, as
+# Ghostty's sgr.Parser reads them. `seps` has bit i set when parameter i
+# ended with a colon.
+sub Terminal.sgr(!@)
+  n = @count if @count < MAX_PARAMS else MAX_PARAMS
+  if n == 0
+    @pen = Style.plain()
+    return
+  i = 0
+  while i < n
+    i = (!@).sgr_one(i, n)
+
+# The attribute at parameter `i`; where the next one starts.
+fun Terminal.sgr_one(!@, i: Int, n: Int) -> Int
+  v = @params[i]
+  colon = (@seps >> i) & 1 != 0
+  rest = n - i
+  if colon and v != 4 and v != 38 and v != 48 and v != 58
+    return colon_end(@seps, i, n) + 1
+  match v
+    0 => @pen = Style.plain()
+    1 => @pen.flags |= BOLD
+    2 => @pen.flags |= FAINT
+    3 => @pen.flags |= ITALIC
+    4
+      if colon
+        return i + 1 if rest < 2
+        if (@seps >> (i + 1)) & 1 != 0
+          return colon_end(@seps, i + 1, n) + 1
+        u = @params[i + 1]
+        @pen.underline = u if u <= 5 else 1
+        return i + 2
+      @pen.underline = 1
+    5, 6 => @pen.flags |= BLINK
+    7 => @pen.flags |= INVERSE
+    8 => @pen.flags |= INVISIBLE
+    9 => @pen.flags |= STRIKE
+    21 => @pen.underline = 2
+    22 => @pen.flags &= (BOLD | FAINT).not()
+    23 => @pen.flags &= ITALIC.not()
+    24 => @pen.underline = 0
+    25 => @pen.flags &= BLINK.not()
+    27 => @pen.flags &= INVERSE.not()
+    28 => @pen.flags &= INVISIBLE.not()
+    29 => @pen.flags &= STRIKE.not()
+    30..38 => @pen.fg = v - 30
+    38, 48, 58
+      if rest >= 2
+        kind = @params[i + 1]
+        if kind == 5 and rest >= 3
+          (!@).set_color(v, @params[i + 2] & 0xFF)
+          return i + 3
+        if kind == 2 and rest >= 5
+          if not colon
+            (!@).set_color(v, rgb(@params[i + 2], @params[i + 3], @params[i + 4]))
+            return i + 5
+          # Colons after the `2`: three for r:g:b, four with a color space.
+          k = colon_end(@seps, i + 1, n) - i - 1
+          if k == 3
+            (!@).set_color(v, rgb(@params[i + 2], @params[i + 3], @params[i + 4]))
+            return i + 5
+          if k == 4
+            (!@).set_color(v, rgb(@params[i + 3], @params[i + 4], @params[i + 5]))
+            return i + 6
+          return colon_end(@seps, i, n) + 1
+    39 => @pen.fg = NONE
+    40..48 => @pen.bg = v - 40
+    49 => @pen.bg = NONE
+    53 => @pen.flags |= OVERLINE
+    55 => @pen.flags &= OVERLINE.not()
+    59 => @pen.ulc = NONE
+    90..98 => @pen.fg = v - 82
+    100..108 => @pen.bg = v - 92
+    _ => pass
+  i + 1
+
+sub Terminal.set_color(!@, which: Int, c: Int)
+  match which
+    38 => @pen.fg = c
+    48 => @pen.bg = c
+    _ => @pen.ulc = c
+
+fun rgb(r: Int, g: Int, b: Int) -> Int
+  RGB | (r & 0xFF) << 16 | (g & 0xFF) << 8 | (b & 0xFF)
+
+# The last parameter of the run of colon-joined parameters from `i`.
+fun colon_end(seps: Int, i: Int, n: Int) -> Int
+  k = i
+  while k < n - 1 and (seps >> k) & 1 != 0
+    k += 1
+  k
+
+# ---- The screen ----------------------------------------------------------
 
 # The class `pict` of char_class: Extended_Pictographic, an emoji modifier
 # base aside when tailored.
@@ -170,12 +332,13 @@ fun rune(c: U64) -> Int
 fun mark(c: U64) -> Int
   Int(c >> 32)
 
-# A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune
-# in the low 21 bits (0 for empty), PROT in bit 28, EXTRA in bit 29, its kind (WIDE, TAIL,
-# HEAD, or 0) in the next 2, and its style, an index into `styles`, in
-# the high 32. The screen's rows are kept in any order: row `y` is cells
-# `map[rot + y] * cols` to `map[rot + y] * cols + cols - 1`, and its flags
-# are `flags[map[rot + y]]`, so a scroll moves entries of `map`, not cells.
+# A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune in
+# the low 21 bits (0 for empty), PROT in bit 28, EXTRA in bit 29, its kind
+# (WIDE, TAIL, HEAD, or 0) in the next 2, and its style, an index into
+# `styles`, in the high 32. The screen's rows are kept in any order: row `y`
+# is cells `map[rot + y] * cols` to `map[rot + y] * cols + cols - 1`, and
+# its flags are `flags[map[rot + y]]`, so a scroll moves entries of `map`,
+# not cells.
 pub obj Terminal
   # The bytes the terminal answers with (DA, DSR, DECRQM, XTVERSION, ...),
   # in order, for the caller to send to the program and then clear.
@@ -270,8 +433,9 @@ pub obj Terminal
   # The background of the other screen's cursor when it was left, which a
   # screen is erased with as 1049 enters it, before the cursor comes over.
   other_bg: Int
-  # The parser (parser.rig): its state, the CSI parameters so far, and the
-  # intermediate bytes, packed with the first in the highest byte.
+  # The parser (its part is the last): its state, the CSI parameters so
+  # far, and the intermediate bytes, packed with the first in the highest
+  # byte.
   state: State
   params: [24]Int
   count: Int
@@ -1303,3 +1467,470 @@ pub obj Terminal
     !out.add("cursor ", @row, " ", @col)
     !out.add(" wrap") if @pending_wrap
     out
+
+# ---- The parser ----------------------------------------------------------
+
+# The DEC state machine of vt100.net
+# (https://vt100.net/emu/dec_ansi_parser), as Ghostty runs it, turning
+# bytes into the operations above. In the ground state bytes are UTF-8,
+# read by utf8.Decoder, as Ghostty reads them; in a sequence a byte from
+# 0x80 to 0x9F is a C1 control. Strings (OSC, DCS, SOS, PM, and APC) are
+# read to their end and ignored so far.
+
+ESC: U8 = b'\x1b'
+CAN: U8 = b'\x18'
+SUB: U8 = b'\x1a'
+DEL: U8 = b'\x7f'
+
+# Where the parser is in a sequence.
+enum State
+  ground
+  escape
+  escape_intermediate
+  csi_entry
+  csi_param
+  csi_intermediate
+  csi_ignore
+  osc
+  # DCS: its parameters and intermediates, then its body (passthrough, or
+  # ignored when malformed), where C1 bytes are data.
+  dcs_entry
+  dcs_param
+  dcs_intermediate
+  dcs_body
+  # SOS, PM, and APC, to ST.
+  apc
+
+# The most parameters a CSI sequence may have; one with more does nothing.
+MAX_PARAMS = 24
+
+# The largest parameter value; a larger one is this.
+MAX_PARAM = 65535
+
+# Take `bytes` as a program's output, in order. In the ground state a run
+# of printable ASCII goes to `print_run` whole, and one that starts with a
+# byte of 0x80 or more to `print_utf8`; a byte it stops at (one that is
+# ill-formed UTF-8, or starts a rune cut off at the end of `bytes`), and
+# any byte while a rune is under way, goes to the UTF-8 decoder.
+pub sub Terminal.feed(!@, bytes: ?String)
+  i = 0
+  n = bytes.len
+  while i < n
+    b = bytes[i]
+    if @state == .ground
+      if not @decoder.pending()
+        j = printable_end(bytes, i)
+        if j > i
+          (!@).print_run(bytes, i, j)
+          i = j
+          continue
+        if b >= 0x80
+          j = (!@).print_utf8(bytes, i)
+          if j > i
+            i = j
+            continue
+        else
+          # The commonest controls, run here without the state machine.
+          if b == b'\r'
+            (!@).carriage_return()
+            if i + 1 < n and bytes[i + 1] == b'\n'
+              # CR LF, the commonest line end, at once.
+              (!@).index()
+              i += 2
+              continue
+          else if b == b'\n'
+            (!@).index()
+            (!@).carriage_return() if @newline
+          else if b == ESC and i + 2 < n and bytes[i + 1] == b'['
+            j = (!@).csi_run(bytes, i + 2)
+            if j > 0
+              i = j
+              continue
+            (!@).step(b)
+          else
+            (!@).step(b)
+          i += 1
+          continue
+      if (!@decoder).next(b) as r
+        # A UTF-8-encoded C1 control is ignored, as Ghostty does.
+        (!@).print(U32(r)) if r > 0x9F
+      i += 1 if not @decoder.retry
+      continue
+    (!@).step(b)
+    i += 1
+
+# A CSI sequence whose parameters start at byte `from` of `s`, read
+# whole when it is the common kind: digits and `;`, then a final byte, all
+# in `s`. Its parameters and final go where the state machine would put
+# them, and where it ends is returned; for any other kind (a private
+# marker, a colon, an intermediate, a control, or the end of `s` before
+# the final) nothing has acted, and 0 is returned, for the state machine
+# to read it from its ESC.
+fun Terminal.csi_run(!@, s: ?String, from: Int) -> Int
+  (!@).clear()
+  k = from
+  while k < s.len
+    b = s[k]
+    if b >= b'0' and b <= b';' and b != b':'
+      (!@).param(b)
+    else if b >= 0x40 and b <= 0x7E
+      (!@).csi_final(b)
+      return k + 1
+    else
+      return 0
+    k += 1
+  0
+
+# The first byte at or after `i` that is not printable in the ground state
+# (below 0x20, or 0x80 and up), or `s.len`. Most runs between sequences are
+# short, so the first 16 bytes are tested one at a time; a longer run is
+# tested 16 bytes at once, and its last bytes by reading the last 16 of
+# `s` again.
+fun printable_end(s: ?String, i: Int) -> Int
+  if i >= 0
+    k = i
+    stop = i + 16 if i + 16 < s.len else s.len
+    # Eight bytes at a time as one U64: a byte below 0x20 borrows in the
+    # subtraction, and one of 0x80 or more has its top bit, so the lowest
+    # top bit set marks the first byte not printable.
+    while k + 8 <= stop
+      x = s.read[U64, .little](k)
+      m = ((x -% 0x2020202020202020) | x) & 0x8080808080808080
+      return k + (m.trailing_zeros() >> 3) if m != 0
+      k += 8
+    while k < stop
+      b = s[k]
+      return k if b < 0x20 or b >= 0x80
+      k += 1
+    while k + 16 <= s.len
+      v = s.read[Simd[U8, 16]](k)
+      if ((v < 0x20) | (v >= 0x80)).first() as j
+        return k + j
+      k += 16
+    if k < s.len
+      # Fewer than 16 are left: read the last 16 of `s` again, and drop
+      # the lanes before `k`, which were tested.
+      m = ((s.read[Simd[U8, 16]](s.len - 16) < 0x20) | (s.read[Simd[U8, 16]](s.len - 16) >= 0x80)).bits() >> (k + 16 - s.len)
+      return k + m.trailing_zeros() if m != 0
+  s.len
+
+sub Terminal.step(!@, b: U8)
+  if b >= 0x80
+    (!@).high(b)
+    return
+  if b == ESC
+    (!@).clear()
+    @state = .escape
+    return
+  if b == CAN or b == SUB
+    @state = .ground
+    return
+  match @state
+    .ground
+      # Ghostty prints DEL as a character, where xterm ignores it.
+      if b >= 0x20
+        (!@).print(U32(b))
+      else
+        (!@).execute(b)
+    .escape
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .escape_intermediate
+      else if b == b'['
+        @state = .csi_entry
+      else if b == b']'
+        @state = .osc
+      else if b == b'P'
+        (!@).clear()
+        @state = .dcs_entry
+      else if b == b'X' or b == b'^' or b == b'_'
+        @state = .apc
+      else if b != DEL
+        @state = .ground
+        (!@).esc_dispatch(b)
+    .escape_intermediate
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+      else if b != DEL
+        @state = .ground
+        (!@).esc_dispatch(b)
+    .csi_entry
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .csi_intermediate
+      else if b == b':'
+        @state = .csi_ignore
+      else if b < 0x3C
+        (!@).param(b)
+        @state = .csi_param
+      else if b < 0x40
+        (!@).collect(b)
+        @state = .csi_param
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_param
+      # Ghostty executes only C0 bytes below 0x10 here, and drops the rest.
+      if b < 0x10
+        (!@).execute(b)
+      else if b < 0x20
+        pass
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .csi_intermediate
+      else if b < 0x3C
+        (!@).param(b)
+      else if b < 0x40
+        @state = .csi_ignore
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_intermediate
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+      else if b < 0x40
+        @state = .csi_ignore
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_ignore
+      if b < 0x20
+        (!@).execute(b)
+      else if b >= 0x40 and b != DEL
+        @state = .ground
+    .osc
+      @state = .ground if b == b'\x07' else .osc
+    .dcs_entry
+      if b >= 0x20 and b != DEL
+        if b < 0x30
+          @state = .dcs_intermediate
+        else if b == b':' or b >= 0x40
+          @state = .dcs_body
+        else
+          @state = .dcs_param
+    .dcs_param
+      if b >= 0x20 and b != DEL
+        if b < 0x30
+          @state = .dcs_intermediate
+        else if b == b':' or b >= 0x3C
+          @state = .dcs_body
+    .dcs_intermediate
+      @state = .dcs_body if b >= 0x30 and b != DEL
+    .dcs_body, .apc => pass
+
+# A byte of 0x80 or more outside the ground state. In an OSC or DCS body it
+# is data; elsewhere one from 0x80 to 0x9F is a C1 control, which acts from
+# any state: ST ends a string, CSI, OSC, DCS, SOS, PM, and APC begin one,
+# and the rest run as ESC and the byte less 0x40 would.
+sub Terminal.high(!@, b: U8)
+  return if @state == .osc or @state == .dcs_body or b >= 0xA0
+  if b == 0x9C
+    @state = .ground
+  else if b == 0x9B
+    (!@).clear()
+    @state = .csi_entry
+  else if b == 0x9D
+    @state = .osc
+  else if b == 0x90
+    (!@).clear()
+    @state = .dcs_entry
+  else if b == 0x98 or b == 0x9E or b == 0x9F
+    @state = .apc
+  else
+    @state = .ground
+    @inter = 0
+    @inter_count = 0
+    (!@).esc_dispatch(b - 0x40)
+
+sub Terminal.clear(!@)
+  @count = 0
+  @acc = 0
+  @digits = false
+  @colon = false
+  @inter = 0
+  @inter_count = 0
+  @seps = 0
+
+# An intermediate (or a private marker such as `?`), up to four.
+sub Terminal.collect(!@, b: U8)
+  if @inter_count < 4
+    @inter = @inter << 8 | Int(b)
+    @inter_count += 1
+
+# A digit of a parameter, or a `;` or `:` that ends one.
+sub Terminal.param(!@, b: U8)
+  if b == b';' or b == b':'
+    if @count < MAX_PARAMS
+      @params[@count] = @acc
+      if b == b':'
+        @colon = true
+        @seps |= 1 << @count
+    @count += 1
+    @acc = 0
+    @digits = false
+    return
+  @acc = @acc * 10 + Int(b - b'0')
+  @acc = MAX_PARAM if @acc > MAX_PARAM
+  @digits = true
+
+# A C0 control.
+sub Terminal.execute(!@, b: U8)
+  match b
+    b'\x08' => (!@).backspace()
+    b'\t' => (!@).tab(1)
+    b'\n', b'\x0b', b'\x0c'
+      (!@).index()
+      (!@).carriage_return() if @newline
+    b'\r' => (!@).carriage_return()
+    # SO and SI: G1 or G0 into GL.
+    b'\x0e' => @gl = 1
+    b'\x0f' => @gl = 0
+    _ => pass
+
+sub Terminal.esc_dispatch(!@, b: U8)
+  # SCS: `ESC ( F` designates set F into G0, `)` G1, `*` G2, `+` G3.
+  if b == b'B' or b == b'A' or b == b'0'
+    if @inter_count == 1 and @inter >= Int(b'(') and @inter <= Int(b'+')
+      @g[@inter - Int(b'(')] = ASCII if b == b'B' else (BRITISH if b == b'A' else DEC_SPECIAL)
+    return
+  if @inter == Int(b'#')
+    (!@).align() if b == b'8'
+    return
+  return if @inter != 0
+  match b
+    b'7' => (!@).save_cursor()
+    b'8' => (!@).restore_cursor()
+    b'D' => (!@).index()
+    b'E'
+      (!@).index()
+      (!@).carriage_return()
+    b'H' => (!@).tab_set()
+    b'M' => (!@).reverse_index()
+    b'c' => (!@).full_reset()
+    b'Z' => (!@).device_attributes(0)
+    # SS2 and SS3: G2 or G3 for the next rune; LS2 and LS3: into GL.
+    b'N' => @single = 2
+    b'O' => @single = 3
+    b'n' => @gl = 2
+    b'o' => @gl = 3
+    # SPA and EPA: protection of the cells printed, ISO, on and off.
+    b'V' => (!@).set_protect(PROT_ISO)
+    b'W' => (!@).set_protect(PROT_OFF)
+    _ => pass
+
+# The final byte of a CSI sequence: the parameters are complete.
+sub Terminal.csi_final(!@, b: U8)
+  @state = .ground
+  if @digits
+    if @count < MAX_PARAMS
+      @params[@count] = @acc
+    @count += 1
+  return if @count > MAX_PARAMS
+  return if @colon and b != b'm'
+  n = @count
+  p0 = @params[0] if n > 0 else 0
+  p1 = @params[1] if n > 1 else 0
+  # ED and EL with `?`: DECSED and DECSEL, the selective erases, which
+  # leave protected cells.
+  selective = @inter == Int(b'?') and (b == b'J' or b == b'K')
+  @inter = 0 if selective else @inter
+  # DECSCA: protection of the cells printed, on (1) or off (0 or 2).
+  if b == b'q' and @inter == Int(b'"')
+    if n == 0 or (n == 1 and (p0 == 0 or p0 == 2))
+      (!@).set_protect(PROT_OFF)
+    else if n == 1 and p0 == 1
+      (!@).set_protect(PROT_DEC)
+    return
+  # Replies, and the kitty keyboard flags.
+  if b == b'c' and (@inter == 0 or @inter == Int(b'>') or @inter == Int(b'='))
+    (!@).device_attributes(@inter)
+    return
+  if b == b'n' and n == 1 and (@inter == 0 or @inter == Int(b'?'))
+    if @inter == 0 and p0 == 5
+      !@replies.add("\x1b[0n")
+    else if @inter == 0 and p0 == 6
+      (!@).report_cursor()
+    return
+  if b == b'p' and @inter == 0x3F24 and n == 1
+    (!@).report_mode(p0)
+    return
+  if b == b'q' and @inter == Int(b'>')
+    !@replies.add("\x1bP>|", NAME, "\x1b\\")
+    return
+  if b == b'u' and @inter == Int(b'?')
+    (!@).report_kitty()
+    return
+  if b == b'u' and @inter == Int(b'>')
+    (!@).kitty_push(p0 if n == 1 else 0) if n != 1 or p0 <= 31
+    return
+  if b == b'u' and @inter == Int(b'<')
+    (!@).kitty_pop(p0 if n == 1 else 1)
+    return
+  if b == b'u' and @inter == Int(b'=')
+    how = p1 if n >= 2 else 1
+    v = p0 if n >= 1 else 0
+    (!@).kitty_set(v, how) if v <= 31 and how >= 1 and how <= 3
+    return
+  if (b == b's' or b == b'r') and @inter == Int(b'?')
+    for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
+      if b == b's'
+        (!@).save_mode(@params[k])
+      else
+        (!@).restore_mode(@params[k])
+    return
+  if (b == b'h' or b == b'l') and (@inter == 0 or @inter == Int(b'?'))
+    for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
+      (!@).set_mode(@params[k], @inter != 0, b == b'h')
+    return
+  return if @inter != 0
+  # The count of a movement: 1 when it is left out or 0.
+  move = (1 if p0 == 0 else p0) if n <= 1 else -1
+  # The count of an edit: 1 when it is left out, and 0 when it is 0.
+  count = (1 if n == 0 else p0) if n <= 1 else -1
+  match b
+    b'A', b'k' if move > 0 => (!@).cursor_up(move)
+    b'B' if move > 0 => (!@).cursor_down(move)
+    b'C' if move > 0 => (!@).cursor_right(move)
+    b'D', b'j' if move > 0 => (!@).cursor_left(move)
+    b'E' if move > 0
+      (!@).cursor_down(move)
+      (!@).carriage_return()
+    b'F' if move > 0
+      (!@).cursor_up(move)
+      (!@).carriage_return()
+    b'G', b'`' if move > 0 => (!@).cursor_to(@row + 1, move)
+    # HPR and VPR are CUP from the cursor, as in Ghostty: they move by their
+    # parameter as given (0 stays, but ends a pending wrap), and in origin
+    # mode the row counts from the top margin.
+    b'a' if count >= 0 => (!@).cursor_to(@row + 1, @col + 1 + count)
+    b'd' if move > 0 => (!@).cursor_to(move, @col + 1)
+    b'e' if count >= 0 => (!@).cursor_to(@row + 1 + count, @col + 1)
+    b'H', b'f' if n <= 2 => (!@).cursor_to(p0, p1)
+    b'I' if count >= 0 => (!@).tab(count)
+    b'Z' if count >= 0 => (!@).tab_back(count)
+    # Ghostty's TBC needs its parameter: `CSI g` alone does nothing.
+    b'g' if n == 1 => (!@).tab_clear(p0)
+    b'J' if n <= 1 => (!@).erase_display(p0, selective)
+    b'K' if n <= 1 => (!@).erase_line(p0, selective)
+    b'X' if count >= 0 => (!@).erase_chars(count)
+    b'L' if count >= 0 => (!@).insert_lines(count)
+    b'M' if count >= 0 => (!@).delete_lines(count)
+    b'@' if n <= 1 => (!@).insert_blanks(1 if p0 == 0 else p0)
+    b'P' if count >= 0 => (!@).delete_chars(count)
+    b'S' if count >= 0 => (!@).scroll_up(count)
+    b'T' if count >= 0 => (!@).scroll_down(count)
+    b'r' if n <= 2 => (!@).set_margins(p0, p1)
+    # With no left and right margin mode, `CSI s` alone saves the cursor,
+    # and with parameters does nothing.
+    b's' if n == 0 => (!@).save_cursor()
+    b'u' => (!@).restore_cursor()
+    b'b' if count >= 0 => (!@).repeat(count)
+    b'm'
+      (!@).sgr()
+      (!@).pen_changed()
+    _ => pass
