@@ -6323,6 +6323,19 @@ pub const Emitter = struct {
         if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last)) return self.emitYield(last, result, how);
 
         const terminates = isTerminatingStmt(last);
+        // A block whose value is Void may end in a statement that gives
+        // none, as a `catch` handler after a call that gives nothing
+        // does: it breaks out with `{}`.
+        if (!terminates and !self.yieldsValue(last) and result == self.facts.types.void_id and how == .value) {
+            const label = try self.fmt("__rig_blk_{d}", .{self.nextId()});
+            try self.w.print("{s}: ", .{label});
+            try self.openBrace();
+            try self.emitPrelude(prelude);
+            try self.emitStmts(stmts);
+            try self.writeIndent(self.indent);
+            try self.w.print("break :{s} {{}};\n", .{label});
+            return self.closeBrace();
+        }
         if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
         var label: []const u8 = "";
         if (!terminates) {

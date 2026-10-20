@@ -768,6 +768,43 @@ test "catch after call", "42"
   y = may() catch 0
   print(y)
 
+test "catch block statements", '''
+  bad! 1
+  1 2
+'''
+  # A `catch` handler block after a call that gives nothing may end in a
+  # statement that gives nothing, an assignment here, as may a Void `if`.
+
+  error E
+    bad
+
+  fun text(e: error) -> Static
+    match e
+      E.bad => "bad!"
+      _ => "other"
+
+  obj G
+    n: Int = 0
+    sub add(!@, x: Int)!
+      return E.bad if x < 0
+      @n += x
+
+  g = G()
+  !g.add(1)!
+  got: Static = ""
+  !g.add(-1) catch |err|
+    got = text(<err)
+  print(got, g.n)
+  a = 0
+  b = 0
+  add(-1) catch |err|
+    a = 1
+    b = 2
+  print(a, b)
+
+  sub add(x: Int)!
+    return E.bad if x < 0
+
 test "catch handler constructor", '''
   0 0 0 0 1 1 2.5
   2
