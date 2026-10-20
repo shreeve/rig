@@ -1,0 +1,68 @@
+# Rig's actors timed three ways (bench/actors/README.md): one task
+# calling one actor (solo), many tasks calling one actor (contend), and
+# many tasks each calling an actor of its own (spread). Every call waits
+# for its answer. Prints `NAME NS CHECK` per benchmark
+# (bench/actors/bench-actors); the checks must agree with main.go's and
+# main.rs's.
+
+use std.time
+
+SOLO = 1000000
+CONTEND_TASKS = 8
+CONTEND_CALLS = 100000
+SPREAD_TASKS = 1000
+SPREAD_CALLS = 1000
+
+obj Counter
+  hits: Int
+
+  fun add(!@, n: Int) -> Int
+    @hits += n
+    @hits
+
+  fun get(?@) -> Int
+    @hits
+
+sub hammer(c: *Actor[Counter], n: Int)
+  for 0..n
+    _ = (!c).add(1)
+
+fun own(n: Int) -> Int
+  c = *Actor(Counter(hits: 0))
+  last = 0
+  for 0..n
+    last = (!c).add(1)
+  last
+
+called sub solo()
+  c = *Actor(Counter(hits: 0))
+  t = time.now()
+  last = 0
+  for 0..SOLO
+    last = (!c).add(1)
+  print("solo", t.elapsed(), last)
+
+called sub contend()
+  c = *Actor(Counter(hits: 0))
+  t = time.now()
+  ts = Tasks[Void]()
+  for 0..CONTEND_TASKS
+    !ts.add(hammer(+c, CONTEND_CALLS)&)
+  <ts.wait_all()
+  print("contend", t.elapsed(), c.get())
+
+called sub spread()
+  t = time.now()
+  ts = Tasks[Int]()
+  for 0..SPREAD_TASKS
+    !ts.add(own(SPREAD_CALLS)&)
+  xs = <ts.wait_all()
+  sum = 0
+  for x in xs
+    sum += x
+  print("spread", t.elapsed(), sum)
+
+sub main()
+  solo()
+  contend()
+  spread()

@@ -204,6 +204,69 @@ test "actor deadline and cancel", seeds: 20, '''
   print(<t.cancel() catch -3)
   print(a.get())
 
+test "actor idle call runs as the actor", seeds: 20, '''
+  -2
+  2
+'''
+  # A call that finds the actor idle runs inline, as the actor: the
+  # caller's cancel and deadline do not stop it, and the caller meets its
+  # cancel at its own next waiting point.
+  use std.time
+  use std.task
+
+  obj Slow
+    n: Int
+
+    fun nap(!@) -> Int!
+      time.sleep(20 * time.MS)!
+      @n += 1
+      @n
+
+  fun work(a: *Actor[Slow]) -> Int!
+    n = (!a).nap()!
+    task.check()!
+    n + 100
+
+  a = *Actor(Slow(n: 0))
+  t = work(+a)&
+  time.sleep(5 * time.MS) catch print("woke")
+  print(<t.cancel() catch -2)
+  n = time.within(5 * time.MS, |+a| (!a).nap()!) catch -1
+  print(n)
+
+test "actor idle and busy", seeds: 20, "80 80"
+  # Callers whose methods wait meet a busy actor, and send messages that
+  # the caller running inline hands to the actor's own task when it is
+  # done; none is lost, and each runs alone.
+  use std.time
+
+  obj Room
+    inside: Int
+    seen: Int
+    most: Int
+
+    sub visit(!@)!
+      @inside += 1
+      if @inside > @most
+        @most = @inside
+      time.sleep(time.US)!
+      @seen += 1
+      @inside -= 1
+
+    fun count(?@) -> Int
+      @seen + @most - 1
+
+  sub work(r: *Actor[Room])!
+    for 0..10
+      !r.visit()!
+
+  r = *Actor(Room(inside: 0, seen: 0, most: 0))
+  ts = Tasks[Void!]()
+  for 0..8
+    !ts.add(work(+r)&)
+  <ts.wait_all()!
+  print(r.count(), r.count())
+
 fail "actor only behind a handle", "an actor lives only behind a shared handle: write `*Actor(x)`"
   obj C
     n: Int

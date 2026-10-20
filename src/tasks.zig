@@ -905,8 +905,12 @@ pub fn Actor(comptime T: type) type {
         lock: rt.sched.SpinLock = .{},
         first: ?*Message = null,
         last: ?*Message = null,
-        /// Whether a runner task is draining the mailbox.
-        running: bool = false,
+        /// `busy` while the actor runs a method: a runner task drains the
+        /// mailbox, or a caller runs one inline (`claim`); `mail` once a
+        /// message is sent to a busy actor. While it is 0 the mailbox is
+        /// empty, so claiming the actor, and giving it back when no
+        /// message came meanwhile, are one atomic step each.
+        state: std.atomic.Value(u8) = .init(0),
         /// Calls made with `&` in flight, against `capacity`.
         pending: std.atomic.Value(u32) = .init(0),
         capacity: u32 = default_mailbox,
@@ -944,9 +948,23 @@ pub fn Actor(comptime T: type) type {
         /// caller is canceled, or its deadline passes, is withdrawn, and
         /// the call fails with `task.Stop.canceled` or `.timeout`; one
         /// that started runs to its end, and the caller waits for it.
+        ///
+        /// An idle actor's method runs inline, on the caller's stack, as
+        /// the actor (`runInline`), with no message and no switch; what
+        /// arrived meanwhile goes to a runner after it (`release`).
         pub fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype) Result(name) {
             const R = Result(name);
             const self = &box.value;
+            const fallible = @typeInfo(R) == .error_union;
+            if (comptime fallible) {
+                if (canceledHere()) return canceled_error;
+                if (pastDeadline()) return timeout_error;
+            }
+            const t = task();
+            if (self.claim(t)) {
+                defer self.release(box);
+                return self.runInline(t, name, args);
+            }
             const Call = struct {
                 msg: Message,
                 actor: *Self,
@@ -960,7 +978,6 @@ pub fn Actor(comptime T: type) type {
             };
             var c: Call = .{ .msg = .{ .run = Call.run }, .actor = self, .args = args };
             self.send(box, &c.msg);
-            const fallible = @typeInfo(R) == .error_union;
             if (!c.msg.waitAnswer(self, fallible)) {
                 if (comptime fallible) return if (canceledHere()) canceled_error else timeout_error;
                 unreachable;
@@ -973,10 +990,39 @@ pub fn Actor(comptime T: type) type {
             self.lock.lock();
             if (self.last) |l| l.next = m else self.first = m;
             self.last = m;
-            const start = !self.running;
-            self.running = true;
+            const start = self.state.fetchOr(busy | mail, .acq_rel) == 0;
             self.lock.unlock();
             if (start) rt.sched.spawnDetached(runner, .{box.cloneStrong()});
+        }
+
+        /// Take the actor for a call run inline: when it is idle, which
+        /// means its mailbox is empty, and the caller's stack has room
+        /// (`roomInline`).
+        ///
+        /// A caller that finds it running inline with no mail spins a
+        /// little first (`claim_spins`), as a mutex does, since a short
+        /// method is soon done and sleeping costs more than the wait.
+        fn claim(self: *Self, t: *rt.TaskState) bool {
+            if (!roomInline(t)) return false;
+            if (self.state.cmpxchgStrong(0, busy, .acquire, .monotonic) == null) return true;
+            return claimSpinning(&self.state);
+        }
+
+        /// Run method `name` inline as the actor: under no cancel,
+        /// deadline, or isolate, as its runner runs one, so a canceled
+        /// caller cannot stop it partway.
+        fn runInline(self: *Self, t: *rt.TaskState, comptime name: []const u8, args: anytype) Result(name) {
+            const control, const deadline, const iso = .{ t.control, t.deadline, t.isolate };
+            t.control, t.deadline, t.isolate = .{ null, null, null };
+            defer t.control, t.deadline, t.isolate = .{ control, deadline, iso };
+            return self.invoke(name, args);
+        }
+
+        /// A call run inline is done: messages sent meanwhile go to a
+        /// runner, and otherwise the actor is idle again.
+        fn release(self: *Self, box: *rt.Shared(Self)) void {
+            if (self.state.cmpxchgStrong(busy, 0, .release, .monotonic) == null) return;
+            rt.sched.spawnDetached(runner, .{box.cloneStrong()});
         }
 
         /// Take `m` out of the mailbox, unless it has started.
@@ -1004,7 +1050,7 @@ pub fn Actor(comptime T: type) type {
             while (true) {
                 self.lock.lock();
                 const m = self.first orelse {
-                    self.running = false;
+                    self.state.store(0, .release);
                     self.lock.unlock();
                     break;
                 };
@@ -1022,6 +1068,43 @@ pub fn Actor(comptime T: type) type {
 
 /// How many calls made with `&` an actor holds in flight at once.
 const default_mailbox = 64;
+
+/// `Actor.claim` after its first try failed: spin while the actor runs
+/// inline with no mail, up to `claim_spins` times, then give up.
+noinline fn claimSpinning(state: *std.atomic.Value(u8)) bool {
+    if (rt.sched.deterministic) return false;
+    for (0..claim_spins) |_| {
+        for (0..32) |_| std.atomic.spinLoopHint();
+        const seen = state.load(.monotonic);
+        if (seen != 0 and seen != busy) return false;
+        if (seen == 0 and state.cmpxchgStrong(0, busy, .acquire, .monotonic) == null) return true;
+    }
+    return false;
+}
+
+/// How many times a caller spins on a busy actor before it sends a
+/// message (`Actor.claim`): a few short spins, as Go's mutex makes.
+const claim_spins = 4;
+
+/// The bits of `Actor.state`.
+const busy: u8 = 1;
+const mail: u8 = 2;
+
+/// Whether the running task's stack has room for an actor's method run
+/// inline (`Actor.claim`): `inline_reserve` bytes or more above its
+/// guard. A stack the runtime did not map, or one it cannot place the
+/// frame in, has none.
+fn roomInline(t: *rt.TaskState) bool {
+    const g = t.stack_guard;
+    const at = @frameAddress();
+    if (g.hi == 0 or at < g.hi or at - g.hi > rt.task_stack_size) return false;
+    return at - g.hi >= inline_reserve;
+}
+
+/// The stack a method run inline leaves its caller at least: a quarter
+/// of a task's stack. A deeper caller sends a message, which the actor's
+/// own task runs on a stack of its own.
+const inline_reserve = rt.task_stack_size / 4;
 
 /// A call of an actor's method, in its caller's frame: the actor runs
 /// it (`run`) and answers, which wakes the caller. Its status goes from
