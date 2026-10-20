@@ -5678,6 +5678,7 @@ pub const Checker = struct {
         // Each part is a header, its own statement: its temporaries end
         // with it, after the binding takes what it binds.
         if (cond.isKind(.as_results)) return self.walkResultsBinding(cond, body);
+        if (cond.isKind(.as_match)) return self.walkAsMatch(cond, body);
         if (!cond.isKind(.as)) return self.walkStmt(cond);
         // A bare place is bound as `if ?p as x` binds it, and a part of a
         // made value in a hidden var the `if` holds, in a scope the
@@ -5922,6 +5923,83 @@ pub const Checker = struct {
             try self.popScope();
         }
         return value;
+    }
+
+    /// `s as .circle(r)`, a part of a condition: the one-arm `match` it is
+    /// (`rig.asMatchOf`), its subject reached as `walkMatch` reaches a
+    /// match's and its pattern bound as an arm's, in a new scope over
+    /// `body`, which the caller pops. The values the pattern does not
+    /// match go on to the `else`.
+    fn walkAsMatch(self: *Checker, part: Sexp, body: Sexp) Error!void {
+        const match = rig.asMatchOf(part);
+        const scrut = ir.Match.subject(match);
+        const pattern = ir.Arm.pattern(rig.asMatchArm(part));
+        const saved_arm = .{ self.arm_var, self.arm_subject, self.arm_take };
+        defer {
+            self.arm_var = saved_arm[0];
+            self.arm_subject = saved_arm[1];
+            self.arm_take = saved_arm[2];
+        }
+        // A part of a made value in a hidden var the condition holds, in
+        // a scope the caller ends with the body's.
+        const header = self.headerOf(match);
+        const saved_held = self.held;
+        defer self.held = saved_held;
+        if (header == .held) try self.holdBase(match);
+        var info: Scrutinee = .{};
+        var node = scrut;
+        const written = scrut.isKind(.read) or scrut.isKind(.write);
+        const lent = written or header == .viewed or header == .held;
+        if (lent) {
+            if (written) node = ir.get(scrut, .operand);
+            info.via = .viewed;
+        }
+        if (self.resolvePlace(node)) |p| {
+            info.root = p.root;
+            info.place = p.path;
+            const v = self.vars.items[p.root];
+            if (p.through_view or v.payload_view) info.via = .viewed;
+            if (p.through_shared) info.via = .shared;
+            if (self.exprType(node)) |t| if (self.typeData(t) == .shared) {
+                info.via = .shared;
+            };
+            if (!p.whole) info.path = try self.placeText(node);
+        } else if (!self.takesSubject(match) and self.readsInPlace(scrut)) {
+            info.via = .viewed;
+            if (self.exprType(node)) |t| if (self.typeData(t) == .shared) {
+                info.via = .shared;
+            };
+            info.shown = self.spanText(node);
+        }
+        const scrut_temps = self.temps.items.len;
+        // The subject is a header: its temporaries end with it.
+        const drops = self.stmt_drops.items.len;
+        const scrut_value = if (header == .viewed) try self.walkLend(scrut, .read) else try self.walk(scrut);
+        const header_temps = try self.arena().alloc(VarId, self.stmt_drops.items.len - @min(drops, self.stmt_drops.items.len));
+        for (header_temps, self.stmt_drops.items[self.stmt_drops.items.len - header_temps.len ..]) |*t, d| t.* = d.id;
+        if (self.sema) |ctx| if (storage.holdsView(ctx, match)) {
+            for (scrut_value.loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null) {
+                const temp = self.vars.items[l.root].name;
+                try self.err(l.pos, "this `as` reads the view its subject returns after its header drops the temporary `{s}` it points into; bind `{s}` to a name first", .{ temp, temp });
+                break;
+            };
+        };
+        try self.dropStmtTemps(drops);
+        // A payload binding holds its own loan on the matched place.
+        if (lent and info.root != null) self.temps.shrinkRetainingCapacity(@min(scrut_temps, self.temps.items.len));
+        try self.pushScopeFor(.block, body);
+        self.arm_var = null;
+        self.arm_subject = self.spanText(scrut);
+        self.arm_take = self.takeableSubject(scrut);
+        const bound = self.vars.items.len;
+        _ = try self.bindPattern(pattern, info, scrut_value);
+        // A binding that views a temporary the subject made would outlive
+        // it.
+        for (bound..self.vars.items.len) |id| {
+            for (self.flows.items[id].loans) |l| if (std.mem.findScalar(VarId, header_temps, l.root) != null and self.holderLive(@intCast(id), null)) {
+                return self.reportTempOutlived(l, @intCast(id));
+            };
+        }
     }
 
     /// Bind a pattern's names. Returns true for a catch-all pattern.

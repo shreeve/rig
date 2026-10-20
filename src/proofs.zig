@@ -827,6 +827,7 @@ const Pass = struct {
             p: *Pass,
             t: *State,
             pub fn part(self: @This(), part_node: Sexp) Error!void {
+                if (part_node.isKind(.as_match)) return self.p.walkSelection(rig.asMatchOf(part_node), self.t);
                 try rig.eachGuardOperand(part_node, self, @This().operand);
             }
             fn operand(self: @This(), g: Sexp) Error!void {
@@ -834,6 +835,22 @@ const Pass = struct {
             }
         };
         try rig.eachGuardPart(cond, Parts{ .p = p, .t = t });
+    }
+
+    /// The selection unit of `match` `node`: its subject, then each arm's
+    /// pattern and guard, from `sel`, the facts once the selection's kills
+    /// apply. A part `s as .circle(r)` is the selection of its `match`
+    /// (`rig.asMatchOf`), from whose true edge the rest goes on.
+    fn walkSelection(p: *Pass, node: Sexp, sel: *State) Error!void {
+        applyKills(sel, &(try p.selectionKills(node)));
+        try p.traceUnit(.{ .enter = node.list.id });
+        const none: State = .{};
+        try p.walkParts(ir.Match.subject(node), if (storage.matchRereads(p.ctx, node)) &none else sel);
+        for (ir.Match.arms(node)) |arm| {
+            try p.walkParts(ir.Arm.pattern(arm), sel);
+            try p.walkParts(ir.Arm.guard(arm), sel);
+        }
+        try p.traceUnit(.{ .exit = node.list.id });
     }
 
     /// A guard unit: G1 on its true edge, unless it writes what it names.
@@ -917,15 +934,7 @@ const Pass = struct {
     /// proves nothing.
     fn walkMatch(p: *Pass, node: Sexp, st: *State) Error!void {
         var sel = try st.clone(p.a);
-        applyKills(&sel, &(try p.selectionKills(node)));
-        try p.traceUnit(.{ .enter = node.list.id });
-        const none: State = .{};
-        try p.walkParts(ir.Match.subject(node), if (storage.matchRereads(p.ctx, node)) &none else &sel);
-        for (ir.Match.arms(node)) |arm| {
-            try p.walkParts(ir.Arm.pattern(arm), &sel);
-            try p.walkParts(ir.Arm.guard(arm), &sel);
-        }
-        try p.traceUnit(.{ .exit = node.list.id });
+        try p.walkSelection(node, &sel);
         for (ir.Match.arms(node)) |arm| {
             var a = try sel.clone(p.a);
             try p.walkBranch(ir.Arm.body(arm), &a);

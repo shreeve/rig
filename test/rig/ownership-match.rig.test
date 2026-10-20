@@ -2440,3 +2440,105 @@ test "match write payload views", '''
   print(first(?e))
   grow(!e)
   print(first(?e))
+
+test "match as a pattern owns and drops", '''
+  got 1
+  drop 1
+  drop 2
+  --
+  drop 9
+  else runs
+  --
+  temp 5 6
+  drop 6
+  drop 5
+  --
+  read 7 8
+  drop 7
+  now 70
+  value 70
+  loop 0 1
+  drop 1
+  drop 0
+  loop 100 101
+  drop 101
+  drop 100
+  end
+  drop 8
+  drop 70
+'''
+  # `as` with a pattern takes the subject as `match` does: `<s` hands it
+  # the value, whose fields the pattern leaves out drop at the end of the
+  # block, and which drops before `else` when it does not match; a
+  # temporary's fields are the bindings' own; `s` reads in place and `!s`
+  # writes in place.
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  enum Box
+    one(a: Res, b: Res)
+    none_left(c: Res)
+    empty
+
+  fun mk(k: Int) -> Box
+    .one(a: Res(n: k), b: Res(n: k + 1))
+
+  fun step(i: Int) -> Box
+    if i < 2
+      mk(i * 100)
+    else
+      .empty
+
+  s = mk(1)
+  if <s as .one(a, _)
+    print("got", a.n)
+  print("--")
+  t: Box = .none_left(c: Res(n: 9))
+  if <t as .one(a, _)
+    print("no", a.n)
+  else
+    print("else runs")
+  print("--")
+  if mk(5) as .one(x, y)
+    print("temp", x.n, y.n)
+  print("--")
+  u = mk(7)
+  if u as .one(a, b) and a.n > 0
+    print("read", a.n, b.n)
+  if !u as .one(a: f)
+    f = Res(n: 70)
+  if u as .one(a: a)
+    print("now", a.n)
+  v = if u as .one(a: a)
+    a.n
+  else
+    -1
+  print("value", v)
+  i = 0
+  while step(i) as .one(p, q) : i += 1
+    print("loop", p.n, q.n)
+  print("end")
+
+fail "match as a pattern moves and lends", "11:7: use of `s` after move", "18:9: use of `u` while a write loan is live", errors: 2
+  obj Res
+    n: Int
+
+  enum Box
+    one(a: Res, b: Int)
+    empty
+
+  s: Box = .one(a: Res(n: 1), b: 2)
+  if <s as .one(a: r)
+    print(r.n)
+  print(s)
+  t: Box = .one(a: Res(n: 1), b: 2)
+  if t as .one(a: r)
+    t = .empty
+    print(r.n)
+  u: Box = .one(a: Res(n: 1), b: 2)
+  if !u as .one(a: w)
+    print(u)
+    w.n = 2

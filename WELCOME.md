@@ -360,6 +360,7 @@ support file.
 | unwrap or | `x.unwrap_or(0)` | `x orelse 0` | `x ?? 0` |
 | unwrap or leave | `let Some(v) = x else { return }` | `x orelse return` | `v = x ?? return` |
 | if let | `if let Some(v) = x` | `if (x) \|v\|` | `if x as v` |
+| if let, a variant | `if let Circle(r) = s` | `switch (s) { .circle => \|c\| .., else => {} }` | `if s as .circle(r)` |
 | fallible | `Result<T, E>` | `E!T` | `T!` |
 | propagate | `f()?` | `try f()` | `f()!` |
 | handle | `f().unwrap_or(0)` | `f() catch 0` | `f() catch 0` |

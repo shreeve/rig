@@ -648,6 +648,18 @@ const SymbolResolver = struct {
             }
             return;
         }
+        // `s as .circle(r)`: the fields its one arm's pattern binds, in
+        // the arm's scope, visible to the parts after it and to the body.
+        if (p.isKind(.as_match)) {
+            try self.walk(ir.Match.subject(rig.asMatchOf(p)));
+            const arm = rig.asMatchArm(p);
+            _ = try self.enter(arm, .block);
+            const pattern = ir.Arm.pattern(arm);
+            if (pattern.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pattern)) |b| {
+                _ = try self.bindFresh(sema.bindingName(b), "pattern binding");
+            };
+            return;
+        }
         if (!p.isKind(.as)) return self.walk(p);
         try self.walk(ir.As.value(p));
         _ = try self.enter(p, .block);

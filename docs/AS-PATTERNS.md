@@ -1,9 +1,7 @@
 # `as` with a pattern: test a variant and bind its fields
 
-*Planned.* The design below is decided and not yet built. Its examples
-are ```` ```rig pending ```` blocks: the test suite runs each one, and
-each must fail until the rule is built, when it must pass instead and
-its block becomes ```` ```rig ````.
+*Built.* SPEC §12 ("`as` with a pattern") states the rules; this page
+gives the reasons. Its examples run in the test suite.
 
 `if a as x` already tests an optional and binds its value in one step.
 The same `as` takes a `match` pattern on its right, so a single test
@@ -85,7 +83,7 @@ while next(i) as .item(x)         # repeat while the variant matches
 `else` runs when the value is another variant. The names a pattern binds
 are visible only in its block, as names bound by `as` are today.
 
-```rig pending
+```rig
 enum Shape
   circle(r: Int)
   rect(w: Int, h: Int)
@@ -130,10 +128,11 @@ meaning, so what a pattern binds is as plain as it is in `if m as x`:
 
 `<s` hands the whole value to the test, matched or not, as `match <s`
 does: when it matches, the fields the pattern leaves out are dropped at
-the end of the block; when it does not, the value is dropped at the end
-of `else` (or of the `if`, without one). `s` is moved either way.
+the end of the block; when it does not, the value is dropped as the
+test fails, before `else` runs, as Rust 2024 drops an `if let`'s
+temporaries before its `else`. `s` is moved either way.
 
-```rig pending
+```rig
 enum Shape
   rect(w: Int, h: Int, label: String)
   point
@@ -156,7 +155,7 @@ wide
 A loop over a value that changes variant, and an optional unwrapped
 before its variant is tested:
 
-```rig pending
+```rig
 enum Token
   item(n: Int)
   done
@@ -214,8 +213,72 @@ sub main()
    value out first (`if m as s and s as .circle(r)`), so every step is
    written. Matching through the optional may come later, as a
    deliberate convenience.
+7. **A bare name binds.** After `as`, a name always binds, as it does
+   today: `if code as ESC` binds a name `ESC`, which may not hide the
+   constant. To compare with a constant, use `==`
+   (`if t as .key(c) and c == ESC`); inside a pattern, a field is bound
+   as a `match` arm binds it.
+8. **The loop step.** A `while` step runs after each pass of the body,
+   and cannot read the fields the pattern binds, which live only in the
+   body, as the bindings of a joined `while` condition do.
 
-```rig pending
+A pattern's alternatives and a guard inside it are rejected where they
+are written:
+
+```rig reject
+enum S
+  a(n: Int)
+  b
+
+sub main()
+  s: S = .b
+  if s as .a(n), .b
+    print(1)
+```
+
+```error
+after `as`, a pattern tests one variant; to test several, write a `match`
+```
+
+```rig reject
+enum S
+  a(n: Int)
+  b
+
+sub main()
+  s: S = .b
+  if s as .a(n) if n > 0
+    print(1)
+```
+
+```error
+a pattern after `as` takes no `if` guard: join the condition with `and`, `if s as .circle(r) and r > 10`
+```
+
+A constant is compared with `==`, after the field is bound:
+
+```rig
+enum Key
+  key(c: Int)
+  none_pressed
+
+ESC = 27
+
+fun escapes(k: Key) -> Bool
+  if k as .key(c) and c == ESC
+    true
+  else
+    false
+
+sub main()
+  print(escapes(.key(c: 27)), escapes(.key(c: 65)), escapes(.none_pressed))
+```
+
+```output
+true false false
+```
+
+```rig reject
 enum Wrap
   only(n: Int)
 
@@ -229,7 +292,7 @@ sub main()
 `.only` is the only variant of `Wrap`, so this test always holds; bind its fields with `match`
 ```
 
-```rig pending
+```rig reject
 enum Shape
   circle(r: Int)
   point
@@ -265,27 +328,26 @@ adds no keyword and no grammar. It completes the feature Rig has rather
 than adding a second one: `as` is the one way to test and bind, whether
 the value is an optional, several results, or a variant.
 
-## Building it
+## How it is built
 
-- **Parser** (`rig.grammar`, regenerated with Nexus): after `as`, a
-  leading `.` starts a pattern, parsed by the rule `match` arms use.
-  `as x`, `as q, r`, and `as _` are unchanged.
-- **Checker**: the subject is an enum (rule 6 rejects an optional); the
-  pattern is checked exactly as a `match` arm against the subject's
-  type; rules 1 and 3 reject the forms above; bindings are scoped to the
-  block, as `as` bindings are now.
-- **Ownership**: the subject's sigils and the bindings follow `match`
-  (`match s`, `match !s`, `match <s`), including what `<s` drops on
-  either branch. The reference ownership checker (`test/oracle/`)
-  lowers the form as the one-arm `match` it is.
-- **Emit**: lower to the one-arm `match` with `else` as its other arm,
-  and `while … as .v(x)` to a loop around that test.
-- **Tests**: `fail`, `test`, and `bomb` cases beside the `match` cases
-  (`test/rig/types-match.rig.test`, `ownership-match.rig.test`) for
-  each form, sigil, and rule above; this page's examples turn from
-  ```` ```rig pending ```` to ```` ```rig ````.
-- **Docs**: SPEC §12 (Optionals) and the `match` section, SYNTAX §12
-  (Patterns), and WELCOME's tour gain the form.
+- **Parser**: after `as`, a leading `.` starts a pattern, by the rule
+  `match` arms use (`rig.grammar`, `aspat`). The rewriter makes the part
+  the `match` it is, `(as_match (match s (arm .circle(r) _ pass) (arm _
+  _ pass)))` (`Parser.asMatch`).
+- **Every pass** reads the part's subject and pattern as a `match`'s:
+  the checker shares `checkMatchSubject` with `match` and checks the one
+  pattern with `checkPattern`; the storage plan plans the `match`; the
+  ownership checker reaches the subject and binds the pattern as an arm,
+  in a scope over the rest of the condition and the body.
+- **Emit** writes the condition's parts nested (`emitChain`): the part
+  is the `match`, whose first arm goes on with the rest and whose `_`
+  arm, dropping what `<s` took, falls to `else` or leaves the loop. The
+  selection is its own unit (`rig.eachUnit`), ended once the first arm
+  binds.
+- **The reference ownership checker** (`test/oracle/`) does not check
+  the form yet: it abstains, as it does for a joined `and` chain.
+- **Tests**: `types-match` and `ownership-match`, the cases named
+  `match as a pattern`, and this page's examples.
 
 ## Later, not now
 

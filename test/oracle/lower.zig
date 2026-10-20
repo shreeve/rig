@@ -1085,6 +1085,8 @@ const Lowerer = struct {
             held = try self.asHeader(ir.As.value(cond), .take);
         } else if (cond.isKind(.as_results)) {
             held_parts = try self.resultsHeader(cond);
+        } else if (cond.isKind(.as_match)) {
+            return abstain("`as` with a pattern");
         } else if (rig.bindsInCondition(cond)) {
             return abstain("a joined `and` chain with `as` parts");
         } else try self.header(cond);
@@ -1533,6 +1535,7 @@ const Lowerer = struct {
         self.label = null;
         const cond = ir.While.cond(s);
         if (!rig.isAsPart(cond) and rig.bindsInCondition(cond)) return abstain("a joined `and` chain with `as` parts");
+        if (cond.isKind(.as_match)) return abstain("`as` with a pattern");
         const h = try self.newBlock();
         try self.goto(h);
         self.cur = h;

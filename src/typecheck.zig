@@ -96,7 +96,14 @@ const ordering_operands = "operator `{s}` orders numbers, plain enums, Strings, 
 /// or `as` binding copied from a place, or a match binding of a field of
 /// the place a bare match copies (`match_copy`) or a `?` match reads
 /// (`match_read`).
-const CopySource = struct { place: Sexp, kind: enum { loop, as, match_copy, match_read }, whole: bool = false };
+const CopySource = struct {
+    place: Sexp,
+    kind: enum { loop, as, match_copy, match_read },
+    whole: bool = false,
+    /// For a binding of `s as .circle(r)`, its pattern, which the advice
+    /// to write through it names.
+    pattern: Sexp = .nil,
+};
 
 /// How a match reaches its subject: `match e` and `match ?e` read it,
 /// `match !e` writes its fields in place, and `match <e` consumes it.
@@ -2146,7 +2153,7 @@ const Checker = struct {
                     switch (from.kind) {
                         .loop => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of an element of `{s}`; to change the elements in place, loop with `for {s} in !{s}`", .{ verb.head, name, verb.tail, shown, name, shown }),
                         .as => try self.err(pos, "cannot {s} `{s}`{s}: it is a copy of the value inside `{s}`; to change that value in place, bind it with `!{s} as {s}`", .{ verb.head, name, verb.tail, shown, shown, name }),
-                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`{s}: it is {s} of {s}`{s}`; to change {s} in place, {s}", .{ verb.head, name, verb.tail, if (from.kind == .match_copy and sema.moves(self.ctx, sym.ty) != .yes and self.ctx.types.get(sym.ty) != .read_view) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", try self.writeMatchAdvice(from.place) }),
+                        .match_copy, .match_read => try self.err(pos, "cannot {s} `{s}`{s}: it is {s} of {s}`{s}`; to change {s} in place, {s}", .{ verb.head, name, verb.tail, if (from.kind == .match_copy and sema.moves(self.ctx, sym.ty) != .yes and self.ctx.types.get(sym.ty) != .read_view) "a copy" else "a read view", if (from.whole) "" else "a field of ", shown, if (from.whole) "it" else "the field", if (from.pattern != .nil) try self.ctx.arena.allocator().print("test it with `!{s} as {s}`", .{ shown, try self.plainText(from.pattern) }) else try self.writeMatchAdvice(from.place) }),
                     }
                     return false;
                 }
@@ -2248,6 +2255,7 @@ const Checker = struct {
             pub fn part(v: @This(), p: Sexp) Error!void {
                 if (p.isKind(.as)) return v.c.checkOptionalBinding(p);
                 if (p.isKind(.as_results)) return v.c.checkResultsBinding(p);
+                if (p.isKind(.as_match)) return v.c.checkAsMatch(p);
                 return v.c.checkExpr(p, v.c.t().bool_id);
             }
             pub fn join(v: @This(), j: Sexp) Error!void {
@@ -2283,6 +2291,17 @@ const Checker = struct {
                 const use = sema.findUse(self.ctx, step, b) orelse continue;
                 try self.errAt(use, "the loop step cannot use `{s}`, a result the condition binds, which lives only in the body; use it at the end of the body instead", .{self.ctx.symbols.items[b].name});
             };
+            // The fields a pattern binds live only in the body.
+            if (p.isKind(.as_match)) {
+                const pattern = ir.Arm.pattern(rig.asMatchArm(p));
+                const binds = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else &.{};
+                for (binds) |n| {
+                    const b = self.ctx.symbolOf(n) orelse continue;
+                    const use = sema.findUse(self.ctx, step, b) orelse continue;
+                    try self.errAt(use, "the loop step cannot use `{s}`, a field the pattern binds, which lives only in the body; use it at the end of the body instead", .{self.ctx.symbols.items[b].name});
+                }
+                continue;
+            }
             if (!p.isKind(.as)) continue;
             const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
             const sym = self.ctx.symbols.items[b];
@@ -2512,6 +2531,85 @@ const Checker = struct {
             try self.ctx.recordType(name, inner);
             if (!through_view and !viewed and self.hands(expr).hasStorage()) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
         }
+    }
+
+    /// `if s as .circle(r)` / `while e as .item(x)`: the one-arm `match`
+    /// the part is (`rig.asMatchOf`). Its subject is checked as a
+    /// `match`'s, with the same sigils and meaning, and its pattern
+    /// against the subject's type, binding the fields in the arm's scope,
+    /// which the condition's later parts and the body see; the caller
+    /// restores the scope. It is a test, not exhaustive: other values fall
+    /// to the `else` (docs/AS-PATTERNS.md).
+    fn checkAsMatch(self: *Checker, part: Sexp) Error!void {
+        const node = rig.asMatchOf(part);
+        const arm = rig.asMatchArm(part);
+        const pattern = ir.Arm.pattern(arm);
+        const subject = ir.Match.subject(node);
+        const saved_held = self.held_base;
+        defer self.held_base = saved_held;
+        const saved_in_place = self.in_place;
+        defer self.in_place = saved_in_place;
+        const found = try self.checkMatchSubject(node);
+        const mode = found.mode;
+        var scrutinee = found.scrutinee;
+        _ = self.enter(arm);
+        if (!self.isPoison(scrutinee) and try self.asPatternRejects(subject, pattern, scrutinee)) scrutinee = self.t().invalid_id;
+        if (self.isPoison(scrutinee)) {
+            if (pattern.isKind(.variant_pattern)) for (ir.VariantPattern.bindings(pattern)) |b| self.poisonBinding(sema.bindingName(b));
+            return;
+        }
+        const viewed: ?CopySource = if (mode != .read) null else if (subject.isKind(.read) and self.hands(ir.Read.operand(subject)).hasStorage())
+            .{ .place = ir.Read.operand(subject), .kind = .match_read, .pattern = pattern }
+        else if (found.hands.hasStorage()) .{ .place = subject, .kind = .match_copy, .pattern = pattern } else null;
+        {
+            const saved_arm_local = self.arm_local;
+            defer self.arm_local = saved_arm_local;
+            self.arm_local = mode == .read and !storage.matchesInPlace(self.ctx, node);
+            const saved_matching = self.matching;
+            defer self.matching = saved_matching;
+            self.matching = node;
+            var cov: MatchCoverage = .{ .variant_total = sema.enumVariantCount(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) };
+            defer cov.deinit(self.ctx.allocator);
+            try self.checkPattern(pattern, scrutinee, &cov, mode);
+        }
+        const binds = if (pattern.isKind(.variant_pattern)) self.ctx.payloadBindings(pattern) orelse &.{} else &.{};
+        for (binds) |b| if (self.ctx.symbolOf(b)) |sym| {
+            if (viewed) |v| try self.copied_from.put(self.ctx.allocator, sym, v);
+            if (mode == .consume) try self.owned_bindings.put(self.ctx.allocator, sym, {});
+            if (mode == .read and viewed == null) try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = if (subject.isKind(.read)) ir.Read.operand(subject) else subject, .kind = .match_read });
+        };
+        // A binding views the subject through the body, and a temporary
+        // the subject reads ends with the subject.
+        if (self.tempBase(subject)) |temp| if (self.armsBind(node)) {
+            try self.errAt(temp, "the bindings of `as` would outlive the temporary `{s}`, which the header drops; bind it to a name first", .{self.sourceText(temp)});
+        };
+    }
+
+    /// Whether `as` cannot test `subject` (of type `scrutinee`) for
+    /// `pattern`, reported: it is an optional, whose value is taken out
+    /// first (rule 6); it is not an enum; or its enum has one variant, so
+    /// the test always holds (rule 3).
+    fn asPatternRejects(self: *Checker, subject: Sexp, pattern: Sexp, scrutinee: TypeId) Error!bool {
+        const reached = sema.unwrapViews(self.ctx, scrutinee);
+        const shown = try self.plainText(stripSigil(subject));
+        if (self.ctx.types.get(reached) == .optional) {
+            const inner = try self.tyName(self.ctx.types.get(reached).optional);
+            const v: []const u8 = if (inner.len > 0 and std.ascii.isAlphabetic(inner[0])) &.{std.ascii.toLower(inner[0])} else "v";
+            const pat = try self.plainText(pattern);
+            try self.errAt(subject, "`{s}` is a `{s}`: take the value out first (`if {s} as {s} and {s} as {s}`)", .{ shown, try self.tyName(reached), shown, v, v, pat });
+            return true;
+        }
+        const count = sema.enumVariantCount(self.ctx, reached) orelse {
+            const ty = try self.tyName(reached);
+            try self.errAt(subject, "`as` with a pattern tests which variant an enum value is, and `{s}` is {s} `{s}`", .{ shown, article(ty), ty });
+            return true;
+        };
+        if (count == 1) {
+            const name = self.text(ir.get(pattern, .name));
+            try self.errAt(pattern, "`.{s}` is the only variant of `{s}`, so this test always holds; bind its fields with `match`", .{ name, try self.tyName(reached) });
+            return true;
+        }
+        return false;
     }
 
     /// `if f() as a, b` / `while f() as a, b`: `f()` gives several
@@ -3174,7 +3272,20 @@ const Checker = struct {
 
     // ---- match ----------------------------------------------------------------
 
-    fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
+    /// What `checkMatchSubject` found of a `match`'s subject.
+    const MatchSubject = struct {
+        mode: MatchMode,
+        scrutinee: TypeId,
+        hands: sema.Hands,
+        pos: u32,
+        matchable: bool,
+    };
+
+    /// The subject of `match` `node`, or of the one-arm `match` an `as`
+    /// with a pattern is (`rig.asMatchOf`): how the match reaches it, and
+    /// the type its patterns are checked against. The caller restores
+    /// `held_base` and `in_place`, which the arms' checks may read.
+    fn checkMatchSubject(self: *Checker, node: Sexp) Error!MatchSubject {
         const subject = ir.Match.subject(node);
         var mode: MatchMode = if (subject.isKind(.write)) .write else if (subject.isKind(.move)) .consume else .read;
         // `<e` names the value it moves, and a value made here is taken
@@ -3182,13 +3293,9 @@ const Checker = struct {
         // reads ends with it.
         // A part of a value made here is matched in that value, which the
         // match holds (`Header.held`).
-        const saved_held = self.held_base;
-        defer self.held_base = saved_held;
         if (mode == .read) self.held_base = self.madeBase(subject);
         // A header's subject is matched where it stands, which
         // `headerLendsBranch` decides for a branch.
-        const saved_in_place = self.in_place;
-        defer self.in_place = saved_in_place;
         self.in_place = subject;
         var scrutinee = if (mode == .write) try self.synthOperand(subject) else try self.synthExpr(subject);
         const subject_hands = self.hands(subject);
@@ -3298,6 +3405,21 @@ const Checker = struct {
             .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null,
             else => false,
         };
+        return .{ .mode = mode, .scrutinee = scrutinee, .hands = subject_hands, .pos = scrut_pos, .matchable = matchable };
+    }
+
+    fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
+        const subject = ir.Match.subject(node);
+        const saved_held = self.held_base;
+        defer self.held_base = saved_held;
+        const saved_in_place = self.in_place;
+        defer self.in_place = saved_in_place;
+        const found = try self.checkMatchSubject(node);
+        const mode = found.mode;
+        const scrutinee = found.scrutinee;
+        const subject_hands = found.hands;
+        const scrut_pos = found.pos;
+        const matchable = found.matchable;
         if (!matchable) {
             try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, Bool, and Symbol", .{try self.tyName(scrutinee)});
         }
@@ -4571,6 +4693,11 @@ const Checker = struct {
             .as => blk: {
                 try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
                 _ = try self.synthExpr(ir.As.value(e));
+                break :blk self.t().invalid_id;
+            },
+            .as_match => blk: {
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
+                _ = try self.synthQuiet(ir.Match.subject(rig.asMatchOf(e)));
                 break :blk self.t().invalid_id;
             },
             .as_results => blk: {
@@ -16495,9 +16622,10 @@ test "check: a binding's mode is decided once, by decideBindingAccess" {
     const Shared = struct { call: []const u8, callers: []const []const u8 };
     for ([_]Shared{
         .{ .call = "sema." ++ "makesWriteView(", .callers = &.{ "checkOptionalBinding", "checkOptionalBinding", "matchReach" } },
-        // Every header kind, `match`, `if … as` / `while … as`, and `for`,
-        // lends a branching subject where it stands: none can skip it.
-        .{ .call = "self." ++ "headerLendsBranch(", .callers = &.{ "checkOptionalBinding", "checkFor", "checkMatch" } },
+        // Every header kind, `match` (and `as` with a pattern, which is
+        // one), `if … as` / `while … as`, and `for`, lends a branching
+        // subject where it stands: none can skip it.
+        .{ .call = "self." ++ "headerLendsBranch(", .callers = &.{ "checkOptionalBinding", "checkFor", "checkMatchSubject" } },
     }) |shared| {
         try std.testing.expectEqual(shared.callers.len, std.mem.count(u8, tc, shared.call));
         var from: usize = 0;
