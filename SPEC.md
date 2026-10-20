@@ -10237,6 +10237,10 @@ one also reads it:
 - lent to read, `?x` or a `?@` method's self, it must share;
 - lent to write, `!x` or a `!@` method's self, what it views must move.
 
+What the task gives goes back to the task that waits for it, so it must
+move too, unless the task is local (below) and runs on the waiter's
+thread.
+
 | Type | moves | shares |
 |---|---|---|
 | plain data, `String`, `List[T]`, `^T`, objects and enums | when every part moves | when every part shares |

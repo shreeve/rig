@@ -368,7 +368,10 @@ there. The checker derives two facts for every type:
 A task's argument is given to it, moved (`<x`) or copied, when its type
 moves. Otherwise it is lent: to read (`?x`) when its type shares, and to
 write (`!x`) when its type moves. A closure called as a task follows the
-same rules for its captures.
+same rules for its captures. What a task gives goes back to the task
+that waits for it, so its type moves, as `par.map`'s values and an
+actor call's result do; a local task's result stays on its thread and
+need not.
 
 A function a library calls from many tasks at once needs no mark on its
 type. The checker reads the requirement from the library's body, as it

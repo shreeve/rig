@@ -320,6 +320,55 @@ fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> 
   t = call(?f)&
   print(>t)
 
+fail "task result moves", "`make(1)&` may run on another core, so what it gives must move to the task that waits for it: `*Node` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  # A task that may run on another core hands what it gives back to the
+  # task that waits for it, so it moves, as `par.map`'s values do.
+  obj Node
+    v: Int
+
+  fun make(v: Int) -> *Node
+    *Node(v: v)
+
+  t = make(1)&
+  print((>t).v)
+
+fail "task result holds a local task's handle", "`make()&` may run on another core, so what it gives must move to the task that waits for it: `Pair` holds `*Node`", errors: 1
+  # A free task gives `+n` to a local task, pinned to its worker, and
+  # returns `n`: the waiter, on another core, would change its count
+  # while the local task does.
+  obj Node
+    v: Int
+
+  obj Pair
+    n: *Node
+    t: Task[Int]
+
+  fun churn(n: *Node) -> Int
+    m = +n
+    m.v
+
+  fun make() -> Pair
+    n = *Node(v: 1)
+    t = churn(+n)&
+    Pair(n: <n, t: <t)
+
+  f = make()&
+  p = >f
+  print(p.n.v)
+
+test "task local result", seeds: 20, "3"
+  # A local task runs on the thread that waits for it, so what it gives
+  # need not move.
+  obj Node
+    v: Int
+
+  fun bump(n: *Node) -> *Node
+    *Node(v: n.v + 2)
+
+  n = *Node(v: 1)
+  t = bump(+n)&
+  print((>t).v)
+
 fail "task local channel", "`+ch` is given to a task: `*Chan[*Node]` holds `*Node`, a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
   # A channel's elements go to any task that holds a handle of it, so a
   # local task's channel still carries only what crosses cores.
