@@ -407,8 +407,10 @@ plan's second step, and its increments are done; the crossing facts, a
 `Cell` of one word across tasks, `par`, `time.within`, `task.isolate`,
 actors with their idle path, deadlock detection, failure, and
 supervision, I/O, timers, `http.serve`, channels, `select`,
-`supervise`, and local tasks are built): less memory per task, then
-the proofs of the concurrency model in formal/.
+`supervise`, local tasks, and an idle connection that holds no buffer
+are built, and the first slice of the model's proofs, in formal/):
+the next slices of those proofs (docs/CONCURRENCY.md, "Proof
+obligations").
 
 **Later:**
 

@@ -783,6 +783,22 @@ These fit the existing λRig work in `formal/`, in this order:
 6. unwinding to a boundary frees nothing a surviving task can reach, and
    nothing outside the boundary that its code could change.
 
+The first slice is proved (formal/README.md, "Tasks and waits"), over
+a machine of tasks apart from λRig's expressions:
+
+- **3, no orphans** (`Tasks.no_orphans`): every task's parent is
+  running;
+- **1, for what stays on one thread** (`Tasks.confined`, `pin_kept`):
+  two tasks that hold such a value are pinned to one core and stay
+  there, which is what local tasks rely on;
+- **5, delivery** (`Wait.cancel_delivered`, `one_waker`, `queued_once`,
+  `woken_queued`): the wait protocol queues a waiting fiber exactly
+  once when a waker or a cancel ends its wait, and loses no wakeup;
+  a cancel is never taken back (`Tasks.cancel_sticky`).
+
+Handing a task's handle to another task, sets, actors, channels, the
+deadlock walk, and unwinding are the next slices.
+
 ## Decisions
 
 Each item gives the answer this document assumes.
