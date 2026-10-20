@@ -1835,6 +1835,99 @@ test "after DECALN the flags stay off", '''
   !t.feed("\x1b[1;32m\x1b#8\x1b[2;1HX")
   print(t.dump())
 
+test "past 32 styles, each is found again", '''
+  |ABCDEFGHIJKLMNOPQRST
+  |UVWXYZABCDEFGHIJKLMN
+  |OPQRSTUVa0d3g6j9m2p5
+  |s8v1y4b7e0h3k6n9q2t5
+  |
+  |
+  ~0 0-0 fg=#00ff00
+  ~0 1-1 fg=#05fc07
+  ~0 2-2 fg=#0af90e
+  ~0 3-3 fg=#0ff615
+  ~0 4-4 fg=#14f31c
+  ~0 5-5 fg=#19f023
+  ~0 6-6 fg=#1eed2a
+  ~0 7-7 fg=#23ea31
+  ~0 8-8 fg=#28e738
+  ~0 9-9 fg=#2de43f
+  ~0 10-10 fg=#32e146
+  ~0 11-11 fg=#37de4d
+  ~0 12-12 fg=#3cdb54
+  ~0 13-13 fg=#41d85b
+  ~0 14-14 fg=#46d562
+  ~0 15-15 fg=#4bd269
+  ~0 16-16 fg=#50cf70
+  ~0 17-17 fg=#55cc77
+  ~0 18-18 fg=#5ac97e
+  ~0 19-19 fg=#5fc685
+  ~1 0-0 fg=#64c38c
+  ~1 1-1 fg=#69c093
+  ~1 2-2 fg=#6ebd9a
+  ~1 3-3 fg=#73baa1
+  ~1 4-4 fg=#78b7a8
+  ~1 5-5 fg=#7db4af
+  ~1 6-6 fg=#82b1b6
+  ~1 7-7 fg=#87aebd
+  ~1 8-8 fg=#8cabc4
+  ~1 9-9 fg=#91a8cb
+  ~1 10-10 fg=#96a5d2
+  ~1 11-11 fg=#9ba2d9
+  ~1 12-12 fg=#a09fe0
+  ~1 13-13 fg=#a59ce7
+  ~1 14-14 fg=#aa99ee
+  ~1 15-15 fg=#af96f5
+  ~1 16-16 fg=#b493fc
+  ~1 17-17 fg=#b99003
+  ~1 18-18 fg=#be8d0a
+  ~1 19-19 fg=#c38a11
+  ~2 0-0 fg=#c88718
+  ~2 1-1 fg=#cd841f
+  ~2 2-2 fg=#d28126
+  ~2 3-3 fg=#d77e2d
+  ~2 4-4 fg=#dc7b34
+  ~2 5-5 fg=#e1783b
+  ~2 6-6 fg=#e67542
+  ~2 7-7 fg=#eb7249
+  ~2 8-8 fg=#00ff00
+  ~2 9-9 ul=single fg=#00ff00
+  ~2 10-10 fg=#0ff615
+  ~2 11-11 ul=single fg=#0ff615
+  ~2 12-12 fg=#1eed2a
+  ~2 13-13 ul=single fg=#1eed2a
+  ~2 14-14 fg=#2de43f
+  ~2 15-15 ul=single fg=#2de43f
+  ~2 16-16 fg=#3cdb54
+  ~2 17-17 ul=single fg=#3cdb54
+  ~2 18-18 fg=#4bd269
+  ~2 19-19 ul=single fg=#4bd269
+  ~3 0-0 fg=#5ac97e
+  ~3 1-1 ul=single fg=#5ac97e
+  ~3 2-2 fg=#69c093
+  ~3 3-3 ul=single fg=#69c093
+  ~3 4-4 fg=#78b7a8
+  ~3 5-5 ul=single fg=#78b7a8
+  ~3 6-6 fg=#87aebd
+  ~3 7-7 ul=single fg=#87aebd
+  ~3 8-8 fg=#96a5d2
+  ~3 9-9 ul=single fg=#96a5d2
+  ~3 10-10 fg=#a59ce7
+  ~3 11-11 ul=single fg=#a59ce7
+  ~3 12-12 fg=#b493fc
+  ~3 13-13 ul=single fg=#b493fc
+  ~3 14-14 fg=#c38a11
+  ~3 15-15 ul=single fg=#c38a11
+  ~3 16-16 fg=#d28126
+  ~3 17-17 ul=single fg=#d28126
+  ~3 18-18 fg=#e1783b
+  ~3 19-19 ul=single fg=#e1783b
+  cursor 3 19 wrap
+'''
+  t = terminal.Terminal.new(20, 6)
+  !t.feed("\x1b[38;2;0;255;0mA\x1b[38;2;5;252;7mB\x1b[38;2;10;249;14mC\x1b[38;2;15;246;21mD\x1b[38;2;20;243;28mE\x1b[38;2;25;240;35mF\x1b[38;2;30;237;42mG\x1b[38;2;35;234;49mH\x1b[38;2;40;231;56mI\x1b[38;2;45;228;63mJ\x1b[38;2;50;225;70mK\x1b[38;2;55;222;77mL\x1b[38;2;60;219;84mM\x1b[38;2;65;216;91mN\x1b[38;2;70;213;98mO\x1b[38;2;75;210;105mP\x1b[38;2;80;207;112mQ\x1b[38;2;85;204;119mR\x1b[38;2;90;201;126mS\x1b[38;2;95;198;133mT\x1b[38;2;100;195;140mU\x1b[38;2;105;192;147mV\x1b[38;2;110;189;154mW\x1b[38;2;115;186;161mX\x1b[38;2;120;183;168mY\x1b[38;2;125;180;175mZ\x1b[38;2;130;177;182mA\x1b[38;2;135;174;189mB\x1b[38;2;140;171;196mC\x1b[38;2;145;168;203mD\x1b[38;2;150;165;210mE\x1b[38;2;155;162;217mF\x1b[38;2;160;159;224mG\x1b[38;2;165;156;231mH\x1b[38;2;170;153;238mI\x1b[38;2;175;150;245mJ\x1b[38;2;180;147;252mK\x1b[38;2;185;144;3mL\x1b[38;2;190;141;10mM\x1b[38;2;195;138;17mN\x1b[38;2;200;135;24mO\x1b[38;2;205;132;31mP\x1b[38;2;210;129;38mQ\x1b[38;2;215;126;45mR\x1b[38;2;220;123;52mS\x1b[38;2;225;120;59mT\x1b[38;2;230;117;66mU\x1b[38;2;235;114;73mV\x1b[38;2;0;255;0ma\x1b[4m0\x1b[0m\x1b[38;2;15;246;21md\x1b[4m3\x1b[0m\x1b[38;2;30;237;42mg\x1b[4m6\x1b[0m\x1b[38;2;45;228;63mj\x1b[4m9\x1b[0m\x1b[38;2;60;219;84mm\x1b[4m2\x1b[0m\x1b[38;2;75;210;105mp\x1b[4m5\x1b[0m\x1b[38;2;90;201;126ms\x1b[4m8\x1b[0m\x1b[38;2;105;192;147mv\x1b[4m1\x1b[0m\x1b[38;2;120;183;168my\x1b[4m4\x1b[0m\x1b[38;2;135;174;189mb\x1b[4m7\x1b[0m\x1b[38;2;150;165;210me\x1b[4m0\x1b[0m\x1b[38;2;165;156;231mh\x1b[4m3\x1b[0m\x1b[38;2;180;147;252mk\x1b[4m6\x1b[0m\x1b[38;2;195;138;17mn\x1b[4m9\x1b[0m\x1b[38;2;210;129;38mq\x1b[4m2\x1b[0m\x1b[38;2;225;120;59mt\x1b[4m5\x1b[0m")
+  print(t.dump())
+
 test "DECAWM off overwrites the last column", '''
   |abcf
   |

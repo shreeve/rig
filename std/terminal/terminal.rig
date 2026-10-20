@@ -18,6 +18,14 @@ extern zig "char.zig"
   # The class of rune `r` among std.text's chars (Class in
   # std/char_tables.zig), with `tailored` as Ghostty's.
   fun char_class(r: Int, tailored: Bool) -> Int
+  # One step of text.CharBreak: the state after rune `r` from `state`
+  # (negative before any rune), bit 7 set when a char starts at `r`.
+  fun char_step(state: Int, r: Int, tailored: Bool) -> Int
+
+extern zig "cells.zig"
+  # `dst[i]` is `U64(src[i]) | bits` for each `i` of the shorter of the
+  # two, sixteen at a time.
+  sub widen(dst: ![]U64, src: ?String, bits: U64)
 
 extern zig "width_tables.zig"
   # The width bits of rune `r`: its width, ZERO_IN_CHAR, and VS_BASE.
@@ -32,12 +40,40 @@ CLASS_PICT = 1
 ZERO_IN_CHAR = 4
 VS_BASE = 8
 
-# The index of `s` in `styles`, added when it is new.
-fun intern(styles: !List[Style], s: ?Style) -> Int
-  for t, k in styles
-    return k if t.same(s)
+# The index of `s` in `styles`, added when it is new. A few styles are
+# looked at one by one; past SMALL_STYLES, as truecolor output makes
+# thousands, `s` is found by its key in `ids`, which holds every style's
+# (and in the rare case another style has that key, by looking at each).
+fun intern(styles: !List[Style], ids: !hash.Map[Int, Int], s: ?Style) -> Int
+  if styles.len <= SMALL_STYLES
+    for t, k in styles
+      return k if t.same(s)
+  else if ids.get(style_key(s)) as k
+    return k if styles[k].same(s)
+    for t, j in styles
+      return j if t.same(s)
+  key = style_key(s)
   !styles.push(+s)
+  !ids.put(key, styles.len - 1) if not ids.has(key)
   styles.len - 1
+
+SMALL_STYLES = 32
+
+# `style_ids` of a terminal's first style, the plain one.
+fun plain_ids() -> hash.Map[Int, Int]
+  ids = hash.Map[Int, Int].new()
+  !ids.put(style_key(?(Style.plain())), 0)
+  ids
+
+# A key for style `s`: its fields, mixed into 63 bits (an Int's), so two
+# styles with the same key are the same but for odds of about one in 2^63.
+fun style_key(s: ?Style) -> Int
+  a = U64(s.flags | (s.underline << 8) | ((s.fg + 1) << 11))
+  b = U64((s.bg + 1) | ((s.ulc + 1) << 26))
+  h = (a *% 0x9E3779B97F4A7C15) ^ b
+  h = (h ^ (h >> 31)) *% 0xBF58476D1CE4E5B9
+  h = (h ^ (h >> 29)) *% 0x94D049BB133111EB
+  Int((h ^ (h >> 32)) >> 1)
 
 # Every mode Ghostty knows, DEC private and ANSI, and each one's default,
 # in Ghostty's order (modes.zig). A mode the terminal does nothing for is
@@ -148,6 +184,8 @@ pub obj Terminal
   extras: hash.Map[Int, List[U32]]
   # The styles cells use, the first the plain one.
   styles: List[Style]
+  # Each style's index in `styles`, by its `style_key`.
+  style_ids: hash.Map[Int, Int]
   # The style the next rune is printed in (SGR), and its index; the index
   # of an erased cell, which keeps only the pen's background; and both as
   # the high bits of a cell.
@@ -239,7 +277,7 @@ pub obj Terminal
     for y in 0..rows
       map[y] = y
     Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
-      styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
+      styles: List([Style.plain()]), style_ids: plain_ids(), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
       modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
@@ -263,10 +301,10 @@ pub obj Terminal
 
   # The pen changed: find its index, and the index of an erased cell.
   sub pen_changed(!@)
-    @pen_id = intern(!@styles, ?@pen)
+    @pen_id = intern(!@styles, !@style_ids, ?@pen)
     erased = Style.plain()
     erased.bg = @pen.bg
-    @blank_id = intern(!@styles, ?erased)
+    @blank_id = intern(!@styles, !@style_ids, ?erased)
     @pen_bits = U64(@pen_id) << 32
     @blank_cell = U64(@blank_id) << 32
 
@@ -358,6 +396,26 @@ pub obj Terminal
     return if first == 0
     return if (c == 0xFE0F or c == 0xFE0E) and char_class(first, true) != CLASS_PICT
     (!@).append(i, c)
+
+  # Mode 2027: whether `r` surely starts a char of its own, so `join` would
+  # leave it: the char before the cursor (as `join` finds it) is empty, or
+  # one rune, after which the rules break before `r`. When that char has
+  # more runes, `join` decides.
+  fun starts_char(?@, r: Int) -> Bool
+    return true if @col == 0
+    base = @map[@rot + @row] * @cols
+    left = 1
+    if @autowrap
+      left = 0 if @pending_wrap else 1
+    else if @col == @cols - 1
+      left = 1 if rune(@cells[base + @col]) == 0 else 0
+    x = @col - left
+    x -= 1 if @cells[base + x] & KIND == TAIL else 0
+    c = @cells[base + x]
+    first = rune(c)
+    return true if first == 0
+    return false if c & EXTRA != 0
+    char_step(char_step(-1, first, true) & 0x7F, r, true) & 0x80 != 0
 
   # Mode 2027: whether `c` continues the char that ends before the cursor
   # (or at it, with a wrap pending), as Ghostty clusters runes (a tailored
@@ -469,9 +527,7 @@ pub obj Terminal
       take = @cols - @col if @cols - @col < to - k else to - k
       p = @map[@rot + @row]
       base = p * @cols + @col
-      bits = @pen_bits
-      for t in 0..take
-        @cells[base + t] = U64(s[k + t]) | bits
+      widen(!@cells[base..base + take], s[k..k + take], @pen_bits)
       @ends[p] = @col + take if @ends[p] < @col + take else @ends[p]
       k += take
       # As `print` does, a pending wrap (kept with autowrap off, after CBT)
@@ -492,6 +548,10 @@ pub obj Terminal
   # Ghostty does.
   fun print_utf8(!@, s: ?String, from: Int) -> Int
     fast = not @insert and @single < 0 and @g[@gl] <= ASCII
+    # In mode 2027, the char break state after the rune this loop wrote
+    # last, while the char before the cursor is that rune alone; -1 when
+    # it may not be.
+    st = -1
     k = from
     n = s.len
     while k < n
@@ -523,9 +583,24 @@ pub obj Terminal
       else
         break
       w = 1 if r <= 0xFF else unicode.width(r)
-      if w == 0 or not fast or (@graphemes and r > 0xFF)
+      if w == 0 or not fast
         (!@).print(U32(r))
+        st = -1
         continue
+      next = -1
+      if @graphemes
+        if r <= 0xFF
+          next = char_step(-1, r, true) & 0x7F
+        else
+          # Whether `r` starts a char: from the state the last rune left,
+          # or else from the char before the cursor; when it may not,
+          # `print` joins it.
+          brk = char_step(st, r, true) if st >= 0 else (char_step(-1, r, true) if @starts_char(r) else 0)
+          if brk & 0x80 == 0
+            (!@).print(U32(r))
+            st = -1
+            continue
+          next = brk & 0x7F
       (!@).wrap() if @pending_wrap and @autowrap
       p = @map[@rot + @row]
       i = p * @cols + @col
@@ -538,7 +613,9 @@ pub obj Terminal
         @col += 1
       else
         (!@).print(U32(r))
+        st = -1
         continue
+      st = next
       @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
       @last = r
       if @col == @cols - 1
@@ -977,7 +1054,7 @@ pub obj Terminal
     kept = @blank_cell
     erased = Style.plain()
     erased.bg = bg
-    @blank_cell = U64(intern(!@styles, ?erased)) << 32
+    @blank_cell = U64(intern(!@styles, !@style_ids, ?erased)) << 32
     (!@).erase_display(2)
     @blank_cell = kept
 
