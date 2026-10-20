@@ -18,6 +18,9 @@ extern zig "char.zig"
   # The class of rune `r` among std.text's chars (Class in
   # std/char_tables.zig), with `tailored` as Ghostty's.
   fun char_class(r: Int, tailored: Bool) -> Int
+  # One step of text.CharBreak: the state after rune `r` from `state`
+  # (negative before any rune), bit 7 set when a char starts at `r`.
+  fun char_step(state: Int, r: Int, tailored: Bool) -> Int
 
 extern zig "width_tables.zig"
   # The width bits of rune `r`: its width, ZERO_IN_CHAR, and VS_BASE.
@@ -359,6 +362,26 @@ pub obj Terminal
     return if (c == 0xFE0F or c == 0xFE0E) and char_class(first, true) != CLASS_PICT
     (!@).append(i, c)
 
+  # Mode 2027: whether `r` surely starts a char of its own, so `join` would
+  # leave it: the char before the cursor (as `join` finds it) is empty, or
+  # one rune, after which the rules break before `r`. When that char has
+  # more runes, `join` decides.
+  fun starts_char(?@, r: Int) -> Bool
+    return true if @col == 0
+    base = @map[@rot + @row] * @cols
+    left = 1
+    if @autowrap
+      left = 0 if @pending_wrap else 1
+    else if @col == @cols - 1
+      left = 1 if rune(@cells[base + @col]) == 0 else 0
+    x = @col - left
+    x -= 1 if @cells[base + x] & KIND == TAIL else 0
+    c = @cells[base + x]
+    first = rune(c)
+    return true if first == 0
+    return false if c & EXTRA != 0
+    char_step(char_step(-1, first, true) & 0x7F, r, true) & 0x80 != 0
+
   # Mode 2027: whether `c` continues the char that ends before the cursor
   # (or at it, with a wrap pending), as Ghostty clusters runes (a tailored
   # text.CharBreak); if so it joins that char. A variation selector after
@@ -499,6 +522,10 @@ pub obj Terminal
   # Ghostty does.
   fun print_utf8(!@, s: ?String, from: Int) -> Int
     fast = not @insert and @single < 0 and @g[@gl] <= ASCII
+    # In mode 2027, the char break state after the rune this loop wrote
+    # last, while the char before the cursor is that rune alone; -1 when
+    # it may not be.
+    st = -1
     k = from
     n = s.len
     while k < n
@@ -530,9 +557,24 @@ pub obj Terminal
       else
         break
       w = 1 if r <= 0xFF else unicode.width(r)
-      if w == 0 or not fast or (@graphemes and r > 0xFF)
+      if w == 0 or not fast
         (!@).print(U32(r))
+        st = -1
         continue
+      next = -1
+      if @graphemes
+        if r <= 0xFF
+          next = char_step(-1, r, true) & 0x7F
+        else
+          # Whether `r` starts a char: from the state the last rune left,
+          # or else from the char before the cursor; when it may not,
+          # `print` joins it.
+          brk = char_step(st, r, true) if st >= 0 else (char_step(-1, r, true) if @starts_char(r) else 0)
+          if brk & 0x80 == 0
+            (!@).print(U32(r))
+            st = -1
+            continue
+          next = brk & 0x7F
       (!@).wrap() if @pending_wrap and @autowrap
       p = @map[@rot + @row]
       i = p * @cols + @col
@@ -545,7 +587,9 @@ pub obj Terminal
         @col += 1
       else
         (!@).print(U32(r))
+        st = -1
         continue
+      st = next
       @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
       @last = r
       if @col == @cols - 1
