@@ -1085,10 +1085,8 @@ const Lowerer = struct {
             held = try self.asHeader(ir.As.value(cond), .take);
         } else if (cond.isKind(.as_results)) {
             held_parts = try self.resultsHeader(cond);
-        } else if (cond.isKind(.as_match)) {
-            return abstain("`as` with a pattern");
         } else if (rig.bindsInCondition(cond)) {
-            return abstain("a joined `and` chain with `as` parts");
+            return self.ifChain(e, how, j);
         } else try self.header(cond);
         const t = try self.newBlock();
         const x = try self.newBlock();
@@ -1113,6 +1111,84 @@ const Lowerer = struct {
             try self.goto(x);
         }
         self.cur = x;
+    }
+
+    /// An `if` whose condition joins parts with `and`, or tests a variant
+    /// (`s as .circle(r)`): the parts in order (`condChain`), the `then`
+    /// in the scopes of their bindings, and the `else` from any part
+    /// that fails.
+    fn ifChain(self: *Lowerer, e: Sexp, how: How, j: ?VarId) Error!void {
+        const x = try self.newBlock();
+        const els = ir.If.@"else"(e);
+        if (els == .nil and j != null) return abstain("an `if` value without `else`");
+        const el = if (els == .nil) x else try self.newBlock();
+        const pushed = try self.condChain(ir.If.cond(e), el);
+        if (j) |jv| try self.armValue(ir.If.then(e), how, jv) else try self.blockStmts(ir.If.then(e));
+        for (0..pushed) |_| try self.popRegion(self.posOf(e));
+        try self.goto(x);
+        if (els != .nil) {
+            self.cur = el;
+            if (j) |jv| try self.valueInto(els, how, jv) else if (els.isKind(.@"if")) try self.stmt(els) else try self.blockStmts(els);
+            try self.goto(x);
+        }
+        self.cur = x;
+    }
+
+    /// The parts of a binding condition (`rig.eachGuardPart`), in order
+    /// from the block being written, each from the true edge of the one
+    /// before: a `Bool` part a header; `e as x` and `f() as a, b` as an
+    /// `if` with one binds them; and `s as .circle(r)` the `match` it is
+    /// (`rig.asMatchOf`), its subject held as a `match`'s and its pattern
+    /// bound as an arm's. Each binding part opens a region over the rest
+    /// and the body, which the caller pops; a part that fails leaves the
+    /// regions opened so far and goes to `fail`. Returns how many it
+    /// opened.
+    fn condChain(self: *Lowerer, cond: Sexp, fail: BlockId) Error!usize {
+        const Parts = struct {
+            list: std.ArrayList(Sexp) = .empty,
+            a: std.mem.Allocator,
+            pub fn part(v: *@This(), p: Sexp) Error!void {
+                try v.list.append(v.a, p);
+            }
+        };
+        var parts: Parts = .{ .a = self.a };
+        try rig.eachGuardPart(cond, &parts);
+        var pushed: usize = 0;
+        for (parts.list.items) |p| {
+            var held: ?Held = null;
+            var held_parts: ?[]const VarId = null;
+            var matched: ?Held = null;
+            // A binding part's region holds what its header holds, and
+            // its bindings: a part that fails drops what it held, and the
+            // bindings end with the region.
+            if (rig.isAsPart(p)) {
+                try self.pushRegion();
+                pushed += 1;
+            }
+            if (p.isKind(.as)) {
+                held = try self.asHeader(ir.As.value(p), .take);
+            } else if (p.isKind(.as_results)) {
+                held_parts = try self.resultsHeader(p);
+            } else if (p.isKind(.as_match)) {
+                const h = try self.asHeader(ir.Match.subject(rig.asMatchOf(p)), .read);
+                // The test reads the subject.
+                try self.emit(.{ .pos = self.posOf(p), .what = .use, .uses = try self.one(h.v) });
+                matched = h;
+            } else try self.header(p);
+            const ok = try self.newBlock();
+            const no = try self.newBlock();
+            try self.branch(ok, no);
+            // A failing part leaves the regions of the parts so far.
+            self.cur = no;
+            var k: usize = 0;
+            while (k < pushed) : (k += 1) try self.killRegion(self.regions.items[self.regions.items.len - 1 - k], self.posOf(p), false);
+            try self.goto(fail);
+            self.cur = ok;
+            if (held) |h| try self.bindHeld(ir.As.name(p), h, self.optionalInner(h.ty));
+            if (held_parts) |hp| try self.bindParts(ir.AsResults.names(p).items(), hp);
+            if (matched) |h| try self.bindPattern(ir.Arm.pattern(rig.asMatchArm(p)), h);
+        }
+        return pushed;
     }
 
     /// A branch's value, where the branch's own bindings (a pattern's,
@@ -1534,8 +1610,7 @@ const Lowerer = struct {
         const label = self.label;
         self.label = null;
         const cond = ir.While.cond(s);
-        if (!rig.isAsPart(cond) and rig.bindsInCondition(cond)) return abstain("a joined `and` chain with `as` parts");
-        if (cond.isKind(.as_match)) return abstain("`as` with a pattern");
+        if (rig.bindsInCondition(cond) and !cond.isKind(.as) and !cond.isKind(.as_results)) return self.whileChain(s, label, loop_value);
         const h = try self.newBlock();
         try self.goto(h);
         self.cur = h;
@@ -1576,6 +1651,69 @@ const Lowerer = struct {
             try self.goto(x);
         }
         self.cur = x;
+    }
+
+    /// A `while` whose condition joins parts with `and`, or tests a
+    /// variant (`while e as .item(x)`): each pass runs the parts
+    /// (`condChain`), then the body and the step in the scopes of their
+    /// bindings; a part that fails ends the loop.
+    fn whileChain(self: *Lowerer, s: Sexp, label: ?[]const u8, loop_value: ?VarId) Error!void {
+        const h = try self.newBlock();
+        try self.goto(h);
+        self.cur = h;
+        const x = try self.newBlock();
+        const st = try self.newBlock();
+        try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
+        const els = ir.While.@"else"(s);
+        const e = if (els == .nil) x else try self.newBlock();
+        const base = self.regions.items.len;
+        const pushed = try self.condChain(ir.While.cond(s), e);
+        // A step that reads a binding of the condition runs in its scope,
+        // after the body; any other runs once the bindings have ended,
+        // where `continue` goes too (SPEC "Joined bindings").
+        const step = ir.While.step(s);
+        const inside = step != .nil and try self.stepReadsBinding(ir.While.cond(s), step);
+        self.loops.items[self.loops.items.len - 1].cont_depth = if (inside) self.regions.items.len else base;
+        try self.blockStmts(ir.While.body(s));
+        if (!inside) for (0..pushed) |_| try self.popRegion(self.posOf(s));
+        try self.goto(st);
+        self.cur = st;
+        if (step != .nil) try self.stmt(step);
+        if (inside) for (0..pushed) |_| try self.popRegion(self.posOf(s));
+        try self.goto(h);
+        _ = self.loops.pop();
+        if (els != .nil) {
+            self.cur = e;
+            if (loop_value) |lv| try self.valueInto(els, .take, lv) else try self.blockStmts(els);
+            try self.goto(x);
+        }
+        self.cur = x;
+    }
+
+    /// Whether `step` reads a name a part of `cond` binds: an `as`
+    /// name, a result `as` binds, or a field a pattern binds.
+    fn stepReadsBinding(self: *Lowerer, cond: Sexp, step: Sexp) Error!bool {
+        const Reads = struct {
+            l: *Lowerer,
+            step: Sexp,
+            found: bool = false,
+            fn reads(r: *@This(), leaf: Sexp) void {
+                const sym = r.l.ctx.symbolOf(leaf) orelse return;
+                if (sema.findUse(r.l.ctx, r.step, sym) != null) r.found = true;
+            }
+            pub fn part(r: *@This(), p: Sexp) Error!void {
+                if (p.isKind(.as)) r.reads(ir.As.name(p));
+                if (p.isKind(.as_results)) for (ir.AsResults.names(p).items()) |n| {
+                    if (n.isKind(.set)) r.reads(ir.Set.target(n));
+                };
+                if (p.isKind(.as_match)) for (r.l.ctx.payloadBindings(ir.Arm.pattern(rig.asMatchArm(p))) orelse &.{}) |b| {
+                    if (b != .nil) r.reads(b);
+                };
+            }
+        };
+        var r: Reads = .{ .l = self, .step = step };
+        try rig.eachGuardPart(cond, &r);
+        return r.found;
     }
 
     fn forStmt(self: *Lowerer, s: Sexp, loop_value: ?VarId) Error!void {
