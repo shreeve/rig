@@ -48,7 +48,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide", "grapheme"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide", "grapheme", "protect"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -315,6 +315,7 @@ CASES = [
     ("reply", "RIS keeps replies already made", 10, 2, b"\x1b[c\x1bc\x1b[5n"),
     ("reply", "DECRC restores origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b8\x1b[?6$p\x1b[?6h\x1b[u\x1b[?6$p"),
     ("reply", "DECALN resets origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b#8\x1b[?6$p"),
+    ("style", "past 32 styles, each is found again", 20, 6, ("".join("\x1b[38;2;%d;%d;%dm%c" % (i * 5, 255 - i * 3, i * 7 % 256, 65 + i % 26) for i in range(48)) + "".join("\x1b[38;2;%d;%d;%dm%c\x1b[4m%c\x1b[0m" % (i * 5, 255 - i * 3, i * 7 % 256, 97 + i % 26, 48 + i % 10) for i in range(0, 48, 3))).encode()),
     ("utf8", "two-byte runes", 10, 2, "café ñ ü".encode()),
     ("utf8", "three-byte runes of width 1", 10, 2, "─│┌€".encode()),
     ("utf8", "Greek and Cyrillic", 12, 2, "Ωμέγα Жизнь".encode()),
@@ -383,6 +384,20 @@ CASES = [
     ("wide", "DECALN clears wide runes and wraps", 5, 3, "abcd中\x1b#8\x1b[1;1H\x1b[X".encode()),
     ("wide", "the alternate screen has its own row flags", 5, 3, "\x1b[41mabcd中\x1b[0m\x1b[?1047h\x1b[?1047l\x1b[1;1H\x1b[X".encode()),
 
+    ("protect", "after SPA, EL leaves protected cells", 8, 2, b"\x1bVab\x1bWcd\x1b[1;1H\x1b[K"),
+    ("protect", "after DECSCA, EL erases protected cells", 8, 2, b"\x1b[1\"qab\x1b[0\"qcd\x1b[1;1H\x1b[K"),
+    ("protect", "DECSEL leaves protected cells", 8, 2, b"\x1b[1\"qab\x1b[0\"qcd\x1b[1;1H\x1b[?K"),
+    ("protect", "after SPA, ECH leaves protected cells", 8, 2, b"\x1bVab\x1bWcd\x1b[1;1H\x1b[4X"),
+    ("protect", "after DECSCA, ECH erases protected cells", 8, 2, b"\x1b[1\"qab\x1b[0\"qcd\x1b[1;1H\x1b[4X"),
+    ("protect", "DECSED leaves protected cells on every row", 6, 3, b"ab\x1b[1\"qcd\x1b[2\"qef\r\ngh\x1b[1\"qij\x1b[0\"q\x1b[2;1H\x1b[?1J\x1b[?0J"),
+    ("protect", "ED after SPA keeps protected cells and the row's wrap", 4, 3, b"\x1bVabcdef\x1bW\x1b[2;1H\x1b[2J\x1b[1;1H\x1b[X"),
+    ("protect", "EL 1 and 2 after SPA", 8, 2, b"a\x1bVbc\x1bWdef\x1b[1;5H\x1b[1K\x1b[2;1Hgh\x1bVi\x1bWj\x1b[2K"),
+    ("protect", "DECSCA with no parameter, and with others, does nothing but off", 8, 2, b"\x1b[1\"qa\x1b[\"qb\x1b[3\"qc\x1b[1;2\"qd\x1b[1;1H\x1b[?K"),
+    ("protect", "C1 SPA and EPA", 8, 2, b"\x96ab\x97cd\x1b[1;1H\x1b[K"),
+    ("protect", "DECSC and DECRC keep protection", 8, 2, b"\x1bV\x1b7\x1bW\x1b8ab\x1bWcd\x1b[1;1H\x1b[K"),
+    ("protect", "each screen keeps its kind of protection", 8, 2, b"\x1bVab\x1bW\x1b[?1049h\x1b[1\"qcd\x1b[0\"q\x1b[1;1H\x1b[K\x1b[?1049l\x1b[1;1H\x1b[K"),
+    ("protect", "printing over a protected cell, and DECALN, unprotect", 8, 2, b"\x1bVab\x1bW\x1b[1;1Hx\x1b[1;1H\x1b[K\x1b#8\x1bV\x1bW\x1b[2;1H\x1b[K"),
+    ("protect", "1049 erases the alternate screen as its protection says", 8, 2, b"\x1b[?1049h\x1bVab\x1bW\x1b[?1049l\x1b[?1049h"),
     ("grapheme", "a combining mark joins the char before", 10, 2, "e\u0301a\u0308b".encode()),
     ("grapheme", "marks join a wide char", 10, 2, "中\u0301\u0302x".encode()),
     ("grapheme", "a mark at the first column is dropped", 10, 2, "\u0301a\r\u0302".encode()),
@@ -611,6 +626,8 @@ def piece(rng, every):
             return b"\x1b[?%d" % rng.choice([7, 25, 1048, 2004]) + rng.choice([b"s", b"r"])
         return b"\x1b[" + (b"?" if private else b"") + b";".join(b"%d" % m for m in modes) + rng.choice([b"h", b"l"])
     if k < 0.93:
+        if rng.random() < 0.25:
+            return rng.choice([b"\x1bV", b"\x1bW", b"\x1b[1\"q", b"\x1b[0\"q", b"\x1b[2\"q", b"\x1b[\"q", b"\x96", b"\x97"])
         return b"\x1b" + rng.choice([b"7", b"8", b"D", b"E", b"H", b"M", b"#8", b"Q", b"=", b">"])
     if k < 0.96:
         if rng.random() < 0.3:

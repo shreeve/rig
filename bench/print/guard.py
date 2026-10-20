@@ -13,7 +13,7 @@ Each print is straight-line code: its runs of text written once and each
 value by the one writer of its type (`rig.print` in src/runtime.zig). A
 change that makes Zig compile print's code again at each site shows here.
 
-usage: cpuq run --cores 2 --label rig:print-size -- bench/print/guard.py [--update] [--rig PATH] [--sites N]
+usage: bench/print/guard.py [--update] [--rig PATH] [--sites N]
 
 --update writes the measured bytes per site, plus 25%, as the new bound;
 commit it with the change that moved it. The bound is measured on the Mac

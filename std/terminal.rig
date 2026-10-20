@@ -1,0 +1,1936 @@
+# std.terminal: a terminal emulator as a library. Bytes a program writes
+# go in through `feed`; the screen, the cursor, and the bytes the terminal
+# answers with come out. It reads nothing and writes nothing itself: a
+# caller owns the pty, the keyboard, and the drawing. Its behavior is
+# xterm's, as Ghostty implements it; the cases of
+# test/rig/std-terminal-ghostty.rig.test hold Ghostty's answers
+# (tools/terminal_ghostty.py records them).
+#
+# The file is in three parts: the styles cells take (what SGR sets, and
+# how a dump writes them); the screen and the operations on it; and the
+# parser, the DEC state machine that turns bytes into those operations.
+
+use std.hash
+use std.text
+use std.unicode
+use std.utf8
+
+extern zig "char.zig"
+  # The class of rune `r` among std.text's chars (Class in
+  # std/char_tables.zig), with `tailored` as Ghostty's.
+  fun char_class(r: Int, tailored: Bool) -> Int
+  # One step of text.CharBreak: the state after rune `r` from `state`
+  # (negative before any rune), bit 7 set when a char starts at `r`.
+  fun char_step(state: Int, r: Int, tailored: Bool) -> Int
+  # A tailored char_step from `state` (not negative), with rune `r`'s
+  # width in bits 8 and 9.
+  fun char_step_width(state: Int, r: Int) -> Int
+
+extern zig "terminal.zig"
+  # `dst[i]` is `U64(src[i]) | bits` for each `i` of the shorter of the
+  # two, sixteen at a time.
+  sub widen(dst: ![]U64, src: ?String, bits: U64)
+
+extern zig "width_tables.zig"
+  # The width bits of rune `r`: its width, ZERO_IN_CHAR, and VS_BASE.
+  fun width_props(r: Int) -> Int
+
+# ---- Styles --------------------------------------------------------------
+
+# What SGR sets, and how a style is written in a dump. A color is NONE, a
+# palette index (0 to 255), or RGB | 0xRRGGBB.
+
+NONE = -1
+RGB = 0x1000000
+
+# Flag bits, in the order a dump writes them.
+BOLD = 1
+ITALIC = 2
+FAINT = 4
+BLINK = 8
+INVERSE = 16
+INVISIBLE = 32
+STRIKE = 64
+OVERLINE = 128
+
+FLAG_NAMES = ["bold", "italic", "faint", "blink", "inverse", "invisible", "strike", "overline"]
+UNDERLINE_NAMES = ["none", "single", "double", "curly", "dotted", "dashed"]
+
+# How a cell looks besides its rune.
+obj Style
+  flags: Int
+  # 0 none, then single, double, curly, dotted, dashed.
+  underline: Int
+  fg: Int
+  bg: Int
+  ulc: Int
+
+  fun plain() -> Style
+    Style(flags: 0, underline: 0, fg: NONE, bg: NONE, ulc: NONE)
+
+  fun same(?@, o: ?Style) -> Bool
+    @flags == o.flags and @underline == o.underline and @fg == o.fg and @bg == o.bg and @ulc == o.ulc
+
+  fun is_plain(?@) -> Bool
+    @flags == 0 and @underline == 0 and @fg == NONE and @bg == NONE and @ulc == NONE
+
+  # The style as a dump writes it: the flags set, then ul=, fg=, bg=, ulc=.
+  sub text(?@, out: !String)
+    for name, k in FLAG_NAMES
+      if @flags & (1 << k) != 0
+        !out.push(b' ') if out.len > 0
+        !out.add(name)
+    if @underline != 0
+      !out.push(b' ') if out.len > 0
+      !out.add("ul=", UNDERLINE_NAMES[@underline])
+    color_text(!out, "fg=", @fg)
+    color_text(!out, "bg=", @bg)
+    color_text(!out, "ulc=", @ulc)
+
+sub color_text(out: !String, name: ?String, c: Int)
+  return if c == NONE
+  !out.push(b' ') if out.len > 0
+  !out.add(name)
+  if c < RGB
+    !out.add(c)
+    return
+  !out.push(b'#')
+  for shift in [16, 8, 0]
+    v = (c >> shift) & 0xFF
+    !out.push(HEX[v >> 4])
+    !out.push(HEX[v & 15])
+
+HEX = b"0123456789abcdef"
+
+# SGR: each attribute of the parameters, in order, applied to the pen, as
+# Ghostty's sgr.Parser reads them. `seps` has bit i set when parameter i
+# ended with a colon.
+sub Terminal.sgr(!@)
+  n = @count if @count < MAX_PARAMS else MAX_PARAMS
+  if n == 0
+    @pen = Style.plain()
+    return
+  i = 0
+  while i < n
+    i = (!@).sgr_one(i, n)
+
+# The attribute at parameter `i`; where the next one starts.
+fun Terminal.sgr_one(!@, i: Int, n: Int) -> Int
+  v = @params[i]
+  colon = (@seps >> i) & 1 != 0
+  rest = n - i
+  if colon and v != 4 and v != 38 and v != 48 and v != 58
+    return colon_end(@seps, i, n) + 1
+  match v
+    0 => @pen = Style.plain()
+    1 => @pen.flags |= BOLD
+    2 => @pen.flags |= FAINT
+    3 => @pen.flags |= ITALIC
+    4
+      if colon
+        return i + 1 if rest < 2
+        if (@seps >> (i + 1)) & 1 != 0
+          return colon_end(@seps, i + 1, n) + 1
+        u = @params[i + 1]
+        @pen.underline = u if u <= 5 else 1
+        return i + 2
+      @pen.underline = 1
+    5, 6 => @pen.flags |= BLINK
+    7 => @pen.flags |= INVERSE
+    8 => @pen.flags |= INVISIBLE
+    9 => @pen.flags |= STRIKE
+    21 => @pen.underline = 2
+    22 => @pen.flags &= (BOLD | FAINT).not()
+    23 => @pen.flags &= ITALIC.not()
+    24 => @pen.underline = 0
+    25 => @pen.flags &= BLINK.not()
+    27 => @pen.flags &= INVERSE.not()
+    28 => @pen.flags &= INVISIBLE.not()
+    29 => @pen.flags &= STRIKE.not()
+    30..38 => @pen.fg = v - 30
+    38, 48, 58
+      if rest >= 2
+        kind = @params[i + 1]
+        if kind == 5 and rest >= 3
+          (!@).set_color(v, @params[i + 2] & 0xFF)
+          return i + 3
+        if kind == 2 and rest >= 5
+          if not colon
+            (!@).set_color(v, rgb(@params[i + 2], @params[i + 3], @params[i + 4]))
+            return i + 5
+          # Colons after the `2`: three for r:g:b, four with a color space.
+          k = colon_end(@seps, i + 1, n) - i - 1
+          if k == 3
+            (!@).set_color(v, rgb(@params[i + 2], @params[i + 3], @params[i + 4]))
+            return i + 5
+          if k == 4
+            (!@).set_color(v, rgb(@params[i + 3], @params[i + 4], @params[i + 5]))
+            return i + 6
+          return colon_end(@seps, i, n) + 1
+    39 => @pen.fg = NONE
+    40..48 => @pen.bg = v - 40
+    49 => @pen.bg = NONE
+    53 => @pen.flags |= OVERLINE
+    55 => @pen.flags &= OVERLINE.not()
+    59 => @pen.ulc = NONE
+    90..98 => @pen.fg = v - 82
+    100..108 => @pen.bg = v - 92
+    _ => pass
+  i + 1
+
+sub Terminal.set_color(!@, which: Int, c: Int)
+  match which
+    38 => @pen.fg = c
+    48 => @pen.bg = c
+    _ => @pen.ulc = c
+
+fun rgb(r: Int, g: Int, b: Int) -> Int
+  RGB | (r & 0xFF) << 16 | (g & 0xFF) << 8 | (b & 0xFF)
+
+# The last parameter of the run of colon-joined parameters from `i`.
+fun colon_end(seps: Int, i: Int, n: Int) -> Int
+  k = i
+  while k < n - 1 and (seps >> k) & 1 != 0
+    k += 1
+  k
+
+# ---- The screen ----------------------------------------------------------
+
+# The class `pict` of char_class: Extended_Pictographic, an emoji modifier
+# base aside when tailored.
+CLASS_PICT = 1
+
+# Bits of width_props: the rune takes no column of its own inside a char;
+# a variation selector may follow it to ask for text or emoji style.
+ZERO_IN_CHAR = 4
+VS_BASE = 8
+
+# The index of `s` in `styles`, added when it is new. A few styles are
+# looked at one by one; past SMALL_STYLES, as truecolor output makes
+# thousands, `s` is found by its key in `ids`, which holds every style's
+# (and in the rare case another style has that key, by looking at each).
+fun intern(styles: !List[Style], ids: !hash.Map[Int, Int], s: ?Style) -> Int
+  if styles.len <= SMALL_STYLES
+    for t, k in styles
+      return k if t.same(s)
+  else if ids.get(style_key(s)) as k
+    return k if styles[k].same(s)
+    for t, j in styles
+      return j if t.same(s)
+  key = style_key(s)
+  !styles.push(+s)
+  !ids.put(key, styles.len - 1) if not ids.has(key)
+  styles.len - 1
+
+SMALL_STYLES = 32
+
+# `style_ids` of a terminal's first style, the plain one.
+fun plain_ids() -> hash.Map[Int, Int]
+  ids = hash.Map[Int, Int].new()
+  !ids.put(style_key(?(Style.plain())), 0)
+  ids
+
+# A key for style `s`: its fields, mixed into 63 bits (an Int's), so two
+# styles with the same key are the same but for odds of about one in 2^63.
+fun style_key(s: ?Style) -> Int
+  a = U64(s.flags | (s.underline << 8) | ((s.fg + 1) << 11))
+  b = U64((s.bg + 1) | ((s.ulc + 1) << 26))
+  h = (a *% 0x9E3779B97F4A7C15) ^ b
+  h = (h ^ (h >> 31)) *% 0xBF58476D1CE4E5B9
+  h = (h ^ (h >> 29)) *% 0x94D049BB133111EB
+  Int((h ^ (h >> 32)) >> 1)
+
+# Every mode Ghostty knows, DEC private and ANSI, and each one's default,
+# in Ghostty's order (modes.zig). A mode the terminal does nothing for is
+# still set, reset, saved, and reported.
+MODE_VALUES = [2, 4, 12, 20, 1, 3, 4, 5, 6, 7, 8, 9, 12, 25, 40, 45, 47, 66, 67, 69, 1000, 1002, 1003, 1004, 1005, 1006, 1007, 1015, 1016, 1035, 1036, 1039, 1045, 1047, 1048, 1049, 2004, 2026, 2027, 2031, 2033, 2048]
+MODE_ANSI_COUNT = 4
+MODE_DEFAULTS = [false, false, true, false, false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, true, true, false, false, false, false, false, false, false, false, false, false, false]
+
+# The index of mode `m` in MODE_VALUES, ANSI or DEC private; -1 when
+# Ghostty knows no such mode.
+fun mode_index(m: Int, ansi: Bool) -> Int
+  first = 0 if ansi else MODE_ANSI_COUNT
+  last = MODE_ANSI_COUNT if ansi else MODE_VALUES.len
+  for i in first..last
+    return i if MODE_VALUES[i] == m
+  -1
+
+# What XTVERSION names the terminal.
+NAME = "std.terminal"
+
+# A cursor DECSC saved: its place, pending wrap, pen, origin mode,
+# character sets, and protection; `set` is false before the first save.
+obj Saved
+  set: Bool
+  row: Int
+  col: Int
+  wrap: Bool
+  pen: Style
+  origin: Bool
+  g: [4]Int
+  gl: Int
+  single: Int
+  protect: Bool
+
+  fun none() -> Saved
+    Saved(set: false, row: 0, col: 0, wrap: false, pen: Style.plain(), origin: false, g: [4 of UTF8], gl: 0, single: -1, protect: false)
+
+# Character sets.
+UTF8 = 0
+ASCII = 1
+BRITISH = 2
+DEC_SPECIAL = 3
+
+# DEC Special Graphics from 0x60 to 0x7E: line drawing and symbols.
+DEC_GRAPHICS = [0x25C6, 0x2592, 0x2409, 0x240C, 0x240D, 0x240A, 0x00B0, 0x00B1, 0x2424, 0x240B, 0x2518, 0x2510, 0x250C, 0x2514, 0x253C, 0x23BA, 0x23BB, 0x2500, 0x23BC, 0x23BD, 0x251C, 0x2524, 0x2534, 0x252C, 0x2502, 0x2264, 0x2265, 0x03C0, 0x2260, 0x00A3, 0x00B7]
+
+# Rune `r` as character set `set` shows it.
+fun map_rune(set: Int, r: U32) -> U32
+  return r if set <= ASCII
+  return 0x20 if r > 0xFF
+  if set == BRITISH
+    return 0xA3 if r == 0x23 else r
+  return r if r < 0x60 or r > 0x7E
+  U32(DEC_GRAPHICS[Int(r) - 0x60])
+
+# The kind of a cell, in bits 30 and 31 (Ghostty's `wide`): a cell of one
+# column (0); the first cell of a wide rune; the spacer that is its
+# second; and the spacer a wide rune leaves at the end of a row it does
+# not fit, wrapping to the next.
+WIDE: U64 = 0x40000000
+TAIL: U64 = 0x80000000
+HEAD: U64 = 0xC0000000
+KIND: U64 = 0xC0000000
+
+# A cell holds a char of more than one rune: the runes after its first
+# are in `extras`, by the cell's index (Ghostty's grapheme map).
+EXTRA: U64 = 0x20000000
+
+# A cell is protected: printed while protection was on (SPA or DECSCA),
+# so a selective erase, or any erase after SPA, leaves it.
+PROT: U64 = 0x10000000
+
+# The kinds of protection a screen had last (SPA is ISO, DECSCA DEC).
+PROT_OFF = 0
+PROT_ISO = 1
+PROT_DEC = 2
+
+# The flags of a row, kept by its place in `cells`, so they move with it:
+# it wraps into the next row, it is wrapped into from the row before, and
+# it may hold cells of wide runes, and cells with EXTRA.
+ROW_WRAP: U8 = 1
+ROW_CONT: U8 = 2
+ROW_WIDE: U8 = 4
+ROW_MORE: U8 = 8
+
+# The rune of a cell.
+fun rune(c: U64) -> Int
+  Int(c & 0x1FFFFF)
+
+# The style index of a cell.
+fun mark(c: U64) -> Int
+  Int(c >> 32)
+
+# A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune in
+# the low 21 bits (0 for empty), PROT in bit 28, EXTRA in bit 29, its kind
+# (WIDE, TAIL, HEAD, or 0) in the next 2, and its style, an index into
+# `styles`, in the high 32. The screen's rows are kept in any order: row `y`
+# is cells `map[rot + y] * cols` to `map[rot + y] * cols + cols - 1`, and
+# its flags are `flags[map[rot + y]]`, so a scroll moves entries of `map`,
+# not cells.
+pub obj Terminal
+  # The bytes the terminal answers with (DA, DSR, DECRQM, XTVERSION, ...),
+  # in order, for the caller to send to the program and then clear.
+  pub replies: String
+  cols: Int
+  rows: Int
+  cells: List[U64]
+  # Row `y` is cells `map[rot + y] * cols` on: `map` holds two screens'
+  # worth of entries, and `rot` is where the screen's window starts.
+  map: List[Int]
+  rot: Int
+  flags: List[U8]
+  # Past `ends[map[rot + y]]` every cell of row `y` is 0, an empty cell
+  # with no background, so erasing a row, as a scroll does, clears only
+  # the cells written.
+  ends: List[Int]
+  # The runes after the first of each cell with EXTRA, by its index in
+  # `cells`.
+  extras: hash.Map[Int, List[U32]]
+  # The styles cells use, the first the plain one.
+  styles: List[Style]
+  # Each style's index in `styles`, by its `style_key`.
+  style_ids: hash.Map[Int, Int]
+  # The style the next rune is printed in (SGR), and its index; the index
+  # of an erased cell, which keeps only the pen's background; and both as
+  # the high bits of a cell.
+  pen: Style
+  pen_id: Int
+  blank_id: Int
+  pen_bits: U64
+  blank_cell: U64
+  row: Int
+  col: Int
+  # The cursor is past the last column: the next printed rune wraps first.
+  pending_wrap: Bool
+  # The last rune printed, for REP; -1 before any, and after RIS.
+  last: Int
+  # Character sets (SCS): the set in each of G0 to G3 (UTF8, ASCII,
+  # BRITISH, or DEC_SPECIAL), the slot invoked into GL, and a slot invoked
+  # for the next rune only (SS2, SS3), or -1.
+  g: [4]Int
+  gl: Int
+  single: Int
+  # The scroll margins (DECSTBM): the first and last rows that scroll.
+  top: Int
+  bottom: Int
+  # Modes: autowrap (DECAWM), origin (DECOM), insert (IRM), and new line
+  # (LNM, a line feed also returns).
+  autowrap: Bool
+  # The cursor prints protected cells (SPA, DECSCA), and the kind of
+  # protection the screen had last, which ECH and ED and EL heed; the other
+  # screen's.
+  protect: Bool
+  prot_mode: Int
+  other_prot_mode: Int
+  # Mode 2027: runes join into chars as Ghostty clusters them, and a char
+  # takes the width of its runes together.
+  graphemes: Bool
+  origin: Bool
+  insert: Bool
+  newline: Bool
+  cursor_visible: Bool
+  # What XTSAVE saved of the private modes, for XTRESTORE; their defaults
+  # until then.
+  # Every mode Ghostty knows (MODE_VALUES), set or not, as SM, RM, DECSET,
+  # and DECRST leave it, whether or not it does anything here yet; and what
+  # XTSAVE saved of each, their defaults until then.
+  modes: List[Bool]
+  saved_modes: List[Bool]
+  # The kitty keyboard flags: a ring of 8 entries and the one in use, per
+  # screen (`other_kitty` the other screen's).
+  kitty: [8]Int
+  kitty_idx: Int
+  other_kitty: [8]Int
+  other_kitty_idx: Int
+  # Whether a tab stop is set at each column.
+  tabs: List[Bool]
+  # What DECSC saved, for DECRC.
+  saved: Saved
+  # The other screen, primary or alternate (47, 1047, 1049): its cells, row
+  # map, row flags, and saved cursor, swapped with these at a switch. The
+  # alternate screen is made blank the first time it is used.
+  alt: Bool
+  alt_made: Bool
+  other_cells: List[U64]
+  other_map: List[Int]
+  other_rot: Int
+  other_flags: List[U8]
+  other_ends: List[Int]
+  other_extras: hash.Map[Int, List[U32]]
+  other_saved: Saved
+  # The background of the other screen's cursor when it was left, which a
+  # screen is erased with as 1049 enters it, before the cursor comes over.
+  other_bg: Int
+  # The parser (its part is the last): its state, the CSI parameters so
+  # far, and the intermediate bytes, packed with the first in the highest
+  # byte.
+  state: State
+  params: [24]Int
+  count: Int
+  acc: Int
+  digits: Bool
+  colon: Bool
+  inter: Int
+  inter_count: Int
+  # Bit i: parameter i ended with a colon.
+  seps: Int
+  # The UTF-8 decoder of the ground state, which keeps a rune cut between
+  # two feeds.
+  decoder: utf8.Decoder
+
+  # An empty terminal of `cols` by `rows`, the cursor at the top left and a
+  # tab stop every 8 columns.
+  pub fun new(cols: Int, rows: Int) -> Terminal
+    tabs = List[Bool].filled(cols, false)
+    for x in 0..cols
+      tabs[x] = x % 8 == 0
+    map = List[Int].filled(2 * rows, 0)
+    for y in 0..rows
+      map[y] = y
+    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
+      styles: List([Style.plain()]), style_ids: plain_ids(), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
+      row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
+      autowrap: true, protect: false, prot_mode: PROT_OFF, other_prot_mode: PROT_OFF, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
+      modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
+      kitty: [8 of 0], kitty_idx: 0, other_kitty: [8 of 0], other_kitty_idx: 0, replies: String(),
+      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_rot: 0, other_flags: List(), other_ends: List(), other_extras: hash.Map[Int, List[U32]].new(), other_saved: Saved.none(), other_bg: NONE,
+      state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0, decoder: utf8.Decoder.new())
+
+  # REP: the last rune printed, `n` more times (at least once).
+  sub repeat(!@, n: Int)
+    return if @last < 0
+    for _ in 0..(n if n > 1 else 1)
+      (!@).print(U32(@last))
+
+  # RIS: everything as a new terminal of the same size has it, but the
+  # replies already made, which are sent.
+  sub full_reset(!@)
+    sent = String()
+    swap(!sent, !@replies)
+    @ = Terminal.new(@cols, @rows)
+    swap(!sent, !@replies)
+
+  # The pen changed: find its index, and the index of an erased cell.
+  sub pen_changed(!@)
+    @pen_id = intern(!@styles, !@style_ids, ?@pen)
+    erased = Style.plain()
+    erased.bg = @pen.bg
+    @blank_id = intern(!@styles, !@style_ids, ?erased)
+    @pen_bits = (U64(@pen_id) << 32) | (PROT if @protect else 0)
+    @blank_cell = U64(@blank_id) << 32
+
+  # SPA and EPA (ISO, and off) or DECSCA (DEC, and off): whether the cells
+  # the cursor prints are protected, and, but for off, the kind of
+  # protection the screen had last.
+  sub set_protect(!@, mode: Int)
+    @protect = mode != PROT_OFF
+    @prot_mode = mode if mode != PROT_OFF else @prot_mode
+    @pen_bits = ((@pen_bits >> 32) << 32) | (PROT if @protect else 0)
+
+  # The index in `cells` of row `y`, column `x`.
+  fun at(?@, y: Int, x: Int) -> Int
+    @map[@rot + y] * @cols + x
+
+  # Write `r` at the cursor and move right, wrapping first when a wrap is
+  # pending. A rune of width 2 takes a second cell, a spacer, and at the
+  # last column wraps first, leaving a spacer there (or, with autowrap
+  # off, is not written). One of width 0 joins the char before (`attach`).
+  # In mode 2027 a rune past 0xFF that continues the char before joins it
+  # (`join`), and one of width 0 that does not is dropped.
+  sub print(!@, r: U32)
+    c = Int(r)
+    if c > 0xFF and @graphemes and @col > 0
+      return if (!@).join(c)
+    w = 1 if c <= 0xFF else unicode.width(c)
+    if w == 0
+      (!@).attach(c) if not @graphemes
+      return
+    @last = c
+    (!@).wrap() if @pending_wrap and @autowrap
+    (!@).insert_blanks(w) if @insert and @col + w < @cols
+    if w == 1
+      (!@).put(r, 0)
+    else if @cols == 1
+      (!@).put(0, 0)
+    else
+      if @col == @cols - 1
+        return if not @autowrap
+        @flags[@map[@rot + @row]] |= ROW_WRAP
+        (!@).put(0, HEAD)
+        (!@).wrap()
+      (!@).put(r, WIDE)
+      @col += 1
+      (!@).put(0, TAIL)
+    # At the last column a wrap is pending even with autowrap off, as in
+    # Ghostty: the next rune only wraps once autowrap is on again.
+    if @col == @cols - 1
+      @pending_wrap = true
+    else
+      @col += 1
+
+  # Ghostty's printCell: `r`, through the character set invoked (which a
+  # single shift names for this cell only), in the pen, as a cell of kind
+  # `kind` at the cursor. Over half of a wide rune, the other half is
+  # emptied, and a spacer it left at the end of the row before is a plain
+  # empty cell.
+  sub put(!@, r: U32, kind: U64)
+    slot = @single if @single >= 0 else @gl
+    @single = -1
+    shown = map_rune(@g[slot], r)
+    p = @map[@rot + @row]
+    i = p * @cols + @col
+    old = @cells[i] & KIND
+    if old != kind and (old == WIDE or old == TAIL)
+      if old == TAIL
+        (!@).blank(i - 1, i)
+      else if @col < @cols - 1
+        (!@).blank(i + 1, i + 2)
+      if @row > 0 and @col <= 1
+        j = @map[@rot + @row - 1] * @cols + @cols - 1
+        @cells[j] ^= HEAD if @cells[j] & KIND == HEAD
+    if @cells[i] & EXTRA != 0
+      _ = (!@extras).take(i)
+    @cells[i] = U64(shown) | kind | @pen_bits
+    @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
+    @flags[p] |= ROW_WIDE if kind != 0
+
+  # Rune `c` added to the char of cell `i`, after its runes.
+  sub append(!@, i: Int, c: Int)
+    if @cells[i] & EXTRA == 0
+      @cells[i] |= EXTRA
+      !@extras.put(i, List[U32]())
+    if (!@extras).edit(i) as l
+      !l.push(U32(c))
+    @flags[i / @cols] |= ROW_MORE
+
+  # Ghostty's rune of width 0 outside mode 2027: added to the char before
+  # the cursor (the cursor's own when a wrap is pending), when there is
+  # one; a variation selector only after an emoji that is no modifier base.
+  sub attach(!@, c: Int)
+    left = 0 if @autowrap and @pending_wrap else 1
+    return if @col < left
+    i = @map[@rot + @row] * @cols + @col - left
+    i -= 1 if @cells[i] & KIND == TAIL else 0
+    first = rune(@cells[i])
+    return if first == 0
+    return if (c == 0xFE0F or c == 0xFE0E) and char_class(first, true) != CLASS_PICT
+    (!@).append(i, c)
+
+  # Mode 2027: whether `r` surely starts a char of its own, so `join` would
+  # leave it: the char before the cursor (as `join` finds it) is empty, or
+  # one rune, after which the rules break before `r`. When that char has
+  # more runes, `join` decides.
+  fun starts_char(?@, r: Int) -> Bool
+    return true if @col == 0
+    base = @map[@rot + @row] * @cols
+    left = 1
+    if @autowrap
+      left = 0 if @pending_wrap else 1
+    else if @col == @cols - 1
+      left = 1 if rune(@cells[base + @col]) == 0 else 0
+    x = @col - left
+    x -= 1 if @cells[base + x] & KIND == TAIL else 0
+    c = @cells[base + x]
+    first = rune(c)
+    return true if first == 0
+    return false if c & EXTRA != 0
+    char_step(char_step(-1, first, true) & 0x7F, r, true) & 0x80 != 0
+
+  # Mode 2027: whether `c` continues the char that ends before the cursor
+  # (or at it, with a wrap pending), as Ghostty clusters runes (a tailored
+  # text.CharBreak); if so it joins that char. A variation selector after
+  # a rune that may take one makes the char wide (VS16) or narrow (VS15),
+  # and after any other is dropped; a rune that takes a column of its own
+  # makes it wide. A char made wide at the last column wraps whole, or
+  # with autowrap off stays as it was.
+  fun join(!@, c: Int) -> Bool
+    base = @map[@rot + @row] * @cols
+    left = 1
+    if @autowrap
+      left = 0 if @pending_wrap else 1
+    else if @col == @cols - 1
+      left = 1 if rune(@cells[base + @col]) == 0 else 0
+    x = @col - left
+    x -= 1 if @cells[base + x] & KIND == TAIL else 0
+    i = base + x
+    first = rune(@cells[i])
+    return false if first == 0
+    b = text.CharBreak.new(true)
+    _ = (!b).next(first)
+    last = first
+    if @cells[i] & EXTRA != 0
+      if @extras.get(i) as l
+        for e in l
+          _ = (!b).next(Int(e))
+          last = Int(e)
+    return false if (!b).next(c)
+    effect = 0
+    if c == 0xFE0F or c == 0xFE0E
+      return true if width_props(last) & VS_BASE == 0
+      effect = 2 if c == 0xFE0F else 1
+    else if width_props(c) & ZERO_IN_CHAR == 0
+      effect = 2
+    if effect == 2 and @cells[i] & KIND != WIDE
+      @col = x
+      if x == @cols - 1
+        return true if not @autowrap
+        @flags[@map[@rot + @row]] |= ROW_WRAP
+        if @cells[i] & EXTRA != 0
+          # The char moves to the next row with its runes; its cell keeps
+          # its style, as a spacer.
+          runes = (!@extras).take(i) ?? List[U32]()
+          @cells[i] = ((@cells[i] >> 32) << 32) | (@cells[i] & PROT) | HEAD
+          @flags[@map[@rot + @row]] |= ROW_WIDE
+          (!@).wrap()
+          (!@).put(U32(first), WIDE)
+          i = @map[@rot + @row] * @cols + @col
+          @cells[i] |= EXTRA
+          !@extras.put(i, <runes)
+          @flags[@map[@rot + @row]] |= ROW_MORE
+        else
+          (!@).put(0, HEAD)
+          (!@).wrap()
+          (!@).put(U32(first), WIDE)
+          i = @map[@rot + @row] * @cols + @col
+      else
+        @cells[i] = (@cells[i] ^ (@cells[i] & KIND)) | WIDE
+        @flags[@map[@rot + @row]] |= ROW_WIDE
+      @col += 1
+      (!@).put(0, TAIL)
+      if @col == @cols - 1
+        @pending_wrap = true
+      else
+        @col += 1
+    else if effect == 1 and @cells[i] & KIND == WIDE
+      @cells[i] ^= WIDE
+      @cells[i + 1] ^= TAIL if x < @cols - 1 and @cells[i + 1] & KIND == TAIL
+      @pending_wrap = false
+      @col = x + 1 if x + 1 < @cols - 1 else @cols - 1
+    (!@).append(i, c)
+    true
+
+  # Ghostty's printWrap: to the first column of the next row, scrolling at
+  # the bottom margin. From the last column the row is marked as wrapping
+  # into the next, and the next as wrapped into.
+  sub wrap(!@)
+    marks = @col == @cols - 1
+    @flags[@map[@rot + @row]] |= ROW_WRAP if marks
+    @col = 0
+    (!@).index()
+    @flags[@map[@rot + @row]] |= ROW_CONT if marks
+
+  # Print the bytes `from` to `to` (not included) of `s`, every one of
+  # them a rune of one byte (0x20 to 0x7F), as `print` would one at a time:
+  # whole stretches go into a row at once.
+  sub print_run(!@, s: ?String, from: Int, to: Int)
+    if @insert or @single >= 0 or @g[@gl] > ASCII
+      for i in from..to
+        (!@).print(U32(s[i]))
+      return
+    k = from
+    while k < to
+      if @pending_wrap and @autowrap
+        (!@).wrap()
+      else if @pending_wrap and @col == @cols - 1
+        # Autowrap is off at the last column: every rune left overwrites
+        # it, and the last one stays.
+        (!@).put(U32(s[to - 1]), 0)
+        @last = Int(s[to - 1])
+        return
+      if @flags[@map[@rot + @row]] & (ROW_WIDE | ROW_MORE) != 0
+        # A row that may hold wide runes: a rune at a time, as `print`
+        # writes it over their halves.
+        (!@).print(U32(s[k]))
+        k += 1
+        continue
+      take = @cols - @col if @cols - @col < to - k else to - k
+      p = @map[@rot + @row]
+      base = p * @cols + @col
+      widen(!@cells[base..base + take], s[k..k + take], @pen_bits)
+      @ends[p] = @col + take if @ends[p] < @col + take else @ends[p]
+      k += take
+      # As `print` does, a pending wrap (kept with autowrap off, after CBT)
+      # stays when the run ends short of the last column.
+      if @col + take == @cols
+        @col = @cols - 1
+        @pending_wrap = true
+      else
+        @col += take
+    @last = Int(s[to - 1])
+
+  # Print the runes from byte `from` of `s`, as `print` would one at a
+  # time, up to the first byte that is not part of one (a control, or a
+  # sequence cut short or ill-formed); where that is. Well-formed UTF-8 is
+  # decoded here, not a byte at a time through `decoder`, and a rune goes
+  # straight into its cells unless it lands on half of a wide rune, or a
+  # wide one at the last column. A UTF-8-encoded C1 control is ignored, as
+  # Ghostty does.
+  fun print_utf8(!@, s: ?String, from: Int) -> Int
+    fast = not @insert and @single < 0 and @g[@gl] <= ASCII
+    # In mode 2027, the char break state after the rune this loop wrote
+    # last, while the char before the cursor is that rune alone; -1 when
+    # it may not be.
+    st = -1
+    # The state after printable ASCII, every byte of which is of class
+    # `other`.
+    ascii_st = char_step(-1, 0x61, true) & 0x7F if @graphemes else -1
+    k = from
+    n = s.len
+    while k < n
+      b = s[k]
+      r = 0
+      if b < 0x80
+        break if b < 0x20
+        r = Int(b)
+        k += 1
+      else if b < 0xC2
+        break
+      else if b < 0xE0
+        break if k + 1 >= n or s[k + 1] & 0xC0 != 0x80
+        r = (Int(b & 0x1F) << 6) | Int(s[k + 1] & 0x3F)
+        k += 2
+        continue if r < 0xA0
+      else if b < 0xF0
+        break if k + 2 >= n
+        c = s[k + 1]
+        break if c < (0xA0 if b == 0xE0 else 0x80) or c > (0x9F if b == 0xED else 0xBF) or s[k + 2] & 0xC0 != 0x80
+        r = (Int(b & 0x0F) << 12) | (Int(c & 0x3F) << 6) | Int(s[k + 2] & 0x3F)
+        k += 3
+      else if b < 0xF5
+        break if k + 3 >= n
+        c = s[k + 1]
+        break if c < (0x90 if b == 0xF0 else 0x80) or c > (0x8F if b == 0xF4 else 0xBF) or s[k + 2] & 0xC0 != 0x80 or s[k + 3] & 0xC0 != 0x80
+        r = (Int(b & 0x07) << 18) | (Int(c & 0x3F) << 12) | (Int(s[k + 2] & 0x3F) << 6) | Int(s[k + 3] & 0x3F)
+        k += 4
+      else
+        break
+      next = -1
+      w = 0
+      if @graphemes and fast and r > 0xFF and st >= 0
+        # Inside a run in mode 2027: the char break and the width at once.
+        info = char_step_width(st, r)
+        if info & 0x80 == 0 or info >> 8 == 0
+          (!@).print(U32(r))
+          st = -1
+          continue
+        w = info >> 8
+        next = info & 0x7F
+      else
+        w = 1 if r <= 0xFF else unicode.width(r)
+        if w == 0 or not fast
+          (!@).print(U32(r))
+          st = -1
+          continue
+      if @graphemes and next < 0
+        if r < 0x80
+          next = ascii_st
+        else if r <= 0xFF
+          next = char_step(-1, r, true) & 0x7F
+        else
+          # Whether `r` starts a char: from the state the last rune left,
+          # or else from the char before the cursor; when it may not,
+          # `print` joins it.
+          brk = char_step(st, r, true) if st >= 0 else (char_step(-1, r, true) if @starts_char(r) else 0)
+          if brk & 0x80 == 0
+            (!@).print(U32(r))
+            st = -1
+            continue
+          next = brk & 0x7F
+      (!@).wrap() if @pending_wrap and @autowrap
+      p = @map[@rot + @row]
+      i = p * @cols + @col
+      if w == 1 and @cells[i] & (KIND | EXTRA) == 0
+        @cells[i] = U64(r) | @pen_bits
+      else if w == 2 and @col < @cols - 1 and (@cells[i] | @cells[i + 1]) & (KIND | EXTRA) == 0
+        @cells[i] = U64(r) | WIDE | @pen_bits
+        @cells[i + 1] = TAIL | @pen_bits
+        @flags[p] |= ROW_WIDE
+        @col += 1
+      else
+        (!@).print(U32(r))
+        st = -1
+        continue
+      st = next
+      @ends[p] = @col + 1 if @ends[p] <= @col else @ends[p]
+      @last = r
+      if @col == @cols - 1
+        @pending_wrap = true
+      else
+        @col += 1
+    k
+
+  sub carriage_return(!@)
+    @col = 0
+    @pending_wrap = false
+
+  # Down one row; at the bottom margin the scroll region scrolls up, its
+  # rows keeping their flags.
+  sub index(!@)
+    @pending_wrap = false
+    if @row == @bottom
+      (!@).shift_up(@top, @bottom, 1)
+    else if @row < @rows - 1
+      @row += 1
+
+  # Up one row; at the top margin the scroll region scrolls down, and the
+  # cursor keeps its pending wrap.
+  sub reverse_index(!@)
+    if @row == @top
+      (!@).scroll_down(1)
+    else
+      (!@).cursor_up(1)
+
+  # Cells `from` to `to` (not included) of `cells`, within one row, erased:
+  # empty, keeping the pen's background. With none they are 0, and only
+  # those up to the row's end are written.
+  sub blank(!@, from: Int, to: Int)
+    return if from >= to
+    p = from / @cols
+    (!@).blank_in(p, from - p * @cols, to - p * @cols)
+
+  # Columns `from` to `to` (not included) of the cells at `p * cols`, as
+  # `blank` erases them.
+  sub blank_in(!@, p: Int, from: Int, to: Int)
+    base = p * @cols
+    if @flags[p] & ROW_MORE != 0
+      for i in base + from..base + to
+        if @cells[i] & EXTRA != 0
+          _ = (!@extras).take(i)
+    if @blank_cell == 0
+      end = @ends[p]
+      return if from >= end
+      if to >= end
+        !@cells[base + from..base + end].fill(0)
+        @ends[p] = from
+      else
+        !@cells[base + from..base + to].fill(0)
+    else
+      !@cells[base + from..base + to].fill(@blank_cell)
+      @ends[p] = to if @ends[p] < to else @ends[p]
+
+  # Rows `first` to `last` (not included) erased, and their flags cleared.
+  sub blank_rows(!@, first: Int, last: Int)
+    for y in first..last
+      p = @map[@rot + y]
+      (!@).blank_in(p, 0, @cols)
+      @flags[p] = 0
+
+  # Rows `first` to `last` (included) are about to move by lines (IL, DL,
+  # and the scrolls Ghostty makes of them): as in Ghostty, they no longer
+  # wrap, and a spacer a wide rune left at the end of one is a plain empty
+  # cell.
+  sub unwrap_rows(!@, first: Int, last: Int)
+    for y in first..last + 1
+      p = @map[@rot + y]
+      @flags[p] &= ROW_WIDE | ROW_MORE
+      j = p * @cols + @cols - 1
+      @cells[j] ^= HEAD if @cells[j] & KIND == HEAD
+
+  # Ghostty's splitCellBoundary: no wide rune is cut at column `x` of the
+  # cursor's row; one that would be is emptied. At the row's end that is
+  # the spacer of a wide rune that wrapped; at its start, the spacer a wide
+  # rune that wrapped into it left in the row before.
+  sub split_at(!@, x: Int)
+    p = @map[@rot + @row]
+    base = p * @cols
+    if x == @cols
+      if @flags[p] & ROW_WRAP != 0 and @cells[base + x - 1] & KIND == HEAD
+        @cells[base + x - 1] = @blank_cell
+      return
+    if x <= 1 and @row > 0 and @flags[p] & ROW_CONT != 0 and @cells[base] & KIND == WIDE
+      j = @map[@rot + @row - 1] * @cols + @cols - 1
+      @cells[j] = @blank_cell if @cells[j] & KIND == HEAD
+    if x > 0 and @cells[base + x - 1] & KIND == WIDE
+      (!@).blank(base + x - 1, base + x + 1)
+
+  # Ghostty's cursorResetWrap: no wrap is pending, and the cursor's row no
+  # longer wraps into the next; a spacer a wide rune left at its end is
+  # emptied.
+  sub reset_wrap(!@)
+    @pending_wrap = false
+    p = @map[@rot + @row]
+    return if @flags[p] & ROW_WRAP == 0
+    @flags[p] ^= ROW_WRAP
+    if @row < @rows - 1
+      @flags[@map[@rot + @row + 1]] &= ROW_WRAP | ROW_WIDE | ROW_MORE
+    j = p * @cols + @cols - 1
+    @cells[j] = @blank_cell if @cells[j] & KIND == HEAD
+
+  # The entries `a` to `b` of `map`, both included, in reverse order.
+  sub reverse_rows(!@, a: Int, b: Int)
+    i = a
+    j = b
+    while i < j
+      t = @map[@rot + i]
+      @map[@rot + i] = @map[@rot + j]
+      @map[@rot + j] = t
+      i += 1
+      j -= 1
+
+  # The rows `first` to `last` move up `n`; the `n` at the bottom are
+  # blank. Rows move as entries of `map`: a rotation, by three reversals.
+  sub shift_up(!@, first: Int, last: Int, n: Int)
+    k = n if n < last - first + 1 else last - first + 1
+    if k == 1
+      # The common scroll, by one row: the top row's entry moves to the
+      # bottom. When the whole screen scrolls, the window of `map` moves
+      # down one entry instead, and back to the start of `map` once a
+      # screen's worth of rows has scrolled.
+      if first == 0 and last == @rows - 1
+        @map[@rot + @rows] = @map[@rot]
+        @rot += 1
+        if @rot == @rows
+          for y in 0..@rows
+            @map[y] = @map[@rows + y]
+          @rot = 0
+        (!@).blank_rows(last, last + 1)
+        return
+      top = @map[@rot + first]
+      for y in first..last
+        @map[@rot + y] = @map[@rot + y + 1]
+      @map[@rot + last] = top
+      (!@).blank_rows(last, last + 1)
+      return
+    (!@).reverse_rows(first, first + k - 1)
+    (!@).reverse_rows(first + k, last)
+    (!@).reverse_rows(first, last)
+    (!@).blank_rows(last + 1 - k, last + 1)
+
+  # The rows `first` to `last` move down `n`; the `n` at the top are blank.
+  sub shift_down(!@, first: Int, last: Int, n: Int)
+    k = n if n < last - first + 1 else last - first + 1
+    (!@).reverse_rows(first, last)
+    (!@).reverse_rows(first, first + k - 1)
+    (!@).reverse_rows(first + k, last)
+    (!@).blank_rows(first, first + k)
+
+  # The scroll region moves up `n` rows (SU); the cursor stays. Ghostty
+  # scrolls a region at the top of a screen with scrollback as an index
+  # does, and any other as DL at its top, which unwraps its rows.
+  sub scroll_up(!@, n: Int)
+    return if n == 0
+    (!@).unwrap_rows(@top, @bottom) if @top > 0 or (@alt and @bottom < @rows - 1)
+    (!@).shift_up(@top, @bottom, n)
+
+  # The scroll region moves down `n` rows (SD, and RI at the top margin);
+  # the cursor stays. As IL at its top in Ghostty, it unwraps its rows.
+  sub scroll_down(!@, n: Int)
+    return if n == 0
+    (!@).unwrap_rows(@top, @bottom)
+    (!@).shift_down(@top, @bottom, n)
+
+  # IL: `n` blank rows at the cursor's, pushing the rest of the scroll
+  # region down; the cursor goes to the first column. Nothing outside the
+  # region.
+  sub insert_lines(!@, n: Int)
+    return if n == 0 or @row < @top or @row > @bottom
+    (!@).unwrap_rows(@row, @bottom)
+    (!@).shift_down(@row, @bottom, n)
+    @col = 0
+    @pending_wrap = false
+
+  # DL: `n` rows from the cursor's go, pulling the rest of the scroll
+  # region up; the cursor goes to the first column.
+  sub delete_lines(!@, n: Int)
+    return if n == 0 or @row < @top or @row > @bottom
+    (!@).unwrap_rows(@row, @bottom)
+    (!@).shift_up(@row, @bottom, n)
+    @col = 0
+    @pending_wrap = false
+
+  # ICH: `n` blank cells at the cursor, pushing the rest of the row right.
+  # A wide rune the cursor is on the spacer of, or whose spacer would be
+  # pushed off the row, is emptied.
+  sub insert_blanks(!@, n: Int)
+    @pending_wrap = false
+    return if n == 0
+    base = @map[@rot + @row] * @cols
+    (!@).blank(base + @col - 1, base + @col + 1) if @cells[base + @col] & KIND == TAIL
+    k = n if n < @cols - @col else @cols - @col
+    keep = @cols - @col - k
+    if keep > 0 and @cells[base + @col + keep - 1] & KIND == WIDE
+      (!@).blank(base + @col + keep - 1, base + @col + keep + 1)
+    if @flags[@map[@rot + @row]] & ROW_MORE != 0
+      # Each char's runes move with its cell, or go with it off the row.
+      x = @cols
+      while x > @col
+        x -= 1
+        if @cells[base + x] & EXTRA != 0
+          if (!@extras).take(base + x) as runes
+            !@extras.put(base + x + k, <runes) if x + k < @cols
+    x = @cols
+    while x > @col + k
+      x -= 1
+      @cells[base + x] = @cells[base + x - k]
+    p = @map[@rot + @row]
+    @ends[p] = @ends[p] + k if @ends[p] + k < @cols else @cols
+    (!@).blank(base + @col, base + @col + k)
+
+  # DCH: `n` cells from the cursor go, pulling the rest of the row left. A
+  # wide rune cut at either end is emptied, and the row no longer wraps.
+  sub delete_chars(!@, n: Int)
+    return if n == 0
+    base = @map[@rot + @row] * @cols
+    k = n if n < @cols - @col else @cols - @col
+    (!@).split_at(@col)
+    (!@).split_at(@col + k)
+    (!@).split_at(@cols)
+    if @flags[@map[@rot + @row]] & ROW_MORE != 0
+      # The runes of the chars deleted go, and the rest move with their
+      # cells.
+      for x in @col..@cols
+        if @cells[base + x] & EXTRA != 0
+          if (!@extras).take(base + x) as runes
+            !@extras.put(base + x - k, <runes) if x >= @col + k
+    for x in @col..@cols - k
+      @cells[base + x] = @cells[base + x + k]
+    (!@).blank(base + @cols - k, base + @cols)
+    (!@).reset_wrap()
+
+  # Cells `from` to `to` (not included) of one row erased as `blank`
+  # erases them, but with `keep` those protected stay.
+  sub erase_cells(!@, from: Int, to: Int, keep: Bool)
+    if not keep
+      (!@).blank(from, to)
+      return
+    i = from
+    while i < to
+      if @cells[i] & PROT != 0
+        i += 1
+        continue
+      j = i + 1
+      while j < to and @cells[j] & PROT == 0
+        j += 1
+      (!@).blank(i, j)
+      i = j
+
+  # ECH: `n` cells from the cursor emptied, at least one, not past the row,
+  # and a wide rune cut at either end; the row no longer wraps. After SPA
+  # protected cells stay.
+  sub erase_chars(!@, n: Int)
+    k = n if n > 0 else 1
+    k = k if k < @cols - @col else @cols - @col
+    base = @map[@rot + @row] * @cols
+    k += 1 if @col + k < @cols and @cells[base + @col + k - 1] & KIND == WIDE else 0
+    (!@).split_at(@col)
+    (!@).split_at(@col + k)
+    (!@).reset_wrap()
+    (!@).erase_cells(base + @col, base + @col + k, @prot_mode == PROT_ISO)
+
+  # EL: 0 from the cursor to the end of the row, 1 from its start to the
+  # cursor, 2 the whole row; a wide rune the cursor is on is erased whole.
+  # Erasing to the end, the row no longer wraps. Protected cells stay after
+  # SPA, and in a `selective` erase (DECSEL).
+  sub erase_line(!@, how: Int, selective: Bool = false)
+    base = @map[@rot + @row] * @cols
+    keep = selective or @prot_mode == PROT_ISO
+    match how
+      0
+        from = @col - 1 if @col > 0 and @cells[base + @col] & KIND == TAIL else @col
+        (!@).reset_wrap()
+        (!@).erase_cells(base + from, base + @cols, keep)
+      1
+        to = @col + 2 if @cells[base + @col] & KIND == WIDE else @col + 1
+        (!@).erase_cells(base, base + to, keep)
+      2
+        (!@).reset_wrap()
+        (!@).erase_cells(base, base + @cols, keep)
+      _ => return
+    @pending_wrap = false
+
+  # ED: 0 from the cursor to the end of the screen, 1 from its start to the
+  # cursor, 2 the whole screen; 3 the scrollback, which holds nothing yet.
+  # Protected cells stay after SPA, and in a `selective` erase (DECSED);
+  # rows erased so keep their flags, as in Ghostty.
+  sub erase_display(!@, how: Int, selective: Bool = false)
+    keep = selective or @prot_mode == PROT_ISO
+    match how
+      0
+        (!@).erase_line(0, selective)
+        (!@).erase_rows(@row + 1, @rows, keep)
+      1
+        (!@).erase_line(1, selective)
+        (!@).erase_rows(0, @row, keep)
+      2
+        (!@).erase_rows(0, @rows, keep)
+        @pending_wrap = false
+      _ => pass
+
+  # Rows `first` to `last` (not included) erased as `blank_rows` erases
+  # them, but with `keep` those cells protected stay, and the rows' flags.
+  sub erase_rows(!@, first: Int, last: Int, keep: Bool)
+    if not keep
+      (!@).blank_rows(first, last)
+      return
+    for y in first..last
+      base = @map[@rot + y] * @cols
+      (!@).erase_cells(base, base + @cols, true)
+
+  # DECSTBM: rows `top` to `bottom`, counted from 1 (0 is the edge), scroll;
+  # the cursor goes home. A region of fewer than two rows is ignored.
+  sub set_margins(!@, top: Int, bottom: Int)
+    t = top if top > 1 else 1
+    b = bottom if bottom > 0 and bottom < @rows else @rows
+    return if t >= b
+    @top = t - 1
+    @bottom = b - 1
+    (!@).cursor_to(1, 1)
+
+  # DECALN: the screen full of `E`, the margins reset, the cursor home. As
+  # in Ghostty, the pen keeps only its colors, and stays so.
+  sub align(!@)
+    colors = Style.plain()
+    colors.fg = @pen.fg
+    colors.bg = @pen.bg
+    @pen = <colors
+    (!@).pen_changed()
+    @top = 0
+    @bottom = @rows - 1
+    (!@).set_origin(false)
+    (!@).cursor_to(1, 1)
+    !@cells[..].fill(U64(0x45) | (@pen_bits ^ (@pen_bits & PROT)))
+    !@flags[..].fill(0)
+    !@ends[..].fill(@cols)
+    !@extras.clear()
+
+  sub backspace(!@)
+    @pending_wrap = false
+    @col -= 1 if @col > 0 else 0
+
+  # Up `n` rows, stopping at the top margin, or at the top when above it.
+  sub cursor_up(!@, n: Int)
+    @pending_wrap = false
+    limit = @top if @row >= @top else 0
+    @row = @row - n if @row - n > limit else limit
+
+  # Down `n` rows, stopping at the bottom margin, or at the bottom when
+  # below it.
+  sub cursor_down(!@, n: Int)
+    @pending_wrap = false
+    limit = @bottom if @row <= @bottom else @rows - 1
+    @row = @row + n if @row + n < limit else limit
+
+  # Right `n` columns, stopping at the last.
+  sub cursor_right(!@, n: Int)
+    @pending_wrap = false
+    @col = @col + n if @col + n < @cols - 1 else @cols - 1
+
+  # Left `n` columns, stopping at the first.
+  sub cursor_left(!@, n: Int)
+    @pending_wrap = false
+    @col = @col - n if @col - n > 0 else 0
+
+  # Row `row` and column `col`, counted from 1 (0 is 1), kept on the screen;
+  # in origin mode the row counts from the top margin and stops at the
+  # bottom one.
+  sub cursor_to(!@, row: Int, col: Int)
+    @pending_wrap = false
+    r = (row if row > 0 else 1) + (@top if @origin else 0)
+    c = col if col > 0 else 1
+    last = @bottom + 1 if @origin else @rows
+    @row = (r if r < last else last) - 1
+    @col = (c if c < @cols else @cols) - 1
+
+  # Forward to the next tab stop, `n` times, stopping at the last column.
+  sub tab(!@, n: Int)
+    k = n
+    while k > 0 and @col < @cols - 1
+      @col += 1
+      while @col < @cols - 1 and not @tabs[@col]
+        @col += 1
+      k -= 1
+
+  # Back to the previous tab stop, `n` times, stopping at the first column;
+  # as in Ghostty, a pending wrap stays.
+  sub tab_back(!@, n: Int)
+    k = n
+    while k > 0 and @col > 0
+      @col -= 1
+      while @col > 0 and not @tabs[@col]
+        @col -= 1
+      k -= 1
+
+  sub tab_set(!@)
+    @tabs[@col] = true
+
+  # TBC: 0 clears the stop at the cursor, 3 every stop.
+  sub tab_clear(!@, how: Int)
+    if how == 0
+      @tabs[@col] = false
+    else if how == 3
+      for x in 0..@cols
+        @tabs[x] = false
+
+  sub save_cursor(!@)
+    @saved = Saved(set: true, row: @row, col: @col, wrap: @pending_wrap, pen: +@pen, origin: @origin, g: @g, gl: @gl, single: @single, protect: @protect)
+
+  sub restore_cursor(!@)
+    if @saved.set
+      @row = @saved.row
+      @col = @saved.col
+      @pending_wrap = @saved.wrap
+      @pen = +@saved.pen
+      (!@).set_origin(@saved.origin)
+      @g = @saved.g
+      @gl = @saved.gl
+      @single = @saved.single
+      @protect = @saved.protect
+    else
+      @row = 0
+      @col = 0
+      @pending_wrap = false
+      @pen = Style.plain()
+      (!@).set_origin(false)
+      @g = [4 of UTF8]
+      @gl = 0
+      @single = -1
+      @protect = false
+    (!@).pen_changed()
+
+  # To the alternate screen (`alt`) or back to the primary; nothing when
+  # already there. The cursor, the pen, the character sets, the margins,
+  # and the modes stay as they are; the cells and the saved cursor are the
+  # other screen's. The background of the cursor the screen had when it
+  # was left, or of this one when there is no switch.
+  fun switch_screen(!@, alt: Bool) -> Int
+    return @pen.bg if @alt == alt
+    if not @alt_made
+      @other_cells = List[U64].filled(@cols * @rows, 0)
+      map = List[Int].filled(2 * @rows, 0)
+      for y in 0..@rows
+        map[y] = y
+      @other_map = <map
+      @other_rot = 0
+      @other_flags = List[U8].filled(@rows, 0)
+      @other_ends = List[Int].filled(@rows, 0)
+      @other_extras = hash.Map[Int, List[U32]].new()
+      @alt_made = true
+    swap(!@cells, !@other_cells)
+    swap(!@map, !@other_map)
+    swap(!@rot, !@other_rot)
+    swap(!@flags, !@other_flags)
+    swap(!@ends, !@other_ends)
+    swap(!@extras, !@other_extras)
+    swap(!@saved, !@other_saved)
+    swap(!@kitty, !@other_kitty)
+    swap(!@prot_mode, !@other_prot_mode)
+    swap(!@kitty_idx, !@other_kitty_idx)
+    stale = @other_bg
+    @other_bg = @pen.bg
+    @alt = alt
+    stale
+
+  # ED 2 with the background `bg` instead of the pen's.
+  sub erase_with(!@, bg: Int)
+    kept = @blank_cell
+    erased = Style.plain()
+    erased.bg = bg
+    @blank_cell = U64(intern(!@styles, !@style_ids, ?erased)) << 32
+    (!@).erase_display(2)
+    @blank_cell = kept
+
+  # XTSAVE: remember DEC private mode `m`.
+  sub save_mode(!@, m: Int)
+    i = mode_index(m, false)
+    @saved_modes[i] = @modes[i] if i >= 0
+
+  # XTRESTORE: set DEC private mode `m` as XTSAVE remembered it, with the
+  # effects of setting it.
+  sub restore_mode(!@, m: Int)
+    i = mode_index(m, false)
+    (!@).set_mode(m, true, @saved_modes[i]) if i >= 0
+
+  # DECRQM: the DECRPM report of DEC private mode `m`: 1 set, 2 reset, 0
+  # unknown, and, as Ghostty answers for DECECM (117), 4 permanently reset.
+  sub report_mode(!@, m: Int)
+    i = mode_index(m, false)
+    state = 4 if m == 117 else (0 if i < 0 else (1 if @modes[i] else 2))
+    !@replies.add("\x1b[?", m, ";", state, "$y")
+
+  # DA: the primary (`which` 0), secondary (`>`), or tertiary (`=`) device
+  # attributes, as Ghostty's defaults give them: a VT220 with ANSI color.
+  sub device_attributes(!@, which: Int)
+    if which == 0
+      !@replies.add("\x1b[?62;22c")
+    else if which == Int(b'>')
+      !@replies.add("\x1b[>1;0;0c")
+    else
+      !@replies.add("\x1bP!|00000000\x1b\\")
+
+  # DSR 6: the cursor's row and column from 1, from the top margin in
+  # origin mode.
+  sub report_cursor(!@)
+    y = @row - @top if @origin and @row >= @top else (0 if @origin else @row)
+    !@replies.add("\x1b[", y + 1, ";", @col + 1, "R")
+
+  # The kitty keyboard flags in use (CSI ? u).
+  sub report_kitty(!@)
+    !@replies.add("\x1b[?", @kitty[@kitty_idx], "u")
+
+  # CSI > u: push `flags`, the oldest falling off a full ring.
+  sub kitty_push(!@, flags: Int)
+    @kitty_idx = (@kitty_idx + 1) % 8
+    @kitty[@kitty_idx] = flags
+
+  # CSI < u: pop `n`; 8 or more empties the ring.
+  sub kitty_pop(!@, n: Int)
+    if n >= 8
+      @kitty = [8 of 0]
+      @kitty_idx = 0
+      return
+    for _ in 0..n
+      @kitty[@kitty_idx] = 0
+      @kitty_idx = (@kitty_idx + 7) % 8
+
+  # CSI = u: set (1), add (2), or clear (3) the bits of `flags`.
+  sub kitty_set(!@, flags: Int, how: Int)
+    f = @kitty[@kitty_idx]
+    @kitty[@kitty_idx] = flags if how == 1 else (f | flags if how == 2 else f & flags.not() & 31)
+
+  # Origin mode on or off, in the mode table too, without moving the
+  # cursor (DECRC and DECALN set it so).
+  sub set_origin(!@, on: Bool)
+    @origin = on
+    @modes[mode_index(6, false)] = on
+
+  # SM and RM (`private` false) or DECSET and DECRST: mode `m` on or off.
+  sub set_mode(!@, m: Int, private: Bool, on: Bool)
+    i = mode_index(m, not private)
+    return if i < 0
+    @modes[i] = on
+    if not private
+      match m
+        4 => @insert = on
+        20 => @newline = on
+        _ => pass
+      return
+    match m
+      6
+        @origin = on
+        (!@).cursor_to(1, 1)
+      7 => @autowrap = on
+      2027 => @graphemes = on
+      25 => @cursor_visible = on
+      1048
+        if on
+          (!@).save_cursor()
+        else
+          (!@).restore_cursor()
+      # As xterm (and Ghostty): 47 switches; 1047 also clears the alternate
+      # screen on the way back; 1049 saves the cursor and clears the
+      # alternate screen on the way in, and restores the cursor on the
+      # primary on the way back.
+      47 => _ = (!@).switch_screen(on)
+      1047
+        (!@).erase_display(2) if not on and @alt
+        _ = (!@).switch_screen(on)
+      1049
+        if on
+          # The erase is of the alternate screen's own cursor; the cursor
+          # coming over after it keeps its pending wrap, unless there was
+          # no switch to bring it.
+          (!@).save_cursor()
+          came = not @alt
+          wrap = @pending_wrap
+          bg = (!@).switch_screen(true)
+          (!@).erase_with(bg)
+          @pending_wrap = wrap if came else false
+        else
+          _ = (!@).switch_screen(false)
+          (!@).restore_cursor()
+      _ => pass
+
+  # The screen and cursor as text: a line per row, `|` and the row's runes
+  # with its trailing blanks dropped (an empty cell is a space, a cell
+  # shows its whole char, and the spacer of a wide rune is left out); a line
+  # `~ROW FIRST-LAST STYLE` per run of cells in a row with the same style
+  # other than the plain one (Style.text); a line `reply BYTES` when there
+  # are replies, each byte below 0x20 or above 0x7E written `\xNN`, ESC
+  # `\e`, and `\` doubled; then `cursor ROW COL`, with ` wrap` when a wrap
+  # is pending.
+  pub fun dump(?@) -> String
+    out = String()
+    for y in 0..@rows
+      start = @map[@rot + y] * @cols
+      end = start + @cols
+      while end > start and @cells[end - 1] & EXTRA == 0 and (rune(@cells[end - 1]) == 0 or rune(@cells[end - 1]) == 0x20)
+        end -= 1
+      !out.push(b'|')
+      for i in start..end
+        continue if @cells[i] & KIND == TAIL
+        r = rune(@cells[i])
+        utf8.push_rune(!out, 0x20 if r == 0 else r)
+        if @cells[i] & EXTRA != 0
+          if @extras.get(i) as runes
+            for e in runes
+              utf8.push_rune(!out, Int(e))
+      !out.push(b'\n')
+    for y in 0..@rows
+      base = @map[@rot + y] * @cols
+      first = 0
+      for x in 0..@cols + 1
+        m = mark(@cells[base + x]) if x < @cols else -1
+        if x == @cols or m != mark(@cells[base + first])
+          k = mark(@cells[base + first])
+          if k != 0 and not @styles[k].is_plain()
+            !out.add("~", y, " ", first, "-", x - 1, " ")
+            line = String()
+            @styles[k].text(!line)
+            !out.add(line, "\n")
+          first = x
+    if @replies.len > 0
+      !out.add("reply ")
+      for b in @replies
+        if b == 0x1B
+          !out.add("\\e")
+        else if b == b'\\'
+          !out.add("\\\\")
+        else if b < 0x20 or b > 0x7E
+          !out.add("\\x")
+          !out.push(HEX[b >> 4])
+          !out.push(HEX[b & 15])
+        else
+          !out.push(b)
+      !out.push(b'\n')
+    !out.add("cursor ", @row, " ", @col)
+    !out.add(" wrap") if @pending_wrap
+    out
+
+# ---- The parser ----------------------------------------------------------
+
+# The DEC state machine of vt100.net
+# (https://vt100.net/emu/dec_ansi_parser), as Ghostty runs it, turning
+# bytes into the operations above. In the ground state bytes are UTF-8,
+# read by utf8.Decoder, as Ghostty reads them; in a sequence a byte from
+# 0x80 to 0x9F is a C1 control. Strings (OSC, DCS, SOS, PM, and APC) are
+# read to their end and ignored so far.
+
+ESC: U8 = b'\x1b'
+CAN: U8 = b'\x18'
+SUB: U8 = b'\x1a'
+DEL: U8 = b'\x7f'
+
+# Where the parser is in a sequence.
+enum State
+  ground
+  escape
+  escape_intermediate
+  csi_entry
+  csi_param
+  csi_intermediate
+  csi_ignore
+  osc
+  # DCS: its parameters and intermediates, then its body (passthrough, or
+  # ignored when malformed), where C1 bytes are data.
+  dcs_entry
+  dcs_param
+  dcs_intermediate
+  dcs_body
+  # SOS, PM, and APC, to ST.
+  apc
+
+# The most parameters a CSI sequence may have; one with more does nothing.
+MAX_PARAMS = 24
+
+# The largest parameter value; a larger one is this.
+MAX_PARAM = 65535
+
+# Take `bytes` as a program's output, in order. In the ground state a run
+# of printable ASCII goes to `print_run` whole, and one that starts with a
+# byte of 0x80 or more to `print_utf8`; a byte it stops at (one that is
+# ill-formed UTF-8, or starts a rune cut off at the end of `bytes`), and
+# any byte while a rune is under way, goes to the UTF-8 decoder.
+pub sub Terminal.feed(!@, bytes: ?String)
+  i = 0
+  n = bytes.len
+  while i < n
+    b = bytes[i]
+    if @state == .ground
+      if not @decoder.pending()
+        j = printable_end(bytes, i)
+        if j > i
+          (!@).print_run(bytes, i, j)
+          i = j
+          continue
+        if b >= 0x80
+          j = (!@).print_utf8(bytes, i)
+          if j > i
+            i = j
+            continue
+        else
+          # The commonest controls, run here without the state machine.
+          if b == b'\r'
+            (!@).carriage_return()
+            if i + 1 < n and bytes[i + 1] == b'\n'
+              # CR LF, the commonest line end, at once.
+              (!@).index()
+              i += 2
+              continue
+          else if b == b'\n'
+            (!@).index()
+            (!@).carriage_return() if @newline
+          else if b == ESC and i + 2 < n and bytes[i + 1] == b'['
+            j = (!@).csi_run(bytes, i + 2)
+            if j > 0
+              i = j
+              continue
+            (!@).step(b)
+          else
+            (!@).step(b)
+          i += 1
+          continue
+      if (!@decoder).next(b) as r
+        # A UTF-8-encoded C1 control is ignored, as Ghostty does.
+        (!@).print(U32(r)) if r > 0x9F
+      i += 1 if not @decoder.retry
+      continue
+    (!@).step(b)
+    i += 1
+
+# A CSI sequence whose parameters start at byte `from` of `s`, read
+# whole when it is the common kind: digits and `;`, then a final byte, all
+# in `s`. Its parameters and final go where the state machine would put
+# them, and where it ends is returned; for any other kind (a private
+# marker, a colon, an intermediate, a control, or the end of `s` before
+# the final) nothing has acted, and 0 is returned, for the state machine
+# to read it from its ESC.
+fun Terminal.csi_run(!@, s: ?String, from: Int) -> Int
+  (!@).clear()
+  k = from
+  while k < s.len
+    b = s[k]
+    if b >= b'0' and b <= b';' and b != b':'
+      (!@).param(b)
+    else if b >= 0x40 and b <= 0x7E
+      (!@).csi_final(b)
+      return k + 1
+    else
+      return 0
+    k += 1
+  0
+
+# The first byte at or after `i` that is not printable in the ground state
+# (below 0x20, or 0x80 and up), or `s.len`. Most runs between sequences are
+# short, so the first 16 bytes are tested one at a time; a longer run is
+# tested 16 bytes at once, and its last bytes by reading the last 16 of
+# `s` again.
+fun printable_end(s: ?String, i: Int) -> Int
+  if i >= 0
+    k = i
+    stop = i + 16 if i + 16 < s.len else s.len
+    # Eight bytes at a time as one U64: a byte below 0x20 borrows in the
+    # subtraction, and one of 0x80 or more has its top bit, so the lowest
+    # top bit set marks the first byte not printable.
+    while k + 8 <= stop
+      x = s.read[U64, .little](k)
+      m = ((x -% 0x2020202020202020) | x) & 0x8080808080808080
+      return k + (m.trailing_zeros() >> 3) if m != 0
+      k += 8
+    while k < stop
+      b = s[k]
+      return k if b < 0x20 or b >= 0x80
+      k += 1
+    while k + 16 <= s.len
+      v = s.read[Simd[U8, 16]](k)
+      if ((v < 0x20) | (v >= 0x80)).first() as j
+        return k + j
+      k += 16
+    if k < s.len
+      # Fewer than 16 are left: read the last 16 of `s` again, and drop
+      # the lanes before `k`, which were tested.
+      m = ((s.read[Simd[U8, 16]](s.len - 16) < 0x20) | (s.read[Simd[U8, 16]](s.len - 16) >= 0x80)).bits() >> (k + 16 - s.len)
+      return k + m.trailing_zeros() if m != 0
+  s.len
+
+sub Terminal.step(!@, b: U8)
+  if b >= 0x80
+    (!@).high(b)
+    return
+  if b == ESC
+    (!@).clear()
+    @state = .escape
+    return
+  if b == CAN or b == SUB
+    @state = .ground
+    return
+  match @state
+    .ground
+      # Ghostty prints DEL as a character, where xterm ignores it.
+      if b >= 0x20
+        (!@).print(U32(b))
+      else
+        (!@).execute(b)
+    .escape
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .escape_intermediate
+      else if b == b'['
+        @state = .csi_entry
+      else if b == b']'
+        @state = .osc
+      else if b == b'P'
+        (!@).clear()
+        @state = .dcs_entry
+      else if b == b'X' or b == b'^' or b == b'_'
+        @state = .apc
+      else if b != DEL
+        @state = .ground
+        (!@).esc_dispatch(b)
+    .escape_intermediate
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+      else if b != DEL
+        @state = .ground
+        (!@).esc_dispatch(b)
+    .csi_entry
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .csi_intermediate
+      else if b == b':'
+        @state = .csi_ignore
+      else if b < 0x3C
+        (!@).param(b)
+        @state = .csi_param
+      else if b < 0x40
+        (!@).collect(b)
+        @state = .csi_param
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_param
+      # Ghostty executes only C0 bytes below 0x10 here, and drops the rest.
+      if b < 0x10
+        (!@).execute(b)
+      else if b < 0x20
+        pass
+      else if b < 0x30
+        (!@).collect(b)
+        @state = .csi_intermediate
+      else if b < 0x3C
+        (!@).param(b)
+      else if b < 0x40
+        @state = .csi_ignore
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_intermediate
+      if b < 0x20
+        (!@).execute(b)
+      else if b < 0x30
+        (!@).collect(b)
+      else if b < 0x40
+        @state = .csi_ignore
+      else if b != DEL
+        (!@).csi_final(b)
+    .csi_ignore
+      if b < 0x20
+        (!@).execute(b)
+      else if b >= 0x40 and b != DEL
+        @state = .ground
+    .osc
+      @state = .ground if b == b'\x07' else .osc
+    .dcs_entry
+      if b >= 0x20 and b != DEL
+        if b < 0x30
+          @state = .dcs_intermediate
+        else if b == b':' or b >= 0x40
+          @state = .dcs_body
+        else
+          @state = .dcs_param
+    .dcs_param
+      if b >= 0x20 and b != DEL
+        if b < 0x30
+          @state = .dcs_intermediate
+        else if b == b':' or b >= 0x3C
+          @state = .dcs_body
+    .dcs_intermediate
+      @state = .dcs_body if b >= 0x30 and b != DEL
+    .dcs_body, .apc => pass
+
+# A byte of 0x80 or more outside the ground state. In an OSC or DCS body it
+# is data; elsewhere one from 0x80 to 0x9F is a C1 control, which acts from
+# any state: ST ends a string, CSI, OSC, DCS, SOS, PM, and APC begin one,
+# and the rest run as ESC and the byte less 0x40 would.
+sub Terminal.high(!@, b: U8)
+  return if @state == .osc or @state == .dcs_body or b >= 0xA0
+  if b == 0x9C
+    @state = .ground
+  else if b == 0x9B
+    (!@).clear()
+    @state = .csi_entry
+  else if b == 0x9D
+    @state = .osc
+  else if b == 0x90
+    (!@).clear()
+    @state = .dcs_entry
+  else if b == 0x98 or b == 0x9E or b == 0x9F
+    @state = .apc
+  else
+    @state = .ground
+    @inter = 0
+    @inter_count = 0
+    (!@).esc_dispatch(b - 0x40)
+
+sub Terminal.clear(!@)
+  @count = 0
+  @acc = 0
+  @digits = false
+  @colon = false
+  @inter = 0
+  @inter_count = 0
+  @seps = 0
+
+# An intermediate (or a private marker such as `?`), up to four.
+sub Terminal.collect(!@, b: U8)
+  if @inter_count < 4
+    @inter = @inter << 8 | Int(b)
+    @inter_count += 1
+
+# A digit of a parameter, or a `;` or `:` that ends one.
+sub Terminal.param(!@, b: U8)
+  if b == b';' or b == b':'
+    if @count < MAX_PARAMS
+      @params[@count] = @acc
+      if b == b':'
+        @colon = true
+        @seps |= 1 << @count
+    @count += 1
+    @acc = 0
+    @digits = false
+    return
+  @acc = @acc * 10 + Int(b - b'0')
+  @acc = MAX_PARAM if @acc > MAX_PARAM
+  @digits = true
+
+# A C0 control.
+sub Terminal.execute(!@, b: U8)
+  match b
+    b'\x08' => (!@).backspace()
+    b'\t' => (!@).tab(1)
+    b'\n', b'\x0b', b'\x0c'
+      (!@).index()
+      (!@).carriage_return() if @newline
+    b'\r' => (!@).carriage_return()
+    # SO and SI: G1 or G0 into GL.
+    b'\x0e' => @gl = 1
+    b'\x0f' => @gl = 0
+    _ => pass
+
+sub Terminal.esc_dispatch(!@, b: U8)
+  # SCS: `ESC ( F` designates set F into G0, `)` G1, `*` G2, `+` G3.
+  if b == b'B' or b == b'A' or b == b'0'
+    if @inter_count == 1 and @inter >= Int(b'(') and @inter <= Int(b'+')
+      @g[@inter - Int(b'(')] = ASCII if b == b'B' else (BRITISH if b == b'A' else DEC_SPECIAL)
+    return
+  if @inter == Int(b'#')
+    (!@).align() if b == b'8'
+    return
+  return if @inter != 0
+  match b
+    b'7' => (!@).save_cursor()
+    b'8' => (!@).restore_cursor()
+    b'D' => (!@).index()
+    b'E'
+      (!@).index()
+      (!@).carriage_return()
+    b'H' => (!@).tab_set()
+    b'M' => (!@).reverse_index()
+    b'c' => (!@).full_reset()
+    b'Z' => (!@).device_attributes(0)
+    # SS2 and SS3: G2 or G3 for the next rune; LS2 and LS3: into GL.
+    b'N' => @single = 2
+    b'O' => @single = 3
+    b'n' => @gl = 2
+    b'o' => @gl = 3
+    # SPA and EPA: protection of the cells printed, ISO, on and off.
+    b'V' => (!@).set_protect(PROT_ISO)
+    b'W' => (!@).set_protect(PROT_OFF)
+    _ => pass
+
+# The final byte of a CSI sequence: the parameters are complete.
+sub Terminal.csi_final(!@, b: U8)
+  @state = .ground
+  if @digits
+    if @count < MAX_PARAMS
+      @params[@count] = @acc
+    @count += 1
+  return if @count > MAX_PARAMS
+  return if @colon and b != b'm'
+  n = @count
+  p0 = @params[0] if n > 0 else 0
+  p1 = @params[1] if n > 1 else 0
+  # ED and EL with `?`: DECSED and DECSEL, the selective erases, which
+  # leave protected cells.
+  selective = @inter == Int(b'?') and (b == b'J' or b == b'K')
+  @inter = 0 if selective else @inter
+  # DECSCA: protection of the cells printed, on (1) or off (0 or 2).
+  if b == b'q' and @inter == Int(b'"')
+    if n == 0 or (n == 1 and (p0 == 0 or p0 == 2))
+      (!@).set_protect(PROT_OFF)
+    else if n == 1 and p0 == 1
+      (!@).set_protect(PROT_DEC)
+    return
+  # Replies, and the kitty keyboard flags.
+  if b == b'c' and (@inter == 0 or @inter == Int(b'>') or @inter == Int(b'='))
+    (!@).device_attributes(@inter)
+    return
+  if b == b'n' and n == 1 and (@inter == 0 or @inter == Int(b'?'))
+    if @inter == 0 and p0 == 5
+      !@replies.add("\x1b[0n")
+    else if @inter == 0 and p0 == 6
+      (!@).report_cursor()
+    return
+  if b == b'p' and @inter == 0x3F24 and n == 1
+    (!@).report_mode(p0)
+    return
+  if b == b'q' and @inter == Int(b'>')
+    !@replies.add("\x1bP>|", NAME, "\x1b\\")
+    return
+  if b == b'u' and @inter == Int(b'?')
+    (!@).report_kitty()
+    return
+  if b == b'u' and @inter == Int(b'>')
+    (!@).kitty_push(p0 if n == 1 else 0) if n != 1 or p0 <= 31
+    return
+  if b == b'u' and @inter == Int(b'<')
+    (!@).kitty_pop(p0 if n == 1 else 1)
+    return
+  if b == b'u' and @inter == Int(b'=')
+    how = p1 if n >= 2 else 1
+    v = p0 if n >= 1 else 0
+    (!@).kitty_set(v, how) if v <= 31 and how >= 1 and how <= 3
+    return
+  if (b == b's' or b == b'r') and @inter == Int(b'?')
+    for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
+      if b == b's'
+        (!@).save_mode(@params[k])
+      else
+        (!@).restore_mode(@params[k])
+    return
+  if (b == b'h' or b == b'l') and (@inter == 0 or @inter == Int(b'?'))
+    for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
+      (!@).set_mode(@params[k], @inter != 0, b == b'h')
+    return
+  return if @inter != 0
+  # The count of a movement: 1 when it is left out or 0.
+  move = (1 if p0 == 0 else p0) if n <= 1 else -1
+  # The count of an edit: 1 when it is left out, and 0 when it is 0.
+  count = (1 if n == 0 else p0) if n <= 1 else -1
+  match b
+    b'A', b'k' if move > 0 => (!@).cursor_up(move)
+    b'B' if move > 0 => (!@).cursor_down(move)
+    b'C' if move > 0 => (!@).cursor_right(move)
+    b'D', b'j' if move > 0 => (!@).cursor_left(move)
+    b'E' if move > 0
+      (!@).cursor_down(move)
+      (!@).carriage_return()
+    b'F' if move > 0
+      (!@).cursor_up(move)
+      (!@).carriage_return()
+    b'G', b'`' if move > 0 => (!@).cursor_to(@row + 1, move)
+    # HPR and VPR are CUP from the cursor, as in Ghostty: they move by their
+    # parameter as given (0 stays, but ends a pending wrap), and in origin
+    # mode the row counts from the top margin.
+    b'a' if count >= 0 => (!@).cursor_to(@row + 1, @col + 1 + count)
+    b'd' if move > 0 => (!@).cursor_to(move, @col + 1)
+    b'e' if count >= 0 => (!@).cursor_to(@row + 1 + count, @col + 1)
+    b'H', b'f' if n <= 2 => (!@).cursor_to(p0, p1)
+    b'I' if count >= 0 => (!@).tab(count)
+    b'Z' if count >= 0 => (!@).tab_back(count)
+    # Ghostty's TBC needs its parameter: `CSI g` alone does nothing.
+    b'g' if n == 1 => (!@).tab_clear(p0)
+    b'J' if n <= 1 => (!@).erase_display(p0, selective)
+    b'K' if n <= 1 => (!@).erase_line(p0, selective)
+    b'X' if count >= 0 => (!@).erase_chars(count)
+    b'L' if count >= 0 => (!@).insert_lines(count)
+    b'M' if count >= 0 => (!@).delete_lines(count)
+    b'@' if n <= 1 => (!@).insert_blanks(1 if p0 == 0 else p0)
+    b'P' if count >= 0 => (!@).delete_chars(count)
+    b'S' if count >= 0 => (!@).scroll_up(count)
+    b'T' if count >= 0 => (!@).scroll_down(count)
+    b'r' if n <= 2 => (!@).set_margins(p0, p1)
+    # With no left and right margin mode, `CSI s` alone saves the cursor,
+    # and with parameters does nothing.
+    b's' if n == 0 => (!@).save_cursor()
+    b'u' => (!@).restore_cursor()
+    b'b' if count >= 0 => (!@).repeat(count)
+    b'm'
+      (!@).sgr()
+      (!@).pen_changed()
+    _ => pass

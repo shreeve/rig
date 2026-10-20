@@ -2,7 +2,7 @@
 
 This document explains why Rig looks the way it does. The rules
 themselves are in [SPEC.md](../SPEC.md); the compiler is described in
-[INTERNALS.md](INTERNALS.md).
+[INTERNALS.md](internals/INTERNALS.md).
 
 ## The idea
 
@@ -50,7 +50,9 @@ achieves correctness through rigor; Rig aims for rigor plus visibility.
 **Effects stay visible.** Rig writes every move, clone, and write where
 it happens, and reading is unmarked. Sharing and weak handles, failure,
 capture modes, compile-time parameters, and the unsafe boundary are
-written too. Like Rust, Rig leaves some effects implicit: a drop where
+written too, and so is running work at the same time: `f(x)&` starts a
+task and `>t` takes its result ([why](#sigils-for-starting-and-taking-work)).
+Like Rust, Rig leaves some effects implicit: a drop where
 a scope ends, the allocation a `List`, `^T`, or `String` makes, and a plain
 copy. A change to a shared `Cell` is marked, `!c.set(5)`; a `Cell` lives
 only behind a shared handle, so it takes only values that carry no loan.
@@ -59,10 +61,10 @@ A count is added only where
 scope ends; there is no implicit error propagation, and no unmarked
 unsafe code.
 What else stays implicit is cheap and cannot surprise: reading through
-a shared handle, lending an argument or a `?@` receiver to read for
-the call, and moving a local out with `return x` or `break x`, where
-its scope ends anyway. Writing through a receiver
-(`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out,
+a shared handle, lending an argument, or the value of a `?@` method,
+to read for the call, and moving a local out with `return x` or
+`break x`, where its scope ends anyway. Calling a method that writes
+its value (`!v.push(x)`) or consumes it (`<u.close()`) is always spelled out,
 and so is lending on a write view a binding already holds
 (`v: !List[Int]` lends on with `!v.push(x)` and `f(!v)`): at a call, `!`
 marks exactly the values it may change. A held read view is passed
@@ -105,7 +107,7 @@ over values and types, with a few laws that make them predictable.
 
 ### The operations
 
-For a value `x` of type `T`:
+For a value `x` of type `T`, a call `f(x)`, and a task `t`:
 
 | Expression | Type | Effect | Runtime cost |
 |---|---|---|---|
@@ -119,6 +121,8 @@ For a value `x` of type `T`:
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
 | `e?` | `T` when `e : T?` | return `none` from the function | a branch |
+| `f(x)&` | `Task[T]` when `f` gives `T` | run the call as a task, which keeps its arguments' loans | a dispatch |
+| `>t` | `T` when `t : Task[T]` | wait for the task and take its result | a wait |
 
 Each operation has one meaning, becomes one IR node, and succeeds
 whenever it type-checks. That is the first law.
@@ -134,23 +138,14 @@ down, and `*w` coming up, which may give `none`.
 the view in a type, `?x : ?T`, `!x : !T`. A suffix never is: suffix `?`
 belongs to absence and suffix `!` to failure.
 
-```text
-?x   prefix, expression   lend to read
-!x   prefix, expression   lend to write
-?T   prefix, type         read view: a parameter or value
-!T   prefix, type         write view: a parameter, result, or local
-T?   suffix, type         optional: T or none
-T!   suffix, type         fallible: T or an error
-e!   suffix, expression   propagate the failure of a T!
-e?   suffix, expression   propagate the absence of a T?
-```
-
-Each of the two carries one idea in all four positions. `?` is "maybe,
+Each of the two carries one idea in all four positions: before a
+value, before a type, after a type, and after an expression. `?` is "maybe,
 just look": a read lend, a read view, an optional, and passing `none`
 up. `!` is "for real, act": a write lend, a write view, a type that can
-fail, and passing a failure up. As in Ruby's `sort!` and Scheme's
-`set!`, `!` marks what changes things, so it is never "not": Rig spells
-negation `not`.
+fail, and passing a failure up. The table of the four positions is in
+[the sigils journey](learn/01-sigils.md#-and--one-idea-each). As in Ruby's
+`sort!` and Scheme's `set!`, `!` marks what changes things, so it is
+never "not": Rig spells negation `not`.
 
 Keeping absence and failure in suffix position is what lets `!` and
 `?` serve both families unambiguously: `-> !User` returns a write
@@ -205,9 +200,10 @@ can always be read: a `!T` is accepted where a `?T` is expected.
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
 `|?x|` and `|!x|` lend, `|~x|` holds weakly). A loop over a List says how its source
 is lent (`for x in ?v`), and a `match` says the same of its subject (`match !e`
-writes the payload in place, `match <e` takes it). Receivers are
-`?@`, `!@`, and `<@`, the only place a sigil may prefix a
-parameter name. A move-assignment is `a = <b`, and a move to nowhere,
+writes the payload in place, `match <e` takes it). Self is written
+`?@`, `!@`, or `<@`, the only place a sigil may prefix a
+parameter name. A task is started with `f(x)&` and taken with `>t`,
+the pair of marks every task shares. A move-assignment is `a = <b`, and a move to nowhere,
 `<x` alone on a line, is a drop: releasing a value early needs no sigil
 of its own, so `-` means only negation. The fixed binding `x =! e`
 ("set, dammit!") is the one place `!` appears in an operator that is
@@ -275,17 +271,12 @@ Rust calls this idea a *borrow*, and the word ends up meaning three
 different things: the act (`&v`), the reference that act makes, and the
 checker's record of it. One reason is direction. Rust writes
 `&v` on the owner, at the place where the owner hands something over,
-but names the act from the receiver's point of view.
+but names the act from the callee's point of view.
 
 Rig writes its sigil in the same place, on the owner: `print(?v)`,
 `grow(!v)`. So it names the act from the owner's side: `v` **lends**.
-That gives each word exactly one side of the hand-over:
-
-- **lend:** what the owner does, and where the sigil appears;
-- **view:** what crosses over and travels with the receiver, which may
-  copy, return, or store it;
-- **loan:** what stays with the owner and limits it until every view is
-  done.
+That gives each word exactly one side of the hand-over: the owner
+lends, the callee gets a view, and a loan stays with the owner.
 
 Keeping the three apart is what lets the rules be stated plainly. "A
 loan lasts until the last use of every view that carries it" is about
@@ -294,7 +285,7 @@ results, and fields carry long after that line. Separate words also let
 an error say exactly who is blocked and why: *cannot lend `t` to write
 while a read loan is live*.
 
-The full rules are in [CORE](CORE.md).
+What each word means, and the rules, are in [CORE](CORE.md).
 
 ### Views without lifetimes
 
@@ -309,8 +300,9 @@ compiler checks against the body; and an object holding a view keeps
 its source lent. A loan lasts until the last use of every view
 that carries it, not to the end of its block, as in Rust's non-lexical
 lifetimes. That rule is sound without annotations; the price is that
-some programs Rust can express with explicit lifetimes are rejected.
-Rig takes that trade for now and will revisit it when real programs
+some programs Rust can express with explicit lifetimes are rejected,
+such as one that relates the views of several results to different
+arguments. Rig takes that trade, and revisits it when real programs
 push against it.
 
 ### Explicit capture modes
@@ -347,8 +339,10 @@ per such binding, visible in the emitted code.
 
 ### Errors are values, not exceptions
 
-A function that can fail returns `T!`, and its errors are typed values
-that may carry data. A caller passes a failure on with `e!`, written
+A function that can fail returns `T!`, and its errors are named values:
+each member of an `error` set is a name, and an error carries no data.
+(Members that carry fields are decided and not built; see
+[SPEC §13](../SPEC.md#declared-sets-and-fields).) A caller passes a failure on with `e!`, written
 where it happens, or handles it with `e catch fallback`; `defer` runs
 however its scope ends, and `errdefer` only when the function fails.
 Rig has no exceptions: nothing is thrown past a caller, no stack
@@ -358,6 +352,22 @@ unwinds in search of a handler, and there is no `try`, `rescue`,
 reserved. A `panic` is not an error: it is a bug, and it ends the
 program where it stands, with no `defer` run and no code to recover
 it.
+
+### Sigils for starting and taking work
+
+Running a call at the same time is written `f(x)&`, the dispatch
+sigil, and taking its result back is `>t`, the wait sigil. In Rig the mechanics of the language are sigils and
+the words are its libraries: moving a value is `<x`, lending it is `?x`
+or `!x`, and starting work is `&`. Taking that work back is the same
+kind of act, so it is the same kind of mark. The two read as a pair,
+`&` sending the work off and `>` taking it back, and `print(>t, >u)`
+says in two characters what other languages say in words. Only a task
+started with `&` is waited for with `>`; an ordinary call that waits, on
+a socket or a timer, is just a call with no mark, so Rig has no second
+kind of function and no `await`. Policies stay words: `<t.cancel()`,
+`<ts.wait_first()`. The design is in
+[concurrency](design/concurrency.md), and the questions readers ask
+about it are in [launch/faq](launch/faq.md).
 
 ### Bindings
 
@@ -421,7 +431,7 @@ copy. Each instance the program makes is then checked against that
 record. There are no traits or bounds for now.
 
 What this buys: generics without a trait system, whose design space
-(dispatch, coherence, trait objects) Rig has not settled; any type that
+(method dispatch, coherence, trait objects) Rig has not settled; any type that
 supports what a body does works with it, with nothing to declare; and
 the model is Zig's, which Rig lowers to. Everything that does not depend
 on `T` is still checked once, in the body, and so is ownership: the body
@@ -440,7 +450,7 @@ module is checked there, and its note points into the declaring
 module's file. The recorded requirements are an unwritten contract: a
 library that starts applying a new operation to `T` can break its
 importers, who see the note in the library. Traits remain on the
-roadmap for when a design keeps dispatch and ownership visible.
+roadmap for when a design keeps method dispatch and ownership visible.
 
 ### Generic functions are called, not passed
 
@@ -541,11 +551,12 @@ goals, and says no where they don't.
 |---|---|---|
 | **Rust** | ownership, moves, the shared-or-exclusive rule, `Rc`/`Weak` semantics, RAII drop in reverse field order, enums and `match`, errors as types, "a type with drop glue is not Copy" | lifetime syntax, traits (for now), heavy generic machinery, effects hidden in trait impls |
 | **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; generics checked per instance; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
-| **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes | interfaces as constraints on type parameters |
+| **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes; a function that waits is an ordinary function | interfaces as constraints on type parameters; goroutines that outlive their starter |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | short keywords, readability first | `valid?` names, implicit mutation, calls without parentheses |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) supplied the indentation lexer and much of the surface | reactive operators in the core language |
-| **Swift** | second-class references; `x?` optional propagation | |
+| **Swift** | second-class references; `x?` optional propagation; structured tasks and actors | `async` and `await`; reentrant actors |
+| **Erlang** | supervision: a failed process or actor is restarted | copying every message; no shared memory |
 | **Hylo, Mojo** | views as parameter conventions rather than types with lifetimes; values first | |
 | **Lisp** | S-expressions as the IR and a project contract | S-expression syntax; macros |
 
@@ -555,8 +566,8 @@ goals, and says no where they don't.
 - a custom or LLVM backend: Zig does code generation
 - a reactive framework in the language
 - macros
-- traits and interfaces, until a design keeps dispatch and ownership
-  visible
+- traits and interfaces, until a design keeps method dispatch and
+  ownership visible
 - lifetime annotations, unless second-class views prove too weak
 - marketing Rig as an AI language: that tools can read it well follows
   from its design, and is not the goal

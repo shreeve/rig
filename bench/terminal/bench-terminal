@@ -3,14 +3,17 @@
 
 usage: bench/terminal/bench-terminal [options]
 
-  --files a,b       corpora (default: text,scroll,sgr,tui,utf8), each about
-                    4 MB, written once into OUT/data:
+  --files a,b       corpora (default: text,scroll,sgr,tui,utf8,utf8-2027,rgb),
+                    each about 4 MB, written once into OUT/data:
                       text     lines of words, CR LF between them, as `cat` of a log
                       scroll   short lines, so nearly every byte or two scrolls
                       sgr      colored words and resets, a line break now and then
                       tui      full-screen frames: CUP, SGR, a run of text, EL
                       utf8     lines of words in accented Latin, Greek, Cyrillic,
                                CJK, kana, Hangul, and emoji among ASCII ones
+                      utf8-2027  utf8 with mode 2027 (grapheme clustering) on
+                      rgb      a truecolor word after word: a new RGB color each,
+                               so styles number in the thousands
   --variants a,b    what to build and time (default: all but experiments):
                       rig-safe        bench.rig, rig build --release (Zig's safe mode)
                       rig-fast        bench.rig, rig build --release=fast
@@ -48,7 +51,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import terminal_ghostty  # noqa: E402
 
-FILES = ["text", "scroll", "sgr", "tui", "utf8"]
+FILES = ["text", "scroll", "sgr", "tui", "utf8", "utf8-2027", "rgb"]
 VARIANTS = (["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"] + (["ghostty-simd"] if os.environ.get("GHOSTTY_SDK") else [])
             + (["dispatch"] if os.environ.get("DISPATCH") else []))
 SIZE = 4_000_000
@@ -82,11 +85,17 @@ def utf8_words(rng):
 
 
 def corpus(name, cols, rows):
+    if name == "utf8-2027":
+        return b"\x1b[?2027h" + corpus("utf8", cols, rows)
     rng = random.Random(name)
     w = utf8_words(rng) if name == "utf8" else words(rng)
     out, n = [], 0
     while n < SIZE:
-        if name in ("text", "utf8"):
+        if name == "rgb":
+            s = "\x1b[38;2;%d;%d;%dm%s " % (rng.randrange(256), rng.randrange(256), rng.randrange(256), rng.choice(w))
+            if rng.random() < 0.08:
+                s += "\r\n"
+        elif name in ("text", "utf8"):
             s = " ".join(rng.choice(w) for _ in range(rng.randint(3, 14))) + "\r\n"
         elif name == "scroll":
             s = rng.choice(w)[: rng.randint(1, 9)] + "\r\n"

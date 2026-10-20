@@ -1,4 +1,4 @@
-# test/rig.rip: run Rig's tests (docs/RIG-TESTS.md) with Swarm.
+# test/rig.rip: run Rig's tests (docs/internals/tests.md) with Swarm.
 #
 #   swarm test/rig.rip             the core (or `core`): every test/rig/*.rig.test but
 #                                  the probes', the docs' ```rig examples, examples/,
@@ -271,7 +271,7 @@ programs = (area, dir) ->
     { verb, name, line: 1, args: results, opts, files: [], path, source: text, map: text.split('\n').map((_, k) -> [k + 1, 0]), given: true }
 
 # The examples of a Markdown doc: each ```rig block is a case, the words
-# after `rig` its contract (docs/RIG-TESTS.md, "Doc examples"):
+# after `rig` its contract (docs/internals/tests.md, "Doc examples"):
 #
 #   ```rig             `rig check` accepts it; followed by an ```output
 #                      block (and a ```stderr block, `exit=N` on it), it
@@ -387,10 +387,14 @@ docs = (file) ->
 
 # The Markdown files with ```rig blocks, each an area `doc-NAME`: NAME is
 # its path without `.md` or a leading `docs/`, slashes made dashes
-# (docs/CORE.md is doc-CORE, SPEC.md is doc-SPEC).
+# (docs/CORE.md is doc-CORE, SPEC.md is doc-SPEC, docs/learn/01-sigils.md
+# is doc-learn-01-sigils). The journeys of docs/learn, the launch
+# documents of docs/launch, the design records of docs/design, and the
+# contributor references of docs/internals are read too; the superseded
+# documents of docs/history are not.
 docFiles = ->
   out = []
-  for d in ['', 'docs', 'examples', 'test']
+  for d in ['', 'docs', 'docs/learn', 'docs/launch', 'docs/design', 'docs/internals', 'examples', 'test']
     continue unless existsSync(join(root, d))
     for f in readdirSync(join(root, d)).filter((f) -> f.endsWith('.md')).sort()
       rel = if d is '' then f else "#{d}/#{f}"
@@ -762,7 +766,7 @@ packed = (c) ->
     await Bun.sleep(100)
 
 # A case with `seeds: K` runs again deterministically with each seed
-# from 1 to K (RIG_SEED, docs/RIG-TESTS.md), and must give the same
+# from 1 to K (RIG_SEED, docs/internals/tests.md), and must give the same
 # result each time.
 checkRun = (c) ->
   await checkRunWith(c, {}, '')

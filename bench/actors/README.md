@@ -47,28 +47,13 @@ x86 on pup, on a quiet machine.
 
 ## Where it stands
 
-On 2026-10-20, with the idle path, best of 7. On the Mac (an Apple M5
-with 10 cores):
-
-```text
-         rig-fast    tokio       go          vs tokio
-solo     4.9 ns/call 134 ns/call 3.7 ns/call rig-fast 27.5x faster, go 36.7x faster
-contend  6.9 ns/call 134 ns/call 21 ns/call  rig-fast 19.2x faster, go 6.5x faster
-spread   1.6 ns/call 35 ns/call  0.7 ns/call rig-fast 21.0x faster, go 47.9x faster
-```
-
-On pup (Linux, x86-64, 22 cores):
-
-```text
-         rig-fast    tokio       go          vs tokio
-solo     13 ns/call  260 ns/call 12 ns/call  rig-fast 20.7x faster, go 21.3x faster
-contend  33 ns/call  252 ns/call 66 ns/call  rig-fast 7.7x faster, go 3.8x faster
-spread   2.2 ns/call 16 ns/call  1.3 ns/call rig-fast 7.2x faster, go 12.1x faster
-```
+The latest rows are in [PROGRESS.md](PROGRESS.md), which `--record`
+writes, and the headline numbers against Tokio and Go are in
+[docs/launch/benchmarks.md](../../docs/launch/benchmarks.md).
 
 A call that finds the actor idle runs inline, so `solo` costs about
 what Go's uncontended lock does, and a Tokio actor's message and reply
-cost twenty times more. Under contention a caller spins briefly, as
+cost many times more. Under contention a caller spins briefly, as
 Go's mutex does, before it sends a message; `contend` swings widely
 from run to run in every runtime, as whichever core holds the counter
 keeps it. `spread` adds starting 1,000 tasks and making 1,000 counters

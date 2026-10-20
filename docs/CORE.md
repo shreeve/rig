@@ -29,7 +29,7 @@ thing only:
 | Word | What it is | Which side | Where you see it |
 |---|---|---|---|
 | **lend** | the act | the owner's | the sigil: `?x` lends to read, `!x` lends to write |
-| **view** | the value handed over | it travels with the receiver: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, or `![]T` (the read view of text is `?String`) |
+| **view** | the value handed over | it travels with the holder: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, or `![]T` (the read view of text is `?String`) |
 | **loan** | the record | it stays with the owner, and limits the owner until every view is done | in the compiler, and in its error messages |
 
 - To **lend** `x` is to let someone use it without taking it. A lend
@@ -59,7 +59,7 @@ cannot lend `v` to write while a read loan is live
 
 The lend is on line 4 (`?v[..]`). The loan stays with `v` while the
 views `a` and `b` are still used below, so `!v.push(2)` is rejected.
-*Borrow*, the word Rust uses, names the same event from the receiver's
+*Borrow*, the word Rust uses, names the same event from the callee's
 side; Rig names everything from the side the sigil is on.
 
 ---
@@ -347,7 +347,7 @@ statement ends ([§3](#3-temporaries)). *(built)*
 view the context expects** ([§4](#4-one-lend-table)). `?` promises that
 nothing changes. A read lend may
 go unwritten where its view lasts only for the use: an argument, a
-method's receiver, or a header's subject (sentence 1), and `print` and
+method's self, or a header's subject (sentence 1), and `print` and
 `String` read their arguments the same way. A lend is written wherever
 its view may outlast its statement: when it is kept in a binding or a
 field, kept by the call it is lent to (`!p.watch(?t)`), or kept by a
@@ -482,8 +482,8 @@ read, but not written, while the result lives. A view reached through a
 read view that a value holds carries that view's loans, not a loan on
 the holder. What a call stores in what a write view lent to it sees
 carries, in the same way, the loans of the arguments whose types could
-hold it; for a lent parameter (a view, an optional of one, or the
-receiver), a declared function narrows this to the parameters its
+hold it; for a lent parameter (a view, an optional of one, or
+self), a declared function narrows this to the parameters its
 signature names in `keeps` (`sub watch(!@, s: ?String) keeps s`). A
 kept loan lasts while the holder is used, though the holder's own write
 lend ends as the call returns; a lend the call does not keep lasts no
@@ -917,7 +917,7 @@ a
 - **Taking:** a binding, an argument to a parameter that owns it,
   `return`, a stored field or element, or `<`.
 - **Reading:** a `print` or `String(...)` argument, an `==` operand, `?e`,
-  `+e`, a `?@` receiver, a field or element read, or the value a
+  `+e`, a `?@` self, a field or element read, or the value a
   call calls.
 
 Reading never moves a name, whatever form reads it: `print(a if c else
@@ -1230,7 +1230,7 @@ cannot store in `p.v` a view of `p.s`: a value never holds a view of itself
 ```
 
 **Write views are not stored.** A `!T` (also `![]T`, `(!T)?`, `(!T)!`)
-is a parameter, a receiver, a result, or a local. It is never a field,
+is a parameter, self, a result, or a local. It is never a field,
 an element, a type argument, or what a `?`, an optional, or a handle
 holds. `^T`, optionals, and a generic `T` hold any value but a write view,
 as a `List` does. A holder of a read view carries its loan: with `^?v`,
@@ -1339,9 +1339,9 @@ sub main()
 [0, 1, 0]
 ```
 
-A call evaluates its receiver and arguments left to right, then runs. A
+A call evaluates its self and arguments left to right, then runs. A
 value an earlier argument reads stays lent until the call returns, so a
-later argument can't change it. A write lend of a method's receiver
+later argument can't change it. A write lend of a method's self
 acts as a read loan until the call starts, so `!v.push(v.len)` works; a
 write lend in any other argument is a write loan at once, so
 `grow(!v, v.len)` is rejected. *(built)*
@@ -1554,7 +1554,7 @@ rule in SYNTAX is syntax too.
 
 - **`-x`** always negates. A statement `-x` does nothing and is
   rejected; a drop is written `<x` (sentence 2). *(built)*
-- **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
+- **The self-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
 - **`x =! e`:** a local binding that never changes. *(built)*
 - **The sigil leads the whole path.** Write `!p.x` to lend a field,

@@ -1,4 +1,4 @@
-//! Rig compiler CLI. `usage` below is the reference; docs/INTERNALS.md
+//! Rig compiler CLI. `usage` below is the reference; docs/internals/INTERNALS.md
 //! describes the pipeline behind each command.
 //!
 //! `run`, `build`, `test`, and `emit` never emit a program the checkers
@@ -66,6 +66,13 @@ const usage =
     \\                         them, its reach, what the calls of functions
     \\                         marked `inline` land in it, and what the
     \\                         functions the compiler inlines add (check)
+    \\  --tasks                List each local task (check): a task given or
+    \\                         lent a value that stays on one thread, such
+    \\                         as a `*T` handle, runs on the thread of the
+    \\                         task that makes it, which stays there too.
+    \\                         Each line gives the task's place, the part
+    \\                         that pins it, and the type in that part that
+    \\                         cannot go to another core
     \\  --time                 Print the time each pass of the compiler
     \\                         takes, summed over the modules (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
@@ -168,6 +175,8 @@ const Options = struct {
     facts: Facts = .none,
     /// `check --time`: print the time of each pass.
     time: bool = false,
+    /// `check --tasks`: list each local task and what pins it.
+    tasks: bool = false,
     /// `rig check --tests`: check the program as `rig test` builds it.
     tests: bool = false,
     /// `rig run file.rig -- args...`: the program's own arguments.
@@ -255,6 +264,7 @@ pub fn main(init: std.process.Init) !void {
             var times: timing.Timing = .{ .io = io };
             var graph = try loadProject(allocator, io, env, opts.path, opts.tests, if (opts.time) &times else null);
             defer graph.deinit();
+            if (opts.tasks) try printLocalTasks(allocator, io, &graph);
             switch (opts.facts) {
                 .none => {},
                 .syntax => try printFacts(io, graph.root()),
@@ -303,6 +313,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var out_path: ?[]const u8 = null;
     var facts: Facts = .none;
     var time = false;
+    var tasks = false;
     var seed: ?u64 = null;
     var seeds: ?u64 = null;
     var tests = false;
@@ -347,6 +358,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .frames;
         } else if (eql(arg, "--time")) {
             time = true;
+        } else if (eql(arg, "--tasks")) {
+            tasks = true;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -370,6 +383,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
     if (time and cmd != .check) usageError("`--time` applies to check", .{});
+    if (tasks and cmd != .check) usageError("`--tasks` applies to check", .{});
     if (tests and cmd != .check) usageError("`--tests` applies to check; `rig test` builds the tests already", .{});
     if (seed != null and cmd != .run and cmd != .@"test") usageError("`--seed` applies to run and test", .{});
     if (seeds != null and cmd != .@"test") usageError("`--seeds` applies to test", .{});
@@ -388,7 +402,33 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
+}
+
+/// `rig check --tasks`: each local task of the program's own modules,
+/// the root's first, each module's in source order, with the part that
+/// pins it to one thread.
+fn printLocalTasks(allocator: std.mem.Allocator, io: std.Io, graph: *modules.ModuleGraph) !void {
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+    for (graph.modules.items) |*m| {
+        if (m.is_std) continue;
+        var list: std.ArrayList(sema.LocalTask) = .empty;
+        var it = m.sema.facts.local_tasks.valueIterator();
+        while (it.next()) |t| try list.append(allocator, t.*);
+        std.mem.sort(sema.LocalTask, list.items, {}, struct {
+            fn lessThan(_: void, a: sema.LocalTask, b: sema.LocalTask) bool {
+                return a.pos < b.pos;
+            }
+        }.lessThan);
+        const file: diag.File = .{ .source = m.source, .path = m.display, .parts = m.parts };
+        for (list.items) |t| {
+            const at = file.locate(t.pos);
+            const lc = diag.lineCol(at.text, t.pos - at.start);
+            try writer.interface.print("{s}:{d}:{d}: `{s}` is local, pinned to its maker's thread by {s}\n", .{ at.path, lc.line, lc.col, t.call, t.why });
+        }
+    }
+    try writer.interface.flush();
 }
 
 fn eql(a: []const u8, b: []const u8) bool {

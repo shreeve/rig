@@ -57,7 +57,10 @@ loan until `>u` takes its result. The task reads the list in place,
 with no copy and no reference count, and nothing may change it
 meanwhile:
 
-```rig
+```rig reject
+fun total(xs: ?List[Int]) -> Int
+  xs.sum()
+
 sub main()
   xs = List([3, 4])
   u = total(?xs)&
@@ -65,8 +68,8 @@ sub main()
   print(>u)
 ```
 
-```text
-error: cannot lend `xs` to write while a read loan is live
+```error
+cannot lend `xs` to write while a read loan is live
 ```
 
 That is the same rule Rig applies to any view, and it holds because a
@@ -197,8 +200,8 @@ same way: `time.within(ns, f)` makes every wait past the deadline fail
 with `task.Stop.timeout`, in `f` and in the tasks it starts. There is
 no context object to pass down, and no token to check by hand.
 
-`Tasks[T]` holds a set of tasks, and `task.all(a, b)` waits for tasks
-of different types. `par.map` and `par.each` spread a loop over the cores,
+`Tasks[T]` holds a set of tasks, and `>ts` waits for them all.
+`par.map` and `par.each` spread a loop over the cores,
 and the compiler checks that the function is safe to call from several
 tasks at once. `*Chan[T](n)` is a bounded channel, and `task.select`
 commits exactly one of its arms.
@@ -262,6 +265,6 @@ Opening a connection on Linux is slower than Tokio's, 36 µs against
 31.
 
 The code, the specification (SPEC.md, section 18), the design and its
-reviews (docs/CONCURRENCY.md), and every benchmark are in the
+reviews (docs/design/concurrency.md), and every benchmark are in the
 repository. If a number here does not hold up on your machine, we want
 to know.

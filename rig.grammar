@@ -57,7 +57,7 @@
 #     what it follows, and an infix operator has the same spacing on
 #     both sides.
 #
-# The grammar has no LALR conflicts; see docs/INTERNALS.md (Conflicts policy).
+# The grammar has no LALR conflicts; see docs/internals/INTERNALS.md (Conflicts policy).
 # ==============================================================================
 
 @lang = "rig"
@@ -377,7 +377,7 @@ tokens
 # used) and generates the `Tag` and `Role` enums and the `ir` accessors
 # the compiler reads the tree with. A node always has all of its slots:
 # `_` where an optional role (`?`) is absent. A `...role` takes the
-# remaining children. See docs/INTERNALS.md (The semantic IR).
+# remaining children. See docs/internals/INTERNALS.md (The semantic IR).
 #
 # Role types: `leaf` is a name or literal; `group` an untagged list (a
 # parameter list); `tag(...)` a marker; `a|b` a node of one of those
@@ -550,12 +550,20 @@ tokens
     keyword             ("called" | "rarely" | "inline") after [ \t]+ ("fun" | "sub")
     keyword             line-start [ \t]* "new" after [ \t]+ [A-Za-z_]
     keyword             "of" before ' ' after ' '
+    keyword             "from" [ \t]+ "static" not after [A-Za-z0-9_]
+    keyword             ("from" | "keeps") before ' ' after ' ' [A-Za-z_@]
+    keyword             "unique" before [A-Za-z0-9_\]] ' ' not after [ \t]* [^ \t#]
     keyword.control     ("break" | "continue") [ \t]+ label:('$' [A-Za-z_] [A-Za-z0-9_]*)
     label               '$' [A-Za-z_] [A-Za-z0-9_]* ':'
     function.builtin    '$' [A-Za-z_]+ after '('
-    storage.modifier    '*' not before [A-Za-z0-9_)\]] after '<' [A-Za-z_(\[@]
-    storage.modifier    [<?!+^*~] not before [A-Za-z0-9_)\]@] after [A-Za-z_(\[@]
+    storage.modifier    [<?!+^*~] not before [A-Za-z0-9_)\]@] after [<?!^*~]* [A-Za-z_(\[@]
+    storage.modifier    '*' not before [A-Za-z0-9_)\]@] after '|'
+    storage.modifier    [?!~] before ']' after [?!^*~]* [A-Za-z_]
+    storage.modifier    [*^] before ']' after [?!^*~]* ([A-Z] [a-z0-9] | ("fun" | "sub") '(')
+    storage.modifier    '>' not before [A-Za-z0-9_)\]@=>\-] after [A-Za-z_]
+    storage.modifier    '&' before ')' not after [^ \t,)\]#]
     storage.modifier    [!?] before [A-Za-z0-9_)\]@] not after [A-Za-z0-9_(\[=?@]
+    storage.modifier    '!' before '?' not after [A-Za-z0-9_(\[=?@]
     variable.parameter  [A-Za-z_] [A-Za-z0-9_]* after ':' not before [A-Za-z0-9_.]
     type                [A-Z] [A-Za-z0-9_]* not before [A-Za-z0-9_]
     constant.symbol     ':' [A-Za-z_] [A-Za-z0-9_]* (('-' | '.') [A-Za-z0-9_]+)* not before [A-Za-z0-9_)\]]
@@ -564,7 +572,6 @@ tokens
                         "pass" "panic" "defer" "errdefer" "catch" "try" "await" "yield"
     keyword             "fun" "sub" "enum" "type" "use" "pub" "const" "extern" "zig" "test"
                         "raw" "drop" "error" "as" "async" "impl" "trait" "when" "where"
-    keyword             ctx
     keyword.operator    "and" "or" "not"
     constant            "true" "false" "none"
     variable.special    '@'

@@ -612,7 +612,7 @@ test "match as a pattern", '''
   -1
 '''
   # `s as .circle(r)` tests a variant and binds its fields: a `match`
-  # with one arm, whose other values fall to `else` (docs/AS-PATTERNS.md).
+  # with one arm, whose other values fall to `else` (docs/design/as-patterns.md).
   enum Shape
     circle(r: Int)
     rect(w: Int, h: Int)

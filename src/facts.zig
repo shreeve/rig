@@ -15,7 +15,7 @@
 //! is of three kinds:
 //!
 //! - **Node facts**: what the checkers recorded about a node, read from the
-//!   facts table (docs/INTERNALS.md, "The facts table") and the storage
+//!   facts table (docs/internals/INTERNALS.md, "The facts table") and the storage
 //!   facts (`storageOf`, "Storage facts"). Each answers for the node it is
 //!   asked about and is decided once, where it is recorded.
 //! - **Types**: the type table, the symbols, and the questions about a type
@@ -781,7 +781,7 @@ pub const Facts = struct {
     }
 
     // How a type is held in Zig: one answer per type, which every pass
-    // reads the same way (docs/INTERNALS.md, Emit, "Views").
+    // reads the same way (docs/internals/INTERNALS.md, Emit, "Views").
 
     /// Whether a view of this type is a Zig pointer (`sema.viewHeldAsPointer`).
     pub fn viewHeldAsPointer(f: Facts, ty: TypeId) bool {

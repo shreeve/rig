@@ -409,7 +409,7 @@ fail "for iterator kept view", "26:5: `for iterator` does not live long enough",
     if keep as k
       print(k.name)
 
-fail "for iterator made view", "37:10: `b.each()` keeps `b` lent while the loop walks it; write `for ... in ?b.each()`", "39:11: `!b.each()` advances a place, and this is a value made here, which holds no write view; write `for x in ?b.each()`, which holds it for the loop", "41:13: method `drain` needs its receiver lent to write; write `(!b).drain()`", errors: 3
+fail "for iterator made view", "37:10: `b.each()` keeps `b` lent while the loop walks it; write `for ... in ?b.each()`", "39:11: `!b.each()` advances a place, and this is a value made here, which holds no write view; write `for x in ?b.each()`, which holds it for the loop", "41:13: method `drain` needs `self` lent to write; write `(!b).drain()`", errors: 3
   # An iterator a method returns views the place it came from, so the
   # loop keeps that place lent: the lend is written on the receiver, as
   # `for x in ?b.each()`. No iterator holds a write view, so `!` before

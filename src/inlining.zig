@@ -1,5 +1,5 @@
 //! Which functions are emitted `inline`: decided once, for the whole
-//! program, after every module is checked (docs/INTERNALS.md, "Inlining").
+//! program, after every module is checked (docs/internals/INTERNALS.md, "Inlining").
 //!
 //! A function marked `inline fun` is emitted `inline fn`, whatever its
 //! size, and one marked `called fun` or `rarely fun` never is; the rule

@@ -7,6 +7,20 @@ Server Protocol. The grammars are generated from `rig.grammar` by Nexus
 generated file by hand. Each starts with a header naming the grammar it
 came from.
 
+The grammars colour the keywords, types, builtins, labels, symbols,
+strings with their escapes, and the forms Rig rejects. They tell a
+sigil from the operator that shares its character by what touches it:
+a prefix sigil touching its operand (`<x` `?x` `!x` `+x` `^x` `*x`
+`~x`, in a chain such as `?*T` or `*<x`, and after the `]` of a slice
+or array type, `[]?T`), the wait sigil `>t` and `>ts`, a suffix `?` or `!`
+(`f()!`, `T?`), and the dispatch sigil `&` that makes a call a task, `f(x)&`. So
+`a > b`, `a >= b`, `a >> b`, `a & b` and `f()&b` stay operators. A
+contextual word (`new`, `obj`, `of`, `unique`, `from`, `static`,
+`keeps`, and `inline`, `called` and `rarely` before `fun` or `sub`) is
+a keyword where its line shows the parser reads one, and a name
+elsewhere; the language server's semantic tokens, below, give each
+word the kind the compiler gives it.
+
 | Directory | What it is |
 |---|---|
 | `vscode/` | A VS Code extension: `syntaxes/rig.tmLanguage.json` and `language-configuration.json` (generated), `package.json`, and `extension.js`, the language server's client |
@@ -45,10 +59,12 @@ it (`../nexus`).
    cd editors/vscode && npm ci && npx -y @vscode/vsce package --skip-license
    ```
 
-4. Install it, then run **Developer: Reload Window** in VS Code:
+4. Install it (`<version>` is the `"version"` of
+   `editors/vscode/package.json`), then run **Developer: Reload Window**
+   in VS Code:
 
    ```sh
-   code --install-extension editors/vscode/vscode-rig-0.2.0.vsix --force
+   code --install-extension editors/vscode/vscode-rig-<version>.vsix --force
    ```
 
 The `.vsix` is not committed (`editors/vscode/.gitignore`); rebuild it
@@ -58,20 +74,20 @@ from the folder any time.
 
 - **VS Code:** steps 3 and 4 above. While working on the grammar, a
   symlink is quicker: `ln -s "$PWD/editors/vscode"
-  ~/.vscode/extensions/rig-lang.vscode-rig-0.2.0`, then reload the window
+  ~/.vscode/extensions/rig-lang.vscode-rig-<version>`, then reload the window
   after each regeneration. Use one or the other, not both; the symlinked
   folder needs `npm ci` once for its client (without it, VS Code says so
   and only colours).
 - **Vim:** add `editors/vim` to the runtime path, e.g. with vim-plug:
-  `Plug '~/Data/Code/rig', { 'rtp': 'editors/vim' }`, or
-  `set runtimepath+=~/Data/Code/rig/editors/vim`.
+  `Plug '/path/to/rig', { 'rtp': 'editors/vim' }`, or
+  `set runtimepath+=/path/to/rig/editors/vim`.
 - **highlight.js:** `import rig from './editors/highlightjs/rig.js'`, then
   `hljs.registerLanguage('rig', rig)`.
 - **rip print:** link the module into rip print's languages folder:
 
   ```sh
   mkdir -p ~/.config/rip/print/languages
-  ln -s ~/Data/Code/rig/editors/highlightjs/rig.js ~/.config/rip/print/languages/rig.js
+  ln -s /path/to/rig/editors/highlightjs/rig.js ~/.config/rip/print/languages/rig.js
   ```
 
 ## Language server
@@ -108,7 +124,7 @@ The parse that builds the outline, the tokens' kinds, and the folds goes
 on past a syntax error, so one error does not hide the rest of the file.
 Positions count UTF-16 code units, or bytes when the client offers
 `utf-8` in its `positionEncodings`. Hover, go to definition, completion,
-rename, and formatting are not built yet (TODO.md).
+rename, and formatting are not built yet.
 
 The server reads `Content-Length`-framed JSON-RPC, so a client is the
 easy way to drive it by hand: `test/cli/_lsp.py` is a small one, which

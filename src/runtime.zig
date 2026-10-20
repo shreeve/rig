@@ -1041,7 +1041,7 @@ pub fn Box(comptime T: type) type {
 
 /// `Cell(T)`: interior mutability. `get` is only offered for plain-data
 /// `T` (sema enforces this); resource payloads move in and out with
-/// `set` and `replace`.
+/// `set` and `swap`.
 pub fn Cell(comptime T: type) type {
     return struct {
         value: T,
@@ -2163,7 +2163,7 @@ pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
 }
 
 /// Which of an index's tests the compiler proved already passed
-/// (docs/INTERNALS.md, "Proven checks"): `lower` is `0 <= i`, `upper` is
+/// (docs/internals/INTERNALS.md, "Proven checks"): `lower` is `0 <= i`, `upper` is
 /// `i + width <= len`, and `both` is both. A proven test is not made,
 /// except as an assertion of the proof when `verify_proofs` is on; the
 /// other is made as `index` makes it, with the same panic.
@@ -2876,7 +2876,7 @@ pub inline fn maskSelect(m: anytype, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// (`test "mask helpers: a mask known at compile time"`).
 ///
 /// `m.bits()`: bit `i` is lane `i` of mask `m`, the higher bits 0. Each
-/// target gets the fastest form measured for it (docs/INTERNALS.md,
+/// target gets the fastest form measured for it (docs/internals/INTERNALS.md,
 /// "Vectors"): NEON's pairwise-add reduction for 32 and 64 lanes, 16-lane
 /// bitmasks on WASM SIMD for more than 16 (a wider mask would be taken
 /// apart lane by lane), a multiply that gathers eight lanes at a time on
@@ -3202,7 +3202,7 @@ pub fn rem(a: anytype, b: anytype) @TypeOf(a, b) {
 
 /// The longest length a Rig `Int` holds: no target holds more, and the
 /// margin above it lets the compiler prove `i + c` fits where `i` is
-/// below a length (docs/INTERNALS.md, "Proven checks").
+/// below a length (docs/internals/INTERNALS.md, "Proven checks").
 pub const max_len: u64 = (1 << 62) - 1;
 
 /// A length or count as a Rig `Int`; panics above `max_len`, which a
@@ -3799,7 +3799,7 @@ fn reportLeaks(before: Usage) bool {
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
 // guard of inaccessible address space, so a program that runs out of
 // stack by a frame no larger than the guard faults in the guard before it
-// writes anywhere else (docs/INTERNALS.md, "The program's stack").
+// writes anywhere else (docs/internals/INTERNALS.md, "The program's stack").
 
 /// The stack `main` and the tests run on: 64 MiB, four times the 16 MiB
 /// Zig gives the main thread, for deep recursion; a frame keeps at most

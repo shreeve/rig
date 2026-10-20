@@ -101,6 +101,12 @@ const Worker = struct {
     /// 1 while it sleeps, so a thread that adds to `pinned` kicks its
     /// poller.
     idle: std.atomic.Value(u32) = .init(0),
+    /// When its sleep in its poller ends: the earliest deadline any
+    /// worker held as it went to sleep, `no_due` for none, or `awake`.
+    /// A timer set earlier kicks it (`kickForTimer`).
+    sleep_due: std.atomic.Value(i64) = .init(awake),
+    /// When its yield checks last looked at its poller (`serviceBusy`).
+    polled_at: i96 = 0,
     /// The next worker asleep (`Sleepers`).
     next_sleeper: ?*Worker = null,
     searching: bool = false,
@@ -227,8 +233,31 @@ pub noinline fn tick() void {
         if (ready.items.len > 0 and random(2) == 0) yield();
         return;
     }
+    serviceBusy(w);
     if (hasOwnWork(w)) return yield();
     if (waiting.load(.monotonic) != 0) claimWaiting(w);
+}
+
+/// How often at most a busy worker's yield checks look at its poller: a
+/// look is a system call, and a descriptor's readiness waits this long
+/// at worst while every worker computes.
+const poll_interval: i96 = 250 * std.time.ns_per_us;
+
+/// A yield check of the busy worker `w`: wake the fibers whose timers are
+/// due on it, and those its poller's events make ready, looking at the
+/// poller at most every `poll_interval`. It reads the clock only when
+/// `w` holds a timer or a descriptor, so a loop that holds neither pays
+/// two loads.
+fn serviceBusy(w: *Worker) void {
+    const due = w.timers.due.load(.monotonic);
+    const polls = w.poller.count.load(.monotonic) != 0;
+    if (due == no_due and !polls) return;
+    const now = nowNs();
+    if (due <= now) _ = w.timers.fire(now);
+    if (polls and now - w.polled_at >= poll_interval) {
+        w.polled_at = now;
+        _ = w.poller.poll(0);
+    }
 }
 
 /// A recursive call that saw `waiting` set (`rt.tickCall`).
@@ -453,9 +482,18 @@ fn advanceClock() void {
         }
         @panic("every task is waiting on another, and none can run: a deadlock");
     }
+    // Bytes written to a socket may still be on their way to the other
+    // end, which macOS delivers on loopback a moment later: wait that
+    // moment, in real time, before the clock jumps past a deadline a
+    // wait on them set.
+    if (p.count.load(.monotonic) != 0 and p.poll(settle_ns)) return;
     advanceTo(due);
     fireDue();
 }
+
+/// How long, in real time, a deterministic run with descriptors
+/// registered waits for their events before its clock jumps to a timer.
+const settle_ns: i96 = std.time.ns_per_ms;
 
 /// Wake each fiber whose deadline the virtual clock has reached: the
 /// clock also moves while fibers compute (`computed`).
@@ -469,9 +507,10 @@ fn fireDue() void {
 
 /// The fibers waiting with a deadline that one worker set, earliest
 /// first, as Go keeps one heap per processor: the worker wakes them when
-/// it looks (`service`), and a worker about to sleep wakes those due on
-/// any (`serviceAll`), and sleeps no longer than until the earliest
-/// (`sleepFor`). Its lock is held while it wakes one, so a fiber that
+/// it looks (`service`, and its yield checks, `serviceBusy`), and a
+/// worker about to sleep wakes those due on any (`serviceAll`), and
+/// sleeps no longer than until the earliest (`earliestDue`); a deadline
+/// earlier than a sleeping worker's wakes it (`kickForTimer`). Its lock is held while it wakes one, so a fiber that
 /// takes its timer back (`cancel`) knows no worker is done with it. In a
 /// deterministic run one set serves the virtual clock (`timers`).
 const Timers = struct {
@@ -489,6 +528,8 @@ const Timers = struct {
         f.wait.timers = t;
         t.up(f.wait.heap_index);
         t.publish();
+        // The earliest it holds: a worker asleep until later wakes for it.
+        if (f.wait.heap_index == 0 and !deterministic) kickForTimer(t.due.load(.monotonic));
     }
 
     fn cancel(t: *Timers, f: *Fiber) void {
@@ -517,7 +558,7 @@ const Timers = struct {
 
     fn publish(t: *Timers) void {
         const d: i64 = if (t.heap.items.len > 0) @intCast(@min(t.heap.items[0].wait.deadline, no_due)) else no_due;
-        t.due.store(d, .release);
+        t.due.store(d, .seq_cst);
     }
 
     fn less(t: *Timers, i: usize, j: usize) bool {
@@ -581,13 +622,33 @@ const no_due = std.math.maxInt(i64);
 /// The timers of a deterministic run.
 var timers: Timers = .{};
 
-/// How long a worker about to sleep may sleep: until the earliest
-/// deadline any worker holds, or with no limit.
-fn sleepFor() ?i96 {
+/// A worker's `sleep_due` while it is not asleep.
+const awake = std.math.minInt(i64);
+
+/// The earliest deadline any worker holds, or `no_due`: when a worker
+/// about to sleep wakes up.
+fn earliestDue() i64 {
     var due: i64 = no_due;
-    for (workers) |*v| due = @min(due, v.timers.due.load(.acquire));
-    if (due == no_due) return null;
-    return @max(@as(i96, due) - nowNs(), 0);
+    for (workers) |*v| due = @min(due, v.timers.due.load(.seq_cst));
+    return due;
+}
+
+/// A timer due at `due` was set, the earliest its worker holds: unless a
+/// worker asleep wakes by then, kick one, which sleeps again until the
+/// earliest deadline. A worker about to sleep notes that it may sleep
+/// for good before it reads the deadlines (`sleep`), and the timer's
+/// worker publishes the deadline before it reads those notes, all
+/// sequentially consistent: so either the sleeper sees the deadline, or
+/// this sees the sleeper.
+fn kickForTimer(due: i64) void {
+    var late: ?*Worker = null;
+    for (workers) |*v| {
+        const until = v.sleep_due.load(.seq_cst);
+        if (until == awake) continue;
+        if (until <= due) return;
+        if (late == null) late = v;
+    }
+    if (late) |v| v.poller.kick();
 }
 
 // -----------------------------------------------------------------------------
@@ -599,8 +660,9 @@ fn sleepFor() ?i96 {
 /// (`Registration`) wake the fibers waiting on them when they are ready.
 /// A worker that sleeps in it holds its lock, so no other polls it, and a
 /// registration is never freed while its events are handled (`close`);
-/// a worker that runs fibers polls it every 61 turns, and a worker about
-/// to sleep polls the others' (`serviceAll`), so a busy worker's
+/// a worker that runs fibers polls it every 61 turns, and its yield
+/// checks every `poll_interval` (`serviceBusy`), and a worker about to
+/// sleep polls the others' (`serviceAll`), so a busy worker's
 /// descriptors wait no longer than its next turns.
 const Poller = struct {
     fd: i32 = -1,
@@ -763,13 +825,29 @@ pub const Registration = struct {
     /// The other end closed, or the descriptor failed: every wait ends.
     pub const closed: u32 = 4;
 
+    /// The fiber waiting, and the epoch of its wait. A poller waking it
+    /// holds it (`waking` in place of the fiber) until it is done, and
+    /// the fiber takes itself back only once no poller holds it
+    /// (`leave`), so a fiber that goes on and ends is never touched
+    /// after.
     const Waiter = struct {
         fiber: std.atomic.Value(?*Fiber) = .init(null),
         epoch: std.atomic.Value(u32) = .init(0),
 
+        const waking: *Fiber = @ptrFromInt(std.mem.alignBackward(usize, std.math.maxInt(usize), @alignOf(Fiber)));
+
         fn wakeIt(w: *Waiter) bool {
             const f = w.fiber.load(.seq_cst) orelse return false;
+            if (f == waking) return false;
+            if (w.fiber.cmpxchgStrong(f, waking, .seq_cst, .seq_cst) != null) return false;
+            defer w.fiber.store(f, .seq_cst);
             return interrupt(f, w.epoch.load(.seq_cst), false);
+        }
+
+        /// The fiber `f` is done waiting: take it back, once no poller
+        /// holds it.
+        fn leave(w: *Waiter, f: *Fiber) void {
+            while (w.fiber.cmpxchgWeak(f, null, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
         }
     };
 
@@ -820,15 +898,49 @@ pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bo
             spendBudget();
             return .ready;
         }
-        if (cancelable and f.state.control != null and f.state.control.?.canceled.load(.seq_cst)) return .canceled;
+        if (cancelable and isCanceled(f)) return .canceled;
         if (deadline) |d| if (nowNs() >= d) return .timeout;
+        pausePoint();
         const e = beginWait(cancelable);
         waiter.epoch.store(e, .seq_cst);
         waiter.fiber.store(f, .seq_cst);
-        // Readiness the poller saw before this waiter was there.
-        if (r.ready_bits.load(.seq_cst) & (interest | Registration.closed) == 0) commitWait(e, deadline);
-        waiter.fiber.store(null, .seq_cst);
+        // Readiness the poller saw before this waiter was there, and a
+        // cancel that came before the wait began, which found no wait to
+        // end: either one, and the fiber goes on.
+        const seen = r.ready_bits.load(.seq_cst) & (interest | Registration.closed) != 0;
+        if (!seen and !(cancelable and isCanceled(f))) commitWait(e, deadline);
+        waiter.leave(f);
     }
+}
+
+/// Whether the task `f` runs is canceled: a sequentially consistent load,
+/// which a canceler's store of the flag, then its load of the wait's
+/// word (`interruptForCancel`), pairs with, so of the fiber that begins
+/// a wait and then looks, and the canceler, at least one sees the other.
+fn isCanceled(f: *Fiber) bool {
+    const control = f.state.control orelse return false;
+    return control.canceled.load(.seq_cst);
+}
+
+/// Test only: a handshake held open at a point a test names
+/// (`pausePoint`), until the test lets it go, so the test can land
+/// another thread's step there.
+pub const Pause = struct {
+    reached: std.atomic.Value(bool) = .init(false),
+    go: std.atomic.Value(bool) = .init(false),
+};
+
+/// The pause the next `pausePoint` holds, set by a test.
+pub var test_pause: std.atomic.Value(?*Pause) = .init(null);
+
+/// In a test that set `test_pause`, hold here until it lets go: between
+/// a waiting point's last look at its cancel flag and the wait it begins.
+inline fn pausePoint() void {
+    if (!builtin.is_test) return;
+    if (test_pause.load(.monotonic) == null) return;
+    const p = test_pause.swap(null, .seq_cst) orelse return;
+    p.reached.store(true, .seq_cst);
+    while (!p.go.load(.seq_cst)) std.atomic.spinLoopHint();
 }
 
 /// How many waits that end at once a fiber makes before it yields.
@@ -1263,7 +1375,11 @@ fn sleep(w: *Worker) void {
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll(w);
         if (!hasOwnWork(w)) {
-            _ = w.poller.poll(sleepFor());
+            w.sleep_due.store(no_due, .seq_cst);
+            const due = earliestDue();
+            w.sleep_due.store(due, .seq_cst);
+            _ = w.poller.poll(if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0));
+            w.sleep_due.store(awake, .seq_cst);
             if (!hasOwnWork(w)) continue;
         }
         // Fibers made ready here: run them, unless a waker took this
@@ -1828,7 +1944,7 @@ pub const Header = struct {
             // the "run next" slot may also be one woken partway, which
             // goes on where it stopped instead. A wait with a deadline
             // sleeps on its timer instead.
-            if (deadline == null and w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel != null);
+            if (deadline == null and w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel);
         }
         while (!h.isEnded()) {
             if (cancel) |c| if (c.load(.seq_cst)) return false;
@@ -1887,12 +2003,15 @@ pub fn Job(comptime T: type) type {
 /// straight to it, on its own stack, and straight back when it ends,
 /// past the queues. The fiber waiting sleeps as it hands its worker over,
 /// recorded as the task's waiter, so a task that stops on the way ends
-/// the usual way and wakes it.
-fn handoff(w: *Worker, h: *Header, cancelable: bool) void {
+/// the usual way and wakes it. A cancel that came before the wait began,
+/// when `cancel` is given, leaves the task where it is.
+fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void {
     const waiter = w.current.?;
     const f = &h.fiber;
+    pausePoint();
+    const e = beginWait(cancel != null);
+    if (cancel) |c| if (c.load(.seq_cst)) return;
     w.lifo = null;
-    const e = beginWait(cancelable);
     h.waiter.store(waiter, .seq_cst);
     h.waiter_epoch.store(e, .seq_cst);
     h.status.store(Header.waited, .seq_cst);
@@ -2485,19 +2604,8 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
             return 0;
         }
 
-        fn pipe() [2]i32 {
-            var fds: [2]i32 = undefined;
-            if (builtin.os.tag == .linux) {
-                _ = std.os.linux.pipe2(&fds, .{ .NONBLOCK = true });
-            } else {
-                _ = std.c.pipe(&fds);
-                for (fds) |fd| _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
-            }
-            return fds;
-        }
-
         fn first(_: *anyopaque) callconv(.c) void {
-            const fds = pipe();
+            const fds = testPipe();
             const r = register(fds[0]).?;
             const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
             while (true) {
@@ -2526,4 +2634,276 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
     try std.testing.expect(Run.waited);
     try std.testing.expectEqual(@as(u8, 'x'), Run.got);
     try std.testing.expect(Run.timed_out);
+}
+
+/// The type of a task's cancel flag and the fiber a cancel wakes
+/// (`tasks.Control`), for the tests below.
+const TestControl = @typeInfo(@typeInfo(@FieldType(rt.TaskState, "control")).optional.child).pointer.child;
+
+fn testPipe() [2]i32 {
+    var fds: [2]i32 = undefined;
+    if (builtin.os.tag == .linux) {
+        _ = std.os.linux.pipe2(&fds, .{ .NONBLOCK = true });
+    } else {
+        _ = std.c.pipe(&fds);
+        for (fds) |fd| _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
+    }
+    return fds;
+}
+
+test "a cancel that lands after a wait on a descriptor last looked, but before it began, still ends it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .ready;
+        var took: i96 = 0;
+        var ctl: TestControl = .{};
+        var pause: Pause = .{};
+        const Unit = struct {};
+
+        /// Wait to read a pipe no one writes, for up to 2 s: only a
+        /// cancel ends the wait sooner.
+        fn reader(_: *Unit, r: *Registration) Readiness {
+            const f = current().?;
+            f.state.control = &ctl;
+            ctl.fiber = f;
+            return waitReady(r, Registration.readable, nowNs() + 2 * std.time.ns_per_s, true);
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            test_pause.store(&pause, .seq_cst);
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            while (!pause.reached.load(.seq_cst)) yield();
+            ctl.cancel();
+            const start = nowNs();
+            pause.go.store(true, .seq_cst);
+            got = j.join();
+            took = nowNs() - start;
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.canceled, Run.got);
+    // Ended by the cancel, not by the deadline, after which the wait
+    // looks at the flag again.
+    try std.testing.expect(Run.took < std.time.ns_per_s);
+}
+
+test "a cancel that lands as a waiter is about to hand its worker to a task still ends the wait" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var waited: bool = true;
+        var got: Readiness = .ready;
+        var outer: TestControl = .{};
+        var inner: TestControl = .{};
+        var pause: Pause = .{};
+        const Unit = struct {};
+
+        /// The task waited on: it waits to read a pipe no one writes, for
+        /// up to 2 s, unless it is canceled first.
+        fn reader(_: *Unit, r: *Registration) Readiness {
+            const f = current().?;
+            f.state.control = &inner;
+            inner.fiber = f;
+            return waitReady(r, Registration.readable, nowNs() + 2 * std.time.ns_per_s, true);
+        }
+
+        /// The waiter: it makes the reader and waits for it at once, by
+        /// handoff, unless its own cancel comes first, when it passes the
+        /// cancel on.
+        fn waiter(_: *Unit, r: *Registration) u8 {
+            const f = current().?;
+            f.state.control = &outer;
+            outer.fiber = f;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            waited = j.waitEnd(&outer.canceled, null);
+            if (!waited) inner.cancel();
+            got = j.join();
+            j.free();
+            return 0;
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            test_pause.store(&pause, .seq_cst);
+            const j = spawn(u8, Unit, waiter, .{r}, .{}, false).job;
+            while (!pause.reached.load(.seq_cst)) yield();
+            outer.cancel();
+            pause.go.store(true, .seq_cst);
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(!Run.waited);
+    try std.testing.expectEqual(Readiness.canceled, Run.got);
+}
+
+fn testNap(ns: i96) void {
+    const e = beginWait(false);
+    commitWait(e, nowNs() + ns);
+}
+
+/// Spin, without yielding, until `flag` is set or 2 s pass, and give
+/// whether it was set; with `ticks`, make a yield check each turn, as a
+/// loop of a program does.
+fn testSpinUntil(flag: *const std.atomic.Value(bool), ticks: bool) bool {
+    const until = nowNs() + 2 * std.time.ns_per_s;
+    while (!flag.load(.seq_cst)) {
+        if (nowNs() >= until) return false;
+        if (ticks) tick() else std.atomic.spinLoopHint();
+    }
+    return true;
+}
+
+test "a timer set earlier than a sleeping worker's wakes it, though the timer's own worker computes" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var done = std.atomic.Value(bool).init(false);
+        var in_time = false;
+        const Unit = struct {};
+        fn napper(_: *Unit) u8 {
+            testNap(10 * std.time.ns_per_ms);
+            done.store(true, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            // Pinned, so the other worker cannot take it, and asleep a
+            // while, so that worker sleeps with no deadline to wake for.
+            _ = pinHere();
+            _ = workersRunning();
+            testNap(20 * std.time.ns_per_ms);
+            const j = spawn(u8, Unit, napper, .{}, .{}, false).job;
+            // The napper runs here, sets its timer on this worker, and
+            // this fiber computes without a yield check.
+            yield();
+            in_time = testSpinUntil(&done, false);
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.in_time);
+}
+
+test "a lone worker's yield checks wake the fibers its timers and its poller make ready" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var napped = std.atomic.Value(bool).init(false);
+        var read = std.atomic.Value(bool).init(false);
+        var napped_in_time = false;
+        var read_in_time = false;
+        const Unit = struct {};
+        fn napper(_: *Unit) u8 {
+            testNap(10 * std.time.ns_per_ms);
+            napped.store(true, .seq_cst);
+            return 0;
+        }
+        fn reader(_: *Unit, r: *Registration) u8 {
+            if (waitReady(r, Registration.readable, null, false) == .ready) read.store(true, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const a = spawn(u8, Unit, napper, .{}, .{}, false).job;
+            yield();
+            napped_in_time = testSpinUntil(&napped, true);
+            _ = a.join();
+            a.free();
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            const b = spawn(u8, Unit, reader, .{r}, .{}, false).job;
+            yield();
+            _ = std.posix.system.write(fds[1], "x", 1);
+            read_in_time = testSpinUntil(&read, true);
+            _ = b.join();
+            b.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 1;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.napped_in_time);
+    try std.testing.expect(Run.read_in_time);
+}
+
+/// A connected pair of loopback TCP sockets that do not block.
+fn testTcpPair() [2]i32 {
+    const posix = std.posix;
+    const sys = posix.system;
+    const l: i32 = @intCast(sys.socket(posix.AF.INET, posix.SOCK.STREAM, 0));
+    var sa: sys.sockaddr.in = .{ .port = 0, .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
+    var len: posix.socklen_t = @sizeOf(sys.sockaddr.in);
+    _ = sys.bind(l, @ptrCast(&sa), len);
+    _ = sys.listen(l, 1);
+    _ = sys.getsockname(l, @ptrCast(&sa), &len);
+    const c: i32 = @intCast(sys.socket(posix.AF.INET, posix.SOCK.STREAM, 0));
+    _ = sys.connect(c, @ptrCast(&sa), len);
+    const a: i32 = @intCast(sys.accept(l, null, null));
+    _ = sys.close(l);
+    for ([2]i32{ a, c }) |fd| {
+        if (builtin.os.tag == .linux) {
+            _ = std.os.linux.fcntl(fd, std.os.linux.F.SETFL, @as(u32, @bitCast(std.os.linux.O{ .NONBLOCK = true })));
+        } else {
+            _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
+        }
+    }
+    return .{ a, c };
+}
+
+test "a deterministic run waits for bytes on their way on a socket before its clock jumps past the wait's deadline" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var timeouts: u32 = 0;
+        const Unit = struct {};
+        fn writer(_: *Unit, fd: i32) u8 {
+            _ = std.posix.system.write(fd, "x", 1);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            for (0..200) |_| {
+                const fds = testTcpPair();
+                const r = register(fds[0]).?;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
+                if (waitReady(r, Registration.readable, nowNs() + std.time.ns_per_ms, false) != .ready) timeouts += 1;
+                _ = j.join();
+                j.free();
+                deregister(r);
+                _ = std.posix.system.close(fds[0]);
+                _ = std.posix.system.close(fds[1]);
+            }
+        }
+    };
+    seed(1);
+    defer deterministic = false;
+    workers_override = 1;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
 }

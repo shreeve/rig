@@ -333,7 +333,7 @@ test "cell through handle param", '''
   f()
   print(c[0])
 
-fail "cell unmarked set", "6:3: method `set` needs its receiver lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`", "7:9: method `swap` needs its receiver lent to write; write `(!c).swap(6)`: changing a shared Cell is marked with `!`", "9:3: method `push` needs its receiver lent to write; write `!v.push(1)`: changing a shared Cell is marked with `!`", "10:10: method `pop` needs its receiver lent to write; write `(!v).pop()`: changing a shared Cell is marked with `!`", "11:3: method `clear` needs its receiver lent to write; write `!v.clear()`: changing a shared Cell is marked with `!`", "12:1: write `(!v)[i] = e`: changing a shared Cell is marked with `!`", errors: 6
+fail "cell unmarked set", "6:3: method `set` needs `self` lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`", "7:9: method `swap` needs `self` lent to write; write `(!c).swap(6)`: changing a shared Cell is marked with `!`", "9:3: method `push` needs `self` lent to write; write `!v.push(1)`: changing a shared Cell is marked with `!`", "10:10: method `pop` needs `self` lent to write; write `(!v).pop()`: changing a shared Cell is marked with `!`", "11:3: method `clear` needs `self` lent to write; write `!v.clear()`: changing a shared Cell is marked with `!`", "12:1: write `(!v)[i] = e`: changing a shared Cell is marked with `!`", errors: 6
   # A shared Cell changes only by a marked call, so a call that changes it
   # without `!` is rejected, with the mark in the hint: `set`, `replace`,
   # and a Cell of a List's `push`, `pop`, `clear`, and element assignment.

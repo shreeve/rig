@@ -51,7 +51,7 @@ test "receiver sigil bool value", '''
   !set.insert(6)
   print(set.items.len)
 
-fail "receiver sigil consumes", "12:5: `top` does not consume its receiver; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume its receiver; it writes it: `(!s).pop()`, and its result needs no `<`"
+fail "receiver sigil consumes", "12:5: `top` does not consume `self`; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume `self`; it writes it: `(!s).pop()`, and its result needs no `<`"
   # `<` before a method call moves the receiver into it, so the method
   # must consume it (`<@`); a call's result moves without `<`.
 
@@ -67,7 +67,7 @@ fail "receiver sigil consumes", "12:5: `top` does not consume its receiver; remo
   b = <s.pop()
   print(a ?? 0, b ?? 0)
 
-fail "receiver sigil field element", "17:5: `handlers` is a field holding functions, not a method with a receiver; remove the `<`", "18:4: `checks` is a field holding functions, not a method with a receiver; for negation use `not`", "20:5: `handlers` is a field holding functions", "21:5: this `P` is a temporary that owns a resource, and nothing would drop it"
+fail "receiver sigil field element", "17:5: `handlers` is a field holding functions, not a method that takes `self`; remove the `<`", "18:4: `checks` is a field holding functions, not a method that takes `self`; for negation use `not`", "20:5: `handlers` is a field holding functions", "21:5: this `P` is a temporary that owns a resource, and nothing would drop it"
   # `x.f[i](args)` calls an element of a field `f` holding functions:
   # there is no receiver for `!` or `<` to apply to, and a temporary that
   # owns a resource cannot be the object, as for `x.f(args)`.
@@ -91,7 +91,7 @@ fail "receiver sigil field element", "17:5: `handlers` is a field holding functi
   z = P(v: List(), handlers: [one], checks: [yes]).handlers[0]()
   print(x, y, z)
 
-fail "receiver sigil reads", "13:4: `is_empty` does not write its receiver; for negation use `not`", "15:7: `is_empty` does not write its receiver; for negation use `not`", "17:7: `peek` does not write its receiver; remove the `!`"
+fail "receiver sigil reads", "13:4: `is_empty` does not write `self`; for negation use `not`", "15:7: `is_empty` does not write `self`; for negation use `not`", "17:7: `peek` does not write `self`; remove the `!`"
   # `!` before a method call lends to write the receiver, so a method that
   # only reads it is the habit of `!` as negation: use `not`, or drop the
   # `!` when the method returns no `Bool`.
@@ -236,7 +236,7 @@ fail "receiver sigil value used is rejected", "20:5: write `(!@).next()`: a writ
   f = |!c| !c.next()
   print(x, n, m, y, z, f())
 
-fail "receiver sigil without receiver", "14:5: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`", "15:5: `origin` is called through its type or module and has no receiver; remove the `<`", "17:1: `get` only reads the Cell; remove the `!`", "19:7: `on` is a field holding a function, not a method with a receiver; remove the `!`"
+fail "receiver sigil without receiver", "14:5: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`", "15:5: `origin` is called through its type or module and has no `self`; remove the `<`", "17:1: `get` only reads the Cell; remove the `!`", "19:7: `on` is a field holding a function, not a method that takes `self`; remove the `!`"
   # `!` and `<` before a call apply to the method's receiver, so a call
   # with none rejects them: an associated function called through its
   # type (where `!` reaches the type, not the value the call makes), a
@@ -436,15 +436,7 @@ test "swap forms", '''
   o = (!c).swap(4)
   print(c.get(), o)
 
-fail "replace is swap", "3:5: `replace` is `swap`: `old = swap(!x, v)` puts `v` in `x` and gives back what was there, and `swap(!a, !b)` exchanges two places", "5:10: a Cell's `replace` is `swap`: `old = (!c).swap(v)` puts `v` in and gives back the old value", errors: 2
-  # `replace` became `swap`: each spelling of it says what to write.
-  x = 1
-  a = replace(!x, 2)
-  c = *Cell(1)
-  b = (!c).replace(3)
-  print(a, b)
-
-fail "replace swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a place lent to write: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
+fail "swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a place lent to write: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
   # `swap` takes places lent to write (`!x`) of one type, whose values
   # hold no view, and the value a swap stores has the place's type.
 
@@ -657,7 +649,7 @@ fail "sequence get owning", "7:6: a write view is never stored inside a value, a
   xs = [!a, !b]
   print(xs.len)
 
-fail "sequence get receiver sigil", "6:7: `get` does not write its receiver; remove the `!`", "7:7: `get` does not write its receiver", "8:7: `get` does not consume its receiver; remove the `<`"
+fail "sequence get receiver sigil", "6:7: `get` does not write `self`; remove the `!`", "7:7: `get` does not write `self`", "8:7: `get` does not consume `self`; remove the `<`"
   # `get` on a String or an array only reads its receiver, so a `!` or a
   # `<` before the receiver is rejected, as for a List.
 
@@ -2012,7 +2004,7 @@ test "text build", '''
     !big.add(i % 10)
   print(big.len, big[4990..])
 
-fail "text forms", "5:5: a slice of a String views it; write `?t[0..1]`", "6:6: cannot lend a slice of a String to write", "7:3: cannot assign to `.len`; a length is read-only", "8:3: method `add` needs its receiver lent to write; write `!t.add(\"x\")`", "9:12: `String(...)` takes no keyword arguments", "10:4: has no method `pop`"
+fail "text forms", "5:5: a slice of a String views it; write `?t[0..1]`", "6:6: cannot lend a slice of a String to write", "7:3: cannot assign to `.len`; a length is read-only", "8:3: method `add` needs `self` lent to write; write `!t.add(\"x\")`", "9:12: `String(...)` takes no keyword arguments", "10:4: has no method `pop`"
   # A Text is changed only through its `!` methods, and viewed only
   # through a visible `?` view.
 
