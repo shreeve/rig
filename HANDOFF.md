@@ -134,7 +134,9 @@ from).
     streams on it, as fast as Tokio's and Go's on loopback (bench/net);
     `std.http`'s `http.serve(<listener, |req| ...)` runs each
     connection as a task and each request isolated, a panic answering
-    500 (`rig/net.zig`, `serve`).
+    500 (`rig/net.zig`, `serve`). bench/http times it against hyper
+    and Go: as fast as hyper on the Mac and about three times its
+    requests on pup, at 16 to 33 KiB per idle connection.
     `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds

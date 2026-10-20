@@ -1,0 +1,18 @@
+# A Rig HTTP server for bench/http/bench-http: `Hello, world!` at `/`,
+# 404 elsewhere. It prints the port it listens on, then serves until it
+# is killed.
+
+use std.http
+use std.net
+use std.os
+
+sub main()!
+  args = os.args()
+  addr = String(args[1]) if args.len > 1 else String("127.0.0.1:0")
+  l = net.listen(?addr)!
+  print(l.port())
+  http.serve(<l, |req|
+    match req.path
+      "/" => http.text("Hello, world!")
+      _ => http.not_found()
+  )!

@@ -712,7 +712,7 @@ consistency. The edges that order it:
 - a cancel request before the `Canceled` it causes.
 
 **The target.** It is measured, not assumed, on Linux and macOS, against
-Tokio and Go:
+Tokio and Go (built: bench/tasks, bench/actors, bench/net, bench/http):
 - an HTTP server's requests per second and p99 latency;
 - an actor round trip;
 - fan-out and fan-in of CPU-bound work;

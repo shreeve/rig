@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""Time Rig's HTTP server against Go's net/http and Tokio's hyper (bench/http/README.md).
+
+usage: bench/http/bench-http [options]
+
+  --variants a,b  what to build and time (default: rig-fast,tokio,go):
+                    rig-fast   bench/http/server.rig, rig build --release=fast
+                    rig-safe   the same, rig build --release (Zig's safe mode)
+                    tokio      bench/http/tokio, hyper on Tokio's
+                               multi-threaded runtime, cargo build --release
+                    go         bench/http/go, net/http, go build
+  --reps N        load runs per variant, interleaved; the best counts
+                  (default 3)
+  --conns C       connections the load generator keeps busy (default 64)
+  --duration S    seconds of each load run (default 3)
+  --idle N        idle connections held for the memory figure, 0 for
+                  none (default 10000)
+  --out DIR       keep the builds in DIR and reuse them; with
+  --build-only    build and stop, and later
+  --time-only     time what DIR holds
+  --record NOTE   append the Rig variants' rows to bench/http/PROGRESS.md
+
+Each server takes the address to listen on and serves `Hello, world!`
+at `/`. The load
+generator (bench/http/load, in Go, the same for every server) keeps C
+connections each sending a request and waiting for its answer, and
+reports requests per second and the 50th and 99th percentile latency.
+Then it opens N connections, each making one request and holding open,
+and the server's resident memory before and after, over N, is the
+memory one idle connection takes.
+"""
+import argparse, datetime, os, resource, shutil, socket, subprocess, sys, tempfile, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+
+
+def build(v, out):
+    exe = os.path.join(out, v)
+    if os.path.exists(exe):
+        return exe
+    tmp = exe + ".new"
+    if v.startswith("rig-"):
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
+        flag = "--release" if v == "rig-safe" else "--release=fast"
+        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "server.rig")], check=True, env=env)
+    elif v == "tokio":
+        target = os.path.join(out, "cargo")
+        subprocess.run(["cargo", "build", "--release", "-q", "--target-dir", target], check=True, cwd=os.path.join(HERE, "tokio"))
+        shutil.copy(os.path.join(target, "release", "http-tokio"), tmp)
+    elif v == "go":
+        subprocess.run(["go", "build", "-o", tmp, "."], check=True, cwd=os.path.join(HERE, "go"))
+    elif v == "load":
+        subprocess.run(["go", "build", "-o", tmp, "."], check=True, cwd=os.path.join(HERE, "load"))
+    else:
+        sys.exit("bench-http: no variant `%s`" % v)
+    os.rename(tmp, exe)
+    return exe
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def start(exe, everywhere=False):
+    """Start the server on a free port, and wait until it takes
+    connections: a server's own output may be buffered. `everywhere`
+    listens on every address, so the idle connections can spread over
+    the loopback addresses (bench/http/load)."""
+    port = free_port()
+    addr = "127.0.0.1:%d" % port
+    p = subprocess.Popen([exe, ("0.0.0.0:%d" % port) if everywhere else addr], stdout=subprocess.DEVNULL)
+    for _ in range(500):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                return p, addr
+        except OSError:
+            time.sleep(0.02)
+    stop(p)
+    sys.exit("bench-http: `%s` never took connections" % exe)
+
+
+def stop(p):
+    p.kill()
+    p.wait()
+
+
+def rss(pid):
+    return int(subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)]).strip()) * 1024
+
+
+def load(loader, addr, conns, duration):
+    out = subprocess.run([loader, "-addr", addr, "-conns", str(conns), "-duration", "%ds" % duration], check=True, capture_output=True, text=True).stdout
+    n, rps, p50, p99 = (int(x) for x in out.split())
+    return {"rps": rps, "p50": p50, "p99": p99}
+
+
+def memory(loader, exe, n):
+    p, addr = start(exe, everywhere=True)
+    try:
+        time.sleep(0.3)
+        subprocess.run([loader, "-addr", addr, "-conns", "1", "-duration", "1s"], check=True, capture_output=True)
+        time.sleep(0.3)
+        before = rss(p.pid)
+        held = subprocess.Popen([loader, "-addr", addr, "-idle", str(n)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        if held.stdout.readline().strip() != "ready":
+            sys.exit("bench-http: the idle connections did not open")
+        time.sleep(1.0)
+        after = rss(p.pid)
+        held.stdin.close()
+        held.wait()
+        return max(0, after - before) / n
+    finally:
+        stop(p)
+
+
+def size(b):
+    if b >= 1024:
+        return "%.1f KiB" % (b / 1024)
+    return "%.0f B" % b
+
+
+def record(note, variants, best):
+    path = os.path.join(HERE, "PROGRESS.md")
+    day = datetime.date.today().isoformat()
+    with open(path, "a") as f:
+        for v in variants:
+            if v.startswith("rig-"):
+                b = best[v]
+                mem = size(b["mem"]) if "mem" in b else ""
+                f.write("| %s | %s | %s | %d | %d us | %d us | %s |\n" % (day, note, v, b["rps"], b["p50"], b["p99"], mem))
+    print("bench-http: recorded in %s" % path, file=sys.stderr)
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--variants", default="rig-fast,tokio,go")
+    ap.add_argument("--reps", type=int, default=3)
+    ap.add_argument("--conns", type=int, default=64)
+    ap.add_argument("--duration", type=int, default=3)
+    ap.add_argument("--idle", type=int, default=10000)
+    ap.add_argument("--out")
+    ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--time-only", action="store_true")
+    ap.add_argument("--record")
+    a = ap.parse_args()
+    # Every server and the load generator inherit room for the idle
+    # connections' descriptors.
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = min(hard, max(soft, 4 * a.idle + 1024)) if hard != resource.RLIM_INFINITY else max(soft, 4 * a.idle + 1024)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    variants = a.variants.split(",")
+    out = a.out or tempfile.mkdtemp(prefix="bench-http-")
+    os.makedirs(out, exist_ok=True)
+    exes = {v: (os.path.join(out, v) if a.time_only else build(v, out)) for v in variants + ["load"]}
+    if a.build_only:
+        return
+    loader = exes["load"]
+    best = {v: {} for v in variants}
+    for _ in range(a.reps):
+        for v in variants:
+            p, addr = start(exes[v])
+            try:
+                time.sleep(0.3)
+                r = load(loader, addr, a.conns, a.duration)
+            finally:
+                stop(p)
+            b = best[v]
+            if r["rps"] > b.get("rps", 0):
+                b.update(r)
+    if a.idle > 0:
+        for v in variants:
+            best[v]["mem"] = memory(loader, exes[v], a.idle)
+    base = "tokio" if "tokio" in variants else variants[0]
+    print("%-10s%12s%10s%10s%14s" % ("", "req/s", "p50", "p99", "per idle conn"))
+    for v in variants:
+        b = best[v]
+        mem = size(b["mem"]) if "mem" in b else "-"
+        print("%-10s%12d%8d us%8d us%14s" % (v, b["rps"], b["p50"], b["p99"], mem))
+    if a.record:
+        record(a.record, variants, best)
+    if not a.out:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()
