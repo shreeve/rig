@@ -104,6 +104,16 @@ is a run. Of every state reached:
   wait a cancel may end queues it;
 - `late_waker`: a waker of an earlier wait changes nothing.
 
+It also gives the word's layout (`pack`: the epoch, the bit a cancel
+may end the wait by, the state) and proves its parts never overlap
+(`unpack_epoch`, `unpack_cancelable`, `unpack_state`, `pack_inj`).
+`test/cli/wait_sync.sh`, in the suite, keeps the model and the Zig in
+step: it checks that the numbers match `Wait`'s constants, that the
+functions of src/sched.zig that touch a wait's word are exactly the
+ones it maps to Lean steps, and that each step's lines (the checks and
+the compare-and-swap) are still in both. A change to either side fails
+it until the other, and its table, follow.
+
 **`Tasks.lean`** models tasks: each with its holder (the task whose
 record holds its handle), its core, its pin, whether it was made local,
 the values it holds that stay on one thread, and whether it ended or

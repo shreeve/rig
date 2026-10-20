@@ -24,6 +24,12 @@ run of the real protocol. What is proved, of every state reached:
 - `cancel_delivered`: a cancel that comes while the fiber sleeps in a
   wait a cancel may end queues it;
 - `late_waker`: a waker of an earlier wait changes nothing.
+
+The word itself is `pack` below: the epoch, the bit a cancel may end the
+wait by, and the state, as `Wait.pack` lays them out; `unpack_epoch`,
+`unpack_cancelable`, and `unpack_state` show the three never overlap.
+test/cli/wait_sync.sh checks that these numbers, and the steps, match
+src/sched.zig: a change to one fails it until the other follows.
 -/
 
 namespace LambdaRig.Wait
@@ -34,6 +40,74 @@ inductive St where
   | asleep
   | woken
   deriving DecidableEq, Repr
+
+/-! ## The word -/
+
+/-- A state's number in the word (`Wait.about`, `Wait.asleep`,
+`Wait.woken`). -/
+def St.code : St → Nat
+  | .about => 0
+  | .asleep => 1
+  | .woken => 2
+
+/-- The bit set when a cancel may end the wait (`Wait.cancelable_bit`). -/
+def cancelableBit : Nat := 4
+
+/-- The bits of the state (`Wait.states`). -/
+def stateMask : Nat := 3
+
+/-- How far up the epoch sits (`Wait.pack`, `Wait.epochOf`). -/
+def epochShift : Nat := 3
+
+/-- `Wait.pack`. Its `<<` and `|` are a product and sums here, since the
+parts never share a bit (`unpack_epoch`, `unpack_cancelable`,
+`unpack_state`). -/
+def pack (e : Nat) (c : Bool) (s : St) : Nat :=
+  e * 2 ^ epochShift + (if c then cancelableBit else 0) + s.code
+
+/-- The state's bits, then the cancel bit, then the epoch, each above
+the last. -/
+theorem layout : (∀ s : St, s.code ≤ stateMask) ∧ cancelableBit = stateMask + 1 ∧
+    2 ^ epochShift = 2 * cancelableBit := by
+  refine ⟨fun s => ?_, rfl, rfl⟩
+  cases s <;> decide
+
+/-- `Wait.epochOf`. -/
+theorem unpack_epoch (e : Nat) (c : Bool) (s : St) : pack e c s / 2 ^ epochShift = e := by
+  have := layout.1 s
+  simp only [pack, epochShift, cancelableBit, stateMask] at *
+  cases c <;> simp <;> omega
+
+theorem unpack_cancelable (e : Nat) (c : Bool) (s : St) :
+    pack e c s / cancelableBit % 2 = if c then 1 else 0 := by
+  have := layout.1 s
+  simp only [pack, epochShift, cancelableBit, stateMask] at *
+  cases c <;> simp <;> omega
+
+/-- `w & Wait.states`. -/
+theorem unpack_state (e : Nat) (c : Bool) (s : St) : pack e c s % (stateMask + 1) = s.code := by
+  have := layout.1 s
+  simp only [pack, epochShift, cancelableBit, stateMask] at *
+  cases c <;> simp <;> omega
+
+theorem code_inj {s s' : St} (h : s.code = s'.code) : s = s' := by
+  cases s <;> cases s' <;> first | rfl | (simp [St.code] at h)
+
+/-- Two waits pack to one word only if they are one. -/
+theorem pack_inj {e e' : Nat} {c c' : Bool} {s s' : St} (h : pack e c s = pack e' c' s') :
+    e = e' ∧ c = c' ∧ s = s' := by
+  refine ⟨?_, ?_, ?_⟩
+  · rw [← unpack_epoch e c s, ← unpack_epoch e' c' s', h]
+  · have h1 := unpack_cancelable e c s
+    rw [h, unpack_cancelable] at h1
+    cases c <;> cases c' <;> simp_all
+  · apply code_inj
+    rw [← unpack_state e c s, ← unpack_state e' c' s', h]
+
+/-- A fiber's first word, 0, is epoch 0, about to sleep (`W.init`). -/
+theorem init_word : pack 0 false .about = 0 := rfl
+
+/-! ## The protocol -/
 
 /-- Where the fiber is: running (before a wait, or after it went on),
 waiting (a wait begun, not yet switched away), or away (switched away). -/
