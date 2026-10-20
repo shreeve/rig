@@ -437,7 +437,7 @@ and tasks anywhere may use it, through a handle of their own.
 
 ## Actors
 
-**Making one.** `*Actor(Counter(hits: 0))` moves the value into a task
+**Making one** (built). `*Actor(Counter(hits: 0))` moves the value into a task
 of its own and gives a `*Actor[Counter]`, a handle to it. Any object
 whose fields move and carry no loan can be an actor; nothing in its
 declaration changes.
@@ -448,10 +448,11 @@ The handle is counted atomically:
 - `~rooms` is a weak handle.
 
 The actor lives until its last handle is dropped and it has answered
-every message it took. Its `drop` body then runs in its own task.
+every message it took: the task draining its mailbox holds a handle of
+its own. Its value then drops where that last handle goes.
 
-**Calling one.** A method called through the handle is a message, and
-the call waits for the answer.
+**Calling one** (built). A method called through the handle is a
+message, and the call waits for the answer.
 
 - A `?@` method is called bare, through a handle or a read view of one:
   `rooms.count()`.
@@ -462,14 +463,14 @@ the call waits for the answer.
 - A method whose signature has `keeps` or `from` cannot be called through
   a handle: the actor holds no loan, and a result never views its state.
 - With `&`, the call gives a `Task` and the caller does not wait.
-- With `within:`, the call has a deadline and can fail with `Timeout`.
+- `time.within` around the call, or the task making it, sets its
+  deadline; a call has no deadline of its own.
 
-**Arguments.** An argument moves or is copied. A waiting call may also
-lend a value that shares, `rooms.log(?line)`. Once its message is in
-the mailbox, such a call waits for the answer even if its caller is
-canceled or its deadline passes. A message that has not started is
-withdrawn. A method that has started runs to its end, and a timed call
-that lends nothing may leave its reply behind.
+**Arguments.** An argument moves or is copied. A call may also lend a
+value that shares, `rooms.log(?line)`. A call of a method that can fail
+is withdrawn when it has not started and its caller is canceled or its
+deadline passes, and fails with `Stop.canceled` or `Stop.timeout`. A
+method that has started runs to its end, and its caller waits for it.
 
 Canceling a caller never interrupts a method partway. An actor's state
 is left half-changed only by that method's own error, which its
@@ -782,11 +783,11 @@ Each item gives the answer this document assumes.
    - made with `*Actor(x)`, with no keywords;
    - `!` marks a change;
    - no `<@`, `keeps`, or `from` method through a handle;
-   - `within:` on calls;
-   - a lending call waits through cancellation, and a started method
-     finishes.
+   - deadlines from `time.within`, with no `within:` on calls;
+   - a call not yet started is withdrawn on a cancel or deadline, and a
+     started method finishes while its caller waits.
 
-   *Yes.*
+   *Yes* (built).
 10. **Mailbox and idle path:**
     - waiting calls unbounded, `&` calls bounded;
     - an idle actor runs inline, as the actor, when the stack has room.

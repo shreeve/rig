@@ -1256,6 +1256,30 @@ pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: 
     return .{ .job = &full.job, .extra = &full.extra };
 }
 
+/// Start `f(args...)` as a fiber no one waits for: its record frees
+/// itself once the fiber has ended (an actor's runner, `tasks.Actor`).
+pub fn spawnDetached(comptime f: anytype, args: anytype) void {
+    const Args = @TypeOf(args);
+    const Full = struct {
+        fiber: Fiber,
+        args: Args,
+
+        fn start(fiber: *Fiber) void {
+            const full: *@This() = @fieldParentPtr("fiber", fiber);
+            @call(.auto, f, full.args);
+        }
+
+        fn end(fiber: *Fiber) void {
+            const full: *@This() = @fieldParentPtr("fiber", fiber);
+            std.heap.smp_allocator.destroy(full);
+        }
+    };
+    if (!started) startWorkers();
+    const full = std.heap.smp_allocator.create(Full) catch rt.oom();
+    full.* = .{ .fiber = .{ .run = Full.start, .done = Full.end }, .args = args };
+    wake(&full.fiber);
+}
+
 /// What `spawn` gives: the task's record, and the `Extra` in it.
 pub fn Spawned(comptime T: type, comptime Extra: type) type {
     return struct { job: *Job(T), extra: *Extra };

@@ -1,8 +1,8 @@
 //! Tasks: a call running as a task of its own (`f(x)&`), sets of tasks
 //! (`Tasks[T]`), waiting for several (`task.both`, `task.all`), how a
 //! task is canceled, deadlines (`time.within`), calling a function on
-//! each element on several tasks (`par.map`, `par.each`), and the
-//! boundary a panic stops at (`task.isolate`). The runtime (`runtime.zig`) imports this file and
+//! each element on several tasks (`par.map`, `par.each`), the boundary a
+//! panic stops at (`task.isolate`), and actors (`*Actor(x)`). The runtime (`runtime.zig`) imports this file and
 //! gives emitted code its names (`rig.Task`, `rig.Tasks`,
 //! `rig.waitTasks`); `bin/rig` writes it beside the runtime as
 //! `rig/tasks.zig`.
@@ -882,6 +882,261 @@ pub fn panicked(iso: *Isolate) noreturn {
     iso.stop(false);
     if (task().control) |c| c.finish();
     rt.sched.abandon();
+}
+
+// -----------------------------------------------------------------------------
+// Actors
+// -----------------------------------------------------------------------------
+
+/// `Actor(T)`: a value of type `T` that one task at a time changes, the
+/// actor's own: `*Actor(x)` moves `x` into it, and its handles, counted
+/// atomically (`rt.Shared`), go to any task. A method called through a
+/// handle is a message (`actorCall`): it joins the actor's mailbox, and
+/// the actor runs one at a time, each to its end, in the order they
+/// came. A runner task drains the mailbox while it has messages, holding
+/// a handle of its own, so the last handle, and the actor's `drop`, may
+/// be the runner's, in its own task. A message lives in its caller's
+/// frame, which waits for the answer, so the mailbox needs no bound; a
+/// call made with `&` (`actorSpawn`) takes one of `capacity` slots while
+/// it is in flight, and waits for a free one.
+pub fn Actor(comptime T: type) type {
+    return struct {
+        value: T,
+        lock: rt.sched.SpinLock = .{},
+        first: ?*Message = null,
+        last: ?*Message = null,
+        /// Whether a runner task is draining the mailbox.
+        running: bool = false,
+        /// Calls made with `&` in flight, against `capacity`.
+        pending: std.atomic.Value(u32) = .init(0),
+        capacity: u32 = default_mailbox,
+
+        const Self = @This();
+        /// Marks the type for `rt.Shared`'s atomic counts.
+        pub const __rig_actor = {};
+        /// Its arguments, for `typeName`.
+        pub const __rig_args = .{T};
+
+        pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("<actor>");
+        }
+
+        pub fn __rig_drop(self: *Self) void {
+            dropElement(T, &self.value);
+        }
+
+        /// What method `name` of `T` gives.
+        fn Result(comptime name: []const u8) type {
+            return @typeInfo(@TypeOf(@field(T, name))).@"fn".return_type.?;
+        }
+
+        /// Run method `name` on the value with `args`: through its
+        /// address, or on a copy for a method that takes the value.
+        fn invoke(self: *Self, comptime name: []const u8, args: anytype) Result(name) {
+            const method = @field(T, name);
+            const Recv = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
+            const recv = if (@typeInfo(Recv) == .pointer) &self.value else self.value;
+            return @call(.auto, method, .{recv} ++ args);
+        }
+
+        /// Call method `name` through handle `box` and wait for its
+        /// answer. A method that can fail and has not started when the
+        /// caller is canceled, or its deadline passes, is withdrawn, and
+        /// the call fails with `task.Stop.canceled` or `.timeout`; one
+        /// that started runs to its end, and the caller waits for it.
+        pub fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype) Result(name) {
+            const R = Result(name);
+            const self = &box.value;
+            const Call = struct {
+                msg: Message,
+                actor: *Self,
+                args: @TypeOf(args),
+                result: R = undefined,
+
+                fn run(m: *Message) void {
+                    const c: *@This() = @fieldParentPtr("msg", m);
+                    c.result = c.actor.invoke(name, c.args);
+                }
+            };
+            var c: Call = .{ .msg = .{ .run = Call.run }, .actor = self, .args = args };
+            self.send(box, &c.msg);
+            const fallible = @typeInfo(R) == .error_union;
+            if (!c.msg.waitAnswer(self, fallible)) {
+                if (comptime fallible) return if (canceledHere()) canceled_error else timeout_error;
+                unreachable;
+            }
+            return c.result;
+        }
+
+        /// Put `m` in the mailbox, and start a runner when none drains it.
+        fn send(self: *Self, box: *rt.Shared(Self), m: *Message) void {
+            self.lock.lock();
+            if (self.last) |l| l.next = m else self.first = m;
+            self.last = m;
+            const start = !self.running;
+            self.running = true;
+            self.lock.unlock();
+            if (start) rt.sched.spawnDetached(runner, .{box.cloneStrong()});
+        }
+
+        /// Take `m` out of the mailbox, unless it has started.
+        fn withdraw(self: *Self, m: *Message) bool {
+            self.lock.lock();
+            defer self.lock.unlock();
+            if (m.started) return false;
+            var prev: ?*Message = null;
+            var at = self.first;
+            while (at) |x| : ({
+                prev = x;
+                at = x.next;
+            }) if (x == m) {
+                if (prev) |p| p.next = x.next else self.first = x.next;
+                if (self.last == x) self.last = prev;
+                return true;
+            };
+            return false;
+        }
+
+        /// The runner: each message in turn, until the mailbox is empty;
+        /// then its handle goes, which may be the last.
+        fn runner(box: *rt.Shared(Self)) void {
+            const self = &box.value;
+            while (true) {
+                self.lock.lock();
+                const m = self.first orelse {
+                    self.running = false;
+                    self.lock.unlock();
+                    break;
+                };
+                self.first = m.next;
+                if (self.first == null) self.last = null;
+                m.started = true;
+                self.lock.unlock();
+                m.run(m);
+                m.answer();
+            }
+            box.dropStrong();
+        }
+    };
+}
+
+/// How many calls made with `&` an actor holds in flight at once.
+const default_mailbox = 64;
+
+/// A call of an actor's method, in its caller's frame: the actor runs
+/// it (`run`) and answers, which wakes the caller. Its status goes from
+/// `queued` (or `waited`, once the caller sleeps on it) to `ending` and
+/// `ended`, as a task's `Header` does, so the caller returns, and its
+/// frame goes, only after the runner is done with it.
+const Message = struct {
+    next: ?*Message = null,
+    run: *const fn (*Message) void,
+    /// Taken by a runner, under the actor's lock: no longer withdrawn.
+    started: bool = false,
+    status: std.atomic.Value(u8) = .init(queued),
+    waiter: std.atomic.Value(?*rt.sched.Fiber) = .init(null),
+    waiter_epoch: std.atomic.Value(u32) = .init(0),
+
+    const queued = 0;
+    const waited = 1;
+    const ending = 2;
+    const ended = 3;
+
+    fn answer(m: *Message) void {
+        if (m.status.swap(ending, .seq_cst) == waited) {
+            _ = rt.sched.interrupt(m.waiter.load(.seq_cst).?, m.waiter_epoch.load(.seq_cst), false);
+        }
+        m.status.store(ended, .seq_cst);
+    }
+
+    fn isEnded(m: *Message) bool {
+        while (true) {
+            const s = m.status.load(.seq_cst);
+            if (s == ended) return true;
+            if (s != ending) return false;
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    /// Wait for the answer; with `stoppable`, a cancel or the deadline
+    /// withdraws a message that has not started, when this gives false.
+    fn waitAnswer(m: *Message, owner: anytype, stoppable: bool) bool {
+        var stop = stoppable;
+        while (!m.isEnded()) {
+            if (stop and (canceledHere() or pastDeadline())) {
+                if (owner.withdraw(m)) return false;
+                // Started: it runs to its end, and the caller waits.
+                stop = false;
+                continue;
+            }
+            const e = rt.sched.beginWait(stop);
+            m.waiter.store(rt.sched.current().?, .seq_cst);
+            m.waiter_epoch.store(e, .seq_cst);
+            if (m.status.cmpxchgStrong(queued, waited, .seq_cst, .seq_cst)) |s| {
+                if (s != waited) continue;
+            }
+            if (stop and (canceledHere() or pastDeadline())) continue;
+            rt.sched.commitWait(e, if (stop) task().deadline else null);
+        }
+        return true;
+    }
+};
+
+/// `*Actor(x)` and `*Actor(x, mailbox: n)`: the actor, behind its first
+/// handle.
+pub fn actor(value: anytype, capacity: Int) *rt.Shared(Actor(@TypeOf(value))) {
+    const box = rt.shared(Actor(@TypeOf(value)){ .value = value, .capacity = @intCast(@max(capacity, 1)) });
+    return box;
+}
+
+/// The `Shared(Actor(T))` a handle reaches: the handle, or a view of one.
+fn boxOf(handle: anytype) BoxOf(@TypeOf(handle)) {
+    return if (@typeInfo(@typeInfo(@TypeOf(handle)).pointer.child) == .pointer) handle.* else handle;
+}
+
+fn BoxOf(comptime H: type) type {
+    const Child = @typeInfo(H).pointer.child;
+    return if (@typeInfo(Child) == .pointer) Child else H;
+}
+
+/// `c.m(args)` through an actor handle (`Actor.call`).
+pub fn actorCall(handle: anytype, comptime name: []const u8, args: anytype) ActorResult(@TypeOf(handle), name) {
+    const box = boxOf(handle);
+    return @TypeOf(box.value).call(box, name, args);
+}
+
+/// What method `name` gives through a handle of type `H`.
+fn ActorResult(comptime H: type, comptime name: []const u8) type {
+    const Box = @typeInfo(BoxOf(H)).pointer.child;
+    const A = @FieldType(Box, "value");
+    return A.Result(name);
+}
+
+/// `c.m(args)&`: the call as a task, which holds a handle of its own and
+/// one of the actor's `&` slots until it is answered, waiting for a free
+/// one first.
+pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Task(ActorResult(@TypeOf(handle), name)) {
+    const R = ActorResult(@TypeOf(handle), name);
+    const box = boxOf(handle);
+    const self = &box.value;
+    while (true) {
+        const n = self.pending.load(.seq_cst);
+        if (n < self.capacity) {
+            if (self.pending.cmpxchgWeak(n, n + 1, .seq_cst, .seq_cst) == null) break;
+            continue;
+        }
+        rt.sched.yield();
+    }
+    const Run = struct {
+        fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
+            defer {
+                _ = b.value.pending.fetchSub(1, .seq_cst);
+                b.dropStrong();
+            }
+            return @TypeOf(b.value).call(b, name, a);
+        }
+    };
+    return Task(R).spawn(Run.run, .{ box.cloneStrong(), args });
 }
 
 /// `std.task`'s `Stop`, as the emitted code names its errors: what a

@@ -978,6 +978,10 @@ pub const Facts = struct {
     /// The calls of `par.map` and `par.each`, which run a function on
     /// several tasks (`Checker.parCall`).
     par_calls: std.AutoHashMapUnmanaged(u64, ParCall) = .empty,
+    /// `*Actor(x)` calls (`Checker.actorMake`) and method calls through
+    /// an actor's handle (`Checker.actorCall`).
+    actor_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.isolate` (`Checker.isolateCall`).
     isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
@@ -2130,6 +2134,8 @@ pub const SemContext = struct {
     cell_sym_id: SymbolId = symbol_invalid,
     list_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
+    /// `Actor[T]`: a value one task at a time changes, behind `*`.
+    actor_sym_id: SymbolId = symbol_invalid,
     task_sym_id: SymbolId = symbol_invalid,
     tasks_sym_id: SymbolId = symbol_invalid,
     /// The module makes a task (`f(x)&`): the program's root declares
@@ -3178,6 +3184,25 @@ pub const SemContext = struct {
         return self.facts.task_joins.contains(exprKey(call) orelse return false);
     }
 
+    pub fn recordActorMake(self: *SemContext, call: Sexp) !void {
+        try self.facts.actor_makes.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `Actor(x)` (`recordActorMake`).
+    pub fn isActorMake(self: *const SemContext, call: Sexp) bool {
+        return self.facts.actor_makes.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordActorCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.actor_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` calls a method through an actor's handle
+    /// (`recordActorCall`).
+    pub fn isActorCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.actor_calls.contains(exprKey(call) orelse return false);
+    }
+
     pub fn recordIsolateCall(self: *SemContext, call: Sexp) !void {
         try self.facts.isolate_calls.put(self.allocator, recordExprKey(call) orelse return, {});
     }
@@ -4056,7 +4081,7 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // value), whose release drops it.
     // A task owns its running call, and its drop waits for it.
     if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -4258,8 +4283,10 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask, into));
                 break :blk r;
             }
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
-                var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id };
+            // An actor, as a Cell, lives only behind `*` and changes by a
+            // marked call through a handle.
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id) {
+                var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.string_only), into));
                 break :blk r;
             }
@@ -5574,7 +5601,7 @@ pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
 /// `Task`, `Tasks`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -5796,6 +5823,23 @@ pub fn isWordCell(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// The `T` of an `Actor[T]`, or null for any other type.
+pub fn actorValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.actor_sym_id and pn.args.len == 1) pn.args[0] else null,
+        else => null,
+    };
+}
+
+/// The `T` of the actor a handle reaches, `*Actor[T]` or a view of one;
+/// null for any other type.
+pub fn actorOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(unwrapViews(ctx, ty))) {
+        .shared => |inner| actorValue(ctx, inner),
+        else => null,
+    };
+}
+
 /// Whether `ty` is a `Cell[T]`.
 pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
@@ -5894,7 +5938,7 @@ fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
 fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .nominal, .imported_nominal => holdsCellByValue(ctx, ty),
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
+        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
             if (holdsCellByValue(ctx, a)) break false;
         } else true),
         else => false,
@@ -5985,8 +6029,12 @@ const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
 fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .shared => |inner| if (isWordCell(ctx, inner)) null else ty,
-        .weak, .function, .callable => ty,
+        // A Cell of one word's handle, and an actor's, strong or weak,
+        // count atomically, and what they reach changes one task at a
+        // time.
+        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else ty,
+        .weak => |inner| if (actorValue(ctx, inner) != null) null else ty,
+        .function, .callable => ty,
         .read_view => |inner| blockerIn(ctx, inner, .shares, seen),
         .write_view => |inner| if (how == .shares) ty else blockerIn(ctx, inner, .moves, seen),
         .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, seen),
@@ -5996,7 +6044,7 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoH
             if (blockerIn(ctx, part, how, seen)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.tasks_sym_id) break :blk ty;
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.tasks_sym_id) break :blk ty;
             if (pn.sym == ctx.task_sym_id and how == .shares) break :blk ty;
             for (pn.args) |a| if (blockerIn(ctx, a, how, seen)) |b| break :blk b;
             if (pn.sym == ctx.task_sym_id or isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
@@ -7044,7 +7092,7 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id) break :blk false;
             const sym = ctx.symbols.items[pn.sym];
             if (sym.kind != .generic_type or isProxy(sym)) break :blk false;
             const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .parent = frame };

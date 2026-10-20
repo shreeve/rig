@@ -1,0 +1,287 @@
+# concurrency: tests whose names start `actor`.
+
+test "actor ledger across tasks", seeds: 20, "805 805"
+  # An actor holds state of any size, here a List, and runs its methods
+  # one at a time: tasks call it through handles of their own (`+l`), and
+  # no change is lost.
+  obj Ledger
+    entries: List[Int]
+    total: Int
+
+    sub post(!@, n: Int)
+      !@entries.push(n)
+      @total += n
+
+    fun count(?@) -> Int
+      @entries.len
+
+    fun sum(?@) -> Int
+      @total
+
+  sub work(l: *Actor[Ledger])
+    for 0..100
+      !l.post(1)
+
+  l = *Actor(Ledger(entries: List[Int](), total: 0))
+  !l.post(5)
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+l)&)
+  <ts.wait_all()
+  print(l.count() + 4, l.sum())
+
+test "actor ledger across tasks released", seeds: 20, release: true, "8000"
+  obj Counter
+    hits: Int
+
+    sub bump(!@)
+      @hits += 1
+
+    fun get(?@) -> Int
+      @hits
+
+  sub work(c: *Actor[Counter])
+    for 0..1000
+      !c.bump()
+
+  c = *Actor(Counter(hits: 0))
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+c)&)
+  <ts.wait_all()
+  print(c.get())
+
+test "actor task calls", seeds: 20, '''
+  5 true
+  true
+  6
+'''
+  # A call made with `&` is a task: the actor runs it in its turn, and
+  # the task gives its answer. Its `!` marks the call, not a lend, so the
+  # handle may be used again while it runs.
+  obj Counter
+    hits: Int
+
+    fun add(!@, n: Int) -> Int
+      @hits += n
+      @hits
+
+    fun get(?@) -> Int
+      @hits
+
+  c = *Actor(Counter(hits: 0))
+  t = (!c).add(5)&
+  u = c.get()&
+  print(<t.wait(), <u.wait() >= 0)
+  ts = Tasks[Int]()
+  for 0..10
+    !ts.add(c.get()&)
+  print(<ts.wait_all().len == 10)
+  print((!c).add(1))
+
+test "actor mailbox", seeds: 20, "20 20"
+  # `mailbox: n` sets how many calls made with `&` the actor holds at
+  # once; a caller waits for a slot when they are all taken.
+  obj Counter
+    hits: Int
+
+    fun add(!@, n: Int) -> Int
+      @hits += n
+      @hits
+
+    fun get(?@) -> Int
+      @hits
+
+  c = *Actor(Counter(hits: 0), mailbox: 2)
+  ts = Tasks[Int]()
+  for 0..20
+    !ts.add((!c).add(1)&)
+  xs = <ts.wait_all()
+  print(xs.len, c.get())
+
+test "actor handles", seeds: 20, '''
+  2
+  2
+  2
+  drop log 2
+'''
+  # Each holder has a handle of its own (`+a`); a read view `?a` calls the
+  # methods that only read; a weak handle `~a` reaches the actor while a
+  # handle lives. The value drops once, when the last handle goes.
+  obj Log
+    lines: List[String]
+
+    sub add(!@, s: String)
+      !@lines.push(<s)
+
+    fun count(?@) -> Int
+      @lines.len
+
+    drop(!@)
+      print("drop log", @lines.len)
+
+  fun reader(h: ?*Actor[Log]) -> Int
+    h.count()
+
+  a = *Actor(Log(lines: List[String]()))
+  b = +a
+  !b.add(String("one"))
+  (!a).add(String("two"))
+  print(reader(?a))
+  w = ~a
+  if *w as s
+    print(s.count())
+  print(b.count())
+
+test "actor arguments", seeds: 20, "3 4 [4]"
+  # Arguments go to the actor: a value moves, and a read view lends what
+  # it views for the call.
+  obj Store
+    n: Int
+    items: List[Int]
+
+    sub keep(!@, xs: List[Int])
+      @items = <xs
+
+    fun sum(?@, xs: ?List[Int]) -> Int
+      t = 0
+      for x in xs
+        t += x
+      t + @n
+
+    fun size(?@, s: ?String) -> Int
+      s.len + @n
+
+    fun all(?@) -> List[Int]
+      +@items
+
+  c = *Actor(Store(n: 1, items: List[Int]()))
+  xs = List[Int]()
+  !xs.push(4)
+  !c.keep(<xs)
+  ys = List[Int]()
+  !ys.push(2)
+  print(c.sum(?ys), c.size("abc"), c.all())
+
+test "actor deadline and cancel", seeds: 20, '''
+  -1
+  -2
+  1
+  1
+'''
+  # A call that can fail and has not started is withdrawn when its caller
+  # is canceled or its deadline passes. A method that started runs to its
+  # end, and its caller waits for it through a cancel.
+  use std.time
+  use std.task
+
+  obj Slow
+    n: Int
+
+    fun nap(!@, started: *Cell[Bool]) -> Int!
+      !started.set(true)
+      time.sleep(20 * time.MS)!
+      @n += 1
+      @n
+
+    fun later(!@) -> Int!
+      task.check()!
+      @n += 10
+      @n
+
+    fun get(?@) -> Int
+      @n
+
+  a = *Actor(Slow(n: 0))
+  started = *Cell(false)
+  t = (!a).nap(+started)&
+  while not started.get()
+    time.sleep(time.MS) catch print("woke")
+  n = time.within(5 * time.MS, |+a| (!a).later()!) catch -1
+  print(n)
+  u = (!a).later()&
+  print(<u.cancel() catch -2)
+  print(<t.cancel() catch -3)
+  print(a.get())
+
+fail "actor only behind a handle", "an actor lives only behind a shared handle: write `*Actor(x)`"
+  obj C
+    n: Int
+
+  c = Actor(C(n: 0))
+
+fail "actor of a word", "an actor runs an object or an enum, whose methods its handles call; `5` has type `Int`"
+  c = *Actor(5)
+
+fail "actor call marks", "`get` only reads the actor: call it bare, `c.get(...)`", "`bump` changes the actor: mark the call, `!c.bump(...)`", "`take` takes its value, which the actor keeps: a handle calls a `?@` or `!@` method"
+  obj C
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+    sub bump(!@)
+      @n += 1
+
+    fun take(<@) -> Int
+      @n
+
+  c = *Actor(C(n: 0))
+  print((!c).get())
+  c.bump()
+  print(c.take())
+
+fail "actor read view changes", "cannot lend to write through a read view `?*Actor[C]`"
+  obj C
+    n: Int
+
+    sub bump(!@)
+      @n += 1
+
+  c = *Actor(C(n: 0))
+  r = ?c
+  !r.bump()
+
+fail "actor fields", "an actor's fields are its own: reach `n` through a method of `C`"
+  obj C
+    n: Int
+
+  c = *Actor(C(n: 0))
+  print(c.n)
+
+fail "actor view result", "`first` gives a `?Int`, which may view the actor's state; a method called through a handle gives a value"
+  obj C
+    items: List[Int]
+
+    fun first(?@) -> ?Int
+      ?@items[0]
+
+  c = *Actor(C(items: List[Int]()))
+  print(c.first())
+
+fail "actor write view argument", "a method an actor runs takes no write view: `!zs` lends `zs` to write"
+  obj C
+    n: Int
+
+    sub fill(?@, xs: !List[Int])
+      !xs.push(@n)
+
+  c = *Actor(C(n: 0))
+  zs = List[Int]()
+  c.fill(!zs)
+
+fail "actor task keeps argument loans", "cannot lend `ys` to write while a read loan is live"
+  obj C
+    n: Int
+
+    fun sum(?@, xs: ?List[Int]) -> Int
+      t = 0
+      for x in xs
+        t += x
+      t + @n
+
+  c = *Actor(C(n: 1))
+  ys = List[Int]()
+  t = c.sum(?ys)&
+  !ys.push(1)
+  print(<t.wait())
