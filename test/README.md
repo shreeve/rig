@@ -51,7 +51,7 @@ prints. `test/rig.rip` runs each as a `test` case. The cases of
 ## Doc examples
 
 Every ```` ```rig ```` block in the Markdown files (`*.md`, `docs/`,
-`examples/`, `test/`) is a test, so the docs cannot drift from the
+`docs/learn/`, `docs/launch/`, `examples/`, `test/`) is a test, so the docs cannot drift from the
 compiler. The word after `rig` on the opening fence sets the contract:
 
 | Fence | Contract |

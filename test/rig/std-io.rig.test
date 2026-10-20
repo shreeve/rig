@@ -10,7 +10,7 @@ test "io copy between sockets", seeds: 20, "20000 true"
     src = l.accept()!
     io.copy(!src, !dst)!
 
-  fun send(port: Int, data: ?String)!
+  sub send(port: Int, data: ?String)!
     c = net.connect(String("127.0.0.1:", port))!
     (!c).write(data)!
 
@@ -33,6 +33,11 @@ fail "io copy takes files and streams", "`io.copy` reads from and writes to a `f
     io.copy(!s, !c)!
 
 fail "io copy lends both ends to write", "`io.copy` reads and writes through `c`: lend it to write, `!c`"
+  fun run(l: ?net.Listener, d: !net.Stream) -> Int!
+    c = l.accept()!
+    io.copy(c, !d)!
+
+fail "io copy through a write view still says so", "write `!c`: the call writes through `c`"
   fun run(c: !net.Stream, d: !net.Stream) -> Int!
     io.copy(c, !d)!
 

@@ -114,12 +114,34 @@ fn stopped() rig.Stop!void {
     if (t.deadline) |d| if (rig.sched.nowNs() >= d) return timeout;
 }
 
+/// How long a wait may last besides the task's own deadline: until an
+/// instant (`at`), and no longer than `idle` from when it begins. The
+/// HTTP server sets these for its connections (`Conn`); a call from
+/// Rig sets neither.
+const Limit = struct {
+    at: ?i96 = null,
+    idle: ?i96 = null,
+
+    /// The deadline of a wait that begins now: the earliest of the
+    /// limit's and the task's.
+    fn deadline(l: Limit, task: ?i96) ?i96 {
+        var d = task;
+        if (l.at) |a| d = if (d) |x| @min(x, a) else a;
+        if (l.idle) |i| {
+            const end = rig.sched.nowNs() + i;
+            d = if (d) |x| @min(x, end) else end;
+        }
+        return d;
+    }
+};
+
 /// Wait for `fd` to be ready for `interest`: on its poller, or, outside
-/// the scheduler, in `poll`.
-fn waitFor(fd: i32, reg: i64, interest: u32) rig.Stop!void {
+/// the scheduler, in `poll`; no longer than `limit` allows.
+fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) rig.Stop!void {
     const t = rig.task();
+    const deadline = limit.deadline(t.deadline);
     if (reg != 0 and rig.sched.current() != null) {
-        return switch (rig.sched.waitReady(@ptrFromInt(@as(usize, @intCast(reg))), interest, t.deadline, true)) {
+        return switch (rig.sched.waitReady(@ptrFromInt(@as(usize, @intCast(reg))), interest, deadline, true)) {
             .ready => {},
             .canceled => canceled,
             .timeout => timeout,
@@ -128,7 +150,7 @@ fn waitFor(fd: i32, reg: i64, interest: u32) rig.Stop!void {
     const events: i16 = if (interest == rig.sched.Registration.readable) posix.POLL.IN else posix.POLL.OUT;
     var fds = [1]posix.pollfd{.{ .fd = fd, .events = events, .revents = 0 }};
     var ms: i32 = -1;
-    if (t.deadline) |d| {
+    if (deadline) |d| {
         const left = d - rig.sched.nowNs();
         if (left <= 0) return timeout;
         ms = @intCast(@min(@divTrunc(left + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32)));
@@ -166,7 +188,7 @@ pub fn open_to(addr: []const u8) Error!i64 {
 
 pub fn finish_connect(fd: i64, reg: i64) Error!void {
     const s: i32 = @intCast(fd);
-    try waitFor(s, reg, rig.sched.Registration.writable);
+    try waitFor(s, reg, rig.sched.Registration.writable, .{});
     var err: c_int = 0;
     var len: posix.socklen_t = @sizeOf(c_int);
     _ = sys.getsockopt(s, posix.SOL.SOCKET, posix.SO.ERROR, @ptrCast(&err), &len);
@@ -180,7 +202,12 @@ pub fn watch(fd: i64) i64 {
 }
 
 pub fn accept_on(fd: i64, reg: i64) Error!i64 {
-    const s: i32 = @intCast(fd);
+    return try acceptOne(@intCast(fd), reg) orelse error.@"std.net.NetError.failed";
+}
+
+/// The next connection on `s`, once one comes, or null when the process
+/// or the system has run out of descriptors or memory for one.
+fn acceptOne(s: i32, reg: i64) Error!?i32 {
     try stopped();
     while (true) {
         const rc = if (darwin) sys.accept(s, null, null) else sys.accept4(s, null, null, posix.SOCK.NONBLOCK | posix.SOCK.CLOEXEC);
@@ -190,8 +217,9 @@ pub fn accept_on(fd: i64, reg: i64) Error!i64 {
                 nonblocking(c);
                 return c;
             },
-            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable),
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
             .INTR, .CONNABORTED => {},
+            .MFILE, .NFILE, .NOBUFS, .NOMEM => return null,
             else => |e| return failure(e),
         }
     }
@@ -209,20 +237,20 @@ pub fn read_from(fd: i64, reg: i64, into: *rig.String, max: i64) Error!i64 {
     const want: usize = @intCast(@max(max, 0));
     if (want == 0) return 0;
     into.list.ensureUnusedCapacity(rig.defaultAllocator(), want) catch rig.oom();
-    const n = try readSome(@intCast(fd), reg, into.list.unusedCapacitySlice()[0..want]);
+    const n = try readSome(@intCast(fd), reg, into.list.unusedCapacitySlice()[0..want], .{});
     into.list.items.len += n;
     return @intCast(n);
 }
 
 /// Read what comes into `dest`, once any does: how many bytes, or 0 once
 /// the other end has closed.
-fn readSome(s: i32, reg: i64, dest: []u8) Error!usize {
+fn readSome(s: i32, reg: i64, dest: []u8, limit: Limit) Error!usize {
     try stopped();
     while (true) {
         const rc = sys.read(s, dest.ptr, dest.len);
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
-            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable),
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, limit),
             .INTR => {},
             else => |e| return failure(e),
         }
@@ -230,14 +258,18 @@ fn readSome(s: i32, reg: i64, dest: []u8) Error!usize {
 }
 
 pub fn write_to(fd: i64, reg: i64, bytes: []const u8) Error!void {
-    const s: i32 = @intCast(fd);
+    return writeAll(@intCast(fd), reg, bytes, .{});
+}
+
+/// Write all of `bytes`, each wait no longer than `limit` allows.
+fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
     try stopped();
     var at: usize = 0;
     while (at < bytes.len) {
         const rc = sys.write(s, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
-            .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable),
+            .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable, limit),
             .INTR => {},
             else => |e| return failure(e),
         }
@@ -329,11 +361,64 @@ fn fileFailure(e: posix.E) FileError {
 // The HTTP server
 // -----------------------------------------------------------------------------
 
+/// The server's limits, each read from the environment when `serve`
+/// starts, or its default.
+const Settings = struct {
+    /// How long a connection may wait for its next request, and for each
+    /// read of a request's body or write of a response to make progress,
+    /// before the server closes it: `RIG_HTTP_IDLE_MS`, 60 seconds.
+    idle_ns: i96 = 60 * std.time.ns_per_s,
+    /// How long a request's head may take to arrive whole, from its
+    /// first byte, before the server closes the connection:
+    /// `RIG_HTTP_HEAD_MS`, 10 seconds.
+    head_ns: i96 = 10 * std.time.ns_per_s,
+    /// The largest request body the server reads: `RIG_HTTP_MAX_BODY`
+    /// bytes, 16 MiB. One larger is answered 413, and its connection
+    /// closed.
+    max_body: u64 = 16 << 20,
+
+    fn read() Settings {
+        var s: Settings = .{};
+        if (setting("RIG_HTTP_IDLE_MS")) |ms| s.idle_ns = @as(i96, ms) * std.time.ns_per_ms;
+        if (setting("RIG_HTTP_HEAD_MS")) |ms| s.head_ns = @as(i96, ms) * std.time.ns_per_ms;
+        if (setting("RIG_HTTP_MAX_BODY")) |n| s.max_body = n;
+        return s;
+    }
+
+    /// The positive whole number the environment variable `name` holds,
+    /// or null.
+    fn setting(name: []const u8) ?u64 {
+        const p = rig.process orelse return null;
+        const text = p.environ.getPosix(name) orelse return null;
+        const n = std.fmt.parseInt(u64, text, 10) catch return null;
+        return if (n > 0 and n < 1 << 53) n else null;
+    }
+
+    /// The limits of a connection's waits: none in a deterministic run,
+    /// whose virtual clock jumps to the next deadline while bytes on
+    /// their way through the system have yet to be seen.
+    fn limit(s: Settings, head: bool) Limit {
+        if (rig.sched.deterministic) return .{};
+        return .{ .at = if (head) rig.sched.nowNs() + s.head_ns else null, .idle = s.idle_ns };
+    }
+};
+/// The first and the longest pause before accepting again once the
+/// process has run out of descriptors: 5 ms, doubling to 1 s.
+const accept_pause_ns: i64 = 5 * std.time.ns_per_ms;
+/// How much of an unread body a refusing server reads and drops, and for
+/// how long, before it closes (`Conn.linger`): 256 KiB, and 1 s.
+const linger_bytes: usize = 256 << 10;
+const linger_ns: i64 = std.time.ns_per_s;
+const linger_poll_ns: i64 = 10 * std.time.ns_per_ms;
+const accept_pause_max_ns: i64 = std.time.ns_per_s;
+
 /// `http.serve(<listener, |req| ...)`: take connections on `listener`,
 /// each a task of its own, and answer each request on them with what
 /// `f` gives for it, until the call is canceled or the listener fails.
-/// Each request runs isolated (`tasks.isolate`): a panic in `f` answers
-/// 500, and the server goes on. The connections' tasks end before it
+/// Out of descriptors, it pauses and accepts again, as Go's server
+/// does, so the connections it holds can close. Each request runs
+/// isolated (`tasks.isolate`): a panic in `f` answers 500, and the
+/// server goes on. The connections' tasks end before it
 /// returns, and the listener closes then. `f` is a `rig.FnRef` taking a
 /// `?http.Request` and giving an `http.Response`, whose fields the
 /// runtime fills and reads by name.
@@ -367,36 +452,61 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
     };
     var server: Server = .{};
     defer server.stop();
+    const settings: Settings = .read();
+    var pause: i64 = accept_pause_ns;
     while (true) {
-        const c = try accept_on(@field(l, "fd"), @field(l, "reg"));
+        const c = try acceptOne(@intCast(@field(l, "fd")), @field(l, "reg")) orelse {
+            server.reap();
+            try rig.taskSleep(pause);
+            pause = @min(pause * 2, accept_pause_max_ns);
+            continue;
+        };
+        pause = accept_pause_ns;
         server.reap();
-        server.conns.append(std.heap.smp_allocator, tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), f })) catch rig.oom();
+        server.conns.append(std.heap.smp_allocator, tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), f, settings })) catch rig.oom();
     }
 }
 
 /// A connection's task: read its requests one after another, and answer
-/// each, until it closes, fails, or the task is canceled.
-fn connection(comptime F: type) fn (i32, F) void {
+/// each, until it closes, fails, waits too long (`Settings`), or the
+/// task is canceled.
+fn connection(comptime F: type) fn (i32, F, Settings) void {
     return struct {
-        fn run(fd: i32, f: F) void {
+        fn run(fd: i32, f: F, settings: Settings) void {
             var c: Conn = undefined;
-            c.init(fd);
+            c.init(fd, settings);
             defer c.close();
             var server = std.http.Server.init(&c.reader, &c.writer);
             // `init` takes the read buffer's size, which is held later.
             server.reader.max_head_len = Conn.buf_size;
             while (true) {
                 if (c.reader.bufferedLen() == 0 and !c.fill()) return;
+                c.limit = settings.limit(true);
                 var request = server.receiveHead() catch return;
-                if (!answer(F, f, &request)) return;
+                c.limit = settings.limit(false);
+                switch (answer(F, f, &request, settings.max_body)) {
+                    .next => {},
+                    .close => return,
+                    .linger => return c.linger(),
+                }
             }
         }
     }.run;
 }
 
-/// Answer one request with what `f` gives; whether the connection goes
-/// on.
-fn answer(comptime F: type, f: F, request: *std.http.Server.Request) bool {
+/// What a connection does once a request is answered.
+const Next = enum {
+    /// Read the next request.
+    next,
+    /// Close.
+    close,
+    /// Close once the client has read the answer (`Conn.linger`): it
+    /// may still be sending a body that is never read.
+    linger,
+};
+
+/// Answer one request with what `f` gives.
+fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u64) Next {
     const Param = @typeInfo(F.Args).@"struct".field_types[0];
     const Req = @typeInfo(Param).pointer.child;
     const Resp = @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
@@ -409,14 +519,27 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request) bool {
     @field(req, "path") = fresh(if (q) |i| target[0..i] else target);
     @field(req, "query") = fresh(if (q) |i| target[i + 1 ..] else "");
     @field(req, "head") = fresh(request.head_buffer);
-    var body: rig.String = .empty;
-    if (head.content_length != null or head.transfer_encoding == .chunked) {
-        var buf: [4096]u8 = undefined;
-        const r = request.readerExpectNone(&buf);
-        r.appendRemaining(gpa, &body.list, .limited(16 << 20)) catch {};
-    }
-    @field(req, "body") = body;
+    @field(req, "body") = .empty;
     defer rig.drop(&req);
+    // An expectation other than `100-continue` fails (417), and a body
+    // over the limit is refused (413) before any of it is read, and
+    // before `100 Continue` asks the client for it.
+    if (head.expect) |e| if (!std.ascii.eqlIgnoreCase(e, "100-continue")) return refuse(request, .expectation_failed, "expectation failed\n");
+    if (head.content_length) |n| if (n > max_body) return refuse(request, .payload_too_large, "content too large\n");
+    if (head.content_length != null or head.transfer_encoding == .chunked) {
+        // Ask for the body, if the client waits to be asked, then read it.
+        if (head.expect != null) request.head.expect = "100-continue";
+        var buf: [4096]u8 = undefined;
+        const r = request.readerExpectContinue(&buf) catch return .close;
+        r.appendRemaining(gpa, &@field(req, "body").list, .limited(@intCast(max_body + 1))) catch |err| switch (err) {
+            error.StreamTooLong => return refuse(request, .payload_too_large, "content too large\n"),
+            // The client closed, or sent a body that does not parse, or
+            // took too long.
+            else => return .close,
+        };
+    }
+    // A request with no body to send never needs `100 Continue`.
+    request.head.expect = null;
     const Thunk = struct {
         f: F,
         req: *const Req,
@@ -425,8 +548,8 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request) bool {
         }
     };
     var resp: Resp = tasks.isolate(Thunk{ .f = f, .req = &req }) catch {
-        request.respond("internal server error\n", .{ .status = .internal_server_error, .keep_alive = head.keep_alive }) catch return false;
-        return head.keep_alive;
+        request.respond("internal server error\n", .{ .status = .internal_server_error, .keep_alive = head.keep_alive }) catch return .close;
+        return if (head.keep_alive) .next else .close;
     };
     defer rig.drop(&resp);
     const status: u10 = @intCast(std.math.clamp(@field(resp, "status"), 100, 999));
@@ -436,8 +559,17 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request) bool {
         .status = @enumFromInt(status),
         .keep_alive = head.keep_alive,
         .extra_headers = if (kind.len > 0) &headers else &.{},
-    }) catch return false;
-    return head.keep_alive;
+    }) catch return .close;
+    return if (head.keep_alive) .next else .close;
+}
+
+/// Answer `request` with `status` and the text `body`, and close the
+/// connection once the client has read it: what remains of its body is
+/// never read.
+fn refuse(request: *std.http.Server.Request, status: std.http.Status, body: []const u8) Next {
+    request.head.expect = null;
+    request.respond(body, .{ .status = status, .keep_alive = false }) catch return .close;
+    return .linger;
 }
 
 /// A fresh String of `bytes`.
@@ -458,15 +590,20 @@ const Conn = struct {
     /// The read buffer, then the write buffer, while held: a block of
     /// the worker's (`sched.takeBlock`).
     bufs: ?*[rig.sched.block_size]u8 = null,
+    settings: Settings,
+    /// How long each read and write may wait (`connection`).
+    limit: Limit,
     reader: std.Io.Reader,
     writer: std.Io.Writer,
 
     const buf_size = rig.sched.block_size / 2;
 
-    fn init(c: *Conn, fd: i32) void {
+    fn init(c: *Conn, fd: i32, settings: Settings) void {
         c.* = .{
             .fd = fd,
             .reg = watch(fd),
+            .settings = settings,
+            .limit = settings.limit(false),
             .reader = .{ .vtable = &.{ .stream = stream }, .buffer = &.{}, .seek = 0, .end = 0 },
             .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{}, .end = 0 },
         };
@@ -499,9 +636,11 @@ const Conn = struct {
 
     /// Between requests: wait, holding no buffers, until bytes come, and
     /// read them into the read buffer; false once the connection closes,
-    /// fails, or the task is canceled.
+    /// fails, has waited its idle time, or the task is canceled.
     fn fill(c: *Conn) bool {
+        c.limit = c.settings.limit(false);
         c.writer.flush() catch return false;
+        const limit: Limit = .{ .at = if (c.limit.idle) |i| rig.sched.nowNs() + i else null };
         c.hold();
         c.reader.seek = 0;
         c.reader.end = 0;
@@ -516,7 +655,7 @@ const Conn = struct {
                 },
                 .AGAIN => {
                     c.release();
-                    waitFor(c.fd, c.reg, rig.sched.Registration.readable) catch return false;
+                    waitFor(c.fd, c.reg, rig.sched.Registration.readable, limit) catch return false;
                     c.hold();
                 },
                 .INTR => {},
@@ -525,10 +664,43 @@ const Conn = struct {
         }
     }
 
+    /// Before closing with a request's body unread: say no more is
+    /// coming, then read and drop what the client still sends, until it
+    /// closes, for at most `linger_bytes` or `linger_ns`. Closing with
+    /// bytes unread resets the connection, and a reset can throw away
+    /// the answer before the client reads it. It looks every
+    /// `linger_poll_ns` rather than waiting on the poller, which reports
+    /// a socket shut down for writing as closed, and so always ready.
+    fn linger(c: *Conn) void {
+        c.writer.flush() catch return;
+        _ = sys.shutdown(c.fd, posix.SHUT.WR);
+        c.release();
+        var buf: [4096]u8 = undefined;
+        var left: usize = linger_bytes;
+        var waited: i64 = 0;
+        while (left > 0) {
+            stopped() catch return;
+            const rc = sys.read(c.fd, &buf, @min(buf.len, left));
+            switch (posix.errno(rc)) {
+                .SUCCESS => {
+                    if (rc == 0) return;
+                    left -= @intCast(rc);
+                },
+                .AGAIN => {
+                    if (waited >= linger_ns) return;
+                    rig.taskSleep(linger_poll_ns) catch return;
+                    waited += linger_poll_ns;
+                },
+                .INTR => {},
+                else => return,
+            }
+        }
+    }
+
     fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
         const c: *Conn = @alignCast(@fieldParentPtr("reader", r));
         const dest = limit.slice(try w.writableSliceGreedy(1));
-        const n = readSome(c.fd, c.reg, dest) catch return error.ReadFailed;
+        const n = readSome(c.fd, c.reg, dest, c.limit) catch return error.ReadFailed;
         if (n == 0) return error.EndOfStream;
         w.advance(n);
         return n;
@@ -536,16 +708,16 @@ const Conn = struct {
 
     fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
         const c: *Conn = @alignCast(@fieldParentPtr("writer", w));
-        write_to(c.fd, c.reg, w.buffer[0..w.end]) catch return error.WriteFailed;
+        writeAll(c.fd, c.reg, w.buffer[0..w.end], c.limit) catch return error.WriteFailed;
         w.end = 0;
         var n: usize = 0;
         for (data[0 .. data.len - 1]) |d| {
-            write_to(c.fd, c.reg, d) catch return error.WriteFailed;
+            writeAll(c.fd, c.reg, d, c.limit) catch return error.WriteFailed;
             n += d.len;
         }
         const last = data[data.len - 1];
         for (0..splat) |_| {
-            write_to(c.fd, c.reg, last) catch return error.WriteFailed;
+            writeAll(c.fd, c.reg, last, c.limit) catch return error.WriteFailed;
             n += last.len;
         }
         return n;

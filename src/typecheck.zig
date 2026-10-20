@@ -7880,7 +7880,6 @@ const Checker = struct {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
                 if (std.mem.eql(u8, name, "warn")) return self.checkWarn(args);
                 if (std.mem.eql(u8, name, "String")) return self.checkStringNew(node, args);
-                if (std.mem.eql(u8, name, "replace")) return self.badCall(args, callee, "`replace` is `swap`: `old = swap(!x, v)` puts `v` in `x` and gives back what was there, and `swap(!a, !b)` exchanges two places", .{});
                 if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
                 if (resolve.isNumericTypeName(name)) {
                     var r = self.resolver();
@@ -8191,7 +8190,7 @@ const Checker = struct {
         return self.ctx.symbols.items[id].ty;
     }
 
-    /// The type of the place a `replace` or `swap` argument lends to write
+    /// The type of the place a `swap` argument lends to write
     /// (`!x`, or a held `!T`), which holds no view; null after a
     /// diagnostic.
     fn swapPlace(self: *Checker, arg: Sexp, what: []const u8) Error!?TypeId {
@@ -10916,8 +10915,6 @@ const Checker = struct {
                 try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
-            } else if (std.mem.eql(u8, method, "replace") and cellElementType(self.ctx, peeled) != null) {
-                try self.err(pos, "a Cell's `replace` is `swap`: `old = (!c).swap(v)` puts `v` in and gives back the old value", .{});
             } else if (std.mem.eql(u8, method, "text") and (self.hasVariantNames(peeled) or peeled == self.t().symbol_id)) {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
@@ -11818,8 +11815,8 @@ const Checker = struct {
                 .write_view => |inner| inner,
                 else => ty,
             };
-            if (!self.namesForeignType(base, "std.file", "File") and !self.namesForeignType(base, "std.net", "Stream")) return try self.badCall(args, a, "`io.copy` reads from and writes to a `file.File` or a `net.Stream`; `{s}` is a `{s}`", .{ self.sourceText(a), try self.tyName(base) });
-            if (!a.isKind(.write) and self.ctx.types.get(ty) != .write_view) return try self.badCall(args, a, "`io.copy` reads and writes through `{s}`: lend it to write, `!{s}`", .{ self.sourceText(a), try self.plainText(stripSigil(a)) });
+            if (!self.namesForeignType(base, "std.file", "File") and !self.namesForeignType(base, "std.net", "Stream")) return try self.badCall(args, a, "`io.copy` reads from and writes to a `file.File` or a `net.Stream`; `{s}` is a `{s}`", .{ try self.plainText(stripSigil(a)), try self.tyName(base) });
+            if (!a.isKind(.write) and self.ctx.types.get(ty) != .write_view) return try self.badCall(args, a, "`io.copy` reads and writes through `{s}`: lend it to write, `!{s}`", .{ try self.plainText(stripSigil(a)), try self.plainText(stripSigil(a)) });
             params[i] = try self.ctx.intern(.{ .write_view = base });
         }
         const result = try self.ctx.intern(.{ .fallible = self.t().int_id });

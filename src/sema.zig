@@ -4585,10 +4585,9 @@ pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
 }
 
 /// A built-in function called by name unless a declaration hides it:
-/// `print`, `warn`, `swap`, and `replace`, which is retired: its call is
-/// reported, with `swap` to write in its place.
+/// `print`, `warn`, and `swap`.
 pub fn isBuiltinCallName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
+    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "swap");
 }
 
 /// Whether the built-in `swap`'s second argument `arg`, of type `ty`
