@@ -526,22 +526,28 @@ set, with no wrapping: no `AggregateException`, no `ExecutionException`.
 ordinary members (see "Cancellation").
 
 **A panic is a bug, and it ends the smallest part of the program that
-holds the damage.** A panic unwinds: the panicking task's frames run
-their drops and `defer`s, as they would for an error, each cancelling and
-waiting for the tasks it owns. It keeps going up, through each owner
-that waits for or drops the task, until it reaches a *boundary*. Three
-things are boundaries:
+holds the damage.** A panic stops at the nearest *boundary*. The
+frames between stop where they stand: the tasks started under the
+boundary are canceled and waited for, since they may point into those
+frames, and what the frames own stays allocated, since a value one of
+them moved into a shared `Cell` must stay valid. Their drops and
+`defer`s do not run: Zig, which Rig compiles to, has no unwinding, and
+running them would cost every owned value a record on the normal path.
+A task's panic passes to its owner, at its wait or drop, up to the
+boundary. Three things are boundaries:
 
 - **`main`.** A panic that reaches it ends the program, as today, with
   status 134. A program with no other boundary keeps today's behaviour
   exactly: the program ends where the panic stands, with no unwinding.
-- **`task.isolate(f)`** runs `f` and gives `T!` with
-  `task.Panicked` (its message and location) in the set. Nothing outside
+- **`task.isolate(f)`** (built) runs `f` and gives `T!` with
+  `task.Stop.panicked` in the set; its message and location go to
+  stderr, and become the error's data once errors carry data. Nothing outside
   `f` may be lent to it to write, so everything a panic in `f` could
-  have half-changed is `f`'s own, and is dropped: what survives is
+  have half-changed is `f`'s own, and is abandoned: what survives is
   either untouched or was only read. `http.serve` runs each request
-  this way, so a bug fails that request with a 500, cleans up its
-  memory, files, and tasks, and leaves every other request running.
+  this way, so a bug fails that request with a 500, stops its tasks and
+  closes its files, leaving only its memory, and leaves every other
+  request running.
 - **An actor.** An actor owns its state, so a panic in one of its
   methods kills that actor: its state, possibly half-changed, is
   dropped and never served again. The caller waiting on that method

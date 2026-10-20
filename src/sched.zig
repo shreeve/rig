@@ -1067,14 +1067,14 @@ const Sleepers = struct {
     }
 };
 
-const SpinLock = struct {
+pub const SpinLock = struct {
     held: std.atomic.Value(bool) = .init(false),
 
-    fn lock(l: *SpinLock) void {
+    pub fn lock(l: *SpinLock) void {
         while (l.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
     }
 
-    fn unlock(l: *SpinLock) void {
+    pub fn unlock(l: *SpinLock) void {
         l.held.store(false, .release);
     }
 };
@@ -1092,6 +1092,9 @@ const SpinLock = struct {
 pub const Header = struct {
     fiber: Fiber,
     status: std.atomic.Value(u8) = .init(running),
+    /// Set when the task panicked and ended where it stood, with no
+    /// result (`abandon`).
+    panicked: std.atomic.Value(bool) = .init(false),
     waiter: std.atomic.Value(?*Fiber) = .init(null),
     waiter_epoch: std.atomic.Value(u32) = .init(0),
     destroy: *const fn (*Header) void,
@@ -1157,9 +1160,18 @@ pub fn Job(comptime T: type) type {
         const Self = @This();
 
         /// Wait for the task to end and give its result. Waiting again
-        /// gives the same result; the owner takes it once (`Task`).
+        /// gives the same result; the owner takes it once (`Task`). A
+        /// task that panicked gave none: the panic passes to the waiter
+        /// (`rt.passPanic`).
         pub fn join(self: *Self) T {
             _ = self.header.waitEnd(null, null);
+            return self.taken();
+        }
+
+        /// The result of the task, which has ended; when it panicked
+        /// instead, the panic passes on.
+        pub fn taken(self: *Self) T {
+            if (self.header.panicked.load(.seq_cst)) rt.passPanic();
             return self.result;
         }
 
@@ -1212,7 +1224,7 @@ fn handoff(w: *Worker, h: *Header, cancelable: bool) void {
 /// Start `f(args...)` as a fiber, ready to run, and give its record,
 /// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
 /// task's `Control` there), which `f` gets first.
-pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype) Spawned(T, Extra) {
+pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra) Spawned(T, Extra) {
     const Args = @TypeOf(args);
     const Full = struct {
         job: Job(T),
@@ -1234,10 +1246,12 @@ pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: 
     };
     if (!started) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
-    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = Full.destroy } }, .args = args };
+    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = Full.destroy } }, .extra = extra, .args = args };
     // An `Extra` that names its task's fiber is given it, for a cancel to
-    // reach the fiber's wait (`interruptForCancel`).
+    // reach the fiber's wait (`interruptForCancel`), and one that records
+    // its task somewhere does so before the task can run (`made`).
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
+    if (@hasDecl(Extra, "made")) full.extra.made();
     wake(&full.job.header.fiber);
     return .{ .job = &full.job, .extra = &full.extra };
 }
@@ -1440,6 +1454,15 @@ fn fiberMain(f: *Fiber) callconv(.c) noreturn {
         }
     }
     f.run(f);
+    finishFiber(f);
+}
+
+/// End the running fiber `f` for good: back to its worker, which
+/// publishes its end (`runFiber`), or to the fiber that handed it the
+/// worker. A fiber that panicked ends so too, its frames left as they
+/// were (`abandon`). Inline: a call here costs every task's end several
+/// nanoseconds (`bench/tasks` chain).
+inline fn finishFiber(f: *Fiber) noreturn {
     f.finished = true;
     const w = me().?;
     // Handed over and never stopped: straight back to the fiber that
@@ -1461,23 +1484,63 @@ fn fiberMain(f: *Fiber) callconv(.c) noreturn {
 /// The stack pointer a new fiber starts from, below `top`: a frame of
 /// saved registers whose return address is `fiberStartNaked`.
 fn initialFrame(f: *Fiber, top: usize) usize {
+    return frameCalling(@intFromPtr(f), @intFromPtr(&fiberMain), top);
+}
+
+/// The stack pointer that, switched to, calls `entry(arg)`, which never
+/// returns, at `top`, with no frame above it (`fiberStartNaked`).
+fn frameCalling(arg: usize, entry: usize, top: usize) usize {
     const sp = (top & ~@as(usize, 15)) - saved_bytes;
     const slots: [*]usize = @ptrFromInt(sp);
     @memset(slots[0 .. saved_bytes / 8], 0);
     switch (builtin.target.cpu.arch) {
         .aarch64 => {
-            slots[0] = @intFromPtr(f); // x19
-            slots[1] = @intFromPtr(&fiberMain); // x20
+            slots[0] = arg; // x19
+            slots[1] = entry; // x20
             slots[11] = @intFromPtr(&fiberStartNaked); // x30
         },
         .x86_64 => {
-            slots[3] = @intFromPtr(&fiberMain); // r12
-            slots[4] = @intFromPtr(f); // rbx
+            slots[3] = entry; // r12
+            slots[4] = arg; // rbx
             slots[6] = @intFromPtr(&fiberStartNaked); // the return address
         },
         else => unreachable,
     }
     return sp;
+}
+
+/// Run `entry(arg)` on a stack of its own, within the running fiber,
+/// which keeps waiting and switching there as anywhere: `task.isolate`.
+/// `entry` never returns; it ends with `leaveApart(home.*)`, after its
+/// work or after a panic, and the fiber goes on here on its own stack,
+/// whose frames the stack apart could not reach. The stack apart is then
+/// kept for the next.
+pub fn runApart(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
+    const s = takeStack();
+    const state = rt.task();
+    const guard = state.stack_guard;
+    state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard };
+    switchTo(home, frameCalling(@intFromPtr(arg), @intFromPtr(entry), s.top()));
+    rt.task().stack_guard = guard;
+    releaseStack(me().?, s);
+}
+
+/// Leave the stack `runApart` made for good, back to the fiber's own
+/// stack at `home`.
+pub fn leaveApart(home: usize) noreturn {
+    var gone: usize = 0;
+    switchTo(&gone, home);
+    unreachable;
+}
+
+/// End the running fiber where it stands, its frames left as they are:
+/// a task that panicked (`tasks.panicked`). Its record is marked
+/// `panicked`, so whoever waits for it learns so.
+pub fn abandon() noreturn {
+    const f = current().?;
+    const h: *Header = @fieldParentPtr("fiber", f);
+    h.panicked.store(true, .seq_cst);
+    finishFiber(f);
 }
 
 test "fibers switch, yield to each other in turn, and finish" {
@@ -1545,7 +1608,7 @@ test "many workers run many fibers, each waited for, and their results add up" {
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [2000]*Job(u64) = undefined;
             for (0..50) |_| {
-                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}).job;
+                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}).job;
                 for (jobs) |j| {
                     sum += j.join();
                     j.free();
@@ -1572,7 +1635,7 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..20000) |i| {
-                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}).job;
+                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}).job;
                 sum += j.join();
                 j.free();
             }

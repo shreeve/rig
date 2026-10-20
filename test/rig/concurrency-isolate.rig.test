@@ -1,0 +1,129 @@
+# concurrency: tests whose names start `isolate`.
+
+test "isolate value", seeds: 20, '''
+  2
+  caught Stop.panicked
+  -2
+  -3
+  void
+  done
+'''
+  # `task.isolate(f)` gives what `f` gives; a panic in `f`, from the
+  # runtime or `panic`, stops at it, which fails with
+  # `task.Stop.panicked`, and the program goes on.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun work(n: Int) -> Int!
+    pick([1, 2, 3], n)
+
+  fun boom() -> Int
+    panic("boom")
+
+  print(task.isolate(|| work(1)!) catch -1)
+  b = task.isolate(|| work(9)!) catch |e|
+    print("caught", e)
+    -2
+  print(b)
+  print(task.isolate(|| boom()) catch -3)
+  task.isolate(|| print("void")) catch print("never")
+  print("done")
+
+test "isolate tasks", seeds: 20, '''
+  caught Stop.panicked
+  still running
+'''
+  # A panic in a task started under an isolate passes to its owner, up to
+  # the isolate, which stops the other tasks under it first.
+  use std.task
+  use std.time
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun nap(n: Int) -> Int!
+    time.sleep(10 * time.SECOND)!
+    n
+
+  fun bad(n: Int) -> Int!
+    time.sleep(time.MS)!
+    pick([1, 2, 3], n)
+
+  fun owner() -> Int!
+    ts = Tasks[Int!]()
+    !ts.add(nap(1)&)
+    !ts.add(bad(9)&)
+    !ts.add(nap(3)&)
+    <ts.wait_all()!.len
+
+  _ = task.isolate(|| owner()!) catch |e|
+    print("caught", e)
+    -1
+  print("still running")
+
+test "isolate nested", seeds: 20, '''
+  -10
+  -3
+  -4
+'''
+  # The nearest isolate takes a panic; one in `par.map`'s tasks, or in
+  # its caller's chunk, too.
+  use std.par
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun keep(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    !xs.push(pick([1, 2, 3], n))
+    xs
+
+  print(task.isolate(||
+    inner = task.isolate(|| keep(7).len) catch -1
+    inner * 10
+  ) catch -2)
+  xs: List[Int] = List(capacity: 100)
+  for i in 0..100
+    !xs.push(i)
+  print(task.isolate(|?xs| par.map(xs, |x| pick([1, 2, 3], x % 4)).len) catch -3)
+  print(task.isolate(|| keep(1).len + keep(5).len) catch -4)
+
+bomb "isolate none", "index out of bounds", prints: "before"
+  # With no isolate, a panic in a task ends the program, as ever.
+  use std.time
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun bad(n: Int) -> Int!
+    time.sleep(time.MS)!
+    pick([1, 2, 3], n)
+
+  print("before")
+  t = bad(9)&
+  print(<t.wait() catch -1)
+
+fail "isolate write capture", "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!total|` lends `total` so: give the change back as its value, or keep it in a `*Cell`, captured `|+total|`", errors: 1
+  use std.task
+
+  total = 0
+  task.isolate(|!total| total += 1) catch print("no")
+
+fail "isolate named closure", "`task.isolate` drops what a panic in `?f` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", errors: 1
+  use std.task
+
+  f = || 3
+  b = task.isolate(?f) catch 0
+  print(b)
+
+fail "isolate gives a task", "a task started in `task.isolate` ends in it, and `|| sq(2)&` gives a `Task[Int]`, which holds one: wait for it inside", errors: 1
+  use std.task
+
+  fun sq(n: Int) -> Int
+    n * n
+
+  c = task.isolate(|| sq(2)&) catch 0

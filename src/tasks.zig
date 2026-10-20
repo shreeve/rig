@@ -1,7 +1,8 @@
 //! Tasks: a call running as a task of its own (`f(x)&`), sets of tasks
 //! (`Tasks[T]`), waiting for several (`task.both`, `task.all`), how a
-//! task is canceled, deadlines (`time.within`), and calling a function
-//! on each element on several tasks (`par.map`, `par.each`). The runtime (`runtime.zig`) imports this file and
+//! task is canceled, deadlines (`time.within`), calling a function on
+//! each element on several tasks (`par.map`, `par.each`), and the
+//! boundary a panic stops at (`task.isolate`). The runtime (`runtime.zig`) imports this file and
 //! gives emitted code its names (`rig.Task`, `rig.Tasks`,
 //! `rig.waitTasks`); `bin/rig` writes it beside the runtime as
 //! `rig/tasks.zig`.
@@ -51,15 +52,19 @@ pub fn Task(comptime T: type) type {
             // generic.
             const Fiber = struct {
                 fn run(control: *Control, deadline: ?i96, a: Args) T {
-                    task().control = control;
-                    task().deadline = deadline;
+                    const state = task();
+                    state.control = control;
+                    state.deadline = deadline;
+                    state.isolate = control.isolate;
                     defer control.finish();
                     return @call(.auto, f, a);
                 }
             };
             // The task's record holds its `Control`: one allocation for
-            // both.
-            const made = rt.sched.spawn(T, Control, Fiber.run, .{ task().deadline, args });
+            // both. It keeps the isolate of the task starting it, which
+            // records it before it can run (`Control.made`).
+            const state = task();
+            const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate });
             return .{ .handle = .{ .job = made.job }, .control = made.extra };
         }
 
@@ -110,7 +115,7 @@ pub fn Task(comptime T: type) type {
                 t.control.cancel();
                 _ = job.waitEnd(null, null);
             }
-            result = job.result;
+            result = job.taken();
             if (comptime fallible) if (timed_out) {
                 dropElement(T, &result);
                 return timeout_error;
@@ -198,6 +203,20 @@ pub const Control = struct {
     /// The task's fiber, whose wait a cancel ends
     /// (`rt.sched.interruptForCancel`).
     fiber: ?*rt.sched.Fiber = null,
+    /// The isolate the task runs under, which lists it until it ends.
+    isolate: ?*Isolate = null,
+    /// Its neighbors in that isolate's list.
+    iso_prev: ?*Control = null,
+    iso_next: ?*Control = null,
+
+    /// The task is made and not yet running: it runs under the isolate
+    /// of the task starting it, which lists it now, so a panic there
+    /// stops it before the stack it may point into is left
+    /// (`Isolate.stop`).
+    pub fn made(self: *Control) void {
+        const iso = self.isolate orelse return;
+        iso.add(self);
+    }
 
     /// Record a cancel, and end the wait the task is in, when a cancel
     /// may end it. A task waiting on another passes
@@ -211,6 +230,7 @@ pub const Control = struct {
     /// waiter that registers after the task ends finds `done` set
     /// (`Wakeup.watch`), so no end goes unseen.
     fn finish(self: *Control) void {
+        if (self.isolate) |iso| iso.remove(self);
         self.done.store(true, .seq_cst);
         if (self.wakeup.load(.seq_cst)) |w| w.tick();
     }
@@ -751,9 +771,122 @@ pub fn parEach(xs: anytype, f: anytype, limit: Int) EachOut(@TypeOf(f)) {
     return parRun(fallible, xs.len, limit, &ctx, Ctx.chunk);
 }
 
+/// A boundary a panic stops at: a call of `task.isolate(f)`, which runs
+/// `f` on a stack apart (`rt.sched.runApart`), and lists every task
+/// started under it, by `f` or by those tasks, until it ends. A panic in
+/// `f`, or in a task under it, stops them all: each is canceled, and
+/// the isolate waits for them to end, since they may point into `f`'s
+/// frames. Then `f`'s stack is left where it stands, its frames
+/// abandoned, what they own left allocated, and `isolate` fails with
+/// `task.Stop.panicked`. Nothing outside `f` was lent to it to write,
+/// so all a panic half-changed is `f`'s own.
+pub const Isolate = struct {
+    /// The fiber `isolate` was called on, whose own stack waits at
+    /// `home` while `f` runs apart.
+    fiber: ?*rt.sched.Fiber,
+    home: usize = 0,
+    /// The isolate this one is inside, on the same fiber.
+    outer: ?*Isolate,
+    /// Set once a panic reached it.
+    panicked: std.atomic.Value(bool) = .init(false),
+    /// Its id, for the leak checker's count of what a panic leaves.
+    id: u32,
+    lock: rt.sched.SpinLock = .{},
+    first: ?*Control = null,
+
+    fn add(self: *Isolate, c: *Control) void {
+        self.lock.lock();
+        defer self.lock.unlock();
+        c.iso_prev = null;
+        c.iso_next = self.first;
+        if (self.first) |n| n.iso_prev = c;
+        self.first = c;
+    }
+
+    fn remove(self: *Isolate, c: *Control) void {
+        self.lock.lock();
+        defer self.lock.unlock();
+        if (c.iso_prev) |p| p.iso_next = c.iso_next else self.first = c.iso_next;
+        if (c.iso_next) |n| n.iso_prev = c.iso_prev;
+        c.iso_prev = null;
+        c.iso_next = null;
+    }
+
+    /// Cancel every task listed; with `wait`, until none is.
+    fn stop(self: *Isolate, wait: bool) void {
+        while (true) {
+            self.lock.lock();
+            var c = self.first;
+            while (c) |x| : (c = x.iso_next) x.cancel();
+            const left = self.first != null;
+            self.lock.unlock();
+            if (!left or !wait) return;
+            rt.sched.yield();
+        }
+    }
+};
+
+/// `task.isolate(f)`: run `f` (a `rig.FnRef` that takes nothing) apart,
+/// and give what it gives; or, when a panic in it or in a task under it
+/// reached this boundary, fail with `task.Stop.panicked` (`Isolate`).
+pub fn isolate(f: anytype) IsolateOut(@TypeOf(f)) {
+    const F = @TypeOf(f);
+    const R = ReturnOf(F);
+    const state = task();
+    var rec: Isolate = .{ .fiber = rt.sched.current(), .outer = state.isolate, .id = rt.isolateBegins(state.isolate) };
+    const Run = struct {
+        f: F,
+        rec: *Isolate,
+        result: R = undefined,
+
+        fn entry(p: *anyopaque) callconv(.c) noreturn {
+            const run: *@This() = @ptrCast(@alignCast(p));
+            run.result = run.f.call(.{});
+            rt.sched.leaveApart(run.rec.home);
+        }
+    };
+    var run: Run = .{ .f = f, .rec = &rec };
+    state.isolate = &rec;
+    rt.sched.runApart(&rec.home, &run, Run.entry);
+    task().isolate = rec.outer;
+    if (rec.panicked.load(.seq_cst)) return panicked_error;
+    return run.result;
+}
+
+/// What `isolate` gives for `f`: its value, failing as it can fail and
+/// with `task.Stop.panicked`.
+fn IsolateOut(comptime F: type) type {
+    const R = ReturnOf(F);
+    return anyerror!(if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R);
+}
+
+/// `task.Stop.panicked`, what `isolate` fails with when a panic reached
+/// it.
+const panicked_error = error.@"std.task.Stop.panicked";
+
+/// A panic, reported, reached `iso`, the running task's nearest isolate.
+/// On the isolate's own fiber, its tasks are stopped and waited for, and
+/// the fiber leaves the stack apart for its own (`Isolate`). In a task
+/// under it, the tasks are stopped, and this task ends where it stands,
+/// marked as panicked, so its owner's wait or drop passes the panic on,
+/// up to the isolate's fiber.
+pub fn panicked(iso: *Isolate) noreturn {
+    iso.panicked.store(true, .seq_cst);
+    rt.isolatePanicked(iso.id);
+    if (iso.fiber == rt.sched.current()) {
+        task().unwinding = true;
+        iso.stop(true);
+        task().unwinding = false;
+        rt.sched.leaveApart(iso.home);
+    }
+    iso.stop(false);
+    if (task().control) |c| c.finish();
+    rt.sched.abandon();
+}
+
 /// `std.task`'s `Stop`, as the emitted code names its errors: what a
 /// waiting point of any `std` module may fail with (`expectShim`).
-pub const Stop = error{ @"std.task.Stop.canceled", @"std.task.Stop.timeout" };
+pub const Stop = error{ @"std.task.Stop.canceled", @"std.task.Stop.timeout", @"std.task.Stop.panicked" };
 
 /// `task.Stop.canceled`, the error a canceled task's waiting points fail
 /// with.

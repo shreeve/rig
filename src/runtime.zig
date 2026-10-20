@@ -28,6 +28,7 @@ pub const waitTasks = tasks.waitTasks;
 pub const taskCheck = tasks.check;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
+pub const isolate = tasks.isolate;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEach = tasks.parEach;
 pub const enterDeadline = tasks.enterDeadline;
@@ -3241,6 +3242,12 @@ pub const TaskState = struct {
     stack_guard: StackGuard = .{},
     control: ?*Control = null,
     deadline: ?i96 = null,
+    /// The nearest `task.isolate` this task runs under: on its own
+    /// fiber, or the one that started it (`tasks.Isolate`).
+    isolate: ?*tasks.Isolate = null,
+    /// Set while a panic stops the tasks of an isolate on this fiber: a
+    /// panic then ends the program.
+    unwinding: bool = false,
 };
 
 threadlocal var thread_task: TaskState = .{};
@@ -3281,6 +3288,31 @@ pub fn defaultAllocator() std.mem.Allocator {
 const LeakChecker = struct {
     live: std.AutoHashMapUnmanaged(usize, usize) = .empty,
     bytes: usize = 0,
+    /// The allocations made under an isolate, with its id, or `left`
+    /// once a panic stopped that isolate and left them: counted apart,
+    /// as `left_count` and `left_bytes`, not as leaks.
+    tags: std.AutoHashMapUnmanaged(usize, u32) = .empty,
+    /// Each isolate's id -> the id of the isolate it is inside, or 0.
+    outer: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    left_count: usize = 0,
+    left_bytes: usize = 0,
+
+    const left = std.math.maxInt(u32);
+
+    /// The id of the isolate the running task is under, or 0.
+    fn isolateHere() u32 {
+        const iso = task().isolate orelse return 0;
+        return iso.id;
+    }
+
+    /// Whether isolate `id` is `ancestor` or inside it.
+    fn within(self: *LeakChecker, id: u32, ancestor: u32) bool {
+        var step = id;
+        while (step != 0) : (step = self.outer.get(step) orelse 0) {
+            if (step == ancestor) return true;
+        }
+        return false;
+    }
 
     const table_allocator = std.heap.smp_allocator;
 
@@ -3308,6 +3340,8 @@ const LeakChecker = struct {
         const ptr = backing().rawAlloc(n, alignment, ret_addr) orelse return null;
         self.live.put(table_allocator, @intFromPtr(ptr), n) catch oom();
         self.bytes += n;
+        const iso = isolateHere();
+        if (iso != 0) self.tags.put(table_allocator, @intFromPtr(ptr), iso) catch oom();
         return ptr;
     }
 
@@ -3326,6 +3360,7 @@ const LeakChecker = struct {
         const size = self.entry(memory);
         if (!backing().rawResize(memory, alignment, new_len, ret_addr)) return false;
         self.bytes = self.bytes - size.* + new_len;
+        if (self.tags.get(@intFromPtr(memory.ptr)) == left) self.left_bytes = self.left_bytes - size.* + new_len;
         size.* = new_len;
         return true;
     }
@@ -3339,6 +3374,10 @@ const LeakChecker = struct {
         _ = self.live.remove(@intFromPtr(memory.ptr));
         self.live.put(table_allocator, @intFromPtr(ptr), new_len) catch oom();
         self.bytes = self.bytes - memory.len + new_len;
+        if (self.tags.fetchRemove(@intFromPtr(memory.ptr))) |kv| {
+            if (kv.value == left) self.left_bytes = self.left_bytes - memory.len + new_len;
+            self.tags.put(table_allocator, @intFromPtr(ptr), kv.value) catch oom();
+        }
         return ptr;
     }
 
@@ -3352,6 +3391,10 @@ const LeakChecker = struct {
         _ = self.entry(memory);
         _ = self.live.remove(@intFromPtr(memory.ptr));
         self.bytes -= memory.len;
+        if (self.tags.fetchRemove(@intFromPtr(memory.ptr))) |kv| if (kv.value == left) {
+            self.left_count -= 1;
+            self.left_bytes -= memory.len;
+        };
         backing().rawFree(memory, alignment, ret_addr);
     }
 };
@@ -3562,7 +3605,38 @@ const Usage = struct { count: usize, bytes: usize };
 fn usage() Usage {
     LeakChecker.lock();
     defer LeakChecker.unlock();
-    return .{ .count = leak_checker.live.count(), .bytes = leak_checker.bytes };
+    return .{ .count = leak_checker.live.count() - leak_checker.left_count, .bytes = leak_checker.bytes - leak_checker.left_bytes };
+}
+
+/// The isolates begun so far, for each one's id.
+var isolates_begun: std.atomic.Value(u32) = .init(0);
+
+/// A `task.isolate` begins inside `outer`: its id, which the leak
+/// checker tags what is allocated under it with.
+pub fn isolateBegins(outer: ?*tasks.Isolate) u32 {
+    const id = isolates_begun.fetchAdd(1, .monotonic) + 1;
+    if (leak_checked) {
+        LeakChecker.lock();
+        defer LeakChecker.unlock();
+        leak_checker.outer.put(LeakChecker.table_allocator, id, if (outer) |o| o.id else 0) catch oom();
+    }
+    return id;
+}
+
+/// A panic stopped isolate `id`: what is allocated under it, or under an
+/// isolate inside it, and still live, is left by the panic, counted
+/// apart from leaks (`finish`).
+pub fn isolatePanicked(id: u32) void {
+    if (!leak_checked) return;
+    LeakChecker.lock();
+    defer LeakChecker.unlock();
+    var it = leak_checker.tags.iterator();
+    while (it.next()) |e| {
+        if (e.value_ptr.* == LeakChecker.left or !leak_checker.within(e.value_ptr.*, id)) continue;
+        e.value_ptr.* = LeakChecker.left;
+        leak_checker.left_count += 1;
+        leak_checker.left_bytes += leak_checker.live.get(e.key_ptr.*).?;
+    }
 }
 
 /// Report the allocations live now beyond `before`; true when there are any.
@@ -3954,6 +4028,10 @@ pub fn finish() void {
     lockOutput();
     flush();
     unlockOutput();
+    if (leak_checked and leak_checker.left_count > 0) {
+        const n = leak_checker.left_count;
+        std.debug.print("note: rig: {d} allocation{s} ({d} bytes) left by a panic that `task.isolate` stopped\n", .{ n, if (n == 1) "" else "s", leak_checker.left_bytes });
+    }
     if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
     if (leak_trace) _ = trace_allocator.deinit();
     std.process.exit(1);
@@ -4231,8 +4309,50 @@ fn awaitOtherPanic() noreturn {
     while (true) io().sleep(.fromSeconds(1), .awake) catch {};
 }
 
+/// The isolate a panic here stops at: the running task's nearest, unless
+/// it is stopping one already. None outside the scheduler, so a program
+/// that isolates nothing ends at a panic as ever.
+fn panicBoundary() ?*tasks.Isolate {
+    if (!scheduled) return null;
+    const state = task();
+    if (state.unwinding) return null;
+    return state.isolate;
+}
+
+/// Write what `print` has buffered before a panic's report, as a panic
+/// that ends the program does.
+fn flushForPanic() void {
+    if (concurrent and !output_lock.tryLock()) return;
+    flushQuietly();
+    if (concurrent) output_lock.unlock(io());
+}
+
+/// A panic that an isolate stops: its report, with the stack trace in a
+/// debug build, then the isolate (`tasks.panicked`).
+fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) noreturn {
+    flushForPanic();
+    {
+        var buf: [256]u8 = undefined;
+        const ls = std.debug.lockStderr(&buf);
+        defer std.debug.unlockStderr();
+        ls.file_writer.interface.print("panic: {s}\n", .{msg}) catch {};
+        ls.file_writer.interface.flush() catch {};
+    }
+    if (builtin.mode == .debug) std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr });
+    tasks.panicked(iso);
+}
+
+/// A task this one waited for, or dropped, panicked: the panic passes to
+/// this task's nearest isolate, or, with none, ends the program.
+pub fn passPanic() noreturn {
+    @branchHint(.cold);
+    if (panicBoundary()) |iso| tasks.panicked(iso);
+    panicAfterFlush("a task this one waited for panicked", @returnAddress());
+}
+
 fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
     @branchHint(.cold);
+    if (panicBoundary()) |iso| isolatedPanic(iso, msg, first_trace_addr orelse @returnAddress());
     beginPanic();
     {
         var buf: [256]u8 = undefined;
@@ -4257,6 +4377,17 @@ fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
 /// runs.
 pub noinline fn fail(pieces: anytype) noreturn {
     @branchHint(.cold);
+    if (panicBoundary()) |iso| {
+        flushForPanic();
+        {
+            var buf: [1024]u8 = undefined;
+            const ls = std.debug.lockStderr(&buf);
+            defer std.debug.unlockStderr();
+            writeArgs(&ls.file_writer.interface, pieces) catch {};
+            ls.file_writer.interface.flush() catch {};
+        }
+        tasks.panicked(iso);
+    }
     beginPanic();
     var buf: [1024]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
