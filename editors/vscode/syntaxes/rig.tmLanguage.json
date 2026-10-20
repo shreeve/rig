@@ -53,6 +53,17 @@
         {"match": "[^\\x00-\\x1f'\\x7f]|''"}
       ]
     },
+    {"name": "constant.numeric.rig", "match": "b'(?:[^\\x00-\\x1f'\\\\\\x7f]|\\\\[^\\x00-\\x1f\\x7f])*'"},
+    {
+      "name": "string.quoted.rig",
+      "begin": "b\"",
+      "end": "\"",
+      "applyEndPatternLast": true,
+      "patterns": [
+        {"name": "constant.character.escape.rig", "match": "\\\\[^\\x00-\\x1f\\x7f]"},
+        {"match": "[^\\x00-\\x1f\"\\\\\\x7f]|\\\\[^\\x00-\\x1f\\x7f]"}
+      ]
+    },
     {"name": "constant.numeric.rig", "match": "0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*"},
     {"name": "constant.numeric.rig", "match": "0b[01](?:_?[01])*"},
     {"name": "constant.numeric.rig", "match": "0o[0-7](?:_?[0-7])*"},

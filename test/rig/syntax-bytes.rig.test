@@ -1,0 +1,124 @@
+# syntax: byte literals `b'A'` and byte strings `b"AB"`.
+
+test "byte literal values", "65 10 92 39 34 27 13 9 0 255"
+  # `b'A'` is the integer literal of the byte; it takes the escapes of a
+  # double-quoted string.
+  print(b'A', b'\n', b'\\', b'\'', b'"', b'\x1b', b'\r', b'\t', b'\x00', b'\xFF')
+
+test "byte literal types", "65 122 49 true"
+  # A byte literal is typed from its context, as any integer literal is.
+  c: U8 = b'A'
+  u: U32 = b'z'
+  n: Int = b'0' + 1
+  print(c, u, n, c == b'A')
+
+test "byte literal beside a binding named b", "66"
+  # Only a `b` touching the quote starts a byte literal; a binding named
+  # `b` is still a name.
+  b = 1
+  print(b'A' + b)
+
+test "byte literal patterns", "cursor erase digit other"
+  # A byte literal is a pattern, and a range's bound.
+  fun act(c: U8) -> ?String
+    match c
+      b'H', b'f' => "cursor"
+      b'J' => "erase"
+      b'0'..b':' => "digit"
+      _ => "other"
+
+  print(act(b'f'), act(b'J'), act(b'7'), act(b'x'))
+
+fail "byte literal pattern overlaps", "4:5: this pattern overlaps an earlier arm"
+  fun act(c: U8) -> Int
+    match c
+      b'A' => 1
+      65 => 2
+      _ => 0
+
+  print(act(1))
+
+test "byte strings", '''
+  [104, 105, 10] 3
+  [97, 98, 99]
+  []
+  104
+  105
+'''
+  # `b"..."` is the array literal of its bytes, of type `[N]U8`, with no
+  # terminator; `b""` is an empty `[0]U8`.
+  x = b"hi\n"
+  y: [3]U8 = b"abc"
+  e = b""
+  print(x, x.len)
+  print(y)
+  print(e)
+  for c in b"hi"
+    print(c)
+
+test "byte module constants", '''
+  [27, 91, 72] 91
+  []
+  esc
+'''
+  # Byte literals and byte strings are constants.
+  ESC: U8 = b'\x1b'
+  HOME = b"\x1b[H"
+  NONE = b""
+
+  fun kind(c: U8) -> ?String
+    match c
+      ESC => "esc"
+      _ => "other"
+
+  sub main()
+    print(HOME, HOME[1])
+    print(NONE)
+    print(kind(HOME[0]))
+
+fail "byte string of the wrong length", "1:12: array literal has 3 elements; `[2]U8` needs 2"
+  y: [2]U8 = b"abc"
+  print(y)
+
+fail "empty byte literal", "1:7: a byte literal holds one byte"
+  print(b'')
+
+fail "byte literal of two bytes", "1:7: a byte literal holds one byte; `b\"AB\"` is an array of bytes"
+  print(b'AB')
+
+fail "byte literal of a non-ASCII character", "1:9: a byte literal holds ASCII characters alone; write a byte above 0x7F as `\\xNN`"
+  print(b'é')
+
+fail "byte string of a non-ASCII character", "1:10: a byte literal holds ASCII characters alone"
+  print(b"aé")
+
+fail "byte literal with a code point", "1:9: `\\u{...}` names a code point, not a byte; write `\\xNN`"
+  print(b'\u{41}')
+
+fail "byte string with a code point", "1:10: `\\u{...}` names a code point, not a byte"
+  print(b"a\u{41}")
+
+fail "byte literal with an unknown escape", "1:9: unknown escape in a byte literal"
+  print(b'\q')
+
+fail "byte literal with a raw control character", "1:9: control character in a byte literal; write it as an escape"
+  print(b'	')
+
+fail "byte string with a raw control character", "1:10: control character in a byte literal"
+  print(b"a	")
+
+fail "byte string is not a pattern", "a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant"
+  fun f(c: U8) -> Int
+    match c
+      b"A" => 1
+      _ => 0
+
+  print(f(1))
+
+fail "b apart from the quote", "2:9: unexpected"
+  b = 1
+  print(b 'A')
+
+fail "a name ending in b before a quote", "unexpected"
+  ab = 1
+  print(ab'A')

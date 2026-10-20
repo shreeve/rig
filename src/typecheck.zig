@@ -10209,6 +10209,8 @@ const Checker = struct {
                 return switch (h) {
                     .enum_lit, .symbol => true,
                     .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants"),
+                    // `U8(65)`: a constant integer as an integer type.
+                    .call => self.constInt(e) != null,
                     .not => self.isComptimeKnown(ir.get(e, .operand)),
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time

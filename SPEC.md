@@ -192,6 +192,51 @@ sub main()
 operands have different types `I32` and `Int`
 ```
 
+#### Byte literals
+
+`b'A'` is a byte: the integer literal of one ASCII character's byte,
+here `65`, typed from its context like any integer literal, and usable
+wherever one is, as a `match` pattern and a module constant included.
+`b"AB"` is a byte string: the array literal `[b'A', b'B']`, always of
+type `[N]U8`, with no terminator; `b""` is an empty `[0]U8`. A byte
+string goes wherever an array literal goes; it is not a pattern. Both
+take the escapes of a double-quoted string that name a byte: `\\`,
+`\'`, `\"`, `\n`, `\r`, `\t`, and `\xNN`. A `b'…'` holds exactly one
+byte, and neither holds a code point (`\u{…}`), a control character
+written raw, or a character outside ASCII, which takes two or more
+bytes. The `b` touches the quote: `b 'A'` is the name `b` and a string.
+A plain `'…'` is always a raw string.
+
+```rig
+ESC: U8 = b'\x1b'
+HOME = b"\x1b[H"
+
+fun act(c: U8) -> ?String
+  match c
+    ESC => "escape"
+    b'H', b'f' => "cursor"
+    b'0'..b':' => "digit"
+    _ => "other"
+
+sub main()
+  print(b'A', b'\n', HOME, HOME.len)
+  print(act(HOME[0]), act(b'H'), act(b'7'))
+```
+
+```output
+65 10 [27, 91, 72] 3
+escape cursor digit
+```
+
+```rig reject
+sub main()
+  print(b'AB')
+```
+
+```error
+a byte literal holds one byte; `b"AB"` is an array of bytes
+```
+
 ### Numeric conversions
 
 A numeric type's name converts a number to that type: `I32(x)`,
@@ -10284,7 +10329,7 @@ not parse, and their words and sigils stay reserved:
 | `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
 | `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
 | `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
-| string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
+| string, byte string, and float match patterns | `` a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):

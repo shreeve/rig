@@ -61,6 +61,16 @@ export default function (hljs) {
           {"match": "[^\\x00-\\x1f'\\x7f]|''"}
         ]
       },
+      {"scope": "number", "match": "b'(?:[^\\x00-\\x1f'\\\\\\x7f]|\\\\[^\\x00-\\x1f\\x7f])*'"},
+      {
+        "scope": "string",
+        "begin": "b\"",
+        "end": "\"",
+        "contains": [
+          {"scope": "char.escape", "match": "\\\\[^\\x00-\\x1f\\x7f]"},
+          {"match": "[^\\x00-\\x1f\"\\\\\\x7f]|\\\\[^\\x00-\\x1f\\x7f]"}
+        ]
+      },
       {"scope": "number", "match": "0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*"},
       {"scope": "number", "match": "0b[01](?:_?[01])*"},
       {"scope": "number", "match": "0o[0-7](?:_?[0-7])*"},

@@ -214,7 +214,8 @@ tools that take them in `bench/json/`.
 
 16. **No character literals.** std.json names 19 byte constants
     (`QUOTE`, `BACKSLASH`, `LBRACE`, ...) and writes `match` arms in hex.
-    Fix: `'"'`, `'\\'`, `'{'` as `U8` values. *Observed.*
+    Fix: `'"'`, `'\\'`, `'{'` as `U8` values. *Fixed (#374): `b'"'`
+    is a byte and `b"{}"` a byte string; `'…'` stays a raw string.*
 17. **An enum variant's name is not text.** `error_name` spells out all
     13 `Error` variants in a `match`. `print` shows a variant as `.ok`,
     and `$variants(T)` lists the values, but no expression gives the
