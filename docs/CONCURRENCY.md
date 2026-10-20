@@ -404,6 +404,37 @@ across a point where a task may wait. Its drop queue, drop depth, and
 print nesting move into each task's context. Moving a `List` to another
 core frees it there, so the program's allocator is thread-safe.
 
+## Local tasks
+
+A task given or lent a value that does not cross, where it would
+otherwise be rejected, is *local*: it is pinned to the thread of the
+task that makes it, and that task is pinned there too, from then on.
+What stays on one thread is then shared by tasks that run on that one
+thread only, so the `*T` and `~T` counts, a `Cell` of more than one
+word, a `Signal`, and a function's captures are never touched by two
+cores at once. The tasks take turns at their waits and yield checks, as
+any tasks on one worker do. So a GUI program's `*T`, `Cell`, and
+`Signal` code can use `&`.
+
+- **Implicit.** The checker makes a task local when its arguments or
+  self hold such a value (`sema.localBlocker`), and records it; nothing
+  marks it in the source, as nothing marks how a `Cell` is kept safe.
+- **What still stops it.** A set of tasks, a task or a write view lent
+  to read, and a function lent to read, which may lend what it captures
+  to write, are not held by two tasks at once even on one thread. A
+  channel's elements go to any task that holds a handle of it, so they
+  must cross whoever holds the channel.
+- **The scheduler.** A pinned fiber has a home worker. When it is ready
+  it waits in that worker's pinned queue, never in a ring or the global
+  queue, so no other worker steals it; the worker takes its pinned
+  fibers and its ring by turns. A wake from another worker or thread
+  puts the fiber in its home's queue and kicks the home's poller if it
+  sleeps. A local task waited for at once still runs by handoff, on the
+  same worker.
+- **The cost.** Local tasks share one core: they give concurrency, not
+  parallelism. A task that should run on another core is passed values
+  that cross: a `*Cell` of one word, a `Chan`, an actor, or a copy.
+
 ## Synchronized types
 
 A `Cell` of one word, `Chan[T]`, and `Actor[T]` are *synchronized*:
@@ -815,8 +846,8 @@ Each item gives the answer this document assumes.
 
     *Yes.*
 13. **Local tasks**, pinned to one thread, so that `*T`, `Cell`, and
-    `Signal` code (GUI programs) can use `&`. *Designed now, built in the
-    sixth step; until then such a task is rejected.*
+    `Signal` code (GUI programs) can use `&`; the checker makes a task
+    local when what it is passed stays on one thread. *Yes* (built).
 14. **The engine:** Rig's own `std.Io` implementation and scheduler, on
     the ten principles above. *Yes.*
 15. **Order of work**, each step its own pull request:

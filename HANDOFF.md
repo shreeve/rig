@@ -141,7 +141,12 @@ from).
     `task.select` commits exactly one of its arms (`tasks.Chan`,
     `selectArms`). `task.supervise(f, restarts:, per:)` runs a
     function isolated again after it fails or panics.
-    `bench/tasks` times it against Tokio and Go, and
+  - **Local tasks:** a task given or lent what stays on one thread (a
+    `*T` whose count is not atomic, a `Cell` of more than one word, a
+    `Signal`, a function) is local: it and the task making it are
+    pinned to one worker, whose pinned queue no other worker steals
+    from (`sema.localBlocker`, `Task.spawnLocal`, `sched.pinHere`).
+  - **The scheduler's cost:** `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds
     one stack page (17 KiB on the Mac), where Tokio's holds about 300
@@ -400,10 +405,10 @@ migration guide (`tools/migrate-0.3.py`).
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
 plan's second step, and its increments are done; the crossing facts, a
 `Cell` of one word across tasks, `par`, `time.within`, `task.isolate`,
-and actors with their idle path, deadlock detection, failure, and
-supervision are built): I/O,
-timers, and `http.serve` on Rig's own `std.Io`, whose blocking pool
-today serves only `std.file.read`.
+actors with their idle path, deadlock detection, failure, and
+supervision, I/O, timers, `http.serve`, channels, `select`,
+`supervise`, and local tasks are built): less memory per task, then
+the proofs of the concurrency model in formal/.
 
 **Later:**
 

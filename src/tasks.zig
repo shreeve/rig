@@ -46,6 +46,18 @@ pub fn Task(comptime T: type) type {
         /// `f(args...)&`: start the call as a task, which keeps the
         /// deadline of the task starting it.
         pub fn spawn(comptime f: anytype, args: anytype) Self {
+            return start(true, f, args);
+        }
+
+        /// `f(args...)&` for a local task: one given or lent a value that
+        /// stays on one thread (a `*` handle whose count is not atomic, a
+        /// Cell of more than one word, a Signal, a function). It and the
+        /// task starting it run on this thread from now on.
+        pub fn spawnLocal(comptime f: anytype, args: anytype) Self {
+            return start(true, f, args);
+        }
+
+        fn start(comptime local: bool, comptime f: anytype, args: anytype) Self {
             const Args = @TypeOf(args);
             // A fiber is on a stack of its own already, and the runtime
             // keeps its state per fiber. `run` gives `T` even where `f` is
@@ -64,7 +76,7 @@ pub fn Task(comptime T: type) type {
             // both. It keeps the isolate of the task starting it, which
             // records it before it can run (`Control.made`).
             const state = task();
-            const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate });
+            const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate }, local);
             return .{ .handle = .{ .job = made.job }, .control = made.extra };
         }
 
@@ -73,13 +85,22 @@ pub fn Task(comptime T: type) type {
         /// method that takes its receiver by value is given it here,
         /// before the task starts.
         pub fn spawnMethod(recv: anytype, comptime name: []const u8, args: anytype) Self {
+            return startMethod(false, recv, name, args);
+        }
+
+        /// `recv.name(args...)&` for a local task (`spawnLocal`).
+        pub fn spawnMethodLocal(recv: anytype, comptime name: []const u8, args: anytype) Self {
+            return startMethod(true, recv, name, args);
+        }
+
+        fn startMethod(comptime local: bool, recv: anytype, comptime name: []const u8, args: anytype) Self {
             const P = @TypeOf(recv);
             const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
             const ptr: Ptr = if (Ptr == P) recv else recv.*;
             const method = @field(@typeInfo(Ptr).pointer.child, name);
             const Receiver = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
-            if (@typeInfo(Receiver) == .pointer) return spawn(method, .{ptr} ++ args);
-            return spawn(method, .{ptr.*} ++ args);
+            if (@typeInfo(Receiver) == .pointer) return start(local, method, .{ptr} ++ args);
+            return start(local, method, .{ptr.*} ++ args);
         }
 
         /// `<t.wait()`: wait for the task to end and take its result. A

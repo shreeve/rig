@@ -192,6 +192,13 @@ every time; the suite runs each concurrency case again under seeds 1 to
    128 when it need not wait, so a descriptor always ready cannot keep
    it on its worker. A round of 10,000 tasks that sleep 5 ms ends about
    40% sooner than with the timer thread on the Mac.
+9. **Pinned fibers**: a local task, and the task that makes it, are
+   pinned to its worker (`Fiber.home`, `sched.pinHere`). A pinned fiber
+   that is ready waits in its worker's pinned queue, never a ring or the
+   global queue, so no worker steals it; the worker takes its pinned
+   fibers and its ring by turns. A wake from elsewhere queues it at
+   home, and kicks the home's poller while that worker sleeps
+   (`Worker.idle`).
 
 Each must not make `bench/tasks` slower on the benchmarks it touches;
 the step is done when `spawn`, `chain`, and `yield` are each within 1.2x
