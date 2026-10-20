@@ -20,7 +20,11 @@ starts; a program that makes none starts no workers.
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
-  never blocks; every `std.file` call does so. Sockets are registered
+  never blocks; every `std.file` call does so. `rig.blockingStop` makes
+  such a call a fallible waiting point: a cancel or the task's deadline
+  ends the wait, and the call runs on to its end on its thread, which
+  drops its result; its arguments live in the call's own state, a byte
+  slice among them copied, so nothing it reads is freed under it. Sockets are registered
   with the workers' pollers and wait there (`net.zig`, increment 8).
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
@@ -253,6 +257,19 @@ every time; the suite runs each concurrency case again under seeds 1 to
     check, and a task left in a busy worker's run-next slot is taken by
     an idle worker, so `t = f()&; g(); >t` runs `f` and `g` at once
     (`test/cli/sched_forkjoin.sh`).
+
+12. **Every poller watched, and the pool's threads counted**: while a
+    worker that does not sleep holds descriptors, one sleeping worker at
+    a time watches every poller (`sched.sleepIn`): it sleeps at most
+    1 ms, and as it wakes looks at every worker's poller, so a busy
+    worker's sockets wait no longer than that even when its own yield
+    checks do not come (in recursion, say), and it passes the watch on
+    as it goes back to work. A look at another worker's poller leaves the
+    kick it finds there, which that worker, about to sleep, needs. The
+    blocking pool counts a thread busy as it hands it a call, starts
+    threads outside its lock, up to `RIG_BLOCKING_THREADS` (64 by
+    default), and ends a thread idle 10 s; a cancel or a deadline ends a
+    wait on it (`rig.blockingStop`).
 
 Each increment is held to the gate in `bench/tasks/README.md`
 (`bench-tasks --gate`), which fails a benchmark more than 1.5 times

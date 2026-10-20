@@ -10311,6 +10311,9 @@ worker thread per core (`RIG_WORKERS` sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).
+A call that blocks its thread, as reading a file does, runs on a pool
+of threads while its task waits; `RIG_BLOCKING_THREADS` sets how many
+at most (64 by default), and a thread idle 10 seconds ends.
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in
 `main` does, unless an isolate stops it ([below](#isolating-a-panic)). If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task

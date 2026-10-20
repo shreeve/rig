@@ -779,9 +779,21 @@ const Poller = struct {
     /// Wait up to `timeout` nanoseconds (0: only look; null: until an
     /// event) for events, and wake the fibers waiting on what they make
     /// ready; whether any. One who cannot take the lock does nothing,
-    /// unless it means to wait.
+    /// unless it means to wait. A look that takes the poller's kick
+    /// leaves it there again: a worker looks at the pollers of others as
+    /// it goes to sleep (`serviceAll`), and at its own, and one of them,
+    /// or itself, may be between its last look for work and its sleep,
+    /// when a kick taken from under it would leave it asleep with work
+    /// queued for it.
     fn poll(p: *Poller, timeout: ?i96) bool {
-        if (timeout != null and timeout.? == 0) {
+        // A look, which leaves a kick it takes; but a deterministic run,
+        // on one thread, has no worker to leave it for, and waits a
+        // moment in its poller after a look (`advanceClock`), which a
+        // kick left there would end.
+        const look = timeout != null and timeout.? == 0 and !deterministic;
+        var kicked = false;
+        defer if (kicked) p.kick();
+        if (look) {
             if (!p.lock.tryLock()) return false;
         } else {
             while (p.removers.load(.seq_cst) != 0) std.atomic.spinLoopHint();
@@ -799,7 +811,10 @@ const Poller = struct {
             const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
-                if (ev.udata == 0) continue;
+                if (ev.udata == 0) {
+                    if (look) kicked = true;
+                    continue;
+                }
                 const r: *Registration = @ptrFromInt(ev.udata);
                 var bits: u32 = if (ev.filter == std.c.EVFILT.READ) Registration.readable else Registration.writable;
                 if (ev.flags & std.c.EV.EOF != 0) bits |= Registration.closed;
@@ -813,6 +828,10 @@ const Poller = struct {
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
+                    if (look) {
+                        kicked = true;
+                        continue;
+                    }
                     var drain: u64 = 0;
                     _ = linux_.read(p.kick_fd, std.mem.asBytes(&drain), 8);
                     continue;
@@ -828,6 +847,52 @@ const Poller = struct {
         return any;
     }
 };
+
+/// The sleeping worker that watches every poller, or none: while a
+/// worker that does not sleep holds descriptors, it sleeps no longer than
+/// `watch_every`, and as it wakes looks at every poller (`serviceAll`),
+/// so a busy worker's descriptors wait no longer than that for a look,
+/// even while its own yield checks do not come (`sleepIn`).
+var watcher: std.atomic.Value(?*Worker) = .init(null);
+
+/// How long at most the watching worker sleeps between looks.
+const watch_every: i96 = std.time.ns_per_ms;
+
+/// Whether a worker other than `w`, awake, holds descriptors: what the
+/// watcher looks at every poller for.
+fn busyDescriptors(w: ?*Worker) bool {
+    for (workers) |*v| {
+        if (v == w) continue;
+        if (v.poller.count.load(.monotonic) != 0 and v.idle.load(.seq_cst) == 0) return true;
+    }
+    return false;
+}
+
+/// Sleep in `w`'s poller up to `timeout`; when a worker that does not
+/// sleep holds descriptors and no other worker watches, watch: sleep at
+/// most `watch_every`, and look at every poller on waking. Gives whether
+/// it watched.
+fn sleepIn(w: *Worker, timeout: ?i96) bool {
+    if (workers.len < 2 or !busyDescriptors(w) or watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) != null) {
+        _ = w.poller.poll(timeout);
+        return false;
+    }
+    defer watcher.store(null, .seq_cst);
+    _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
+    serviceAll(w);
+    return true;
+}
+
+/// A watcher, or a worker holding descriptors while none watches, woke
+/// to run fibers: while a worker that does not sleep holds descriptors,
+/// have a sleeping worker look again, and watch (`sleepIn`).
+fn passWatch() void {
+    if (!busyDescriptors(null)) return;
+    sleepers.lock.lock();
+    const next_up = sleepers.top;
+    sleepers.lock.unlock();
+    if (next_up) |v| v.poller.kick();
+}
 
 /// A file descriptor a poller watches: what it has seen the descriptor
 /// become ready for since a wait last took it, and the fibers waiting to
@@ -1001,104 +1066,294 @@ fn serviceAll(w: *Worker) void {
 
 /// Threads that run calls which block the thread they run on (reading a
 /// file, say), so no worker blocks on one: a fiber that makes such a call
-/// waits, and the pool thread that ran it wakes it. A pool thread is
-/// started when a call finds none idle, up to `max_pool`.
+/// waits, and the pool thread that ran it wakes it. A call counts a
+/// thread busy as it is handed one (`submit`); a call that finds none
+/// idle starts one, outside the lock, up to `RIG_BLOCKING_THREADS` (64
+/// by default); a thread idle `retire_after` ends.
 const Pool = struct {
     lock: SpinLock = .{},
     head: ?*Call = null,
     tail: ?*Call = null,
+    /// Threads waiting for a call: `idle` of them free, and `reserved`
+    /// counted busy by a call queued for one, never more than the calls
+    /// queued (`queued`).
     idle: u32 = 0,
-    threads: std.ArrayList(std.Thread) = .empty,
+    reserved: u32 = 0,
+    queued: u32 = 0,
+    /// Threads running, idle or not.
+    threads: u32 = 0,
     word: std.atomic.Value(u32) = .init(0),
+    /// The most threads it runs, read from `RIG_BLOCKING_THREADS` once.
+    max: u32 = 0,
 
-    const max_pool = 64;
+    const default_max = 64;
 
     fn submit(p: *Pool, c: *Call) void {
         p.lock.lock();
+        if (p.max == 0) p.max = poolMax();
         c.next = null;
         if (p.tail) |t| t.next = c else p.head = c;
         p.tail = c;
-        if (p.idle == 0 and p.threads.items.len < max_pool) {
-            const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
-            p.threads.append(std.heap.smp_allocator, th) catch rt.oom();
+        p.queued += 1;
+        var start = false;
+        if (p.idle > 0) {
+            p.idle -= 1;
+            p.reserved += 1;
+        } else if (p.threads < p.max) {
+            p.threads += 1;
+            start = true;
         }
         p.lock.unlock();
+        if (start) {
+            const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
+            th.detach();
+            return;
+        }
         _ = p.word.fetchAdd(1, .seq_cst);
         rt.io().futexWake(u32, &p.word.raw, 1);
     }
 
-    fn take(p: *Pool) ?*Call {
+    /// The next call, for a thread that waited for it when `waited`: it
+    /// fills a reservation, if there is one, and is otherwise no longer
+    /// free.
+    fn take(p: *Pool, waited: bool) ?*Call {
         const c = p.head orelse return null;
         p.head = c.next;
         if (p.head == null) p.tail = null;
+        p.queued -= 1;
+        if (waited) {
+            if (p.reserved > 0) p.reserved -= 1 else p.idle -= 1;
+        } else if (p.reserved > p.queued) {
+            // A busy thread took the call a waiting one was reserved for,
+            // which is free again.
+            p.reserved -= 1;
+            p.idle += 1;
+        }
         return c;
     }
 
+    /// As `main` ends: wake the idle threads, which end, and wait for
+    /// every thread to end, up to `stop_wait` for one still running a
+    /// call a fiber gave up waiting for (`blockingStop`), which may never
+    /// return: the process then ends under it.
     fn stop(p: *Pool) void {
-        _ = p.word.fetchAdd(1, .seq_cst);
-        rt.io().futexWake(u32, &p.word.raw, std.math.maxInt(u32));
-        for (p.threads.items) |th| th.join();
-        p.threads.deinit(std.heap.smp_allocator);
-        p.threads = .empty;
+        const since = nowReal();
+        while (true) {
+            _ = p.word.fetchAdd(1, .seq_cst);
+            rt.io().futexWake(u32, &p.word.raw, std.math.maxInt(u32));
+            p.lock.lock();
+            const left = p.threads;
+            p.lock.unlock();
+            if (left == 0 or nowReal() - since >= stop_wait) return;
+            std.Thread.yield() catch {};
+        }
     }
+
+    const stop_wait: i96 = std.time.ns_per_s;
 };
 
-/// A call for the blocking pool: how to run it, and the wait it ends.
+/// How long a pool thread waits for a call before it ends.
+var retire_after: i96 = 10 * std.time.ns_per_s;
+
+fn poolMax() u32 {
+    if (rt.process) |p| if (p.environ.getPosix("RIG_BLOCKING_THREADS")) |v| {
+        const n = std.fmt.parseInt(u32, v, 10) catch 0;
+        if (n > 0) return n;
+    };
+    return Pool.default_max;
+}
+
+
+/// A call for the blocking pool: how to run it, and how to end the wait
+/// of the fiber that made it.
 const Call = struct {
     run: *const fn (*Call) void,
-    fiber: *Fiber,
-    epoch: u32,
     next: ?*Call = null,
 };
 
 var pool: Pool = .{};
 
 fn poolMain(p: *Pool) void {
+    p.lock.lock();
+    // Started for a call: it is busy, not among the threads waiting.
+    var waited = false;
     while (true) {
-        const seen = p.word.load(.seq_cst);
-        p.lock.lock();
-        const c = p.take() orelse {
-            if (stopping.load(.acquire)) {
+        if (p.take(waited)) |c| {
+            p.lock.unlock();
+            c.run(c);
+            p.lock.lock();
+            waited = false;
+            continue;
+        }
+        if (stopping.load(.acquire)) {
+            p.threads -= 1;
+            p.lock.unlock();
+            return;
+        }
+        p.idle += 1;
+        waited = true;
+        const since = nowReal();
+        while (true) {
+            const seen = p.word.load(.seq_cst);
+            p.lock.unlock();
+            rt.io().futexWaitTimeout(u32, &p.word.raw, seen, .{ .duration = .{ .raw = .{ .nanoseconds = retire_after }, .clock = .awake } }) catch {};
+            p.lock.lock();
+            if (p.head != null) break;
+            // No call: end once idle long enough, or as `main` ends. With
+            // none queued, none is reserved, so this thread is free.
+            if (stopping.load(.acquire) or nowReal() - since >= retire_after) {
+                p.idle -= 1;
+                p.threads -= 1;
                 p.lock.unlock();
                 return;
             }
-            p.idle += 1;
-            p.lock.unlock();
-            rt.io().futexWaitUncancelable(u32, &p.word.raw, seen);
-            p.lock.lock();
-            p.idle -= 1;
-            p.lock.unlock();
-            continue;
-        };
-        p.lock.unlock();
-        c.run(c);
-        _ = interrupt(c.fiber, c.epoch, false);
+        }
     }
+}
+
+/// The real monotonic clock, in nanoseconds, even in a deterministic run.
+fn nowReal() i96 {
+    return std.Io.Timestamp.now(rt.io(), .awake).nanoseconds;
 }
 
 /// `f(args...)`, a call that may block its thread: on the blocking pool,
 /// while the fiber making it waits, so its worker runs other fibers.
-/// Outside every fiber, it runs here.
+/// Outside every fiber, and in a deterministic run, it runs here. No
+/// cancel or deadline ends the wait (`blockingStop` is the waiting point
+/// that does).
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (deterministic or current() == null) return @call(.auto, f, args);
+    return switch (poolCall(f, args, false)) {
+        .done => |r| r,
+        .canceled, .timeout => unreachable,
+    };
+}
+
+/// How a call on the blocking pool ended for the fiber waiting on it.
+pub fn PoolResult(comptime R: type) type {
+    return union(enum) { done: R, canceled, timeout };
+}
+
+/// `f(args...)` on the blocking pool as a waiting point: a cancel of the
+/// running task, or its deadline, ends the wait (`.canceled`,
+/// `.timeout`) while the call runs on to its end on its thread, which
+/// then drops its result (`rt.dropElement`). So the call must not point
+/// into the waiter's frame: `args` are copied into the call's own state,
+/// a `[]const u8` or `[]u8` among them copied with what it points to,
+/// and freed once `f` returns; anything else they point to must outlive
+/// the call. A task canceled, or past its deadline, before the call
+/// starts does not make it. Outside every fiber, and in a deterministic
+/// run, it runs here.
+pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
+    if (deterministic or current() == null) return .{ .done = @call(.auto, f, args) };
+    return poolCall(f, args, true);
+}
+
+fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
-    // Deterministic, it runs here: no other thread could end its wait
-    // in an order the seed decides.
-    if (deterministic) return @call(.auto, f, args);
-    const fiber = current() orelse return @call(.auto, f, args);
+    const Args = @TypeOf(args);
+    const fiber = current().?;
     const C = struct {
-        call: Call,
-        args: @TypeOf(args),
+        call: Call = .{ .run = run },
+        args: Args,
         result: R = undefined,
+        /// `pending` until the call returns, then `finishing` while its
+        /// thread wakes the waiter, then `done`; or `abandoned`, once
+        /// the waiter gave up, when the thread frees it all.
+        state: std.atomic.Value(u8) = .init(pending),
+        fiber: *Fiber,
+        epoch: std.atomic.Value(u32) = .init(0),
+
+        const pending = 0;
+        const finishing = 1;
+        const done = 2;
+        const abandoned = 3;
+        const Self = @This();
 
         fn run(c: *Call) void {
-            const self: *@This() = @fieldParentPtr("call", c);
+            const self: *Self = @fieldParentPtr("call", c);
             self.result = @call(.auto, f, self.args);
+            freeArgs(&self.args);
+            if (self.state.cmpxchgStrong(pending, finishing, .seq_cst, .seq_cst) != null) {
+                // The waiter gave up: no one takes the result.
+                rt.dropElement(R, &self.result);
+                std.heap.smp_allocator.destroy(self);
+                return;
+            }
+            _ = interrupt(self.fiber, self.epoch.load(.seq_cst), false);
+            self.state.store(done, .seq_cst);
         }
     };
-    var c: C = .{ .call = .{ .run = C.run, .fiber = fiber, .epoch = beginWait(false) }, .args = args };
+    const c = std.heap.smp_allocator.create(C) catch rt.oom();
+    c.* = .{ .args = args, .fiber = fiber };
+    ownArgs(&c.args);
+    if (stoppable) if (stopReason(fiber)) |why| {
+        freeArgs(&c.args);
+        std.heap.smp_allocator.destroy(c);
+        return stopped(R, why);
+    };
+    c.epoch.store(beginWait(stoppable), .seq_cst);
     pool.submit(&c.call);
-    commitWait(c.call.epoch, null);
-    return c.result;
+    const deadline = if (stoppable) fiber.state.deadline else null;
+    while (true) {
+        switch (c.state.load(.seq_cst)) {
+            C.done => break,
+            C.finishing => {
+                std.atomic.spinLoopHint();
+                continue;
+            },
+            else => {},
+        }
+        if (stoppable) if (stopReason(fiber)) |why| {
+            if (c.state.cmpxchgStrong(C.pending, C.abandoned, .seq_cst, .seq_cst) == null) return stopped(R, why);
+            continue;
+        };
+        commitWait(c.epoch.load(.monotonic), deadline);
+        if (c.state.load(.seq_cst) != C.pending) continue;
+        c.epoch.store(beginWait(stoppable), .seq_cst);
+    }
+    const r = c.result;
+    std.heap.smp_allocator.destroy(c);
+    return .{ .done = r };
+}
+
+/// Why the fiber `f` stops waiting, if it does: its task is canceled, or
+/// its deadline has passed.
+fn stopReason(f: *Fiber) ?PoolResultTag {
+    if (isCanceled(f)) return .canceled;
+    if (f.state.deadline) |d| if (nowNs() >= d) return .timeout;
+    return null;
+}
+
+const PoolResultTag = enum { canceled, timeout };
+
+fn stopped(comptime R: type, why: PoolResultTag) PoolResult(R) {
+    return switch (why) {
+        .canceled => .canceled,
+        .timeout => .timeout,
+    };
+}
+
+/// Copy each byte slice among `args` into memory of its own.
+fn ownArgs(args: anytype) void {
+    const info = @typeInfo(@TypeOf(args.*)).@"struct";
+    inline for (info.field_names, info.field_types) |name, T| {
+        if (comptime isBytes(T)) {
+            const s = @field(args.*, name);
+            @field(args.*, name) = std.heap.smp_allocator.dupe(u8, s) catch rt.oom();
+        }
+    }
+}
+
+fn freeArgs(args: anytype) void {
+    const info = @typeInfo(@TypeOf(args.*)).@"struct";
+    inline for (info.field_names, info.field_types) |name, T| {
+        if (comptime isBytes(T)) std.heap.smp_allocator.free(@field(args.*, name));
+    }
+}
+
+fn isBytes(comptime T: type) bool {
+    return T == []const u8 or T == []u8;
 }
 
 /// Stop running until another fiber wakes this one (`wake`). `after`
@@ -1436,17 +1691,36 @@ fn sleep(w: *Worker) void {
     w.idle.store(1, .seq_cst);
     defer w.idle.store(0, .seq_cst);
     sleepers.push(w);
-    if (stopping.load(.seq_cst) or (searching.load(.seq_cst) == 0 and hasWork())) {
+    if (stopping.load(.seq_cst)) {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
+    if (searching.load(.seq_cst) == 0 and hasWork()) {
+        // Work made while it went to sleep, which woke no one: it looks
+        // for it again as a searching worker, so once it finds some, it
+        // wakes another for the rest (`loop`), as Go's scheduler does
+        // (formal/Models/Sleep.lean).
+        if (sleepers.remove(w)) {
+            w.searching = true;
+            _ = searching.fetchAdd(1, .seq_cst);
+        } else waitWoken(w);
+        return;
+    }
+    // A worker that watched every poller and goes back to work passes the
+    // watch on.
+    var was_watcher = false;
+    defer if (was_watcher or (w.poller.count.load(.monotonic) != 0 and watcher.load(.seq_cst) == null)) {
+        // Awake from here on, so the sleeper kicked sees this worker busy.
+        w.idle.store(0, .seq_cst);
+        passWatch();
+    };
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll(w);
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
-            _ = w.poller.poll(if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0));
+            if (sleepIn(w, if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0))) was_watcher = true;
             w.sleep_due.store(awake, .seq_cst);
             if (!hasOwnWork(w)) continue;
         }
@@ -3041,4 +3315,171 @@ test "a run-next fiber that wakes no worker is handed on at its maker's next rec
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.in_time);
+}
+
+test "an idle worker wakes for the descriptors of a busy one" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var read = std.atomic.Value(bool).init(false);
+        var in_time = false;
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            if (waitReady(r, Registration.readable, null, false) == .ready) read.store(true, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            // Pinned, so this worker stays busy with it, and holds the
+            // descriptor, registered here.
+            _ = pinHere();
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false).job;
+            // The reader runs here and waits; the other worker goes to
+            // sleep with nothing to do.
+            yield();
+            testNap(20 * std.time.ns_per_ms);
+            // Busy a while, so the other worker, woken for this one's
+            // timer, has gone back to sleep with nothing to wake it for.
+            const until = nowNs() + 30 * std.time.ns_per_ms;
+            while (nowNs() < until) std.atomic.spinLoopHint();
+            _ = std.posix.system.write(fds[1], "x", 1);
+            in_time = testSpinUntil(&read, false);
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.in_time);
+}
+
+fn testSleepReal(ms: u64) u64 {
+    std.Io.sleep(rt.io(), .fromNanoseconds(@intCast(ms * std.time.ns_per_ms)), .awake) catch {};
+    return ms;
+}
+
+test "the blocking pool runs calls at once, counting a thread busy as it hands it a call, and keeps to its most" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var together: i96 = 0;
+        var one_thread: i96 = 0;
+        const Unit = struct {};
+        fn caller(_: *Unit, ms: u64) u64 {
+            return blocking(testSleepReal, .{ms});
+        }
+        fn pair() i96 {
+            const start = nowNs();
+            const a = spawn(u64, Unit, caller, .{100}, .{}, false).job;
+            const b = spawn(u64, Unit, caller, .{100}, .{}, false).job;
+            _ = a.join();
+            _ = b.join();
+            a.free();
+            b.free();
+            return nowNs() - start;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            // At most one thread: the two calls take turns.
+            one_thread = pair();
+            // As many as `RIG_BLOCKING_THREADS` gives. One thread is idle:
+            // the first call is handed it, and the second, finding none
+            // idle, starts another.
+            pool.lock.lock();
+            pool.max = 0;
+            pool.lock.unlock();
+            together = pair();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    pool.max = 1;
+    defer pool.max = 0;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.together < 180 * std.time.ns_per_ms);
+    try std.testing.expect(Run.one_thread >= 200 * std.time.ns_per_ms);
+}
+
+test "a cancel or a deadline ends a wait on the blocking pool, and the call runs on" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var timed: PoolResult(u64) = .{ .done = 0 };
+        var canceled: PoolResult(u64) = .{ .done = 0 };
+        var done: PoolResult(u64) = .canceled;
+        var took: i96 = 0;
+        var ctl: TestControl = .{};
+        var path_ok = std.atomic.Value(bool).init(false);
+        const Unit = struct {};
+        fn slowEcho(path: []const u8) u64 {
+            _ = testSleepReal(300);
+            if (std.mem.eql(u8, path, "a path")) path_ok.store(true, .seq_cst);
+            return path.len;
+        }
+        fn late(_: *Unit) u8 {
+            const f = current().?;
+            f.state.control = &ctl;
+            ctl.fiber = f;
+            canceled = blockingStop(testSleepReal, .{300});
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const f = current().?;
+            // A deadline: the wait ends at it, and the call, whose path
+            // the waiter's frame no longer holds, runs on.
+            var path_buf = "a path".*;
+            const start = nowNs();
+            f.state.deadline = start + 20 * std.time.ns_per_ms;
+            timed = blockingStop(slowEcho, .{@as([]const u8, &path_buf)});
+            took = nowNs() - start;
+            f.state.deadline = null;
+            @memset(&path_buf, 'z');
+            // A cancel.
+            const j = spawn(u8, Unit, late, .{}, .{}, false).job;
+            testNap(20 * std.time.ns_per_ms);
+            ctl.cancel();
+            _ = j.join();
+            j.free();
+            done = blockingStop(testSleepReal, .{1});
+            testNap(400 * std.time.ns_per_ms);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.timed == .timeout);
+    try std.testing.expect(Run.took < 200 * std.time.ns_per_ms);
+    try std.testing.expect(Run.canceled == .canceled);
+    try std.testing.expect(Run.done == .done);
+    try std.testing.expect(Run.path_ok.load(.seq_cst));
+}
+
+test "a pool thread idle long enough ends" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var after: u32 = 99;
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            _ = blocking(testSleepReal, .{1});
+            testNap(300 * std.time.ns_per_ms);
+            pool.lock.lock();
+            after = pool.threads;
+            pool.lock.unlock();
+        }
+    };
+    retire_after = 50 * std.time.ns_per_ms;
+    defer retire_after = 10 * std.time.ns_per_s;
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u32, 0), Run.after);
 }
