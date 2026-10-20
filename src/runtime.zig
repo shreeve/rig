@@ -2282,6 +2282,14 @@ pub fn fill(dst: anytype, value: std.meta.Elem(@TypeOf(dst))) void {
     @memset(dst, value);
 }
 
+/// `xs.sum()`, `xs.sum(start: n)`: the elements added in order to
+/// `from`, the start, each as `+` adds them.
+pub fn sum(items: anytype, from: std.meta.Elem(@TypeOf(items))) std.meta.Elem(@TypeOf(items)) {
+    var total = from;
+    for (items) |x| total += x;
+    return total;
+}
+
 /// `!s.swap(i, j)`: panics unless both indexes are in range.
 pub fn swap(items: anytype, i: anytype, j: anytype) void {
     const a = index(i, items.len);

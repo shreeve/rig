@@ -6426,6 +6426,14 @@ pub const Emitter = struct {
                 try self.emitBare(args[0]);
                 return self.w.writeAll("))");
             },
+            // `rig.sum(elems, start)`, `0` when none is given.
+            .sum => {
+                try self.w.writeAll("rig.sum(");
+                try self.emitElems(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                if (args.len == 1) try self.emitBare(ir.get(args[0], .value)) else try self.w.writeAll("0");
+                return self.w.writeAll(")");
+            },
             // `rig.hash(x)`, of the value the receiver reaches.
             .hash => {
                 try self.w.writeAll("rig.hash(");

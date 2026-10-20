@@ -865,6 +865,25 @@ sub main()
 [0, 8, 7, 0, 0, 9] ["y", "x"]
 ```
 
+One method reads them: `xs.sum()` adds the elements of a `[]T`, an
+array, or a List of numbers in order, each as `+` adds, so an `Int` sum
+that overflows panics as `+` does. It starts from `0`, or from
+`xs.sum(start: n)`, and gives a value of the elements' type, `0` (or
+`n`) when there are none.
+
+```rig
+sub main()
+  a = [1, 2, 3]
+  xs = List[Float]()
+  !xs.push(1.5)
+  !xs.push(2.25)
+  print(a.sum(), a.sum(start: 10), xs.sum(), ?a[1..].sum())
+```
+
+```output
+6 16 3.75 5
+```
+
 A recursive function passes on write slices of its own write slice:
 
 ```rig

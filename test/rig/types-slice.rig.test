@@ -436,3 +436,43 @@ fail "slice write", "7:8: cannot lend parameter `a` to write", "8:8: cannot lend
     y = !row[..]
     print(y)
   print(w, x)
+
+test "slice sum", '''
+  6 30 35 3.75 0 251
+  6 30 5
+'''
+  # `sum` adds the elements of an array, a List, or a slice of numbers in
+  # order, from `0` or from `start:`, and gives their type.
+  fun total(xs: []Int) -> Int
+    xs.sum()
+
+  a = [1, 2, 3]
+  xs = List[Int]()
+  !xs.push(10)
+  !xs.push(20)
+  fs = [1.5, 2.25]
+  bs = [U8(200), U8(50)]
+  empty = List[Int]()
+  print(a.sum(), xs.sum(), xs.sum(start: 5), fs.sum(), empty.sum(), bs.sum(start: U8(1)))
+  print(total(?a), total(?xs), ?a[1..].sum())
+
+bomb "slice sum overflow", "integer overflow"
+  # An Int sum overflows as `+` does.
+  xs = [Int.max, 1]
+  print(xs.sum())
+
+fail "slice sum numbers", "`sum` adds numbers: an `Int`, a `Float`, or a sized integer or float; the elements of `List[String]` are `String`", errors: 1
+  xs = List[String]()
+  print(xs.sum())
+
+fail "slice sum text", "`sum` adds numbers, and `Static` is text", errors: 1
+  s = "abc"
+  print(s.sum())
+
+fail "slice sum start", "`sum` takes only a starting value, by name: `xs.sum(start: 10)`", errors: 1
+  xs = [1, 2]
+  print(xs.sum(3))
+
+fail "slice sum reads", "`sum` only reads its elements; remove the `!`", errors: 1
+  xs = [1, 2]
+  print(!xs.sum())
