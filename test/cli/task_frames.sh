@@ -38,7 +38,7 @@ fun nap() -> Int!
   task.check()!
   1
 
-sub main()
+sub main()!
   t = big(3)&
   ts = Tasks[Int!]()
   for 0..4
@@ -46,7 +46,7 @@ sub main()
   xs = >ts catch List[Int]()
   u = nap()&
   r = <u.cancel() catch 0
-  text = file.read("tasks.rig") ?? String("")
+  text = file.read("tasks.rig")! ?? String("")
   print(>t, xs.len, r, text.len > 0)
 EOF2
 
