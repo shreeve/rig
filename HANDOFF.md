@@ -130,7 +130,9 @@ from).
     ([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
     Each worker sleeps in a poller of its own (kqueue, epoll), with its
     own heap of timers; a fiber can wait for a file descriptor to be
-    ready (`sched.waitReady`), which `std.net` builds on next.
+    ready (`sched.waitReady`). `std.net` builds TCP listeners and
+    streams on it, as fast as Tokio's and Go's on loopback (bench/net);
+    `std.http` and `http.serve` come next.
     `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds

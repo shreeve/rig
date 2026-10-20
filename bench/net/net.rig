@@ -1,0 +1,102 @@
+# Rig's TCP sockets timed three ways (bench/net/README.md): one
+# connection's round trips of 64 bytes (pingpong), 100 connections'
+# round trips at once (echo), and connections made, used once, and
+# closed (connect). An echo server in the same program answers each.
+# Prints `NAME NS CHECK` per benchmark (bench/net/bench-net); the checks
+# must agree with main.go's and main.rs's.
+
+use std.net
+use std.time
+
+PING = 20000
+ECHO_CONNS = 100
+ECHO_TRIPS = 1000
+CONNECTS = 500
+SIZE = 64
+
+# Echo what one connection sends until it closes; the bytes it echoed.
+fun echo(c: net.Stream) -> Int!
+  new s = <c
+  total = 0
+  buf = String()
+  while true
+    n = (!s).read(!buf, 4096)!
+    if n == 0
+      break
+    total += n
+    (!s).write(?buf)!
+    buf = String()
+  total
+
+# Take `conns` connections, each echoed by a task of its own.
+fun serve(l: net.Listener, conns: Int) -> Int!
+  ts = Tasks[Int!]()
+  for 0..conns
+    !ts.add(echo(l.accept()!)&)
+  xs = <ts.wait_all()!
+  sum = 0
+  for x in xs
+    sum += x
+  sum
+
+# `trips` round trips of SIZE bytes on a new connection to `port`.
+fun client(port: Int, msg: ?String, trips: Int) -> Int!
+  c = net.connect(String("127.0.0.1:", port))!
+  back = 0
+  for 0..trips
+    (!c).write(msg)!
+    got = String()
+    while got.len < SIZE
+      _ = (!c).read(!got, 4096)!
+    back += got.len
+  back
+
+fun message() -> String
+  m = String()
+  for 0..SIZE
+    !m.push(120)
+  m
+
+called sub pingpong()!
+  msg = message()
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  s = serve(<l, 1)&
+  t = time.now()
+  back = client(port, ?msg, PING)!
+  ns = t.elapsed()
+  echoed = <s.wait()!
+  print("pingpong", ns, back + echoed)
+
+called sub echoes()!
+  msg = message()
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  s = serve(<l, ECHO_CONNS)&
+  t = time.now()
+  cs = Tasks[Int!]()
+  for 0..ECHO_CONNS
+    !cs.add(client(port, ?msg, ECHO_TRIPS)&)
+  ys = <cs.wait_all()!
+  ns = t.elapsed()
+  back = 0
+  for y in ys
+    back += y
+  print("echo", ns, back + <s.wait()!)
+
+called sub connects()!
+  msg = message()
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  s = serve(<l, CONNECTS)&
+  t = time.now()
+  back = 0
+  for 0..CONNECTS
+    back += client(port, ?msg, 1)!
+  ns = t.elapsed()
+  print("connect", ns, back + <s.wait()!)
+
+sub main()!
+  pingpong()!
+  echoes()!
+  connects()!

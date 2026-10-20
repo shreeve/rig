@@ -1,0 +1,125 @@
+# std.net: tests whose names start `net`.
+use std.net
+
+test "net echo", seeds: 20, '''
+  true
+  hello
+  5
+'''
+  # A listener takes a connection, and a task echoes what it reads until
+  # the other end closes, which reads as 0.
+  fun serve(l: net.Listener) -> Int!
+    c = l.accept()!
+    buf = String()
+    total = 0
+    while true
+      n = (!c).read(!buf, 4096)!
+      if n == 0
+        break
+      total += n
+      (!c).write(?buf)!
+      buf = String()
+    total
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  print(port > 0)
+  t = serve(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  (!c).write("hello")!
+  got = String()
+  while got.len < 5
+    _ = (!c).read(!got, 100)!
+  print(got)
+  _ = <c
+  print(<t.wait()!)
+
+test "net many connections", seeds: 20, "20000 20000"
+  # Each connection is a task of its own; every byte comes back.
+  fun conn(c: net.Stream) -> Int!
+    new s = <c
+    total = 0
+    buf = String()
+    while true
+      n = (!s).read(!buf, 4096)!
+      if n == 0
+        break
+      total += n
+      (!s).write(?buf)!
+      buf = String()
+    total
+
+  fun serve(l: net.Listener, conns: Int) -> Int!
+    ts = Tasks[Int!]()
+    for 0..conns
+      !ts.add(conn(l.accept()!)&)
+    xs = <ts.wait_all()!
+    sum = 0
+    for x in xs
+      sum += x
+    sum
+
+  fun client(port: Int, msgs: Int) -> Int!
+    c = net.connect(String("127.0.0.1:", port))!
+    back = 0
+    for 0..msgs
+      (!c).write("0123456789")!
+      got = String()
+      while got.len < 10
+        _ = (!c).read(!got, 64)!
+      back += got.len
+    back
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  s = serve(<l, 40)&
+  cs = Tasks[Int!]()
+  for 0..40
+    !cs.add(client(port, 50)&)
+  ys = <cs.wait_all()!
+  back = 0
+  for y in ys
+    back += y
+  print(back, <s.wait()!)
+
+test "net errors", seeds: 20, '''
+  NetError.refused
+  Stop.timeout
+  NetError.address
+'''
+  # Connecting where no one listens is refused; an accept past its
+  # deadline fails with `Stop.timeout`; an address must parse.
+  use std.time
+
+  fun try_connect(port: Int) -> Int
+    c = net.connect(String("127.0.0.1:", port)) catch |e|
+      print(e)
+      return -1
+    1
+
+  fun wait_accept(l: ?net.Listener) -> Int
+    c = time.within(20 * time.MS, |?l| l.accept()!) catch |e|
+      print(e)
+      return -1
+    1
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  _ = <l
+  _ = try_connect(port)
+  m = net.listen("127.0.0.1:0")!
+  _ = wait_accept(?m)
+  _ = net.listen("nonsense") catch |e|
+    print(e)
+    net.listen(":0")!
+
+test "net without tasks", "ping"
+  # A program that makes no tasks waits on its own thread.
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  (!c).write("ping")!
+  s = l.accept()!
+  got = String()
+  while got.len < 4
+    _ = (!s).read(!got, 10)!
+  print(got)
