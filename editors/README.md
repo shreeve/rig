@@ -7,6 +7,20 @@ Server Protocol. The grammars are generated from `rig.grammar` by Nexus
 generated file by hand. Each starts with a header naming the grammar it
 came from.
 
+The grammars colour the keywords, types, builtins, labels, symbols,
+strings with their escapes, and the forms Rig rejects. They tell a
+sigil from the operator that shares its character by what touches it:
+a prefix sigil touching its operand (`<x` `?x` `!x` `+x` `^x` `*x`
+`~x`, in a chain such as `?*T` or `*<x`, and after the `]` of a slice
+or array type, `[]?T`), the wait `>t` and `>ts`, a suffix `?` or `!`
+(`f()!`, `T?`), and the `&` that makes a call a task, `f(x)&`. So
+`a > b`, `a >= b`, `a >> b`, `a & b` and `f()&b` stay operators. A
+contextual word (`new`, `obj`, `of`, `unique`, `from`, `static`,
+`keeps`, and `inline`, `called` and `rarely` before `fun` or `sub`) is
+a keyword where its line shows the parser reads one, and a name
+elsewhere; the language server's semantic tokens, below, give each
+word the kind the compiler gives it.
+
 | Directory | What it is |
 |---|---|
 | `vscode/` | A VS Code extension: `syntaxes/rig.tmLanguage.json` and `language-configuration.json` (generated), `package.json`, and `extension.js`, the language server's client |
