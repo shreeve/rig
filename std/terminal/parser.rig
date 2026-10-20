@@ -1,8 +1,9 @@
 # The parser of std.terminal: the DEC state machine of vt100.net
 # (https://vt100.net/emu/dec_ansi_parser), as Ghostty runs it, turning
-# bytes into the operations of terminal.rig. Strings (OSC, DCS, SOS, PM,
-# and APC) are read to their end and ignored so far, and so are bytes of
-# 0x80 and up.
+# bytes into the operations of terminal.rig. In the ground state bytes are
+# UTF-8, read by utf8.Decoder, as Ghostty reads them; in a sequence a byte
+# from 0x80 to 0x9F is a C1 control. Strings (OSC, DCS, SOS, PM, and APC)
+# are read to their end and ignored so far.
 
 ESC: U8 = b'\x1b'
 CAN: U8 = b'\x18'
@@ -19,7 +20,14 @@ enum State
   csi_intermediate
   csi_ignore
   osc
-  string
+  # DCS: its parameters and intermediates, then its body (passthrough, or
+  # ignored when malformed), where C1 bytes are data.
+  dcs_entry
+  dcs_param
+  dcs_intermediate
+  dcs_body
+  # SOS, PM, and APC, to ST.
+  apc
 
 # The most parameters a CSI sequence may have; one with more does nothing.
 MAX_PARAMS = 24
@@ -28,29 +36,37 @@ MAX_PARAMS = 24
 MAX_PARAM = 65535
 
 # Take `bytes` as a program's output, in order. In the ground state a run
-# of printable bytes goes to `print_run` whole.
+# of printable ASCII goes to `print_run` whole, and a byte of 0x80 or more
+# (or any byte while a rune is under way) to the UTF-8 decoder.
 pub sub Terminal.feed(!@, bytes: ?String)
   i = 0
   n = bytes.len
   while i < n
+    b = bytes[i]
     if @state == .ground
-      j = printable_end(bytes, i)
-      if j > i
-        (!@).print_run(bytes, i, j)
-        i = j
-        continue
-      # The commonest controls, run here without the state machine.
-      b = bytes[i]
-      if b == b'\r'
-        (!@).carriage_return()
-        i += 1
-        continue
-      if b == b'\n'
-        (!@).index()
-        (!@).carriage_return() if @newline
-        i += 1
-        continue
-    (!@).step(bytes[i])
+      if not @decoder.pending()
+        j = printable_end(bytes, i)
+        if j > i
+          (!@).print_run(bytes, i, j)
+          i = j
+          continue
+        if b < 0x80
+          # The commonest controls, run here without the state machine.
+          if b == b'\r'
+            (!@).carriage_return()
+          else if b == b'\n'
+            (!@).index()
+            (!@).carriage_return() if @newline
+          else
+            (!@).step(b)
+          i += 1
+          continue
+      if (!@decoder).next(b) as r
+        # A UTF-8-encoded C1 control is ignored, as Ghostty does.
+        (!@).print(U32(r)) if r > 0x9F
+      i += 1 if not @decoder.retry
+      continue
+    (!@).step(b)
     i += 1
 
 # The first byte at or after `i` that is not printable in the ground state
@@ -72,16 +88,16 @@ fun printable_end(s: ?String, i: Int) -> Int
         return k + j
       k += 16
     if k < s.len
-      seen = k + 16 - s.len
-      v = s.read[Simd[U8, 16]](s.len - 16)
-      if (((v < 0x20) | (v >= 0x80)) & (LANES >= U8(seen))).first() as j
-        return k + j - seen
+      # Fewer than 16 are left: read the last 16 of `s` again, and drop
+      # the lanes before `k`, which were tested.
+      m = ((s.read[Simd[U8, 16]](s.len - 16) < 0x20) | (s.read[Simd[U8, 16]](s.len - 16) >= 0x80)).bits() >> (k + 16 - s.len)
+      return k + m.trailing_zeros() if m != 0
   s.len
 
-LANES = Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
-
 sub Terminal.step(!@, b: U8)
-  return if b >= 0x80
+  if b >= 0x80
+    (!@).high(b)
+    return
   if b == ESC
     (!@).clear()
     @state = .escape
@@ -106,8 +122,11 @@ sub Terminal.step(!@, b: U8)
         @state = .csi_entry
       else if b == b']'
         @state = .osc
-      else if b == b'P' or b == b'X' or b == b'^' or b == b'_'
-        @state = .string
+      else if b == b'P'
+        (!@).clear()
+        @state = .dcs_entry
+      else if b == b'X' or b == b'^' or b == b'_'
+        @state = .apc
       else if b != DEL
         @state = .ground
         (!@).esc_dispatch(b)
@@ -166,7 +185,47 @@ sub Terminal.step(!@, b: U8)
         @state = .ground
     .osc
       @state = .ground if b == b'\x07' else .osc
-    .string => pass
+    .dcs_entry
+      if b >= 0x20 and b != DEL
+        if b < 0x30
+          @state = .dcs_intermediate
+        else if b == b':' or b >= 0x40
+          @state = .dcs_body
+        else
+          @state = .dcs_param
+    .dcs_param
+      if b >= 0x20 and b != DEL
+        if b < 0x30
+          @state = .dcs_intermediate
+        else if b == b':' or b >= 0x3C
+          @state = .dcs_body
+    .dcs_intermediate
+      @state = .dcs_body if b >= 0x30 and b != DEL
+    .dcs_body, .apc => pass
+
+# A byte of 0x80 or more outside the ground state. In an OSC or DCS body it
+# is data; elsewhere one from 0x80 to 0x9F is a C1 control, which acts from
+# any state: ST ends a string, CSI, OSC, DCS, SOS, PM, and APC begin one,
+# and the rest run as ESC and the byte less 0x40 would.
+sub Terminal.high(!@, b: U8)
+  return if @state == .osc or @state == .dcs_body or b >= 0xA0
+  if b == 0x9C
+    @state = .ground
+  else if b == 0x9B
+    (!@).clear()
+    @state = .csi_entry
+  else if b == 0x9D
+    @state = .osc
+  else if b == 0x90
+    (!@).clear()
+    @state = .dcs_entry
+  else if b == 0x98 or b == 0x9E or b == 0x9F
+    @state = .apc
+  else
+    @state = .ground
+    @inter = 0
+    @inter_count = 0
+    (!@).esc_dispatch(b - 0x40)
 
 sub Terminal.clear(!@)
   @count = 0

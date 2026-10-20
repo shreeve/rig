@@ -164,6 +164,9 @@ pub obj Terminal
   inter_count: Int
   # Bit i: parameter i ended with a colon.
   seps: Int
+  # The UTF-8 decoder of the ground state, which keeps a rune cut between
+  # two feeds.
+  decoder: utf8.Decoder
 
   # An empty terminal of `cols` by `rows`, the cursor at the top left and a
   # tab stop every 8 columns.
@@ -181,7 +184,7 @@ pub obj Terminal
       modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
       kitty: [8 of 0], kitty_idx: 0, other_kitty: [8 of 0], other_kitty_idx: 0, replies: String(),
       tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_saved: Saved.none(), other_bg: NONE,
-      state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0)
+      state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0, decoder: utf8.Decoder.new())
 
   # REP: the last rune printed, `n` more times (at least once).
   sub repeat(!@, n: Int)

@@ -2690,3 +2690,262 @@ test "DECALN resets origin mode for DECRQM", '''
   t = terminal.Terminal.new(10, 3)
   !t.feed("\x1b[?6h\x1b#8\x1b[?6$p")
   print(t.dump())
+
+test "two-byte runes", '''
+  |café ñ ü
+  |
+  cursor 0 8
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("caf\xc3\xa9 \xc3\xb1 \xc3\xbc")
+  print(t.dump())
+
+test "three-byte runes of width 1", '''
+  |─│┌€
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xe2\x94\x80\xe2\x94\x82\xe2\x94\x8c\xe2\x82\xac")
+  print(t.dump())
+
+test "Greek and Cyrillic", '''
+  |Ωμέγα Жизнь
+  |
+  cursor 0 11
+'''
+  t = terminal.Terminal.new(12, 2)
+  !t.feed("\xce\xa9\xce\xbc\xce\xad\xce\xb3\xce\xb1 \xd0\x96\xd0\xb8\xd0\xb7\xd0\xbd\xd1\x8c")
+  print(t.dump())
+
+test "a rune wraps like any other", '''
+  |éééé
+  |é
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9")
+  print(t.dump())
+
+test "a stray continuation byte", '''
+  |a�b�c
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x80b\xbfc")
+  print(t.dump())
+
+test "a maximal subpart is one replacement", '''
+  |a�b
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\xe2\x82b")
+  print(t.dump())
+
+test "overlong forms", '''
+  |�����!
+  |
+  cursor 0 6
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xc0\xaf\xe0\x80\xaf!")
+  print(t.dump())
+
+test "a surrogate", '''
+  |���!
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xed\xa0\x80!")
+  print(t.dump())
+
+test "past U+10FFFF", '''
+  |����!
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xf4\x90\x80\x80!")
+  print(t.dump())
+
+test "bytes that never start a rune", '''
+  |���!
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\xc1\xf5\xff!")
+  print(t.dump())
+
+test "a rune cut by a control", '''
+  |b�
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\xc3\x0db")
+  print(t.dump())
+
+test "a rune cut by ESC", '''
+  |a�  b
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\xe2\x82\x1b[2Cb")
+  print(t.dump())
+
+test "a rune cut at the end", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("ab\xe2\x82")
+  print(t.dump())
+
+test "a UTF-8 C1 control is ignored", '''
+  |abc
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\xc2\x84b\xc2\x9bc")
+  print(t.dump())
+
+test "a raw C1 byte in the ground state is a replacement", '''
+  |a�b�2Ac
+  |
+  cursor 0 7
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x84b\x9b2Ac")
+  print(t.dump())
+
+test "C1 CSI in a sequence", '''
+  |
+  |  X
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b\x9b2;3HX")
+  print(t.dump())
+
+test "C1 IND in CSI parameters", '''
+  |ab
+  |  Y
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("ab\x1b[1\x84Y")
+  print(t.dump())
+
+test "C1 NEL, HTS, and RI after ESC", '''
+  |ad
+  |c
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(20, 3)
+  !t.feed("ab\x1b\x85c\x1b\x88\x1b\x8dd")
+  print(t.dump())
+
+test "C1 ST ends an APC", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b_xyz\x9cb")
+  print(t.dump())
+
+test "C1 in an OSC is data", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1b]0;x\x9cy\x07b")
+  print(t.dump())
+
+test "C1 in a DCS body is data", '''
+  |ab
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("a\x1bPq\x9c\x84\x1b\\b")
+  print(t.dump())
+
+test "C1 in DCS parameters acts", '''
+  |a
+  | b
+  |
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("a\x1bP1\x84b")
+  print(t.dump())
+
+test "C1 CSI starts a sequence after ESC", '''
+  |X
+  |
+  ~0 0-0 fg=1
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b\x9b31mX")
+  print(t.dump())
+
+test "C1 DECID replies", '''
+  |
+  |
+  reply \e[?62;22c
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[\x9a")
+  print(t.dump())
+
+test "C1 SS2 shifts one rune", '''
+  |─q
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b*0\x1b[\x8eqq")
+  print(t.dump())
+
+test "a high byte in CSI is ignored", '''
+  |
+  |  X
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[2\xa0;3HX")
+  print(t.dump())
+
+test "a mapped charset shows non-ASCII as space", '''
+  |é
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b(0\xc3\xa9")
+  print(t.dump())
+
+test "the British set keeps non-ASCII", '''
+  |é£
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b(A\xc3\xa9#")
+  print(t.dump())

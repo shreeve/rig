@@ -78,6 +78,7 @@ Whole-string ASCII checks are `utf8.is_ascii(s)` and `utf8.ascii_end(s, i)`.
 | `ascii_end(s, i) -> Int` | built |
 | `push_rune(!out, r)` | built |
 | `REPLACEMENT`, `RUNE_SELF` | built |
+| `Decoder.new()`, `(!d).next(b) -> Int?`, `d.retry`, `d.pending()`: streaming, one REPLACEMENT per maximal subpart | built |
 
 ## utf16: units and JavaScript positions
 

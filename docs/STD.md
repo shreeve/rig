@@ -1329,6 +1329,9 @@ how runes fit with bytes, units, and chars.
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
+| `Decoder.new() -> Decoder` | a streaming decoder, fed a byte at a time, for text that arrives in pieces; an ill-formed sequence reads as one `REPLACEMENT` per maximal subpart, as Unicode recommends and terminals do (Ghostty's DFA), where `rune_after` reads one per bad byte, as Go does | |
+| `(!d).next(b: U8) -> Int?` | the rune byte `b` completes, `REPLACEMENT` where a sequence is ill-formed, or `none` while one is under way; after a `REPLACEMENT` with `d.retry` true, feed `b` again, as the start of what follows | |
+| `d.pending() -> Bool` | whether a sequence is under way | |
 
 The case `utf8 go` of `test/rig/std-misc.rig.test` runs Go's own test tables, and
 `test/rig/std-text-go.rig.test` compares every function with Go's answers
@@ -1598,11 +1601,11 @@ Graphics, with SO, SI, SS2, SS3, LS2, and LS3), and the alternate screen
 screen in use. It answers DA (primary, secondary, tertiary, and DECID),
 DSR 5 and 6, DECRQM of every mode Ghostty knows (which SM, RM, DECSET,
 DECRST, XTSAVE, and XTRESTORE keep), XTVERSION, and the kitty keyboard
-flags (pushed, popped, and set per screen).
-Strings
-(OSC, DCS,
-APC, and the rest) are read to their end and ignored, and so are bytes of
-0x80 and up.
+flags (pushed, popped, and set per screen). In the ground state bytes
+are UTF-8, read by `utf8.Decoder`, so a rune may be cut between two feeds
+and each ill-formed subpart shows as one U+FFFD; in a sequence a byte from
+0x80 to 0x9F is a C1 control. Strings (OSC, DCS, SOS, PM, and APC) are
+read to their end and ignored. So far every rune is one column wide.
 
 | Member | Result |
 |---|---|

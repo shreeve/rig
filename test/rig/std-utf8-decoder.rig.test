@@ -1,0 +1,51 @@
+# std: utf8.Decoder, the streaming decoder, with the cases of Ghostty's
+# UTF8Decoder.zig, whose rules it follows.
+
+use std.utf8
+
+test "utf8 decoder", '''
+  72 105 33
+  128516 10020 193 65
+  65533 128516 65533 65533 65533
+  65533 65
+  65533 65533 65533 65533 65533
+  65533 65 65533
+  65533 65533 65533 65533
+  65 pending
+  8364
+'''
+  # Every rune and REPLACEMENT the bytes decode to, feeding a byte again
+  # when the decoder says so, and whether a sequence is left unfinished.
+  fun decode(bytes: ?String) -> String
+    d = utf8.Decoder.new()
+    out = String()
+    i = 0
+    while i < bytes.len
+      if (!d).next(bytes[i]) as r
+        !out.add(" ") if out.len > 0
+        !out.add(r)
+      i += 1 if not d.retry
+    !out.add(" pending") if d.pending()
+    out
+
+  print(decode("Hi!"))
+  print(decode("\u{1f604}\u{2724}\u{c1}A"))
+  # A sequence cut short, a whole rune, and a surrogate's three bytes.
+  print(decode("\xf0\x9f\u{1f604}\xed\xa0\x80"))
+  # A maximal subpart is one REPLACEMENT.
+  print(decode("\xe2\x82A"))
+  # Overlong forms: C0 and AF each alone, E0 80 one subpart (80 then read
+  # again), and 80 and AF alone.
+  print(decode("\xc0\xaf\xe0\x80\xaf"))
+  # Stray continuation bytes.
+  print(decode("\x80A\xbf"))
+  # Past U+10FFFF.
+  print(decode("\xf4\x90\x80\x80"))
+  print(decode("A\xe2\x82"))
+  # One rune fed in two pieces.
+  d = utf8.Decoder.new()
+  for b in "\xe2"
+    _ = (!d).next(b)
+  for b in "\x82\xac"
+    if (!d).next(b) as r
+      print(r)

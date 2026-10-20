@@ -45,7 +45,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -312,6 +312,34 @@ CASES = [
     ("reply", "RIS keeps replies already made", 10, 2, b"\x1b[c\x1bc\x1b[5n"),
     ("reply", "DECRC restores origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b8\x1b[?6$p\x1b[?6h\x1b[u\x1b[?6$p"),
     ("reply", "DECALN resets origin mode for DECRQM", 10, 3, b"\x1b[?6h\x1b#8\x1b[?6$p"),
+    ("utf8", "two-byte runes", 10, 2, "café ñ ü".encode()),
+    ("utf8", "three-byte runes of width 1", 10, 2, "─│┌€".encode()),
+    ("utf8", "Greek and Cyrillic", 12, 2, "Ωμέγα Жизнь".encode()),
+    ("utf8", "a rune wraps like any other", 4, 2, "ééééé".encode()),
+    ("utf8", "a stray continuation byte", 10, 2, b"a\x80b\xbfc"),
+    ("utf8", "a maximal subpart is one replacement", 10, 2, b"a\xe2\x82b"),
+    ("utf8", "overlong forms", 10, 2, b"\xc0\xaf\xe0\x80\xaf!"),
+    ("utf8", "a surrogate", 10, 2, b"\xed\xa0\x80!"),
+    ("utf8", "past U+10FFFF", 10, 2, b"\xf4\x90\x80\x80!"),
+    ("utf8", "bytes that never start a rune", 10, 2, b"\xc1\xf5\xff!"),
+    ("utf8", "a rune cut by a control", 10, 2, b"a\xc3\rb"),
+    ("utf8", "a rune cut by ESC", 10, 2, b"a\xe2\x82\x1b[2Cb"),
+    ("utf8", "a rune cut at the end", 10, 2, b"ab\xe2\x82"),
+    ("utf8", "a UTF-8 C1 control is ignored", 10, 2, b"a\xc2\x84b\xc2\x9bc"),
+    ("utf8", "a raw C1 byte in the ground state is a replacement", 10, 2, b"a\x84b\x9b2Ac"),
+    ("utf8", "C1 CSI in a sequence", 10, 3, b"\x1b\x9b2;3HX"),
+    ("utf8", "C1 IND in CSI parameters", 10, 3, b"ab\x1b[1\x84Y"),
+    ("utf8", "C1 NEL, HTS, and RI after ESC", 20, 3, b"ab\x1b\x85c\x1b\x88\x1b\x8dd"),
+    ("utf8", "C1 ST ends an APC", 10, 2, b"a\x1b_xyz\x9cb"),
+    ("utf8", "C1 in an OSC is data", 10, 2, b"a\x1b]0;x\x9cy\x07b"),
+    ("utf8", "C1 in a DCS body is data", 10, 2, b"a\x1bPq\x9c\x84\x1b\\b"),
+    ("utf8", "C1 in DCS parameters acts", 10, 3, b"a\x1bP1\x84b"),
+    ("utf8", "C1 CSI starts a sequence after ESC", 10, 2, b"\x1b\x9b31mX"),
+    ("utf8", "C1 DECID replies", 10, 2, b"\x1b[\x9a"),
+    ("utf8", "C1 SS2 shifts one rune", 10, 2, b"\x1b*0\x1b[\x8eqq"),
+    ("utf8", "a high byte in CSI is ignored", 10, 3, b"\x1b[2\xa0;3HX"),
+    ("utf8", "a mapped charset shows non-ASCII as space", 10, 2, "\x1b(0é".encode()),
+    ("utf8", "the British set keeps non-ASCII", 10, 2, "\x1b(Aé#".encode()),
 ]
 
 
@@ -485,6 +513,8 @@ def piece(rng, every):
         return bytes(rng.choice(range(0x20, 0x80)) for _ in range(n))
     if k < 0.40:
         return bytes([rng.choice([8, 9, 10, 11, 12, 13, 7, 0, 5, 14, 15, 0x18, 0x1A, 0x1B, 0x7F])])
+    if k < 0.46:
+        return utf8_piece(rng)
     if k < 0.70:
         return csi(rng, every)
     if k < 0.82:
@@ -508,6 +538,21 @@ def piece(rng, every):
     return b"\x1b" + rng.choice([b"]0;", b"]2;", b"P", b"_", b"^", b"X"]) + body + end
 
 
+# Runes of width 1 everywhere, for UTF-8 until widths are compared too.
+NARROW = [range(0xA1, 0xAD), range(0xAE, 0x100), range(0x391, 0x3A2), range(0x3A3, 0x3CA), range(0x410, 0x450), range(0x2500, 0x2580), [0xFFFD, 0x20AC]]
+
+
+def utf8_piece(rng):
+    """Runes of width 1, bytes that never start a rune, or a rune cut short."""
+    k = rng.random()
+    if k < 0.6:
+        return "".join(chr(rng.choice(rng.choice(NARROW))) for _ in range(rng.randint(1, 6))).encode()
+    if k < 0.8:
+        return bytes(rng.choice(list(range(0x80, 0xC2)) + list(range(0xF5, 0x100))) for _ in range(rng.randint(1, 3)))
+    whole = chr(rng.choice(rng.choice(NARROW))).encode()
+    return whole[: rng.randint(1, max(1, len(whole) - 1))]
+
+
 def csi(rng, every):
     params = []
     for _ in range(rng.choice([0, 0, 1, 1, 1, 2, 2, 3, 5])):
@@ -520,7 +565,7 @@ def csi(rng, every):
     if rng.random() < 0.04:
         out += b" "
     if rng.random() < 0.03:
-        out += bytes([rng.choice([8, 13, 0x11, 10])])
+        out += bytes([rng.choice([8, 13, 0x11, 10, 0x84, 0x85, 0x8D, 0x9B, 0x9C, 0xA0, 0xC3])])
     return out + rng.choice(FINALS_ALL if every else FINALS).encode()
 
 
