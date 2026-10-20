@@ -8,8 +8,14 @@
 //! each a line `case COLS ROWS LEN`, then LEN bytes, then a newline.
 //! Output: each case's dump, then a line `end`. A dump is a line per row,
 //! `|` and the row's text with its trailing blanks dropped (an empty cell
-//! is a space, and the second cell of a wide character is left out), then
-//! `cursor Y X`, with ` wrap` when a wrap is pending.
+//! is a space, and the second cell of a wide character is left out); then
+//! a line `~Y FIRST-LAST ATTRS` for each run of cells in row Y with the same
+//! style other than the default, in order; then `cursor Y X`, with ` wrap`
+//! when a wrap is pending. ATTRS is the style's flags (`bold italic faint
+//! blink inverse invisible strike overline`, in that order, those set),
+//! then `ul=single|double|curly|dotted|dashed`, `fg=`, `bg=`, and `ulc=`
+//! when set, a color written as a palette index or `#rrggbb`. An empty
+//! cell that holds only a background color shows it as `bg=`.
 
 const std = @import("std");
 const vt = @import("ghostty-vt");
@@ -64,6 +70,56 @@ fn dumpCase(io: std.Io, gpa: std.mem.Allocator, out: *std.Io.Writer, cols: u16, 
         const text = std.mem.trimEnd(u8, line.items, " ");
         try out.print("|{s}\n", .{text});
     }
+    var run: std.ArrayList(u8) = .empty;
+    defer run.deinit(gpa);
+    var attr: std.ArrayList(u8) = .empty;
+    defer attr.deinit(gpa);
+    for (0..rows) |y| {
+        run.clearRetainingCapacity();
+        var first: usize = 0;
+        for (0..cols + 1) |x| {
+            attr.clearRetainingCapacity();
+            if (x < cols) {
+                const got = screen.pages.getCell(.{ .active = .{ .x = @intCast(x), .y = @intCast(y) } }).?;
+                try attrs(gpa, &attr, got.cell.*, got.style());
+            }
+            if (std.mem.eql(u8, attr.items, run.items) and x < cols) continue;
+            if (run.items.len > 0) try out.print("~{d} {d}-{d} {s}\n", .{ y, first, x - 1, run.items });
+            run.clearRetainingCapacity();
+            try run.appendSlice(gpa, attr.items);
+            first = x;
+        }
+    }
     const cursor = screen.cursor;
     try out.print("cursor {d} {d}{s}\nend\n", .{ cursor.y, cursor.x, if (cursor.pending_wrap) " wrap" else "" });
+}
+
+/// A cell's style as ATTRS (see the top of this file); empty for the default.
+fn attrs(gpa: std.mem.Allocator, out: *std.ArrayList(u8), cell: vt.page.Cell, style: vt.Style) !void {
+    const names = [_][]const u8{ "bold", "italic", "faint", "blink", "inverse", "invisible", "strike", "overline" };
+    const f = style.flags;
+    const set = [_]bool{ f.bold, f.italic, f.faint, f.blink, f.inverse, f.invisible, f.strikethrough, f.overline };
+    for (names, set) |name, on| if (on) try word(gpa, out, name);
+    if (f.underline != .none) try out.print(gpa, "{s}ul={s}", .{ if (out.items.len > 0) " " else "", @tagName(f.underline) });
+    try color(gpa, out, "fg", style.fg_color);
+    switch (cell.content_tag) {
+        .bg_color_palette => try color(gpa, out, "bg", .{ .palette = cell.content.color_palette.data }),
+        .bg_color_rgb => try color(gpa, out, "bg", .{ .rgb = .{ .r = cell.content.color_rgb.r, .g = cell.content.color_rgb.g, .b = cell.content.color_rgb.b } }),
+        else => try color(gpa, out, "bg", style.bg_color),
+    }
+    try color(gpa, out, "ulc", style.underline_color);
+}
+
+fn word(gpa: std.mem.Allocator, out: *std.ArrayList(u8), w: []const u8) !void {
+    if (out.items.len > 0) try out.append(gpa, ' ');
+    try out.appendSlice(gpa, w);
+}
+
+fn color(gpa: std.mem.Allocator, out: *std.ArrayList(u8), name: []const u8, c: vt.Style.Color) !void {
+    const sep: []const u8 = if (out.items.len > 0) " " else "";
+    switch (c) {
+        .none => {},
+        .palette => |i| try out.print(gpa, "{s}{s}={d}", .{ sep, name, i }),
+        .rgb => |rgb| try out.print(gpa, "{s}{s}=#{x:0>2}{x:0>2}{x:0>2}", .{ sep, name, rgb.r, rgb.g, rgb.b }),
+    }
 }

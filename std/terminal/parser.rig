@@ -127,6 +127,7 @@ sub Terminal.clear(!@)
   @colon = false
   @inter = 0
   @inter_count = 0
+  @seps = 0
 
 # An intermediate (or a private marker such as `?`), up to four.
 sub Terminal.collect(!@, b: U8)
@@ -137,9 +138,11 @@ sub Terminal.collect(!@, b: U8)
 # A digit of a parameter, or a `;` or `:` that ends one.
 sub Terminal.param(!@, b: U8)
   if b == b';' or b == b':'
-    @colon = true if b == b':'
     if @count < MAX_PARAMS
       @params[@count] = @acc
+      if b == b':'
+        @colon = true
+        @seps |= 1 << @count
     @count += 1
     @acc = 0
     @digits = false
@@ -153,7 +156,9 @@ sub Terminal.execute(!@, b: U8)
   match b
     b'\x08' => (!@).backspace()
     b'\t' => (!@).tab(1)
-    b'\n', b'\x0b', b'\x0c' => (!@).index()
+    b'\n', b'\x0b', b'\x0c'
+      (!@).index()
+      (!@).carriage_return() if @newline
     b'\r' => (!@).carriage_return()
     _ => pass
 
@@ -186,6 +191,10 @@ sub Terminal.csi_final(!@, b: U8)
   # no cell is protected.
   if @inter == Int(b'?') and (b == b'J' or b == b'K')
     @inter = 0
+  if (b == b'h' or b == b'l') and (@inter == 0 or @inter == Int(b'?'))
+    for k in 0..(@count if @count < MAX_PARAMS else MAX_PARAMS)
+      (!@).set_mode(@params[k], @inter != 0, b == b'h')
+    return
   return if @inter != 0
   n = @count
   p0 = @params[0] if n > 0 else 0
@@ -224,4 +233,7 @@ sub Terminal.csi_final(!@, b: U8)
     b'S' if count >= 0 => (!@).scroll_up(count)
     b'T' if count >= 0 => (!@).scroll_down(count)
     b'r' if n <= 2 => (!@).set_margins(p0, p1)
+    b'm'
+      (!@).sgr()
+      (!@).pen_changed()
     _ => pass

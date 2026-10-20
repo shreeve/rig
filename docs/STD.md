@@ -1587,8 +1587,11 @@ and CR; escape and control sequences, parsed by the DEC state machine
 (https://vt100.net/emu/dec_ansi_parser), for cursor movement (CUU, CUD,
 CUF, CUB, CNL, CPL, CHA, HPA, HPR, VPA, VPR, CUP, HVP), tab stops (HT,
 CHT, CBT, HTS, TBC), IND, NEL, RI, DECSC/DECRC, scroll margins (DECSTBM,
-SU, SD), erasing (ED, EL, ECH, DECALN), and inserting and deleting lines
-and cells (IL, DL, ICH, DCH). Strings (OSC, DCS,
+SU, SD), erasing (ED, EL, ECH, DECALN), inserting and deleting lines and
+cells (IL, DL, ICH, DCH), styles (SGR: the flags, underline styles, 16,
+256, and RGB colors, and underline colors; an erased cell keeps the
+background), and the modes IRM, LNM, DECOM, DECAWM, and DECTCEM. Strings
+(OSC, DCS,
 APC, and the rest) are read to their end and ignored, and so are bytes of
 0x80 and up.
 
@@ -1596,7 +1599,7 @@ APC, and the rest) are read to their end and ignored, and so are bytes of
 |---|---|
 | `Terminal.new(cols: Int, rows: Int) -> Terminal` | an empty terminal, the cursor at the top left |
 | `!t.feed(bytes: ?String)` | take `bytes` as a program's output, in order |
-| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped, then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
+| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
 
 ```rig
 use std.terminal

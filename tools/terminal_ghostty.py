@@ -38,7 +38,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -170,6 +170,55 @@ CASES = [
     ("scroll", "SU of zero", 10, 3, b"1\r\n2\r\n3\x1b[0S"),
     ("scroll", "SD of zero", 10, 3, b"1\r\n2\r\n3\x1b[0T"),
     ("scroll", "wrapping at the bottom margin scrolls the region", 4, 4, b"1\r\n2\r\n3\r\n4\x1b[1;3r\x1b[3;1Habcdef"),
+    ("style", "bold and a palette foreground", 10, 2, b"a\x1b[1;31mbc\x1b[0md"),
+    ("style", "every flag", 12, 2, b"\x1b[1;2;3;5;7;8;9;53mx\x1b[mx"),
+    ("style", "SGR with no parameters resets", 10, 2, b"\x1b[1;4mab\x1b[mcd"),
+    ("style", "SGR 0 among others", 10, 2, b"\x1b[1;0;3mab"),
+    ("style", "SGR 6 is blink", 10, 2, b"\x1b[6mab"),
+    ("style", "resetting flags one by one", 20, 2, b"\x1b[1;3;4;5;7;8;9;53ma\x1b[22mb\x1b[23mc\x1b[24md\x1b[25me\x1b[27mf\x1b[28mg\x1b[29mh\x1b[55mi"),
+    ("style", "SGR 22 resets bold and faint", 10, 2, b"\x1b[1;2ma\x1b[22mb"),
+    ("style", "underline styles", 20, 2, b"\x1b[4ma\x1b[21mb\x1b[4:3mc\x1b[4:4md\x1b[4:5me\x1b[4:2mf\x1b[4:0mg\x1b[4:9mh"),
+    ("style", "a trailing colon after 4", 10, 2, b"\x1b[4:mab"),
+    ("style", "standard and bright colors", 20, 2, b"\x1b[30ma\x1b[37mb\x1b[90mc\x1b[97md\x1b[40me\x1b[47mf\x1b[100mg\x1b[107mh\x1b[39;49mi"),
+    ("style", "256 colors", 10, 2, b"\x1b[38;5;196;48;5;21mab"),
+    ("style", "a 256 color past 255 wraps", 10, 2, b"\x1b[38;5;300mab"),
+    ("style", "truecolor with semicolons", 10, 2, b"\x1b[38;2;10;20;30;48;2;200;100;0mab"),
+    ("style", "truecolor with colons", 10, 2, b"\x1b[38:2:10:20:30mab"),
+    ("style", "truecolor with a color space", 10, 2, b"\x1b[38:2:0:10:20:30mab"),
+    ("style", "a short truecolor reads on", 10, 2, b"\x1b[38;2;1mab"),
+    ("style", "38 alone", 10, 2, b"\x1b[38mab"),
+    ("style", "an underline color", 10, 2, b"\x1b[4;58;5;9ma\x1b[58:2::1:2:3mb\x1b[59mc"),
+    ("style", "a colon after an unknown parameter", 10, 2, b"\x1b[1:2;3mab"),
+    ("style", "unknown parameters are skipped", 10, 2, b"\x1b[1;99;3mab"),
+    ("style", "the pen survives movement", 10, 3, b"\x1b[32mab\x1b[2;5Hcd"),
+    ("style", "erase keeps the background", 10, 3, b"abcdefghij\x1b[1;5H\x1b[41m\x1b[K"),
+    ("style", "erase takes only the background", 10, 3, b"\x1b[1;4;31;42m\x1b[2J"),
+    ("style", "ECH keeps the background", 10, 2, b"abcdefghij\x1b[1;3H\x1b[44m\x1b[3X"),
+    ("style", "a scrolled-in row keeps the background", 10, 2, b"1\r\n2\x1b[45m\n"),
+    ("style", "IL keeps the background", 10, 3, b"1\r\n2\r\n3\x1b[2;1H\x1b[46m\x1b[L"),
+    ("style", "ICH keeps the background", 10, 2, b"abcdef\x1b[1;2H\x1b[43m\x1b[2@"),
+    ("style", "DCH keeps the background", 10, 2, b"abcdef\x1b[1;2H\x1b[43m\x1b[2P"),
+    ("style", "DECSC and DECRC save the pen", 10, 2, b"\x1b[1;31m\x1b7\x1b[0ma\x1b8b"),
+    ("style", "DECRC with nothing saved resets the pen", 10, 2, b"\x1b[1;31m\x1b8ab"),
+    ("style", "DECALN uses the pen", 4, 2, b"\x1b[33m\x1b#8"),
+    ("mode", "DECAWM off overwrites the last column", 4, 2, b"\x1b[?7labcdef"),
+    ("mode", "DECAWM back on", 4, 2, b"\x1b[?7labcdef\x1b[?7hgh"),
+    ("mode", "IRM inserts", 10, 2, b"abcdef\x1b[1;3H\x1b[4hXY"),
+    ("mode", "IRM off replaces", 10, 2, b"abcdef\x1b[4h\x1b[4l\x1b[1;3HXY"),
+    ("mode", "IRM pushes off the end", 6, 2, b"abcdef\x1b[1;1H\x1b[4hXY"),
+    ("mode", "LNM makes LF return", 10, 3, b"\x1b[20habc\ndef"),
+    ("mode", "LNM off", 10, 3, b"\x1b[20h\x1b[20labc\ndef"),
+    ("mode", "DECOM homes to the top margin", 10, 5, b"\x1b[2;4r\x1b[?6hX"),
+    ("mode", "DECOM makes CUP relative", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b[2;3HX"),
+    ("mode", "DECOM keeps CUP in the region", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b[9;3HX"),
+    ("mode", "DECOM off homes to the corner", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b[?6lX"),
+    ("mode", "DECSTBM in origin mode homes to the margin", 10, 5, b"\x1b[?6h\x1b[3;5rX"),
+    ("mode", "DECOM and VPA", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b[2dX"),
+    ("mode", "DECOM and CHA", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b[2;2H\x1b[5GX"),
+    ("mode", "DECSC saves origin mode", 10, 5, b"\x1b[2;4r\x1b[?6h\x1b7\x1b[?6l\x1b8\x1b[1;1HX"),
+    ("mode", "several modes at once", 6, 2, b"\x1b[?7;6labcdefgh"),
+    ("mode", "an unknown mode is ignored", 10, 2, b"\x1b[?999h\x1b[999hab"),
+    ("mode", "DECTCEM changes nothing on screen", 10, 2, b"\x1b[?25lab\x1b[?25hc"),
 ]
 
 

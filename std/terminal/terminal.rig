@@ -11,12 +11,27 @@
 
 use std.utf8
 
+# The index of `s` in `styles`, added when it is new.
+fun intern(styles: !List[Style], s: ?Style) -> Int
+  for t, k in styles
+    return k if t.same(s)
+  !styles.push(+s)
+  styles.len - 1
+
 # A terminal of `cols` columns and `rows` rows. A cell holds a rune, 0 for
 # empty; row `y` is cells `y * cols` to `y * cols + cols - 1`.
 pub obj Terminal
   cols: Int
   rows: Int
   cells: List[U32]
+  # Each cell's style, an index into `styles`, whose first is the plain one.
+  marks: List[Int]
+  styles: List[Style]
+  # The style the next rune is printed in (SGR), and its index; and the
+  # index of an erased cell, which keeps only the pen's background.
+  pen: Style
+  pen_id: Int
+  blank_id: Int
   row: Int
   col: Int
   # The cursor is past the last column: the next printed rune wraps first.
@@ -24,6 +39,13 @@ pub obj Terminal
   # The scroll margins (DECSTBM): the first and last rows that scroll.
   top: Int
   bottom: Int
+  # Modes: autowrap (DECAWM), origin (DECOM), insert (IRM), and new line
+  # (LNM, a line feed also returns).
+  autowrap: Bool
+  origin: Bool
+  insert: Bool
+  newline: Bool
+  cursor_visible: Bool
   # Whether a tab stop is set at each column.
   tabs: List[Bool]
   # What DECSC saved, for DECRC: the position and the pending wrap.
@@ -31,6 +53,8 @@ pub obj Terminal
   saved_row: Int
   saved_col: Int
   saved_wrap: Bool
+  saved_pen: Style
+  saved_origin: Bool
   # The parser (parser.rig): its state, the CSI parameters so far, and the
   # intermediate bytes, packed with the first in the highest byte.
   state: State
@@ -41,6 +65,8 @@ pub obj Terminal
   colon: Bool
   inter: Int
   inter_count: Int
+  # Bit i: parameter i ended with a colon.
+  seps: Int
 
   # An empty terminal of `cols` by `rows`, the cursor at the top left and a
   # tab stop every 8 columns.
@@ -48,18 +74,33 @@ pub obj Terminal
     tabs = List[Bool].filled(cols, false)
     for x in 0..cols
       tabs[x] = x % 8 == 0
-    Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), row: 0, col: 0, pending_wrap: false,
-      top: 0, bottom: rows - 1, tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false,
-      state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0)
+    Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), marks: List[Int].filled(cols * rows, 0),
+      styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0,
+      row: 0, col: 0, pending_wrap: false, top: 0, bottom: rows - 1,
+      autowrap: true, origin: false, insert: false, newline: false, cursor_visible: true,
+      tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false, saved_pen: Style.plain(), saved_origin: false,
+      state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0)
+
+  # The pen changed: find its index, and the index of an erased cell.
+  sub pen_changed(!@)
+    @pen_id = intern(!@styles, ?@pen)
+    erased = Style.plain()
+    erased.bg = @pen.bg
+    @blank_id = intern(!@styles, ?erased)
 
   # Write `r` at the cursor and move right, wrapping first when a wrap is
   # pending.
   sub print(!@, r: U32)
-    if @pending_wrap
+    if @pending_wrap and @autowrap
       @pending_wrap = false
       @col = 0
       (!@).index()
-    @cells[@row * @cols + @col] = r
+    (!@).insert_blanks(1) if @insert
+    i = @row * @cols + @col
+    @cells[i] = r
+    @marks[i] = @pen_id
+    # At the last column a wrap is pending even with autowrap off, as in
+    # Ghostty: the next rune only wraps once autowrap is on again.
     if @col == @cols - 1
       @pending_wrap = true
     else
@@ -89,11 +130,19 @@ pub obj Terminal
   sub copy_row(!@, dst: Int, src: Int)
     for x in 0..@cols
       @cells[dst * @cols + x] = @cells[src * @cols + x]
+      @marks[dst * @cols + x] = @marks[src * @cols + x]
 
-  # Cells `from` to `to` (not included) of the screen, as one run, empty.
+  # Cell `src` copied over cell `dst`.
+  sub copy_cell(!@, dst: Int, src: Int)
+    @cells[dst] = @cells[src]
+    @marks[dst] = @marks[src]
+
+  # Cells `from` to `to` (not included) of the screen, as one run, erased:
+  # empty, keeping the pen's background.
   sub blank(!@, from: Int, to: Int)
     for i in from..to
       @cells[i] = 0
+      @marks[i] = @blank_id
 
   # The rows `first` to `last` move up `n`; the `n` at the bottom are
   # blank.
@@ -145,7 +194,7 @@ pub obj Terminal
     x = @cols
     while x > @col + k
       x -= 1
-      @cells[base + x] = @cells[base + x - k]
+      (!@).copy_cell(base + x, base + x - k)
     (!@).blank(base + @col, base + @col + k)
 
   # DCH: `n` cells from the cursor go, pulling the rest of the row left.
@@ -154,7 +203,7 @@ pub obj Terminal
     base = @row * @cols
     k = n if n < @cols - @col else @cols - @col
     for x in @col..@cols - k
-      @cells[base + x] = @cells[base + x + k]
+      (!@).copy_cell(base + x, base + x + k)
     (!@).blank(base + @cols - k, base + @cols)
     @pending_wrap = false
 
@@ -206,9 +255,11 @@ pub obj Terminal
   sub align(!@)
     @top = 0
     @bottom = @rows - 1
+    @origin = false
     (!@).cursor_to(1, 1)
     for i in 0..@rows * @cols
       @cells[i] = 0x45
+      @marks[i] = @pen_id
 
   sub backspace(!@)
     @pending_wrap = false
@@ -237,12 +288,15 @@ pub obj Terminal
     @pending_wrap = false
     @col = @col - n if @col - n > 0 else 0
 
-  # Row `row` and column `col`, counted from 1 (0 is 1), kept on the screen.
+  # Row `row` and column `col`, counted from 1 (0 is 1), kept on the screen;
+  # in origin mode the row counts from the top margin and stops at the
+  # bottom one.
   sub cursor_to(!@, row: Int, col: Int)
     @pending_wrap = false
-    r = row if row > 0 else 1
+    r = (row if row > 0 else 1) + (@top if @origin else 0)
     c = col if col > 0 else 1
-    @row = (r if r < @rows else @rows) - 1
+    last = @bottom + 1 if @origin else @rows
+    @row = (r if r < last else last) - 1
     @col = (c if c < @cols else @cols) - 1
 
   # Forward to the next tab stop, `n` times, stopping at the last column.
@@ -280,20 +334,45 @@ pub obj Terminal
     @saved_row = @row
     @saved_col = @col
     @saved_wrap = @pending_wrap
+    @saved_pen = +@pen
+    @saved_origin = @origin
 
   sub restore_cursor(!@)
     if @saved
       @row = @saved_row
       @col = @saved_col
       @pending_wrap = @saved_wrap
+      @pen = +@saved_pen
+      @origin = @saved_origin
     else
       @row = 0
       @col = 0
       @pending_wrap = false
+      @pen = Style.plain()
+      @origin = false
+    (!@).pen_changed()
+
+  # SM and RM (`private` false) or DECSET and DECRST: mode `m` on or off.
+  sub set_mode(!@, m: Int, private: Bool, on: Bool)
+    if not private
+      match m
+        4 => @insert = on
+        20 => @newline = on
+        _ => pass
+      return
+    match m
+      6
+        @origin = on
+        (!@).cursor_to(1, 1)
+      7 => @autowrap = on
+      25 => @cursor_visible = on
+      _ => pass
 
   # The screen and cursor as text: a line per row, `|` and the row's runes
-  # with its trailing blanks dropped (an empty cell is a space), then
-  # `cursor ROW COL`, with ` wrap` when a wrap is pending.
+  # with its trailing blanks dropped (an empty cell is a space); a line
+  # `~ROW FIRST-LAST STYLE` per run of cells in a row with the same style
+  # other than the plain one (Style.text); then `cursor ROW COL`, with
+  # ` wrap` when a wrap is pending.
   pub fun dump(?@) -> String
     out = String()
     for y in 0..@rows
@@ -306,6 +385,18 @@ pub obj Terminal
         r = @cells[i]
         utf8.push_rune(!out, 0x20 if r == 0 else Int(r))
       !out.push(b'\n')
+    for y in 0..@rows
+      first = 0
+      for x in 0..@cols + 1
+        m = @marks[y * @cols + x] if x < @cols else -1
+        if x == @cols or m != @marks[y * @cols + first]
+          k = @marks[y * @cols + first]
+          if k != 0 and not @styles[k].is_plain()
+            !out.add("~", y, " ", first, "-", x - 1, " ")
+            line = String()
+            @styles[k].text(!line)
+            !out.add(line, "\n")
+          first = x
     !out.add("cursor ", @row, " ", @col)
     !out.add(" wrap") if @pending_wrap
     out
