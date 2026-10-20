@@ -43,7 +43,7 @@ starts; a program that makes none starts no workers.
   proven to fit, which Rig does not yet prove.
 - **Idle workers** steal from a random victim, at most half of them
   searching at once; one that finds work wakes one more; workers with no
-  work sleep on a futex.
+  work sleep in their poller (below).
 
 ## Stacks
 
@@ -179,6 +179,19 @@ every time; the suite runs each concurrency case again under seeds 1 to
    largest frame, 16 MiB for most in place of 1 GiB, so a million tasks
    fit at once, and a sleeping task holding one stack page in place of
    two.
+8. **Pollers and timers per worker**: each worker sleeps in a poller of
+   its own, kqueue on macOS and epoll on Linux, which a waker kicks, and
+   keeps a heap of the deadlines its fibers set, as Go keeps one per
+   processor, in place of the timer thread. A worker that runs fibers
+   looks at both every 61 turns; one about to sleep wakes the fibers
+   whose timers are due on any worker, polls the pollers no worker
+   sleeps in, and sleeps until the earliest deadline any worker holds.
+   A file descriptor registered with a poller (`sched.Registration`)
+   reports when it becomes ready to read or write, edge-triggered, and a
+   fiber waits for that (`sched.waitReady`), spending from a budget of
+   128 when it need not wait, so a descriptor always ready cannot keep
+   it on its worker. A round of 10,000 tasks that sleep 5 ms ends about
+   40% sooner than with the timer thread on the Mac.
 
 Each must not make `bench/tasks` slower on the benchmarks it touches;
 the step is done when `spawn`, `chain`, and `yield` are each within 1.2x

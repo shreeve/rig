@@ -128,6 +128,9 @@ from).
     `src/tasks.zig`): fibers on a worker per core, `RIG_WORKERS` of
     them when set, with yield checks in long loops and recursion
     ([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
+    Each worker sleeps in a poller of its own (kqueue, epoll), with its
+    own heap of timers; a fiber can wait for a file descriptor to be
+    ready (`sched.waitReady`), which `std.net` builds on next.
     `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds

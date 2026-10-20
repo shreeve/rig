@@ -48,6 +48,10 @@ pub const Fiber = struct {
     blocked: std.atomic.Value(?*const Blocked) = .init(null),
     /// The actors it runs a method of, newest first (`Held`).
     held: ?*Held = null,
+    /// Waits that end at once it may still make before it yields
+    /// (`spendBudget`), so a socket that is always ready cannot keep it
+    /// on its worker.
+    budget: u8 = budget_size,
 };
 
 /// What a worker does with the fiber that just switched away, once it has:
@@ -77,8 +81,12 @@ const Worker = struct {
     returned: ?*Fiber = null,
     /// Turns since it last looked at the global queue first.
     tick: u32 = 0,
-    /// The futex word it sleeps on: 1 once woken.
+    /// 1 once woken from its sleep, in its poller (`sleep`).
     woken: std.atomic.Value(u32) = .init(0),
+    /// The kernel's queue of events it sleeps in (`Poller`), and the
+    /// fibers whose waits have a deadline it set (`Timers`).
+    poller: Poller = .{},
+    timers: Timers = .{},
     /// The next worker asleep (`Sleepers`).
     next_sleeper: ?*Worker = null,
     searching: bool = false,
@@ -241,6 +249,8 @@ pub const Wait = struct {
     deadline: i96 = 0,
     timer_epoch: u32 = 0,
     heap_index: usize = no_index,
+    /// The worker's timers that hold its deadline, while they do.
+    timers: ?*Timers = null,
 
     const about = 0;
     const asleep = 1;
@@ -279,13 +289,13 @@ pub fn commitWait(epoch: u32, deadline: ?i96) void {
     park(.{ .run = fallAsleep, .ctx = if (deadline != null) @ptrFromInt(1) else null });
     // Awake: a timer still set for this wait is taken back, so none
     // touches this fiber once it goes on.
-    if (deadline != null) timers.cancel(f);
+    if (deadline != null) if (f.wait.timers) |t| t.cancel(f);
 }
 
 /// Once the fiber has switched away: set its timer, then mark it asleep,
 /// unless a waker has come first, when it goes on.
 fn fallAsleep(f: *Fiber, timed: ?*anyopaque) void {
-    if (timed != null) timers.add(f);
+    if (timed != null) (if (deterministic) &timers else &me().?.timers).add(f);
     const w = f.wait.word.load(.seq_cst);
     if (Wait.epochOf(w) == f.wait.epoch and w & Wait.states == Wait.about) {
         if (f.wait.word.cmpxchgStrong(w, (w & ~Wait.states) | Wait.asleep, .seq_cst, .seq_cst) == null) return;
@@ -392,67 +402,85 @@ pub fn advanceTo(t: i96) void {
 /// No fiber is ready: move the virtual clock to the earliest timer and
 /// wake each fiber whose deadline that reaches. With no timer either,
 /// every task waits on another, and none can ever run: a deadlock.
+/// A fiber waiting on a file descriptor wakes once it is ready, at
+/// whatever time: the poller is looked at first, without waiting, and
+/// waited on when nothing else can end a wait.
 fn advanceClock() void {
-    const earliest = blk: {
-        timers.lock.lock();
-        defer timers.lock.unlock();
-        if (timers.heap.items.len == 0) @panic("every task is waiting on another, and none can run: a deadlock");
-        break :blk timers.heap.items[0].wait.deadline;
-    };
-    advanceTo(earliest);
+    const p = &workers[0].poller;
+    if (p.count.load(.monotonic) != 0 and p.poll(0)) return;
+    const due = timers.due.load(.acquire);
+    if (due == no_due) {
+        if (p.count.load(.monotonic) != 0) {
+            _ = p.poll(null);
+            return;
+        }
+        @panic("every task is waiting on another, and none can run: a deadlock");
+    }
+    advanceTo(due);
     fireDue();
 }
 
 /// Wake each fiber whose deadline the virtual clock has reached: the
 /// clock also moves while fibers compute (`computed`).
 fn fireDue() void {
-    timers.lock.lock();
-    defer timers.lock.unlock();
-    while (timers.heap.items.len > 0 and timers.heap.items[0].wait.deadline <= virtual_now) {
-        const f = timers.heap.items[0];
-        timers.removeAt(0);
-        _ = interrupt(f, f.wait.timer_epoch, false);
-    }
+    _ = timers.fire(virtual_now);
 }
 
 // -----------------------------------------------------------------------------
 // Timers
 // -----------------------------------------------------------------------------
 
-/// The fibers waiting with a deadline, earliest first, and the thread
-/// that sleeps until the earliest and wakes those whose deadline has
-/// passed. Its lock is held while it wakes one, so a fiber that takes its
-/// timer back (`cancel`) knows the thread is done with it.
+/// The fibers waiting with a deadline that one worker set, earliest
+/// first, as Go keeps one heap per processor: the worker wakes them when
+/// it looks (`service`), and a worker about to sleep wakes those due on
+/// any (`serviceAll`), and sleeps no longer than until the earliest
+/// (`sleepFor`). Its lock is held while it wakes one, so a fiber that
+/// takes its timer back (`cancel`) knows no worker is done with it. In a
+/// deterministic run one set serves the virtual clock (`timers`).
 const Timers = struct {
     lock: SpinLock = .{},
     heap: std.ArrayList(*Fiber) = .empty,
-    /// The futex word its thread sleeps on: changed when an earlier
-    /// deadline is set, and when the program ends.
-    word: std.atomic.Value(u32) = .init(0),
-    thread: ?std.Thread = null,
+    /// Its earliest deadline, which workers read without the lock, or
+    /// `no_due`.
+    due: std.atomic.Value(i64) = .init(no_due),
 
     fn add(t: *Timers, f: *Fiber) void {
         t.lock.lock();
-        const earliest = t.heap.items.len == 0 or f.wait.deadline < t.heap.items[0].wait.deadline;
+        defer t.lock.unlock();
         t.heap.append(std.heap.smp_allocator, f) catch rt.oom();
         f.wait.heap_index = t.heap.items.len - 1;
+        f.wait.timers = t;
         t.up(f.wait.heap_index);
-        // Deterministic, the worker fires timers itself (`advanceClock`).
-        if (deterministic) return t.lock.unlock();
-        if (t.thread == null) t.thread = std.Thread.spawn(.{}, timerMain, .{t}) catch rt.oom();
-        t.lock.unlock();
-        if (earliest) t.poke();
+        t.publish();
     }
 
     fn cancel(t: *Timers, f: *Fiber) void {
         t.lock.lock();
         defer t.lock.unlock();
         if (f.wait.heap_index != Wait.no_index) t.removeAt(f.wait.heap_index);
+        f.wait.timers = null;
+        t.publish();
     }
 
-    fn poke(t: *Timers) void {
-        _ = t.word.fetchAdd(1, .seq_cst);
-        rt.io().futexWake(u32, &t.word.raw, 1);
+    /// Wake each fiber whose deadline `now` has reached; whether any.
+    fn fire(t: *Timers, now: i96) bool {
+        if (t.due.load(.acquire) > now) return false;
+        t.lock.lock();
+        defer t.lock.unlock();
+        var any = false;
+        while (t.heap.items.len > 0 and t.heap.items[0].wait.deadline <= now) {
+            const f = t.heap.items[0];
+            t.removeAt(0);
+            _ = interrupt(f, f.wait.timer_epoch, false);
+            any = true;
+        }
+        t.publish();
+        return any;
+    }
+
+    fn publish(t: *Timers) void {
+        const d: i64 = if (t.heap.items.len > 0) @intCast(@min(t.heap.items[0].wait.deadline, no_due)) else no_due;
+        t.due.store(d, .release);
     }
 
     fn less(t: *Timers, i: usize, j: usize) bool {
@@ -503,33 +531,290 @@ const Timers = struct {
         }
     }
 
-    fn stop(t: *Timers) void {
-        const th = t.thread orelse return;
-        t.poke();
-        th.join();
-        t.thread = null;
+    fn clear(t: *Timers) void {
         t.heap.deinit(std.heap.smp_allocator);
         t.heap = .empty;
+        t.due.store(no_due, .release);
     }
 };
 
+/// No deadline.
+const no_due = std.math.maxInt(i64);
+
+/// The timers of a deterministic run.
 var timers: Timers = .{};
 
-fn timerMain(t: *Timers) void {
-    while (!stopping.load(.acquire)) {
-        const seen = t.word.load(.seq_cst);
-        t.lock.lock();
-        const now = nowNs();
-        while (t.heap.items.len > 0 and t.heap.items[0].wait.deadline <= now) {
-            const f = t.heap.items[0];
-            t.removeAt(0);
-            _ = interrupt(f, f.wait.timer_epoch, false);
+/// How long a worker about to sleep may sleep: until the earliest
+/// deadline any worker holds, or with no limit.
+fn sleepFor() ?i96 {
+    var due: i64 = no_due;
+    for (workers) |*v| due = @min(due, v.timers.due.load(.acquire));
+    if (due == no_due) return null;
+    return @max(@as(i96, due) - nowNs(), 0);
+}
+
+// -----------------------------------------------------------------------------
+// The poller
+// -----------------------------------------------------------------------------
+
+/// A worker's queue of kernel events, kqueue on macOS and epoll on Linux:
+/// it sleeps in it (`sleep`), and the file descriptors registered with it
+/// (`Registration`) wake the fibers waiting on them when they are ready.
+/// A worker that sleeps in it holds its lock, so no other polls it, and a
+/// registration is never freed while its events are handled (`close`);
+/// a worker that runs fibers polls it every 61 turns, and a worker about
+/// to sleep polls the others' (`serviceAll`), so a busy worker's
+/// descriptors wait no longer than its next turns.
+const Poller = struct {
+    fd: i32 = -1,
+    /// Linux: the eventfd that wakes it (`kick`).
+    kick_fd: i32 = -1,
+    lock: SpinLock = .{},
+    /// How many descriptors are registered with it.
+    count: std.atomic.Value(u32) = .init(0),
+
+    const darwin = builtin.os.tag.isDarwin();
+    const linux = builtin.os.tag == .linux;
+    const max_events = 64;
+
+    fn open(p: *Poller) void {
+        if (darwin) {
+            p.fd = std.c.kqueue();
+            if (p.fd < 0) rt.oom();
+            const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = 0 };
+            var none: [1]std.c.Kevent = undefined;
+            _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
+        } else if (linux) {
+            const linux_ = std.os.linux;
+            p.fd = @intCast(@as(isize, @bitCast(linux_.epoll_create1(linux_.EPOLL.CLOEXEC))));
+            p.kick_fd = @intCast(@as(isize, @bitCast(linux_.eventfd(0, linux_.EFD.NONBLOCK | linux_.EFD.CLOEXEC))));
+            if (p.fd < 0 or p.kick_fd < 0) rt.oom();
+            var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ET, .data = .{ .ptr = 0 } };
+            _ = linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, p.kick_fd, &ev);
         }
-        const earliest: ?i96 = if (t.heap.items.len > 0) t.heap.items[0].wait.deadline else null;
-        t.lock.unlock();
-        const timeout: std.Io.Timeout = if (earliest) |d| .{ .duration = .{ .raw = .fromNanoseconds(@max(d - nowNs(), 0)), .clock = .awake } } else .none;
-        rt.io().futexWaitTimeout(u32, &t.word.raw, seen, timeout) catch {};
     }
+
+    fn close(p: *Poller) void {
+        if (p.fd >= 0) _ = std.posix.system.close(p.fd);
+        if (p.kick_fd >= 0) _ = std.posix.system.close(p.kick_fd);
+        p.* = .{};
+    }
+
+    /// Wake the worker sleeping in it, or make its next sleep end at once.
+    fn kick(p: *Poller) void {
+        if (darwin) {
+            const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = 0, .fflags = std.c.NOTE.TRIGGER, .data = 0, .udata = 0 };
+            var none: [1]std.c.Kevent = undefined;
+            _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
+        } else if (linux) {
+            const one: u64 = 1;
+            _ = std.os.linux.write(p.kick_fd, std.mem.asBytes(&one), 8);
+        }
+    }
+
+    /// Watch `fd` for both readiness to read and to write, reported to
+    /// `r` each time it changes (edge-triggered).
+    fn add(p: *Poller, fd: i32, r: *Registration) bool {
+        if (darwin) {
+            const flags = std.c.EV.ADD | std.c.EV.CLEAR;
+            const evs = [2]std.c.Kevent{
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(r) },
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(r) },
+            };
+            var none: [1]std.c.Kevent = undefined;
+            if (std.c.kevent(p.fd, &evs, 2, &none, 0, null) < 0) return false;
+        } else if (linux) {
+            const linux_ = std.os.linux;
+            var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.OUT | linux_.EPOLL.RDHUP | linux_.EPOLL.ET, .data = .{ .ptr = @intFromPtr(r) } };
+            if (@as(isize, @bitCast(linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, fd, &ev))) < 0) return false;
+        } else return false;
+        _ = p.count.fetchAdd(1, .monotonic);
+        return true;
+    }
+
+    /// Stop watching `fd`. Under the lock, so no event for it is being
+    /// handled; the worker sleeping in the poller is woken to let go.
+    fn remove(p: *Poller, fd: i32) void {
+        p.kick();
+        p.lock.lock();
+        defer p.lock.unlock();
+        if (darwin) {
+            const evs = [2]std.c.Kevent{
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0 },
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0 },
+            };
+            var none: [1]std.c.Kevent = undefined;
+            _ = std.c.kevent(p.fd, &evs, 2, &none, 0, null);
+        } else if (linux) {
+            _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, fd, null);
+        }
+        _ = p.count.fetchSub(1, .monotonic);
+    }
+
+    /// Wait up to `timeout` nanoseconds (0: only look; null: until an
+    /// event) for events, and wake the fibers waiting on what they make
+    /// ready; whether any. One who cannot take the lock does nothing,
+    /// unless it means to wait.
+    fn poll(p: *Poller, timeout: ?i96) bool {
+        if (timeout != null and timeout.? == 0) {
+            if (!p.lock.tryLock()) return false;
+        } else p.lock.lock();
+        defer p.lock.unlock();
+        var any = false;
+        if (darwin) {
+            var evs: [max_events]std.c.Kevent = undefined;
+            var ts: std.c.timespec = undefined;
+            const tp: ?*const std.c.timespec = if (timeout) |t| blk: {
+                ts = .{ .sec = @intCast(@divTrunc(t, std.time.ns_per_s)), .nsec = @intCast(@mod(t, std.time.ns_per_s)) };
+                break :blk &ts;
+            } else null;
+            const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
+            if (n <= 0) return false;
+            for (evs[0..@intCast(n)]) |ev| {
+                if (ev.udata == 0) continue;
+                const r: *Registration = @ptrFromInt(ev.udata);
+                var bits: u32 = if (ev.filter == std.c.EVFILT.READ) Registration.readable else Registration.writable;
+                if (ev.flags & std.c.EV.EOF != 0) bits |= Registration.closed;
+                if (r.ready(bits)) any = true;
+            }
+        } else if (linux) {
+            const linux_ = std.os.linux;
+            var evs: [max_events]linux_.epoll_event = undefined;
+            const ms: i32 = if (timeout) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
+            const rc: isize = @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
+            if (rc <= 0) return false;
+            for (evs[0..@intCast(rc)]) |ev| {
+                if (ev.data.ptr == 0) {
+                    var drain: u64 = 0;
+                    _ = linux_.read(p.kick_fd, std.mem.asBytes(&drain), 8);
+                    continue;
+                }
+                const r: *Registration = @ptrFromInt(ev.data.ptr);
+                var bits: u32 = 0;
+                if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
+                if (ev.events & (linux_.EPOLL.OUT | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.writable;
+                if (ev.events & (linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.closed;
+                if (r.ready(bits)) any = true;
+            }
+        }
+        return any;
+    }
+};
+
+/// A file descriptor a poller watches: what it has seen the descriptor
+/// become ready for since a wait last took it, and the fibers waiting to
+/// read and to write. Readiness is edge-triggered: a waiter that took it
+/// tries its read or write, and waits again only once that would block.
+pub const Registration = struct {
+    fd: i32,
+    poller: *Poller,
+    ready_bits: std.atomic.Value(u32) = .init(0),
+    reader: Waiter = .{},
+    writer: Waiter = .{},
+
+    pub const readable: u32 = 1;
+    pub const writable: u32 = 2;
+    /// The other end closed, or the descriptor failed: every wait ends.
+    pub const closed: u32 = 4;
+
+    const Waiter = struct {
+        fiber: std.atomic.Value(?*Fiber) = .init(null),
+        epoch: std.atomic.Value(u32) = .init(0),
+
+        fn wakeIt(w: *Waiter) bool {
+            const f = w.fiber.load(.seq_cst) orelse return false;
+            return interrupt(f, w.epoch.load(.seq_cst), false);
+        }
+    };
+
+    /// The poller saw `bits`: record them, then wake who waits on them.
+    fn ready(r: *Registration, bits: u32) bool {
+        _ = r.ready_bits.fetchOr(bits, .seq_cst);
+        var any = false;
+        if (bits & (readable | closed) != 0 and r.reader.wakeIt()) any = true;
+        if (bits & (writable | closed) != 0 and r.writer.wakeIt()) any = true;
+        return any;
+    }
+};
+
+/// Watch `fd`, which must not block, with the running worker's poller
+/// (worker 0's outside the workers); null when the kernel refuses it.
+pub fn register(fd: i32) ?*Registration {
+    if (!started) startWorkers();
+    const w = me() orelse &workers[0];
+    const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
+    r.* = .{ .fd = fd, .poller = &w.poller };
+    if (!w.poller.add(fd, r)) {
+        std.heap.smp_allocator.destroy(r);
+        return null;
+    }
+    return r;
+}
+
+/// Stop watching the descriptor and free `r`, before the descriptor is
+/// closed. No fiber may be waiting on it.
+pub fn deregister(r: *Registration) void {
+    r.poller.remove(r.fd);
+    std.heap.smp_allocator.destroy(r);
+}
+
+/// How a wait on a descriptor ended (`waitReady`).
+pub const Readiness = enum { ready, canceled, timeout };
+
+/// Wait for `r` to be ready for `interest` (`Registration.readable` or
+/// `.writable`), or to be closed, until `deadline`; a cancel ends the
+/// wait when `cancelable`. Readiness the poller saw before is taken at
+/// once, which spends from the fiber's budget (`spendBudget`).
+pub fn waitReady(r: *Registration, interest: u32, deadline: ?i96, cancelable: bool) Readiness {
+    const f = current().?;
+    const waiter = if (interest == Registration.readable) &r.reader else &r.writer;
+    while (true) {
+        if (r.ready_bits.load(.seq_cst) & (interest | Registration.closed) != 0) {
+            _ = r.ready_bits.fetchAnd(~interest, .seq_cst);
+            spendBudget();
+            return .ready;
+        }
+        if (cancelable and f.state.control != null and f.state.control.?.canceled.load(.seq_cst)) return .canceled;
+        if (deadline) |d| if (nowNs() >= d) return .timeout;
+        const e = beginWait(cancelable);
+        waiter.epoch.store(e, .seq_cst);
+        waiter.fiber.store(f, .seq_cst);
+        // Readiness the poller saw before this waiter was there.
+        if (r.ready_bits.load(.seq_cst) & (interest | Registration.closed) == 0) commitWait(e, deadline);
+        waiter.fiber.store(null, .seq_cst);
+    }
+}
+
+/// How many waits that end at once a fiber makes before it yields.
+const budget_size = 128;
+
+/// A wait ended at once: spend from the running fiber's budget, and yield
+/// once it is spent, so other work on its worker runs.
+pub fn spendBudget() void {
+    const f = current() orelse return;
+    f.budget -%= 1;
+    if (f.budget != 0) return;
+    f.budget = budget_size;
+    if (!deterministic) if (me()) |w| if (hasOwnWork(w)) yield();
+}
+
+/// Wake the fibers whose timers are due on worker `w`, and those its
+/// poller's events make ready, when it has descriptors: what a worker
+/// looks at every 61 turns.
+fn service(w: *Worker) void {
+    if (w.timers.due.load(.acquire) != no_due) _ = w.timers.fire(nowNs());
+    if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
+}
+
+/// Before `w` sleeps: wake the fibers whose timers are due on any worker,
+/// and those the events of any poller no worker sleeps in make ready.
+fn serviceAll(w: *Worker) void {
+    const now = nowNs();
+    for (workers) |*v| {
+        _ = v.timers.fire(now);
+        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+    }
+    _ = w;
 }
 
 // -----------------------------------------------------------------------------
@@ -685,6 +970,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     all_workers = std.heap.smp_allocator.alloc(Worker, cap) catch rt.oom();
     for (all_workers, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
     workers = all_workers[0..1];
+    workers[0].poller.open();
     started = false;
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
@@ -693,10 +979,14 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     me_slot = &workers[0];
     if (deterministic) wake(&m.fiber) else workers[0].ring.push(&m.fiber);
     loop(&workers[0]);
-    timers.stop();
     pool.stop();
     for (workers[1..]) |*w| w.thread.?.join();
-    for (workers) |*w| freeStacks(w);
+    timers.clear();
+    for (workers) |*w| {
+        freeStacks(w);
+        w.timers.clear();
+        w.poller.close();
+    }
     std.heap.smp_allocator.free(all_workers);
     workers = &.{};
     all_workers = &.{};
@@ -721,6 +1011,7 @@ fn startWorkers() void {
     started = true;
     const n = if (deterministic) 1 else @min(workerCount(), all_workers.len);
     workers = all_workers[0..n];
+    for (workers[1..]) |*w| w.poller.open();
     for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
 }
 
@@ -816,7 +1107,10 @@ fn next(w: *Worker) ?*Fiber {
         return ready.orderedRemove(random(ready.items.len));
     }
     w.tick +%= 1;
-    if (w.tick % 61 == 0) if (global.pop()) |f| return f;
+    if (w.tick % 61 == 0) {
+        service(w);
+        if (global.pop()) |f| return f;
+    }
     if (w.lifo) |f| {
         if (w.lifo_streak < lifo_limit) {
             w.lifo = null;
@@ -885,14 +1179,16 @@ fn notify() void {
 
 fn wakeWorker(w: *Worker) void {
     w.woken.store(1, .seq_cst);
-    rt.io().futexWake(u32, &w.woken.raw, 1);
+    w.poller.kick();
 }
 
 /// Sleep until woken: listed as asleep first, then, after a last look
-/// for work made meanwhile, on the futex. Work a worker searching will
+/// for work made meanwhile, in its poller. Work a worker searching will
 /// find needs no last look: only work made when none searches, which
 /// woke no one (`notify`), keeps this worker up. A worker with no work
-/// to find clears `waiting`.
+/// to find clears `waiting`. While it sleeps, it wakes the fibers whose
+/// timers come due on any worker, and those its poller's events make
+/// ready, and goes back to running them.
 fn sleep(w: *Worker) void {
     if (waiting.load(.monotonic) != 0) waiting.store(0, .monotonic);
     w.woken.store(0, .seq_cst);
@@ -901,11 +1197,21 @@ fn sleep(w: *Worker) void {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
-    waitWoken(w);
+    while (w.woken.load(.seq_cst) == 0) {
+        serviceAll(w);
+        if (!hasOwnWork(w)) {
+            _ = w.poller.poll(sleepFor());
+            if (!hasOwnWork(w)) continue;
+        }
+        // Fibers made ready here: run them, unless a waker took this
+        // worker off the list meanwhile, when it waits for its kick.
+        if (!sleepers.remove(w)) waitWoken(w);
+        return;
+    }
 }
 
 fn waitWoken(w: *Worker) void {
-    while (w.woken.load(.seq_cst) == 0) rt.io().futexWaitUncancelable(u32, &w.woken.raw, 0);
+    while (w.woken.load(.seq_cst) == 0) _ = w.poller.poll(null);
 }
 
 fn hasWork() bool {
@@ -1080,6 +1386,10 @@ pub const SpinLock = struct {
 
     pub fn unlock(l: *SpinLock) void {
         l.held.store(false, .release);
+    }
+
+    pub fn tryLock(l: *SpinLock) bool {
+        return l.held.cmpxchgStrong(false, true, .acquire, .monotonic) == null;
     }
 };
 
@@ -1999,4 +2309,66 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u64, 19999 * 20000 / 2), Run.sum);
+}
+
+test "a fiber waiting on a pipe wakes when its other end is written, and a deadline ends such a wait" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: u8 = 0;
+        var timed_out = false;
+        var waited = false;
+        const Unit = struct {};
+
+        fn nap(ns: i96) void {
+            const e = beginWait(false);
+            commitWait(e, nowNs() + ns);
+        }
+
+        fn writer(_: *Unit, fd: i32) u8 {
+            nap(2 * std.time.ns_per_ms);
+            _ = std.posix.system.write(fd, "x", 1);
+            return 0;
+        }
+
+        fn pipe() [2]i32 {
+            var fds: [2]i32 = undefined;
+            if (builtin.os.tag == .linux) {
+                _ = std.os.linux.pipe2(&fds, .{ .NONBLOCK = true });
+            } else {
+                _ = std.c.pipe(&fds);
+                for (fds) |fd| _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
+            }
+            return fds;
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = pipe();
+            const r = register(fds[0]).?;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}).job;
+            while (true) {
+                var b: [1]u8 = undefined;
+                const n: isize = @bitCast(std.posix.system.read(fds[0], &b, 1));
+                if (n == 1) {
+                    got = b[0];
+                    break;
+                }
+                waited = true;
+                if (waitReady(r, Registration.readable, null, false) != .ready) return;
+            }
+            _ = j.join();
+            j.free();
+            timed_out = waitReady(r, Registration.readable, nowNs() + std.time.ns_per_ms, false) == .timeout;
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.waited);
+    try std.testing.expectEqual(@as(u8, 'x'), Run.got);
+    try std.testing.expect(Run.timed_out);
 }
