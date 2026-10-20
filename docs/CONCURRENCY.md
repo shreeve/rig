@@ -727,8 +727,6 @@ measured work, not a promise.
 
 ## What else this needs
 
-- **String patterns in `match`** (`"/hits" =>`), rejected today. The
-  server example needs them, and they are worth having on their own.
 - **No new keywords or forms.** `Actor`, `Chan`, and `Tasks`
   are types, shared with the `*` Rig already has. `async` and `await`
   stay reserved and unused.

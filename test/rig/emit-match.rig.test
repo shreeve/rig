@@ -488,3 +488,14 @@ test "match write vec element", release: true, '''
     .a(n, _) => n += 40
     .b => pass
   print(v[0], s[0].e, h.f[0], vv[0][0])
+
+code "match on text tests each string's bytes in order", "if (rig.textIs(p, \"/\")) break", "if ((rig.textIs(p, \"a\") or rig.textIs(p, \"it's\"))) break"
+  # A Zig `switch` takes no strings: the arm is picked by a chain of
+  # tests, then run by its index.
+  fun route(p: ?String) -> Int
+    match p
+      "/" => 1
+      "a", 'it''s' => 2
+      _ => 0
+
+  print(route("/"))

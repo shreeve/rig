@@ -438,6 +438,10 @@ pub const Facts = struct {
     pub fn isCatchAll(f: Facts, pattern: Sexp) bool {
         return storage.isCatchAll(f.c(), pattern);
     }
+    /// `storage.matchSelects`.
+    pub fn matchSelects(f: Facts, match: Sexp) bool {
+        return storage.matchSelects(f.c(), match);
+    }
     /// The value a constant pattern compares with (`sema.patternConst`).
     pub fn patternConst(f: Facts, pattern: Sexp) ?sema.ConstScalar {
         return sema.constScalar(sema.patternConst(f.c(), pattern) orelse return null);
@@ -820,7 +824,8 @@ pub const syntax = struct {
     pub const eachGuardOperand = rig.eachGuardOperand;
     pub const leavesBody = rig.leavesBody;
     pub const contains = storage.contains;
-    pub const matchGuarded = storage.matchGuarded;
+    pub const isStringLiteralText = sema.isStringLiteralText;
+    pub const SingleQuoted = sema.SingleQuoted;
     pub const subjectRereadable = storage.subjectRereadable;
     pub const isLiteralText = storage.isLiteralText;
     pub const valueParts = sema.valueParts;

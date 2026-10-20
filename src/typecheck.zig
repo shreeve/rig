@@ -3400,7 +3400,7 @@ const Checker = struct {
             }
         };
         if (scrutinee == self.t().int_literal_id) try self.defaultIntLiteral(subject);
-        const matchable = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
+        const matchable = isText(self.ctx, scrutinee) or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
             .int, .int_literal, .bool, .symbol, .invalid, .unknown, .any_error => true,
             .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null,
             else => false,
@@ -3421,7 +3421,7 @@ const Checker = struct {
         const scrut_pos = found.pos;
         const matchable = found.matchable;
         if (!matchable) {
-            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, Bool, and Symbol", .{try self.tyName(scrutinee)});
+            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, Bool, Symbol, and text", .{try self.tyName(scrutinee)});
         }
 
         // The place a binding that cannot be written views, for the
@@ -3889,6 +3889,7 @@ const Checker = struct {
     fn notExhaustive(self: *Checker, cov: *const MatchCoverage, scrutinee: TypeId, pos: u32) Error!void {
         const ty = sema.unwrapViews(self.ctx, scrutinee);
         const fix = "add an arm for it, or `_ =>` for the rest";
+        if (isText(self.ctx, ty)) return self.err(pos, "`match` on text is not exhaustive without `_ =>`: no set of strings covers every text", .{});
         if (sema.nominalDecl(self.ctx, ty)) |decl| if (decl.symbol().fields) |fields| {
             var missing: std.ArrayList(u8) = .empty;
             const a = self.ctx.arena.allocator();
@@ -3949,6 +3950,7 @@ const Checker = struct {
         switch (pattern) {
             .src => {
                 const name = self.text(pattern);
+                if (sema.isStringLiteralText(name)) return self.checkTextPattern(pattern, scrutinee, cov);
                 if (isLiteralText(name)) {
                     try self.checkExpr(pattern, scrutinee);
                     if (std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) {
@@ -4012,6 +4014,30 @@ const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// A string as a pattern matches text with the same bytes: the
+    /// subject is a `String`, a `?String`, or a `Static`. No set of
+    /// strings covers every text, so the match needs `_`; a string an
+    /// earlier arm matches, however it is written, is reported.
+    fn checkTextPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        try self.ctx.recordType(pattern, self.t().static_id);
+        const mark = self.ctx.diagnostics.items.len;
+        try self.checkEscapes(pattern);
+        const subject = sema.unwrapViews(self.ctx, scrutinee);
+        if (self.isPoison(subject)) return;
+        if (!isText(self.ctx, subject)) {
+            try self.errAt(pattern, "`{s}` is a string, which matches text: a `String`, a `?String`, or a `Static`; the subject is `{s}`", .{ self.text(pattern), try self.tyName(scrutinee) });
+            cov.rejected = true;
+            return;
+        }
+        if (self.ctx.diagnostics.items.len > mark) return;
+        const bytes = textLiteralBytes(self.ctx.arena.allocator(), self.text(pattern)) orelse return;
+        const key = try std.fmt.allocPrint(self.ctx.arena.allocator(), "\"{s}", .{bytes});
+        if (cov.variantAt(key)) |first| {
+            try self.errAt(pattern, "duplicate arm for `{s}`: an earlier arm matches the same text", .{self.text(pattern)});
+            try self.note(first, "first arm here", .{});
+        } else try cov.variants.put(self.ctx.allocator, key, self.startOf(pattern));
     }
 
     /// `lo..hi` matches `lo` up to, not including, `hi`, like every range.
@@ -4390,7 +4416,7 @@ const Checker = struct {
     fn synthLeaf(self: *Checker, leaf: Sexp) Error!TypeId {
         const s = self.text(leaf);
         if (s.len == 0) return self.t().invalid_id;
-        if (s[0] == '"' or s[0] == '\'') {
+        if (sema.isStringLiteralText(s)) {
             try self.checkEscapes(leaf);
             return self.t().static_id;
         }
@@ -15273,13 +15299,17 @@ fn notPlainWhy(ctx: *const SemContext, ty: TypeId) []const u8 {
     return if (generic) "is generic" else "has variants with payloads";
 }
 
-/// A String (boxed or not, or viewed), a `?String`, or a `Static`: `==`
-/// compares any two of them by their bytes. A shared handle `*String` is
-/// not text: a handle has no `==` or `.hash()`.
-fn isText(ctx: *const SemContext, ty: TypeId) bool {
-    if (sema.accessThroughShared(ctx, ty)) return false;
-    const t = stringOrBoxed(ctx, ty);
-    return t == ctx.types.string_id or t == ctx.types.string_view_id or t == ctx.types.static_id;
+const isText = sema.isText;
+
+/// The bytes a string literal holds: a double-quoted one with its escapes
+/// read as Zig reads them, a single-quoted one as `sema.SingleQuoted`
+/// reads it. Null for an escape the checker rejects.
+fn textLiteralBytes(a: std.mem.Allocator, lit: []const u8) ?[]const u8 {
+    if (lit[0] == '"') return std.zig.string_literal.parseAlloc(a, lit) catch null;
+    var bytes: std.ArrayList(u8) = .empty;
+    var it = sema.SingleQuoted.init(lit);
+    while (it.next()) |c| bytes.append(a, c) catch return null;
+    return bytes.items;
 }
 
 fn numericBits(t: sema.Type) ?u16 {
@@ -15672,7 +15702,7 @@ fn isIntLiteralNode(source: []const u8, e: Sexp) bool {
 
 fn isLiteralText(s: []const u8) bool {
     if (s.len == 0) return false;
-    if (s[0] == '"' or s[0] == '\'') return true;
+    if (sema.isStringLiteralText(s)) return true;
     if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return true;
     return sema.isIntLiteralText(s) or sema.isFloatLiteralText(s);
 }

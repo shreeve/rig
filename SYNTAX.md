@@ -1780,6 +1780,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `.name(_, b)` | a payload variant, ignoring a field |
 | `.name(f: a)` | a payload variant, binding the fields it names, in any order; the rest are not bound |
 | `42`, `-1`, `b'A'`, `true` | a literal |
+| `"GET"`, `'GET'` | text with the same bytes |
 | `NAME`, `m.NAME` | a module constant's value: an integer, a `Bool`, or an enum value |
 | `:name` | a symbol |
 | `lo..hi` | an integer from `lo` up to, not including, `hi` |
@@ -1788,7 +1789,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `p, q` | any of the alternatives, which bind no names |
 | `p if cond` | what `p` matches, when the guard `cond` holds |
 
-A pattern is one of these, never a string or a float. A constant of
+A pattern is one of these, never a float or a byte string. A constant of
 another kind, or whose value the target sets, is compared in a guard:
 `x if x == lib.LIMIT =>`. A pattern binds a variant's fields either in
 order, all of them, or by name, any of them: `.rect(w, h)` or

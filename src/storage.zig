@@ -66,7 +66,7 @@ fn srcText(ctx: *const SemContext, leaf: Sexp) []const u8 {
 /// Literal source text: numbers, quoted strings, and the value keywords.
 pub fn isLiteralText(t: []const u8) bool {
     if (t.len == 0) return false;
-    if (std.ascii.isDigit(t[0]) or t[0] == '"' or t[0] == '\'' or t[0] == '.') return true;
+    if (std.ascii.isDigit(t[0]) or sema.isStringLiteralText(t) or t[0] == '.') return true;
     return std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false");
 }
 
@@ -620,6 +620,14 @@ pub fn matchGuarded(match: Sexp) bool {
     return false;
 }
 
+/// Whether `match` picks its arm before it runs one: an arm has a guard,
+/// or the match is on text, which a Zig `switch` cannot test.
+pub fn matchSelects(ctx: *const SemContext, match: Sexp) bool {
+    if (matchGuarded(match)) return true;
+    const ty = matchedType(ctx, match) orelse return false;
+    return sema.isText(ctx, sema.unwrapViews(ctx, ty));
+}
+
 /// Whether `match` reads its subject again after picking an arm: a
 /// `match !x` binding of the whole value points at the place, and a
 /// `match <x` arm with alternatives drops the value from it.
@@ -644,7 +652,7 @@ pub fn matchBlock(ctx: *const SemContext, match: Sexp) bool {
 }
 
 fn decideMatchBlock(ctx: *const SemContext, match: Sexp) bool {
-    return ctx.headerOf(match) == .held or matchGuarded(match) or matchesGenericView(ctx, match) or
+    return ctx.headerOf(match) == .held or matchSelects(ctx, match) or matchesGenericView(ctx, match) or
         (matchRereads(ctx, match) and !subjectRereadable(lentPlace(ir.Match.subject(match))));
 }
 
@@ -1633,7 +1641,7 @@ const Planner = struct {
                 temp = mode == .consume and by == .owned;
             }
             reread = true;
-            if (matchGuarded(m)) {
+            if (matchSelects(ctx, m)) {
                 for (ir.Match.arms(m)) |arm| {
                     try p.header(ir.Arm.guard(arm));
                     // The arm takes the value.

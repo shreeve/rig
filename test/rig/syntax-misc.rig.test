@@ -2641,9 +2641,9 @@ fail "match else block arm", "7:3: the catch-all arm is `_`, or a name that bind
     else
       print("other")
 
-fail "match float pattern", "unexpected `1.5`", "a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant"
-  # A match pattern is a name, an integer, a Bool, or an enum variant;
-  # a float literal is not a pattern.
+fail "match float pattern", "unexpected `1.5`", "a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant"
+  # A match pattern is a name, an integer, a Bool, a string, or an enum
+  # variant; a float literal is not a pattern.
 
   x = 1.5
   match x
@@ -2742,15 +2742,6 @@ test "match guards and alternatives", '''
     .full(b) if b.n > 5 => print("big", b.n)
     _ => print("not big")
   print("end")
-
-fail "match string pattern", "unexpected `\"a\"`", "a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant"
-  # A match pattern is a name, an integer, a Bool, or an enum variant;
-  # a string literal is not a pattern.
-
-  s = "a"
-  match s
-    "a" => print(1)
-    _ => print(2)
 
 test "methods outside body", "3 8"
   # A method declared outside its type's body is the member it names.

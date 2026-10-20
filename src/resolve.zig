@@ -1107,7 +1107,7 @@ fn isValueSpelling(source: []const u8, node: Sexp) bool {
 fn literalTypeName(text: []const u8) ?[]const u8 {
     if (sema.isFloatLiteralText(text)) return "Float";
     if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return "Bool";
-    if (text.len > 0 and (text[0] == '"' or text[0] == '\'')) return "?String";
+    if (sema.isStringLiteralText(text)) return "?String";
     return null;
 }
 
@@ -2884,7 +2884,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
 pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     const text = identAt(source, pattern) orelse return false;
     for ([_][]const u8{ "_", "true", "false" }) |word| if (std.mem.eql(u8, text, word)) return false;
-    return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
+    return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text) and !sema.isStringLiteralText(text);
 }
 
 const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Symbol", "Void" };
