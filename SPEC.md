@@ -10466,8 +10466,16 @@ as `deadlock: these calls wait on each other, and none can go on:
 Bank.pay -> Ledger.post -> Bank.balance`, where `Bank.pay` called
 `Ledger.post`, which called `Bank.balance`. Waits on tasks and on sets
 of tasks count too: a method that waits on a task that calls its own
-actor is such a cycle. The wait that closes the cycle finds it, so the
-program never hangs on one.
+actor is such a cycle, and so is a wait for a free slot in an actor's
+mailbox (a call made with `&`), which only the actor's answer to an
+earlier such call frees: `Hub.run -> a slot in Hub's mailbox`. The wait
+that closes the cycle finds it, so the program never hangs on one.
+
+A debug build, and every run `rig test` makes, also panics when every
+task waits and nothing can wake one, on channels say: no task is
+ready, and no timer, socket, or call on the blocking pool is pending.
+It reports `every task is waiting on another, and none can run: a
+deadlock` once every worker has slept so a moment.
 
 A panic in an actor's method ends the actor. Its value is abandoned,
 not dropped, since the panic may have left it half-changed; a debug

@@ -1485,6 +1485,17 @@ pub fn Actor(comptime T: type) type {
                 const l: rt.sched.Label = .{ .actor = actorName(T), .method = name };
             }.l;
         }
+
+        /// A free slot in its mailbox, as a deadlock names a wait for one
+        /// (`actorSpawn`).
+        const slot_label: rt.sched.Label = .{ .actor = actorName(T), .method = "", .slot = true };
+
+        /// Whether a call made with `&` could take a slot now: what a
+        /// wait for one waits on, for a deadlock's walk.
+        fn slotFree(p: *const anyopaque) bool {
+            const self: *const Self = @ptrCast(@alignCast(p));
+            return self.pending.load(.seq_cst) < self.capacity;
+        }
         /// Marks the type for `rt.Shared`'s atomic counts.
         pub const __rig_actor = {};
         /// Its arguments, for `typeName`.
@@ -1974,14 +1985,26 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Tas
     const R = ActorResult(@TypeOf(handle), name);
     const box = boxOf(handle);
     const self = &box.value;
+    // Waiting for a slot, the fiber blocks on the actor, as a call to it
+    // does: a slot frees only once the actor answers a call made with
+    // `&`, so a wait the actor's own method makes, or one through calls
+    // that come back to the waiter, is a deadlock (`rt.sched.block`).
+    const A = @TypeOf(self.*);
+    const slot_wait: rt.sched.Blocked = .{ .call = .{ .label = &A.slot_label, .held_by = &self.held_by, .msg = self, .answered = A.slotFree } };
+    var blocked = false;
     while (true) {
         const n = self.pending.load(.seq_cst);
         if (n < self.capacity) {
             if (self.pending.cmpxchgWeak(n, n + 1, .seq_cst, .seq_cst) == null) break;
             continue;
         }
+        if (!blocked) {
+            blocked = true;
+            rt.sched.block(&slot_wait);
+        }
         rt.sched.yield();
     }
+    if (blocked) rt.sched.unblock();
     const Run = struct {
         fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
             defer {
