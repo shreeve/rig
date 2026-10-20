@@ -7804,9 +7804,10 @@ const Checker = struct {
         } else if (k == .read_view) .read else if (k == .write_view) .write else .given;
         const how: sema.Crossing = if (mode == .read) .shares else .moves;
         const inner = if (k == .read_view or k == .write_view) sema.unwrapViews(self.ctx, part_ty) else part_ty;
-        if (sema.crossingBlocker(self.ctx, inner, how) == null) return true;
+        const pin = sema.crossingBlocker(self.ctx, inner, how) orelse return true;
         const blocker = sema.localBlocker(self.ctx, inner, how) orelse {
-            try self.ctx.recordLocalTask(call);
+            const why = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`: `{s}` {s}", .{ self.sourceText(part), try self.tyName(part_ty), try self.blockerReason(pin, mode == .read, if (pin == part_ty) "is" else if (pin == inner) "views" else null) });
+            try self.ctx.recordLocalTask(call, .{ .pos = self.startOf(call), .call = self.sourceText(call), .why = why });
             return true;
         };
         const passed = switch (mode) {
