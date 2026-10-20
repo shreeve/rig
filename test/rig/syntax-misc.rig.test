@@ -2641,7 +2641,7 @@ fail "match else block arm", "7:3: the catch-all arm is `_`, or a name that bind
     else
       print("other")
 
-fail "match float pattern", "unexpected `1.5`", "a pattern is a name, an integer, `true`, `false`, or an enum variant"
+fail "match float pattern", "unexpected `1.5`", "a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant"
   # A match pattern is a name, an integer, a Bool, or an enum variant;
   # a float literal is not a pattern.
 
@@ -2743,7 +2743,7 @@ test "match guards and alternatives", '''
     _ => print("not big")
   print("end")
 
-fail "match string pattern", "unexpected `\"a\"`", "a pattern is a name, an integer, `true`, `false`, or an enum variant"
+fail "match string pattern", "unexpected `\"a\"`", "a pattern is a name, an integer, a byte `b'A'`, `true`, `false`, or an enum variant"
   # A match pattern is a name, an integer, a Bool, or an enum variant;
   # a string literal is not a pattern.
 

@@ -263,7 +263,7 @@ fn colourOf(cat: TokenCat) Colour {
     return switch (cat) {
         .ident => .name,
         .integer, .real => .{ .class = .{ .kind = .number } },
-        .string_sq, .string_dq => .{ .class = .{ .kind = .string } },
+        .string_sq, .string_dq, .bytes => .{ .class = .{ .kind = .string } },
         .comment => .{ .class = .{ .kind = .comment } },
         .err => .{ .class = .{ .kind = .invalid } },
         .kwarg_name => .{ .class = .{ .kind = .parameter } },

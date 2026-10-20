@@ -291,6 +291,8 @@ are names a declaration may hide.
 | Literal | Examples | Notes |
 |---|---|---|
 | integer | `42`, `1_000_000`, `0xff`, `0b1010`, `0o17` | `_` separates digits; radix prefixes are lowercase; no leading zero and no type suffix |
+| byte | `b'A'`, `b'\n'`, `b'\x1b'` | the integer of one ASCII byte, `65`; the escapes of a double-quoted string but `\u{…}` ([SPEC](SPEC.md#byte-literals)) |
+| byte string | `b"AB"`, `b"\x1b[H"`, `b""` | the array of its bytes, `[b'A', b'B']`, of type `[N]U8` with no terminator |
 | float | `3.14`, `.5`, `1e10`, `2.5e-3`, `1.5E+2` | a `.` or an exponent; the digits before `.` may be left out |
 | string | `"tab\t, newline\n"`, `'it''s raw'` | double quotes take Zig's escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'` |
 | bool | `true`, `false` | |
@@ -1777,7 +1779,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `.name(_, b)` | a payload variant, ignoring a field |
 | `.name(f: a)` | a payload variant, binding the fields it names, in any order; the rest are not bound |
-| `42`, `-1`, `true` | a literal |
+| `42`, `-1`, `b'A'`, `true` | a literal |
 | `NAME`, `m.NAME` | a module constant's value: an integer, a `Bool`, or an enum value |
 | `:name` | a symbol |
 | `lo..hi` | an integer from `lo` up to, not including, `hi` |
