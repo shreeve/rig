@@ -504,19 +504,24 @@ Afterwards the caller hands any messages that arrived to the actor's
 own task rather than serving them itself. An idle actor called this way
 is a fair mutex with deadlock detection, so Rig needs no `Mutex`.
 
-**Deadlock.** Actors are not reentrant: a `!@` method holds its write
-view while it waits, so a call back into the same actor cannot run. A
-cycle of waiting calls is a deadlock.
+**Deadlock** (built). Actors are not reentrant: a `!@` method holds its
+write view while it waits, so a call back into the same actor cannot
+run. A cycle of waiting calls is a deadlock.
 - Every waiter publishes the one thing it waits on, with a sequentially
-  consistent store, and then walks the chain from there.
+  consistent store, and then walks the chain from there. An actor whose
+  method's fiber blocks leads on to that fiber's wait.
 - So the call that would close a cycle finds it, even when two cores
   close it at once, and panics naming it:
   `Bank.pay -> Ledger.post -> Bank.balance`. A deadlock is a bug, and
   Rig's bugs panic, so actor calls stay infallible. The panic unwinds
-  to the nearest boundary, so it fails one request, not the server.
+  to the nearest boundary, so it fails one request, not the server,
+  once a panic in an actor's method fails its caller (Failure).
 - This is exact for waits on one thing: a task, an actor call, or a
-  set's next result. A wait on any of several channels is not covered;
-  a debug dump of what every task waits on covers those.
+  set's next result, which is stuck only when every task left in the
+  set is. A wait on any of several channels is not covered; a debug
+  dump of what every task waits on covers those.
+- Only a program that makes actors is watched: the tasks a task waits
+  on are its own, so every cycle passes through an actor.
 - A lint over which actor types call each other warns before the
   program runs.
 
@@ -794,7 +799,7 @@ Each item gives the answer this document assumes.
     - an idle actor runs inline, as the actor, when the stack has room.
 
     *Yes.*
-11. **Deadlock:** detection at the closing call, which panics with the
+11. **Deadlock** (built): detection at the closing call, which panics with the
     cycle, and a lint. *Yes.*
 12. **Failure:**
     - errors as values;

@@ -44,6 +44,10 @@ pub const Fiber = struct {
     handoff_epoch: u32 = 0,
     /// Its wait for what another fiber or thread does (`Wait`).
     wait: Wait = .{},
+    /// What it waits on while it blocks (`block`), for a deadlock's walk.
+    blocked: std.atomic.Value(?*const Blocked) = .init(null),
+    /// The actors it runs a method of, newest first (`Held`).
+    held: ?*Held = null,
 };
 
 /// What a worker does with the fiber that just switched away, once it has:
@@ -1080,6 +1084,317 @@ pub const SpinLock = struct {
 };
 
 // -----------------------------------------------------------------------------
+// Deadlocks
+// -----------------------------------------------------------------------------
+//
+// A fiber that blocks publishes what it waits on (`block`): a task's end,
+// an actor's answer to a call, or the end of any of several tasks. Each
+// actor it runs a method of then names that wait too (`Held`), so a call
+// waiting on the actor leads on to it. The fiber then walks the chain of
+// waits from its own, under one lock (`graph`), and a chain that comes
+// back to it is a deadlock: none of its waits can end. The walk that
+// closes a cycle finds it, since of two that close it at once the later
+// sees the other's wait. A record lives in its fiber's frame until
+// `unblock`, which clears it and then waits out a walk in progress, so a
+// walk never reads one that has gone; and a record cleared during a walk
+// cannot come back before the walk ends, so a cycle whose records are all
+// still there at its end held, all at once, then.
+
+/// Whether waits are watched: in a program that makes actors, which
+/// every cycle of waits passes through, since the tasks a task waits on
+/// are its own.
+const watched = @hasDecl(@import("root"), "__rig_actors");
+
+/// A method of an actor, as a deadlock names it: `Bank.pay`.
+pub const Label = struct { actor: []const u8, method: []const u8 };
+
+/// What a fiber waits on while it blocks.
+pub const Blocked = union(enum) {
+    /// A task's end.
+    task: *Header,
+    /// An actor's answer to a call.
+    call: CallWait,
+    /// The end of any of several tasks: a set that can fail, or
+    /// `task.both`.
+    any: AnyWait,
+
+    pub const CallWait = struct {
+        /// The method called.
+        label: *const Label,
+        /// The actor's `held_by`: the method running in it, while the
+        /// fiber running it blocks.
+        held_by: *const std.atomic.Value(?*Held),
+        /// The call, and whether it has been answered.
+        msg: *const anyopaque,
+        answered: *const fn (*const anyopaque) bool,
+    };
+
+    pub const AnyWait = struct {
+        ctx: *const anyopaque,
+        len: usize,
+        /// The record of task `i`, or null once the waiter took it.
+        member: *const fn (*const anyopaque, usize) ?*Header,
+    };
+};
+
+/// An actor a fiber runs a method of, in the fiber's frame, on its list
+/// (`Fiber.held`). While the fiber blocks, the actor's `held_by` names
+/// it, and so what the fiber waits on.
+pub const Held = struct {
+    held_by: *std.atomic.Value(?*Held),
+    /// The method it runs.
+    doing: *const Label,
+    next: ?*Held,
+    /// The fiber, and what it waits on, while it blocks (`block`).
+    fiber: *Fiber = undefined,
+    blocked: *const Blocked = undefined,
+};
+
+/// Held while a fiber walks the chain of waits.
+var graph: std.atomic.Value(bool) = .init(false);
+
+fn lockGraph() void {
+    while (graph.cmpxchgWeak(false, true, .seq_cst, .monotonic) != null) std.atomic.spinLoopHint();
+}
+
+fn unlockGraph() void {
+    graph.store(false, .seq_cst);
+}
+
+/// The running fiber blocks on `b` until `unblock`: publish it, and walk
+/// the chain of waits from it. One that comes back here is a deadlock,
+/// which panics naming its calls.
+pub fn block(b: *const Blocked) void {
+    if (!watched) return;
+    const f = current() orelse return;
+    f.blocked.store(b, .seq_cst);
+    var at = f.held;
+    while (at) |h| : (at = h.next) {
+        h.fiber = f;
+        h.blocked = b;
+        h.held_by.store(h, .seq_cst);
+    }
+    if (!leadsOn(b)) return;
+    var walk: Walk = .{ .me = f };
+    var buf: [1024]u8 = undefined;
+    lockGraph();
+    const text = if (walk.stuck(b, 0) and walk.holds()) walk.describe(&buf) else null;
+    unlockGraph();
+    if (text) |t| {
+        unblock();
+        @panic(t);
+    }
+}
+
+/// Whether the wait `b` leads to a fiber that blocks too, which a cycle
+/// needs: read without the lock, since the waiter keeps what it waits on.
+/// A wait whose next fiber runs closes no cycle now, and when that fiber
+/// blocks, its own walk finds this wait.
+fn leadsOn(b: *const Blocked) bool {
+    return switch (b.*) {
+        .task => |h| h.fiber.blocked.load(.seq_cst) != null,
+        .call => |c| c.held_by.load(.seq_cst) != null,
+        .any => |a| for (0..a.len) |i| {
+            const h = a.member(a.ctx, i) orelse continue;
+            if (h.fiber.blocked.load(.seq_cst) != null) break true;
+        } else false,
+    };
+}
+
+/// The running fiber's wait is over: take back what `block` published,
+/// and wait out a walk that may still read it.
+pub fn unblock() void {
+    if (!watched) return;
+    const f = current() orelse return;
+    f.blocked.store(null, .seq_cst);
+    var at = f.held;
+    while (at) |h| : (at = h.next) h.held_by.store(null, .seq_cst);
+    if (graph.load(.seq_cst)) {
+        lockGraph();
+        unlockGraph();
+    }
+}
+
+/// A walk of the chain of waits from `me`'s.
+const Walk = struct {
+    me: *Fiber,
+    /// The waits on the way from `me`'s, by depth, and where each leads.
+    path: [max_steps]*const Blocked = undefined,
+    steps: [max_steps]Step = undefined,
+    /// The first way found back to `me`, to name the cycle.
+    cycle: [max_steps]Step = undefined,
+    n: usize = 0,
+    /// What the walk read, to check it still holds once it is done.
+    seen: [max_seen]Seen = undefined,
+    n_seen: usize = 0,
+
+    const max_steps = 64;
+    const max_seen = 256;
+
+    /// A wait: the call it waits on, or null for a task's end, and the
+    /// fiber it leads to, at the method running in the actor called.
+    const Step = struct { call: ?*const Label, fiber: *Fiber, at: ?*Held };
+
+    const Seen = union(enum) {
+        fiber: struct { f: *Fiber, b: *const Blocked },
+        held: struct { held_by: *const std.atomic.Value(?*Held), h: *Held },
+        call: Blocked.CallWait,
+        task: *Header,
+    };
+
+    /// Whether every way the wait `b` can end leads back to `me`, through
+    /// fibers that block: then it can never end. A wait already on the
+    /// way here counts as one that cannot end, since each way out of it
+    /// comes back to it, and every wait on the way blocks.
+    fn stuck(w: *Walk, b: *const Blocked, depth: usize) bool {
+        if (depth == max_steps) return false;
+        for (w.path[0..depth]) |p| if (p == b) return true;
+        w.path[depth] = b;
+        switch (b.*) {
+            .task => |h| {
+                if (!w.see(.{ .task = h })) return false;
+                return w.through(.{ .call = null, .fiber = &h.fiber, .at = null }, depth);
+            },
+            .call => |c| {
+                if (!w.see(.{ .call = c })) return false;
+                const h = c.held_by.load(.seq_cst) orelse return false;
+                if (!w.see(.{ .held = .{ .held_by = c.held_by, .h = h } })) return false;
+                return w.through(.{ .call = c.label, .fiber = h.fiber, .at = h }, depth);
+            },
+            .any => |a| {
+                var pending = false;
+                for (0..a.len) |i| {
+                    const h = a.member(a.ctx, i) orelse continue;
+                    if (!w.see(.{ .task = h })) return false;
+                    pending = true;
+                    if (!w.through(.{ .call = null, .fiber = &h.fiber, .at = null }, depth)) return false;
+                }
+                return pending;
+            },
+        }
+    }
+
+    /// Whether the wait at `depth`, which leads as `step` says, comes
+    /// back to `me`, or to a fiber that blocks in a wait that does.
+    fn through(w: *Walk, step: Step, depth: usize) bool {
+        w.steps[depth] = step;
+        if (step.fiber == w.me) {
+            if (w.n == 0) {
+                w.n = depth + 1;
+                @memcpy(w.cycle[0..w.n], w.steps[0..w.n]);
+            }
+            return true;
+        }
+        // A fiber that runs the method a call waits on blocks in the wait
+        // it published as it blocked; a task's fiber, in its own.
+        const then = if (step.at) |h| h.blocked else step.fiber.blocked.load(.seq_cst) orelse return false;
+        if (!w.see(.{ .fiber = .{ .f = step.fiber, .b = then } })) return false;
+        return w.stuck(then, depth + 1);
+    }
+
+    /// Note what the walk read, when it still stands: false once the
+    /// walk has read too much, or `s` already fails.
+    fn see(w: *Walk, s: Seen) bool {
+        if (w.n_seen == max_seen or !stands(s)) return false;
+        w.seen[w.n_seen] = s;
+        w.n_seen += 1;
+        return true;
+    }
+
+    /// Whether all the walk read still stands.
+    fn holds(w: *const Walk) bool {
+        for (w.seen[0..w.n_seen]) |s| if (!stands(s)) return false;
+        return true;
+    }
+
+    fn stands(s: Seen) bool {
+        return switch (s) {
+            .fiber => |x| x.f.blocked.load(.seq_cst) == x.b,
+            .held => |x| x.held_by.load(.seq_cst) == x.h,
+            .call => |c| !c.answered(c.msg),
+            .task => |h| h.status.load(.seq_cst) < Header.ending,
+        };
+    }
+
+    /// The cycle, as the methods that make it, from one running in an
+    /// actor on it: each fiber's methods, outermost first, then the call
+    /// it waits on, as `Bank.pay -> Ledger.post -> Bank.balance`, where
+    /// `Bank.balance` waits on `Bank.pay`. A method named just before, as
+    /// the call that waits on it, is not named again; a wait on a task is
+    /// `a task`.
+    fn describe(w: *const Walk, buf: []u8) []const u8 {
+        var out: std.Io.Writer = .fixed(buf);
+        const steps = w.cycle[0..w.n];
+        const k = for (steps, 0..) |s, i| {
+            if (s.at != null) break i;
+        } else 0;
+        out.writeAll("deadlock: these calls wait on each other, and none can go on: ") catch {};
+        var names: Names = .{ .out = &out };
+        names.methods(steps[k]);
+        const start = names.last;
+        for (1..steps.len + 1) |i| {
+            const s = steps[(k + i) % steps.len];
+            if (s.call) |c| {
+                if (i < steps.len or !same(c, start)) names.add(c);
+            } else names.task();
+            if (i < steps.len) names.methods(s);
+        }
+        return out.buffered();
+    }
+
+    /// Names written in turn, with arrows between them.
+    const Names = struct {
+        out: *std.Io.Writer,
+        last: ?*const Label = null,
+        first: bool = true,
+
+        /// The methods running on the fiber a step leads to, outermost
+        /// first: from the one the step's call waits on, or every one
+        /// for a task's.
+        fn methods(n: *Names, s: Step) void {
+            var list: [max_steps]*const Label = undefined;
+            var count: usize = 0;
+            var at = s.fiber.held;
+            while (at) |h| : (at = h.next) {
+                if (count < list.len) {
+                    list[count] = h.doing;
+                    count += 1;
+                }
+                if (h == s.at) break;
+            }
+            while (count > 0) {
+                count -= 1;
+                n.add(list[count]);
+            }
+        }
+
+        fn add(n: *Names, l: *const Label) void {
+            if (n.last) |last| if (same(last, l)) return;
+            n.arrow();
+            n.out.print("{s}.{s}", .{ l.actor, l.method }) catch {};
+            n.last = l;
+        }
+
+        fn task(n: *Names) void {
+            n.arrow();
+            n.out.writeAll("a task") catch {};
+            n.last = null;
+        }
+
+        fn arrow(n: *Names) void {
+            if (!n.first) n.out.writeAll(" -> ") catch {};
+            n.first = false;
+        }
+    };
+
+    fn same(a: ?*const Label, b: ?*const Label) bool {
+        const x = a orelse return false;
+        const y = b orelse return false;
+        return std.mem.eql(u8, x.actor, y.actor) and std.mem.eql(u8, x.method, y.method);
+    }
+};
+
+// -----------------------------------------------------------------------------
 // Tasks
 // -----------------------------------------------------------------------------
 
@@ -1127,7 +1442,11 @@ pub const Header = struct {
     /// flag to be set first, or for `deadline` to pass, when this gives
     /// false.
     fn waitEnd(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
-        if (!h.isEnded()) {
+        if (h.isEnded()) return true;
+        const b: Blocked = .{ .task = h };
+        block(&b);
+        defer unblock();
+        {
             const w = me().?;
             // Not started, and next on this worker: run it now. A fiber in
             // the "run next" slot may also be one woken partway, which

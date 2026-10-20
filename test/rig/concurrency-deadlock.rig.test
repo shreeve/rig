@@ -1,0 +1,164 @@
+# concurrency: tests whose names start `deadlock`.
+
+bomb "deadlock actor calls itself", seeds: 20, "deadlock: these calls wait on each other, and none can go on: Counter.bump -> Counter.get", prints: "before"
+  # A method that calls its own actor waits on itself: the actor runs one
+  # method at a time, so the call can never run.
+  obj Counter
+    hits: Int
+
+    sub bump(!@, me: *Actor[Counter])
+      @hits += me.get()
+
+    fun get(?@) -> Int
+      @hits
+
+  c = *Actor(Counter(hits: 1))
+  print("before")
+  !c.bump(+c)
+  print("never")
+
+bomb "deadlock calls back through another actor", seeds: 20, "deadlock: these calls wait on each other, and none can go on: Bank.pay -> Ledger.post -> Bank.balance", prints: "before"
+  # The cycle is named by its calls, outermost first, though one task
+  # runs all of them.
+  obj Ledger
+    n: Int
+
+    fun post(!@, bank: *Actor[Bank]) -> Int
+      @n += 1
+      bank.balance()
+
+  obj Bank
+    money: Int
+
+    fun pay(!@, ledger: *Actor[Ledger], me: *Actor[Bank]) -> Int
+      @money -= 1
+      (!ledger).post(<me)
+
+    fun balance(?@) -> Int
+      @money
+
+  b = *Actor(Bank(money: 10))
+  l = *Actor(Ledger(n: 0))
+  print("before")
+  print((!b).pay(+l, +b))
+
+bomb "deadlock two tasks", seeds: 20, "Ledger.audit -> Bank.balance", prints: "before"
+  # Two tasks each hold an actor the other calls. The task whose wait
+  # closes the cycle panics, naming it from where its walk began.
+  use std.time
+
+  obj Ledger
+    n: Int
+
+    fun audit(!@, bank: *Actor[Bank]) -> Int!
+      time.sleep(10 * time.MS)!
+      @n + bank.balance()
+
+  obj Bank
+    money: Int
+
+    fun pay(!@, ledger: *Actor[Ledger], bank: *Actor[Bank]) -> Int!
+      time.sleep(10 * time.MS)!
+      (!ledger).audit(<bank)!
+
+    fun balance(?@) -> Int
+      @money
+
+  fun one(b: *Actor[Bank], l: *Actor[Ledger]) -> Int!
+    (!b).pay(<l, +b)!
+
+  fun two(b: *Actor[Bank], l: *Actor[Ledger]) -> Int!
+    (!l).audit(<b)!
+
+  b = *Actor(Bank(money: 10))
+  l = *Actor(Ledger(n: 0))
+  print("before")
+  t = one(+b, +l)&
+  u = two(+b, +l)&
+  print(<t.wait() catch -1, <u.wait() catch -1)
+
+bomb "deadlock method waits on its task", seeds: 20, "deadlock: these calls wait on each other, and none can go on: Hub.run -> a task -> Hub.get", prints: "before"
+  # A method that waits on a task that calls its own actor.
+  obj Hub
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+    fun run(!@, me: *Actor[Hub]) -> Int
+      t = peek(<me)&
+      <t.wait()
+
+  fun peek(h: *Actor[Hub]) -> Int
+    h.get()
+
+  h = *Actor(Hub(n: 3))
+  print("before")
+  print((!h).run(+h))
+
+bomb "deadlock method waits on its set", seeds: 20, "deadlock: these calls wait on each other, and none can go on: Hub.run -> a task -> Hub.get", prints: "before"
+  # A wait on a set that can fail ends when any of its tasks does, so it
+  # is stuck only when every task left calls back.
+  use std.task
+
+  obj Hub
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+    fun run(!@, me: *Actor[Hub]) -> Int!
+      ts = Tasks[Int!]()
+      for 0..3
+        !ts.add(peek(+me)&)
+      xs = <ts.wait_all()!
+      xs.len
+
+  fun peek(h: *Actor[Hub]) -> Int!
+    task.check()!
+    h.get()
+
+  h = *Actor(Hub(n: 3))
+  print("before")
+  print((!h).run(+h) catch -1)
+
+test "deadlock chains that end", seeds: 20, '''
+  9 1
+  12
+'''
+  # Calls that wait on other actors, and tasks that call actors, while
+  # none waits on itself: no deadlock.
+  use std.task
+
+  obj Ledger
+    n: Int
+
+    fun post(!@) -> Int
+      @n += 1
+      @n
+
+  obj Bank
+    money: Int
+
+    fun pay(!@, ledger: *Actor[Ledger]) -> Int
+      @money -= 1
+      _ = (!ledger).post()
+      @money
+
+    fun balance(?@) -> Int
+      @money
+
+  fun spend(b: *Actor[Bank], l: *Actor[Ledger]) -> Int
+    (!b).pay(<l)
+
+  fun look(b: *Actor[Bank]) -> Int
+    b.balance()
+
+  b = *Actor(Bank(money: 10))
+  l = *Actor(Ledger(n: 0))
+  t = spend(+b, +l)&
+  print(<t.wait(), (!l).post() - 1)
+  u = look(+b)&
+  v = look(+b)&
+  x, y = task.both(<u, <v)
+  print(x + y - 6)

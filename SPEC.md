@@ -10366,6 +10366,16 @@ still runs as the actor: it has started, so the caller's cancel and
 deadline do not stop it, and the caller meets them at its own next
 waiting point. Messages sent meanwhile go to the actor's own task.
 
+A call that can never be answered panics: one that waits on its own
+actor, or on a chain of actors and tasks that comes back to it, since an
+actor runs one method at a time. The panic names the calls of the cycle,
+as `deadlock: these calls wait on each other, and none can go on:
+Bank.pay -> Ledger.post -> Bank.balance`, where `Bank.pay` called
+`Ledger.post`, which called `Bank.balance`. Waits on tasks and on sets
+of tasks count too: a method that waits on a task that calls its own
+actor is such a cycle. The wait that closes the cycle finds it, so the
+program never hangs on one.
+
 ```rig
 obj Ledger
   entries: List[Int]

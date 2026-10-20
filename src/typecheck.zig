@@ -10992,6 +10992,7 @@ const Checker = struct {
         try self.checkArgs(args, call, .{ .names = &.{ "value", "mailbox" } }, "Actor", self.startOf(callee), .{ .declared = call.params });
         if (self.current_call) |c| try self.ctx.recordActorMake(c);
         self.ctx.makes_tasks = true;
+        self.ctx.makes_actors = true;
         return actor;
     }
 

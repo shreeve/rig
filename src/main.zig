@@ -212,11 +212,13 @@ const Env = struct {
     /// sanitizer, or the assertions of proven tests, written into the root
     /// module (`runtime.zig`); those that run a program's tasks on the
     /// scheduler, with the guard below each task's stack (`tasks`,
-    /// `taskGuardOf`); and, in a
+    /// `taskGuardOf`); the one that marks a program that makes actors,
+    /// whose waits a deadlock's walk follows (`actors`); and, in a
     /// package `rig run` or `rig test` builds (`hook`), the variable
     /// naming the file the program creates as it starts (`buildCommand`).
-    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: ?u64) !void {
+    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: ?u64, actors: bool) !void {
         if (tasks) |guard| try w.print("pub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{guard});
+        if (actors) try w.writeAll("pub const __rig_actors = true;\n");
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
@@ -746,10 +748,11 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_module});
-    try env.writeRootFlags(&root.writer, true, null);
+    try env.writeRootFlags(&root.writer, true, null, false);
     try root.writer.writeAll("\nconst programs = .{\n");
     var links_libc = false;
     var makes_tasks = false;
+    var makes_actors = false;
     var largest_frame: u64 = 0;
     var built: usize = 0;
     var inputs = std.crypto.hash.sha2.Sha256.init(.{});
@@ -775,6 +778,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         const pkg = try emitPackage(allocator, env, &graph, .{ .batch = true });
         links_libc = links_libc or pkg.links_libc;
         makes_tasks = makes_tasks or makesTasks(&graph);
+        makes_actors = makes_actors or makesActors(&graph);
         largest_frame = @max(largest_frame, largestFrame(&graph));
         const sub = try allocator.print("p{d}", .{n});
         try writePackage(allocator, io, try std.fs.path.join(allocator, &.{ dir, sub }), pkg.files.items);
@@ -794,6 +798,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     try root.writer.writeAll("};\n");
     // One runtime serves the batch: it runs tasks if any program makes them.
     if (makes_tasks) try root.writer.print("\npub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{sema.taskGuard(largest_frame)});
+    if (makes_actors) try root.writer.writeAll("pub const __rig_actors = true;\n");
     try root.writer.print(
         \\
         \\// The first argument names the program; it sees the others, after
@@ -1047,7 +1052,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_filename});
-    try env.writeRootFlags(w, true, taskGuardOf(graph));
+    try env.writeRootFlags(w, true, taskGuardOf(graph), makesActors(graph));
     try w.writeAll(
         \\
         \\fn testsOf(comptime module: type) []const rig.Test {
@@ -1230,6 +1235,11 @@ fn makesTasks(graph: *const modules.ModuleGraph) bool {
     return false;
 }
 
+fn makesActors(graph: *const modules.ModuleGraph) bool {
+    for (graph.modules.items) |*m| if (m.sema.makes_actors) return true;
+    return false;
+}
+
 /// How `emitPackage` writes a package.
 const PackageKind = struct {
     /// `rig run`: the root module names the file the program creates as
@@ -1288,7 +1298,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         uses_symbols = uses_symbols or em.uses_symbols;
         if (i == 0 and !kind.batch and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook or tasks)) {
             try file_buffer.writer.writeAll("\n");
-            try env.writeRootFlags(&file_buffer.writer, hook, task_guard);
+            try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
         }
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| {
