@@ -320,6 +320,36 @@ fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> 
   t = call(?f)&
   print(>t)
 
+fail "task closure literal lent", "10:14: this closure is lent to a task to read: `?fun(Int) -> Int` views a function, whose captures its type does not show", errors: 1
+  # A closure literal written in the call is lent to it, as `?f` is: its
+  # captures live in the caller's block, which ends before the task does.
+  fun apply(n: Int, f: ?fun(Int) -> Int) -> Int
+    s = 0
+    for i in 0..n
+      s += f(i)
+    s
+
+  k = 7
+  t = apply(3, |+k, x| x + k)&
+  print(>t)
+
+fail "task closure literal writes a capture", "this closure is lent to a task to read: `?fun(Int) -> Int` views a function", errors: 1
+  # Lent to a task, a closure that writes `total` would race the maker's
+  # own writes to it.
+  fun apply(n: Int, f: ?fun(Int) -> Int) -> Int
+    s = 0
+    for i in 0..n
+      s += f(i)
+    s
+
+  total = 0
+  t = apply(1000, |!total, x|
+    total += 1
+    x
+  )&
+  total += 1
+  print(>t, total)
+
 fail "task local channel", "`+ch` is given to a task: `*Chan[*Node]` holds `*Node`, a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
   # A channel's elements go to any task that holds a handle of it, so a
   # local task's channel still carries only what crosses cores.

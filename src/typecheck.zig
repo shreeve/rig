@@ -7794,7 +7794,12 @@ const Checker = struct {
     /// stays on one thread (`sema.localBlocker`) makes the task local:
     /// it and the task making it run on this thread from then on. Reports
     /// the part that cannot go even to a local task.
-    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
+    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
+        var part_ty = part_ty_in;
+        // A closure literal written in the call is lent to it, as `?f`
+        // is: it views what it captures.
+        const lent_closure = part.isKind(.lambda) and self.ctx.types.get(part_ty) != .read_view;
+        if (lent_closure) part_ty = try self.ctx.intern(.{ .read_view = part_ty });
         const k = self.ctx.types.get(part_ty);
         const Mode = enum { given, read, write };
         const mode: Mode = if (as_self) |r| switch (r) {
@@ -7814,7 +7819,8 @@ const Checker = struct {
             .read => "is lent to a task to read",
             .write => "is lent to a task to write",
         };
-        try self.errAt(part, "`{s}` {s}: `{s}` {s}", .{ self.sourceText(part), passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
+        const what = if (lent_closure) "this closure" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.sourceText(part)});
+        try self.errAt(part, "{s} {s}: `{s}` {s}", .{ what, passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
         return false;
     }
 

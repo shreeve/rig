@@ -422,7 +422,8 @@ any tasks on one worker do. So a GUI program's `*T`, `Cell`, and
   marks it in the source, as nothing marks how a `Cell` is kept safe.
 - **What still stops it.** A set of tasks, a task or a write view lent
   to read, and a function lent to read, which may lend what it captures
-  to write, are not held by two tasks at once even on one thread. A
+  to write (a closure literal written in the task's call among them, as
+  `?f` is), are not held by two tasks at once even on one thread. A
   channel's elements go to any task that holds a handle of it, so they
   must cross whoever holds the channel.
 - **The scheduler.** A pinned fiber has a home worker. When it is ready
