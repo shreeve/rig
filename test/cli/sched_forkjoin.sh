@@ -2,7 +2,7 @@
 # other half in nested loops, takes about half the time of both halves
 # in turn. Every loop's turns count toward a yield check, not only an
 # outermost loop's, and a task left in a busy worker's run-next slot is
-# taken by an idle worker (docs/concurrency/SCHEDULER.md).
+# taken by an idle worker (docs/internals/scheduler.md).
 # timeout: 300
 source "$ROOT/test/cli/_lib.sh"
 
