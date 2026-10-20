@@ -751,9 +751,12 @@ Tokio and Go (built: bench/tasks, bench/actors, bench/net, bench/http):
 
 That last one is stated honestly: a task with an unproven stack costs at
 least a page (4 KiB on x86, 16 KiB on Apple Silicon), against Tokio's
-hundreds of bytes per task. Closing that gap for connection-heavy
-servers, with smaller committed stacks and io_uring buffer rings, is
-measured work, not a promise.
+hundreds of bytes per task. An HTTP connection that waits for its next
+request holds no buffer (its worker lends it one per request), so an
+idle connection costs 8.6 KiB on x86 and 16.6 KiB on Apple Silicon,
+below Tokio's 10.8 and 18.6 with hyper, and Go's (bench/http).
+Smaller committed stacks and io_uring buffer rings are measured work
+beyond that, not a promise.
 
 ## What else this needs
 

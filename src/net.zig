@@ -307,7 +307,10 @@ fn connection(comptime F: type) fn (i32, F) void {
             c.init(fd);
             defer c.close();
             var server = std.http.Server.init(&c.reader, &c.writer);
+            // `init` takes the read buffer's size, which is held later.
+            server.reader.max_head_len = Conn.buf_size;
             while (true) {
+                if (c.reader.bufferedLen() == 0 and !c.fill()) return;
                 var request = server.receiveHead() catch return;
                 if (!answer(F, f, &request)) return;
             }
@@ -369,24 +372,81 @@ fn fresh(bytes: []const u8) rig.String {
 }
 
 /// A connection's socket, as the reader and writer Zig's HTTP server
-/// takes.
+/// takes. Its buffers are held only while a request is read and
+/// answered: a connection waiting for its next request holds none
+/// (`fill`), so an idle connection costs its task's stack pages and a
+/// few small records.
 const Conn = struct {
     fd: i32,
     reg: i64,
-    in_buf: [8192]u8,
-    out_buf: [8192]u8,
+    /// The read buffer, then the write buffer, while held: a block of
+    /// the worker's (`sched.takeBlock`).
+    bufs: ?*[rig.sched.block_size]u8 = null,
     reader: std.Io.Reader,
     writer: std.Io.Writer,
 
+    const buf_size = rig.sched.block_size / 2;
+
     fn init(c: *Conn, fd: i32) void {
-        c.fd = fd;
-        c.reg = watch(fd);
-        c.reader = .{ .vtable = &.{ .stream = stream }, .buffer = &c.in_buf, .seek = 0, .end = 0 };
-        c.writer = .{ .vtable = &.{ .drain = drain }, .buffer = &c.out_buf, .end = 0 };
+        c.* = .{
+            .fd = fd,
+            .reg = watch(fd),
+            .reader = .{ .vtable = &.{ .stream = stream }, .buffer = &.{}, .seek = 0, .end = 0 },
+            .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{}, .end = 0 },
+        };
     }
 
     fn close(c: *Conn) void {
+        c.release();
         net_close(c.fd, c.reg);
+    }
+
+    fn hold(c: *Conn) void {
+        if (c.bufs != null) return;
+        const b = rig.sched.takeBlock();
+        c.bufs = b;
+        c.reader.buffer = b[0..buf_size];
+        c.writer.buffer = b[buf_size..];
+    }
+
+    /// Give the buffers back, once nothing is in them.
+    fn release(c: *Conn) void {
+        const b = c.bufs orelse return;
+        rig.sched.giveBlock(b);
+        c.bufs = null;
+        c.reader.buffer = &.{};
+        c.reader.seek = 0;
+        c.reader.end = 0;
+        c.writer.buffer = &.{};
+        c.writer.end = 0;
+    }
+
+    /// Between requests: wait, holding no buffers, until bytes come, and
+    /// read them into the read buffer; false once the connection closes,
+    /// fails, or the task is canceled.
+    fn fill(c: *Conn) bool {
+        c.writer.flush() catch return false;
+        c.hold();
+        c.reader.seek = 0;
+        c.reader.end = 0;
+        while (true) {
+            stopped() catch return false;
+            const rc = sys.read(c.fd, c.reader.buffer.ptr, c.reader.buffer.len);
+            switch (posix.errno(rc)) {
+                .SUCCESS => {
+                    if (rc == 0) return false;
+                    c.reader.end = @intCast(rc);
+                    return true;
+                },
+                .AGAIN => {
+                    c.release();
+                    waitFor(c.fd, c.reg, rig.sched.Registration.readable) catch return false;
+                    c.hold();
+                },
+                .INTR => {},
+                else => return false,
+            }
+        }
     }
 
     fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
