@@ -6,8 +6,8 @@
 # test/rig/std-terminal-ghostty.rig.test hold Ghostty's answers
 # (tools/terminal_ghostty.py records them).
 #
-# This is the first piece: printable ASCII, autowrap with a pending wrap,
-# carriage return, line feed (VT and FF too), and backspace.
+# This file holds the screen and the operations on it; parser.rig turns
+# bytes into those operations.
 
 use std.utf8
 
@@ -21,22 +21,33 @@ pub obj Terminal
   col: Int
   # The cursor is past the last column: the next printed rune wraps first.
   pending_wrap: Bool
+  # Whether a tab stop is set at each column.
+  tabs: List[Bool]
+  # What DECSC saved, for DECRC: the position and the pending wrap.
+  saved: Bool
+  saved_row: Int
+  saved_col: Int
+  saved_wrap: Bool
+  # The parser (parser.rig): its state, the CSI parameters so far, and the
+  # intermediate bytes, packed with the first in the highest byte.
+  state: State
+  params: [24]Int
+  count: Int
+  acc: Int
+  digits: Bool
+  colon: Bool
+  inter: Int
+  inter_count: Int
 
-  # An empty terminal of `cols` by `rows`, the cursor at the top left.
+  # An empty terminal of `cols` by `rows`, the cursor at the top left and a
+  # tab stop every 8 columns.
   pub fun new(cols: Int, rows: Int) -> Terminal
-    Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), row: 0, col: 0, pending_wrap: false)
-
-  # Take `bytes` as a program's output, in order.
-  pub sub feed(!@, bytes: ?String)
-    for b in bytes
-      if b >= 0x20 and b < 0x7F
-        (!@).print(U32(b))
-      else
-        match b
-          0x08 => (!@).backspace()
-          0x0A, 0x0B, 0x0C => (!@).index()
-          0x0D => (!@).carriage_return()
-          _ => pass
+    tabs = List[Bool].filled(cols, false)
+    for x in 0..cols
+      tabs[x] = x % 8 == 0
+    Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), row: 0, col: 0, pending_wrap: false,
+      tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false,
+      state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0)
 
   # Write `r` at the cursor and move right, wrapping first when a wrap is
   # pending.
@@ -61,14 +72,109 @@ pub obj Terminal
     if @row < @rows - 1
       @row += 1
       return
+    (!@).scroll_up()
+
+  # Up one row, scrolling the screen down at the top.
+  sub reverse_index(!@)
+    @pending_wrap = false
+    if @row > 0
+      @row -= 1
+      return
+    (!@).scroll_down()
+
+  # Every row moves up one; the bottom row is blank.
+  sub scroll_up(!@)
     for i in 0..(@rows - 1) * @cols
       @cells[i] = @cells[i + @cols]
     for i in (@rows - 1) * @cols..@rows * @cols
       @cells[i] = 0
 
+  # Every row moves down one; the top row is blank.
+  sub scroll_down(!@)
+    i = @rows * @cols
+    while i > @cols
+      i -= 1
+      @cells[i] = @cells[i - @cols]
+    for k in 0..@cols
+      @cells[k] = 0
+
   sub backspace(!@)
     @pending_wrap = false
     @col -= 1 if @col > 0 else 0
+
+  # Up `n` rows, stopping at the top.
+  sub cursor_up(!@, n: Int)
+    @pending_wrap = false
+    @row = @row - n if @row - n > 0 else 0
+
+  # Down `n` rows, stopping at the bottom.
+  sub cursor_down(!@, n: Int)
+    @pending_wrap = false
+    @row = @row + n if @row + n < @rows - 1 else @rows - 1
+
+  # Right `n` columns, stopping at the last.
+  sub cursor_right(!@, n: Int)
+    @pending_wrap = false
+    @col = @col + n if @col + n < @cols - 1 else @cols - 1
+
+  # Left `n` columns, stopping at the first.
+  sub cursor_left(!@, n: Int)
+    @pending_wrap = false
+    @col = @col - n if @col - n > 0 else 0
+
+  # Row `row` and column `col`, counted from 1 (0 is 1), kept on the screen.
+  sub cursor_to(!@, row: Int, col: Int)
+    @pending_wrap = false
+    r = row if row > 0 else 1
+    c = col if col > 0 else 1
+    @row = (r if r < @rows else @rows) - 1
+    @col = (c if c < @cols else @cols) - 1
+
+  # Forward to the next tab stop, `n` times, stopping at the last column.
+  sub tab(!@, n: Int)
+    k = n
+    while k > 0 and @col < @cols - 1
+      @col += 1
+      while @col < @cols - 1 and not @tabs[@col]
+        @col += 1
+      k -= 1
+
+  # Back to the previous tab stop, `n` times, stopping at the first column.
+  sub tab_back(!@, n: Int)
+    @pending_wrap = false
+    k = n
+    while k > 0 and @col > 0
+      @col -= 1
+      while @col > 0 and not @tabs[@col]
+        @col -= 1
+      k -= 1
+
+  sub tab_set(!@)
+    @tabs[@col] = true
+
+  # TBC: 0 clears the stop at the cursor, 3 every stop.
+  sub tab_clear(!@, how: Int)
+    if how == 0
+      @tabs[@col] = false
+    else if how == 3
+      for x in 0..@cols
+        @tabs[x] = false
+
+  sub save_cursor(!@)
+    @saved = true
+    @saved_row = @row
+    @saved_col = @col
+    @saved_wrap = @pending_wrap
+
+  sub restore_cursor(!@)
+    if @saved
+      @row = @saved_row
+      @col = @saved_col
+      @pending_wrap = @saved_wrap
+    else
+      @row = 0
+      @col = 0
+      @pending_wrap = false
 
   # The screen and cursor as text: a line per row, `|` and the row's runes
   # with its trailing blanks dropped (an empty cell is a space), then
@@ -80,11 +186,11 @@ pub obj Terminal
       end = start + @cols
       while end > start and (@cells[end - 1] == 0 or @cells[end - 1] == 0x20)
         end -= 1
-      !out.push(0x7C)
+      !out.push(b'|')
       for i in start..end
         r = @cells[i]
         utf8.push_rune(!out, 0x20 if r == 0 else Int(r))
-      !out.push(0x0A)
+      !out.push(b'\n')
     !out.add("cursor ", @row, " ", @col)
     !out.add(" wrap") if @pending_wrap
     out
