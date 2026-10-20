@@ -37,6 +37,7 @@ never read as the library's.
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
+| [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
@@ -432,6 +433,70 @@ sub main()
 ```output
 [1, 4, 9, 16]
 100
+```
+
+## std.net
+
+TCP connections. `listen` takes connections on an address, and
+`connect` makes one; a `Stream` reads and writes bytes. Accepting,
+connecting, reading, and writing are fallible waiting points
+([SPEC §18](../SPEC.md#18-tasks)): a task waiting on one lets its
+worker run others, and in a canceled task they fail with
+`task.Stop.canceled`, past a deadline (`time.within`) with
+`task.Stop.timeout`. A program that makes no tasks waits on its own
+thread.
+
+An address is `host:port`. The host is an IPv4 address, an IPv6
+address in brackets (`[::1]:8080`), `localhost`, or nothing for every
+address of the machine (`:8080`); port 0 lets the system choose one.
+Host names are not looked up yet.
+
+| Member | Result |
+|---|---|
+| `error NetError` | `address` (it does not parse, or names no host this can reach), `in_use`, `refused`, `reset`, `closed`, and `failed` (anything else the system reports) |
+| `listen(addr)!` | a `Listener` taking connections on `addr` |
+| `connect(addr)!` | a `Stream` connected to `addr`, once the connection is made |
+| `l.accept()!` | the next connection, a `Stream`, once one comes; tasks that share the listener may each wait for one |
+| `l.port()` | the port it listens on, the one the system chose for port 0 |
+| `(!s).read(!into, max)!` | read up to `max` bytes onto the end of the String `into`, once any come: how many, or 0 once the other end has closed |
+| `!s.write(bytes)!` | write all of `bytes`, a `?String` |
+
+A `Listener` or `Stream` closes when it is dropped. Each connection is
+usually a task of its own:
+
+```rig
+use std.net
+
+fun echo(l: net.Listener) -> Int!
+  c = l.accept()!
+  buf = String()
+  total = 0
+  while true
+    n = (!c).read(!buf, 4096)!
+    if n == 0
+      break
+    total += n
+    (!c).write(?buf)!
+    buf = String()
+  total
+
+sub main()!
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = echo(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  (!c).write("hello")!
+  got = String()
+  while got.len < 5
+    _ = (!c).read(!got, 100)!
+  print(got)
+  _ = <c
+  print(<t.wait()!)
+```
+
+```output
+hello
+5
 ```
 
 ## std.target

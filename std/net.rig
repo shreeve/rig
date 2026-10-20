@@ -1,0 +1,94 @@
+# std.net: TCP connections. `listen` takes connections on an address,
+# and `connect` makes one; a `Stream` reads and writes bytes. Accepting,
+# connecting, reading, and writing are fallible waiting points: in a
+# canceled task they fail with `task.Stop.canceled` (std.task), and past
+# a deadline (`time.within`) with `task.Stop.timeout`. An address is
+# `host:port`: the host an IPv4 address, an IPv6 address in brackets
+# (`[::1]:8080`), `localhost`, or nothing for every address of this
+# machine (`:8080`).
+
+use std.task
+
+pub error NetError
+  # The address does not parse, or names no host this can reach.
+  address
+  # Another socket listens on the address already.
+  in_use
+  # No one listens on the address connected to.
+  refused
+  # The other end reset the connection.
+  reset
+  # The connection is closed, and cannot be written.
+  closed
+  # Anything else the system reports.
+  failed
+
+# A socket that takes connections. Its fields are the runtime's.
+pub obj Listener
+  fd: Int
+  reg: Int
+
+  # The next connection, once one comes. Tasks that share the listener
+  # may each wait for one.
+  pub fun accept(?@) -> Stream!
+    fd = accept_on(@fd, @reg)!
+    Stream(fd: fd, reg: watch(fd))
+
+  # The port it listens on, the one the system chose for port 0.
+  pub fun port(?@) -> Int
+    local_port(@fd)
+
+  drop(!@)
+    close(@fd, @reg)
+
+# A connection: bytes in and out. Its fields are the runtime's.
+pub obj Stream
+  fd: Int
+  reg: Int
+
+  # Read up to `max` bytes onto the end of `into`, once any come: how
+  # many it read, or 0 once the other end has closed.
+  pub fun read(!@, into: !String, max: Int) -> Int!
+    read_from(@fd, @reg, !into, max)!
+
+  # Write all of `bytes`.
+  pub sub write(!@, bytes: ?String)!
+    write_to(@fd, @reg, bytes)!
+
+  drop(!@)
+    close(@fd, @reg)
+
+# A socket listening on `addr`; port 0 lets the system choose one
+# (`port`).
+pub fun listen(addr: ?String) -> Listener!
+  fd = listen_on(addr)!
+  Listener(fd: fd, reg: watch(fd))
+
+# A connection to `addr`, once it is made.
+pub fun connect(addr: ?String) -> Stream!
+  fd = open_to(addr)!
+  s = Stream(fd: fd, reg: watch(fd))
+  finish_connect(s.fd, s.reg)!
+  s
+
+extern zig "net.zig"
+  # A non-blocking socket bound to `addr` and listening.
+  fun listen_on(addr: ?String) -> Int!
+
+  # A non-blocking socket whose connection to `addr` has begun.
+  fun open_to(addr: ?String) -> Int!
+
+  # Wait for the connection `open_to` began, and fail as it failed.
+  sub finish_connect(fd: Int, reg: Int)!
+
+  # Watch `fd` with a worker's poller: its registration, or 0 in a
+  # program that makes no tasks.
+  fun watch(fd: Int) -> Int
+
+  fun accept_on(fd: Int, reg: Int) -> Int!
+  fun local_port(fd: Int) -> Int
+  fun read_from(fd: Int, reg: Int, into: !String, max: Int) -> Int!
+  sub write_to(fd: Int, reg: Int, bytes: ?String)!
+
+  # Stop watching `fd` and close it.
+  sub close(fd: Int, reg: Int)

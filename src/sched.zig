@@ -572,6 +572,10 @@ const Poller = struct {
     lock: SpinLock = .{},
     /// How many descriptors are registered with it.
     count: std.atomic.Value(u32) = .init(0),
+    /// Removers waiting for the lock (`remove`): a worker does not block
+    /// in the poller again while one waits, so the lock it lets go of
+    /// when kicked goes to the remover.
+    removers: std.atomic.Value(u32) = .init(0),
 
     const darwin = builtin.os.tag.isDarwin();
     const linux = builtin.os.tag == .linux;
@@ -635,8 +639,10 @@ const Poller = struct {
     /// Stop watching `fd`. Under the lock, so no event for it is being
     /// handled; the worker sleeping in the poller is woken to let go.
     fn remove(p: *Poller, fd: i32) void {
+        _ = p.removers.fetchAdd(1, .seq_cst);
         p.kick();
         p.lock.lock();
+        _ = p.removers.fetchSub(1, .seq_cst);
         defer p.lock.unlock();
         if (darwin) {
             const evs = [2]std.c.Kevent{
@@ -658,7 +664,10 @@ const Poller = struct {
     fn poll(p: *Poller, timeout: ?i96) bool {
         if (timeout != null and timeout.? == 0) {
             if (!p.lock.tryLock()) return false;
-        } else p.lock.lock();
+        } else {
+            while (p.removers.load(.seq_cst) != 0) std.atomic.spinLoopHint();
+            p.lock.lock();
+        }
         defer p.lock.unlock();
         var any = false;
         if (darwin) {
