@@ -143,6 +143,17 @@ pub fn char_step(state: i64, r: i64, tailored: bool) i64 {
     return step(@truncate(@as(u64, @bitCast(state))), c);
 }
 
+/// `char_step` with the tailored rules, and rune `r`'s width
+/// (`unicode.width`) in bits 8 and 9: the two lookups a terminal makes of
+/// each rune in mode 2027, in one call, which a CPU can overlap.
+pub fn char_step_width(state: i64, r: i64) i64 {
+    const cp: u21 = if (r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)) 0xFFFD else @truncate(@as(u64, @bitCast(r)));
+    const w: i64 = widths.props(cp) & 3;
+    const c = classOf(cp, true);
+    const next: i64 = if (state < 0) dfa.start[@intFromEnum(c)] | Dfa.split else step(@truncate(@as(u64, @bitCast(state))), c);
+    return next | (w << 8);
+}
+
 /// The class of rune `r` as `char_step` with `tailored` reads it, by its
 /// number in `Class`.
 pub fn char_class(r: i64, tailored: bool) i64 {
