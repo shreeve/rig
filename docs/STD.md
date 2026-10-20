@@ -47,6 +47,7 @@ never read as the library's.
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
 | [`std.unicode`](#stdunicode) | rune properties: identifier classes and white space |
 | [`std.json`](#stdjson) | a JSON parser (experimental) |
+| [`std.terminal`](#stdterminal) | a terminal emulator as a library: bytes in, screen out (experimental) |
 
 ## std.math
 
@@ -1572,6 +1573,39 @@ also writes. `tools/verify-unicode.py` compares every code point with the
 database and with Python's `unicodedata`, the identifier classes and
 White_Space both; run both with `RIG_UCD` naming a
 directory of the database.
+
+## std.terminal
+
+A terminal emulator as a library, experimental and growing: bytes a
+program writes go in through `feed`, and the screen and cursor come out.
+It reads and writes nothing itself; a caller owns the pty, the keyboard,
+and the drawing. Its behavior is xterm's, as Ghostty implements it: the
+cases of `test/rig/std-terminal-ghostty.rig.test` are Ghostty's answers,
+recorded by `tools/terminal_ghostty.py`. So far it takes printable ASCII,
+autowrap with a pending wrap, carriage return, line feed (VT and FF too),
+and backspace; other bytes are ignored.
+
+| Member | Result |
+|---|---|
+| `Terminal.new(cols: Int, rows: Int) -> Terminal` | an empty terminal, the cursor at the top left |
+| `!t.feed(bytes: ?String)` | take `bytes` as a program's output, in order |
+| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped, then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
+
+```rig
+use std.terminal
+
+sub main()
+  t = terminal.Terminal.new(8, 3)
+  !t.feed("hello,\r\nterminal!")
+  print(t.dump())
+```
+
+```output
+|hello,
+|terminal
+|!
+cursor 2 1
+```
 
 ## std.json
 

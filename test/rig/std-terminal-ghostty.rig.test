@@ -1,0 +1,166 @@
+# std: std.terminal against Ghostty (libghostty-vt at 31bdcd5a7963), which
+# defines what it shows. Written by tools/terminal_ghostty.py from
+# Ghostty's answers: run it to write this file again after a change to
+# its cases.
+
+use std.terminal
+
+test "print fills the first row", '''
+  |hello
+  |
+  |
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("hello")
+  print(t.dump())
+
+test "print wraps at the right margin", '''
+  |abcdefghij
+  |k
+  |
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abcdefghijk")
+  print(t.dump())
+
+test "a full row leaves a wrap pending", '''
+  |abcdefghij
+  |
+  |
+  |
+  cursor 0 9 wrap
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abcdefghij")
+  print(t.dump())
+
+test "carriage return clears a pending wrap", '''
+  |Xbcdefghij
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abcdefghij\x0dX")
+  print(t.dump())
+
+test "line feed keeps the column", '''
+  |abc
+  |   def
+  |
+  |
+  cursor 1 6
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x0adef")
+  print(t.dump())
+
+test "carriage return and line feed", '''
+  |one
+  |two
+  |three
+  |
+  cursor 2 5
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("one\x0d\x0atwo\x0d\x0athree")
+  print(t.dump())
+
+test "vertical tab and form feed are line feeds", '''
+  |a
+  | b
+  |  c
+  |
+  cursor 2 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("a\x0bb\x0cc")
+  print(t.dump())
+
+test "line feed at the bottom scrolls", '''
+  |3
+  |4
+  |5
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5")
+  print(t.dump())
+
+test "wrapping at the bottom scrolls", '''
+  |efgh
+  |ijkl
+  cursor 1 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcdefghijkl")
+  print(t.dump())
+
+test "backspace moves left", '''
+  |abX
+  |
+  |
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("abc\x08X")
+  print(t.dump())
+
+test "backspace stops at the left margin", '''
+  |a
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("\x08\x08a")
+  print(t.dump())
+
+test "backspace with a wrap pending", '''
+  |abXd
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcd\x08X")
+  print(t.dump())
+
+test "line feed with a wrap pending", '''
+  |abcd
+  |   X
+  |
+  cursor 1 3 wrap
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("abcd\x0aX")
+  print(t.dump())
+
+test "printable ASCII", '''
+  | !"#$%&'()*+,-./
+  |0123456789:;<=>?
+  |@ABCDEFGHIJKLMNO
+  |PQRSTUVWXYZ[\]^_
+  |`abcdefghijklmno
+  |pqrstuvwxyz{|}~
+  cursor 5 15
+'''
+  t = terminal.Terminal.new(16, 6)
+  !t.feed(" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~")
+  print(t.dump())
+
+test "a one-column terminal", '''
+  |a
+  |b
+  |c
+  cursor 2 0 wrap
+'''
+  t = terminal.Terminal.new(1, 3)
+  !t.feed("abc")
+  print(t.dump())
