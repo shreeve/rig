@@ -3673,3 +3673,131 @@ test "DECRQM reports mode 2027", '''
   t = terminal.Terminal.new(10, 2)
   !t.feed("\x1b[?2027h\x1b[?2027$p\x1b[?2027l\x1b[?2027$p")
   print(t.dump())
+
+test "after SPA, EL leaves protected cells", '''
+  |ab
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1bVab\x1bWcd\x1b[1;1H\x1b[K")
+  print(t.dump())
+
+test "after DECSCA, EL erases protected cells", '''
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1b[1\"qab\x1b[0\"qcd\x1b[1;1H\x1b[K")
+  print(t.dump())
+
+test "DECSEL leaves protected cells", '''
+  |ab
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1b[1\"qab\x1b[0\"qcd\x1b[1;1H\x1b[?K")
+  print(t.dump())
+
+test "after SPA, ECH leaves protected cells", '''
+  |ab
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1bVab\x1bWcd\x1b[1;1H\x1b[4X")
+  print(t.dump())
+
+test "after DECSCA, ECH erases protected cells", '''
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1b[1\"qab\x1b[0\"qcd\x1b[1;1H\x1b[4X")
+  print(t.dump())
+
+test "DECSED leaves protected cells on every row", '''
+  |  cd
+  |  ij
+  |
+  cursor 1 0
+'''
+  t = terminal.Terminal.new(6, 3)
+  !t.feed("ab\x1b[1\"qcd\x1b[2\"qef\x0d\x0agh\x1b[1\"qij\x1b[0\"q\x1b[2;1H\x1b[?1J\x1b[?0J")
+  print(t.dump())
+
+test "ED after SPA keeps protected cells and the row's wrap", '''
+  |abcd
+  |ef
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("\x1bVabcdef\x1bW\x1b[2;1H\x1b[2J\x1b[1;1H\x1b[X")
+  print(t.dump())
+
+test "EL 1 and 2 after SPA", '''
+  | bc  f
+  |  i
+  cursor 1 4
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("a\x1bVbc\x1bWdef\x1b[1;5H\x1b[1K\x1b[2;1Hgh\x1bVi\x1bWj\x1b[2K")
+  print(t.dump())
+
+test "DECSCA with no parameter, and with others, does nothing but off", '''
+  |a
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1b[1\"qa\x1b[\"qb\x1b[3\"qc\x1b[1;2\"qd\x1b[1;1H\x1b[?K")
+  print(t.dump())
+
+test "C1 SPA and EPA", '''
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x96ab\x97cd\x1b[1;1H\x1b[K")
+  print(t.dump())
+
+test "DECSC and DECRC keep protection", '''
+  |ab
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1bV\x1b7\x1bW\x1b8ab\x1bWcd\x1b[1;1H\x1b[K")
+  print(t.dump())
+
+test "each screen keeps its kind of protection", '''
+  |ab
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1bVab\x1bW\x1b[?1049h\x1b[1\"qcd\x1b[0\"q\x1b[1;1H\x1b[K\x1b[?1049l\x1b[1;1H\x1b[K")
+  print(t.dump())
+
+test "printing over a protected cell, and DECALN, unprotect", '''
+  |EEEEEEEE
+  |
+  cursor 1 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1bVab\x1bW\x1b[1;1Hx\x1b[1;1H\x1b[K\x1b#8\x1bV\x1bW\x1b[2;1H\x1b[K")
+  print(t.dump())
+
+test "1049 erases the alternate screen as its protection says", '''
+  |ab
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(8, 2)
+  !t.feed("\x1b[?1049h\x1bVab\x1bW\x1b[?1049l\x1b[?1049h")
+  print(t.dump())
