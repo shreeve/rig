@@ -61,7 +61,7 @@ test "cell word operations", '''
     busy
     done
 
-  fun peek(n: ?*Cell[Int]) -> Int
+  fun peek(n: ?Cell[Int]) -> Int
     n.get()
 
   n = *Cell(5)

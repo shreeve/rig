@@ -10,11 +10,8 @@ test "cancel check", '''
   use std.time
 
   fun count() -> Int!
-    n = 0
     while true
       task.check()!
-      n += 1
-    n
 
   t = count()&
   time.sleep(time.MS)!
