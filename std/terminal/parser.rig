@@ -36,8 +36,10 @@ MAX_PARAMS = 24
 MAX_PARAM = 65535
 
 # Take `bytes` as a program's output, in order. In the ground state a run
-# of printable ASCII goes to `print_run` whole, and a byte of 0x80 or more
-# (or any byte while a rune is under way) to the UTF-8 decoder.
+# of printable ASCII goes to `print_run` whole, and one that starts with a
+# byte of 0x80 or more to `print_utf8`; a byte it stops at (one that is
+# ill-formed UTF-8, or starts a rune cut off at the end of `bytes`), and
+# any byte while a rune is under way, goes to the UTF-8 decoder.
 pub sub Terminal.feed(!@, bytes: ?String)
   i = 0
   n = bytes.len
@@ -50,7 +52,12 @@ pub sub Terminal.feed(!@, bytes: ?String)
           (!@).print_run(bytes, i, j)
           i = j
           continue
-        if b < 0x80
+        if b >= 0x80
+          j = (!@).print_utf8(bytes, i)
+          if j > i
+            i = j
+            continue
+        else
           # The commonest controls, run here without the state machine.
           if b == b'\r'
             (!@).carriage_return()

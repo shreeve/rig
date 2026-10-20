@@ -97,3 +97,17 @@ make it 31% faster, decoding runs of runes at once (simdutf), where
 std.terminal decodes a byte at a time through `utf8.Decoder` and looks
 each rune's width up alone. The SIMD build answers every case of the
 differential file as the plain one does.
+
+2026-10-20, with UTF-8 decoded in runs (`print_utf8`) and its runes
+written straight into their cells (load average about 4; 5 runs):
+
+| corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | ghostty, SIMD | dispatch | rig-fast / best Ghostty |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| text | 593.4 MB/s | 775.5 MB/s | 998.9 MB/s | 916.5 MB/s | 994.8 MB/s | 852.8 MB/s | 0.78 |
+| scroll | 119.9 MB/s | 128.0 MB/s | 172.5 MB/s | 183.4 MB/s | 172.4 MB/s | 127.1 MB/s | 0.70 |
+| sgr | 250.0 MB/s | 272.0 MB/s | 171.4 MB/s | 183.7 MB/s | 171.4 MB/s | 140.5 MB/s | 1.48 |
+| tui | 295.3 MB/s | 322.7 MB/s | 198.3 MB/s | 199.0 MB/s | 200.2 MB/s | 164.3 MB/s | 1.61 |
+| utf8 | 360.5 MB/s | 389.8 MB/s | 257.7 MB/s | 250.3 MB/s | 336.2 MB/s | 219.9 MB/s | 1.16 |
+
+utf8 went from 221.9 to 389.8 MB/s; the other corpora do not reach the
+new path.

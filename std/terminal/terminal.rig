@@ -337,6 +337,70 @@ pub obj Terminal
         @col += take
     @last = Int(s[to - 1])
 
+  # Print the runes from byte `from` of `s`, as `print` would one at a
+  # time, up to the first byte that is not part of one (a control, or a
+  # sequence cut short or ill-formed); where that is. Well-formed UTF-8 is
+  # decoded here, not a byte at a time through `decoder`, and a rune goes
+  # straight into its cells unless it lands on half of a wide rune, or a
+  # wide one at the last column. A UTF-8-encoded C1 control is ignored, as
+  # Ghostty does.
+  fun print_utf8(!@, s: ?String, from: Int) -> Int
+    fast = not @insert and @single < 0 and @g[@gl] <= ASCII
+    k = from
+    n = s.len
+    while k < n
+      b = s[k]
+      r = 0
+      if b < 0x80
+        break if b < 0x20
+        r = Int(b)
+        k += 1
+      else if b < 0xC2
+        break
+      else if b < 0xE0
+        break if k + 1 >= n or s[k + 1] & 0xC0 != 0x80
+        r = (Int(b & 0x1F) << 6) | Int(s[k + 1] & 0x3F)
+        k += 2
+        continue if r < 0xA0
+      else if b < 0xF0
+        break if k + 2 >= n
+        c = s[k + 1]
+        break if c < (0xA0 if b == 0xE0 else 0x80) or c > (0x9F if b == 0xED else 0xBF) or s[k + 2] & 0xC0 != 0x80
+        r = (Int(b & 0x0F) << 12) | (Int(c & 0x3F) << 6) | Int(s[k + 2] & 0x3F)
+        k += 3
+      else if b < 0xF5
+        break if k + 3 >= n
+        c = s[k + 1]
+        break if c < (0x90 if b == 0xF0 else 0x80) or c > (0x8F if b == 0xF4 else 0xBF) or s[k + 2] & 0xC0 != 0x80 or s[k + 3] & 0xC0 != 0x80
+        r = (Int(b & 0x07) << 18) | (Int(c & 0x3F) << 12) | (Int(s[k + 2] & 0x3F) << 6) | Int(s[k + 3] & 0x3F)
+        k += 4
+      else
+        break
+      w = 1 if r <= 0xFF else unicode.width(r)
+      continue if w == 0
+      if not fast
+        (!@).print(U32(r))
+        continue
+      (!@).wrap() if @pending_wrap and @autowrap
+      p = @map[@row]
+      i = p * @cols + @col
+      if w == 1 and @cells[i] & KIND == 0
+        @cells[i] = U64(r) | @pen_bits
+      else if w == 2 and @col < @cols - 1 and (@cells[i] | @cells[i + 1]) & KIND == 0
+        @cells[i] = U64(r) | WIDE | @pen_bits
+        @cells[i + 1] = TAIL | @pen_bits
+        @flags[p] |= ROW_WIDE
+        @col += 1
+      else
+        (!@).print(U32(r))
+        continue
+      @last = r
+      if @col == @cols - 1
+        @pending_wrap = true
+      else
+        @col += 1
+    k
+
   sub carriage_return(!@)
     @col = 0
     @pending_wrap = false
