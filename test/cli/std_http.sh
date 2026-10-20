@@ -123,11 +123,23 @@ def limits():
         p.kill()
 
 def descriptors():
-    # The server may hold few descriptors: the connections held open take
-    # them all, and it accepts again once they close.
-    p, port = start({}, limit=48)
+    # The server may hold 512 descriptors (its workers' pollers take some
+    # of them): the 700 connections held open take the rest, and it
+    # accepts again once they close.
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 2048 if hard == resource.RLIM_INFINITY else min(2048, hard)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, want), hard))
+    p, port = start({}, limit=512)
     try:
-        held = [conn(port) for _ in range(100)]
+        # Once the backlog fills too, the system may refuse more.
+        held = []
+        try:
+            for _ in range(700):
+                held.append(conn(port))
+        except OSError:
+            pass
+        print('held', len(held) > 512)
         time.sleep(0.3)
         for s in held:
             s.close()
@@ -157,6 +169,6 @@ for mode in debug release; do
     out=$(python3 client.py limits 2>&1); expect_rc $? 0 "$mode limits: $out"
     expect_eq "$out" "$want_limits" "$mode: timeouts and the body limit"
     out=$(python3 client.py descriptors 2>&1); expect_rc $? 0 "$mode descriptors: $out"
-    expect_eq "$out" $'200 /again 0\nalive True' "$mode: out of descriptors, it accepts again"
+    expect_eq "$out" $'held True\n200 /again 0\nalive True' "$mode: out of descriptors, it accepts again"
 done
 exit 0

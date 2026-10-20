@@ -612,7 +612,9 @@ file descriptors, `serve` pauses, from 5 ms doubling to 1 s, and
 accepts again, as Go's server does, so the connections it holds can
 close; the listener stays open. A deterministic run (`RIG_SEED`, `rig
 test`) leaves the two timeouts off: its virtual clock would reach them
-while bytes are still on their way.
+while bytes are still on their way. Arguments to `http.serve` that set
+these limits per server are planned; the environment sets them for the
+whole process.
 
 ## std.target
 
