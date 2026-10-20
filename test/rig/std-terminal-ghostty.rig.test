@@ -2068,3 +2068,139 @@ test "a long run with autowrap off", '''
   t = terminal.Terminal.new(8, 2)
   !t.feed("\x1b[?7l0123456789abcdefghij")
   print(t.dump())
+
+test "DEC Special Graphics draws lines", '''
+  |┌───┐
+  |│   │
+  |└───┘
+  cursor 2 5
+'''
+  t = terminal.Terminal.new(12, 3)
+  !t.feed("\x1b(0lqqqk\x0d\x0ax   x\x0d\x0amqqqj\x1b(B")
+  print(t.dump())
+
+test "every DEC Special Graphics rune", '''
+  |_◆▒␉␌␍␊°±␤␋┘┐┌└┼⎺⎻─⎼⎽├┤┴┬│≤≥π≠£·
+  |
+  cursor 0 32
+'''
+  t = terminal.Terminal.new(40, 2)
+  !t.feed("\x1b(0_`abcdefghijklmnopqrstuvwxyz{|}~\x1b(B")
+  print(t.dump())
+
+test "ASCII designated back", '''
+  |─q
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b(0q\x1b(Bq")
+  print(t.dump())
+
+test "the British set maps #", '''
+  |£a£#
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b(A#a#\x1b(B#")
+  print(t.dump())
+
+test "SO invokes G1 and SI G0", '''
+  |q─q
+  |
+  cursor 0 3
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b)0q\x0eq\x0fq")
+  print(t.dump())
+
+test "SS2 maps one rune", '''
+  |─q
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b*0\x1bNqq")
+  print(t.dump())
+
+test "SS3 maps one rune", '''
+  |£#
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b+A\x1bO##")
+  print(t.dump())
+
+test "LS2 and LS3 invoke G2 and G3", '''
+  |─#£qq
+  |
+  cursor 0 5
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b*0\x1b+A\x1bnq#\x1bo#q\x0fq")
+  print(t.dump())
+
+test "a designation with no shift changes nothing", '''
+  |q
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b)0q")
+  print(t.dump())
+
+test "an unknown set is ignored", '''
+  |q─
+  |
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b(Zq\x1b(0q")
+  print(t.dump())
+
+test "two intermediates are ignored", '''
+  |q
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b((0q")
+  print(t.dump())
+
+test "a mapped run wraps", '''
+  |────
+  |──
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("\x1b(0qqqqqq")
+  print(t.dump())
+
+test "REP maps the rune again", '''
+  |q───
+  |
+  cursor 0 4
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("q\x1b(0\x1b[3b")
+  print(t.dump())
+
+test "DECSC and DECRC save the sets", '''
+  |─
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b(0\x1b7\x1b(Bq\x1b8q")
+  print(t.dump())
+
+test "RIS resets the sets", '''
+  |q
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b(0\x1bcq")
+  print(t.dump())

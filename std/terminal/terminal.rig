@@ -18,6 +18,24 @@ fun intern(styles: !List[Style], s: ?Style) -> Int
   !styles.push(+s)
   styles.len - 1
 
+# Character sets.
+UTF8 = 0
+ASCII = 1
+BRITISH = 2
+DEC_SPECIAL = 3
+
+# DEC Special Graphics from 0x60 to 0x7E: line drawing and symbols.
+DEC_GRAPHICS = [0x25C6, 0x2592, 0x2409, 0x240C, 0x240D, 0x240A, 0x00B0, 0x00B1, 0x2424, 0x240B, 0x2518, 0x2510, 0x250C, 0x2514, 0x253C, 0x23BA, 0x23BB, 0x2500, 0x23BC, 0x23BD, 0x251C, 0x2524, 0x2534, 0x252C, 0x2502, 0x2264, 0x2265, 0x03C0, 0x2260, 0x00A3, 0x00B7]
+
+# Rune `r` as character set `set` shows it.
+fun map_rune(set: Int, r: U32) -> U32
+  return r if set <= ASCII
+  return 0x20 if r > 0xFF
+  if set == BRITISH
+    return 0xA3 if r == 0x23 else r
+  return r if r < 0x60 or r > 0x7E
+  U32(DEC_GRAPHICS[Int(r) - 0x60])
+
 # The rune of a cell.
 fun rune(c: U64) -> Int
   Int(c & 0xFFFFFFFF)
@@ -52,6 +70,12 @@ pub obj Terminal
   pending_wrap: Bool
   # The last rune printed, for REP; -1 before any, and after RIS.
   last: Int
+  # Character sets (SCS): the set in each of G0 to G3 (UTF8, ASCII,
+  # BRITISH, or DEC_SPECIAL), the slot invoked into GL, and a slot invoked
+  # for the next rune only (SS2, SS3), or -1.
+  g: [4]Int
+  gl: Int
+  single: Int
   # The scroll margins (DECSTBM): the first and last rows that scroll.
   top: Int
   bottom: Int
@@ -76,6 +100,9 @@ pub obj Terminal
   saved_wrap: Bool
   saved_pen: Style
   saved_origin: Bool
+  saved_g: [4]Int
+  saved_gl: Int
+  saved_single: Int
   # The parser (parser.rig): its state, the CSI parameters so far, and the
   # intermediate bytes, packed with the first in the highest byte.
   state: State
@@ -100,10 +127,11 @@ pub obj Terminal
       map[y] = y
     Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map,
       styles: List([Style.plain()]), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
-      row: 0, col: 0, pending_wrap: false, last: -1, top: 0, bottom: rows - 1,
+      row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, origin: false, insert: false, newline: false, cursor_visible: true,
       kept_origin: false, kept_autowrap: true, kept_cursor_visible: true,
       tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false, saved_pen: Style.plain(), saved_origin: false,
+      saved_g: [4 of UTF8], saved_gl: 0, saved_single: -1,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0)
 
   # REP: the last rune printed, `n` more times (at least once).
@@ -132,12 +160,17 @@ pub obj Terminal
   # Write `r` at the cursor and move right, wrapping first when a wrap is
   # pending.
   sub print(!@, r: U32)
+    # The rune through the character set invoked, which a single shift
+    # names for this rune only.
+    slot = @single if @single >= 0 else @gl
+    @single = -1
+    shown = map_rune(@g[slot], r)
     if @pending_wrap and @autowrap
       @pending_wrap = false
       @col = 0
       (!@).index()
     (!@).insert_blanks(1) if @insert
-    @cells[@map[@row] * @cols + @col] = U64(r) | @pen_bits
+    @cells[@map[@row] * @cols + @col] = U64(shown) | @pen_bits
     @last = Int(r)
     # At the last column a wrap is pending even with autowrap off, as in
     # Ghostty: the next rune only wraps once autowrap is on again.
@@ -150,7 +183,7 @@ pub obj Terminal
   # them a rune of one byte (0x20 to 0x7F), as `print` would one at a time:
   # whole stretches go into a row at once.
   sub print_run(!@, s: ?String, from: Int, to: Int)
-    if @insert
+    if @insert or @single >= 0 or @g[@gl] > ASCII
       for i in from..to
         (!@).print(U32(s[i]))
       return
@@ -421,6 +454,9 @@ pub obj Terminal
 
   sub save_cursor(!@)
     @saved = true
+    @saved_g = @g
+    @saved_gl = @gl
+    @saved_single = @single
     @saved_row = @row
     @saved_col = @col
     @saved_wrap = @pending_wrap
@@ -434,12 +470,18 @@ pub obj Terminal
       @pending_wrap = @saved_wrap
       @pen = +@saved_pen
       @origin = @saved_origin
+      @g = @saved_g
+      @gl = @saved_gl
+      @single = @saved_single
     else
       @row = 0
       @col = 0
       @pending_wrap = false
       @pen = Style.plain()
       @origin = false
+      @g = [4 of UTF8]
+      @gl = 0
+      @single = -1
     (!@).pen_changed()
 
   # XTSAVE: remember private mode `m`.

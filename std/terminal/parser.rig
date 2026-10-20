@@ -208,9 +208,17 @@ sub Terminal.execute(!@, b: U8)
       (!@).index()
       (!@).carriage_return() if @newline
     b'\r' => (!@).carriage_return()
+    # SO and SI: G1 or G0 into GL.
+    b'\x0e' => @gl = 1
+    b'\x0f' => @gl = 0
     _ => pass
 
 sub Terminal.esc_dispatch(!@, b: U8)
+  # SCS: `ESC ( F` designates set F into G0, `)` G1, `*` G2, `+` G3.
+  if b == b'B' or b == b'A' or b == b'0'
+    if @inter_count == 1 and @inter >= Int(b'(') and @inter <= Int(b'+')
+      @g[@inter - Int(b'(')] = ASCII if b == b'B' else (BRITISH if b == b'A' else DEC_SPECIAL)
+    return
   if @inter == Int(b'#')
     (!@).align() if b == b'8'
     return
@@ -225,6 +233,11 @@ sub Terminal.esc_dispatch(!@, b: U8)
     b'H' => (!@).tab_set()
     b'M' => (!@).reverse_index()
     b'c' => (!@).full_reset()
+    # SS2 and SS3: G2 or G3 for the next rune; LS2 and LS3: into GL.
+    b'N' => @single = 2
+    b'O' => @single = 3
+    b'n' => @gl = 2
+    b'o' => @gl = 3
     _ => pass
 
 # The final byte of a CSI sequence: the parameters are complete.

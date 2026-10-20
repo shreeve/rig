@@ -45,7 +45,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -249,6 +249,21 @@ CASES = [
     ("print", "a long run wraps across rows", 16, 4, b"0123456789abcdef" * 3 + b"xyz"),
     ("print", "a long run ending at the last column", 16, 4, b"0123456789abcdef0123456789abcdef"),
     ("mode", "a long run with autowrap off", 8, 2, b"\x1b[?7l0123456789abcdefghij"),
+    ("charset", "DEC Special Graphics draws lines", 12, 3, b"\x1b(0lqqqk\r\nx   x\r\nmqqqj\x1b(B"),
+    ("charset", "every DEC Special Graphics rune", 40, 2, b"\x1b(0" + bytes(range(0x5F, 0x7F)) + b"\x1b(B"),
+    ("charset", "ASCII designated back", 10, 2, b"\x1b(0q\x1b(Bq"),
+    ("charset", "the British set maps #", 10, 2, b"\x1b(A#a#\x1b(B#"),
+    ("charset", "SO invokes G1 and SI G0", 10, 2, b"\x1b)0q\x0eq\x0fq"),
+    ("charset", "SS2 maps one rune", 10, 2, b"\x1b*0\x1bNqq"),
+    ("charset", "SS3 maps one rune", 10, 2, b"\x1b+A\x1bO##"),
+    ("charset", "LS2 and LS3 invoke G2 and G3", 10, 2, b"\x1b*0\x1b+A\x1bnq#\x1bo#q\x0fq"),
+    ("charset", "a designation with no shift changes nothing", 10, 2, b"\x1b)0q"),
+    ("charset", "an unknown set is ignored", 10, 2, b"\x1b(Zq\x1b(0q"),
+    ("charset", "two intermediates are ignored", 10, 2, b"\x1b((0q"),
+    ("charset", "a mapped run wraps", 4, 2, b"\x1b(0qqqqqq"),
+    ("charset", "REP maps the rune again", 10, 2, b"q\x1b(0\x1b[3b"),
+    ("charset", "DECSC and DECRC save the sets", 10, 2, b"\x1b(0\x1b7\x1b(Bq\x1b8q"),
+    ("charset", "RIS resets the sets", 10, 2, b"\x1b(0\x1bcq"),
 ]
 
 
@@ -430,8 +445,12 @@ def piece(rng, every):
         private = rng.random() < 0.6
         modes = [rng.choice([6, 7, 25, 1, 5] if private else [4, 20, 2, 12]) for _ in range(rng.randint(1, 3))]
         return b"\x1b[" + (b"?" if private else b"") + b";".join(b"%d" % m for m in modes) + rng.choice([b"h", b"l"])
-    if k < 0.96:
+    if k < 0.93:
         return b"\x1b" + rng.choice([b"7", b"8", b"D", b"E", b"H", b"M", b"#8", b"Q", b"=", b">"])
+    if k < 0.96:
+        if rng.random() < 0.3:
+            return bytes([rng.choice([0x0E, 0x0F])])
+        return b"\x1b" + rng.choice([b"(", b")", b"*", b"+"]) + rng.choice([b"0", b"A", b"B"]) if rng.random() < 0.6 else b"\x1b" + rng.choice([b"N", b"O", b"n", b"o"])
     end = rng.choice([b"\x07", b"\x1b\\"])
     body = bytes(rng.choice(range(0x20, 0x7F)) for _ in range(rng.randint(0, 8)))
     return b"\x1b" + rng.choice([b"]0;", b"]2;", b"P", b"_", b"^", b"X"]) + body + end
