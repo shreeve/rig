@@ -158,6 +158,9 @@ sub Terminal.execute(!@, b: U8)
     _ => pass
 
 sub Terminal.esc_dispatch(!@, b: U8)
+  if @inter == Int(b'#')
+    (!@).align() if b == b'8'
+    return
   return if @inter != 0
   match b
     b'7' => (!@).save_cursor()
@@ -179,12 +182,18 @@ sub Terminal.csi_final(!@, b: U8)
     @count += 1
   return if @count > MAX_PARAMS
   return if @colon and b != b'm'
+  # ED and EL with `?` (selective erase) erase as plain ED and EL do while
+  # no cell is protected.
+  if @inter == Int(b'?') and (b == b'J' or b == b'K')
+    @inter = 0
   return if @inter != 0
   n = @count
   p0 = @params[0] if n > 0 else 0
   p1 = @params[1] if n > 1 else 0
   # The count of a movement: 1 when it is left out or 0.
   move = (1 if p0 == 0 else p0) if n <= 1 else -1
+  # The count of an edit: 1 when it is left out, and 0 when it is 0.
+  count = (1 if n == 0 else p0) if n <= 1 else -1
   match b
     b'A', b'k' if move > 0 => (!@).cursor_up(move)
     b'B' if move > 0 => (!@).cursor_down(move)
@@ -205,4 +214,14 @@ sub Terminal.csi_final(!@, b: U8)
     b'Z' if move > 0 => (!@).tab_back(move)
     # Ghostty's TBC needs its parameter: `CSI g` alone does nothing.
     b'g' if n == 1 => (!@).tab_clear(p0)
+    b'J' if n <= 1 => (!@).erase_display(p0)
+    b'K' if n <= 1 => (!@).erase_line(p0)
+    b'X' if count >= 0 => (!@).erase_chars(count)
+    b'L' if count >= 0 => (!@).insert_lines(count)
+    b'M' if count >= 0 => (!@).delete_lines(count)
+    b'@' if n <= 1 => (!@).insert_blanks(1 if p0 == 0 else p0)
+    b'P' if count >= 0 => (!@).delete_chars(count)
+    b'S' if count >= 0 => (!@).scroll_up(count)
+    b'T' if count >= 0 => (!@).scroll_down(count)
+    b'r' if n <= 2 => (!@).set_margins(p0, p1)
     _ => pass

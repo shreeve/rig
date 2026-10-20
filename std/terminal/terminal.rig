@@ -21,6 +21,9 @@ pub obj Terminal
   col: Int
   # The cursor is past the last column: the next printed rune wraps first.
   pending_wrap: Bool
+  # The scroll margins (DECSTBM): the first and last rows that scroll.
+  top: Int
+  bottom: Int
   # Whether a tab stop is set at each column.
   tabs: List[Bool]
   # What DECSC saved, for DECRC: the position and the pending wrap.
@@ -46,7 +49,7 @@ pub obj Terminal
     for x in 0..cols
       tabs[x] = x % 8 == 0
     Terminal(cols: cols, rows: rows, cells: List[U32].filled(cols * rows, 0), row: 0, col: 0, pending_wrap: false,
-      tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false,
+      top: 0, bottom: rows - 1, tabs: <tabs, saved: false, saved_row: 0, saved_col: 0, saved_wrap: false,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0)
 
   # Write `r` at the cursor and move right, wrapping first when a wrap is
@@ -66,51 +69,163 @@ pub obj Terminal
     @col = 0
     @pending_wrap = false
 
-  # Down one row, scrolling the screen up at the bottom.
+  # Down one row; at the bottom margin the scroll region scrolls up.
   sub index(!@)
     @pending_wrap = false
-    if @row < @rows - 1
+    if @row == @bottom
+      (!@).scroll_up(1)
+    else if @row < @rows - 1
       @row += 1
-      return
-    (!@).scroll_up()
 
-  # Up one row, scrolling the screen down at the top.
+  # Up one row; at the top margin the scroll region scrolls down, and the
+  # cursor keeps its pending wrap.
   sub reverse_index(!@)
-    @pending_wrap = false
-    if @row > 0
-      @row -= 1
-      return
-    (!@).scroll_down()
+    if @row == @top
+      (!@).scroll_down(1)
+    else
+      (!@).cursor_up(1)
 
-  # Every row moves up one; the bottom row is blank.
-  sub scroll_up(!@)
-    for i in 0..(@rows - 1) * @cols
-      @cells[i] = @cells[i + @cols]
-    for i in (@rows - 1) * @cols..@rows * @cols
+  # Row `src` copied over row `dst`.
+  sub copy_row(!@, dst: Int, src: Int)
+    for x in 0..@cols
+      @cells[dst * @cols + x] = @cells[src * @cols + x]
+
+  # Cells `from` to `to` (not included) of the screen, as one run, empty.
+  sub blank(!@, from: Int, to: Int)
+    for i in from..to
       @cells[i] = 0
 
-  # Every row moves down one; the top row is blank.
-  sub scroll_down(!@)
-    i = @rows * @cols
-    while i > @cols
-      i -= 1
-      @cells[i] = @cells[i - @cols]
-    for k in 0..@cols
-      @cells[k] = 0
+  # The rows `first` to `last` move up `n`; the `n` at the bottom are
+  # blank.
+  sub shift_up(!@, first: Int, last: Int, n: Int)
+    k = n if n < last - first + 1 else last - first + 1
+    for y in first..last + 1 - k
+      (!@).copy_row(y, y + k)
+    (!@).blank((last + 1 - k) * @cols, (last + 1) * @cols)
+
+  # The rows `first` to `last` move down `n`; the `n` at the top are blank.
+  sub shift_down(!@, first: Int, last: Int, n: Int)
+    k = n if n < last - first + 1 else last - first + 1
+    y = last + 1
+    while y > first + k
+      y -= 1
+      (!@).copy_row(y, y - k)
+    (!@).blank(first * @cols, (first + k) * @cols)
+
+  # The scroll region moves up `n` rows (SU); the cursor stays.
+  sub scroll_up(!@, n: Int)
+    (!@).shift_up(@top, @bottom, n)
+
+  # The scroll region moves down `n` rows (SD); the cursor stays.
+  sub scroll_down(!@, n: Int)
+    (!@).shift_down(@top, @bottom, n)
+
+  # IL: `n` blank rows at the cursor's, pushing the rest of the scroll
+  # region down; the cursor goes to the first column. Nothing outside the
+  # region.
+  sub insert_lines(!@, n: Int)
+    return if n == 0 or @row < @top or @row > @bottom
+    (!@).shift_down(@row, @bottom, n)
+    @col = 0
+    @pending_wrap = false
+
+  # DL: `n` rows from the cursor's go, pulling the rest of the scroll
+  # region up; the cursor goes to the first column.
+  sub delete_lines(!@, n: Int)
+    return if n == 0 or @row < @top or @row > @bottom
+    (!@).shift_up(@row, @bottom, n)
+    @col = 0
+    @pending_wrap = false
+
+  # ICH: `n` blank cells at the cursor, pushing the rest of the row right.
+  sub insert_blanks(!@, n: Int)
+    @pending_wrap = false
+    base = @row * @cols
+    k = n if n < @cols - @col else @cols - @col
+    x = @cols
+    while x > @col + k
+      x -= 1
+      @cells[base + x] = @cells[base + x - k]
+    (!@).blank(base + @col, base + @col + k)
+
+  # DCH: `n` cells from the cursor go, pulling the rest of the row left.
+  sub delete_chars(!@, n: Int)
+    return if n == 0
+    base = @row * @cols
+    k = n if n < @cols - @col else @cols - @col
+    for x in @col..@cols - k
+      @cells[base + x] = @cells[base + x + k]
+    (!@).blank(base + @cols - k, base + @cols)
+    @pending_wrap = false
+
+  # ECH: `n` cells from the cursor emptied, at least one, not past the row.
+  sub erase_chars(!@, n: Int)
+    k = n if n > 0 else 1
+    k = k if k < @cols - @col else @cols - @col
+    base = @row * @cols + @col
+    (!@).blank(base, base + k)
+    @pending_wrap = false
+
+  # EL: 0 from the cursor to the end of the row, 1 from its start to the
+  # cursor, 2 the whole row.
+  sub erase_line(!@, how: Int)
+    base = @row * @cols
+    match how
+      0 => (!@).blank(base + @col, base + @cols)
+      1 => (!@).blank(base, base + @col + 1)
+      2 => (!@).blank(base, base + @cols)
+      _ => return
+    @pending_wrap = false
+
+  # ED: 0 from the cursor to the end of the screen, 1 from its start to the
+  # cursor, 2 the whole screen; 3 the scrollback, which holds nothing yet.
+  sub erase_display(!@, how: Int)
+    match how
+      0
+        (!@).erase_line(0)
+        (!@).blank((@row + 1) * @cols, @rows * @cols)
+      1
+        (!@).erase_line(1)
+        (!@).blank(0, @row * @cols)
+      2
+        (!@).blank(0, @rows * @cols)
+        @pending_wrap = false
+      _ => pass
+
+  # DECSTBM: rows `top` to `bottom`, counted from 1 (0 is the edge), scroll;
+  # the cursor goes home. A region of fewer than two rows is ignored.
+  sub set_margins(!@, top: Int, bottom: Int)
+    t = top if top > 1 else 1
+    b = bottom if bottom > 0 and bottom < @rows else @rows
+    return if t >= b
+    @top = t - 1
+    @bottom = b - 1
+    (!@).cursor_to(1, 1)
+
+  # DECALN: the screen full of `E`, the margins reset, the cursor home.
+  sub align(!@)
+    @top = 0
+    @bottom = @rows - 1
+    (!@).cursor_to(1, 1)
+    for i in 0..@rows * @cols
+      @cells[i] = 0x45
 
   sub backspace(!@)
     @pending_wrap = false
     @col -= 1 if @col > 0 else 0
 
-  # Up `n` rows, stopping at the top.
+  # Up `n` rows, stopping at the top margin, or at the top when above it.
   sub cursor_up(!@, n: Int)
     @pending_wrap = false
-    @row = @row - n if @row - n > 0 else 0
+    limit = @top if @row >= @top else 0
+    @row = @row - n if @row - n > limit else limit
 
-  # Down `n` rows, stopping at the bottom.
+  # Down `n` rows, stopping at the bottom margin, or at the bottom when
+  # below it.
   sub cursor_down(!@, n: Int)
     @pending_wrap = false
-    @row = @row + n if @row + n < @rows - 1 else @rows - 1
+    limit = @bottom if @row <= @bottom else @rows - 1
+    @row = @row + n if @row + n < limit else limit
 
   # Right `n` columns, stopping at the last.
   sub cursor_right(!@, n: Int)
