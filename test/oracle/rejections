@@ -4481,6 +4481,9 @@ doc/CORE/55a54ded4c07 Binder.set_src
 doc/SPEC/75c715adfdce main
 doc/SPEC/538b7f317eef main
 doc/SPEC/018c07bd1110 main
+doc/learn-01-sigils/07b5d800b3fb main
+doc/learn-01-sigils/75ac9ca749f8 main
+doc/learn-01-sigils/ff4bfba3d6ee main
 error.arg_then_write.destructure run
 error.arg_then_write.destructure_branch run
 error.arg_then_write.destructure_view run

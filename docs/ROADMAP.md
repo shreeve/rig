@@ -33,10 +33,12 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 
 ## Concurrency
 
-- **Task groups**: tasks spawned in a group that always ends, with cancellation and no orphans; a local group runs on one thread, a parallel group across cores, on Zig's `std.Io`. Users write no threads, fibers, `Pin`, or async functions ([FORMAL-RIG](FORMAL-RIG.md)).
-- **Channels**: sending moves a value, so tasks share no mutable state; `select` waits on several.
-- **What may cross**: the facts *moves* and *shares*, derived for Rig objects and declared for Zig-backed types; `Mutex` and atomics only if a measurement asks.
-- **Actors**: a task and its channel, in std: a typed, bounded mailbox, `receive` as a `match`, and supervisors that restart a task that ends with an error. A panic stays fatal.
+The model of [CONCURRENCY](CONCURRENCY.md) is built ([SPEC §18](../SPEC.md#18-tasks)): tasks (`f(x)&`, `>t`) owned by their scope, cancellation and deadlines, sets of tasks, `par`, channels and `select`, actors with their idle path, deadlock detection, failure and supervision, `task.isolate`, seeded deterministic tests, and `std.net` and `std.http` on a poller per worker. What comes next is the concurrency panel's ([concurrency/panel](concurrency/panel/README.md)):
+
+- **Files and I/O**: a file layer with one `read`/`write` shape for files, sockets, and HTTP bodies; DNS; then TLS and an HTTP client.
+- **Deadlines**: `time.within` calling its closure exactly once, which replaces `within:`, `wait_all`, and `task.both`.
+- **Checking the runtime**: model checking (TLA+, GenMC) before more hand proofs, and `no_orphans` restated over whoever holds a task.
+- **Later**: thread-sanitizer annotations for fibers, freeing a long-sleeping task's stack, and io_uring.
 
 ## Kernels and freestanding code
 

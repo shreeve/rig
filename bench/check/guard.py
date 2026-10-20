@@ -22,7 +22,7 @@ new Zig), `--update` writes it, and it is committed.
 
 usage: cpuq run --cores 2 --label rig:check -- bench/check/guard.py [--update] [--rig PATH]
 
-Without --rig it builds the compiler (`zig build -Doptimize=ReleaseSafe`)
+Without --rig it builds the compiler (`zig build -Doptimize=safe`)
 into a temporary directory.
 """
 import math, os, re, subprocess, sys, tempfile
@@ -80,7 +80,7 @@ def pass_times(rig, d, n):
 
 
 def build(out):
-    subprocess.run(["zig", "build", "-j2", "-Doptimize=ReleaseSafe", "-p", out], cwd=ROOT, check=True)
+    subprocess.run(["zig", "build", "-j2", "-Doptimize=safe", "-p", out], cwd=ROOT, check=True)
     return os.path.join(out, "bin", "rig")
 
 

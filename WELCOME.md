@@ -870,13 +870,10 @@ You will reach for these and not find them:
   instance supports;
 - **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;
-- **concurrency beyond tasks** ([SPEC §18](SPEC.md#18-tasks)):
-  atomics, channels, and actors;
-- **a large standard library**: beyond `print`, `Cell`, `List`,
-  `String`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
-  `write`), [the standard library](docs/STD.md) has only `std.math`,
-  `std.os`, `std.file`, `std.time`, `std.task`, `std.random`, `std.sort`, `std.slices`, and
-  `std.text` so far;
+- **a large standard library**: [the standard library](docs/STD.md)
+  covers text and Unicode, hashing, JSON, files, time, tasks and
+  parallel loops, TCP and an HTTP server, and a terminal; TLS, an HTTP
+  client, and DNS are not there yet;
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.
 
