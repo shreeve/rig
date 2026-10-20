@@ -50,6 +50,17 @@ Apple M5, Zig 0.17. Details in [simd-lowering.md](../internals/simd-lowering.md)
   runtime and compiler fixes recorded in
   [json-results.md](../history/json-results.md).
 
+## Wanted
+
+- **A widening conversion and a typed vector store.** std.terminal
+  writes a run of printable bytes into U64 cells, each byte or'd with
+  the style bits. As a Rig loop, with its checks proven away, LLVM keeps
+  it scalar: a load, an or, and a store a cell. Widened sixteen lanes at
+  a time (`uxtl`/`ushll` on ARM, `pmovzx` on x86) the text corpus of
+  bench/terminal runs 35% faster. Rig needs `Simd[U8, 16]` to
+  `Simd[U64, 16]` and a store of a vector into a `![]U64`; until then
+  std/terminal.zig's `widen` does it in Zig.
+
 ## Lessons from other languages
 
 From a survey of Rust, C#, Swift, Mojo, Java, Go, C++26, Highway, Odin,

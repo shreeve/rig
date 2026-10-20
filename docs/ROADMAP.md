@@ -32,7 +32,9 @@ items, with their probe cases, are in
 
 ## Speed
 
-- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`, and one load for 4- and 8-byte byte-lane reads on ARM.
+- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`, and one load for 4- and 8-byte byte-lane reads on ARM; a widening
+  conversion (`Simd[U8, 16]` to `Simd[U64, 16]`) and a vector store into a
+  `![]T`, which std/terminal.zig's `widen` stands in for.
 - **Checker-proved check elimination**: bounds and overflow checks the checker proves redundant, redesigned around units.
 - **A frame-size guard** for every function.
 
