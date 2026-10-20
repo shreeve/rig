@@ -1,7 +1,24 @@
-# std.file: reading files, and asking what is at a path. Each call
-# blocks only the task that makes it: it runs on the blocking pool while
-# the task waits. A path is relative to the working directory, or
-# absolute.
+# std.file: reading and writing files, and asking what is at a path.
+# Each call blocks only the task that makes it: it runs on the blocking
+# pool while the task waits. A path is relative to the working
+# directory, or absolute.
+
+# Why a call on a path failed.
+pub error FileError
+  # Nothing is at the path, or at a directory on the way to it.
+  not_found
+  # Something is at the path already.
+  exists
+  # The system does not allow it: permissions, or a read-only file
+  # system.
+  denied
+  # A part of the path on the way to its last name is not a directory.
+  not_directory
+  # The path names a directory, where a file is wanted.
+  is_directory
+  # Anything else the system reports: no space left, too many open
+  # files, an I/O error.
+  failed
 
 # What `stat` and `read_dir` find at a path.
 pub enum Kind
@@ -55,6 +72,10 @@ extern zig "file.zig"
   # `none` when it cannot be read: it does not exist, is a directory,
   # may not be read, or reading it fails.
   pub fun read(path: ?String) -> String?
+
+  # Write `data` as the whole file at `path`: create it, or replace what
+  # it holds, making each missing directory on the way to it.
+  pub sub write(path: ?String, data: ?String)!
 
   # The absolute path `path` names, every symbolic link in it resolved,
   # or `none` when nothing is there.

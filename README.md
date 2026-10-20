@@ -368,7 +368,7 @@ and environment variable.
   with deadlines, and `task.both` for tasks of different types
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
-  environment), `std.file` (reading a whole file), `std.time`,
+  environment), `std.file` (reading and writing a whole file), `std.time`,
   `std.task` (stopping a task, and waiting for several), `std.random`, `std.sort`, `std.slices`, `std.text` (searching,
   splitting, and parsing `?String` values), and
   `std.json` (a fast JSON parser; experimental)
