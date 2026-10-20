@@ -3,12 +3,14 @@
 
 usage: bench/terminal/bench-terminal [options]
 
-  --files a,b       corpora (default: text,scroll,sgr,tui), each about 4 MB,
-                    written once into OUT/data:
+  --files a,b       corpora (default: text,scroll,sgr,tui,utf8), each about
+                    4 MB, written once into OUT/data:
                       text     lines of words, CR LF between them, as `cat` of a log
                       scroll   short lines, so nearly every byte or two scrolls
                       sgr      colored words and resets, a line break now and then
                       tui      full-screen frames: CUP, SGR, a run of text, EL
+                      utf8     lines of words in accented Latin, Greek, Cyrillic,
+                               CJK, kana, Hangul, and emoji among ASCII ones
   --variants a,b    what to build and time (default: all but experiments):
                       rig-safe        bench.rig, rig build --release (Zig's safe mode)
                       rig-fast        bench.rig, rig build --release=fast
@@ -46,7 +48,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import terminal_ghostty  # noqa: E402
 
-FILES = ["text", "scroll", "sgr", "tui"]
+FILES = ["text", "scroll", "sgr", "tui", "utf8"]
 VARIANTS = (["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"] + (["ghostty-simd"] if os.environ.get("GHOSTTY_SDK") else [])
             + (["dispatch"] if os.environ.get("DISPATCH") else []))
 SIZE = 4_000_000
@@ -56,12 +58,35 @@ def words(rng):
     return ["".join(rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(rng.randint(2, 9))) for _ in range(500)]
 
 
+# The letters of the utf8 corpus's scripts, and how often a word is in
+# each; CJK, kana, Hangul, and emoji are two columns wide.
+SCRIPTS = [
+    ("abcdefghijklmnopqrstuvwxyz", 4),
+    ("aeiouéèêàâçñöüßøåæœ" + "abcdefghijklmnopqrstuvwxyz", 3),
+    ("".join(chr(c) for c in range(0x3B1, 0x3CA)), 2),
+    ("".join(chr(c) for c in range(0x430, 0x450)), 2),
+    ("".join(chr(c) for c in range(0x4E00, 0x4E00 + 3000)), 3),
+    ("".join(chr(c) for c in range(0x3041, 0x3094)), 1),
+    ("".join(chr(c) for c in range(0xAC00, 0xAC00 + 2000)), 1),
+    ("".join(chr(c) for c in range(0x1F600, 0x1F650)), 1),
+]
+
+
+def utf8_words(rng):
+    out = []
+    for letters, weight in SCRIPTS:
+        wide = ord(letters[0]) >= 0x1100
+        for _ in range(100 * weight):
+            out.append("".join(rng.choice(letters) for _ in range(rng.randint(1, 4) if wide else rng.randint(2, 9))))
+    return out
+
+
 def corpus(name, cols, rows):
     rng = random.Random(name)
-    w = words(rng)
+    w = utf8_words(rng) if name == "utf8" else words(rng)
     out, n = [], 0
     while n < SIZE:
-        if name == "text":
+        if name in ("text", "utf8"):
             s = " ".join(rng.choice(w) for _ in range(rng.randint(3, 14))) + "\r\n"
         elif name == "scroll":
             s = rng.choice(w)[: rng.randint(1, 9)] + "\r\n"
@@ -74,9 +99,10 @@ def corpus(name, cols, rows):
             for _ in range(rng.randint(3, 12)):
                 text = " ".join(rng.choice(w) for _ in range(rng.randint(1, 5)))[: cols - 1]
                 s += "\x1b[%d;%dH\x1b[%d;3%dm%s\x1b[0m\x1b[K" % (rng.randint(1, rows), rng.randint(1, cols // 2), rng.choice([0, 1, 7]), rng.randint(0, 7), text)
+        s = s.encode()
         out.append(s)
         n += len(s)
-    return "".join(out).encode()
+    return b"".join(out)
 
 
 def build(variant, out):

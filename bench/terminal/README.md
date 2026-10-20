@@ -80,16 +80,20 @@ A run just before wide runes, at a load average of about 6, gave
 rig-fast / ghostty ratios of 0.79, 0.73, 1.64, and 1.71.
 
 2026-10-20, Ghostty with its SIMD paths too, built against the macOS
-26.5 SDK (load average about 3; 5 runs):
+26.5 SDK, and a utf8 corpus, two thirds of its bytes beyond ASCII (load
+average about 2; 5 runs):
 
 | corpus | rig-safe | rig-fast | ghostty | ghostty, 10 MB scrollback | ghostty, SIMD | dispatch | rig-fast / best Ghostty |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| text | 601.6 MB/s | 789.6 MB/s | 1027.4 MB/s | 951.0 MB/s | 1014.9 MB/s | 860.9 MB/s | 0.77 |
-| scroll | 121.9 MB/s | 128.0 MB/s | 176.5 MB/s | 187.8 MB/s | 178.0 MB/s | 132.5 MB/s | 0.68 |
-| sgr | 254.0 MB/s | 276.0 MB/s | 175.1 MB/s | 195.6 MB/s | 175.5 MB/s | 149.6 MB/s | 1.41 |
-| tui | 302.3 MB/s | 329.8 MB/s | 203.9 MB/s | 202.6 MB/s | 205.6 MB/s | 169.0 MB/s | 1.60 |
+| text | 611.2 MB/s | 803.8 MB/s | 1026.2 MB/s | 958.2 MB/s | 1014.9 MB/s | 867.0 MB/s | 0.78 |
+| scroll | 124.7 MB/s | 132.2 MB/s | 177.6 MB/s | 187.7 MB/s | 174.9 MB/s | 132.7 MB/s | 0.70 |
+| sgr | 253.9 MB/s | 275.2 MB/s | 174.8 MB/s | 194.3 MB/s | 176.3 MB/s | 149.0 MB/s | 1.42 |
+| tui | 299.9 MB/s | 328.1 MB/s | 203.7 MB/s | 204.4 MB/s | 206.0 MB/s | 167.6 MB/s | 1.59 |
+| utf8 | 213.7 MB/s | 221.9 MB/s | 263.9 MB/s | 259.1 MB/s | 346.8 MB/s | 225.9 MB/s | 0.64 |
 
-On these corpora, all ASCII, the SIMD paths change Ghostty's speed by
-no more than the noise: its time goes to printing and scrolling, not to
-decoding or finding escapes. The SIMD build answers every case of the
+On the ASCII corpora the SIMD paths change Ghostty's speed by no more
+than the noise: its time goes to printing and scrolling. On utf8 they
+make it 31% faster, decoding runs of runes at once (simdutf), where
+std.terminal decodes a byte at a time through `utf8.Decoder` and looks
+each rune's width up alone. The SIMD build answers every case of the
 differential file as the plain one does.
