@@ -896,6 +896,32 @@ pub fn isolate(f: anytype) IsolateOut(@TypeOf(f)) {
     return run.result;
 }
 
+/// `task.supervise(f, restarts: n, per: ns)`: run `f` isolated, and run
+/// it again when it fails or panics, at most `n` times within `ns`
+/// nanoseconds (always when `n` is negative; within any time when `ns` is
+/// 0); past that, fail as its last run failed. A cancel or a deadline is
+/// no failure to start again from: it fails at once.
+pub fn supervise(f: anytype, restarts: Int, per: Int) IsolateOut(@TypeOf(f)) {
+    var count: Int = 0;
+    var window: i96 = 0;
+    while (true) {
+        if (isolate(f)) |v| return v else |err| {
+            if (err == canceled_error or err == timeout_error) return err;
+            if (restarts >= 0) {
+                if (per > 0) {
+                    const now = rt.sched.nowNs();
+                    if (count == 0 or now - window > per) {
+                        window = now;
+                        count = 0;
+                    }
+                }
+                if (count >= restarts) return err;
+                count += 1;
+            }
+        }
+    }
+}
+
 /// What `isolate` gives for `f`: its value, failing as it can fail and
 /// with `task.Stop.panicked`.
 fn IsolateOut(comptime F: type) type {

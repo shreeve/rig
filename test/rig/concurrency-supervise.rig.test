@@ -1,0 +1,64 @@
+# concurrency: tests whose names start `supervise`.
+use std.task
+
+test "supervise restarts", seeds: 20, '''
+  30 3
+  Flaky.down
+  -2 2
+  9 3
+  -4 2
+'''
+  # `task.supervise` runs its function isolated, and runs it again when
+  # it fails or panics, up to `restarts:` times within `per:`; past that
+  # it fails as the last run failed.
+  use std.time
+
+  error Flaky
+    down
+
+  fun attempt(tries: *Cell[Int]) -> Int!
+    n = (!tries).add(1)
+    if n < 3
+      return Flaky.down
+    n * 10
+
+  fun boom(tries: *Cell[Int]) -> Int
+    n = (!tries).add(1)
+    [9][n - 3]
+
+  tries = *Cell(0)
+  print(task.supervise(|+tries| attempt(+tries)!) catch -1, tries.get())
+  t2 = *Cell(0)
+  r = task.supervise(|+t2| attempt(+t2)!, restarts: 1) catch |e|
+    print(e)
+    -2
+  print(r, t2.get())
+  t3 = *Cell(0)
+  print(task.supervise(|+t3| boom(+t3), restarts: 5) catch -3, t3.get())
+  t4 = *Cell(0)
+  print(task.supervise(|+t4| boom(+t4), restarts: 1, per: time.SECOND) catch -4, t4.get())
+
+test "supervise stops", seeds: 20, "Stop.timeout 1"
+  # A deadline is no failure to start again from.
+  use std.time
+
+  fun slow(tries: *Cell[Int]) -> Int!
+    !tries.add(1)
+    time.sleep(time.SECOND)!
+    1
+
+  fun guarded(tries: *Cell[Int]) -> Int!
+    task.supervise(|+tries| slow(+tries)!)!
+
+  tries = *Cell(0)
+  r = time.within[Int](5 * time.MS, |+tries| guarded(+tries)!) catch |e|
+    print(e, tries.get())
+    -1
+  _ = r
+
+fail "supervise options", "`task.supervise` takes the function to run, then `restarts:` and `per:`"
+  _ = task.supervise(|| 1, retries: 3) catch 0
+
+fail "supervise lends nothing to write", "`task.supervise` drops what a panic in it half-changed"
+  n = 0
+  _ = task.supervise(|!n| n) catch 0

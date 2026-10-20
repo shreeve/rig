@@ -11572,8 +11572,17 @@ const Checker = struct {
     fn isolateCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (!std.mem.eql(u8, foreign.name, "std.task") or !std.mem.eql(u8, name, "isolate")) return null;
-        if (args.len != 1 or args[0].isKind(.kwarg)) return try self.badCall(args, pos, "`task.isolate` takes the function to run, `task.isolate(|| work()!)`", .{});
+        if (!std.mem.eql(u8, foreign.name, "std.task")) return null;
+        const supervise = std.mem.eql(u8, name, "supervise");
+        if (!supervise and !std.mem.eql(u8, name, "isolate")) return null;
+        const shown = if (supervise) "task.supervise" else "task.isolate";
+        if (supervise) {
+            for (args[@min(args.len, 1)..]) |a| {
+                const k = if (a.isKind(.kwarg)) self.text(ir.Kwarg.name(a)) else "";
+                if (!std.mem.eql(u8, k, "restarts") and !std.mem.eql(u8, k, "per")) return try self.badCall(args, a, "`task.supervise` takes the function to run, then `restarts:` and `per:`, at most how many restarts within how many nanoseconds: `task.supervise(|| work()!, restarts: 3, per: time.MINUTE)`", .{});
+            }
+            if (args.len == 0 or args[0].isKind(.kwarg)) return try self.badCall(args, pos, "`task.supervise` takes the function to run, `task.supervise(|| work()!)`", .{});
+        } else if (args.len != 1 or args[0].isKind(.kwarg)) return try self.badCall(args, pos, "`task.isolate` takes the function to run, `task.isolate(|| work()!)`", .{});
         const f = args[0];
         var fn_ty: TypeId = undefined;
         if (f.isKind(.lambda)) {
@@ -11588,10 +11597,10 @@ const Checker = struct {
             const ty = try self.argType(f);
             if (self.isPoison(ty)) return try self.skipCall(args);
             if (sema.callableFnTy(self.ctx, ty) != null or sema.ownedClosureFn(self.ctx, ty) != null) {
-                return try self.badCall(args, f, "`task.isolate` drops what a panic in `{s}` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", .{self.sourceText(f)});
+                return try self.badCall(args, f, "`{s}` drops what a panic in `{s}` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `{s}(|| ...)`", .{ shown, self.sourceText(f), shown });
             }
             if (self.ctx.types.get(ty) != .function or self.ctx.types.get(ty).function.params.len != 0) {
-                return try self.badCall(args, f, "`task.isolate` runs a function that takes nothing, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ self.sourceText(f), try self.tyName(ty) });
+                return try self.badCall(args, f, "`{s}` runs a function that takes nothing, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ shown, self.sourceText(f), try self.tyName(ty) });
             }
             fn_ty = ty;
         }
@@ -11603,19 +11612,29 @@ const Checker = struct {
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = &.{}, .returns = gives, .is_sub = sema.returnsNothing(self.ctx, gives) } });
         }
         if (sema.holdsTask(self.ctx, value)) {
-            return try self.badCall(args, f, "a task started in `task.isolate` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ self.sourceText(f), try self.tyName(value) });
+            return try self.badCall(args, f, "a task started in `{s}` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ shown, self.sourceText(f), try self.tyName(value) });
         }
         const result = try self.ctx.intern(.{ .fallible = value });
-        const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{try sema.callableOfFn(self.ctx, fn_ty)}), .returns = result, .is_sub = value == self.t().void_id };
+        // The function, then each option given, in the order written.
+        const a = self.ctx.arena.allocator();
+        const params = try a.alloc(TypeId, args.len);
+        const names = try a.alloc([]const u8, args.len);
+        params[0] = try sema.callableOfFn(self.ctx, fn_ty);
+        names[0] = "f";
+        for (args[1..], params[1..], names[1..]) |arg, *p, *n| {
+            p.* = self.t().int_id;
+            n.* = self.text(ir.Kwarg.name(arg));
+        }
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = value == self.t().void_id };
         try self.noteCallee(call);
-        try self.checkArgs(args, call, .{}, "task.isolate", pos, .{ .declared = call.params });
+        try self.checkArgs(args, call, .{ .names = names }, shown, pos, .{ .declared = call.params });
         if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
             if (sema.captureModeOf(cap) != .cap_write) continue;
             const n = self.text(sema.captureNameNode(cap).?);
-            try self.errAt(sema.captureNameNode(cap).?, "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!{s}|` lends `{s}` so: give the change back as its value, or keep it in a `*Cell`, captured `|+{s}|`", .{ n, n, n });
+            try self.errAt(sema.captureNameNode(cap).?, "`{s}` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!{s}|` lends `{s}` so: give the change back as its value, or keep it in a `*Cell`, captured `|+{s}|`", .{ shown, n, n, n });
             return self.t().invalid_id;
         };
-        if (self.current_call) |c| try self.ctx.recordIsolateCall(c);
+        if (self.current_call) |c| try if (supervise) self.ctx.recordSuperviseCall(c) else self.ctx.recordIsolateCall(c);
         self.ctx.makes_tasks = true;
         return result;
     }

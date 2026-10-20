@@ -10299,6 +10299,13 @@ so the call fails as `f` fails too; it always can fail.
 - Inside another isolate, the nearest one stops a panic. With none, a
   panic ends the program as before.
 
+`task.supervise(f, restarts: n, per: ns)` runs `f` isolated, and runs
+it again each time it fails or panics, at most `n` times within `ns`
+nanoseconds; past that, it fails as the last run failed. With no
+`restarts:` it starts again always, and with no `per:` the `n` count in
+all. A cancel or a deadline is no failure to start again from: the call
+fails with it at once. `f` follows `task.isolate`'s rules.
+
 ```rig
 use std.task
 

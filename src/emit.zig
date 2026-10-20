@@ -6999,6 +6999,20 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         }
+        // `task.supervise(f, restarts: n, per: ns)`: isolated again and
+        // again by the runtime, with each option or its default.
+        if (self.facts.isSuperviseCall(sexp)) {
+            try self.w.writeAll("rig.supervise(");
+            try self.emitExpr(args[0]);
+            for ([_][]const u8{ "restarts", "per" }, [_][]const u8{ "-1", "0" }) |name, default| {
+                try self.w.writeAll(", ");
+                const given = for (args[1..]) |a| {
+                    if (std.mem.eql(u8, self.srcText(ir.Kwarg.name(a)), name)) break ir.Kwarg.value(a);
+                } else null;
+                if (given) |v| try self.emitExpr(v) else try self.w.writeAll(default);
+            }
+            return self.w.writeAll(")");
+        }
         // `task.isolate(f)`: run apart by the runtime.
         if (self.facts.isIsolateCall(sexp)) {
             try self.w.writeAll("rig.isolate(");

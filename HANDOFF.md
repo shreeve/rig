@@ -139,7 +139,8 @@ from).
     requests on pup, at 16 to 33 KiB per idle connection.
   - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
     `task.select` commits exactly one of its arms (`tasks.Chan`,
-    `selectArms`).
+    `selectArms`). `task.supervise(f, restarts:, per:)` runs a
+    function isolated again after it fails or panics.
     `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds
