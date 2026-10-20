@@ -10743,7 +10743,10 @@ const Checker = struct {
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
         if (self.symbolNamed(obj)) return self.misreachedWrite(misreached, obj, method, try self.symbolTypeCall(callee, method, pos, args, ct));
         if (try self.numberType(obj)) |nty| return self.misreachedWrite(misreached, obj, method, try self.numberTypeCall(callee, obj, nty, method, pos, args, ct));
-        if (try self.namedType(obj)) |nt| return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
+        if (try self.namedType(obj)) |nt| {
+            if (nt.id == self.ctx.actor_sym_id) return self.misreachedWrite(misreached, obj, method, try self.actorSupervised(callee, method, pos, args));
+            return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
+        }
 
         // A consuming (`<@`) method may take a temporary, and a
         // `?@` one reads it where it stands; a `!@` one needs it
@@ -10991,6 +10994,76 @@ const Checker = struct {
         try self.noteCallee(call);
         try self.checkArgs(args, call, .{ .names = &.{ "value", "mailbox" } }, "Actor", self.startOf(callee), .{ .declared = call.params });
         if (self.current_call) |c| try self.ctx.recordActorMake(c);
+        self.ctx.makes_tasks = true;
+        self.ctx.makes_actors = true;
+        return actor;
+    }
+
+    /// `*Actor.supervised(*|| Rooms(...))`: an actor whose value `make`
+    /// makes, first here and again each time a panic ends it, with
+    /// `restarts: n, per: ns`, at most `n` times within `ns`
+    /// nanoseconds, and `mailbox:` as `*Actor(x)` takes it. The actor
+    /// keeps `make`, so it is an owned closure written in the call, which
+    /// no one else holds, and the tasks that run the actor call it: what
+    /// it captures moves to them. It takes nothing and gives the value,
+    /// which follows `*Actor(x)`'s rules.
+    fn actorSupervised(self: *Checker, callee: Sexp, method: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
+        if (!std.mem.eql(u8, method, "supervised")) return self.badCall(args, pos, "`Actor` has one function of its own, `supervised`, an actor that starts again when a panic ends it: `*Actor.supervised(*|| Rooms(...))`", .{});
+        const node = self.current_call orelse return self.skipCall(args);
+        if (!sameNode(node, self.shared_operand)) return self.badCall(args, callee, "an actor lives only behind a shared handle: write `*Actor.supervised(...)`", .{});
+        var positional: usize = 0;
+        for (args) |a| {
+            if (!a.isKind(.kwarg)) {
+                positional += 1;
+                continue;
+            }
+            const name = self.text(ir.Kwarg.name(a));
+            if (!std.mem.eql(u8, name, "mailbox") and !std.mem.eql(u8, name, "restarts") and !std.mem.eql(u8, name, "per")) return self.badCall(args, a, "`Actor.supervised` takes the function that makes its value, then `restarts:` and `per:`, at most how many restarts within how many nanoseconds, and `mailbox:`", .{});
+        }
+        if (positional != 1 or args[0].isKind(.kwarg)) return self.badCall(args, callee, "`Actor.supervised` takes the function that makes its value: `*Actor.supervised(*|| Rooms(...))`", .{});
+        const f = args[0];
+        if (f.isKind(.lambda)) return self.badCall(args, f, "the actor keeps the function that makes its value, so it is an owned closure: `*{s}`", .{self.sourceText(f)});
+        if (!f.isKind(.share) or !ir.Share.operand(f).isKind(.lambda)) return self.badCall(args, f, "the actor keeps the function that makes its value, which no one else may hold: write an owned closure in the call, `*Actor.supervised(*|| Rooms(...))`", .{});
+        const f_ty = try self.argType(f);
+        if (self.isPoison(f_ty)) return self.skipCall(args);
+        const make = sema.ownedClosureFn(self.ctx, f_ty) orelse return self.skipCall(args);
+        if (make.params.len != 0) return self.badCall(args, f, "the function that makes an actor's value takes nothing", .{});
+        const ty = self.canonical(make.returns);
+        if (self.ctx.types.get(ty) == .fallible) return self.badCall(args, f, "the function that makes an actor's value cannot fail; a panic in it ends the actor", .{});
+        const declared = switch (self.ctx.types.get(ty)) {
+            .nominal, .imported_nominal => true,
+            .parameterized_nominal => |pn| !sema.isBuiltinGeneric(self.ctx, pn.sym),
+            else => false,
+        };
+        if (!declared) return self.badCall(args, f, "an actor runs an object or an enum, whose methods its handles call; the function gives a value of type `{s}`", .{try self.tyName(ty)});
+        if (sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
+            return self.badCall(args, f, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
+        }
+        if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, f, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
+        // The tasks that run the actor call the function, each in turn.
+        for (sema.captureList(ir.Lambda.captures(ir.Share.operand(f)))) |cap| {
+            const name_node = sema.captureNameNode(cap) orelse continue;
+            const id = self.ctx.symbolOf(name_node) orelse continue;
+            const cty = self.ctx.symbols.items[id].ty;
+            if (self.isPoison(cty)) continue;
+            const blocker = sema.crossingBlocker(self.ctx, cty, .moves) orelse continue;
+            return self.badCall(args, name_node, "the tasks that run the actor call the function that makes its value, and `{s}` {s}", .{ self.text(name_node), try self.blockerReason(blocker, false, if (blocker == cty) "is" else null) });
+        }
+        const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+        // The function, then each option given, in the order written.
+        const a = self.ctx.arena.allocator();
+        const params = try a.alloc(TypeId, args.len);
+        const names = try a.alloc([]const u8, args.len);
+        params[0] = f_ty;
+        names[0] = "make";
+        for (args[1..], params[1..], names[1..]) |arg, *p, *n| {
+            p.* = self.t().int_id;
+            n.* = self.text(ir.Kwarg.name(arg));
+        }
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = actor, .is_sub = false };
+        try self.noteCallee(call);
+        try self.checkArgs(args, call, .{ .names = names }, "Actor.supervised", self.startOf(callee), .{ .declared = call.params });
+        try self.ctx.recordActorSupervised(node);
         self.ctx.makes_tasks = true;
         self.ctx.makes_actors = true;
         return actor;

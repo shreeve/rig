@@ -30,6 +30,7 @@ pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
 pub const Actor = tasks.Actor;
 pub const actor = tasks.actor;
+pub const actorSupervised = tasks.actorSupervised;
 pub const actorCall = tasks.actorCall;
 pub const actorSpawn = tasks.actorSpawn;
 pub const isolate = tasks.isolate;

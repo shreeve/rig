@@ -570,12 +570,15 @@ from tasks into their owners, never the other way. So when a boundary's
 frames unwind, nothing that survives points into them, and anything
 outside the boundary that the dead code touched was only read.
 
-**Supervision** restarts what died. `*Actor.supervised(|| Rooms(...))`
-makes an actor that starts again from the function when it dies. Calls
-that had not started wait for the new actor; the call that was running
-when it died panics in its caller. `std.supervise(f)` does the same for a
-function: it runs `f` isolated, restarts it on an error or a panic, and
-gives up past a limit of restarts in a window.
+**Supervision** restarts what died. `*Actor.supervised(*|| Rooms(...))`
+(built) makes an actor that starts again from the function when it
+dies; the function is an owned closure, since the actor keeps it.
+Calls that had not started wait for the new actor; the call that was
+running when it died panics in its caller. `restarts: n, per: ns`
+limits the restarts in a window, past which the actor dies for good.
+`std.supervise(f)` does the same for a function: it runs `f` isolated,
+restarts it on an error or a panic, and gives up past a limit of
+restarts in a window.
 
 **What this does not protect.** A task that panics between two related
 `!hits.add(...)` calls leaves them out of step, as in any concurrent

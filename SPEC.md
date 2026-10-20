@@ -10389,6 +10389,19 @@ died from a panic in Rooms.pick`. An isolate around a call stops its
 caller's panic as any other ([Isolating a panic](#isolating-a-panic)),
 a deadlock's too.
 
+A supervised actor starts again instead. `*Actor.supervised(make)`
+takes `make`, an owned closure written in the call that takes nothing
+and gives the value, `*|+cfg| Rooms(cfg)`: the actor keeps it, calls it
+for its first value, and calls it again for a new value each time a
+panic ends the old one, which is abandoned as a dead actor's is. The
+call that panicked still panics in its caller; the calls queued, and
+those after, run against the new value, which `make` makes just before
+the next method runs. `restarts: n, per: ns` allows at most `n` restarts
+within `ns` nanoseconds, or `n` in all without `per:`; past that, or at
+a panic in `make` itself, the actor dies for good. What `make` captures
+moves to the tasks that run the actor. `mailbox:` is as `*Actor(x)`
+takes it.
+
 ```rig
 obj Ledger
   entries: List[Int]

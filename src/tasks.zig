@@ -966,6 +966,20 @@ pub fn Actor(comptime T: type) type {
         running: ?*Message = null,
         /// The method a panic ended the actor in, once it has died.
         died_in: ?*const rt.sched.Label = null,
+        /// A supervised actor's: the function that makes its value
+        /// (`actorSupervised`), how many restarts it allows within `per`
+        /// nanoseconds (all when `restarts` is negative; within any time
+        /// when `per` is 0), and those counted in the window that began
+        /// at `window_start`.
+        make: ?*rt.Shared(rt.Closure(&.{}, T)) = null,
+        restarts: Int = -1,
+        per: Int = 0,
+        restarted: Int = 0,
+        window_start: i96 = 0,
+        /// The value a panic ended, which the function makes again before
+        /// the next method runs (`remake`), and whether it is making it.
+        stale: bool = false,
+        remaking: bool = false,
 
         const Self = @This();
 
@@ -987,7 +1001,8 @@ pub fn Actor(comptime T: type) type {
         /// A dead actor's value is abandoned, not dropped: a panic may
         /// have left it half-changed (`kill`).
         pub fn __rig_drop(self: *Self) void {
-            if (self.state.load(.acquire) & dead != 0) return;
+            if (self.make) |m| m.dropStrong();
+            if (self.state.load(.acquire) & dead != 0 or self.stale) return;
             dropElement(T, &self.value);
         }
 
@@ -995,10 +1010,35 @@ pub fn Actor(comptime T: type) type {
         /// actor: its value is abandoned, the call the runner runs is
         /// answered as panicked, and the calls queued, as made to an actor
         /// that died; so is every later call (`send`).
+        ///
+        /// A supervised actor starts again instead, while its restarts
+        /// allow: the call it ran then panics in its caller, the calls
+        /// queued stay, and the value is made again before the next
+        /// method runs. A panic in making it ends the actor for good.
         fn kill(self: *Self, in: *const rt.sched.Label) void {
             self.lock.lock();
             if (self.state.load(.acquire) & dead != 0) {
                 self.lock.unlock();
+                return;
+            }
+            if (self.make != null and !self.remaking and self.mayRestart()) {
+                rt.abandonValue(T, &self.value);
+                self.stale = true;
+                const running = self.running;
+                self.running = null;
+                // The fiber that ran it stops here: the calls queued go
+                // to a runner of their own, or the actor is idle.
+                const more = self.first != null;
+                if (!more) self.state.store(0, .release);
+                self.lock.unlock();
+                if (running) |m| {
+                    m.outcome = Message.panicked;
+                    m.answer();
+                }
+                if (more) {
+                    const box: *rt.Shared(Self) = @fieldParentPtr("value", self);
+                    rt.sched.spawnDetached(runner, .{box.cloneStrong()});
+                }
                 return;
             }
             self.died_in = in;
@@ -1022,9 +1062,37 @@ pub fn Actor(comptime T: type) type {
             rt.abandonValue(T, &self.value);
         }
 
+        /// Whether a supervised actor may start again: one more restart
+        /// within its limit, which counts it. Under the actor's lock.
+        fn mayRestart(self: *Self) bool {
+            if (self.restarts < 0) return true;
+            if (self.per > 0) {
+                const now = rt.sched.nowNs();
+                if (self.restarted == 0 or now - self.window_start > self.per) {
+                    self.window_start = now;
+                    self.restarted = 0;
+                }
+            }
+            if (self.restarted >= self.restarts) return false;
+            self.restarted += 1;
+            return true;
+        }
+
+        /// Make the value again, on the fiber about to run a method
+        /// (`held`), as `supervised`: a panic here ends the actor for good.
+        fn remake(self: *Self, held: *rt.sched.Held) void {
+            const doing = held.doing;
+            held.doing = label("supervised");
+            self.remaking = true;
+            self.value = self.make.?.value.invoke(.{});
+            self.remaking = false;
+            self.stale = false;
+            held.doing = doing;
+        }
+
         /// The actor that `h`, a fiber's hold on an actor, names.
         fn heldBy(h: *rt.sched.Held) *Self {
-            return @fieldParentPtr("held_by", h.held_by);
+            return @alignCast(@fieldParentPtr("held_by", h.held_by));
         }
 
         /// A panic on a fiber that runs a method inline: the actor dies,
@@ -1093,6 +1161,7 @@ pub fn Actor(comptime T: type) type {
                     f.?.held = held.next;
                     self.release(box);
                 }
+                if (self.stale) self.remake(&held);
                 return self.runInline(t, name, args);
             }
             const Call = struct {
@@ -1211,6 +1280,7 @@ pub fn Actor(comptime T: type) type {
                 m.started = true;
                 self.lock.unlock();
                 held.doing = m.label;
+                if (self.stale) self.remake(&held);
                 self.running = m;
                 m.run(m);
                 self.running = null;
@@ -1366,6 +1436,16 @@ const Message = struct {
 pub fn actor(value: anytype, capacity: Int) *rt.Shared(Actor(@TypeOf(value))) {
     const box = rt.shared(Actor(@TypeOf(value)){ .value = value, .capacity = @intCast(@max(capacity, 1)) });
     return box;
+}
+
+/// `*Actor.supervised(make, mailbox: n, restarts: r, per: ns)`: an actor
+/// whose value `make`, an owned closure it keeps, makes now and again
+/// each time a panic ends it, at most `restarts` times within `per`
+/// nanoseconds (`Actor.kill`).
+pub fn actorSupervised(make: anytype, capacity: Int, restarts: Int, per: Int) *rt.Shared(Actor(@TypeOf(make.value).__rig_fn[1])) {
+    const T = @TypeOf(make.value).__rig_fn[1];
+    const value = make.value.invoke(.{});
+    return rt.shared(Actor(T){ .value = value, .capacity = @intCast(@max(capacity, 1)), .make = make, .restarts = restarts, .per = per });
 }
 
 /// The `Shared(Actor(T))` a handle reaches: the handle, or a view of one.

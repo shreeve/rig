@@ -445,3 +445,148 @@ bomb "actor dies and its caller panics", seeds: 20, "index out of bounds", print
   r = *Actor(Rooms(n: 0))
   print("before")
   print(r.pick(7))
+
+test "actor supervised restarts", seeds: 20, '''
+  2
+  -1 0
+  1
+  -2 7
+'''
+  # A supervised actor starts again from its function when a panic ends
+  # it, up to `restarts:` times: the call that panicked panics in its
+  # caller, and the next runs against a new value. Past the limit, the
+  # actor dies for good.
+  use std.task
+
+  obj Rooms
+    names: List[String]
+
+    fun pick(?@, i: Int) -> Int
+      @names[i].len
+
+    sub add(!@, s: String)
+      !@names.push(<s)
+
+    fun count(?@) -> Int
+      @names.len
+
+  base = 7
+  r = *Actor.supervised(*|+base| Rooms(names: List[String]()), restarts: 2)
+  !r.add(String("hall"))
+  !r.add(String("den"))
+  print(r.count())
+  n = task.isolate(|+r| r.pick(9)) catch -1
+  print(n, r.count())
+  !r.add(String("attic"))
+  print(r.count())
+  _ = task.isolate(|+r| r.pick(9)) catch -1
+  _ = task.isolate(|+r| r.pick(9)) catch -1
+  m = task.isolate(|+r| r.count()) catch -2
+  print(m, base)
+
+test "actor supervised on its own task", seeds: 20, '''
+  -1 105 200
+  300 3
+  -2
+'''
+  # A call queued while the actor dies waits for the new value. Restarts
+  # count within `per:` nanoseconds: one after the window is allowed
+  # again, a second within it is not.
+  use std.task
+  use std.time
+
+  obj Slow
+    n: Int
+
+    fun hold(!@) -> Int!
+      @n += 5
+      time.sleep(20 * time.MS)!
+      @n
+
+    fun boom(?@, i: Int) -> Int
+      [1, 2, 3][i]
+
+    fun get(?@) -> Int
+      @n
+
+  fun holder(a: *Actor[Slow]) -> Int!
+    (!a).hold()!
+
+  fun behind(a: *Actor[Slow]) -> Int!
+    time.sleep(2 * time.MS)!
+    a.get()
+
+  made = *Cell(0)
+  a = *Actor.supervised(*|+made| Slow(n: 100 * (!made).add(1)), restarts: 1, per: 10 * time.MS)
+  t = holder(+a)&
+  time.sleep(5 * time.MS)!
+  u = behind(+a)&
+  n = task.isolate(|+a| a.boom(9)) catch -1
+  print(n, <t.wait()!, <u.wait()!)
+  time.sleep(20 * time.MS)!
+  _ = task.isolate(|+a| a.boom(9)) catch -1
+  print(a.get(), made.get())
+  _ = task.isolate(|+a| a.boom(9)) catch -1
+  print(task.isolate(|+a| a.get()) catch -2)
+
+test "actor supervised restart panics", seeds: 20, '''
+  8
+  -2
+'''
+  # A panic in the function that makes the value ends the actor for good.
+  use std.task
+
+  obj Rooms
+    n: Int
+
+    fun pick(?@, i: Int) -> Int
+      [1, 2][i] + @n
+
+  fun make(made: *Cell[Int]) -> Rooms
+    k = (!made).add(1)
+    Rooms(n: [7][k - 1])
+
+  made = *Cell(0)
+  r = *Actor.supervised(*|+made| make(+made))
+  print(r.pick(0))
+  _ = task.isolate(|+r| r.pick(5)) catch -1
+  _ = task.isolate(|+r| r.pick(0)) catch -1
+  print(task.isolate(|+r| r.pick(0)) catch -2)
+
+fail "actor supervised keeps an owned closure", "the actor keeps the function that makes its value, so it is an owned closure: `*|| Rooms(n: 1)`"
+  obj Rooms
+    n: Int
+
+  r = *Actor.supervised(|| Rooms(n: 1))
+
+fail "actor supervised closure written in the call", "the actor keeps the function that makes its value, which no one else may hold: write an owned closure in the call"
+  obj Rooms
+    n: Int
+
+  f = *|| Rooms(n: 1)
+  r = *Actor.supervised(<f)
+
+fail "actor supervised captures cross", "the tasks that run the actor call the function that makes its value, and `b` is a `*` handle whose count is not atomic"
+  obj Rooms
+    n: Int
+
+  obj Box2
+    n: Int
+
+  b = *Box2(n: 1)
+  r = *Actor.supervised(*|+b| Rooms(n: b.n))
+
+fail "actor supervised value", "an actor runs an object or an enum, whose methods its handles call; the function gives a value of type `Int`"
+  r = *Actor.supervised(*|| 5)
+
+fail "actor supervised options", "`Actor.supervised` takes the function that makes its value, then `restarts:` and `per:`"
+  obj Rooms
+    n: Int
+
+  r = *Actor.supervised(*|| Rooms(n: 1), retries: 3)
+
+fail "actor supervised behind a handle", "an actor lives only behind a shared handle: write `*Actor.supervised(...)`"
+  obj Rooms
+    n: Int
+
+  r = Actor.supervised(*|| Rooms(n: 1))
