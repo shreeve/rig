@@ -110,7 +110,8 @@ from).
     (`tasks.Actor`, `typecheck.actorCall`). A call that finds the actor
     idle runs inline, as the actor, at about a lock's cost
     (`Actor.claim`; bench/actors times it against a Go mutex and a Tokio
-    actor). Deadlock detection and actor failure come next.
+    actor). A wait that closes a cycle of actor calls and task waits
+    panics, naming the calls (`sched.block`). Actor failure comes next.
   - **Deterministic tests:** `rig test` runs tasks on one thread with
     a virtual clock and a seed (`--seed`, `--seeds`, `RIG_SEED`), so a
     concurrent test fails the same way twice and sleeps take no time;
@@ -382,8 +383,8 @@ migration guide (`tools/migrate-0.3.py`).
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
 plan's second step, and its increments are done; the crossing facts, a
 `Cell` of one word across tasks, `par`, `time.within`, `task.isolate`,
-and actors with their idle path are built): deadlock detection, and
-actor failure with supervised actors; then I/O,
+and actors with their idle path and deadlock detection are built): actor
+failure with supervised actors; then I/O,
 timers, and `http.serve` on Rig's own `std.Io`, whose blocking pool
 today serves only `std.file.read`.
 

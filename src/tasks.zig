@@ -326,6 +326,18 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
     var got: [n]bool = @splat(false);
     var left: usize = n;
     var failure: ?anyerror = null;
+    const Untaken = struct {
+        ts: *const Tup,
+        taken: *const [n]bool,
+
+        fn member(ctx: *const anyopaque, i: usize) ?*rt.sched.Header {
+            const u: *const @This() = @ptrCast(@alignCast(ctx));
+            inline for (0..n) |k| if (k == i) return if (u.taken[k]) null else &u.ts[k].handle.job.header;
+            unreachable;
+        }
+    };
+    const untaken: Untaken = .{ .ts = &ts, .taken = &taken };
+    const b: rt.sched.Blocked = .{ .any = .{ .ctx = &untaken, .len = n, .member = Untaken.member } };
     while (left > 0 and failure == null) {
         const seen = w.ticks.load(.seq_cst);
         inline for (0..n) |i| {
@@ -346,9 +358,14 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
                 }
             }
         }
-        if (left > 0 and failure == null) w.sleep(seen, null) catch |err| {
-            failure = err;
-        };
+        if (left > 0 and failure == null) {
+            rt.sched.block(&b);
+            const slept = w.sleep(seen, null);
+            rt.sched.unblock();
+            slept catch |err| {
+                failure = err;
+            };
+        }
     }
     const err = failure orelse return values;
     inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
@@ -494,6 +511,22 @@ pub fn Tasks(comptime T: type) type {
             self.items.items.len = kept;
         }
 
+        /// The tasks a wait on the set has not taken, for a deadlock's
+        /// walk (`rt.sched.Blocked.any`).
+        const Untaken = struct {
+            items: []const Task(T),
+            taken: []const bool,
+
+            fn member(ctx: *const anyopaque, i: usize) ?*rt.sched.Header {
+                const u: *const Untaken = @ptrCast(@alignCast(ctx));
+                return if (u.taken[i]) null else &u.items[i].handle.job.header;
+            }
+
+            fn blocked(u: *const Untaken) rt.sched.Blocked {
+                return .{ .any = .{ .ctx = u, .len = u.items.len, .member = member } };
+            }
+        };
+
         /// `<ts.wait_all()`: every result, in the order added; nothing
         /// for tasks that give none.
         pub fn wait_all(self: Self, within: ?Int) All {
@@ -518,6 +551,8 @@ pub fn Tasks(comptime T: type) type {
             @memset(flags, false);
             const taken = flags[0..n];
             const got = flags[n..];
+            const untaken: Untaken = .{ .items = s.items.items, .taken = taken };
+            const b = untaken.blocked();
             var left = n;
             while (left > 0) {
                 const seen = s.wakeup.?.ticks.load(.seq_cst);
@@ -537,7 +572,10 @@ pub fn Tasks(comptime T: type) type {
                     }
                 }
                 if (left == 0) break;
-                s.wakeup.?.sleep(seen, deadline) catch |err| {
+                rt.sched.block(&b);
+                const slept = s.wakeup.?.sleep(seen, deadline);
+                rt.sched.unblock();
+                slept catch |err| {
                     s.stopUntaken(taken);
                     dropGot(results, got);
                     return err;
@@ -560,6 +598,8 @@ pub fn Tasks(comptime T: type) type {
             const taken = defaultAllocator().alloc(bool, n) catch oom();
             defer defaultAllocator().free(taken);
             @memset(taken, false);
+            const untaken: Untaken = .{ .items = s.items.items, .taken = taken };
+            const b = untaken.blocked();
             var left = n;
             var last: anyerror = undefined;
             while (true) {
@@ -580,7 +620,10 @@ pub fn Tasks(comptime T: type) type {
                     s.items.items.len = 0;
                     return last;
                 }
-                s.wakeup.?.sleep(seen, deadline) catch |err| {
+                rt.sched.block(&b);
+                const slept = s.wakeup.?.sleep(seen, deadline);
+                rt.sched.unblock();
+                slept catch |err| {
                     s.stopUntaken(taken);
                     s.items.items.len = 0;
                     return err;
@@ -914,8 +957,18 @@ pub fn Actor(comptime T: type) type {
         /// Calls made with `&` in flight, against `capacity`.
         pending: std.atomic.Value(u32) = .init(0),
         capacity: u32 = default_mailbox,
+        /// The method running in the actor while the fiber running it
+        /// blocks, for a deadlock's walk (`rt.sched.Held`).
+        held_by: std.atomic.Value(?*rt.sched.Held) = .init(null),
 
         const Self = @This();
+
+        /// Method `name` as a deadlock names it.
+        fn label(comptime name: []const u8) *const rt.sched.Label {
+            return &struct {
+                const l: rt.sched.Label = .{ .actor = actorName(T), .method = name };
+            }.l;
+        }
         /// Marks the type for `rt.Shared`'s atomic counts.
         pub const __rig_actor = {};
         /// Its arguments, for `typeName`.
@@ -960,9 +1013,15 @@ pub fn Actor(comptime T: type) type {
                 if (canceledHere()) return canceled_error;
                 if (pastDeadline()) return timeout_error;
             }
-            const t = task();
-            if (self.claim(t)) {
-                defer self.release(box);
+            const f = rt.sched.current();
+            const t = if (f) |x| &x.state else task();
+            if (f != null and self.claim(t)) {
+                var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = label(name), .next = f.?.held };
+                f.?.held = &held;
+                defer {
+                    f.?.held = held.next;
+                    self.release(box);
+                }
                 return self.runInline(t, name, args);
             }
             const Call = struct {
@@ -976,9 +1035,13 @@ pub fn Actor(comptime T: type) type {
                     c.result = c.actor.invoke(name, c.args);
                 }
             };
-            var c: Call = .{ .msg = .{ .run = Call.run }, .actor = self, .args = args };
+            var c: Call = .{ .msg = .{ .run = Call.run, .label = label(name) }, .actor = self, .args = args };
             self.send(box, &c.msg);
-            if (!c.msg.waitAnswer(self, fallible)) {
+            const b: rt.sched.Blocked = .{ .call = .{ .label = label(name), .held_by = &self.held_by, .msg = &c.msg, .answered = Message.answered } };
+            rt.sched.block(&b);
+            const done = c.msg.waitAnswer(self, fallible);
+            rt.sched.unblock();
+            if (!done) {
                 if (comptime fallible) return if (canceledHere()) canceled_error else timeout_error;
                 unreachable;
             }
@@ -1047,6 +1110,10 @@ pub fn Actor(comptime T: type) type {
         /// then its handle goes, which may be the last.
         fn runner(box: *rt.Shared(Self)) void {
             const self = &box.value;
+            const f = rt.sched.current().?;
+            var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = undefined, .next = f.held };
+            f.held = &held;
+            defer f.held = held.next;
             while (true) {
                 self.lock.lock();
                 const m = self.first orelse {
@@ -1058,6 +1125,7 @@ pub fn Actor(comptime T: type) type {
                 if (self.first == null) self.last = null;
                 m.started = true;
                 self.lock.unlock();
+                held.doing = m.label;
                 m.run(m);
                 m.answer();
             }
@@ -1068,6 +1136,16 @@ pub fn Actor(comptime T: type) type {
 
 /// How many calls made with `&` an actor holds in flight at once.
 const default_mailbox = 64;
+
+/// What a deadlock calls an actor of `T`: its name in Rig, without the
+/// module or the type's arguments.
+fn actorName(comptime T: type) []const u8 {
+    if (@hasDecl(T, "__rig_name")) {
+        const first = T.__rig_name.name[0];
+        if (@TypeOf(first) == []const u8 or @typeInfo(@TypeOf(first)) == .pointer) return first;
+    }
+    return @typeName(T);
+}
 
 /// `Actor.claim` after its first try failed: spin while the actor runs
 /// inline with no mail, up to `claim_spins` times, then give up.
@@ -1114,6 +1192,8 @@ const inline_reserve = rt.task_stack_size / 4;
 const Message = struct {
     next: ?*Message = null,
     run: *const fn (*Message) void,
+    /// The method called, as a deadlock names it.
+    label: *const rt.sched.Label,
     /// Taken by a runner, under the actor's lock: no longer withdrawn.
     started: bool = false,
     status: std.atomic.Value(u8) = .init(queued),
@@ -1130,6 +1210,13 @@ const Message = struct {
             _ = rt.sched.interrupt(m.waiter.load(.seq_cst).?, m.waiter_epoch.load(.seq_cst), false);
         }
         m.status.store(ended, .seq_cst);
+    }
+
+    /// Whether the message at `p` has been answered, for a deadlock's
+    /// walk (`rt.sched.Blocked`).
+    fn answered(p: *const anyopaque) bool {
+        const m: *const Message = @ptrCast(@alignCast(p));
+        return m.status.load(.seq_cst) >= ending;
     }
 
     fn isEnded(m: *Message) bool {
