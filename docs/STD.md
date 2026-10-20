@@ -247,6 +247,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 |---|---|
 | `args() -> []Static` | every argument, the program's name first |
 | `env(name: ?String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
+| `cwd() -> String` | the working directory, as an absolute path |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -286,11 +287,44 @@ nowhere
 
 ## std.file
 
-Reading a whole file into a `String`.
+Reading a whole file into a `String`, and asking what is at a path.
 
 | Function | Result |
 |---|---|
 | `read(path: ?String) -> String?` | the file at `path` as a fresh `String` of exactly its bytes, or `none` when it cannot be read |
+| `stat(path: ?String) -> Stat?` | what is at `path`: its `kind`, whether it is a `link`, and its `size`; `none` when nothing is |
+| `read_dir(path: ?String) -> List[Entry]?` | the entries of the directory at `path`, sorted by name, each with its `name`, `kind`, and `link`; `none` when it is not a directory that can be read |
+| `realpath(path: ?String) -> String?` | the absolute path `path` names, every symbolic link in it resolved; `none` when nothing is there |
+
+Each call blocks only the task that makes it: it runs on the blocking
+pool while the task waits, so other tasks go on. To do several at once,
+make them tasks and wait with `>`, as for any call.
+
+A `kind` is `Kind.file`, `Kind.directory`, or `Kind.other` (a device,
+a pipe, a socket). `stat` and `read_dir` follow a symbolic link to give
+the kind of what it names, and say with `link` that the path itself is
+one; a link that names nothing is a link of kind `other`, so
+`file.stat(p) != none` asks whether anything is at `p`, as Go's
+`os.Lstat` does, and a `kind` of `Kind.file` whether a file is there to
+read, as its `os.Stat` does. `read_dir` leaves out `.` and `..`, and
+sorts by the names' bytes.
+
+```rig
+use std.file
+
+sub main()
+  if file.stat("examples") as s
+    print(s.kind, s.link)
+  if file.read_dir("examples") as entries
+    print(entries.len > 0, entries[0].kind)
+  print(file.stat("no/such/file") == none, file.realpath("no/such/file") == none)
+```
+
+```output
+.directory false
+true .file
+true true
+```
 
 A relative `path` starts at the working directory. The bytes are the
 file's as they are: none added, and none checked to be UTF-8, so a

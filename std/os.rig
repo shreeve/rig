@@ -1,4 +1,4 @@
-# std.os: the process's arguments and environment.
+# std.os: the process's arguments, environment, and working directory.
 
 extern zig "os.zig"
   # Every argument, the program's name first. The text lives as long as
@@ -10,3 +10,6 @@ extern zig "os.zig"
   # environment the process started with, which nothing in std changes
   # (a `set_env` would have to revisit this `Static`).
   pub fun env(name: ?String) -> Static?
+
+  # The working directory, as an absolute path.
+  pub fun cwd() -> String

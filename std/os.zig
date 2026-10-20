@@ -13,3 +13,16 @@ pub fn env(name: []const u8) ?[]const u8 {
     const init = rig.process orelse return null;
     return init.environ.getPosix(name);
 }
+
+/// The working directory, as an absolute path.
+pub fn cwd() rig.String {
+    return rig.blocking(cwdHere, .{});
+}
+
+fn cwdHere() rig.String {
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const n = std.process.currentPath(rig.io(), &buf) catch return .empty;
+    var s: rig.String = .empty;
+    s.list.appendSlice(rig.defaultAllocator(), buf[0..n]) catch rig.oom();
+    return s;
+}
