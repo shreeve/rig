@@ -9111,6 +9111,92 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
     };
 }
 
+/// A match pattern that names a module constant: a bare name the
+/// resolver recorded as one (`ESC`), or another module's (`lib.ESC`).
+/// The context that declares the constant, and its symbol there.
+pub const PatternConst = struct { ctx: *const SemContext, id: SymbolId };
+
+/// The one classifier of a constant pattern: a pattern that is a module
+/// constant's name compares with its value, and binds nothing.
+pub fn patternConst(ctx: *const SemContext, pattern: Sexp) ?PatternConst {
+    switch (pattern) {
+        .src => {
+            const id = ctx.symbolOf(pattern) orelse return null;
+            return if (isModuleConst(ctx, id)) .{ .ctx = ctx, .id = id } else null;
+        },
+        .list => {
+            if (!pattern.isKind(.member)) return null;
+            const obj = ir.Member.object(pattern);
+            if (obj != .src) return null;
+            const id = ctx.symbolOf(obj) orelse ctx.lookupInScopeOnly(module_scope, identAt(ctx.source, obj) orelse return null) orelse return null;
+            if (ctx.symbols.items[id].kind != .module) return null;
+            const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
+            const fid = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(pattern)) orelse return null) orelse return null;
+            return if (isModuleConst(foreign, fid)) .{ .ctx = foreign, .id = fid } else null;
+        },
+        else => return null,
+    }
+}
+
+/// Whether symbol `id` is a module-level binding, which is a constant.
+pub fn isModuleConst(ctx: *const SemContext, id: SymbolId) bool {
+    const sym = ctx.symbols.items[id];
+    return sym.kind == .local and sym.scope == module_scope;
+}
+
+/// The value of a scalar constant as a pattern compares with it.
+pub const ConstScalar = union(enum) { int: Wide, boolean: bool, variant: []const u8 };
+
+/// The value of the constant `c` names, when Rig knows it as it checks
+/// the program: an integer (`const_ints`), a Bool, or a variant named
+/// alone. Null for any other value, and for one the target sets.
+pub fn constScalar(c: PatternConst) ?ConstScalar {
+    return constScalarAt(c.ctx, c.id, 0);
+}
+
+fn constScalarAt(ctx: *const SemContext, id: SymbolId, depth: u32) ?ConstScalar {
+    // A chain of constants longer than this is a cycle, reported elsewhere.
+    if (depth > 64 or ctx.symbols.items[id].flags.per_target) return null;
+    if (ctx.const_ints.get(id)) |c| return .{ .int = c.value };
+    const value = for (ctx.const_order.items) |decl| {
+        const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        if (ctx.symbolOf(ir.Set.target(set)) == id) break ir.Set.value(set);
+    } else return null;
+    return scalarOf(ctx, value, depth);
+}
+
+fn scalarOf(ctx: *const SemContext, e: Sexp, depth: u32) ?ConstScalar {
+    switch (e) {
+        .src => {
+            const word = identAt(ctx.source, e) orelse return null;
+            if (std.mem.eql(u8, word, "true")) return .{ .boolean = true };
+            if (std.mem.eql(u8, word, "false")) return .{ .boolean = false };
+            const id = ctx.symbolOf(e) orelse ctx.lookupInScopeOnly(module_scope, word) orelse return null;
+            return if (isModuleConst(ctx, id)) constScalarAt(ctx, id, depth + 1) else null;
+        },
+        .list => {
+            const h = e.kind() orelse return null;
+            switch (h) {
+                .enum_lit => return .{ .variant = identAt(ctx.source, ir.EnumLit.name(e)) orelse return null },
+                .member => {
+                    if (patternConst(ctx, e)) |c| return constScalarAt(c.ctx, c.id, depth + 1);
+                    // `Color.red`: a variant named through its enum, which
+                    // is a type, not a value.
+                    if (ctx.typeOf(ir.Member.object(e)) != null) return null;
+                    return .{ .variant = identAt(ctx.source, ir.Member.name(e)) orelse return null };
+                },
+                .@"if" => if (ir.If.@"else"(e) != .nil) {
+                    const c = constBoolBy(ctx, ir.If.cond(e), CheckedNames{ .ctx = ctx }) orelse return null;
+                    return scalarOf(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), depth);
+                },
+                else => {},
+            }
+            return .{ .boolean = constBoolBy(ctx, e, CheckedNames{ .ctx = ctx }) orelse return null };
+        },
+        else => return null,
+    }
+}
+
 /// The first name or `module.name` in `e` that is set for each target
 /// (`SymbolFlags.per_target`): `target.arch`, or a constant whose value
 /// names it. Null when `e` names none.

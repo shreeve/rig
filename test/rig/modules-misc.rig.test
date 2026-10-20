@@ -303,10 +303,10 @@ test "const generics across modules", '''
       pub fun cap(?@) -> Int
         n
 
-fail "constant as pattern", "8:5: `lib.DEF` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.DEF =>`", "12:5: `lib.RED` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.RED =>`", errors: 2
-  # A pattern cannot name a module's constant, of an error set or of an
-  # enum: it is compared in a guard instead. The rejected arm covers
-  # nothing, and the match reports no more than that arm.
+fail "constant as pattern", "8:5: `lib.DEF` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.DEF =>`", errors: 1
+  # A pattern cannot name a module's constant of an error set: it is
+  # compared in a guard instead. The rejected arm covers nothing, and the
+  # match reports no more than that arm. An enum constant is a pattern.
   use lib
 
   fun k(d: lib.Disk) -> ?String

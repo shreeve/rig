@@ -4592,7 +4592,7 @@ values (`catch |err|`,
 the patterns. A range pattern's bounds are constants. Every match must
 cover every value, whether its value is used
 or it is a statement: its arms name every variant or value, or a
-catch-all (`_`, or a name) covers the rest. Duplicate and unreachable
+catch-all (`_`, or a name that binds) covers the rest. Duplicate and unreachable
 arms are rejected. An arm with no work to do is `_ => pass`
 ([pass](#pass)).
 
@@ -4697,6 +4697,58 @@ sub main()
 ```output
 small medium large
 something else: 7
+```
+
+A module constant's name, `NAME` or `m.NAME`, is a pattern when its
+value is an integer, a `Bool`, or an enum value that Rig knows when it
+checks the program. It compares with that value and binds nothing, and
+it covers that value as its literal would: an arm that repeats a
+literal, a range, or a variant it covers is reported. Its type is the
+subject's, as a literal's would be. Any other constant (a float, a
+string, an array, an error, or a value the target sets) is compared in
+a guard instead: `x if x == LIMIT =>`.
+
+```rig
+enum Color
+  red
+  green
+
+ESC: U8 = 0x1B
+WARM = Color.red
+
+fun kind(c: U8) -> ?String
+  match c
+    ESC => "escape"
+    0x20..0x7F => "printable"
+    _ => "other"
+
+fun hue(c: Color) -> ?String
+  match c
+    WARM => "warm"
+    .green => "cool"
+
+sub main()
+  print(kind(0x1B), kind(0x41), hue(.red))
+```
+
+```output
+escape printable warm
+```
+
+```rig reject
+ESC = 0x1B
+
+fun kind(c: U8) -> Int
+  match c
+    ESC => 1
+    _ => 0
+
+sub main()
+  print(kind(0x1B))
+```
+
+```error
+type mismatch: expected `U8`, got `Int`
 ```
 
 The subject takes the sigil of what the arms do with it, as a `for`

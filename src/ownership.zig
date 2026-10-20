@@ -5933,6 +5933,8 @@ pub const Checker = struct {
                 // Literal patterns match one value; an identifier binds the
                 // whole scrutinee and matches everything.
                 if (!isIdentStart(name[0]) or std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) return false;
+                // A module constant's name compares with its value.
+                if (self.sema) |ctx| if (sema.patternConst(ctx, pattern) != null) return false;
                 _ = try self.bindPayload(pattern, info, scrut_value);
                 return true;
             },

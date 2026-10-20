@@ -27,7 +27,8 @@ tools that take them in `bench/json/`.
    matches its tape tags as bare literals (`0 => .null`, `1, 2 =>
    .bool`), because `T_NULL => .null` is not a pattern, though the same
    names work in every expression. Fix: a constant's name (`Name`,
-   `mod.Name`) as a pattern, matched by value. *Observed.*
+   `mod.Name`) as a pattern, matched by value. *Fixed (#373): an integer,
+   `Bool`, or enum constant is a pattern.*
 3. **Proven forms covered some reads and not others.** The proofs round
    gave `at`, `readInt`, and `+` proven forms but not `simdRead`, so the
    one check left in std.json's string scan cost gsoc-2018 9% of its

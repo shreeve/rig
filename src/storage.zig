@@ -608,9 +608,10 @@ fn decideMatchMode(ctx: *const SemContext, match: Sexp) MatchMode {
     return .read;
 }
 
-/// Whether `pattern` is a catch-all arm's: a name, or `_`.
-pub fn isCatchAll(source: []const u8, pattern: Sexp) bool {
-    return pattern == .src and !isLiteralText(rig.leafText(source, pattern.src));
+/// Whether `pattern` is a catch-all arm's: a name that binds, or `_`;
+/// not a literal, nor a module constant's name (`sema.patternConst`).
+pub fn isCatchAll(ctx: *const SemContext, pattern: Sexp) bool {
+    return pattern == .src and !isLiteralText(rig.leafText(ctx.source, pattern.src)) and sema.patternConst(ctx, pattern) == null;
 }
 
 /// Whether some arm of `match` has a guard.
@@ -630,7 +631,7 @@ fn decideMatchRereads(ctx: *const SemContext, match: Sexp) bool {
     const mode = matchMode(ctx, match);
     for (ir.Match.arms(match)) |arm| {
         const pattern = ir.Arm.pattern(arm);
-        if (mode == .write and isCatchAll(ctx.source, pattern)) return true;
+        if (mode == .write and isCatchAll(ctx, pattern)) return true;
         if (mode == .consume and pattern.isKind(.alt_pattern)) return true;
     }
     return false;
@@ -1612,7 +1613,7 @@ const Planner = struct {
         for (ir.Match.arms(m)) |arm| {
             const pattern = ir.Arm.pattern(arm);
             if (pattern == .src) {
-                if (isCatchAll(ctx.source, pattern) and ctx.symbolOf(pattern) != null) _ = catchAllCaptured(ctx, pattern, m);
+                if (isCatchAll(ctx, pattern) and ctx.symbolOf(pattern) != null) _ = catchAllCaptured(ctx, pattern, m);
             } else if (pattern.isKind(.variant_pattern)) {
                 for (ctx.payloadBindings(pattern) orelse continue) |b| if (b != .nil) {
                     _ = bindsByAddress(ctx, b, m);
@@ -1643,7 +1644,7 @@ const Planner = struct {
         const ty = matchedType(ctx, m);
         for (ir.Match.arms(m)) |arm| {
             const pattern = ir.Arm.pattern(arm);
-            if (isCatchAll(ctx.source, pattern)) {
+            if (isCatchAll(ctx, pattern)) {
                 if (mode == .consume) try p.record(arm, .whole, .owned, .arm);
                 continue;
             }
