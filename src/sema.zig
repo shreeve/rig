@@ -986,6 +986,8 @@ pub const Facts = struct {
     actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.isolate` (`Checker.isolateCall`).
     isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The calls of `http.serve` (`Checker.httpServe`).
+    http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -3215,6 +3217,15 @@ pub const SemContext = struct {
     /// (`recordActorCall`).
     pub fn isActorCall(self: *const SemContext, call: Sexp) bool {
         return self.facts.actor_calls.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordHttpServe(self: *SemContext, call: Sexp) !void {
+        try self.facts.http_serves.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `http.serve` (`recordHttpServe`).
+    pub fn isHttpServe(self: *const SemContext, call: Sexp) bool {
+        return self.facts.http_serves.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordIsolateCall(self: *SemContext, call: Sexp) !void {

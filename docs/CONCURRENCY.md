@@ -147,41 +147,40 @@ Two different calls at once:
 u, o = task.both(user(id)&, orders(id)&)!
 ```
 
-A server whose handlers share a counter and a room list:
+A server whose handlers share a counter and a room list (built):
 
 ```text
-use std.hash
+use std.http
+use std.net
 
 obj Rooms
-  members: hash.Map[String, List[String]]
+  members: List[String]
 
-  fun join(!@, room: ?String, who: ?String) -> Int
-    list = (!@members).entry(String(room))
-    !list.push(String(who))
-    list.len
+  fun join(!@, who: String) -> Int
+    !@members.push(<who)
+    @members.len
 
-sub main()
+sub main()!
   hits = *Cell(0)
-  rooms = *Actor(Rooms(members: hash.Map()))
-
-  handler = |+hits, +rooms, req|
+  rooms = *Actor(Rooms(members: List[String]()))
+  l = net.listen(":8080")!
+  http.serve(<l, |+hits, +rooms, req|
     !hits.add(1)
     match req.path
       "/"     => http.text("Hello from Rig!")
-      "/hits" => http.json("hits", hits.get())
-      "/join" => http.json("size", (!rooms).join(req.arg("room"), req.arg("who")))
+      "/hits" => http.json(String("{\"hits\":", hits.get(), "}"))
+      "/join" => http.json(String("{\"size\":", (!rooms).join(req.arg("who") ?? String("someone")), "}"))
       _       => http.not_found()
-
-  http.serve(":8080", <handler)!
+  )!
 ```
 
 The handler captures handles of its own to the counter and the room list
-(`+hits`, `+rooms`). `http.serve` takes the handler, runs each request as
-a task with its own copy of it, and waits for all of them before it
-returns. A copy of a closure holds copies of its handles, so every
-request changes `hits` and `rooms` through handles it holds:
-`!hits.add(1)` and `(!rooms).join(...)` are marked changes to shared
-state, as `!c.set(5)` is on a `*Cell`.
+(`+hits`, `+rooms`). `http.serve` runs each connection as a task and
+calls the handler for each request, so every request changes `hits` and
+`rooms` through the handles the handler holds: `!hits.add(1)` and
+`(!rooms).join(...)` are marked changes to shared state, as `!c.set(5)`
+is on a `*Cell`. Every connection's task calls the one handler, so its
+captures must share, as `par.map`'s do.
 
 ## Tasks
 

@@ -221,7 +221,7 @@ pub const Control = struct {
     /// Record a cancel, and end the wait the task is in, when a cancel
     /// may end it. A task waiting on another passes
     /// the cancel on itself (`Task.wait`).
-    fn cancel(self: *Control) void {
+    pub fn cancel(self: *Control) void {
         self.canceled.store(true, .seq_cst);
         if (self.fiber) |f| rt.sched.interruptForCancel(f);
     }

@@ -132,7 +132,9 @@ from).
     own heap of timers; a fiber can wait for a file descriptor to be
     ready (`sched.waitReady`). `std.net` builds TCP listeners and
     streams on it, as fast as Tokio's and Go's on loopback (bench/net);
-    `std.http` and `http.serve` come next.
+    `std.http`'s `http.serve(<listener, |req| ...)` runs each
+    connection as a task and each request isolated, a panic answering
+    500 (`rig/net.zig`, `serve`).
     `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds

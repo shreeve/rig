@@ -79,6 +79,9 @@ pub inline fn tickCall() void {
 }
 // The scheduler, which runs tasks as fibers (`sched.zig`).
 pub const sched = @import("sched.zig");
+// Sockets and the HTTP server (`net.zig`).
+pub const net = @import("net.zig");
+pub const httpServe = net.serve;
 
 test {
     _ = sched;
