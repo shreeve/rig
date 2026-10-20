@@ -7255,3 +7255,51 @@ fail "receiver sigil bool used", "14:5: write `(!@).insert(k)`: a write call who
   ok = !set.checked(4) catch false
   !set.insert(5)
   print(fresh, n, ok)
+
+test "catch statement handler", '''
+  failed E.bad
+  failed again
+  done
+  7
+'''
+  # A `catch` that is a statement throws its value away, so its handler,
+  # a call or a block, gives none; a lone value is still the value the
+  # failure gives.
+  error E
+    bad
+
+  fun run(fail: Bool) -> Int!
+    return E.bad if fail
+    7
+
+  fun make(n: Int) -> List[Int]!
+    xs = List[Int]()
+    !xs.push(n)
+    xs
+
+  run(true) catch |e| print("failed", e)
+  run(true) catch |e|
+    print("failed again")
+  run(false) catch |e| print("never", e)
+  run(true) catch 0
+  _ = make(1) catch List[Int]()
+  print("done")
+  print(run(false) catch -1)
+
+fail "catch statement leftover value", "this `catch` is a statement, so its value goes nowhere, and its handler gives none: remove `0`", errors: 1
+  error E
+    bad
+
+  fun run() -> Int!
+    return E.bad
+
+  run() catch |e|
+    print(e)
+    0
+
+fail "catch statement owned", "this statement makes a `List[Int]`, which owns what it must release, and does not use it", errors: 1
+  # A value that owns what it must release is still dropped by name.
+  fun make() -> List[Int]!
+    List[Int]()
+
+  make() catch List[Int]()

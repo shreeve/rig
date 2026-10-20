@@ -5305,6 +5305,28 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
+        // A `catch` that is a statement throws its value away, so a
+        // handler that is a call or a block gives none: it is checked as
+        // a statement would be, and the `catch` gives nothing,
+        // `run() catch |e| print(e)`. A lone value, `run() catch 0`, is
+        // the value the failure gives, as anywhere. A value that owns
+        // what it must release is still dropped by name,
+        // `_ = make() catch ...`, whose handler gives that value.
+        const lone_value = isLoneValue(handler) or (handler.isKind(.block) and ir.Block.stmts(handler).len == 1 and isLoneValue(ir.Block.stmts(handler)[0]));
+        if (sameNode(e, self.discarded) and !lone_value and inner != self.t().void_id and !sema.typeHasDropGlue(self.ctx, inner) and !sema.maybeDropGlue(self.ctx, inner)) {
+            // A value written last, which nothing reads, is said so.
+            const stmts: []const Sexp = if (handler.isKind(.block)) ir.Block.stmts(handler) else &.{};
+            if (stmts.len > 1) {
+                const last = stmts[stmts.len - 1];
+                if (isLoneValue(last)) {
+                    try self.errAt(last, "this `catch` is a statement, so its value goes nowhere, and its handler gives none: remove `{s}`", .{self.sourceText(last)});
+                    _ = try self.synthExpr(handler);
+                    return self.t().void_id;
+                }
+            }
+            try self.checkExpr(handler, self.t().void_id);
+            return self.t().void_id;
+        }
         const view_result = try self.joinFallback(self.fallbackType(inner, expected), handler);
         const result = if (try self.fallbackCopy(e, value, ty, view_result, handler, expected)) |copied| result: {
             if (self.isPoison(copied)) {
@@ -14363,6 +14385,12 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
 /// `<v.m()`, Core §8), or bare, by what it hands over
 /// (`Checker.receiverShape`).
 const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, made, branches, place };
+
+/// A value written alone, which does nothing but give itself: a name, a
+/// literal, or a negated one (`run() catch -1`).
+fn isLoneValue(e: Sexp) bool {
+    return e == .src or (e.isKind(.neg) and ir.Neg.operand(e) == .src);
+}
 
 /// The sigil of a receiver sigil node, as written.
 fn sigilText(recv: Sexp) []const u8 {

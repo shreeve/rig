@@ -57,9 +57,7 @@ test "sets first error", release: true, '''
     xs.len
 
   start = time.now()
-  _ = run() catch |e|
-    print(e)
-    0
+  run() catch |e| print(e)
   print(start.elapsed() < 5 * time.SECOND)
 
 test "sets deadline", '''
@@ -81,9 +79,7 @@ test "sets deadline", '''
     xs = <ts.wait_all(within: 20 * time.MS)!
     xs.len
 
-  _ = run() catch |e|
-    print(e, e == task.Stop.timeout)
-    0
+  run() catch |e| print(e, e == task.Stop.timeout)
 
 test "sets wait first", '''
   slow stops
@@ -132,9 +128,7 @@ test "sets wait first all fail", "Fetch.late"
     !ts.add(late()&)
     <ts.wait_first()!
 
-  run() catch |e|
-    print(e)
-    0
+  run() catch |e| print(e)
 
 test "sets drop cancels", '''
   slow stops
@@ -155,7 +149,7 @@ test "sets drop cancels", '''
     xs = <ts.wait_all()!
     xs.len
 
-  _ = run(true) catch 0
+  run(true) catch 0
   print("done")
 
 test "sets void", '''

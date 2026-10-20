@@ -301,9 +301,8 @@ sub t{i}()
         break ${n}
       t += 1
   print(t)
-  _ = f{i}(1) catch |e|
+  f{i}(1) catch |e|
     print(e, e == E{i}.{n}, e == E{i}.zz)
-    0
   c = f{i}(1) catch |e|
     match e
       E{i}.{n} => 7

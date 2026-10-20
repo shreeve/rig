@@ -8313,6 +8313,12 @@ must say what happens to the failure, visibly:
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
+- A `catch` that is a statement throws its value away, so a handler that
+  is a call or a block gives none: `f() catch |e| print(e)` handles the
+  failure and goes on, whatever `f` gives. A lone value, `f() catch 0`,
+  is the value the failure gives, as anywhere. A value that owns what it
+  must release is dropped by name, `_ = make() catch ...`, and its
+  handler gives that value.
 
 An error is a value a caller handles. A state the program cannot go on
 from is a bug, for `panic` ([§17](#panic)), which no caller sees.
@@ -8393,6 +8399,44 @@ sub main()
 ```output
 8
 3
+```
+
+```rig
+error Parse
+  empty
+
+fun parse(s: ?String) -> Int!
+  return Parse.empty if s.len == 0
+  s.len
+
+sub main()
+  parse("") catch |e| print("failed", e)
+  parse("ok") catch |e|
+    print("never", e)
+  print("done")
+```
+
+```output
+failed Parse.empty
+done
+```
+
+```rig reject
+error Parse
+  empty
+
+fun parse(s: ?String) -> Int!
+  return Parse.empty if s.len == 0
+  s.len
+
+sub main()
+  parse("") catch |e|
+    print("failed", e)
+    -1
+```
+
+```error
+this `catch` is a statement, so its value goes nowhere, and its handler gives none: remove `-1`
 ```
 
 ```rig reject
