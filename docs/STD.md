@@ -412,7 +412,8 @@ in the call, whose captures must share, or a function's name.
 | `map(?xs, f, limit: n)` | a `List` of `f(x)` for each element, in the order of `xs`; `f` takes each as `?T` |
 | `each(!xs, f, limit: n)` | call `f` on each element, as `!T`, which it may write |
 
-`limit` is how many tasks run at once, by default one per worker. When
+`limit` is how many tasks run at once, by default one per worker; it
+comes after `f`, or before a closure written last. When
 `f` can fail, so can the call: the first failure cancels the rest, and
 the call fails with its error.
 
@@ -422,7 +423,7 @@ use std.par
 sub main()
   xs = List([1, 2, 3, 4])
   print(par.map(?xs, |x| x * x, limit: 2))
-  par.each(!xs, |x| x *= 10)
+  par.each(!xs, limit: 2, |x| x *= 10)
   print(xs.sum())
 ```
 
