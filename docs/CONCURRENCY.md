@@ -87,7 +87,7 @@ aim to match it in the rest.
   Tokio task is a state machine: each pause returns up through every
   future it is nested in, and each resume calls back down through them.
 - **A long computation never holds up the rest.** The compiler puts a
-  yield check in every outermost loop and recursive function of a
+  yield check in every loop and recursive function of a
   program that makes tasks, so a task waiting behind one waits for a
   slice of it, not all of it. Tokio never stops a running task, and Go
   stops one after 10 ms.

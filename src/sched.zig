@@ -75,9 +75,10 @@ const Worker = struct {
     after: ?After = null,
     ring: Ring = .{},
     /// The fiber to run next: the one this worker's fibers last made
-    /// ready, still in cache. Only this worker takes it, at most
-    /// `lifo_limit` times in a row.
-    lifo: ?*Fiber = null,
+    /// ready, still in cache. This worker takes it, at most `lifo_limit`
+    /// times in a row; a worker with nothing else to steal takes it once
+    /// it has waited there a while (`stealNext`), as Go's `runnext`.
+    lifo: std.atomic.Value(?*Fiber) = .init(null),
     lifo_streak: u8 = 0,
     free: ?*FreeStack = null,
     free_count: u32 = 0,
@@ -163,10 +164,9 @@ pub fn current() ?*Fiber {
 }
 
 /// Make `f` ready to run, next on this worker: in its "run next" slot,
-/// whose fiber before it moves to the ring, where other workers can
-/// take it. Waking a sleeping worker is left to when there is such a
-/// fiber to take, and none is looking (`notify`). Outside the workers,
-/// `f` goes to the global queue.
+/// whose fiber before it moves to the ring. Either can be stolen, so a
+/// worker asleep is woken for it when none is looking (`notifyNew`).
+/// Outside the workers, `f` goes to the global queue.
 pub fn wake(f: *Fiber) void {
     if (deterministic) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     const here = me();
@@ -175,13 +175,15 @@ pub fn wake(f: *Fiber) void {
         global.push(f);
         return notifyNew();
     };
-    const before = w.lifo;
-    w.lifo = f;
+    const before = w.lifo.swap(f, .seq_cst);
+    var stealable = f.home == null;
     if (before) |b| {
-        if (b.home != null) return w.pinned.push(b);
-        w.ring.push(b);
-        notifyNew();
+        if (b.home != null) w.pinned.push(b) else {
+            w.ring.push(b);
+            stealable = true;
+        }
     }
+    if (stealable) notifyNew();
 }
 
 /// Make `f` ready to run after the fibers already ready on this worker.
@@ -284,7 +286,7 @@ fn claimWaiting(w: *Worker) void {
 }
 
 fn hasOwnWork(w: *Worker) bool {
-    return w.lifo != null or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
+    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
 }
 
 /// How many times in a row a worker runs its "run next" fiber before it
@@ -494,7 +496,6 @@ fn advanceClock() void {
 /// How long, in real time, a deterministic run with descriptors
 /// registered waits for their events before its clock jumps to a timer.
 const settle_ns: i96 = std.time.ns_per_ms;
-
 /// Wake each fiber whose deadline the virtual clock has reached: the
 /// clock also moves while fibers compute (`computed`).
 fn fireDue() void {
@@ -1280,17 +1281,15 @@ fn next(w: *Worker) ?*Fiber {
         service(w);
         if (global.pop()) |f| return f;
     }
-    if (w.lifo) |f| {
+    if (w.lifo.load(.monotonic) != null) if (w.lifo.swap(null, .seq_cst)) |f| {
         if (w.lifo_streak < lifo_limit) {
-            w.lifo = null;
             w.lifo_streak += 1;
             return f;
         }
         // Run a fiber from the ring first, and leave this one to be
         // stolen meanwhile.
-        w.lifo = null;
         if (f.home != null) w.pinned.push(f) else w.ring.push(f);
-    }
+    };
     w.lifo_streak = 0;
     // Pinned fibers and the ring take turns first, so neither keeps the
     // other waiting.
@@ -1321,7 +1320,37 @@ fn search(w: *Worker) ?*Fiber {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| return f;
     }
-    return global.pop();
+    if (global.pop()) |f| return f;
+    // No ring had any: take a fiber another worker has kept in its "run
+    // next" slot a while.
+    for (0..workers.len) |k| {
+        const v = &workers[(start + k) % workers.len];
+        if (v == w) continue;
+        if (stealNext(v)) |f| return f;
+    }
+    return null;
+}
+
+/// How long a fiber waits in a busy worker's "run next" slot before a
+/// worker with nothing to do takes it: long enough that a fiber made and
+/// waited for at once runs on its maker's worker (`handoff`), as Go waits
+/// 3 µs before it takes a `runnext`.
+const steal_next_after: i96 = 3 * std.time.ns_per_us;
+
+/// Take the fiber in `v`'s "run next" slot, if it is still there after
+/// `steal_next_after`. A pinned one taken so goes back to its home's
+/// queue.
+fn stealNext(v: *Worker) ?*Fiber {
+    const f = v.lifo.load(.seq_cst) orelse return null;
+    // Wait without reading the slot, whose line its owner writes.
+    const until = nowNs() + steal_next_after;
+    while (nowNs() < until) std.atomic.spinLoopHint();
+    if (v.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
+    if (f.home) |home| {
+        wakeHome(f, home);
+        return null;
+    }
+    return f;
 }
 
 /// `notify` for work woken or made, not a fiber that yielded: when no
@@ -1944,7 +1973,7 @@ pub const Header = struct {
             // the "run next" slot may also be one woken partway, which
             // goes on where it stopped instead. A wait with a deadline
             // sleeps on its timer instead.
-            if (deadline == null and w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel);
+            if (deadline == null and w.lifo.load(.monotonic) == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel);
         }
         while (!h.isEnded()) {
             if (cancel) |c| if (c.load(.seq_cst)) return false;
@@ -2011,7 +2040,9 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     pausePoint();
     const e = beginWait(cancel != null);
     if (cancel) |c| if (c.load(.seq_cst)) return;
-    w.lifo = null;
+    // Taken by a worker with nothing else to do meanwhile: wait for it the
+    // usual way.
+    if (w.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return;
     h.waiter.store(waiter, .seq_cst);
     h.waiter_epoch.store(e, .seq_cst);
     h.status.store(Header.waited, .seq_cst);
@@ -2849,6 +2880,36 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.napped_in_time);
     try std.testing.expect(Run.read_in_time);
+}
+
+test "a fiber left in a busy worker's run-next slot is taken by an idle worker" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var ran = std.atomic.Value(bool).init(false);
+        var in_time = false;
+        const Unit = struct {};
+        fn mark(_: *Unit) u8 {
+            ran.store(true, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            // Let the other worker go to sleep.
+            testNap(20 * std.time.ns_per_ms);
+            const j = spawn(u8, Unit, mark, .{}, .{}, false).job;
+            // The fiber is in this worker's run-next slot, and this one
+            // computes without a yield check.
+            in_time = testSpinUntil(&ran, false);
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.in_time);
 }
 
 /// A connected pair of loopback TCP sockets that do not block.

@@ -33,6 +33,11 @@ starts; a program that makes none starts no workers.
 - **Queues.** Each worker owns a ring of 256 ready tasks, pushed with
   one store; other workers steal half with one compare-and-swap. A "run
   next" slot keeps a just-woken task in cache, at most 3 in a row. A
+  worker with nothing else to steal takes a task left in another's slot
+  3 µs (`sched.stealNext`), as Go takes a `runnext`: long enough that a
+  task made and waited for at once still runs by handoff on its maker's
+  worker, and a task made while its maker computes runs beside it.
+  Filling the slot wakes a sleeping worker when none is looking. A
   global queue takes overflow and work from outside the workers.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
@@ -115,13 +120,13 @@ until it ends. In a program that makes tasks, the compiler adds yield
 checks where a computation can run long without waiting. A check never
 fails, and yields only when other work waits.
 
-- **Loops.** Each outermost loop keeps a count of its turns, a local of
-  its own, and every 1,024 turns calls the scheduler (`rig.turn`,
-  `sched.tick`). The task yields when work waits for its worker (in its
-  "run next" slot, its ring, or the global queue) or for another busy
-  one (the flag below). A loop inside another
-  is not counted, so the inner loops that do the most work stay as
-  tight as they were.
+- **Loops.** Each outermost loop keeps a count of turns, a local of its
+  own, which it and every loop inside it count down, and every 1,024
+  turns of any of them calls the scheduler (`rig.turn`, `sched.tick`).
+  So an inner loop that runs long between its outer loop's turns still
+  yields. The task yields when work waits for its worker (in its "run
+  next" slot, its ring, or the global queue) or for another busy one
+  (the flag below).
 - **Recursion.** A function on a cycle of calls (`inlining.decide`)
   starts by reading one flag, `sched.waiting`, on a cache line of its
   own. Work woken or made while every worker is busy sets it. The first
@@ -142,8 +147,8 @@ worker takes about 1 ms, where it took 1.5 s. A recursive call's check
 reads only its flag, so a worker deep in recursion leaves its timers to
 the workers that sleep.
 
-The loop check costs a decrement and a branch per turn of an outermost
-loop: within noise on `bench/tasks`. The recursion check is a load and
+The loop check costs a decrement and a branch per turn of any loop:
+within noise on `bench/tasks`. The recursion check is a load and
 a branch per call: free in any function that does work, but a
 function as small as `fib` runs about 1.5x slower with it.
 
@@ -238,6 +243,11 @@ every time; the suite runs each concurrency case again under seeds 1 to
     deadline, then reads when each sleeper wakes, and a worker about to
     sleep notes that it may sleep for good, then reads the deadlines,
     all sequentially consistent, so one of the two sees the other.
+
+11. **Fork-join in parallel**: every loop's turns count toward a yield
+    check, and a task left in a busy worker's run-next slot is taken by
+    an idle worker, so `t = f()&; g(); >t` runs `f` and `g` at once
+    (`test/cli/sched_forkjoin.sh`).
 
 Each must not make `bench/tasks` slower on the benchmarks it touches;
 the step is done when `spawn`, `chain`, and `yield` are each within 1.2x
