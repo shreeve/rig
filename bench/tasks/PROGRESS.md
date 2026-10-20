@@ -31,6 +31,7 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-20 | #391: actor failure | rig-fast | 101 ns | 44 ns | 80.8 ms | 10 ns | 79.27 us | 17.0 KiB |
 | 2026-10-20 | #392: supervised actors | rig-fast | 104 ns | 44 ns | 80.8 ms | 8 ns | 105.28 us | 17.0 KiB |
 | 2026-10-20 | #393: pollers and timers per worker | rig-fast | 105 ns | 47 ns | 109.2 ms | 12 ns | 111.98 us | 17.0 KiB |
+| 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 97 ns | 43 ns | 81.0 ms | 10 ns | 73.83 us | 17.0 KiB |
 
 ## x86-64 (pup)
 
@@ -54,3 +55,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-20 | #391: actor failure | rig-fast | 298 ns | 78 ns | 99.4 ms | 8 ns | 69.97 us | 5.2 KiB |
 | 2026-10-20 | #392: supervised actors | rig-fast | 271 ns | 84 ns | 107.9 ms | 8 ns | 66.15 us | 5.2 KiB |
 | 2026-10-20 | #393: pollers and timers per worker | rig-fast | 273 ns | 78 ns | 91.2 ms | 5 ns | 68.24 us | 5.2 KiB |
+| 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 276 ns | 79 ns | 93.6 ms | 8 ns | 91.87 us | 5.2 KiB |

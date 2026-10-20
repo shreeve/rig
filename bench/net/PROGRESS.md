@@ -12,6 +12,7 @@ moves up into its table).
 | 2026-10-20 | reference | tokio | 14.10 us | 5.68 us | 57.43 us |
 | 2026-10-20 | reference | go | 16.01 us | 5.68 us | 58.58 us |
 | 2026-10-20 | #396: std.net | rig-fast | 14.79 us | 5.98 us | 57.29 us |
+| 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 14.55 us | 5.71 us | 52.38 us |
 
 ## x86-64 (pup)
 
@@ -23,3 +24,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-20 | reference | tokio | 5.07 us | 1.60 us | 30.29 us |
 | 2026-10-20 | reference | go | 5.90 us | 949 ns | 49.63 us |
 | 2026-10-20 | #396: std.net | rig-fast | 4.81 us | 1.10 us | 25.86 us |
+| 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 4.82 us | 1.01 us | 25.51 us |

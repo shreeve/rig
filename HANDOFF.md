@@ -135,8 +135,8 @@ from).
     `std.http`'s `http.serve(<listener, |req| ...)` runs each
     connection as a task and each request isolated, a panic answering
     500 (`rig/net.zig`, `serve`). bench/http times it against hyper
-    and Go: as fast as hyper on the Mac and about three times its
-    requests on pup, at 8.6 to 16.6 KiB per idle connection, below
+    and Go: as fast as hyper on the Mac and about three and a half
+    times its requests on pup, at 8.6 to 16.6 KiB per idle connection, below
     Tokio's and Go's: an idle connection holds no buffer (`net.Conn`).
   - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
     `task.select` commits exactly one of its arms (`tasks.Chan`,

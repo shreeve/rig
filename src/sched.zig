@@ -1046,6 +1046,16 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     ready.clearAndFree(std.heap.smp_allocator);
 }
 
+/// Test only: run `run` as `main`, on a stack of its own, with `n`
+/// workers.
+pub fn runForTest(run: *const fn (*anyopaque) callconv(.c) void, n: usize) void {
+    workers_override = n;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, run, s.top(), .{});
+}
+
 /// The most workers a program runs.
 const max_workers = 64;
 var all_workers: []Worker = &.{};
