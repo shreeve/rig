@@ -37,7 +37,12 @@ starts; a program that makes none starts no workers.
   3 µs (`sched.stealNext`), as Go takes a `runnext`: long enough that a
   task made and waited for at once still runs by handoff on its maker's
   worker, and a task made while its maker computes runs beside it.
-  Filling the slot wakes a sleeping worker when none is looking. A
+  Filling the slot wakes a sleeping worker when none is looking, until
+  a worker so woken finds the slot emptied by its owner first, as when
+  each task made is waited for at once: from then, until a worker takes
+  one, filling the slot sets `sched.waiting` instead, and the maker's
+  next yield check hands the task on (`sched.next_quiet`), so a chain of
+  tasks pays no system call to wake a worker that finds nothing. A
   global queue takes overflow and work from outside the workers.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and

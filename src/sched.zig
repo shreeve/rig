@@ -165,7 +165,10 @@ pub fn current() ?*Fiber {
 
 /// Make `f` ready to run, next on this worker: in its "run next" slot,
 /// whose fiber before it moves to the ring. Either can be stolen, so a
-/// worker asleep is woken for it when none is looking (`notifyNew`).
+/// worker asleep is woken for it when none is looking (`notifyNew`);
+/// but while thieves find the slot emptied by its owner first
+/// (`next_quiet`), filling it only sets `waiting`, so this worker's next
+/// yield check hands it on.
 /// Outside the workers, `f` goes to the global queue.
 pub fn wake(f: *Fiber) void {
     if (deterministic) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
@@ -176,15 +179,24 @@ pub fn wake(f: *Fiber) void {
         return notifyNew();
     };
     const before = w.lifo.swap(f, .seq_cst);
-    var stealable = f.home == null;
     if (before) |b| {
         if (b.home != null) w.pinned.push(b) else {
             w.ring.push(b);
-            stealable = true;
+            return notifyNew();
         }
     }
-    if (stealable) notifyNew();
+    if (f.home != null) return;
+    if (!next_quiet.load(.monotonic)) return notifyNew();
+    if (waiting.load(.monotonic) == 0) waiting.store(1, .monotonic);
 }
+
+/// Set when a worker woken to take a fiber from a "run next" slot found
+/// it taken by the slot's owner first, as when each task made is waited
+/// for at once; cleared when one is taken. While it is set, filling a
+/// slot wakes no worker: a wake that finds nothing costs the waker a
+/// system call, and the fiber's owner hands it on at its next yield check
+/// instead (`waiting`).
+var next_quiet: std.atomic.Value(bool) = .init(false);
 
 /// Make `f` ready to run after the fibers already ready on this worker.
 fn wakeLast(f: *Fiber) void {
@@ -279,6 +291,13 @@ fn claimWaiting(w: *Worker) void {
     for (workers) |*v| {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
+            w.ring.push(f);
+            return yield();
+        }
+    }
+    for (workers) |*v| {
+        if (v == w) continue;
+        if (takeNext(v)) |f| {
             w.ring.push(f);
             return yield();
         }
@@ -1156,6 +1175,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     sleepers = .{};
     searching.store(0, .seq_cst);
     waiting.store(0, .monotonic);
+    next_quiet.store(false, .monotonic);
     ready.clearAndFree(std.heap.smp_allocator);
 }
 
@@ -1345,7 +1365,26 @@ fn stealNext(v: *Worker) ?*Fiber {
     // Wait without reading the slot, whose line its owner writes.
     const until = nowNs() + steal_next_after;
     while (nowNs() < until) std.atomic.spinLoopHint();
+    if (v.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) {
+        if (!next_quiet.load(.monotonic)) next_quiet.store(true, .monotonic);
+        return null;
+    }
+    if (next_quiet.load(.monotonic)) next_quiet.store(false, .monotonic);
+    return unlessPinned(f);
+}
+
+/// Take the fiber in `v`'s "run next" slot at once: for a yield check
+/// told work waits (`claimWaiting`), which a slot filled while thieves
+/// find slots emptied first leaves it to (`next_quiet`).
+fn takeNext(v: *Worker) ?*Fiber {
+    const f = v.lifo.load(.seq_cst) orelse return null;
     if (v.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
+    return unlessPinned(f);
+}
+
+/// A fiber taken from another worker's slot: it, or, when it is pinned,
+/// none, as it goes back to its home's queue.
+fn unlessPinned(f: *Fiber) ?*Fiber {
     if (f.home) |home| {
         wakeHome(f, home);
         return null;
@@ -2967,4 +3006,39 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
+}
+
+test "a run-next fiber that wakes no worker is handed on at its maker's next recursive check" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var ran = std.atomic.Value(bool).init(false);
+        var in_time = false;
+        const Unit = struct {};
+        fn mark(_: *Unit) u8 {
+            ran.store(true, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            testNap(20 * std.time.ns_per_ms);
+            // As after a thief found a slot emptied by its owner first.
+            next_quiet.store(true, .monotonic);
+            const j = spawn(u8, Unit, mark, .{}, .{}, false).job;
+            // Computing in recursion: each call reads `waiting`, as
+            // `rt.tickCall` does.
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!ran.load(.seq_cst) and nowNs() < until) {
+                if (waiting.load(.monotonic) != 0) tickCall();
+            }
+            in_time = ran.load(.seq_cst);
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.in_time);
 }
