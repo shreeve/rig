@@ -250,6 +250,82 @@ pub fn close(fd: i64, reg: i64) void {
 }
 
 // -----------------------------------------------------------------------------
+// io.copy
+// -----------------------------------------------------------------------------
+
+/// `io.copy(!from, !to)`: read `from` to its end, writing each block to
+/// `to`, and give how many bytes. Each is a `*` of a `net.Stream`, whose
+/// waits are its poller's, or of a `file.File`, whose calls run on the
+/// blocking pool (`std/file.zig`); the checker allows nothing else
+/// (`Checker.ioCopy`).
+pub fn copy(from: anytype, to: anytype) anyerror!i64 {
+    const gpa = rig.defaultAllocator();
+    const buf = gpa.alloc(u8, copy_block) catch rig.oom();
+    defer gpa.free(buf);
+    var total: i64 = 0;
+    while (true) {
+        const n = try copyRead(from, buf);
+        if (n == 0) return total;
+        try copyWrite(to, buf[0..n]);
+        total += @intCast(n);
+    }
+}
+
+/// The size of `copy`'s blocks: 64 KiB.
+const copy_block = 64 << 10;
+
+fn copyRead(from: anytype, dest: []u8) anyerror!usize {
+    if (@hasField(@TypeOf(from.*), "reg")) return readSome(@intCast(@field(from, "fd")), @field(from, "reg"), dest);
+    try stopped();
+    return rig.blocking(fileRead, .{ @as(i32, @intCast(@field(from, "fd"))), dest });
+}
+
+fn copyWrite(to: anytype, bytes: []const u8) anyerror!void {
+    if (@hasField(@TypeOf(to.*), "reg")) return write_to(@field(to, "fd"), @field(to, "reg"), bytes);
+    try stopped();
+    return rig.blocking(fileWrite, .{ @as(i32, @intCast(@field(to, "fd"))), bytes });
+}
+
+/// A file's read and write, on the blocking pool, failing as
+/// `std.file`'s do.
+fn fileRead(fd: i32, dest: []u8) FileError!usize {
+    while (true) {
+        const rc = sys.read(fd, dest.ptr, dest.len);
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => {},
+            else => |e| return fileFailure(e),
+        }
+    }
+}
+
+fn fileWrite(fd: i32, bytes: []const u8) FileError!void {
+    var at: usize = 0;
+    while (at < bytes.len) {
+        const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
+        switch (posix.errno(rc)) {
+            .SUCCESS => at += @intCast(rc),
+            .INTR => {},
+            else => |e| return fileFailure(e),
+        }
+    }
+}
+
+const FileError = error{
+    @"std.file.FileError.is_directory",
+    @"std.file.FileError.denied",
+    @"std.file.FileError.failed",
+};
+
+fn fileFailure(e: posix.E) FileError {
+    return switch (e) {
+        .ISDIR => error.@"std.file.FileError.is_directory",
+        .ACCES, .PERM, .BADF => error.@"std.file.FileError.denied",
+        else => error.@"std.file.FileError.failed",
+    };
+}
+
+// -----------------------------------------------------------------------------
 // The HTTP server
 // -----------------------------------------------------------------------------
 
