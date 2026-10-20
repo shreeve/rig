@@ -7012,6 +7012,12 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         }
+        // `io.copy(!from, !to)`: the runtime's, for files and sockets.
+        if (self.facts.isIoCopy(sexp)) {
+            try self.w.writeAll("rig.net.copy(");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
+        }
         // `task.supervise(f, restarts: n, per: ns)`: isolated again and
         // again by the runtime, with each option or its default.
         if (self.facts.isSuperviseCall(sexp)) {

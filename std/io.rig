@@ -1,0 +1,11 @@
+# std.io: moving bytes between what reads and what writes. A `file.File`
+# (std.file) and a `net.Stream` (std.net) read with `read(!@, into, max)`
+# and write with `write(!@, bytes)`, and `io.copy` takes either at each
+# end.
+#
+# `io.copy(!from, !to) -> Int!` reads `from` to its end and writes all
+# of it to `to`, a block at a time: how many bytes it copied. It fails as
+# the reads and writes do, a `file.FileError`, a `net.NetError`, or a
+# `task.Stop`, with what was copied before written. The checker types
+# the call, as it does `http.serve`: each end must be a `file.File` or a
+# `net.Stream`, lent to write.

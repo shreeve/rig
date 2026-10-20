@@ -1,0 +1,46 @@
+# std.io: tests whose names start `io`.
+use std.io
+use std.net
+
+test "io copy between sockets", seeds: 20, "20000 true"
+  # A relay copies what one connection sends to another until the first
+  # closes, and the far end reads it all.
+  fun relay(l: net.Listener) -> Int!
+    dst = l.accept()!
+    src = l.accept()!
+    io.copy(!src, !dst)!
+
+  sub send(port: Int, data: ?String)!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(data)!
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = relay(<l)&
+  far = net.connect(String("127.0.0.1:", port))!
+  data = String()
+  for i in 0..2000
+    !data.add("line ", i % 10, "...\n")
+  send(port, ?data)!
+  got = String()
+  while (!far).read(!got, 65536)! > 0
+    pass
+  print(>t!, got == data)
+
+fail "io copy takes files and streams", "`io.copy` reads from and writes to a `file.File` or a `net.Stream`; `s` is a `String`"
+  fun run(c: !net.Stream) -> Int!
+    s = String("x")
+    io.copy(!s, !c)!
+
+fail "io copy lends both ends to write", "`io.copy` reads and writes through `c`: lend it to write, `!c`"
+  fun run(l: ?net.Listener, d: !net.Stream) -> Int!
+    c = l.accept()!
+    io.copy(c, !d)!
+
+fail "io copy through a write view still says so", "write `!c`: the call writes through `c`"
+  fun run(c: !net.Stream, d: !net.Stream) -> Int!
+    io.copy(c, !d)!
+
+fail "io copy takes two ends", "`io.copy` takes what to read and what to write"
+  fun run(c: !net.Stream) -> Int!
+    io.copy(!c)!
