@@ -7782,6 +7782,17 @@ const Checker = struct {
             const as_self: ?sema.MethodReceiver = if (i == 0 and callee.isKind(.member)) self_mode else null;
             if (!try self.crossCheck(node, part, part_ty, as_self)) return self.t().invalid_id;
         }
+        // A task that may run on another core hands its result back to
+        // the one that waits for it, so the result moves (as `par.map`'s
+        // values and an actor call's do); a local task's stays on this
+        // thread.
+        if (!self.ctx.isLocalTask(node)) {
+            const result = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
+            if (sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
+                try self.errAt(callee, "`{s}` may run on another core, so what it gives must move to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
+                return self.t().invalid_id;
+            }
+        }
         self.ctx.makes_tasks = true;
         return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
     }
