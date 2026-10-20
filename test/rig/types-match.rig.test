@@ -387,3 +387,203 @@ fail "match write bool", "6:7: `!` lends to write; use `not` for negation (a `Bo
     _ => print("f")
   w = !b
   print(w)
+
+test "match constant patterns", '''
+  1 2 0
+  big small
+  on off
+  warm cold
+  bell
+'''
+  # A module constant whose value Rig knows, an integer, a Bool, or an
+  # enum value, is a pattern: it compares by value and binds nothing. A
+  # constant's arithmetic is folded; an enum constant covers its
+  # variant, so the match on Color needs no `_`.
+  enum Color
+    red
+    green
+    blue
+
+  ESC: U8 = 0x1B
+  BEL: U8 = 7
+  LIMIT = BASE * 10
+  BASE = 10
+  ON = true
+  RED = Color.red
+  WARM: Color = .green
+
+  fun kind(c: U8) -> Int
+    match c
+      ESC => 1
+      0x20..0x7F => 2
+      _ => 0
+
+  fun size(n: Int) -> ?String
+    match n
+      LIMIT => "big"
+      _ => "small"
+
+  fun flag(b: Bool) -> ?String
+    match b
+      ON => "on"
+      false => "off"
+
+  fun temp(c: Color) -> ?String
+    match c
+      RED, WARM => "warm"
+      .blue => "cold"
+
+  fun ctl(c: U8) -> ?String
+    match c
+      ESC, BEL => "bell"
+      _ => "other"
+
+  sub main()
+    print(kind(0x1B), kind(0x41), kind(3))
+    print(size(100), size(99))
+    print(flag(true), flag(false))
+    print(temp(.green), temp(.blue))
+    print(ctl(7))
+
+test "match constant pattern with a guard", "10 1 0"
+  # A constant pattern takes a guard, as a literal does; a guarded arm
+  # covers nothing, so a later arm may name the same constant.
+  ESC: U8 = 0x1B
+
+  fun show(c: U8, n: Int) -> Int
+    match c
+      ESC if n > 0 => n * 10
+      ESC => 1
+      _ => 0
+
+  sub main()
+    print(show(0x1B, 1), show(0x1B, 0), show(2, 1))
+
+test "match qualified constant patterns", "esc red on"
+  # `m.NAME` names another module's constant as a pattern.
+  use lib
+
+  fun kind(c: U8) -> ?String
+    match c
+      lib.ESC => "esc"
+      _ => "other"
+
+  fun hue(c: lib.Color) -> ?String
+    match c
+      lib.RED => "red"
+      .green => "green"
+
+  fun flag(b: Bool) -> ?String
+    match b
+      lib.ON => "on"
+      _ => "off"
+
+  sub main()
+    print(kind(0x1B), hue(.red), flag(true))
+
+  file "lib.rig"
+    pub enum Color
+      red
+      green
+
+    pub ESC: U8 = 0x1B
+    pub RED = Color.red
+    pub ON = true
+
+fail "match constant pattern overlaps", "13:5: this pattern overlaps an earlier arm", "19:5: this pattern overlaps an earlier arm", "25:5: duplicate arm for variant `red`", errors: 3
+  # A constant pattern covers its value as the literal would: a literal,
+  # a range, or a variant it repeats is reported.
+  enum Color
+    red
+    green
+
+  ESC: U8 = 0x1B
+  RED = Color.red
+
+  fun a(c: U8) -> Int
+    match c
+      0x1B => 1
+      ESC => 2
+      _ => 0
+
+  fun b(c: U8) -> Int
+    match c
+      0x10..0x20 => 1
+      ESC => 2
+      _ => 0
+
+  fun d(c: Color) -> Int
+    match c
+      .red => 1
+      RED => 2
+      .green => 3
+
+  sub main()
+    print(a(1), b(1), d(.red))
+
+fail "match constant pattern rejected", "13:5: `HALF` is a constant of type `Float`; a pattern may name a constant that is an integer, a `Bool`, or an enum value", "14:5: `NAME` is a constant of type `Static`", "19:5: a constant a pattern names must be known when Rig checks the program; the value of `TIER` is chosen for each target", "24:5: type mismatch: expected `U8`, got `Int`", errors: 4
+  # A constant that is not an integer, a Bool, or an enum value, or whose
+  # value Rig does not know, is no pattern; nor is one of another type
+  # than the subject.
+  use std.target
+
+  HALF = 0.5
+  NAME = "esc"
+  TIER = 0 if target.arch == .x86_64 else 16
+  ESC = 0x1B
+
+  fun fa(n: Int) -> Int
+    match n
+      HALF => 1
+      NAME => 2
+      _ => 0
+
+  fun fb(n: Int) -> Int
+    match n
+      TIER => 1
+      _ => 0
+
+  fun fc(c: U8) -> Int
+    match c
+      ESC => 1
+      _ => 0
+
+  sub main()
+    print(fa(1), fb(16), fc(1))
+
+test "match constant pattern in each mode", '''
+  1
+  4
+  limit
+  moved point
+'''
+  # A constant pattern binds nothing in a match that writes, reads a
+  # payload enum, or takes the value, and a guarded arm may repeat it.
+  enum Shape
+    circle(r: Int)
+    point
+
+  POINT = Shape.point
+  ESC: U8 = 0x1B
+  LIMIT = 3
+
+  sub main()
+    c: U8 = 0x1B
+    match !c
+      ESC => c = 1
+      x => x = 2
+    print(c)
+    s: Shape = .circle(r: 4)
+    match s
+      POINT => print("point")
+      .circle(r) => print(r)
+    n = 3
+    match n
+      LIMIT if n > 5 => print("big")
+      LIMIT => print("limit")
+      other if other > 0 => print("pos", other)
+      _ => print("other")
+    t: Shape = .point
+    match <t
+      POINT => print("moved point")
+      .circle(_) => pass

@@ -3143,7 +3143,7 @@ pub const Emitter = struct {
             defer self.popScope() catch {};
 
             var prelude: Prelude = .{};
-            if (isCatchAll(self.source, pattern)) {
+            if (self.isCatchAll(pattern)) {
                 has_default = true;
                 try self.w.writeAll("else => ");
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
@@ -3363,6 +3363,12 @@ pub const Emitter = struct {
             const b = try self.rangeBounds(pattern);
             return self.w.print("{d}...{d}", .{ b[0], b[1] });
         }
+        // A constant's name compares with its value.
+        if (self.facts.patternConst(pattern)) |value| return switch (value) {
+            .int => |v| self.w.print("{d}", .{v}),
+            .boolean => |b| self.w.writeAll(if (b) "true" else "false"),
+            .variant => |name| self.w.print(".{f}", .{ident(name)}),
+        };
         try self.emitExpr(pattern);
     }
 
@@ -3373,9 +3379,9 @@ pub const Emitter = struct {
         return .{ lo, hi - 1 };
     }
 
-    /// `facts.syntax.isCatchAll`.
-    fn isCatchAll(source: []const u8, pattern: Sexp) bool {
-        return facts.syntax.isCatchAll(source, pattern);
+    /// `storage.isCatchAll`.
+    fn isCatchAll(self: *Emitter, pattern: Sexp) bool {
+        return self.facts.isCatchAll(pattern);
     }
 
     /// `x => ...` binding the whole value as `expr`, when the arm uses it
@@ -3431,7 +3437,7 @@ pub const Emitter = struct {
         for (arms, 0..) |arm, i| {
             const pattern = ir.Arm.pattern(arm);
             const guard = ir.Arm.guard(arm);
-            const catch_all = isCatchAll(self.source, pattern);
+            const catch_all = self.isCatchAll(pattern);
             try self.writeIndent(self.indent);
             if (!catch_all) {
                 try self.w.writeAll("if (");
@@ -3504,7 +3510,7 @@ pub const Emitter = struct {
     /// Before a guard: the bindings of `pattern` that `guard` names, read
     /// from `subj` (for `match <x`, views of the value still in `x`).
     fn guardBindings(self: *Emitter, pattern: Sexp, guard: Sexp, info: MatchInfo, subj: []const u8) Error!void {
-        if (isCatchAll(self.source, pattern)) {
+        if (self.isCatchAll(pattern)) {
             const sym = self.facts.symbolOf(pattern) orelse return;
             if (!self.usesSymbol(guard, sym)) return;
             const aliases = try self.wholeBinding(pattern, subj, info, .nil);
@@ -3543,7 +3549,7 @@ pub const Emitter = struct {
             }
             const head = try self.fmt("const {s} = {s};", .{ whole, buf.written() });
             var prelude: Prelude = undefined;
-            if (isCatchAll(self.source, pattern)) {
+            if (self.isCatchAll(pattern)) {
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
                 prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, body);
             } else if (pattern.isKind(.variant_pattern)) {
@@ -3554,7 +3560,7 @@ pub const Emitter = struct {
             prelude.head = head;
             return prelude;
         }
-        if (isCatchAll(self.source, pattern)) {
+        if (self.isCatchAll(pattern)) {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
             return .{ .aliases = try self.wholeBinding(pattern, subj, info, body) };
         }

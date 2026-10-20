@@ -668,6 +668,17 @@ const SymbolResolver = struct {
         }
     }
 
+    /// A bare pattern name that names a module constant is that constant
+    /// (`sema.patternConst`): it compares with its value and binds
+    /// nothing. Module constants are declared before any body is walked.
+    fn constPattern(self: *SymbolResolver, pattern: Sexp) Error!bool {
+        if (!patternBinds(self.ctx.source, pattern)) return false;
+        const id = self.ctx.lookupInScopeOnly(self.module_scope, identAt(self.ctx.source, pattern).?) orelse return false;
+        if (!sema.isModuleConst(self.ctx, id)) return false;
+        try self.ctx.recordName(pattern, id);
+        return true;
+    }
+
     fn walkArm(self: *SymbolResolver, node: Sexp) Error!void {
         const prev = try self.enter(node, .block);
         defer self.scope = prev;
@@ -678,6 +689,7 @@ const SymbolResolver = struct {
             var seen: std.StringHashMapUnmanaged(void) = .empty;
             defer seen.deinit(self.ctx.allocator);
             for (ir.AltPattern.alts(pattern)) |alt| {
+                if (try self.constPattern(alt)) continue;
                 const binds: []const Sexp = if (alt.isKind(.variant_pattern)) ir.VariantPattern.bindings(alt) else if (patternBinds(self.ctx.source, alt)) (&alt)[0..1] else &.{};
                 for (binds) |bound| {
                     const b = sema.bindingName(bound);
@@ -688,7 +700,7 @@ const SymbolResolver = struct {
             }
         }
         switch (pattern) {
-            .src => if (patternBinds(self.ctx.source, pattern)) {
+            .src => if (patternBinds(self.ctx.source, pattern) and !try self.constPattern(pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {

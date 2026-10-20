@@ -3342,7 +3342,7 @@ const Checker = struct {
             if (viewed) |v| {
                 if (pattern.isKind(.variant_pattern)) {
                     for (self.ctx.payloadBindings(pattern) orelse &.{}) |b| if (self.ctx.symbolOf(b)) |sym| try self.copied_from.put(self.ctx.allocator, sym, v);
-                } else if (pattern == .src) if (self.ctx.symbolOf(pattern)) |sym| {
+                } else if (storage.isCatchAll(self.ctx, pattern)) if (self.ctx.symbolOf(pattern)) |sym| {
                     var whole = v;
                     whole.whole = true;
                     try self.copied_from.put(self.ctx.allocator, sym, whole);
@@ -3692,7 +3692,7 @@ const Checker = struct {
             const pattern = ir.Arm.pattern(arm);
             const alts: []const Sexp = if (pattern.isKind(.alt_pattern)) ir.AltPattern.alts(pattern) else (&pattern)[0..1];
             for (alts) |alt| {
-                if (alt == .src and self.viewsMatched(alt)) return true;
+                if (storage.isCatchAll(self.ctx, alt) and self.viewsMatched(alt)) return true;
                 if (alt.isKind(.variant_pattern)) for (self.ctx.payloadBindings(alt) orelse &.{}) |b| if (b == .src and self.viewsMatched(b)) return true;
             }
         }
@@ -3718,7 +3718,7 @@ const Checker = struct {
     fn checkAlternatives(self: *Checker, alts: []const Sexp) Error!void {
         var named = false;
         for (alts) |alt| {
-            if (alt == .src and !isLiteralText(self.text(alt))) {
+            if (storage.isCatchAll(self.ctx, alt)) {
                 try self.errAt(alt, "`{s}` matches every value, so the other alternatives never matter; give it an arm of its own", .{self.text(alt)});
                 self.poisonBinding(alt);
                 continue;
@@ -3836,6 +3836,7 @@ const Checker = struct {
                     } else if (self.constInt(pattern)) |v| try self.coverInts(cov, v, v, pattern.src.pos);
                     return;
                 }
+                if (sema.patternConst(self.ctx, pattern)) |c| return self.checkConstPattern(pattern, try self.synthExpr(pattern), scrutinee, cov, c);
                 cov.has_default = true;
                 if (resolve.patternBinds(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
@@ -13841,6 +13842,7 @@ const Checker = struct {
             cov.rejected = true;
             return;
         }
+        if (!self.ctx.isErrorMember(pattern)) if (sema.patternConst(self.ctx, pattern)) |c| return self.checkConstPattern(pattern, ty, scrutinee, cov, c);
         if (!self.ctx.isErrorMember(pattern)) {
             const module = if (obj == .src) if (self.ctx.symbolOf(obj)) |id| self.ctx.symbols.items[id].kind == .module else false else false;
             const value = module or self.ctx.typeOf(obj) != null;
@@ -13860,6 +13862,56 @@ const Checker = struct {
             return self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
         }
         try self.recordCovered(try self.errorArmKey(subject, ty, name), self.startOf(pattern), cov);
+    }
+
+    /// A module constant's name as a pattern (`ESC`, `lib.ESC`), of type
+    /// `ty`: an integer, a Bool, or a variant named alone, whose value Rig
+    /// knows, of the subject's type. It compares with that value and
+    /// covers it as the literal would. A constant of an error set is
+    /// compared in a guard.
+    fn checkConstPattern(self: *Checker, pattern: Sexp, ty: TypeId, scrutinee: TypeId, cov: *MatchCoverage, c: sema.PatternConst) Error!void {
+        const subject = sema.unwrapViews(self.ctx, scrutinee);
+        if (self.isPoison(ty) or self.isPoison(subject)) {
+            cov.rejected = true;
+            return;
+        }
+        const shown = try self.plainText(pattern);
+        const pos = self.startOf(pattern);
+        const value = try self.constPatternValue(pattern, ty, subject, shown, c) orelse {
+            cov.rejected = true;
+            return;
+        };
+        switch (value) {
+            .int => |v| try self.coverInts(cov, v, v, pos),
+            .boolean => |b| {
+                const i: usize = @intFromBool(b);
+                if (cov.hasBool(i)) try self.errAt(pattern, "this pattern overlaps an earlier arm", .{});
+                cov.bools[i] = true;
+            },
+            .variant => |name| try self.recordCovered(name, pos, cov),
+        }
+    }
+
+    /// The value of constant pattern `pattern`, or null once its
+    /// rejection is reported.
+    fn constPatternValue(self: *Checker, pattern: Sexp, ty: TypeId, subject: TypeId, shown: []const u8, c: sema.PatternConst) Error!?sema.ConstScalar {
+        if (sema.isErrorSet(self.ctx, ty)) {
+            try self.errAt(pattern, "`{s}` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == {s} =>`", .{ shown, shown });
+            return null;
+        }
+        const scalar = ty == self.t().bool_id or self.ctx.types.get(ty) == .int or sema.enumVariantCount(self.ctx, ty) != null;
+        if (!scalar) {
+            try self.errAt(pattern, "`{s}` is a constant of type `{s}`; a pattern may name a constant that is an integer, a `Bool`, or an enum value", .{ shown, try self.tyName(ty) });
+            return null;
+        }
+        if (ty != subject) {
+            try self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
+            return null;
+        }
+        if (try self.perTarget(pattern, "a constant a pattern names")) return null;
+        if (sema.constScalar(c)) |v| return v;
+        try self.errAt(pattern, "the value of `{s}` is not known when Rig checks the program, so a pattern cannot name it; compare with it in a guard: `x if x == {s} =>`", .{ shown, shown });
+        return null;
     }
 
     fn checkEnumLit(self: *Checker, name_node: Sexp, expected: TypeId) Error!void {
