@@ -33,7 +33,7 @@ A case that fails lands in `.swarm/died`, with its reason in
 | `test/cli/<name>.sh` | a script that drives the `rig` command line (below) |
 | `test/torture/<name>.rig` | bad input `rig run` must reject with a `file:line:col` diagnostic, never crashing |
 | `test/rig/probes-*.rig.test` | the probes of past reviews, as cases (below) |
-| `test/oracle/` | the reference ownership checker and its lists (below) |
+| `test/oracle/` | the reference ownership checker and its lists (docs/internals/tests.md) |
 | `test/lanes/` | the SIMD lane grids `test/cli/lane_grid.sh` generates and checks |
 | `test/matrix.py`, `test/hints.py` | the matrix and the lend hints' check (below) |
 
@@ -50,39 +50,10 @@ prints. `test/rig.rip` runs each as a `test` case. The cases of
 
 ## Doc examples
 
-Every ```` ```rig ```` block in the Markdown files (`*.md`, `docs/`,
-`docs/learn/`, `docs/launch/`, `docs/design/`, `docs/internals/`, `examples/`, `test/`) is a test, so the docs cannot drift from the
-compiler. The word after `rig` on the opening fence sets the contract:
-
-| Fence | Contract |
-|---|---|
-| ```` ```rig ```` | a program `rig check` accepts |
-| ```` ```rig ```` followed by ```` ```output ```` | run like a behavior test: stdout equals the output block, no leaks |
-| ```` ```rig ```` followed by ```` ```stderr ```` (after the ```` ```output ```` block, if one) | as above, and stderr equals the stderr block; ```` ```stderr exit=N ```` also requires exit status `N` |
-| ```` ```rig reject ```` followed by ```` ```error ```` | `rig check` rejects it; each line of the error block appears in a diagnostic |
-| ```` ```rig fragment ```` | only parsed; for snippets that are not whole programs |
-| ```` ```rig facts ```` followed by ```` ```facts ```` | `rig check --facts` accepts it and prints exactly the facts block |
-| ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name`; a path, ```` ```rig file=dir/name.rig ````, writes a file of the directory module `dir` |
-| ```` ```rig pending ```` | a rule that is decided but not built yet (see below) |
-
-Blank lines may separate a block from its `output`, `stderr`, or `error` block.
-
-A ```` ```rig pending ```` block shows the behavior a decided rule will
-have: followed by an `output` block it is a program that runs and prints
-it, followed by an `error` block a program the check rejects with those
-messages, and alone a program the check accepts. It passes, and counts
-as `pending`, while that check fails for a reason that means the rule is
-missing: the program is rejected, accepted where it should be rejected,
-rejected with other messages, or prints something else. A timeout, a
-compiler crash, or an accepted program that fails to compile, leaks, or
-uses freed memory still fails it, as it would any example. Once the
-rule is built and the example passes, the suite fails, and
-the change that built the rule marks the block ```` ```rig ```` (or
-```` ```rig reject ````). So the docs state planned rules only as
-tests, and no example claims behavior the compiler does not have. A
-failure names the doc and the line of the opening fence (`SPEC.md:160`).
-Each doc is an area, `doc-<name>` (`doc-SPEC`, `doc-CORE` for
-docs/CORE.md), and `doc` names them all.
+Every ```` ```rig ```` block in the Markdown files is a test, so the docs
+cannot drift from the compiler. The contract each fence sets, and the
+area each doc is (`doc-SPEC`), are in
+[docs/internals/tests.md](../docs/internals/tests.md#doc-examples).
 
 ## Leak checking and the sanitizer
 
@@ -124,7 +95,7 @@ is handed out twice, so reading or writing freed memory, or past the end
 of a block, crashes at once with
 `error: rig: use of freed memory at address 0x...` and a stack trace.
 With `RIG_SANITIZE=1`, emit also fills each storage location it adds
-(a call's evaluated arguments and receiver, a statement's or header's
+(a call's evaluated arguments and the value it is called on, a statement's or header's
 temporaries, a held or matched subject) with `0xAA` bytes when its scope
 ends, so a view that outlives that storage reads garbage instead of a
 stale value. A behavior test therefore fails on any leak, double free,
@@ -211,7 +182,7 @@ case where the compiler rejects the probe, and a `test` or `bomb` case,
 with what it prints, where it runs. Each is a probe that gives the
 reference ownership checker a function whose lowered core no other test
 or probe has; they give it most of the functions it decides
-(`oracle.tests`, below). The core skips their own checks, which double
+(`oracle.tests`, docs/internals/tests.md). The core skips their own checks, which double
 its time, but its oracle job reads every probe; `swarm test/rig.rip
 probes` (or `all`) checks what each prints or is rejected with. A new
 review adds its probes as cases, to a probes file or to the test file
@@ -225,7 +196,7 @@ place, a ternary, `o?`, `??`, `catch`, `if … as`, `match`, a call, a
 constructor, `<x`, `+x`) stands in one context (a `print` argument, a
 `?T` argument, `==`, a binding, a field store, a List push, `return`, an
 element assignment, a `match` subject, a `for` source, a consuming
-receiver, a test against `none` or a bare `.variant`) for each of
+method's value, a test against `none` or a bare `.variant`) for each of
 several types (Int, `?String`, `String`, `List`, `*T`, `^T`, an object with a `drop`,
 a payload enum, and in a few cells an object holding a Cell, which must
 be rejected), and holds each to one rule: `rig check` rejects it with a
@@ -321,67 +292,13 @@ the reference checker over its programs (`oracle.matrix`).
 
 ## The reference ownership checker
 
-`test/oracle/` is a second ownership checker, written from
-[docs/CORE.md](../docs/CORE.md) and SPEC's ownership sections without
-reading `src/ownership.zig`, and built as `bin/rig-oracle` (`zig build
-oracle`; `src/lib.zig` is its view of the compiler, which `bin/rig`
-never imports). It lowers each function to a small core with its
-statement temporaries and evaluation order written out, then checks
-moves, loans, and drops with a dataflow over the function's control
-flow. Each function gets its verdict, accept or reject, or none when
-the function uses a form the oracle does not model yet. The suite's
-core runs it over three sets, and checks it with a lint:
-
-| Id | Programs |
-|---|---|
-| `oracle.lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
-| `oracle.tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
-| `oracle.docs` | every doc example but fragments |
-| `oracle.matrix` | the matrix programs (`test/matrix.py --oracle`) |
-
-A set fails when the compiler accepts a function the oracle rejects:
-that may be a soundness hole, and it can never be allowlisted. It also
-fails when the oracle's own rejections change: every function the
-oracle rejects is listed in `test/oracle/rejections` (`program
-function`), and a set fails on one not listed (`UNLISTED`: add it) and
-on a listed one the oracle decides and no longer rejects (`LOST`: the
-reference checker was weakened, whatever the compiler decides). A doc
-example is listed by its doc and a hash of its text
-(`doc/SPEC/0f3c9a1b2d4e`), so an edit that only moves it keeps its
-entry; one that changes its text renames it. So a change to the oracle that loses a rejection shows, though a
-stricter compiler alone would only be reported
-(`test/cli/oracle_rejections.sh` checks that both fire). When the
-compiler rejects a function the oracle accepts, the run reports it
-(`stricter`), and `test/oracle/differences` records it once classified
-(a compiler rejection the Core allows, an oracle gap, or a question the
-Core leaves open). A set also fails when a listed difference is gone
-(`FIXED`), or when the oracle decides fewer functions than the set's
-floor in `test/oracle/coverage`.
-
-A test may state the oracle's own verdict on one of its functions, in
-a comment line the oracle checks on every run, whatever the compiler
-decides (also where the compiler's semantic checks stop first):
-
-```
-# oracle: main reject C2
-```
-
-The word after the function is `accept`, or `reject` with the rule
-the oracle names (C1–C9, B1–B4). A different verdict, or none, fails
-the set. These lines are
-the oracle's own tests: each of the oracle's header rules (a subject
-that is a place, a made value, a part of one, a lend of one, or a
-branching value) has tests that state its verdict, so the change that
-builds a planned rule can rely on the oracle to catch what it gets
-wrong. By hand:
-
-```bash
-bin/rig-oracle -v file.rig            # every function's two verdicts
-bin/rig-oracle --explain main file.rig  # the lowered core of `main`
-bin/rig-oracle --stats --list .zig-cache/rig-tests/oracle/tests.list  # why it abstains, by count
-bin/rig-oracle --sema -v file.rig     # also functions the compiler's
-                                      # semantic checks rejected
-```
+`test/oracle/` is a second ownership checker, built as `bin/rig-oracle`
+(`zig build oracle`) and run by the suite beside `src/ownership.zig`.
+Its sets, the `test/oracle/rejections` list, the `# oracle:` lines a
+test may carry, and how to run it by hand are in
+[docs/internals/tests.md](../docs/internals/tests.md#the-reference-ownership-checker);
+how it works is in
+[INTERNALS](../docs/internals/INTERNALS.md#the-reference-ownership-checker).
 
 ## Proving a refactor changed nothing
 

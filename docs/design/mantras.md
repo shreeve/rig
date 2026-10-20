@@ -30,7 +30,7 @@ the pieces (ownership, vectors, closures); frameworks are built from
 them, not built in.
 
 **Shorter and plainer than idiomatic Rust.** That is the bar a new form
-must clear ([docs/history/ideas.md](../history/ideas.md)).
+must clear.
 
 ## How we build
 
@@ -87,7 +87,7 @@ keep Zig's names: `$intCast`.) A label, `$outer: for`, `break $outer`,
 names a statement and asks nothing.
 
 **Name from the owner's side.** The owner lends; the compiler records a
-loan; the receiver holds a view. The rules are the ownership model, and
+loan; the holder keeps a view. The rules are the ownership model, and
 the pass that enforces them is the ownership checker. Rust's single word
 for all of these is never ours: in docs, code, commits, and proposals,
 say "the ownership checker treats a loan of one field as a loan of the

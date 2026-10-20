@@ -1,7 +1,7 @@
 #!/bin/sh
 # optest.sh VARIANT [compare.py args]: the JSON tests
 # (bench/json/check/compare.py, every input, sanitizer on) against std/json.rig with a build.py variant's
-# patches applied to its emitted Zig. Run it under cpuq.
+# patches applied to its emitted Zig.
 H=$(cd "$(dirname "$0")" && pwd)
 R=$(cd "$H/../../.." && pwd)
 V=$1; shift

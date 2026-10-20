@@ -170,7 +170,7 @@ pub obj Map[K, V]
     else
       j = (!@).add_new(<k, <v, h)
     # The entry at `j` holds a value, so the loop returns at once; it
-    # stands where an unwrap that traps would (TODO.md).
+    # stands where an unwrap that traps would (docs/internals/backlog.md).
     while true
       if !@es[j].value as w
         return w

@@ -955,14 +955,14 @@ pub const Checker = struct {
         } else if (loan.held_read != .none) {
             const uses = switch (loan.held_read) {
                 .none, .argument => "the call uses it after its later arguments run",
-                .receiver => "the call uses it as the receiver after its arguments run",
+                .receiver => "the call uses it as `self` after its arguments run",
                 .callee => "the call runs it after its arguments run",
                 .operand => "the operator uses it after its right operand runs",
                 .base => "it is indexed after its index runs",
             };
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ lent, uses });
         } else if (loan.reserved) {
-            try self.note(loan.pos, "`{s}` lent to write here, as the receiver, which is read until the call starts", .{lent});
+            try self.note(loan.pos, "`{s}` lent to write here, as `self`, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
             try self.note(loan.pos, "`{s}` lent to write here, and kept lent to read by a view that only reads it", .{lent});
         } else if (self.kept_lends.get(loan.pos)) |k| {
@@ -1013,7 +1013,7 @@ pub const Checker = struct {
     fn heldReadClause(self: *Checker, reader: Reader, of: []const u8) Error![]const u8 {
         const who = switch (reader) {
             .none, .argument => "an earlier argument's",
-            .receiver => "the receiver's",
+            .receiver => "`self`'s",
             .callee => "the callee's",
             .operand => "the left operand's",
             .base => "the indexed value's",

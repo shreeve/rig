@@ -6793,7 +6793,7 @@ pub const Emitter = struct {
     fn emitElems(self: *Emitter, recv: Sexp) Error!void {
         const writes = recv.isKind(.write);
         const place = if (recv.isKind(.write) or recv.isKind(.read)) ir.get(recv, .operand) else recv;
-        const ty = self.peelViews(self.typeOf(place) orelse return self.unsupported(recv, "an untyped receiver"));
+        const ty = self.peelViews(self.typeOf(place) orelse return self.unsupported(recv, "an untyped `self`"));
         if (self.isListTy(ty)) {
             try self.emitExpr(place);
             return self.w.writeAll(".items()");

@@ -59,7 +59,7 @@ It is safe Rig, with no `raw`: every read is bounds-checked in
 - non-ASCII text checked a run at a time, not one character per scan.
 
 It runs at 1.9-7.0 GB/s on the six standard files, 3.1-11x Zig's
-std.json building the same tape (RESULTS.md, "std.json on Rig main").
+std.json building the same tape ([docs/history/json-results.md](../history/json-results.md), "std.json on Rig main").
 
 ## SWAR as a first-class option
 
@@ -78,7 +78,7 @@ in twitter, gsoc-2018 and github_events are in strings over 32 bytes),
 and simdjson's stage 1 on big files, which classifies 64 bytes per
 step.
 
-**Measured** (RESULTS.md): the U64 string scan is up to 2x the
+**Measured** ([docs/history/json-results.md](../history/json-results.md)): the U64 string scan is up to 2x the
 byte-at-a-time one (gsoc-2018). U128 is slower today, since `read[U128]`
 loads its 16 bytes one at a time on every target; two U64 reads fix that,
 but a 128-bit step is still two 64-bit steps on a 64-bit machine.
@@ -88,7 +88,7 @@ from the mask (a count of trailing zeros, now `m.trailing_zeros() >> 3`)
 gained up to 14%. Spaces 8 at a time gained 25% on citm_catalog. Digits
 8 at a time first gained nothing, with a byte loop for a run's last 1
 to 7 digits; read as sonic-rs reads them, the last ones from the same
-word, they gain about 10% on canada (RESULTS.md, "Parser changes").
+word, they gain about 10% on canada ([docs/history/json-results.md](../history/json-results.md), "Parser changes").
 
 ## Tiered string scanning
 
@@ -113,7 +113,7 @@ end of the input, or when a block shows an error, it checks a sequence
 at a time from the text's first non-ASCII byte, which gives the
 error's offset. Keys rarely reach the second tier; most value bytes do.
 
-Measured (RESULTS.md): the second tier gains 12% on gsoc-2018, whose
+Measured ([docs/history/json-results.md](../history/json-results.md)): the second tier gains 12% on gsoc-2018, whose
 strings are long, and costs 3-4% on twitter and twitterescaped, whose
 values are short. Switching after 8 bytes is no better, and a 32-lane
 second tier loses 7-9% on twitter.
@@ -151,7 +151,7 @@ a DOM, not for this reused tape.
 
 What the parser would still gain from Rig, each a general, safe
 capability that needs no `raw` and no unchecked indexing. Gains are
-measured where a number is given (RESULTS.md) and estimated from the
+measured where a number is given ([docs/history/json-results.md](../history/json-results.md)) and estimated from the
 references' published designs where marked. In order of expected gain:
 
 1. **SIMD beyond the string scan** (est. up to 2x overall). Rig has
@@ -171,7 +171,7 @@ references' published designs where marked. In order of expected gain:
    scan's 16-byte reads are proven, with no check (#138, #149). The
    checks left cost 4-9% of instructions together and no net time on the
    Mac: removing them made canada 6% faster and four files 3-9% slower
-   (RESULTS.md, "Checks and IPC after proofs2"). Still checked: `m <<
+   ([docs/history/json-results.md](../history/json-results.md), "Checks and IPC after proofs2"). Still checked: `m <<
    m.leading_zeros()`, a read after an early-return guard, and `i >= 0`
    for a position a call returned (docs/history/rig-notes.md, entries 10 and
    20).
@@ -187,13 +187,16 @@ references' published designs where marked. In order of expected gain:
    the tests write each input as one literal, but a program is at most
    16 MiB of source, so the tests spread their inputs over several
    programs.
-6. **Multiple results** (clarity). A function returns one value, so
+6. **Multiple results** (clarity). A function may now give several
+   results (SPEC, "Several results"), but the parser predates it:
    `take_digits` hands back the digits' value through an out-parameter,
    which stays in a register only when the call is inlined. The byte
    loop is split off into `take_last_digits` so that `take_digits` is
-   small enough to inline.
-7. **An enum variant's name as text** (clarity). `error_name` spells
-   out each `Error` variant's name in a `match`.
+   small enough to inline. Adopting results would drop the
+   out-parameter.
+7. **An enum variant's name as text** (clarity). `e.text` gives it
+   (SPEC, "Enums"), but `error_name` still spells out each `Error`
+   variant's name in a `match`.
 8. **Character literals** (clarity). `'"'`, `'\\'`, `'{'` as `U8` values:
    the parser names 19 byte constants and writes `match` arms as hex
    literals with no name.

@@ -7,7 +7,7 @@ runs on a busy machine; they come from `/usr/bin/time -l`, so it runs on
 macOS only. After a change that is meant to move them (a new Zig, a
 faster parser), `--update` writes the new baseline, which is committed.
 
-usage: cpuq run --cores 2 --label rig:json -- bench/json/guard.py [--update]
+usage: bench/json/guard.py [--update]
 """
 import os, re, subprocess, sys, tempfile
 

@@ -121,7 +121,7 @@ fail "imported alias private", "6:11: `lib.Hidden` is not public", "7:11: `lib.H
 
     type PH = P
 
-fail "imported bare method", "method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `lib.P.get`", "17:9: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `Q.get`", "no field `nope` on type `P`", "no field `nope` on type `Q`", "20:11: method `get` must be called; wrap it in a closure to pass it as a value"
+fail "imported bare method", "method `get` must be called; to pass it as a function that takes `self` first, name it through its type: `lib.P.get`", "17:9: method `get` must be called; to pass it as a function that takes `self` first, name it through its type: `Q.get`", "no field `nope` on type `P`", "no field `nope` on type `Q`", "20:11: method `get` must be called; wrap it in a closure to pass it as a value"
   # A method named through a value (`p.get`) must be called, whether its
   # type is local or imported; `lib.P.get` is the function value. A generic
   # type's method has none, and is wrapped in a closure instead.

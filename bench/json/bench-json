@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Measure std/json.rig against Zig's std.json on the benchmark corpus.
 
-usage: cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json [options]
+usage: bench/json/bench-json [options]
    or, to time on a quiet machine:
-       cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json --out D --build-only
-       cpuq run --exclusive --cores 1 --label rig:json -- bench/json/bench-json --out D --time-only
+       bench/json/bench-json --out D --build-only
+       bench/json/bench-json --out D --time-only
 
   --files a,b       corpus files (default: twitter,twitterescaped,canada,citm_catalog,
                     gsoc-2018,github_events from bench/json/check/data/simd-json, which tools/fetch-json-data.sh fetches)
@@ -31,7 +31,7 @@ usage: cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json [options]
                     the fastest counts (default 5)
   --out DIR         keep the builds in DIR and reuse them; with
   --build-only      build and stop, and later
-  --time-only       time what DIR holds (for `cpuq run --exclusive`)
+  --time-only       time what DIR holds (on a quiet machine)
 
 Each program embeds the file (as string literals for Rig, @embedFile for
 Zig), parses it N times in a loop, and prints the nanoseconds the loop

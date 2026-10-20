@@ -1,6 +1,6 @@
 # One case per line: NAME<TAB>INPUT<TAB>EXPECT. INPUT uses Python bytes
 # escapes (\xNN, \t, \n, \\). EXPECT is `ok` (the value comes from Python's
-# json module; see tests/json/README.md) or `error KIND OFFSET`, OFFSET a
+# json module; see bench/json/check/README.md) or `error KIND OFFSET`, OFFSET a
 # 0-based byte offset. Several come from serde_json's tests/test.rs.
 lit-null	null	ok
 lit-true	 true 	ok

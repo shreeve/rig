@@ -72,4 +72,4 @@ interning hashes every identifier.
 
 Each stays a portable Rig operation, with a scalar fallback on targets
 that lack the instruction. The measurements behind these choices are in
-[README.md](../design/simd.md) and [ZIG-LOWERING.md](../internals/simd-lowering.md).
+[design/simd.md](../design/simd.md) and [simd-lowering.md](../internals/simd-lowering.md).
