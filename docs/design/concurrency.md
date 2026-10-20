@@ -365,7 +365,10 @@ there. The checker derives two facts for every type:
 A task's argument is given to it, moved (`<x`) or copied, when its type
 moves. Otherwise it is lent: to read (`?x`) when its type shares, and to
 write (`!x`) when its type moves. A closure called as a task follows the
-same rules for its captures.
+same rules for its captures. What a task gives goes back to the task
+that waits for it, so its type moves, as `par.map`'s values and an
+actor call's result do; a local task's result stays on its thread and
+need not.
 
 A function a library calls from many tasks at once needs no mark on its
 type. The checker reads the requirement from the library's body, as it
@@ -416,9 +419,12 @@ any tasks on one worker do. So a GUI program's `*T`, `Cell`, and
 - **Implicit.** The checker makes a task local when its arguments or
   self hold such a value (`sema.localBlocker`), and records it; nothing
   marks it in the source, as nothing marks how a `Cell` is kept safe.
+  `rig check --tasks` lists each local task and what pins it: the
+  argument, and the type in it that stays on one thread.
 - **What still stops it.** A set of tasks, a task or a write view lent
   to read, and a function lent to read, which may lend what it captures
-  to write, are not held by two tasks at once even on one thread. A
+  to write (a closure literal written in the task's call among them, as
+  `?f` is), are not held by two tasks at once even on one thread. A
   channel's elements go to any task that holds a handle of it, so they
   must cross whoever holds the channel.
 - **The scheduler.** A pinned fiber has a home worker. When it is ready

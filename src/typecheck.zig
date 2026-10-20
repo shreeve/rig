@@ -7782,6 +7782,17 @@ const Checker = struct {
             const as_self: ?sema.MethodReceiver = if (i == 0 and callee.isKind(.member)) self_mode else null;
             if (!try self.crossCheck(node, part, part_ty, as_self)) return self.t().invalid_id;
         }
+        // A task that may run on another core hands its result back to
+        // the one that waits for it, so the result moves (as `par.map`'s
+        // values and an actor call's do); a local task's stays on this
+        // thread.
+        if (!self.ctx.isLocalTask(node)) {
+            const result = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
+            if (sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
+                try self.errAt(callee, "`{s}` may run on another core, so what it gives must move to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
+                return self.t().invalid_id;
+            }
+        }
         self.ctx.makes_tasks = true;
         return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
     }
@@ -7794,7 +7805,12 @@ const Checker = struct {
     /// stays on one thread (`sema.localBlocker`) makes the task local:
     /// it and the task making it run on this thread from then on. Reports
     /// the part that cannot go even to a local task.
-    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
+    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
+        var part_ty = part_ty_in;
+        // A closure literal written in the call is lent to it, as `?f`
+        // is: it views what it captures.
+        const lent_closure = part.isKind(.lambda) and self.ctx.types.get(part_ty) != .read_view;
+        if (lent_closure) part_ty = try self.ctx.intern(.{ .read_view = part_ty });
         const k = self.ctx.types.get(part_ty);
         const Mode = enum { given, read, write };
         const mode: Mode = if (as_self) |r| switch (r) {
@@ -7804,9 +7820,10 @@ const Checker = struct {
         } else if (k == .read_view) .read else if (k == .write_view) .write else .given;
         const how: sema.Crossing = if (mode == .read) .shares else .moves;
         const inner = if (k == .read_view or k == .write_view) sema.unwrapViews(self.ctx, part_ty) else part_ty;
-        if (sema.crossingBlocker(self.ctx, inner, how) == null) return true;
+        const pin = sema.crossingBlocker(self.ctx, inner, how) orelse return true;
         const blocker = sema.localBlocker(self.ctx, inner, how) orelse {
-            try self.ctx.recordLocalTask(call);
+            const why = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`: `{s}` {s}", .{ self.sourceText(part), try self.tyName(part_ty), try self.blockerReason(pin, mode == .read, if (pin == part_ty) "is" else if (pin == inner) "views" else null) });
+            try self.ctx.recordLocalTask(call, .{ .pos = self.startOf(call), .call = self.sourceText(call), .why = why });
             return true;
         };
         const passed = switch (mode) {
@@ -7814,7 +7831,8 @@ const Checker = struct {
             .read => "is lent to a task to read",
             .write => "is lent to a task to write",
         };
-        try self.errAt(part, "`{s}` {s}: `{s}` {s}", .{ self.sourceText(part), passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
+        const what = if (lent_closure) "this closure" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.sourceText(part)});
+        try self.errAt(part, "{s} {s}: `{s}` {s}", .{ what, passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
         return false;
     }
 

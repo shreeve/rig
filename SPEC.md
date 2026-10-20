@@ -10225,6 +10225,10 @@ one also reads it:
 - lent to read, `?x` or a `?@` method's self, it must share;
 - lent to write, `!x` or a `!@` method's self, what it views must move.
 
+What the task gives goes back to the task that waits for it, so it must
+move too, unless the task is local (below) and runs on the waiter's
+thread.
+
 | Type | moves | shares |
 |---|---|---|
 | plain data, `String`, `List[T]`, `^T`, objects and enums | when every part moves | when every part shares |
@@ -10247,7 +10251,13 @@ stays on that thread from then on, so no count they share changes on two
 cores at once. Such tasks take turns on one core, at their waits and
 yield checks; the code reads the same as for any task, and the compiler
 picks which a task is. So a GUI program's `*T`, `Cell`, and `Signal`
-code can use `&`.
+code can use `&`. `rig check --tasks` lists each local task, with the
+argument that pins it and the type in that argument that stays on one
+thread:
+
+```text
+main.rig:8:7: `val(?n)&` is local, pinned to its maker's thread by `?n`: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once
+```
 
 ```rig
 obj Node
@@ -10269,7 +10279,9 @@ sub main()
 A local task still takes nothing that no two tasks may hold at once,
 even on one thread: a set of tasks, a task or a write view lent to
 read, or a function lent to read, which may lend what it captures to
-write. A channel's elements go to any task that holds a handle of it,
+write. A closure literal written in the task's call is lent to it, as
+`?f` is, and its captures live only until the statement ends, so it
+too is rejected: bind the work to a function the task calls. A channel's elements go to any task that holds a handle of it,
 so they cross cores even when a local task holds the channel.
 
 ```rig reject
