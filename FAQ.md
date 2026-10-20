@@ -8,11 +8,11 @@ are coming from another language, start with [WELCOME.md](WELCOME.md).
 
 No. Numbers, strings, and objects, enums, and arrays made of them are
 plain values (an object holding a `List` owns it), and views (`?T`,
-`!T`) are checked at compile time and cost nothing at run time. Counting happens only behind a shared handle `*T`, where
-every new count is written (`*x`, `+x`) and a count ends where its
-handle's scope does, or at a statement `<x`; a heap value with one
-owner is a `^T`, which counts nothing
-([cost model](docs/DESIGN.md#cost-model)).
+`!T`) are checked at compile time and cost nothing at run time.
+Counting happens only behind a shared handle `*T`, where every new
+count is written (`*x`, `+x`) and a count ends where its handle's scope
+does, or at a statement `<x`; a heap value with one owner is a `^T`,
+which counts nothing ([cost model](docs/DESIGN.md#cost-model)).
 
 ## Is Rig safe like Rust?
 
@@ -39,30 +39,26 @@ Where the C, Rust, or Zig habit would change a program's meaning, it is
 a compile error instead: `if !done`, `!q.is_empty()`, and a `!` call
 returning a `Bool` that starts a condition or is an operand of `and`,
 `or`, or `not` without parentheses
-([receiver sigils](SPEC.md#objects), [operators](SPEC.md#operators)).
+([method calls](SPEC.md#objects), [operators](SPEC.md#operators)).
 For the same reason, a comparison under `not` takes parentheses:
 `not (a > b)`, never `not a > b`.
 
 ## Why indentation?
 
-It is the lightest syntax for nested blocks, and each block is one IR
-node; tabs in indentation are rejected so a file has one reading
-([more](docs/DESIGN.md#indentation)). If significant whitespace is a
+It is the lightest syntax for nested blocks
+([why](docs/DESIGN.md#indentation)). If significant whitespace is a
 deal-breaker, Rig is not your language.
 
 ## Why compile to Zig instead of LLVM?
 
 Zig already provides an optimizer, cross-compilation, linking, and a C
-ABI, and its `defer`, error unions, optionals, and `comptime` match
-what Rig needs ([more](docs/DESIGN.md#zig-as-the-target)). A custom
-backend is not a goal.
+ABI, and its semantics fit Rig's ([why](docs/DESIGN.md#zig-as-the-target)).
+A custom backend is not a goal.
 
 ## Why no garbage collector?
 
 A collector would hide when memory is released, the effect systems
-programmers most need to see. The stance is absolute: a feature that
-needs a collector is redesigned
-([more](docs/DESIGN.md#no-garbage-collector)).
+programmers most need to see ([why](docs/DESIGN.md#no-garbage-collector)).
 
 ## Why don't cycles get collected?
 
@@ -101,8 +97,8 @@ fails at run time: `if *w as h`
 ## Why no `var` or `let`?
 
 `x = e` binds or assigns, as in Python and Ruby, and `x =! e` binds
-for good. What Rig forbids is silently reusing a visible name; write
-`new x = e` to shadow on purpose ([more](docs/DESIGN.md#bindings)).
+for good; write `new x = e` to shadow on purpose
+([why](docs/DESIGN.md#bindings)).
 
 ## Why isn't reactivity built into the language?
 
@@ -125,11 +121,17 @@ checked, with an error at the call and a note at the body line
 ## Why square brackets for generics?
 
 After a name, square brackets give compile-time arguments and
-parentheses give run-time ones (indexing is the one familiar
-exception), so `Wrap[Int](v: 3)` names a type
-and then builds a value, and `check[.strict](5)` passes a compile-time
-value beside a run-time one. That is Zig's `comptime`, in the brackets
-Go uses for its generics ([more](docs/DESIGN.md#brackets-for-compile-time)).
+parentheses give run-time ones, so `Wrap[Int](v: 3)` names a type and
+then builds a value. That is Zig's `comptime`, in the brackets Go uses
+for its generics ([why](docs/DESIGN.md#brackets-for-compile-time)).
+
+## How do I run work at the same time?
+
+Start a call as a task with `f(x)&` and take its result with `>t`; a
+task cannot outlive its scope, and a compiler check rejects data races.
+The answers to the questions about Go, Rust's async, and the rest are in
+[launch/faq](docs/launch/faq.md), and
+[the concurrency journey](docs/learn/04-concurrency.md) teaches it.
 
 ## Can I call C?
 
@@ -141,16 +143,15 @@ Only integers, floats, and `Bool` cross the boundary today
 ## Why Nexus instead of another parser generator?
 
 Each grammar rule declares the IR node it produces, so the grammar is
-the single source of truth for syntax and IR, with no hand-written
-parser and no AST layer ([more](docs/DESIGN.md#nexus-and-an-s-expression-ir)).
+the single source of truth for syntax and IR
+([why](docs/DESIGN.md#nexus-and-an-s-expression-ir)).
 
 ## Why another systems language?
 
 Rig explores a point Rust and Zig don't occupy: Rust's ownership model
 with a much smaller surface, moves, clones, and writes visible at the
-call site, an IR
-tools can read, and Zig's backend. For most production code today,
-Rust or Zig is the right choice; they are mature, and Rig is not.
+call site, an IR tools can read, and Zig's backend. For most production
+code, Rust or Zig is the right choice; they are mature, and Rig is not.
 
 ## How is AI used in this project?
 

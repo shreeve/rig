@@ -37,33 +37,17 @@ load generator.
 
 ## Where it stands
 
-On 2026-10-20. On the Mac (an Apple M5 with 10 cores), 5,000 idle
-connections:
+The latest rows are in [PROGRESS.md](PROGRESS.md), and the headline
+numbers against hyper and Go are in
+[docs/launch/benchmarks.md](../../docs/launch/benchmarks.md).
 
-```text
-                 req/s       p50       p99 per idle conn
-rig-fast        170966     366 us     643 us      16.6 KiB
-tokio           175293     355 us     642 us      18.6 KiB
-go              160870     368 us    1147 us      18.8 KiB
-```
-
-On pup (Linux, x86-64, 22 cores), 10,000 idle connections:
-
-```text
-                 req/s       p50       p99 per idle conn
-rig-fast       1124804      37 us     402 us       8.6 KiB
-tokio           323563     150 us     679 us      10.8 KiB
-go              291449     124 us    1198 us      18.9 KiB
-```
-
-Rig answers as fast as hyper on the Mac and about three and a half
-times as many requests on pup. An idle connection holds no buffer: its read and write
-buffers, 16 KiB, are a block of its worker's while it reads and answers
-a request, given back while it waits for the next (`net.Conn.fill`,
-`sched.takeBlock`), and a worker keeps 64 blocks, so a burst leaves no
-memory behind. So an idle connection holds its task's stack page (16 KiB
-on Apple Silicon) and a few small records: 16.6 KiB on the Mac and 8.6
-KiB on pup (PROGRESS.md), below Tokio's and Go's on both. A million idle connections do
-not fit on pup, whose processes may hold 524,288 descriptors and whose
-19 GB free would not hold a million of any server's plus the load
-generator's; 100,000 give the figure per connection.
+An idle connection holds no buffer. Its read and write buffers, 16 KiB,
+are a block of its worker's while it reads and answers a request, given
+back while it waits for the next (`net.Conn.fill`, `sched.takeBlock`),
+and a worker keeps 64 blocks, so a burst leaves no memory behind. So an
+idle connection holds its task's stack page (16 KiB on Apple Silicon)
+and a few small records, which is below hyper's and Go's per connection
+on both machines. A million idle connections do not fit on pup, whose
+processes may hold 524,288 descriptors and whose 19 GB free would not
+hold a million of any server's plus the load generator's; 100,000 give
+the figure per connection.

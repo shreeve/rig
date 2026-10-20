@@ -8,6 +8,15 @@ specified in [SPEC.md](../../SPEC.md), the reasons behind it are in
 [AGENTS.md](../../AGENTS.md). [zig-0.17.md](zig-0.17.md) is a reference
 for the Zig 0.17 APIs the compiler and runtime use.
 
+Contents: [Pipeline](#pipeline), [Source map](#source-map), [Front end](#front-end)
+(the grammar, the lexer and parser wrapper, [node shapes](#node-shapes),
+[syntax facts](#syntax-facts)), [The semantic IR](#the-semantic-ir),
+[Modules](#modules), [Sema](#sema) ([the facts table](#the-facts-table),
+[proven checks](#proven-checks), [vectors](#vectors)),
+[Ownership](#ownership), [Emit](#emit), [The runtime](#the-runtime)
+([tasks](#tasks), [the program's stack](#the-programs-stack)),
+[Tests](#tests), and [Nexus notes](#nexus-notes).
+
 ## Pipeline
 
 ```text
@@ -180,6 +189,12 @@ failed; after a panic it is non-zero, with no count.
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`) |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
+| `src/sched.zig` | the scheduler: fibers, workers, rings and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
+| `src/tasks.zig` | the task runtime: `Task`, `Tasks`, cancellation and deadlines, `par`, `task.isolate`, actors, `Chan` and `select`, over the scheduler |
+| `src/net.zig` | sockets and the HTTP server for `std.net` and `std.http`, registered with the workers' pollers |
+| `src/nametable.zig` | the table of names a plain enum's `E.from_text` reads, built by the compiler and emitted as constant data |
+| `src/timing.zig` | the pass times `rig check --time` reports |
+| `src/lib.zig` | the compiler as a library for `bin/rig-oracle`; `bin/rig` never imports it |
 | `src/main.zig` | the CLI |
 | `src/lsp.zig` | `rig lsp`, the language server: JSON-RPC on stdin and stdout, positions, and the diagnostics `rig check` gives, read through the same `ModuleGraph` |
 | `src/editor.zig` | what an editor shows of one file: the parse errors, the tokens the lexer wrapper classifies with the tree's declared names and sigils, the outline, and the folds, from the tolerant parse (`parseTolerant`, rig.grammar's `@repair`) |
@@ -304,7 +319,7 @@ detached sigil, is the one reported.
 | `-> ?T from a, b`, `-> ?String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
 | `sub watch(!@, s: ?String) keeps s`, `-> T from a keeps s` vs `keeps = 3`, `f(keeps: 1)` | `KEEPS` vs `IDENT` | on the header line of a `fun`, `sub`, method, `extern fun`, `extern sub`, or Zig-backed declaration, outside brackets, right after its parameter list, its result type, its `from` list, or a failing `sub`'s `!`, `keeps` is a keyword that starts the `keeps` list; everywhere else it is a name |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
-| `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `$type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `$` and a member of the receiver after `@` (`@type`); sema rejects a keyword parameter |
+| `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `$type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `$` and a member of self after `@` (`@type`); sema rejects a keyword parameter |
 
 The grammar's own shape settles the rest:
 
@@ -477,9 +492,9 @@ It also rejects a tree nested more than 1000 deep, since every later
 pass walks the tree recursively.
 
 A rewritten node keeps its node id, and so its span; the `captures`
-node and a receiver sigil's `read`, `write`, or `move` node are built with the
+node and a self sigil's `read`, `write`, or `move` node are built with the
 generated parser's `newNode`, which gives each a fresh id spanning its
-entries (for a receiver sigil, the sigil and the place). The wrapper
+entries (for a self sigil, the sigil and the place). The wrapper
 places children by `ir.slot(.kind, .role)`, the compile-time slot of a
 role.
 
@@ -655,7 +670,7 @@ A few kinds serve more than one surface form:
   `*(T?)` or `~(T?)`, has no expression spelling; the tree drops its
   parentheses, so the parser wrapper records each `share` or `weak`
   whose chain has a suffix inside parentheses (`hasParenSuffix`, from
-  the spans, as it finds receiver sigils), and `typeArg` rejects it
+  the spans, as it finds self sigils), and `typeArg` rejects it
   with a hint.
 - `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
@@ -987,7 +1002,7 @@ ownership:
 
 Temporaries (SPEC §7) desugar into a hidden binding per statement. A
 value made where it is only read (`readLeaf`: a `print` or `String`
-argument, an `==` operand, a `?@` receiver, the object of a field
+argument, an `==` operand, the value a `?@` method is called on, the object of a field
 or element read) is bound to a hidden name `_t` at the start of its
 statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
 `print(_t.n)`, `<_t`, with the drop also on every path out of the
@@ -996,13 +1011,13 @@ and `e?` (`sema.valueLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read lend of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
-owning or not (`lendTemp`), and so does a `?@` receiver made here,
+owning or not (`lendTemp`), and so does the value a `?@` method is called on, made here,
 or a field or element of one, whose method may keep a view of it (a
 result that may hold a view, or a call that may store one,
 `callRetains`): `r = mk().arr()` is `_t = mk()`, `r = P.arr(?_t)`,
 `<_t`, plain data too, so the view may be used until the statement
 ends. A write lend of a temporary or a part of one (`!mk()`,
-`!mk().items`, a `!@` receiver `!mk().pop()`, a slice `!mk()[..]`)
+`!mk().items`, the value a `!@` method is called on (`!mk().pop()`), a slice `!mk()[..]`)
 is recorded the same way, always (`lendsToWrite`): `print(!mk().pop())`
 is `_t = mk()`, `print(S.pop(!_t))`, `<_t`. A write method called on a
 temporary with no `!` is rejected, with the hint to add it
@@ -1094,7 +1109,7 @@ operand it passes through, or the optional `e?` unwraps.
 `sema.valueLeaves(e)` gives the leaves a read reaches through branching
 values, and `sema.yieldsValue(source, s)` whether a statement gives a
 value. Whether a receiver needs `!`, `<`, or nothing follows from what
-it hands over too (`receiverShape`); the receiver sigil itself is
+it hands over too (`receiverShape`); the self sigil itself is
 syntax (Core §8).
 
 A lend of a place is never the base of a path. One walk over each typed
@@ -1617,7 +1632,7 @@ checkers or emit to reason about.
 **A marked call on a Cell.** `Cell`'s and `Signal`'s changing members take
 `!@` (`resolve.registerBuiltins`), and a `Cell[List[T]]`'s `push`, `pop`,
 and `clear` and element assignment are marked the same way, so the
-receiver-sigil rule is the whole enforcement: `!c.set(v)` is `set` of the
+self-sigil rule is the whole enforcement: `!c.set(v)` is `set` of the
 write view `!Cell[T]` that the lend table gives a handle, a `*T` lending
 its `T` to write when `T` changes by a mark (`sema.lendsAs`,
 `sema.changesByMark`). The lend is of the handle `c`: it records a write
@@ -2835,7 +2850,7 @@ one's with its type parameters:
 
 A parameter is *lent* when its type is a view (`sema.isViewType`: a
 `?T`, `!T`, `[]T`, `![]T`, or `?String`) or an optional of one, a
-`?@` or `!@` receiver among them: `sema.lentParam`, one
+the self of a `?@` or `!@` method among them: `sema.lentParam`, one
 classifier, recorded as `Origins.lent`, which the ownership checker,
 typecheck's written-lend rule, and the oracle read. A `keeps` clause
 (`sub watch(!@, s: ?String) keeps s`, `keeps s, @`) names the lent
@@ -2982,7 +2997,7 @@ rest of its signature is.
 **Written lends of kept arguments** (typecheck `checkArgs`). A place lent
 to a lent parameter the call may keep is lent with `?` written (Core
 sentence 4): `!b.watch(t)` is rejected with the fix `!b.watch(?t)`, and a
-`?@` receiver a method keeps is written `?a.register(!out)`. Where no
+`?@` self a method keeps a view of is written `?a.register(!out)`. Where no
 `keeps` narrows the stores, every lent parameter the call may store by
 its type counts (`sema.lentParam` of the parameter's type at the call):
 a call through a function value (`f(!b, ?t)`), an owned closure, and a
@@ -3071,8 +3086,7 @@ loans end at once. Write lends end per call: while any result may hold
 a write view, every lend of the call lasts to the statement's end (an
 `if … as` part is a header, its own statement), though the write view
 carries only the arguments its origins name; ending the other
-arguments' write lends at the return, per argument, is left for later
-(TODO.md). Two
+arguments' write lends at the return, per argument, is not done. Two
 results of one call never break sentence 5: a function giving a write
 view and another result that could view the same parameter is rejected
 where it is declared (`sema.checkResultViews`), and the call checks the
@@ -3306,7 +3320,7 @@ the `share` sigil node.
 | `*w`, `w` read | the built-in `?@` method `w.upgrade()`: `w` read where it stands, its result a new owned `*T?` |
 | `*<w`, `*~h`, `*f()`, `w` taken | `w` moved into a hidden binding `t`, then `t.upgrade()`, then `<t` |
 
-The ownership checker walks a read as a `?@` receiver's read
+The ownership checker walks a read as the read a `?@` call makes of its value
 (`walk`) and a take as `*<x`'s (`walkConsumed`); the new handle carries
 what `w` carries, where its type may hold a loan. Emit writes a read as
 the receiver of the runtime's `upgrade` (`emitMemberBase`, then
@@ -3330,7 +3344,7 @@ what it hands over (`sema.handsOver`), as every header does:
 | a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
 | a made value `e` | `{ h = e; while (!h).next() as x }` |
 | `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
-| `?e`, a made value whose `?` the receiver-sigil rule puts on a place's method call (`?b.each()`, `Parser.loopReceiverSource`) | `{ h = (?b).each(); while (!h).next() as x }` |
+| `?e`, a made value whose `?` the self-sigil rule puts on a place's method call (`?b.each()`, `Parser.loopReceiverSource`) | `{ h = (?b).each(); while (!h).next() as x }` |
 | `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made
@@ -3609,7 +3623,7 @@ symbols); a query that decides more than that belongs in `Pending`.
 
   Zig's `defer` then releases the value on every exit path, in reverse
   order, including early returns, loop exits, and error propagation.
-- **Views.** `!T` parameters, `!@` receivers, and bindings of a
+- **Views.** `!T` parameters, `!@` self, and bindings of a
   write view are pointers, read through `.*`. A `?T` of a scalar or a view (a
   number, `Bool`, a vector, a plain enum, an error, a slice or
   `?String`, a function, or an optional of one) is a copy: Zig parameters are
@@ -4040,7 +4054,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   - the values the labeled value blocks (`__rig_blk_N`, `__rig_if_N`)
     yield, where an address of them is taken other than as a leaf.
 
-  The next structural step (HANDOFF, weak spots) is a structural
+  The next structural step ([weak spots](weak-spots.md)) is a structural
   chokepoint: every `&` and `|*x|` emit writes targets a place, a
   statement's slot, or storage `hiddenStorage` named with its fact, and
   the chokepoint checks the storage's `life` against the scope emit
@@ -4199,7 +4213,7 @@ reviewed.
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer, written under `output_lock` in a program that makes tasks; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
 | `warn`, `fail` | `warn(a, b)` and `panic(a, b)`: `flush`, then the pieces `print` takes written to stderr under `std.debug.lockStderr`; `warn` writes through a 4 KiB buffer, so a line up to that size is one write. `fail` reports the test it ended (`beginPanic`) and ends the program by `std.process.abort`, status 134, after the line |
-| `concurrent`, `TaskState`, `task` | in a program that makes tasks (its root module declares `__rig_tasks`) and in the runtime's unit tests, each task runs on a thread of its own, so `TaskState`, what the runtime keeps for one task (the depth and queue of nested `*T` releases, the nesting of `print`, the guard below the task's stack, the deadline of `time.within`), is the thread's, and output and the debug leak checker take a lock (`output_lock`, `alloc_lock`); any other program compiles as if there were one thread, at no cost |
+| `concurrent`, `TaskState`, `task` | in a program that makes tasks (its root module declares `__rig_tasks`) and in the runtime's unit tests, each task is a fiber on the scheduler (`sched.zig`, [docs/internals/scheduler.md](scheduler.md)), run by one of its worker threads, so `TaskState`, what the runtime keeps for one task (the depth and queue of nested `*T` releases, the nesting of `print`, the guard below the task's stack, the deadline of `time.within`), is the fiber's (`Fiber.state`), and output and the debug leak checker take a lock (`output_lock`, `alloc_lock`); any other program compiles as if there were one thread, at no cost |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `onOwnStack`, `onTaskStack`, `switchStack` | run `main` and the tests on the program's stack, and a task on a stack of its own mapped for it, each over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
@@ -4222,6 +4236,22 @@ reviewed.
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int`. With `RIG_NO_CRASH_REPORT=1` in its environment, in every build mode, on Linux `start` first sets its core limit to exactly 1 (`RLIMIT_CORE` {1, 1}), at which the kernel passes it to no `core_pattern` pipe (apport) and writes no core. On macOS the program does nothing itself: clearing its own crash handler would stop only the user's ReportCrash, and the system's would still file the crash in /Library/Logs/DiagnosticReports. The process that starts it answers its crash as handled instead: `rig run` and `rig test`, always, with or without the variable (`CrashCatcher` in main.zig, around their `zig run` child; a panic's message and trace are on stderr already), or `cpuq cap --no-crash-report` for a built program a harness runs directly. The trade-off: `zig run` compiles and runs in one process, so inside such a run a compiler crash files no .ips either; it still fails the run loudly (no `RIG_RUN_STARTED`, a nonzero status). It still dies by its signal, its stderr unchanged. A test harness sets it for programs that panic on purpose |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which the test suite sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
+
+### Tasks
+
+A program that makes a task (`f(x)&`, a `Tasks` set, `par`, an actor, a
+channel) gets `pub const __rig_tasks = true;` in its root module,
+written with `__rig_task_guard`, the size of each task's stack guard
+(`sema.taskGuard`, from the program's largest frame). The runtime then
+runs `main` as the first fiber of the scheduler (`sched.runMain`) and
+every task as another, on a worker thread per core. Programs that make
+none compile as if there were one thread. The pieces are
+`src/sched.zig` (fibers, workers, waits, pollers, the blocking pool),
+`src/tasks.zig` (what a task, a set, an actor, and a channel do over
+it), and `src/net.zig` (sockets and the HTTP server). How the
+scheduler works, and what it costs, is in [scheduler.md](scheduler.md);
+why the model is what it is, in
+[docs/design/concurrency.md](../design/concurrency.md).
 
 ### Frame owners
 
@@ -4346,8 +4376,7 @@ too. The real frame is at most
 `test/cli/frame_reach.sh` measures, but a form Zig copies that reach does
 not model could exceed it, as a payload part a `match <e` arm dropped by
 value at each exit did (the case `rev230-discard-exits` of test/rig/probes-16.rig.test;
-`rig.discardAt` now passes it by address). Destination-passing, planned
-(TODO.md), makes the bound hold by construction.
+`rig.discardAt` now passes it by address). Destination-passing, which is not built, would make the bound hold by construction.
 
 Where Zig writes code or slots more than once, and how reach covers
 each:
@@ -4402,8 +4431,12 @@ space is cheap, since the stack's pages are made only as it reaches
 them. The 13 MiB a frame keeps (`sema.max_frame_bytes`) is a limit on
 how a program keeps its data, not what keeps the stack safe.
 
-Rig starts no threads; a thread a program starts through `extern` code
-runs on that code's stack, unguarded by this.
+A program that makes no tasks starts no threads. One that makes tasks
+starts a worker per core (`RIG_WORKERS` sets how many; none in a
+deterministic run), and its blocking pool starts a thread when a call
+finds none idle, up to 64; each worker's stack is the system's, and each
+task's is carved as above. A thread a program starts through `extern`
+code runs on that code's stack, unguarded by this.
 
 ## Tests
 
@@ -4412,7 +4445,8 @@ runs on that code's stack, unguarded by this.
 leak-checked under the sanitizing allocator; rejection tests; known
 bugs), every `rig` example in the documentation, the examples, torture
 inputs, CLI scripts, the Zig unit tests, and the reference ownership
-checker. [docs/internals/tests.md](tests.md) is the format, and
+checker. [docs/internals/tests.md](tests.md) is the format, the
+doc-example contract, and the reference checker's sets, and
 [test/README.md](../../test/README.md) describes each kind.
 
 To fix a bug: write a failing case first (marked `known: true` if it
@@ -4474,7 +4508,7 @@ var holds after the call's stores. It maps arguments to parameters
 itself, positionally or through the call's slots. A method called on a
 value made there (a call, a clone, a shared allocation) lends that
 temporary, so a view it returns ends with the statement. A write lend
-of a value made there (`!mk()`, a `!@` receiver `!mk().pop()`, a
+of a value made there (`!mk()`, `!mk().pop()` for a `!@` method, a
 branching value made in every branch) lends the statement's temporary
 that holds it to write (Core s4), as `!x` lends `x`. A path through a
 lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
@@ -4500,15 +4534,15 @@ another value on each pass. A store whose value carries a loan on the
 var it lands in, but for the lends it goes in by, is C9 (Core §5, a
 value never holds a view of itself).
 
-What a call stores into its receiver itself leaves out the call's own
-lend of the receiver: a callee cannot store a view of `@` through
+What a call stores into `@` itself leaves out the call's own lend of
+the value it is called on: a callee cannot store a view of `@` through
 `@`. Into another `!` argument it may store that view, which keeps
-the receiver lent while the argument holds it (SPEC "Second-class
+that value lent while the argument holds it (SPEC "Second-class
 views").
 
 Its rejections are a gate of their own. Every function it rejects is
 listed in `test/oracle/rejections`; a set fails on a rejection not
-listed and on a listed one it no longer rejects (`--rejects`, test/README.md),
+listed and on a listed one it no longer rejects (`--rejects`, [tests.md](tests.md#the-reference-ownership-checker)),
 so a change that weakens the reference checker fails the suite even
 where the compiler still rejects the program.
 

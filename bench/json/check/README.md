@@ -1,9 +1,10 @@
 # JSON tests
 
 `bench/json/check/compare.py` checks `std.json` (`std/json.rig`) against
-Python's `json` module, by hand, when `std.json` changes. Rig programs cannot
-read files yet, so the inputs become generated Rig programs
-(`driver.rig.tmpl`), each input one string literal in a table. Consecutive
+Python's `json` module, by hand, when `std.json` changes. The inputs
+become generated Rig programs (`driver.rig.tmpl`), each input one string
+literal in a table, so a program reads no file when it runs and the
+inputs are in its source. Consecutive
 groups share a program, since each program compiles the parser afresh; a
 program holds at most 6000 inputs and stays under 16 MiB (Rig's largest
 source file), counting the inputs as they are written in the program.

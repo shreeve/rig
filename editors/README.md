@@ -45,10 +45,12 @@ it (`../nexus`).
    cd editors/vscode && npm ci && npx -y @vscode/vsce package --skip-license
    ```
 
-4. Install it, then run **Developer: Reload Window** in VS Code:
+4. Install it (`<version>` is the `"version"` of
+   `editors/vscode/package.json`), then run **Developer: Reload Window**
+   in VS Code:
 
    ```sh
-   code --install-extension editors/vscode/vscode-rig-0.2.0.vsix --force
+   code --install-extension editors/vscode/vscode-rig-<version>.vsix --force
    ```
 
 The `.vsix` is not committed (`editors/vscode/.gitignore`); rebuild it
@@ -58,20 +60,20 @@ from the folder any time.
 
 - **VS Code:** steps 3 and 4 above. While working on the grammar, a
   symlink is quicker: `ln -s "$PWD/editors/vscode"
-  ~/.vscode/extensions/rig-lang.vscode-rig-0.2.0`, then reload the window
+  ~/.vscode/extensions/rig-lang.vscode-rig-<version>`, then reload the window
   after each regeneration. Use one or the other, not both; the symlinked
   folder needs `npm ci` once for its client (without it, VS Code says so
   and only colours).
 - **Vim:** add `editors/vim` to the runtime path, e.g. with vim-plug:
-  `Plug '~/Data/Code/rig', { 'rtp': 'editors/vim' }`, or
-  `set runtimepath+=~/Data/Code/rig/editors/vim`.
+  `Plug '/path/to/rig', { 'rtp': 'editors/vim' }`, or
+  `set runtimepath+=/path/to/rig/editors/vim`.
 - **highlight.js:** `import rig from './editors/highlightjs/rig.js'`, then
   `hljs.registerLanguage('rig', rig)`.
 - **rip print:** link the module into rip print's languages folder:
 
   ```sh
   mkdir -p ~/.config/rip/print/languages
-  ln -s ~/Data/Code/rig/editors/highlightjs/rig.js ~/.config/rip/print/languages/rig.js
+  ln -s /path/to/rig/editors/highlightjs/rig.js ~/.config/rip/print/languages/rig.js
   ```
 
 ## Language server
@@ -108,7 +110,7 @@ The parse that builds the outline, the tokens' kinds, and the folds goes
 on past a syntax error, so one error does not hide the rest of the file.
 Positions count UTF-16 code units, or bytes when the client offers
 `utf-8` in its `positionEncodings`. Hover, go to definition, completion,
-rename, and formatting are not built yet (TODO.md).
+rename, and formatting are not built yet.
 
 The server reads `Content-Length`-framed JSON-RPC, so a client is the
 easy way to drive it by hand: `test/cli/_lsp.py` is a small one, which

@@ -2,9 +2,9 @@
 
 Zig 0.17.0, LLVM 22.1.8. Host: Apple M5.
 
-Every number below was reproduced from the files in `zig/` beside this file (outputs and binaries not kept; rebuild with `build.sh`):
+Every number below was reproduced from the files in [docs/history/simd-zig/](../history/simd-zig/) (outputs and binaries not kept; run these from that directory):
 
-- `./build.sh` emits asm into `out/<target>/<mode>/<file>.s`.
+- `./build.sh` emits asm into `out/<target>/<mode>/<file>.s`, for every `src/*.zig` (`FILES=src/lanes.zig ./build.sh` for one).
 - `./asm.py --counts <file> [mode]` prints a per-function instruction-count table.
 - `./asm.py out/.../x.s fn...` prints the instructions of the named functions.
 - `python3 loopbody.py` prints the instructions in the hot loop of each `bench/kernels.zig` kernel.
@@ -43,7 +43,6 @@ How to read the counts:
 | `src/check.zig` | Semantics tests, run on aarch64 in Debug, ReleaseSafe and ReleaseFast, and on wasm32-wasi with and without simd128; all pass |
 | `probe/lim/*.zig` | Language limits: what does and does not compile |
 | `bench/kernels.zig`, `bench/main.zig` | Timing: compare+bitmask per byte, SIMD against SWAR |
-| `out/bench-*.txt` | Raw timing output |
 
 ## 1. Loads and stores
 

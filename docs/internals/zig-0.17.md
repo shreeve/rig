@@ -4,8 +4,8 @@ Rig is written in Zig 0.17 and compiles to Zig 0.17. This is a
 reference for the parts of Zig that Rig work touches: the compiler
 (`src/*.zig`), the runtime shipped with every program
 (`src/runtime.zig`), the standard library's Zig shims (`std/*.zig`),
-the Zig the emitter writes, `build.zig`, and the standard-library work
-ahead (I/O, allocators, collections, strings, processes, files).
+the Zig the emitter writes, `build.zig`, and the Zig behind the standard
+library's I/O, allocators, collections, strings, processes, and files.
 
 It is written for people and for AI agents whose knowledge of Zig
 comes from earlier releases. Zig 0.17's I/O, containers, entry point,
@@ -410,7 +410,7 @@ differently: `Reader.allocRemaining` accepts exactly `n` bytes, while
 
 `std.fs` holds only `std.fs.path` and a few constants. Files and
 directories are `std.Io.File` and `std.Io.Dir`, and nearly every
-method takes `io` right after the receiver.
+method takes `io` right after `self`.
 
 ```zig
 const std = @import("std");

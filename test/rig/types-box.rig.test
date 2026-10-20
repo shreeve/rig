@@ -606,7 +606,7 @@ test "box search tree", '''
   print(size(?root), contains(?root, 3), contains(?root, 4))
   walk(?root)
 
-fail "box value access", "13:6: method `eat` consumes the receiver; cannot consume through a view", "14:10: method `unbox` consumes the receiver; cannot consume through a view", "18:9: type `^Int` has no field `value`", "23:7: `==` is not defined for `^R`", "24:7: operator `+` requires numeric operands; got `^Int`"
+fail "box value access", "13:6: method `eat` consumes `self`; cannot consume through a view", "14:10: method `unbox` consumes `self`; cannot consume through a view", "18:9: type `^Int` has no field `value`", "23:7: `==` is not defined for `^R`", "24:7: operator `+` requires numeric operands; got `^Int`"
   # A box's value has its fields and methods reached through the box (a
   # List's `push`), but a box has no field `value` of its own. A box holds
   # has no `==`, and its own consuming `unbox` and its value's consuming

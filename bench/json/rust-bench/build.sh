@@ -1,5 +1,5 @@
 #!/bin/sh
-# usage: build.sh native|generic   (run under cpuq; uses $CPUQ_CORES)
+# usage: build.sh native|generic   (builds with 2 jobs, or $CPUQ_CORES)
 set -e
 B=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
