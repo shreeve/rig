@@ -812,6 +812,13 @@ fiber and takes none twice. One gap shows: work into the global queue,
 made while a worker searches, can wait while another sleeps, until
 the first worker's next yield check.
 
+The proofs take each step of the wait protocol as sequentially
+consistent, so the runtime makes every step of a handshake that has
+two sides so: a canceler's store of the flag and load of the wait, and
+a waiting fiber's store that begins its wait and load of the flag
+(docs/internals/scheduler.md, "Waiting"). A weaker load there lets
+the two pass each other on arm64, where both would miss.
+
 Sets, actors, channels, dropping a handle (cancel and wait), the
 deadlock walk, and unwinding are the next slices.
 

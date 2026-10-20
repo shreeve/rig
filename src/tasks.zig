@@ -1164,7 +1164,7 @@ const Sel = struct {
     const gave_up = std.math.maxInt(u32);
 
     fn claim(sel: *Sel, arm: u32) bool {
-        return sel.state.cmpxchgStrong(open, arm + 1, .acq_rel, .acquire) == null;
+        return sel.state.cmpxchgStrong(open, arm + 1, .seq_cst, .seq_cst) == null;
     }
 
     fn wake(sel: *Sel) void {
@@ -1302,13 +1302,13 @@ fn selectArms(arms: anytype) anyerror!u32 {
     inline for (0..n) |k| arms[k].wait(&sel, k);
     unlockAll(arms);
     while (true) {
-        if (sel.state.load(.acquire) != Sel.open) break;
+        if (sel.state.load(.seq_cst) != Sel.open) break;
         if (canceledHere() or pastDeadline()) {
-            if (sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .acq_rel, .acquire) == null) break;
+            if (sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .seq_cst, .seq_cst) == null) break;
             break;
         }
         rt.sched.commitWait(e, task().deadline);
-        if (sel.state.load(.acquire) != Sel.open) break;
+        if (sel.state.load(.seq_cst) != Sel.open) break;
         e = rt.sched.beginWait(true);
         sel.epoch.store(e, .seq_cst);
     }
@@ -2002,15 +2002,18 @@ pub const Stop = error{ @"std.task.Stop.canceled", @"std.task.Stop.timeout", @"s
 /// with.
 const canceled_error = error.@"std.task.Stop.canceled";
 
-/// Whether the running task is canceled. `main` never is.
+/// Whether the running task is canceled. `main` never is. Sequentially
+/// consistent: a waiting point begins its wait and then looks here, and
+/// a canceler sets the flag and then looks at the wait
+/// (`Control.cancel`), so at least one of the two sees the other.
 fn canceledHere() bool {
     const control = task().control orelse return false;
-    return control.canceled.load(.acquire);
+    return control.canceled.load(.seq_cst);
 }
 
 /// Record that the running task is canceled.
 fn markCanceled() void {
-    if (task().control) |control| control.canceled.store(true, .release);
+    if (task().control) |control| control.canceled.store(true, .seq_cst);
 }
 
 /// `task.check()`: a waiting point that waits for nothing. It fails
