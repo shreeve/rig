@@ -284,13 +284,12 @@ every time; the suite runs each concurrency case again under seeds 1 to
     panics when a pinned fiber resumes on a worker other than its home
     (`sched.checkHome`), a load and a branch per switch.
 
-14. **More deadlocks found**: a wait for a free slot in an actor's
-    mailbox blocks on the actor as a call does (`tasks.actorSpawn`), so
-    a deadlock's walk finds a method waiting for a slot in its own
-    actor's mailbox; and a debug build, whose workers all sleep with no
-    fiber ready and no timer, descriptor, or pool call pending, looks
-    again after 200 ms and, when no fiber ran meanwhile, panics as a
-    deterministic run does (`sched.stalled`).
+14. **A wait for a mailbox slot counts in deadlock detection**: it
+    blocks on the actor as a call does (`tasks.actorSpawn`), so a
+    deadlock's walk finds a method waiting for a slot in its own actor's
+    mailbox. A wait on channels alone that nothing can end is reported
+    in deterministic runs only (above, "Deadlock"): elsewhere an
+    interrupt may still end it.
 
 Each increment is held to the gate in `bench/tasks/README.md`
 (`bench-tasks --gate`), which fails a benchmark more than 1.5 times

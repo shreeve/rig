@@ -500,40 +500,11 @@ pub fn advanceTo(t: i96) void {
 /// A fiber waiting on a file descriptor wakes once it is ready, at
 /// whatever time: the poller is looked at first, without waiting, and
 /// waited on when nothing else can end a wait.
-/// What a run that can never go on panics with: every task waits, and
-/// nothing can wake one.
+/// What a deterministic run that can never go on panics with: every task
+/// waits, and nothing can wake one (`advanceClock`). A run that is not
+/// deterministic reports none, since an outside event (an interrupt,
+/// which cancels `main`) may still end a wait.
 const deadlock_message = "every task is waiting on another, and none can run: a deadlock";
-
-/// Whether a run that is not deterministic watches for every task waiting
-/// with nothing to wake one (`stalled`): in debug builds, as `rig test`'s
-/// deterministic runs always do (`advanceClock`).
-const watch_stall = builtin.mode == .debug;
-
-/// How long every worker must sleep, with nothing to wake one, before a
-/// debug build reports a deadlock.
-const stall_wait: i96 = 200 * std.time.ns_per_ms;
-
-/// Whether every worker sleeps and nothing can wake one: no fiber is
-/// ready, no timer set, no descriptor registered, and no call on the
-/// blocking pool, while `main` has not ended. Gives how many fibers the
-/// workers have run, so a second look can tell that none ran between.
-fn stalled() ?u64 {
-    if (stopping.load(.seq_cst)) return null;
-    if (sleepers.count.load(.seq_cst) != workers.len) return null;
-    if (global.count.load(.seq_cst) != 0) return null;
-    var ran: u64 = 0;
-    for (workers) |*v| {
-        if (!v.ring.isEmpty() or v.lifo.load(.seq_cst) != null or v.pinned.count.load(.seq_cst) != 0) return null;
-        if (v.timers.due.load(.seq_cst) != no_due) return null;
-        if (v.poller.count.load(.seq_cst) != 0) return null;
-        ran += @atomicLoad(u64, &v.ran, .monotonic);
-    }
-    pool.lock.lock();
-    const calls = pool.threads - pool.idle - pool.reserved + pool.queued;
-    pool.lock.unlock();
-    if (calls != 0) return null;
-    return ran;
-}
 
 fn advanceClock() void {
     const p = &workers[0].poller;
@@ -1805,14 +1776,6 @@ fn sleep(w: *Worker) void {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
-            if (watch_stall and due == no_due) if (stalled()) |seen| {
-                // Every worker sleeps and nothing can wake one: look again
-                // after a while, and if nothing ran meanwhile, no task can.
-                _ = w.poller.poll(stall_wait);
-                if (stalled()) |again| if (again == seen) @panic(deadlock_message);
-                w.sleep_due.store(awake, .seq_cst);
-                continue;
-            };
             if (sleepIn(w, if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0))) was_watcher = true;
             w.sleep_due.store(awake, .seq_cst);
             if (!hasOwnWork(w)) continue;

@@ -10471,11 +10471,11 @@ mailbox (a call made with `&`), which only the actor's answer to an
 earlier such call frees: `Hub.run -> a slot in Hub's mailbox`. The wait
 that closes the cycle finds it, so the program never hangs on one.
 
-A debug build, and every run `rig test` makes, also panics when every
-task waits and nothing can wake one, on channels say: no task is
-ready, and no timer, socket, or call on the blocking pool is pending.
-It reports `every task is waiting on another, and none can run: a
-deadlock` once every worker has slept so a moment.
+A deterministic run, as `rig test` makes, also panics when every task
+waits and nothing can wake one, on channels say, with no timer or
+socket pending: `every task is waiting on another, and none can run: a
+deadlock`. Any other run waits on: an interrupt may still cancel
+`main`, so a program may wait on a channel for nothing but that.
 
 A panic in an actor's method ends the actor. Its value is abandoned,
 not dropped, since the panic may have left it half-changed; a debug

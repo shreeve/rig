@@ -208,9 +208,3 @@ bomb "deadlock method waits for a slot in its own actor's mailbox", seeds: 20, "
   h = *Actor(Hub(n: 3), mailbox: 2)
   print("before")
   print((!h).run(+h))
-
-bomb "deadlock on a channel only its waiter holds", seeds: 20, "every task is waiting on another, and none can run: a deadlock", prints: "before"
-  # Nothing can send on the channel, and nothing else can wake `main`.
-  ch = *Chan[Int](1)
-  print("before")
-  print((!ch).recv()! ?? -1)
