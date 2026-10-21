@@ -97,6 +97,27 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
+- The Map's entries in its table slots, measured and not taken. A hit
+  waits on memory twice: for `tags[i]` and `at[i]`, which load
+  together, then for `es[j]`. Putting each key and value in its slot,
+  with the order kept as a List of slot indexes, waits once. On cold
+  lookups over 4M entries (a Mac bench of `CacheKey` keys and `U32`
+  values, dependent, 90% hits) it took 92 to 95 ns against 152 to 156.
+  But real Trig on pup, which inserts nearly as much as it finds, was
+  12% slower on ts-pattern, with 41% more RSS (646 MB against 459), and
+  4 to 6% slower on zod3 and tiny-invariant. `bench/hash`, which looks
+  keys up in the order they were put in, lost too: hits about twice as
+  slow, inserts 40 to 70% slower, iteration about 16 times as slow.
+  Packing the tag and the index into one `U64` slot instead saved
+  nothing: the two arrays already load together. The slot was 40 bytes
+  for a `CacheKey` and a `U32`, where a plain one is 24, because a free
+  slot holds no `K` or `V`, so both are optional fields. A `Slot?` the
+  size of a `Slot` (its place in the order an object that names its
+  none) would need `if !@slots[j] as s` to hand a write view of
+  `s.value` back to `edit`'s caller (`from @`), which the checker
+  rejects ("cannot return a view of `s`, which this function was not
+  lent"), as it does a payload bound by `match !@slots[j]`, while the
+  read forms are accepted. A layout to try again starts from that.
 - A built-in generic named through a module agrees on both sides: as
   an expression, `lib.List[Int].filled(2, 3)` reaches the local `List`,
   while as a type, `lib.List[String]` is reported as "`lib.List` is not
