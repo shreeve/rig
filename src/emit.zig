@@ -185,6 +185,9 @@ const Labeled = struct { label: *ZigLabel, saved: *Writer, buf: *Writer.Allocati
 
 const Scope = struct {
     locals: std.ArrayList(Local) = .empty,
+    /// The statements whose flags were written in the scope
+    /// (`Emitter.flag_names`), out of reach once it ends.
+    flags: std.ArrayList(facts.NodeKey) = .empty,
 };
 
 /// State for the function whose body is being emitted.
@@ -368,6 +371,10 @@ pub const Emitter = struct {
     /// Write every test, ignoring which are known to pass (`provenOf`):
     /// `RIG_NO_PROOFS`, for the differential run of the proofs.
     no_proofs: bool = false,
+    /// The Zig name of each flag written (`emitFlag`), by the statement
+    /// it is made before; a test proven while a flag holds is written so
+    /// only once its flag is (`provenIf`).
+    flag_names: std.AutoHashMapUnmanaged(facts.NodeKey, []const u8) = .empty,
     /// Hold every object's optional as a tagged struct, so the program
     /// compiles only if every operation on one goes through the optional
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
@@ -410,6 +417,7 @@ pub const Emitter = struct {
         self.temp_slots.deinit(self.allocator);
         self.targets.deinit(self.allocator);
         self.units.deinit(self.allocator);
+        self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -1110,6 +1118,8 @@ pub const Emitter = struct {
             if (uses.* == 0) _ = self.local_names.remove(l.zig_name);
         }
         top.locals.deinit(self.allocator);
+        for (top.flags.items) |k| _ = self.flag_names.remove(k);
+        top.flags.deinit(self.allocator);
     }
 
     /// Declare `local` in the innermost scope, choosing its Zig name from
@@ -1388,6 +1398,7 @@ pub const Emitter = struct {
         if (self.yieldsValue(stmts[last])) {
             const first = self.temp_slots.items.len;
             defer self.temp_slots.shrinkRetainingCapacity(first);
+            try self.emitFlag(stmts[last]);
             try self.emitTempSlots(stmts[last]);
             try self.w.writeAll("return ");
             try self.emitReturnValue(stmts[last]);
@@ -1403,6 +1414,7 @@ pub const Emitter = struct {
     /// its end: declared before it, each with a `defer` for an exit from
     /// inside it (a failure, a jump), and dropped right after it.
     fn emitStmt(self: *Emitter, sexp: Sexp) Error!void {
+        try self.emitFlag(sexp);
         const entered = try self.enterUnit(sexp);
         defer self.leaveUnit(entered);
         const first = self.temp_slots.items.len;
@@ -1612,12 +1624,14 @@ pub const Emitter = struct {
         if (kind.operator()) |op| {
             // `i += c` known not to overflow (`provenOf`): `i` read once,
             // as `+=` reads it.
-            if (op == .@"+" and target == .src and self.provenOf(sexp).no_overflow) {
+            const cond = if (op == .@"+" and target == .src) self.provenIf(sexp) else null;
+            if (op == .@"+" and target == .src and (self.provenOf(sexp).no_overflow or (cond != null and cond.?.tests.no_overflow))) {
                 try self.emitPlace(target);
-                try self.w.writeAll(" = rig.addProven(");
+                try self.w.writeAll(if (self.provenOf(sexp).no_overflow) " = rig.addProven(" else " = rig.addIf(");
                 try self.emitPlace(target);
                 try self.w.writeAll(", ");
                 try self.emitBare(expr);
+                if (!self.provenOf(sexp).no_overflow) try self.w.print(", {s}", .{cond.?.flag});
                 return self.w.writeAll(");");
             }
             return self.emitCompound(sexp, op);
@@ -5363,6 +5377,8 @@ pub const Emitter = struct {
         };
         // An add known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        // An add known not to overflow while a flag holds (`provenIf`).
+        if (kind == .@"+") if (self.provenIf(sexp)) |c| if (c.tests.no_overflow) return self.emitCall2("rig.addIf(", operands, try self.fmt(", {s})", .{c.flag}));
         if (self.laneHelper(sexp, kind)) |helper| {
             try self.w.print("{s}(", .{helper});
             try self.emitBare(operands[0]);
@@ -5466,10 +5482,18 @@ pub const Emitter = struct {
         const in_place = as_place or self.elemInPlace(sexp);
         if (held_ty != null and self.isListTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
-            try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place or self.throughReadView(base)) ".constSlot(" else ".slot(");
+            const method = if (!in_place) "at" else if (self.read_place or !as_place or self.throughReadView(base)) "constSlot" else "slot";
+            // The tests known to pass are omitted (`provenOf`), and those
+            // known while a flag holds, while it does (`provenIf`).
+            const proven = provenTests(self.provenOf(sexp));
+            const cond = self.provenIf(sexp);
+            try self.w.print(".{s}{s}(", .{ method, if (cond != null) "If" else if (proven != null) "Proven" else "" });
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
+            if (cond) |c| {
+                try self.w.print(", {s}{s}, .{s}, {s}", .{ if (proven != null) "." else "", proven orelse "null", provenTests(c.tests).?, c.flag });
+            } else if (proven) |p| try self.w.print(", .{s}", .{p});
             try self.w.writeAll(if (in_place) ").*" else ")");
             return;
         }
@@ -5484,16 +5508,18 @@ pub const Emitter = struct {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
             // is assigned through.
-            // A test known to pass is omitted (`provenOf`).
+            // A test known to pass is omitted (`provenOf`), and one known
+            // while a flag holds, while it does (`provenIf`).
             const proven = provenTests(self.provenOf(sexp));
-            try self.w.writeAll(if (in_place)
-                (if (proven != null) "rig.elemPtrProven(" else "rig.elemPtr(")
-            else if (proven != null) "rig.atProven(" else "rig.at(");
+            const cond = self.provenIf(sexp);
+            try self.w.print("rig.{s}{s}(", .{ if (in_place) "elemPtr" else "at", if (cond != null) "If" else if (proven != null) "Proven" else "" });
             try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
             try self.emitBare(index);
-            if (proven) |p| try self.w.print(", .{s}", .{p});
+            if (cond) |c| {
+                try self.w.print(", {s}{s}, .{s}, {s}", .{ if (proven != null) "." else "", proven orelse "null", provenTests(c.tests).?, c.flag });
+            } else if (proven) |p| try self.w.print(", .{s}", .{p});
             try self.w.writeAll(if (in_place) ").*" else ")");
             if (fixed) try self.w.writeAll(")");
             return;
@@ -8804,6 +8830,69 @@ pub const Emitter = struct {
     fn provenOf(self: *Emitter, node: Sexp) facts.Proven {
         if (self.no_proofs) return .{};
         return self.facts.provenOf(node);
+    }
+
+    /// The tests of `node` known to pass while a flag holds, and the
+    /// flag's Zig name: null unless the flag is written (`emitFlag`).
+    fn provenIf(self: *Emitter, node: Sexp) ?struct { tests: facts.Proven, flag: []const u8 } {
+        if (self.no_proofs) return null;
+        const p = self.facts.provenIfOf(node) orelse return null;
+        return .{ .tests = p.tests, .flag = self.flag_names.get(p.flag) orelse return null };
+    }
+
+    /// The flag made before statement `stmt` (docs/internals/INTERNALS.md,
+    /// "Flags"), when the proof pass made one: its tests, each of a
+    /// binding or a length as the statement starts, and together.
+    ///
+    ///     const __rig_ok_7 = rig.okNonneg(i) and rig.okBelow(i, 5, self.words.len); _ = &__rig_ok_7;
+    ///
+    /// A flag whose bindings emit does not hold by name is not written,
+    /// and the tests it would prove are made.
+    fn emitFlag(self: *Emitter, stmt: Sexp) Error!void {
+        if (self.no_proofs or stmt != .list) return;
+        const tests = self.facts.flagOf(stmt) orelse return;
+        for (tests) |t| switch (t) {
+            .nonneg => |i| if (!self.flagReads(i)) return,
+            .below => |b| if (!self.flagReads(b.i) or !self.flagReads(b.s.root)) return,
+        };
+        const name = try self.fmt("__rig_ok_{d}", .{self.nextId()});
+        try self.w.print("const {s} = ", .{name});
+        for (tests, 0..) |t, n| {
+            if (n > 0) try self.w.writeAll(" and ");
+            switch (t) {
+                .nonneg => |i| {
+                    try self.w.writeAll("rig.okNonneg(");
+                    try self.writeFlagRead(i);
+                    try self.w.writeAll(")");
+                },
+                .below => |b| {
+                    try self.w.writeAll("rig.okBelow(");
+                    try self.writeFlagRead(b.i);
+                    try self.w.print(", {d}, ", .{b.k});
+                    try self.writeFlagRead(b.s.root);
+                    for (b.s.fields) |f| try self.w.print(".{f}", .{ident(f)});
+                    try self.w.writeAll(".len)");
+                },
+            }
+        }
+        try self.w.print("; _ = &{s}; ", .{name});
+        if (self.scopes.items.len == 0) try self.pushScope();
+        try self.scopes.items[self.scopes.items.len - 1].flags.append(self.allocator, stmt.list.id);
+        try self.flag_names.put(self.allocator, stmt.list.id, name);
+    }
+
+    /// Whether a flag can read binding `sym` by its Zig name: a local
+    /// emit holds, not as a closure's capture.
+    fn flagReads(self: *Emitter, sym: SymbolId) bool {
+        const local = self.localBySym(sym) orelse return false;
+        return isPlainIdent(local.zig_name);
+    }
+
+    /// Binding `sym` as a flag's test reads it.
+    fn writeFlagRead(self: *Emitter, sym: SymbolId) Error!void {
+        const local = self.localBySym(sym).?;
+        try self.w.writeAll(local.zig_name);
+        if (local.is_ptr and self.facts.symbols.items[sym].ty == self.facts.types.int_id) try self.w.writeAll(".*");
     }
 
     fn unsupported(self: *Emitter, node: Sexp, what: []const u8) Error {

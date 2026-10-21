@@ -1149,6 +1149,30 @@ pub const Proven = packed struct(u8) {
     }
 };
 
+/// Of a node: the tests known to pass while the flag `flag` holds, besides
+/// those `Proven` gives always (docs/internals/INTERNALS.md, "Flags").
+/// Recorded by `src/proofs.zig` alone, on the nodes `Proven` is, and read
+/// by emit through `Facts.provenIfOf`.
+pub const ProvenIf = struct {
+    tests: Proven,
+    /// The statement whose flag it is (`SemContext.flagOf`).
+    flag: NodeKey,
+};
+
+/// A binding, or a field of one (a field path from it), whose length a
+/// flag's test reads: by the symbol of its root and the field names after
+/// it.
+pub const FlagPlace = struct { root: SymbolId, fields: []const []const u8 = &.{} };
+
+/// One test of a flag (`SemContext.flagOf`), each of an own binding's
+/// value or a place's length as the statement starts.
+pub const FlagTest = union(enum) {
+    /// `0 <= i`.
+    nonneg: SymbolId,
+    /// `i + k <= s.len`, exactly.
+    below: struct { i: SymbolId, k: u64, s: FlagPlace },
+};
+
 /// What a function bounds of its result on every path that returns
 /// (docs/internals/INTERNALS.md, "Proven checks"): `0 <= v <= hi` of the result
 /// itself, an `Int`, or of named `Int` fields of the struct it returns.
@@ -2380,6 +2404,12 @@ pub const SemContext = struct {
     /// `src/proofs.zig` once the ownership checker accepted the module.
     /// Printed by `check --facts=proofs`, not `--facts=sema`.
     proven: std.AutoHashMapUnmanaged(NodeKey, Proven) = .empty,
+    /// The tests each node is known to pass while a flag holds
+    /// (`ProvenIf`), and each flag's tests, by the statement it is made
+    /// before (`FlagTest`): written only by `src/proofs.zig`, with the
+    /// tests above, and allocated in `arena`.
+    proven_if: std.AutoHashMapUnmanaged(NodeKey, ProvenIf) = .empty,
+    flags: std.AutoHashMapUnmanaged(NodeKey, []const FlagTest) = .empty,
     /// What each function of the module bounds of its result
     /// (`ResultBound`), by where its name is declared: written only by
     /// `src/proofs.zig`, with the tests above.
@@ -2486,6 +2516,8 @@ pub const SemContext = struct {
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
+        self.proven_if.deinit(self.allocator);
+        self.flags.deinit(self.allocator);
         self.result_bounds.deinit(self.allocator);
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
@@ -3051,6 +3083,18 @@ pub const SemContext = struct {
     /// recorded some.
     pub fn provenOf(self: *const SemContext, node: Sexp) Proven {
         return self.proven.get(nodeKey(node) orelse return .{}) orelse .{};
+    }
+
+    /// The tests `node` is known to pass while a flag holds, and the
+    /// flag's statement; null unless the proof pass recorded some.
+    pub fn provenIfOf(self: *const SemContext, node: Sexp) ?ProvenIf {
+        return self.proven_if.get(nodeKey(node) orelse return null);
+    }
+
+    /// The tests of the flag made before statement `stmt`, which the
+    /// tests `provenIfOf` gives rest on; null when it has none.
+    pub fn flagOf(self: *const SemContext, stmt: Sexp) ?[]const FlagTest {
+        return self.flags.get(nodeKey(stmt) orelse return null);
     }
 
     pub fn takes(self: *const SemContext, node: Sexp) bool {
