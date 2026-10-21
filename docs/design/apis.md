@@ -41,7 +41,7 @@ it.
 |---|---|---|---|
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]` | *(planned)* |
-| 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `extend X: A` | *(planned)* |
+| 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(planned)* |
 | 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
 | 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Moves}` | *(planned)* |
 
@@ -65,7 +65,7 @@ api Shape                              # what a Shape can do: methods only, no f
     print("area", @area())
 
 obj Square: Shape + Print              # Square provides Shape and Print
-extend Int: Shape                      # Int provides Shape, written in Shape's module
+add Int: Shape                         # add Shape to Int, written in Shape's module
 api Widget: Shape + Named + Print      # a named combination
 fun total[T: Shape](xs: ?List[T])      # any T that provides Shape
 ?{Shape}   ^{Job + Moves}              # any value that provides Shape
@@ -76,8 +76,9 @@ fun total[T: Shape](xs: ?List[T])      # any T that provides Shape
   own methods. It holds no fields and no state. It is the API, not the
   implementation, which lives in the types that provide it.
 - **A type provides an API on its header,** `obj Square: Shape`, read
-  "`Square` provides `Shape`". **`extend Int: Shape`** provides one for
-  a type one does not own.
+  "`Square` provides `Shape`". **`add Int: Shape`** adds one to a type
+  declared elsewhere. `api` always declares a new name and `add` always
+  names a type that exists, so `add Inte: Shape` is an error.
 - **`+` joins APIs,** in a header, a bound, and braces alike.
 - **Every default may be overridden** by a method of the same
   signature; a method with a default's name and another signature is an
@@ -85,10 +86,10 @@ fun total[T: Shape](xs: ?List[T])      # any T that provides Shape
 - **The built-in APIs keep short names,** `Eq`, `Hash`, `Ord`, `Print`,
   `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Num`, `Iter`, and an
   error about one says what cannot be done: "`Label` cannot be hashed".
-- **`api` and `extend` are keywords only at the start of a
-  declaration,** so `user.api` and an `extend` method keep working.
+- **`api` and `add` are keywords only at the start of a
+  declaration,** so `user.api` and `!set.add(x)` keep working.
   `trait` and `impl` stay reserved only to say "write `api`" and "write
-  `extend`".
+  `add`".
 - **`{Iter[Item: Int]}`** is kept free to name an API object's
   associated type, and a bare API name in a type is an error, so a
   later form has its spelling.
@@ -351,25 +352,25 @@ ordinary methods, in its body or beside it. A method that meets a `pub`
 API on a `pub` type says `pub`; leaving it off is an error with the
 fix.
 
-**`extend Type: API`** is for the two cases the header cannot say:
+**`add Type: API`** is for the two cases the header cannot say:
 
 - a type of another module, or a built-in type, written in the API's
-  module: `extend Int: Shape`;
-- a conformance that holds only under a bound: `extend Wrap[T: Shape]: Shape`.
+  module: `add Int: Shape`;
+- an API a type provides only under a bound: `add Wrap[T: Shape]: Shape`.
 
-An `extend` in the type's own module with no bound is rejected toward
-the header form, so each case has one spelling. An extension's
-methods stay inside it and need no `pub`: they belong to the API, and
-never become methods of the type for every importer. `extend` names
-the act, as Swift's `extension` does; Rust's `impl Trait for Type` is
+An `add` in the type's own module with no bound is rejected toward the
+header form, so each case has one spelling. An addition's methods stay
+inside it and need no `pub`: they belong to the API, and never become
+methods of the type for every importer. `add` says what it does, adds
+`Shape` to `Int`, whoever owns `Int`; Rust's `impl Trait for Type` is
 not used, and `for` is Rig's loop word.
 
 **Coherence.** A type provides an API at most once in the whole program,
-in its own module or the API's. There are no extensions of a bare
+in its own module or the API's. There are no additions to a bare
 type parameter, at most one per API and type constructor, and none
 whose conditions overlap. A bound is met if the type provides the API
 anywhere in the program; only the `c.area()` shorthand depends on what a module
-imports. An extension may not define a method the type already
+imports. An addition may not define a method the type already
 has, and never adopts an existing method as an implementation. When two
 imported APIs give one type a method of one name, `c.area()` is an
 error that says to name the API: `Shape.area(c)`, with self's sigil
@@ -416,7 +417,7 @@ type (`x * 300` with `T = U8`).
 one compile-time parameter after the type it bounds, its witness, and
 the call is written `W_T_Shape.area(x)`: the type itself for a
 conformance on its header, or a module-level `__rig_impl_Shape_Int` for
-an extension. Instances stay one per type, so code size does not change.
+an addition. Instances stay one per type, so code size does not change.
 A generic type's witnesses are compile-time parameters of its methods,
 never of the type, so one Rig type stays one Zig type. Every method
 call records how it dispatches, `direct`, `static`, or `dynamic`, and
@@ -547,7 +548,7 @@ is not used.
   defaults or associated types. Built-in capabilities are structural,
   as derived facts.
 - **Conformance in `impl` blocks only** (Rust): a type's methods split
-  across blocks. The header says what a type is; `extend` is for the
+  across blocks. The header says what a type is; `add` is for the
   two cases it cannot.
 - **A `where` clause**: every bound fits in the brackets.
 - **API objects spelled bare** (`?Shape`): reads as a concrete type and
