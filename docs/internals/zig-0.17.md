@@ -935,6 +935,7 @@ test "strings" {
 | `@floatFromInt(x)` | needed unless the integer type fits the float exactly: `u24` and smaller coerce to `f32` implicitly, 53-bit integers to `f64`. |
 | `@sqrt`, `@sin`, `@floor`, ... | forward the result type: `const r: f64 = @sqrt(@floatFromInt(n));` |
 | `@divTrunc`, `@divFloor`, `@rem`, `@mod`, `@intCast`, `@truncate`, `@bitCast`, `@ptrCast`, `@alignCast` | cast builtins take the result type from context (`const x: u8 = @intCast(n);`, or `@as(u8, @intCast(n))`). `@bitCast` works on logical bit representations (integers, floats, `enum(T)`, packed types, and arrays and vectors of these), never on `extern struct` or `extern union`. |
+| `@intCast` from a signed type to a narrower unsigned one | lowered as LLVM `trunc nsw`, a promise that the value fits the narrower *signed* type, so in a release build any value at or above the target's sign bit is poison: after a check that `r` is 0 to 255, `@as(u8, @intCast(r)) >= 128` is `false`. Cast through the unsigned type of the source's width, `@as(u8, @intCast(@as(u64, @intCast(r))))`, which narrows as `trunc nuw` and still panics on a negative value; emit does (`openUnsignedCast`), and the runtime and shims write `@intCast(rig.unsigned(r))`. `@truncate` is a plain `trunc`. |
 | C headers | there is no `@cImport`; a header is translated in `build.zig` (§14) |
 
 ```zig

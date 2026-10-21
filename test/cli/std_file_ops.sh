@@ -1,8 +1,10 @@
-# std.file's layer of operations: append, rename, mkdir, remove, open and
-# create giving a File read and written as a net.Stream is, each failure
-# a FileError; and every call a fallible waiting point, failing in a
+# std.file's layer of operations: append, rename, mkdir, remove, exists,
+# open and create giving a File read and written as a net.Stream is,
+# missing parents made only with `parents: true`, each failure a
+# FileError; and every call a fallible waiting point, failing in a
 # task past its deadline or canceled. In debug (sanitized) and --release.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >ops.rig <<'EOF2'
@@ -10,21 +12,32 @@ use std.file
 
 sub copy(from: ?String, to: ?String)!
   if file.open(from)! as src
-    dst = file.create(to)!
+    dst = file.create(to, parents: true)!
     buf = String()
     while (!src).read(!buf, 3)! > 0
       (!dst).write(buf)!
       buf = String()
 
 sub main()!
+  file.mkdir("d")!
   file.write("d/a.txt", "hello")!
   file.append("d/a.txt", " world")!
-  file.append("d/new/b.txt", "b")!
+  file.append("d/new/b.txt", "b") catch |e|
+    print("append with no parent", e)
+  file.append("d/new/b.txt", "b", parents: true)!
   print(file.read("d/a.txt")! ?? String("none"), file.read("d/new/b.txt")! ?? String("none"))
-  file.mkdir("d/x/y/z")!
+  file.mkdir("d/x/y/z") catch |e|
+    print("mkdir with no parent", e)
+  file.mkdir("d/x/y/z", parents: true)!
   file.mkdir("d/x/y")!
+  file.mkdir("d/x/y", parents: true)!
   file.mkdir("d/a.txt") catch |e|
     print("mkdir on a file", e)
+  file.mkdir("d/a.txt", parents: true) catch |e|
+    print("mkdir parents on a file", e)
+  _ = file.create("d/q/f.txt") catch |e|
+    print("create with no parent", e)
+  print(file.exists("d/a.txt")!, file.exists("d/x")!, file.exists("d/none")!, file.exists("d/link")!, file.exists("d/a.txt/x")!)
   file.rename("d/a.txt", "d/c.txt")!
   print(file.read("d/a.txt")! == none, file.read("d/c.txt")! ?? String("none"))
   file.rename("d/nothing", "d/c2.txt") catch |e|
@@ -43,6 +56,7 @@ sub main()!
     _ = (!dir).read(!got, 10) catch |e|
       print("read a directory", e)
       0
+  file.remove("d/link")!
   if file.read_dir("d")! as es
     for e in es
       print(" ", e.name, e.kind)
@@ -78,6 +92,10 @@ EOF2
 cat >denied.rig <<'EOF2'
 use std.file
 
+sub make()!
+  f = file.create("ro/g.txt")!
+  (!f).write("x")!
+
 sub main()
   file.append("ro/f.txt", "x") catch |e|
     print("append", e)
@@ -86,13 +104,20 @@ sub main()
     false
   file.rename("ro/f.txt", "g.txt") catch |e|
     print("rename", e)
-  _ = file.create("ro/g.txt") catch |e|
+  make() catch |e|
     print("create", e)
-    return
+  _ = file.exists("shut/f.txt") catch |e|
+    print("exists", e)
+    false
 EOF2
 
-want_ops='hello world b
+want_ops='append with no parent FileError.not_found
+hello world b
+mkdir with no parent FileError.not_found
 mkdir on a file FileError.exists
+mkdir parents on a file FileError.exists
+create with no parent FileError.not_found
+true true false false false
 true hello world
 rename nothing FileError.not_found
 remove a full directory FileError.not_empty
@@ -108,16 +133,19 @@ read a directory FileError.is_directory
 for mode in debug release; do
     flag=; [[ $mode == release ]] && flag=--release
     rm -rf d f.txt never.txt
+    # A link that names nothing, made before `ops.rig` makes `d`: `mkdir`
+    # of a directory there already is fine.
+    mkdir d; ln -s nowhere d/link
     out=$(RIG_SANITIZE=1 rig run $flag ops.rig 2>&1); expect_rc $? 0 "$mode ops: $out"
     expect_eq "$out" "$want_ops" "$mode: append, mkdir, rename, remove, open, create"
     out=$(RIG_SANITIZE=1 rig run $flag stop.rig 2>&1); expect_rc $? 0 "$mode stop: $out"
     expect_eq "$out" $'sleep Stop.timeout\n-1\n-2\ntrue' "$mode: past a deadline, and canceled"
     if [[ $(id -u) -ne 0 ]]; then
-        rm -rf ro; mkdir ro; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro
+        rm -rf ro shut; mkdir ro shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?
-        chmod 700 ro
+        chmod 700 ro shut
         expect_rc $rc 0 "$mode denied: $out"
-        expect_eq "$out" $'append FileError.denied\nremove FileError.denied\nrename FileError.denied\ncreate FileError.denied' "$mode: denied"
+        expect_eq "$out" $'append FileError.denied\nremove FileError.denied\nrename FileError.denied\ncreate FileError.denied\nexists FileError.denied' "$mode: denied"
     fi
 done
 exit 0

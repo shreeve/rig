@@ -414,8 +414,8 @@ things, and a hint when the token starts a reserved form such as a
 a form Rig spells differently (`def`, `let`, `class`, `elif`, `import`,
 `loop`, `then`, ...; the table `foreign_words`) is reported at the word
 with Rig's spelling, when it starts the statement the parser failed on
-or is itself the token it failed on; so are a `:` ending a block's
-header and an inclusive range `a..=b`. A definition without its
+or is itself the token it failed on; so is a `:` ending a block's
+header. A definition without its
 parameter list (`sub main`), which the grammar parses for this, is
 rejected at its name with the header to write (`sub main()`). The
 wrapper also makes the only rewrites that need to inspect the tree:
@@ -453,6 +453,10 @@ wrapper also makes the only rewrites that need to inspect the tree:
   checker calls `Parser.dropTail` on its body, which turns the last line
   and that of each branch ending it into `(drop ...)` again, before any
   pass reads it;
+- an inclusive range `(..= a b)` becomes `(.. a b inclusive)`, so
+  every pass that reads a range reads one node, and the few that care
+  ask `rig.isInclusive`; a range pattern `lo..=hi` carries the same
+  tag;
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;
@@ -3098,6 +3102,25 @@ hands back nothing. Its two places are places like any other: two
 fields of one value are disjoint paths, and two elements of one
 collection overlap, which the hint `!a.swap(i, j)` says once
 (`sameCollection`).
+
+
+**Closures called once.** A third set, `once`, holds the closure
+parameters written `f: once ?fun() -> T`. The Parser wrapper turns the
+`(once name type)` node into a `(: name type)` and records it
+(`Parser.isOnceParam`); `resolve.recordOnce` checks that each is a
+closure and records the mask by the function's name, and
+`sema.declaredOrigins` reads it into the origins, which an importer
+reads with the rest. Where a call fills a `once` parameter with a
+closure literal, `checkArgs` records it (`SemContext.isOnceClosure`).
+The ownership checker then binds what that closure moves in as locals
+of its body, which it may move out or drops at its end, and treats a
+call of a `once` parameter, or a pass of it to another, as a move of it
+(`walkCall`, `onceUses`), so a second use is an error. Emit gives such
+a closure's environment a `__rig_called` flag: its call sets it and
+owns every capture, with the drop guards a local has, and the
+environment drops what it holds only when the flag is clear, when the
+callee never called it. The reference checker takes the closure's
+moved captures as owned parameters (`runClosure`).
 
 ### Several results
 

@@ -13,6 +13,7 @@
 # inline (73 MB, more than the program's stack), must stop the rule from
 # inlining the helper there: each program runs sanitizer-clean, and every
 # owner's account adds at most 64 KiB through the rule.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 helper='fun w(i: Int) -> Int

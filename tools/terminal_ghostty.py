@@ -48,7 +48,7 @@ PIN = "31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2"
 GHOSTTY_URL = "https://github.com/ghostty-org/ghostty"
 
 # The areas std.terminal implements, in the file's order.
-AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide", "grapheme", "protect"]
+AREAS = ["print", "control", "cursor", "escape", "parser", "erase", "edit", "scroll", "style", "mode", "charset", "screen", "reply", "utf8", "wide", "grapheme", "protect", "history"]
 
 # (area, name, cols, rows, bytes): what a program writes to a terminal of
 # cols by rows.
@@ -398,6 +398,50 @@ CASES = [
     ("protect", "each screen keeps its kind of protection", 8, 2, b"\x1bVab\x1bW\x1b[?1049h\x1b[1\"qcd\x1b[0\"q\x1b[1;1H\x1b[K\x1b[?1049l\x1b[1;1H\x1b[K"),
     ("protect", "printing over a protected cell, and DECALN, unprotect", 8, 2, b"\x1bVab\x1bW\x1b[1;1Hx\x1b[1;1H\x1b[K\x1b#8\x1bV\x1bW\x1b[2;1H\x1b[K"),
     ("protect", "1049 erases the alternate screen as its protection says", 8, 2, b"\x1b[?1049h\x1bVab\x1bW\x1b[?1049l\x1b[?1049h"),
+    ("history", "LF at the bottom scrolls the top row into the history", 10, 3, b"1\r\n2\r\n3\r\n4\r\n5"),
+    ("history", "IND and NEL at the bottom keep the rows they scroll", 10, 3, b"1\r\n2\r\n3\x1bD\x1bEX"),
+    ("history", "wrapping at the bottom keeps the row", 4, 2, b"abcdefghijkl"),
+    ("history", "a region at the top keeps the rows it scrolls", 10, 5, b"1\r\n2\r\n3\r\n4\r\n5\x1b[1;3r\x1b[3;1H\n\nX"),
+    ("history", "a region below the top keeps nothing", 10, 5, b"1\r\n2\r\n3\r\n4\r\n5\x1b[2;4r\x1b[4;1H\n\nX"),
+    ("history", "SU keeps the rows it scrolls", 10, 4, b"1\r\n2\r\n3\r\n4\x1b[2S"),
+    ("history", "SU in a region at the top keeps the rows", 10, 5, b"1\r\n2\r\n3\r\n4\r\n5\x1b[1;3r\x1b[2SX"),
+    ("history", "SU of more than the screen keeps the screen", 10, 3, b"1\r\n2\r\n3\x1b[9S"),
+    ("history", "SU of more than a region at the top", 10, 5, b"1\r\n2\r\n3\r\n4\r\n5\x1b[1;2r\x1b[9S"),
+    ("history", "SU below the top keeps nothing", 10, 4, b"1\r\n2\r\n3\r\n4\x1b[2;4r\x1b[2S"),
+    ("history", "DL at the top keeps nothing", 10, 3, b"1\r\n2\r\n3\x1b[H\x1b[2M"),
+    ("history", "RI and SD bring nothing back", 10, 3, b"1\r\n2\r\n3\r\n4\x1b[H\x1bM\x1b[TX"),
+    ("history", "rows keep their styles", 10, 2, b"\x1b[1;31mred\x1b[m \x1b[4mul\x1b[m\r\n2\r\n3"),
+    ("history", "an erased row keeps its background", 10, 2, b"\x1b[44m\x1b[2K\x1b[m\r\n2\r\n3"),
+    ("history", "a row scrolled in with a background", 10, 2, b"1\x1b[44m\r\n\r\n\x1b[m3"),
+    ("history", "wide runes go with their rows", 5, 2, b"\xe4\xb8\x80\xe4\xb8\x80\xe4\xb8\x80x\r\n2\r\n3"),
+    ("history", "a wide rune wrapped leaves its spacer in the history", 3, 2, b"ab\xe4\xb8\x80\r\n3\r\n4"),
+    ("history", "joined runes go with their cells", 6, 2, b"e\xcc\x81x\r\n2\r\n3"),
+    ("history", "chars of mode 2027 go with their cells", 6, 2, b"\x1b[?2027h\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9x\r\n2\r\n3"),
+    ("history", "protected cells go with their rows", 6, 2, b"\x1b[1\"qab\x1b[0\"q\r\n2\r\n3\x1b[?1049h\x1b[?1049l"),
+    ("history", "the alternate screen keeps nothing", 10, 3, b"\x1b[?1049h1\r\n2\r\n3\r\n4"),
+    ("history", "the primary screen's history shows on the alternate", 10, 3, b"1\r\n2\r\n3\r\n4\x1b[?1049hX"),
+    ("history", "the history outlasts the alternate screen", 10, 3, b"1\r\n2\r\n3\r\n4\x1b[?1049h5\r\n6\r\n7\r\n8\x1b[?1049l9"),
+    ("history", "ED 3 erases the history", 10, 3, b"1\r\n2\r\n3\r\n4\r\n5\x1b[3J"),
+    ("history", "ED 3 keeps the screen and cursor", 10, 3, b"1\r\n2\r\n3\r\n4\r\n5\x1b[2;2H\x1b[3JX"),
+    ("history", "rows after ED 3 fill the history again", 10, 3, b"1\r\n2\r\n3\r\n4\r\n5\x1b[3J\r\n6\r\n7\r\n8\r\n9"),
+    ("history", "rows erased by ED 3 come back blank", 10, 3, b"\x1b[44m1\x1b[K\r\n\x1b[m\xe4\xb8\x80e\xcc\x81\r\n3\r\n4\r\n5\x1b[3J\r\n6\r\n\r\n\r\n"),
+    ("history", "ED 3 on the alternate screen keeps the primary's history", 10, 3, b"1\r\n2\r\n3\r\n4\x1b[?1049h\x1b[3J\x1b[?1049l"),
+    ("history", "DECALN fills the screen, not the history", 4, 2, b"1\r\n2\r\n3\x1b#8"),
+    ("history", "ED 2 keeps the history", 10, 3, b"1\r\n2\r\n3\r\n4\x1b[2J"),
+    ("history", "RIS erases the history", 10, 3, b"1\r\n2\r\n3\r\n4\x1bcX"),
+    ("history", "ED 22 moves the screen into the history", 10, 3, b"1\r\n2\r\n3\x1b[22J"),
+    ("history", "ED 22 moves rows down to the last with text", 10, 5, b"1\r\n2\r\n3\x1b[1;5H\x1b[22JX"),
+    ("history", "ED 22 keeps the cursor below the rows it moves", 10, 5, b"1\r\n2\x1b[4;3H\x1b[22JX"),
+    ("history", "ED 22 keeps the empty rows above the cursor", 10, 5, b"\x1b[2;1H1\x1b[5;3H\x1b[22JX"),
+    ("history", "ED 22 of an empty screen", 10, 3, b"\x1b[2;3H\x1b[22JX"),
+    ("history", "ED 22 counts a row with a background", 10, 4, b"1\x1b[3;1H\x1b[44m\x1b[K\x1b[m\x1b[4;2H\x1b[22JX"),
+    ("history", "ED 22 counts a row with a spacer", 3, 4, b"ab\xe4\xb8\x80\x1b[3;1H\x1b[22JX"),
+    ("history", "ED 22 counts a wide rune on one column as empty", 1, 2, b"\x1b[42m\xea\xb0\x9f\x1b[22J"),
+    ("history", "ED 22 brings in rows without the pen's background", 10, 3, b"1\r\n2\x1b[44m\x1b[22J\x1b[m"),
+    ("history", "ED 22 clears a pending wrap", 4, 3, b"\x1b[3;1Habcd\x1b[22JX"),
+    ("history", "ED 22 ignores the margins", 10, 5, b"1\r\n2\r\n3\x1b[2;4r\x1b[5;1H\x1b[22JX"),
+    ("history", "ED 22 on the alternate screen keeps nothing", 10, 4, b"1\r\n2\r\n3\r\n4\r\n5\x1b[?1049ha\r\nb\x1b[4;1H\x1b[22JX"),
+    ("history", "a long scroll keeps every row", 10, 3, b"".join(b"%d\r\n" % i for i in range(300))),
     ("grapheme", "a combining mark joins the char before", 10, 2, "e\u0301a\u0308b".encode()),
     ("grapheme", "marks join a wide char", 10, 2, "中\u0301\u0302x".encode()),
     ("grapheme", "a mark at the first column is dropped", 10, 2, "\u0301a\r\u0302".encode()),
@@ -670,6 +714,8 @@ def utf8_piece(rng):
 
 
 def csi(rng, every):
+    if rng.random() < 0.05:
+        return rng.choice([b"\x1b[3J", b"\x1b[22J"])
     params = []
     for _ in range(rng.choice([0, 0, 1, 1, 1, 2, 2, 3, 5])):
         params.append(b"" if rng.random() < 0.1 else b"%d" % rng.choice(VALUES))

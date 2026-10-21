@@ -2,6 +2,7 @@
 # when nothing is there, and a FileError when it cannot be read; in
 # debug (sanitized) and --release.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 # Each path's length and first bytes, `none`, or the error.

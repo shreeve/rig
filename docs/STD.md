@@ -20,8 +20,7 @@ any other module. What Rig cannot do itself, a module declares in an
 `extern zig` block: functions with full Rig signatures, implemented by
 a small Zig file beside the module on Zig's standard library
 ([SPEC §15](../SPEC.md#zig-backed-declarations)). A call to one is
-checked like any call. The standard library is new: this page lists
-everything it has.
+checked like any call. This page lists everything it has.
 
 `RIG_STD=dir` makes `rig` read the standard library from `dir` in
 place of the copy built into it. It is a setting for developing the
@@ -36,7 +35,7 @@ never read as the library's.
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | copying bytes between files and sockets: `copy` |
 | [`std.time`](#stdtime) | clocks and sleeping |
-| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
+| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
@@ -294,16 +293,23 @@ directory.
 | Function | Result |
 |---|---|
 | `read(path: ?String) -> String?!` | the file at `path` as a fresh `String` of exactly its bytes; `none` when nothing is there |
-| `write(path: ?String, data: ?String)!` | writes `data` as the whole file at `path`, making each missing directory on the way |
-| `append(path: ?String, data: ?String)!` | writes `data` at the end of the file at `path`, creating it, and each missing directory, when it is not there |
+| `write(path: ?String, data: ?String, parents: Bool = false)!` | writes `data` as the whole file at `path`, creating it or replacing what it holds |
+| `append(path: ?String, data: ?String, parents: Bool = false)!` | writes `data` at the end of the file at `path`, creating it when it is not there |
+| `exists(path: ?String) -> Bool!` | whether anything is at `path`, following symbolic links: a link that names nothing is not |
 | `stat(path: ?String) -> Stat?!` | what is at `path`: its `kind`, whether it is a `link`, its `size`, and when it was `modified`; `none` when nothing is there |
 | `read_dir(path: ?String) -> List[Entry]?!` | the entries of the directory at `path`, sorted by name, each with its `name`, `kind`, and `link`; `none` when nothing is there |
 | `realpath(path: ?String) -> String?!` | the absolute path `path` names, every symbolic link in it resolved; `none` when nothing is there |
-| `mkdir(path: ?String)!` | makes the directory `path` and each missing one on the way; a directory there already is fine |
+| `mkdir(path: ?String, parents: Bool = false)!` | makes the directory `path`; a directory there already is fine |
 | `rename(from: ?String, to: ?String)!` | moves what is at `from` to `to`, replacing a file there |
 | `remove(path: ?String) -> Bool!` | removes the file, or empty directory, at `path`: `true`, or `false` when nothing was there |
 | `open(path: ?String) -> File?!` | the file at `path`, to read; `none` when nothing is there |
-| `create(path: ?String) -> File!` | the file at `path`, created or emptied, to write, making each missing directory on the way |
+| `create(path: ?String, parents: Bool = false) -> File!` | the file at `path`, created or emptied, to write |
+
+**`parents: true` makes the missing directories on the way.** `write`,
+`append`, `create`, and `mkdir` take it, with one default everywhere,
+as Python's `Path.mkdir(parents=False)` does: without it, a directory
+on the way that is missing fails with `FileError.not_found`, so a typo
+in a path is reported rather than made into a directory.
 
 **`none` means nothing is there; every other failure is an error.** A
 call that looks for something gives `none` only when nothing is at the
@@ -315,7 +321,7 @@ reports a file it may not read.
 
 | Error | When |
 |---|---|
-| `not_found` | nothing is at the path, or at a directory on the way to it (an empty path), for a call that needs something there |
+| `not_found` | nothing is at the path, or at a directory on the way to it (an empty path), for a call that needs something there; a missing directory on the way without `parents: true` |
 | `exists` | something is at the path already: `mkdir` where a file is |
 | `denied` | the system does not allow it: permissions, or a read-only file system |
 | `not_directory` | the path given `read_dir` names a file, or a file stands where a call that makes something needs a directory on the way |
@@ -344,7 +350,7 @@ use std.file
 # Copy the file at `from` to `to`, a block at a time.
 sub copy(from: ?String, to: ?String)!
   if file.open(from)! as src
-    dst = file.create(to)!
+    dst = file.create(to, parents: true)!
     buf = String()
     while (!src).read(!buf, 65536)! > 0
       (!dst).write(buf)!
@@ -358,9 +364,11 @@ A `kind` is `Kind.file`, `Kind.directory`, or `Kind.other` (a device,
 a pipe, a socket). `stat` and `read_dir` follow a symbolic link to give
 the kind of what it names, and say with `link` that the path itself is
 one; a link that names nothing is a link of kind `other`, so
-`file.stat(p)! != none` asks whether anything is at `p`, as Go's
-`os.Lstat` does, and a `kind` of `Kind.file` whether a file is there to
-read, as its `os.Stat` does. `modified` is when the contents last
+`file.stat(p)! != none` asks whether anything is at `p`, a broken link
+included, as Go's `os.Lstat` does, and `file.exists(p)!` whether what
+is there leads anywhere, a broken link not, as Python's
+`os.path.exists` and Go's `os.Stat` do. A `kind` of `Kind.file` asks
+whether a file is there to read. `modified` is when the contents last
 changed, in nanoseconds since 1970-01-01 00:00 UTC, of what a link
 names. `read_dir` leaves out `.` and `..`, and sorts by the names'
 bytes.
@@ -414,10 +422,10 @@ FileError.is_directory
 The suite runs these examples from the repository's root, where
 `examples/hello.rig` is.
 
-`write` creates the file, or replaces what it holds, and first makes
-each directory on the way to it that is missing, as Go's `os.MkdirAll`
-and `os.WriteFile` do together; `append` and `create` make them too.
-None is atomic: a reader at the same time may see part of the bytes.
+`write` creates the file, or replaces what it holds; with
+`parents: true` it first makes each directory on the way to it that is
+missing, as Go's `os.MkdirAll` and `os.WriteFile` do together. None of
+`write`, `append`, and `create` is atomic: a reader at the same time may see part of the bytes.
 To replace a file whole, write another beside it and `rename` it over
 the first.
 
@@ -425,7 +433,7 @@ the first.
 use std.file
 
 sub main()
-  file.write("out/gen/main.zig.tmp", "pub fn main() void {}\n") catch |e|
+  file.write("out/gen/main.zig.tmp", "pub fn main() void {}\n", parents: true) catch |e|
     print("cannot write:", e)
     return
   file.rename("out/gen/main.zig.tmp", "out/gen/main.zig") catch |e|
@@ -476,7 +484,7 @@ it cannot be mixed up with the wall clock's nanoseconds.
 | `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
 | `sleep(ns: Int)!` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
-| `within[R](ns: Int, f: ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. Inside another deadline, the earlier one holds. It calls `f` exactly once, so a closure written in the call may move what it captures: `time.within(d, \|<t\| >t!)` waits for a task with a deadline ([SPEC §18](../SPEC.md#deadlines)) |
+| `within[R](ns: Int, f: once ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(d, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
 ```rig
@@ -1941,7 +1949,7 @@ and XTRESTORE of the private ones), REP, `CSI s` and `CSI u`, RIS, and
 character sets (SCS into G0 to G3 of ASCII, British, and DEC Special
 Graphics, with SO, SI, SS2, SS3, LS2, and LS3), and the alternate screen
 (modes 47, 1047, and 1049, as xterm switches them). `dump` shows the
-screen in use. It answers DA (primary, secondary, tertiary, and DECID),
+history, then the screen in use. It answers DA (primary, secondary, tertiary, and DECID),
 DSR 5 and 6, DECRQM of every mode Ghostty knows (which SM, RM, DECSET,
 DECRST, XTSAVE, and XTRESTORE keep), XTVERSION, and the kitty keyboard
 flags (pushed, popped, and set per screen). In the ground state bytes
@@ -1960,12 +1968,24 @@ syllable is one char, and a char's width is its runes' together, so
 VS16 or a spacing mark makes it wide and VS15 narrow; a wide char at the
 last column wraps whole.
 
+The primary screen keeps a history (scrollback) of up to `scrollback`
+rows, as Ghostty does: a row goes into it when it scrolls off the top
+of the screen, by a line feed, IND, NEL, a wrap, or SU, while the scroll
+region starts at the top row. The row keeps its text, styles, wide
+runes, joined runes, and wrap. When the history is full, its oldest row
+is dropped for each new one. The alternate screen keeps none. ED 3
+(`CSI 3 J`) erases the history; ED 22 (`CSI 22 J`) scrolls the screen,
+down to its last row that is not empty, into it; RIS erases it. A
+scroll costs the same with history as without: rows are not copied.
+
 | Member | Result |
 |---|---|
-| `Terminal.new(cols: Int, rows: Int) -> Terminal` | an empty terminal, the cursor at the top left |
+| `Terminal.new(cols: Int, rows: Int, scrollback: Int = 10000) -> Terminal` | an empty terminal, the cursor at the top left, keeping up to `scrollback` rows of history (0 for none) |
 | `!t.feed(bytes: ?String)` | take `bytes` as a program's output, in order |
 | `t.replies` | a `String`: the bytes the terminal answers with (DA, DSR and CPR, DECRQM, XTVERSION, the kitty keyboard flags), in order, for the caller to send to the program and then `!t.replies.clear()` |
-| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped and the spacer of each wide rune left out; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`); a line `reply BYTES` when there are replies (ESC as `\e`, other controls as `\xNN`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
+| `t.history_len() -> Int` | the rows in the history |
+| `t.history_row(i: Int) -> String` | row `i` of the history, from 0 (the oldest) to `history_len() - 1`, as `dump` shows its text; empty for any other `i` |
+| `t.dump(history: Bool = true) -> String` | a line per row of the history, oldest first, `^` and its text (left out without `history`); a line per row of the screen, `\|` and its text, with trailing blanks dropped and the spacer of each wide rune left out; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`), the history's rows numbered from -1, the newest, up; a line `reply BYTES` when there are replies (ESC as `\e`, other controls as `\xNN`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
 
 ```rig
 use std.terminal
@@ -1981,6 +2001,28 @@ sub main()
 |terminal
 |!
 cursor 2 1
+```
+
+```rig
+use std.terminal
+
+sub main()
+  t = terminal.Terminal.new(8, 2, scrollback: 2)
+  !t.feed("one\r\ntwo\r\nthree\r\nfour\r\nfive")
+  print(t.history_len(), t.history_row(0), t.history_row(1))
+  print(t.dump())
+  !t.feed("\x1b[3J")
+  print(t.history_len())
+```
+
+```output
+2 two three
+^two
+^three
+|four
+|five
+cursor 1 4
+0
 ```
 
 ## std.json

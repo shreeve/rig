@@ -3,6 +3,7 @@
 # `build`, and `test` pass `-lc`. A program without one does not. One
 # run builds with Zig; the others hand their arguments to a stand-in
 # that only records them.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 real_zig=$(command -v "${ZIG:-zig}") || fail "no zig"

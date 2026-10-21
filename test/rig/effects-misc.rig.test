@@ -703,7 +703,7 @@ test "jump as fallback", '''
     0
   print("first", first)
 
-fail "jump fallback checked", "11:24: expected `Int`, got `Static`", "15:17: `return` needs a value of type `Int`", "19:17: expected `Int`, got", "23:24: a `sub` returns no value"
+fail "jump fallback checked", "11:24: expected `Int`, got `Static`", "15:17: `return` needs a value of type `Int`", "19:17: `E.missing` is an error, and `??` needs a fallback of type `Int`; to fail with it, return it: `?? return E.missing`", "23:24: a `sub` returns no value"
   # A `return` as a fallback is checked as the statement is, against the
   # function's result. A bare error value is no fallback for `??`.
 
@@ -776,7 +776,7 @@ fail "lambda inherits propagation", "use of `!` propagation requires"
     print(g()! + n)
   c()
 
-fail "module main propagate", "use of `!` propagation requires the enclosing `main` to be fallible: `sub main(...)!`"
+fail "module main propagate", "use of `!` propagation requires the enclosing `main` to be fallible: `sub main()!`"
   # A `main` in an imported module is not the entry point, so it cannot
   # propagate failure with `!`.
   use tool
@@ -890,7 +890,7 @@ fail "propagate in drop", "a `drop` body cannot propagate failure; handle it wit
   p = P(n: 1)
   print(p.n)
 
-fail "propagate in method main", "use of `!` propagation requires the enclosing `main` to be fallible: `sub main(...)!`"
+fail "propagate in method main", "use of `!` propagation requires the enclosing `main` to be fallible: `sub main(?@)!`"
   # Only the top-level `sub main` can fail; a method named `main` is an
   # ordinary `sub` and cannot propagate with `!`.
 

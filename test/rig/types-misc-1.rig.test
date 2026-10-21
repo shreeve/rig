@@ -3375,7 +3375,7 @@ test "fallible sub", '''
     print("add failed", e)
   print(b.items)
 
-fail "fallible sub hints", "11:3: use of `!` propagation requires the enclosing `w` to be fallible: `sub w(...)!`", "14:10: a `sub` that cannot fail returns no error; declare it fallible to fail: `sub f(...)!`", "25:5: `M` has one field, given by position alone (`M(x)`) or by name (`M(v: x)`)", "26:5: `Empty` has no fields: `Empty()`"
+fail "fallible sub hints", "11:3: use of `!` propagation requires the enclosing `w` to be fallible: `sub w()!`", "14:10: a `sub` that cannot fail returns no error; declare it fallible to fail: `sub f(n: Int)!`", "25:5: `M` has one field, given by position alone (`M(x)`) or by name (`M(v: x)`)", "26:5: `Empty` has no fields: `Empty()`"
   # A `sub` that is not fallible cannot propagate or return an error; the
   # fix is `sub f(...)!`. A type with one field takes one value.
 
@@ -6407,6 +6407,61 @@ bomb "numeric conversion overflow panics", "integer does not fit in destination 
 
   print(U8(rt(255)))
   print(U8(rt(256)))
+
+bomb "negative conversion to unsigned panics", "integer does not fit in destination type", prints: "0", release: true
+  # A negative value converted to an unsigned type panics, in a safe
+  # release build too.
+
+  fun rt(x: Int) -> Int
+    x
+
+  print(U8(rt(0)))
+  print(U8(rt(-1)))
+
+test "conversion to unsigned at its sign bit", release: true, '''
+  true false
+  true false
+  true false
+  true true
+'''
+  # An unsigned value converted from a signed one keeps its high bit: a
+  # `U8` of 200 is at least 128 in every build, though 200 does not fit
+  # an `I8`. So does a shift by an amount past half the width, and a
+  # plain enum made from an `Int` in `raw`.
+
+  enum Op
+    a
+    b
+    c
+    d
+
+  fun big8(x: Int) -> Bool
+    return false if x < 0 or x > 255
+    b = U8(x)
+    b >= 128
+
+  fun big16(x: Int) -> Bool
+    return false if x < 0 or x > 65535
+    U16(x) >= 32768
+
+  fun big32(x: Int) -> Bool
+    return false if x < 0 or x > 4294967295
+    U32(x) >= 2147483648
+
+  fun shl(n: Int) -> Int
+    return 0 if n < 0 or n > 62
+    1 << n
+
+  fun last(n: Int) -> Bool
+    return false if n < 0 or n > 3
+    raw
+      op: Op = $fromBackingInt(n)
+      op == .d
+
+  print(big8(200), big8(100))
+  print(big16(40000), big16(100))
+  print(big32(3000000000), big32(100))
+  print(shl(40) == 1099511627776, last(3))
 
 test "numeric conversions", '''
   200 300 400

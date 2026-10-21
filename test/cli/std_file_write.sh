@@ -1,7 +1,9 @@
 # std.file.write: a whole file written, replaced, and read back, each
-# missing directory on the way made, and each failure a FileError; in
+# missing directory on the way made with `parents: true` and a missing
+# one an error without, and each failure a FileError; in
 # debug (sanitized) and --release, and from tasks.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >write.rig <<'EOF2'
@@ -21,6 +23,8 @@ sub main()!
   put("a.txt", "x")!
   put("empty.txt", "")!
   put("deep/er/est/b.txt", "made")!
+  file.write("deep/er/est/b.txt", "made", parents: true)!
+  put("deep/er/est/b.txt", "made")!
   put("deep/c.txt", "beside")!
   put("a.txt/c.txt", "under a file")!
   put("deep", "a directory")!
@@ -37,7 +41,7 @@ fun put(path: String, n: Int) -> Bool!
   while i < n
     !data.push(U8(i % 256))
     i += 1
-  file.write(?path, ?data) catch return false
+  file.write(?path, ?data, parents: true) catch return false
   (file.read(?path)! ?? String()) == data
 
 sub main()!
@@ -53,13 +57,14 @@ use std.file
 
 sub main()
   for p in ["ro/a.txt", "ro/sub/a.txt"]
-    file.write(p, "no") catch |e|
+    file.write(p, "no", parents: true) catch |e|
       print(p, e)
 EOF2
 
 want='a.txt 7 true
 a.txt 1 true
 empty.txt 0 true
+deep/er/est/b.txt FileError.not_found
 deep/er/est/b.txt 4 true
 deep/c.txt 6 true
 a.txt/c.txt FileError.not_directory

@@ -600,16 +600,20 @@ hi ada, you are 36
 A String built only to be read, as that last one is, is dropped when its
 statement ends.
 
-**Inclusive ranges.** A range excludes its end, and there is no `..=`:
+**Inclusive ranges.** `a..b` excludes its end, as Python's `range` and
+Rust's `..` do; `a..=b` includes it, and reaches a type's largest value
+without stepping past it:
 
-```rig reject
+```rig
 sub main()
-  for i in 0..=3
-    print(i)
+  count = 0
+  for 0..=U8.max
+    count += 1
+  print(count)
 ```
 
-```error
-a range excludes its end: `..=3` is written `..4`
+```output
+256
 ```
 
 **Index first.** `for x, i in xs` binds the element, then the index, the

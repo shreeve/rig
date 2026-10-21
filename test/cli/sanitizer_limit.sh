@@ -2,6 +2,7 @@
 # Linux, what vm.max_map_count allows; here RIG_SANITIZE_BLOCKS), it says
 # so once and hands out unguarded blocks: the program still runs, and
 # leaks are still found.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >many.rig <<'EOF2'

@@ -1,6 +1,7 @@
 # Debug builds report leaks (count and size) and exit 1; with
 # RIG_LEAK_TRACE=1 set at build time, each leaked allocation comes with
 # its stack trace. Release builds do not check.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >cycle.rig <<'EOF'

@@ -82,7 +82,7 @@ test "origin from", '''
   from = 2
   print(span(from, 5))
 
-fail "origin from body exceeds", "5:3: `tail` returns a view of `b`, but its signature says it views only `a`", "8:10: `early` returns a view of `b`", "12:3: `branch` returns a view of `b`", "15:3: `fallback` returns a view of `b`", "21:3: `through` returns a view of `b`", "24:3: `only` returns a view of `s`, but its signature says it views only what lives for the whole program", errors: 6
+fail "origin from body exceeds", "5:3: `tail` returns a view of `b`, but its signature says it views only `a`", "8:10: `early` returns a view of `b`", "12:15: `branch` returns a view of `b`", "15:3: `fallback` returns a view of `b`", "21:3: `through` returns a view of `b`", "24:3: `only` returns a view of `s`, but its signature says it views only what lives for the whole program", errors: 6
   # A body is checked against its `from` clause, whatever form returns the
   # view: a tail value, a `return`, a branch, a fallback, or a call.
 

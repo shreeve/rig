@@ -6,6 +6,7 @@
 # program does each, chosen by its argument, in every build mode.
 # test/rig/runtime-print-flush.rig.test checks the panic's place and the
 # file it names from the package root.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 export RIG_NO_CRASH_REPORT=1
 

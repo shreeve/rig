@@ -199,7 +199,8 @@ place a fallible type stands as a type argument.
 - `task.all(a, b, c)` waits for several tasks of different types at
   once. The first error cancels the others.
 - `time.within(d, |<t| >t!)` waits with a deadline: `within` calls its
-  closure exactly once, so the closure may move the task in.
+  closure once (`f: once ?fun() -> R!`), so the closure may move the
+  task in.
 - A function may return a task (`-> Task[T]`). The task keeps the loans
   its signature shows, as any result does.
 
@@ -235,8 +236,8 @@ no syntax:
   piles up finished work.
 - `>ts` waits for all and gives their results in the order
   added. `<ts.wait_first()` gives the first success. A deadline for
-  either is `time.within`'s, which takes the set into its closure:
-  `time.within(d, |<ts| >ts!)`.
+  either is `time.within`'s, whose closure moves the set in and is
+  called once: `time.within(d, |<ts| >ts!)`.
 - The first error of a fallible set cancels the rest.
 - Dropping a set cancels every task first, then waits for them all, so
   the costs of cancelling do not add up.
