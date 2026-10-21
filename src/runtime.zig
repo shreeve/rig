@@ -137,6 +137,10 @@ test {
 
 /// The Zig type of Rig's `T?`.
 pub fn Opt(comptime T: type) type {
+    // An object that names its none (`none id == 0`) holds it for
+    // `none`, under `RIG_STRICT_OPTIONALS` too: its optional is the size
+    // of the object, which the object asserts.
+    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_none_field")) return Niche(T, nicheOf(T).?);
     if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_strict_optional")) return Strict(T);
     // An object with a niche (`nicheOf`) holds `none` there, and so does
     // an optional of one, with the next value. Only an object the emitter
@@ -175,6 +179,7 @@ pub fn nicheOf(comptime T: type) ?NicheAt {
         .array => |a| if (a.len == 0) null else nicheOf(a.child),
         .@"struct" => |s| blk: {
             if (s.layout == .@"packed") break :blk null;
+            if (@hasDecl(T, "__rig_none_field")) break :blk namedNiche(T);
             // A niche optional's own niche is the next value free in its
             // payload's (`T??`, or a `T?` field).
             if (@hasDecl(T, "__rig_niche")) {
@@ -190,6 +195,20 @@ pub fn nicheOf(comptime T: type) ?NicheAt {
             break :blk best;
         },
         else => null,
+    };
+}
+
+/// The niche of an object that names its none (`none id == 0`): its
+/// field, read as its integer or its enum's tag, holding the value
+/// named, which no value of the object holds (`notNone`).
+fn namedNiche(comptime T: type) NicheAt {
+    const F = @FieldType(T, T.__rig_none_field);
+    const none: F = T.__rig_none;
+    const offset = @offsetOf(T, T.__rig_none_field);
+    return switch (@typeInfo(F)) {
+        .int => .{ .offset = offset, .Word = F, .value = none, .spare = 1 },
+        .@"enum" => |e| .{ .offset = offset, .Word = e.tag_type, .value = @intFromEnum(none), .spare = 1 },
+        else => @compileError("rig: an object names its none by an integer or a plain enum"),
     };
 }
 
@@ -239,6 +258,19 @@ fn Niche(comptime T: type, comptime n: NicheAt) type {
             return o;
         }
     };
+}
+
+/// `x`, a `T` just made, checked not to hold the value that is `T`'s
+/// none (`none id == 0`): a run-time value its constructor is given may
+/// be it.
+pub inline fn notNone(comptime T: type, comptime why: []const u8, x: T) T {
+    if (@field(x, T.__rig_none_field) == T.__rig_none) noneHeld(why);
+    return x;
+}
+
+noinline fn noneHeld(comptime why: []const u8) noreturn {
+    @branchHint(.cold);
+    @panic(why);
 }
 
 /// `T?` held beside a flag, for an object under `RIG_STRICT_OPTIONALS`:

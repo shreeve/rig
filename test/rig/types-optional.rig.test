@@ -414,3 +414,133 @@ test "optional niche", '''
   print(o != none, o == none, o)
   arr: [3]Flagged? = [none, Flagged(n: 2, on: true), none]
   print(arr[0], arr[1], arr[2])
+
+code "optional named none layout", "pub const __rig_none_field = \"id\";", "pub const __rig_none: u32 = 0;", "if (@sizeOf(rig.Opt(@This())) != @sizeOf(@This())) @compileError(", "rig.Opt(Node)", "rig.notNone(Node, "
+  # An object that names its none (`none id == 0`) holds that value for
+  # `none`: its optional is `rig.Opt(Node)`, the size of a `Node`, which
+  # the emitted object checks as Zig compiles it, and its constructor
+  # checks the value it is given.
+  obj Node
+    id: U32
+    none id == 0
+
+  fun find(i: U32) -> Node?
+    return none if i > 5
+    Node(id: i + 1)
+
+  if find(3) as n
+    print(n.id)
+
+test "optional named none", '''
+  4 true
+  true true true true true
+  true
+  true true
+  true true
+  2 none
+'''
+  # An optional held in a named none means what any optional does:
+  # `none`, `if n as x`, `==`, an optional of it, a List of them, and a
+  # plain enum field whose variant is the none.
+  enum Kind
+    empty
+    leaf
+    inner
+
+  obj Tagged
+    kind: Kind
+    none kind == .empty
+
+  obj Node
+    id: U32
+    none id == 0
+
+  fun find(i: U32) -> Node?
+    return none if i > 5
+    Node(id: i + 1)
+
+  if find(3) as n
+    print(n.id, find(9) == none)
+  a: Node? = Node(id: 3)
+  b: Node? = none
+  c: (Node?)? = a
+  d: (Node?)? = none
+  e: (Node?)? = b
+  print(a != none, b == none, c != none, d == none, e != none)
+  if c as inner
+    print(inner != none)
+  t: Tagged? = Tagged(kind: .leaf)
+  u: Tagged? = none
+  print(t != none, u == none)
+  ns: List[Node?] = List()
+  !ns.push(none)
+  !ns.push(Node(id: 9))
+  print(ns[0] == none, ns[1] != none)
+  m = ns[1] ?? Node(id: 1)
+  print(m.id - 7, ns[0])
+
+bomb "optional named none made with its none", "a `Node` never holds `id` 0, which is what a `Node?` holds for `none`"
+  # A value known only when the program runs is checked as the object is
+  # made.
+  use std.os
+
+  obj Node
+    id: U32
+    none id == 0
+
+  n = Node(id: U32(os.args().len - 1))
+  print(n.id)
+
+fail "optional named none misuse", "7:5: cannot assign to `n.id`: `id` names the none of `Node` (`none id == ...`), so only its constructor sets it; make a new `Node`", "8:16: a `Node` never holds `id` 0, which is what a `Node?` holds for `none`; write `none` where no `Node` is meant", "9:20: a `Tagged` never holds `kind` .empty", errors: 3
+  obj Node
+    id: U32
+    none id == 0
+
+  sub main()
+    n = Node(id: 2)
+    n.id = 3
+    z = Node(id: 0)
+    t = Tagged(kind: .empty)
+    print(n.id, z.id, t.kind)
+
+  enum Kind
+    empty
+    full
+
+  obj Tagged
+    kind: Kind
+    none kind == .empty
+
+fail "optional named none declarations", "4:3: an object names its none by its one field, and `Two` has 2", "8:8: an object names its none by a field that is an integer or a plain enum; `s` is a `String`", "12:3: a member line `name field == value` is the none of an object, written `none v == ...`", "16:8: `Big` has no field `w`", "20:13: `v` is a `U8`, which cannot hold 300", "23:12: `v`'s default is its none, which no `Def` holds", "29:3: only an object names its none; `Pick` is an enum", errors: 7
+  obj Two
+    a: Int
+    b: Int
+    none a == 0
+
+  obj Text
+    s: String
+    none s == 0
+
+  obj Odd
+    v: Int
+    nope v == 0
+
+  obj Big
+    v: Int
+    none w == 0
+
+  obj Small
+    v: U8
+    none v == 300
+
+  obj Def
+    v: Int = 0
+    none v == 0
+
+  enum Pick
+    one
+    two
+    none one == 0
+
+  sub main()
+    print(1)

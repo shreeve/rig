@@ -3784,7 +3784,12 @@ symbols); a query that decides more than that belongs in `Pending`.
   address only 0), else Zig's flag. Only the objects emit writes (`__rig_name`) take
   a niche: a `String?`, `List[T]?`, `^T?`, `~T?`, `Bool?`, or enum's
   optional is written `?T` outside generic code, so `rig.Opt` of it
-  stays `?T` everywhere.
+  stays `?T` everywhere. An object that names its none (`none id == 0`,
+  `sema.namedNoneOf`) declares `__rig_none_field` and `__rig_none`,
+  which `nicheOf` takes as its niche, read as the field's integer or
+  enum tag; the object asserts its optional is its own size, and its
+  constructor goes through `rig.notNone`, which panics on that value.
+  Its optional is the niche under `RIG_STRICT_OPTIONALS` too.
 
   `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object
   declares `__rig_strict_optional`, and `rig.Opt` of it, or of an

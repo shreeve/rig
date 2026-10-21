@@ -412,6 +412,7 @@ tokens
     once                        name:leaf type   # `f: once ?fun() -> T`; the Parser wrapper makes it a `:`
     default                     name:leaf type value
     valued                      name:leaf value
+    none_value                  marker:leaf field:leaf value    # `none id == 0`; the checker requires `none`
     variant                     name:leaf params:group
 
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
@@ -812,6 +813,7 @@ members  = member                                   → (1)
 
 member   = field
          | name:name "=" value:expr                 → (valued)     # `ok = 200`
+         | marker:name field:name "==" value:expr   → (none_value) # `none id == 0`: the value a field never holds
          | name:name params:params                  → (variant)    # `circle(r: Int)`
          | fun
          | sub

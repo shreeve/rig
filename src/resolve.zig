@@ -1829,6 +1829,7 @@ pub const TypeResolver = struct {
         } else true;
         var values: EnumValues = .{};
         defer values.seen.deinit(self.ctx.allocator);
+        var none_line: ?Sexp = null;
 
         for (members) |m| {
             switch (m) {
@@ -1896,6 +1897,14 @@ pub const TypeResolver = struct {
                             if (try self.reservedEnumMember(plain_enum, .method, identAt(self.ctx.source, mname_node) orelse "", mname_node.src.pos)) continue;
                             try self.resolveMethod(m, sym_id, &fields, &names);
                         },
+                        .none_value => {
+                            const marker = ir.NoneValue.marker(m);
+                            if (!std.mem.eql(u8, identAt(self.ctx.source, marker) orelse "", "none")) {
+                                try self.ctx.errAt(marker, "a member line `name field == value` is the none of an object, written `none {s} == ...`", .{identAt(self.ctx.source, ir.NoneValue.field(m)) orelse "field"});
+                            } else if (none_line != null) {
+                                try self.ctx.errAt(m, "`{s}` names its none once", .{sym_name});
+                            } else none_line = m;
+                        },
                         .read, .write, .move => {
                             const n = identAt(self.ctx.source, ir.get(m, .operand)) orelse "name";
                             try self.ctx.err(sema.paramPos(m, 0), "sigil-prefixed member (`?{s}` / `!{s}` / `<{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for a method's self, `@`", .{ n, n, n });
@@ -1921,6 +1930,7 @@ pub const TypeResolver = struct {
 
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
         self.ctx.symbols.items[sym_id].fields = owned;
+        if (none_line) |line| try self.resolveNone(line, head, sym_id, owned);
 
         if (generic) try self.checkTypeParamNames(sym_id, members);
         if (head == .@"struct") {
@@ -1928,6 +1938,72 @@ pub const TypeResolver = struct {
                 if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
             }
         }
+    }
+
+    /// `none id == 0` in the type `sym_id` of fields `fields`: the value
+    /// its one field, an integer or a plain enum, never holds, which its
+    /// optional holds for `none` (`SemContext.named_nones`). Only a
+    /// non-generic object with one data field names one.
+    fn resolveNone(self: *TypeResolver, line: Sexp, head: Tag, sym_id: SymbolId, fields: []const Field) Error!void {
+        const name = self.ctx.symbols.items[sym_id].name;
+        const field_node = ir.NoneValue.field(line);
+        const fname = identAt(self.ctx.source, field_node) orelse return;
+        if (head != .@"struct") {
+            try self.ctx.errAt(line, "only an object names its none; `{s}` is {s}", .{ name, if (head == .generic_struct) "generic" else "an enum" });
+            return;
+        }
+        var data: usize = 0;
+        var field: ?Field = null;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            data += 1;
+            if (std.mem.eql(u8, f.name, fname)) field = f;
+        }
+        const f = field orelse {
+            try self.ctx.errAt(field_node, "`{s}` has no field `{s}`", .{ name, fname });
+            return;
+        };
+        if (data != 1) {
+            try self.ctx.errAt(line, "an object names its none by its one field, and `{s}` has {d}", .{ name, data });
+            return;
+        }
+        if (self.isPoison(f.ty)) return;
+        const value_node = ir.NoneValue.value(line);
+        var none: sema.NamedNone = .{ .field = f.name, .value = 0 };
+        if (self.ctx.types.get(f.ty) == .int) {
+            switch (sema.constIntBy(self.ctx, value_node, self.constNames())) {
+                .value => |v| {
+                    if (!sema.intFits(self.ctx, f.ty, v)) {
+                        try self.ctx.errAt(value_node, "`{s}` is a `{s}`, which cannot hold {d}", .{ fname, try sema.formatType(self.ctx, f.ty), v });
+                        return;
+                    }
+                    none.value = v;
+                },
+                else => {
+                    try self.ctx.errAt(value_node, "the none of `{s}` is a constant integer", .{name});
+                    return;
+                },
+            }
+        } else if (sema.isPlainEnum(self.ctx, f.ty)) {
+            const variant = if (value_node.isKind(.enum_lit)) identAt(self.ctx.source, ir.EnumLit.name(value_node)) else null;
+            const enum_fields = (sema.nominalDecl(self.ctx, f.ty) orelse return).symbol().fields orelse return;
+            const v = for (enum_fields) |ef| {
+                if (ef.is_variant and variant != null and std.mem.eql(u8, ef.name, variant.?)) break ef;
+            } else {
+                try self.ctx.errAt(value_node, "the none of `{s}` is a variant of `{s}`: `.name`", .{ name, try sema.formatType(self.ctx, f.ty) });
+                return;
+            };
+            none.value = v.value orelse 0;
+            none.variant = v.name;
+        } else {
+            try self.ctx.errAt(field_node, "an object names its none by a field that is an integer or a plain enum; `{s}` is a `{s}`", .{ fname, try sema.formatType(self.ctx, f.ty) });
+            return;
+        }
+        if (f.default) |d| if (sema.constIntBy(self.ctx, d, self.constNames()) == .value and sema.constIntBy(self.ctx, d, self.constNames()).value == none.value) {
+            try self.ctx.errAt(d, "`{s}`'s default is its none, which no `{s}` holds", .{ fname, name });
+            return;
+        };
+        try self.ctx.named_nones.put(self.ctx.allocator, sym_id, none);
     }
 
     /// The types of a generic type's compile-time value parameters
