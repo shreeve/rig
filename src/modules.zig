@@ -129,9 +129,6 @@ pub const ModuleGraph = struct {
     /// directory module, has its `_test.rig` files. An imported module
     /// never does.
     with_tests: bool = false,
-    /// The profile `rig build --pgo` builds with, which `inlining.decide`
-    /// reads (`pgo.zig`).
-    profile: ?*const @import("pgo.zig").State = null,
     /// Where the root's imports are: the root file's directory, or a
     /// directory root's parent (null for the current directory).
     import_dir: ?[]const u8 = null,
