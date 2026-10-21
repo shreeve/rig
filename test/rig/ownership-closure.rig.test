@@ -450,3 +450,28 @@ test "closure write capture bindings", '''
   keep = |!v, ?b| v.w = b
   keep()
   print(v.w.len)
+
+test "closure write capture returns a copy", '''
+  2
+  3
+  3
+'''
+  # A write capture of a value that copies gives a copy when the
+  # closure returns it; what it writes stays in the binding.
+
+  n = 1
+  bump = |!n|
+    n += 1
+    n
+  print(bump())
+  print(bump())
+  print(n)
+
+fail "closure write capture returns no owner", "`s` is a write view the closure captures, and a return value would hand it out of the closure at each call", errors: 1
+  # A write capture of an owner is not copied out: returning it would
+  # hand the one write view out at each call.
+
+  s = String("a")
+  grab = |!s|
+    s
+  print(grab())

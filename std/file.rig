@@ -70,8 +70,15 @@ pub obj File
   drop(!@)
     close(@fd)
 
+# Whether a file, a directory, or anything else is at `path`, following
+# symbolic links: a link that names nothing is not. Any failure but
+# "nothing there" is an error.
+pub fun exists(path: ?String) -> Bool!
+  exists_at(path)!
+
 # What is at `path`, or `none` when nothing is. A symbolic link that
-# names nothing is a link of kind `other`.
+# names nothing is a link of kind `other`, so `stat(p)! != none` asks
+# whether anything is at `p`, a broken link included.
 pub fun stat(path: ?String) -> Stat?!
   info = List[Int](capacity: 4)
   if not stat_into(path, !info)!
@@ -97,10 +104,29 @@ pub fun open(path: ?String) -> File?!
     return File(fd: fd)
   none
 
-# The file at `path` to write, created, or emptied when it is there,
-# making each missing directory on the way to it.
-pub fun create(path: ?String) -> File!
-  File(fd: create_fd(path)!)
+# The file at `path` to write, created, or emptied when it is there.
+# With `parents: true` it makes each missing directory on the way to it
+# first; without, a missing one fails with `FileError.not_found`.
+pub fun create(path: ?String, parents: Bool = false) -> File!
+  File(fd: create_fd(path, parents)!)
+
+# Write `data` as the whole file at `path`: create it, or replace what
+# it holds. With `parents: true` it makes each missing directory on the
+# way to it first; without, a missing one fails with
+# `FileError.not_found`.
+pub sub write(path: ?String, data: ?String, parents: Bool = false)!
+  write_file(path, data, false, parents)!
+
+# Write `data` at the end of the file at `path`, creating it when it is
+# not there; `parents:` as for `write`.
+pub sub append(path: ?String, data: ?String, parents: Bool = false)!
+  write_file(path, data, true, parents)!
+
+# Make the directory `path`; a directory there already is fine. With
+# `parents: true` it makes each missing one on the way to it too;
+# without, a missing one fails with `FileError.not_found`.
+pub sub mkdir(path: ?String, parents: Bool = false)!
+  make_dir(path, parents)!
 
 fun kind_of(k: Int) -> Kind
   match k
@@ -113,20 +139,18 @@ extern zig "file.zig"
   # `none` when nothing is there.
   pub fun read(path: ?String) -> String?!
 
-  # Write `data` as the whole file at `path`: create it, or replace what
-  # it holds, making each missing directory on the way to it.
-  pub sub write(path: ?String, data: ?String)!
-
-  # Write `data` at the end of the file at `path`, creating it, and each
-  # missing directory on the way to it, when it is not there.
-  pub sub append(path: ?String, data: ?String)!
+  # Write `data` as the file at `path`, emptied first, or at its end;
+  # making the directories on the way to it when `parents`.
+  sub write_file(path: ?String, data: ?String, at_end: Bool, parents: Bool)!
 
   # Move what is at `from` to `to`, replacing a file at `to`.
   pub sub rename(from: ?String, to: ?String)!
 
-  # Make the directory `path`, and each missing one on the way to it. A
-  # directory there already is fine.
-  pub sub mkdir(path: ?String)!
+  # Make the directory `path`, and the ones on the way when `parents`.
+  sub make_dir(path: ?String, parents: Bool)!
+
+  # Whether anything is at `path`, links followed.
+  fun exists_at(path: ?String) -> Bool!
 
   # Remove the file, or the empty directory, at `path`: true, or false
   # when nothing was there.
@@ -150,7 +174,7 @@ extern zig "file.zig"
   fun open_fd(path: ?String) -> Int?!
 
   # A descriptor of the file at `path`, created or emptied, open to write.
-  fun create_fd(path: ?String) -> Int!
+  fun create_fd(path: ?String, parents: Bool) -> Int!
 
   fun read_from(fd: Int, into: !String, max: Int) -> Int!
   sub write_to(fd: Int, bytes: ?String)!

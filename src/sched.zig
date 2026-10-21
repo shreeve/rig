@@ -518,17 +518,56 @@ fn advanceClock() void {
         @panic(deadlock_message);
     }
     // Bytes written to a socket may still be on their way to the other
-    // end, which macOS delivers on loopback a moment later: wait that
-    // moment, in real time, before the clock jumps past a deadline a
-    // wait on them set.
-    if (p.count.load(.monotonic) != 0 and p.poll(settle_ns)) return;
+    // end, which macOS delivers on loopback later, the later the busier
+    // the machine: while a registered socket has bytes it has not yet
+    // seen its other end take (`unsent`), and they move, wait for them,
+    // in real time, then a moment more, before the clock jumps past a
+    // deadline a wait on them set. Bytes that stop moving, in a buffer
+    // its reader leaves full, do not hold the clock.
+    if (p.count.load(.monotonic) != 0) {
+        var left = unsent();
+        var moved = nowReal();
+        while (left != 0) {
+            if (p.poll(settle_ns)) return;
+            const now_left = unsent();
+            if (now_left != left) {
+                left = now_left;
+                moved = nowReal();
+            } else if (nowReal() - moved >= stuck_ns) break;
+        }
+        if (p.poll(settle_ns)) return;
+    }
     advanceTo(due);
     fireDue();
 }
 
 /// How long, in real time, a deterministic run with descriptors
-/// registered waits for their events before its clock jumps to a timer.
+/// registered waits for their events before its clock jumps to a timer,
+/// once no socket has bytes on their way.
 const settle_ns: i96 = std.time.ns_per_ms;
+
+/// How long bytes on their way may stand still before a deterministic
+/// run's clock jumps anyway: a buffer whose reader waits on the clock.
+const stuck_ns: i96 = 500 * std.time.ns_per_ms;
+
+/// The bytes the registered sockets of a deterministic run have sent and
+/// not yet seen their other ends take: macOS's `SO_NWRITE`, Linux's
+/// `SIOCOUTQ`. A descriptor that is not a socket counts none.
+fn unsent() u64 {
+    var total: u64 = 0;
+    var at = registered;
+    while (at) |r| : (at = r.next) {
+        var n: c_int = 0;
+        if (builtin.os.tag.isDarwin()) {
+            var len: std.posix.socklen_t = @sizeOf(c_int);
+            if (std.c.getsockopt(r.fd, std.c.SOL.SOCKET, 0x1024, @ptrCast(&n), &len) != 0) continue;
+        } else if (builtin.os.tag == .linux) {
+            if (@as(isize, @bitCast(std.os.linux.ioctl(r.fd, 0x5411, @intFromPtr(&n)))) != 0) continue;
+        }
+        if (n > 0) total += @intCast(n);
+    }
+    return total;
+}
 /// Wake each fiber whose deadline the virtual clock has reached: the
 /// clock also moves while fibers compute (`computed`).
 fn fireDue() void {
@@ -918,6 +957,11 @@ pub const Registration = struct {
     ready_bits: std.atomic.Value(u32) = .init(0),
     reader: Waiter = .{},
     writer: Waiter = .{},
+    /// Its neighbors in the list of every registration, kept in a
+    /// deterministic run, which looks at what each still has to send
+    /// before its clock jumps (`unsent`).
+    prev: ?*Registration = null,
+    next: ?*Registration = null,
 
     pub const readable: u32 = 1;
     pub const writable: u32 = 2;
@@ -971,12 +1015,26 @@ pub fn register(fd: i32) ?*Registration {
         std.heap.smp_allocator.destroy(r);
         return null;
     }
+    if (deterministic) {
+        r.next = registered;
+        if (registered) |n| n.prev = r;
+        registered = r;
+    }
     return r;
 }
+
+/// Every registration, in a deterministic run, which runs on one thread.
+var registered: ?*Registration = null;
 
 /// Stop watching the descriptor and free `r`, before the descriptor is
 /// closed. No fiber may be waiting on it.
 pub fn deregister(r: *Registration) void {
+    if (deterministic) {
+        if (r.prev) |p| p.next = r.next else if (registered == r) {
+            registered = r.next;
+        }
+        if (r.next) |n| n.prev = r.prev;
+    }
     r.poller.remove(r.fd);
     std.heap.smp_allocator.destroy(r);
 }
@@ -1466,6 +1524,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     waiting.store(0, .monotonic);
     next_quiet.store(false, .monotonic);
     ready.clearAndFree(std.heap.smp_allocator);
+    registered = null;
 }
 
 /// With `RIG_SCHED_STATS=1` set, print what each worker did to stderr,
@@ -2008,7 +2067,7 @@ pub const Blocked = union(enum) {
     /// An actor's answer to a call.
     call: CallWait,
     /// The end of any of several tasks: a set that can fail, or
-    /// `task.both`.
+    /// `task.all`.
     any: AnyWait,
 
     pub const CallWait = struct {
@@ -3627,4 +3686,78 @@ test "a pinned fiber that resumes away from its home is caught" {
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u32, 1), Run.lost.load(.seq_cst));
+}
+
+test "a deterministic run waits for bytes on their way on a socket, though every core is busy" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Load = struct {
+        var halt = std.atomic.Value(bool).init(false);
+        fn spin() void {
+            var x: u64 = 0;
+            while (!halt.load(.monotonic)) x +%= 1;
+            std.mem.doNotOptimizeAway(x);
+        }
+    };
+    const Run = struct {
+        var timeouts: u32 = 0;
+        const Unit = struct {};
+        fn writer(_: *Unit, fd: i32) u8 {
+            // Enough that loopback delivers it in pieces, later.
+            var buf: [256 * 1024]u8 = undefined;
+            @memset(&buf, 'x');
+            var off: usize = 0;
+            while (off < buf.len) {
+                const n: isize = @bitCast(std.posix.system.write(fd, buf[off..].ptr, buf.len - off));
+                if (n <= 0) {
+                    yield();
+                    continue;
+                }
+                off += @intCast(n);
+            }
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            for (0..40) |_| {
+                const fds = testTcpPair();
+                const r = register(fds[0]).?;
+                const w = register(fds[1]).?;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
+                var got: usize = 0;
+                var buf: [64 * 1024]u8 = undefined;
+                while (got < 256 * 1024) {
+                    const n: isize = @bitCast(std.posix.system.read(fds[0], &buf, buf.len));
+                    if (n > 0) {
+                        got += @intCast(n);
+                        continue;
+                    }
+                    if (waitReady(r, Registration.readable, nowNs() + std.time.ns_per_ms, false) != .ready) {
+                        timeouts += 1;
+                        break;
+                    }
+                }
+                _ = j.join();
+                j.free();
+                deregister(r);
+                deregister(w);
+                _ = std.posix.system.close(fds[0]);
+                _ = std.posix.system.close(fds[1]);
+            }
+        }
+    };
+    const cores = std.Thread.getCpuCount() catch 4;
+    var threads: [128]std.Thread = undefined;
+    const n = @min(2 * cores, threads.len);
+    for (threads[0..n]) |*t| t.* = try std.Thread.spawn(.{}, Load.spin, .{});
+    defer {
+        Load.halt.store(true, .monotonic);
+        for (threads[0..n]) |t| t.join();
+    }
+    seed(1);
+    defer deterministic = false;
+    workers_override = 1;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
 }

@@ -231,6 +231,24 @@
       ^ variable.special
             ^ operator
 > 
+> fun run(f: once ?fun() -> Int) -> Int
+  ^^^^ keyword
+      ^^^ function
+         ^ punctuation
+          ^ variable.parameter
+           ^ punctuation
+             ^^^^ keyword
+                  ^ storage.modifier
+                   ^^^ keyword
+                      ^^ punctuation
+                         ^^ operator
+                            ^^^ type
+                               ^ punctuation
+                                 ^^ operator
+                                    ^^^ type
+>   f()
+     ^^ punctuation
+> 
 > fun table() -> String from static
   ^^^^ keyword
       ^^^^^ function
@@ -722,6 +740,11 @@
 >   all = xs[..]
         ^ operator
             ^^^^ punctuation
+>   head = xs[..=1]
+         ^ operator
+             ^^^^ punctuation
+                 ^ constant.numeric
+                  ^ punctuation
 >   count
 > 
 > fun holds(u: ?*Point, v: ^?Point, cells: [2]*Point, xs: ![]Int, q: Point) -> Int?!

@@ -1594,6 +1594,7 @@ const Planner = struct {
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);
             try p.record(loop, .range_end, .owned, .construct);
+            if (rig.isInclusive(source)) try p.record(loop, .range_more, .owned, .construct);
             try p.header(ir.@"..".left(source));
             return p.header(ir.@"..".right(source));
         }

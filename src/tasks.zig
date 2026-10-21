@@ -1,5 +1,5 @@
 //! Tasks: a call running as a task of its own (`f(x)&`), sets of tasks
-//! (`Tasks[T]`), waiting for several (`task.both`, `task.all`), how a
+//! (`Tasks[T]`), waiting for several (`task.all`), how a
 //! task is canceled, deadlines (`time.within`), calling a function on
 //! each element on several tasks (`par.map`, `par.each`), the boundary a
 //! panic stops at (`task.isolate`), and actors (`*Actor(x)`). The runtime (`runtime.zig`) imports this file and
@@ -214,7 +214,7 @@ fn Handle(comptime T: type) type {
 
 /// What a task and its owner share: whether the task is canceled, and
 /// whether it has ended. Its owner records a cancel (`cancel`), and the
-/// task records one that reaches it through a wait (`Task.wait`). A task in a set, or in `task.both`, also tells the
+/// task records one that reaches it through a wait (`Task.wait`). A task in a set, or in `task.all`, also tells the
 /// `Wakeup` of what waits on it when it ends. Allocated outside the leak
 /// count, as the backend's own records are.
 pub const Control = struct {
@@ -257,7 +257,7 @@ pub const Control = struct {
     }
 };
 
-/// What a set of tasks, or `task.both`, waits on: a count each of its
+/// What a set of tasks, or `task.all`, waits on: a count each of its
 /// tasks adds to as it ends, which a waiter sleeps on until it changes.
 const Wakeup = struct {
     ticks: std.atomic.Value(u32) = .init(0),
@@ -286,10 +286,10 @@ const Wakeup = struct {
     }
 
     /// Sleep until a watched task ends after `seen` was read, the
-    /// deadline or the waiter's own passes, or the waiter is canceled: a
-    /// waiting point.
-    fn sleep(self: *Wakeup, seen: u32, within: ?i96) Stop!void {
-        const deadline = earlier(within, task().deadline);
+    /// waiter's deadline passes, or the waiter is canceled: a waiting
+    /// point.
+    fn sleep(self: *Wakeup, seen: u32) Stop!void {
+        const deadline = task().deadline;
         if (canceledHere()) return canceled_error;
         if (deadline) |d| if (nowNs() >= d) return timeout_error;
         // The fiber sleeps until a tick, the deadline, or a cancel wakes it.
@@ -306,7 +306,7 @@ const Wakeup = struct {
     }
 };
 
-/// What `task.both` and `task.all` give for the tasks `Tup` (a tuple of
+/// What `task.all` gives for the tasks `Tup` (a tuple of
 /// `Task`s): each one's value, in order, failing when any can fail.
 fn TaskValues(comptime Tup: type) type {
     const tasks = @typeInfo(Tup).@"struct".field_types;
@@ -323,7 +323,7 @@ fn TaskValues(comptime Tup: type) type {
     return if (fallible) anyerror!Values else Values;
 }
 
-/// `task.both(a, b)`, `task.all(a, b, c, ...)`: wait for tasks of any
+/// `task.all(a, b, ...)`: wait for tasks of any
 /// types, and give each one's value. When some can fail, waiting is a
 /// waiting point, and the first task to fail, in the order they end,
 /// cancels the others: the call waits for them, drops what they gave,
@@ -381,7 +381,7 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
         }
         if (left > 0 and failure == null) {
             rt.sched.block(&b);
-            const slept = w.sleep(seen, null);
+            const slept = w.sleep(seen);
             rt.sched.unblock();
             slept catch |err| {
                 failure = err;
@@ -409,12 +409,6 @@ fn nowNs() i96 {
 /// keeps virtual.
 pub fn monotonicNs() Int {
     return @intCast(nowNs());
-}
-
-/// The deadline `within` nanoseconds from now, or none.
-fn deadlineIn(within: ?Int) ?i96 {
-    const ns = within orelse return null;
-    return nowNs() + ns;
 }
 
 /// The earlier of two deadlines, either of which may be none.
@@ -464,9 +458,9 @@ const timeout_error = error.@"std.task.Stop.timeout";
 /// - `wait_first`, only for a set that can fail, gives the first result
 ///   to succeed and cancels the rest; when every task fails, it fails
 ///   with the error of the last.
-/// - `within` is a deadline in nanoseconds, only for a set that can
-///   fail: when it passes, the rest are canceled and the wait fails with
-///   `task.Stop.timeout`.
+/// - The waiting task's deadline (`time.within`) bounds a wait on a set
+///   that can fail: when it passes, the rest are canceled and the wait
+///   fails with `task.Stop.timeout`.
 /// - Waiting on a set that can fail is a waiting point: a canceled
 ///   waiter cancels every task and fails with `task.Stop.canceled`.
 /// - Dropping a set cancels every task that can fail first, then waits
@@ -548,9 +542,9 @@ pub fn Tasks(comptime T: type) type {
             }
         };
 
-        /// `>ts`, or `<ts.wait_all(within: ns)`: every result, in the order added; nothing
-        /// for tasks that give none.
-        pub fn wait_all(self: Self, within: ?Int) All {
+        /// `>ts`: every result, in the order added; nothing for tasks that
+        /// give none.
+        pub fn wait_all(self: Self) All {
             var s = self;
             defer s.free();
             const n = s.items.items.len;
@@ -563,7 +557,6 @@ pub fn Tasks(comptime T: type) type {
                 for (s.items.items) |t| out.push(t.wait());
                 return out;
             }
-            const deadline = deadlineIn(within);
             const results = defaultAllocator().alloc(Value, n) catch oom();
             defer defaultAllocator().free(results);
             // `taken`: waited for; `got`: waited for, and gave a result.
@@ -594,7 +587,7 @@ pub fn Tasks(comptime T: type) type {
                 }
                 if (left == 0) break;
                 rt.sched.block(&b);
-                const slept = s.wakeup.?.sleep(seen, deadline);
+                const slept = s.wakeup.?.sleep(seen);
                 rt.sched.unblock();
                 slept catch |err| {
                     s.stopUntaken(taken);
@@ -609,13 +602,12 @@ pub fn Tasks(comptime T: type) type {
         }
 
         /// `<ts.wait_first()`: the first result to succeed.
-        pub fn wait_first(self: Self, within: ?Int) T {
+        pub fn wait_first(self: Self) T {
             if (comptime !fallible) @compileError("rig: wait_first is only for a set that can fail");
             var s = self;
             defer s.free();
             const n = s.items.items.len;
             if (n == 0) @panic("wait_first on a set with no tasks");
-            const deadline = deadlineIn(within);
             const taken = defaultAllocator().alloc(bool, n) catch oom();
             defer defaultAllocator().free(taken);
             @memset(taken, false);
@@ -642,7 +634,7 @@ pub fn Tasks(comptime T: type) type {
                     return last;
                 }
                 rt.sched.block(&b);
-                const slept = s.wakeup.?.sleep(seen, deadline);
+                const slept = s.wakeup.?.sleep(seen);
                 rt.sched.unblock();
                 slept catch |err| {
                     s.stopUntaken(taken);

@@ -19,7 +19,7 @@ fun serve_file(l: net.Listener) -> Int!
 
 sub copy(from: ?String, to: ?String)!
   if file.open(from)! as src
-    dst = file.create(to)!
+    dst = file.create(to, parents: true)!
     print(io.copy(!src, !dst)!)
 
 sub main()!

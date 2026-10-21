@@ -209,6 +209,9 @@ const FunState = struct {
     /// environment, bound at the top of its body as parameters are
     /// (`SemContext.recordOnceClosure`).
     once_caps: []const SymbolId = &.{},
+    /// The environment of a closure its callee calls at most once, which
+    /// its call marks called (`emitFunPrologue`).
+    once_env: []const u8 = "",
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
@@ -1040,6 +1043,13 @@ pub const Emitter = struct {
             const local = self.localOf(facts.syntax.paramNameNode(p) orelse continue) orelse continue;
             try self.bindParamLocal(local);
         };
+        // A closure its callee calls at most once marks its environment
+        // called: the call owns what the environment held, which the
+        // environment drops only when it was never called.
+        if (self.fun.once_env.len > 0) {
+            try self.line("{s}.__rig_called = true;", .{self.fun.once_env});
+            self.fun.once_env = "";
+        }
         const once_caps = self.fun.once_caps;
         self.fun.once_caps = &.{};
         for (once_caps) |sym| try self.bindParamLocal(self.localBySym(sym) orelse continue);
@@ -1202,6 +1212,7 @@ pub const Emitter = struct {
             .element => "__rig_elem",
             .range_start => "__rig_i",
             .range_end => "__rig_end",
+            .range_more => "__rig_more",
             .subject => "__rig_subject",
             .whole => "__rig_whole",
             .payload => "__rig_payload",
@@ -3132,7 +3143,9 @@ pub const Emitter = struct {
         try self.closeLabeled(l);
     }
 
-    /// `for i in a..b`: a half-open integer range.
+    /// `for i in a..b`: a half-open integer range. `a..=b` includes its
+    /// end, which may be the type's largest value, so its counter is
+    /// stepped only while it is below the end, and a flag ends the loop.
     fn emitRangeFor(self: *Emitter, sexp: Sexp, lp: *Loop) Error!void {
         const binding = ir.For.@"var"(sexp);
         const range = ir.For.source(sexp);
@@ -3151,10 +3164,15 @@ pub const Emitter = struct {
             try self.emitHeader(bound);
             try self.w.writeAll(";\n");
         }
+        const more = if (rig.isInclusive(range)) try self.hiddenStorage(sexp, .range_more, .owned, .{ .id = id }) else "";
+        if (more.len > 0) try self.line("var {s} = {s} <= {s};", .{ more, counter, end });
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
-        try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
+        if (more.len > 0)
+            try self.w.print("while ({s}) : ({{ {s} = {s} < {s}; {s} +%= 1; }}) ", .{ more, more, counter, end, counter })
+        else
+            try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
         const body = try self.openLoopBody(lp);
         if (sym) |s| if (self.usage.used.contains(s)) {
             const stored = try self.declare(.{ .sym = s, .ty = int_ty }, self.srcText(binding));
@@ -3525,7 +3543,8 @@ pub const Emitter = struct {
             return self.w.print(".{f}", .{ident(self.srcText(ir.get(pattern, .name)))});
         }
         if (pattern.isKind(.range_pattern)) {
-            // `lo..hi` is half-open; Zig's `lo...hi` is inclusive. Sema
+            // `lo..hi` is half-open, `lo..=hi` inclusive; Zig's
+            // `lo...hi` is inclusive. Sema
             // checked both bounds are constants.
             const b = try self.rangeBounds(pattern);
             return self.w.print("{d}...{d}", .{ b[0], b[1] });
@@ -3539,11 +3558,11 @@ pub const Emitter = struct {
         try self.emitExpr(pattern);
     }
 
-    /// The inclusive bounds of range pattern `lo..hi`.
+    /// The inclusive bounds of range pattern `lo..hi` or `lo..=hi`.
     fn rangeBounds(self: *Emitter, pattern: Sexp) Error![2]Wide {
         const lo = self.facts.constIntOf(ir.RangePattern.lo(pattern)) orelse return self.unsupported(pattern, "this range pattern");
         const hi = self.facts.constIntOf(ir.RangePattern.hi(pattern)) orelse return self.unsupported(pattern, "this range pattern");
-        return .{ lo, hi - 1 };
+        return .{ lo, if (rig.isInclusive(pattern)) hi else hi - 1 };
     }
 
     /// `storage.isCatchAll`.
@@ -5616,10 +5635,12 @@ pub const Emitter = struct {
             self.read_place = saved_read;
         } else try self.emitBare(base);
         self.rt_names = saved_rt;
-        // An open start is 0; an open end, `null`, is the length.
-        for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "0", "null" }) |bound, open| {
-            try self.w.writeAll(", ");
+        // An open start is 0; an open end, `null`, is the length. An
+        // inclusive end is one past its bound (`rig.through`).
+        for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "0", "null" }, [2]bool{ false, rig.isInclusive(range) }) |bound, open, through| {
+            try self.w.writeAll(if (through) ", rig.through(" else ", ");
             if (bound == .nil) try self.w.writeAll(open) else try self.emitBare(bound);
+            if (through) try self.w.writeAll(")");
         }
         try self.w.writeAll(")");
     }
@@ -7075,12 +7096,12 @@ pub const Emitter = struct {
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
             if (rig.isWaitMember(callee)) {
                 try self.emitMemberNamed(callee, "wait_all");
-                return self.w.writeAll("(null)");
+                return self.w.writeAll("()");
             }
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "wait_first")) {
                 try self.emitExpr(callee);
-                return self.w.writeAll("(null)");
+                return self.w.writeAll("()");
             }
         };
         try self.checkCallTarget(sexp);
@@ -7948,6 +7969,8 @@ pub const Emitter = struct {
             // Inside the body, a capture is a field of the environment.
             _ = try self.declare(.{ .sym = c.sym, .zig_name = field, .ty = c.ty }, c.name);
         }
+        const once = self.facts.isOnceClosure(lambda);
+        if (once) try self.line("__rig_called: bool = false,", .{});
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
         // A large frame is never inlined into its caller's.
@@ -7956,7 +7979,7 @@ pub const Emitter = struct {
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
-        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env, .once_caps = once_caps.items };
+        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env or once) "" else env, .once_caps = once_caps.items, .once_env = if (once) env else "" };
         try self.bindParams(params, false);
         for (params.items()) |p| {
             try self.w.writeAll(", ");
@@ -8174,9 +8197,14 @@ pub const Emitter = struct {
         const owns = try self.emitStackClosure(env, h.node);
         try self.w.writeAll("\n");
         try self.poisonAtExit(env);
-        // A closure called exactly once takes what it owns of its
-        // environment, and drops it there.
-        if (owns and !self.facts.isOnceClosure(h.node)) try self.line("defer rig.dropFields(&{s});", .{env});
+        // A closure called at most once takes what it owns of its
+        // environment when it is called, and drops it there; otherwise
+        // the environment drops it.
+        if (owns) {
+            if (self.facts.isOnceClosure(h.node)) {
+                try self.line("defer if (!{s}.__rig_called) rig.dropFields(&{s});", .{ env, env });
+            } else try self.line("defer rig.dropFields(&{s});", .{env});
+        }
         try self.writeIndent(self.indent);
         try self.w.print("const {s} = ", .{h.name});
         try self.emitCallableTy("FnRef", self.facts.types.get(fn_ty).function);

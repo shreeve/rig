@@ -3375,7 +3375,7 @@ test "fallible sub", '''
     print("add failed", e)
   print(b.items)
 
-fail "fallible sub hints", "11:3: use of `!` propagation requires the enclosing `w` to be fallible: `sub w(...)!`", "14:10: a `sub` that cannot fail returns no error; declare it fallible to fail: `sub f(...)!`", "25:5: `M` has one field, given by position alone (`M(x)`) or by name (`M(v: x)`)", "26:5: `Empty` has no fields: `Empty()`"
+fail "fallible sub hints", "11:3: use of `!` propagation requires the enclosing `w` to be fallible: `sub w()!`", "14:10: a `sub` that cannot fail returns no error; declare it fallible to fail: `sub f(n: Int)!`", "25:5: `M` has one field, given by position alone (`M(x)`) or by name (`M(v: x)`)", "26:5: `Empty` has no fields: `Empty()`"
   # A `sub` that is not fallible cannot propagate or return an error; the
   # fix is `sub f(...)!`. A type with one field takes one value.
 
