@@ -1675,8 +1675,9 @@ sub main()
 
 ### Function markers
 
-A function may be marked, before its `fun` or `sub`, with one of three
-words that ask for a speed and never change what the program means:
+A function may be marked, before its `fun` or `sub`, with one of two
+words that say how its calls compile and never change what the program
+means:
 
 - `inline fun` inlines the function at every call: its body is compiled
   into each caller, whatever its size. A call means what it means
@@ -1687,9 +1688,11 @@ words that ask for a speed and never change what the program means:
   never inlined, and stays as hot as any function. Each instance of one
   with compile-time parameters is a function of its own, so two
   specialized copies of a large function stay apart, each called.
-- `rarely fun` says the function is rarely called, so the code that
-  calls it is laid out for the case that does not: the function stays
-  out of line, as `called` keeps it, and is also cold.
+
+How often code runs is said where the code is: a function whose body
+starts with `rarely` ([Rarely](#rarely)) is rarely called, so the code
+that calls it is laid out for the case that does not: the function
+stays out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
 ([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and LLVM may
@@ -1713,7 +1716,8 @@ takes one as any function does, in its type's body or outside it.
 inline fun clamp(x: Int, lo: Int, hi: Int) -> Int
   lo if x < lo else hi if x > hi else x
 
-rarely fun report(n: Int) -> Int
+fun report(n: Int) -> Int
+  rarely
   print("out of range:", n)
   0
 
@@ -1769,14 +1773,13 @@ sub main()
 ```
 
 A function takes one marker: `inline` and `called` contradict each
-other, and `rarely` already keeps every call a call, so any two are an
-error (`inline rarely fun`, `rarely called fun`). A `called` or `rarely`
-function is a function value as any other. The
+other (`inline called fun`). A `called` function, and one whose body
+starts with `rarely`, is a function value as any other. The
 program's `main`, which the program calls once, takes none, and neither
 does an `extern zig` function, whose body is Zig's.
 
 ```rig reject
-inline rarely fun f() -> Int
+inline called fun f() -> Int
   1
 
 sub main()
@@ -1785,6 +1788,65 @@ sub main()
 
 ```error
 a function takes one marker
+```
+
+### Rarely
+
+A block whose first line is `rarely` rarely runs: the body of a
+function or `sub`, a branch of `if` or `else`, a `match` arm, a `catch`
+handler, or a loop's body. The code around it is laid out for the case
+that does not run it (the branch starts with Zig's cold hint), and
+nothing else changes: `rarely` asks for a speed, as a marker does, and
+never changes what the program means. A function whose body starts with
+`rarely` is rarely called, so it stays out of line and is cold.
+`rarely` is a word only alone on its line; anywhere else it is a name.
+
+```rig
+error Parse
+  bad
+
+fun parse(s: ?String) -> Int!
+  return Parse.bad if s.len == 0
+  s.len
+
+fun warn(what: ?String) -> Int
+  rarely
+  print("warning:", what)
+  -1
+
+sub main()
+  total = 0
+  for w in ["ab", "", "cde"]
+    n = parse(w) catch |_|
+      rarely
+      warn("empty")
+    if n > 100
+      rarely
+      print("long")
+    total += n
+  print(total)
+```
+
+```output
+warning: empty
+4
+```
+
+`rarely` starts the block it marks, and marks only the blocks above: a
+closure, a `defer`, and a `test` take none.
+
+```rig reject
+fun f(n: Int) -> Int
+  m = n + 1
+  rarely
+  m
+
+sub main()
+  print(f(1))
+```
+
+```error
+`rarely` is the first line of the block it marks
 ```
 
 ### Objects

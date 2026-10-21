@@ -24,7 +24,8 @@
 #   * classifies three contextual words: `new` is a keyword only at the
 #     start of a statement before a name, `obj` only at the
 #     start of a declaration (after any `pub`) before a name, `inline`,
-#     `called`, and `rarely` only there before `fun` or `sub`, and `of` only after
+#     and `called` only there before `fun` or `sub`, `rarely` only at the
+#     start of a statement alone on its line, and `of` only after
 #     a value directly inside [ ] (`[n of x]`); each is a name everywhere
 #     else (the other contextual words are the parser's: see @keywords);
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
@@ -98,7 +99,7 @@ tokens
     new             # a keyword only at statement start (`new x = ...`)
     obj             # a keyword only at the start of a type declaration (`obj Point`)
     inline          # a keyword only before the `fun` or `sub` of a declaration
-    rarely          # a keyword only before the `fun` or `sub` of a declaration
+    rarely          # a keyword only alone on a line: the block it starts rarely runs
     called          # a keyword only before the `fun` or `sub` of a declaration
     not
     or
@@ -382,8 +383,8 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called|rarely?
-    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? keeps:group? body:block? owner? owner_params:group? mark:inline|called|rarely?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
+    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? ...members
     enum, errors                name:leaf ...members
@@ -398,7 +399,8 @@ tokens
     zig_extern                  file:leaf ...decls
     zig_const                   name:leaf type
     drop_decl                   params:group body:block
-    inline, called, rarely                          # a function's marker
+    inline, called                                  # a function's marker
+    rarely                                          # a block's first line: the block rarely runs
     labeled                     label:leaf stmt
 
     # Parameters, fields, and enum members
@@ -539,12 +541,13 @@ tokens
     scope-name          source.rig
     extensions          rig
     line-comment        "#"
-    indent              line-start [ \t]* ('$' [A-Za-z_] [A-Za-z0-9_]* ':' ([ \t]+ ("pub" [ \t]+)? ("called" | "rarely" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?)? | ("pub" [ \t]+)? ("called" | "rarely" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?) [ \t]* line-end
+    indent              line-start [ \t]* ('$' [A-Za-z_] [A-Za-z0-9_]* ':' ([ \t]+ ("pub" [ \t]+)? ("called" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?)? | ("pub" [ \t]+)? ("called" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?) [ \t]* line-end
     dedent              line-start [ \t]* "else"
 
     keyword             ("fun" | "sub") [ \t]+ function:([A-Za-z_] [A-Za-z0-9_]*)
     keyword             ("obj" | "enum" | "type") [ \t]+ type:([A-Za-z_] [A-Za-z0-9_]*)
-    keyword             ("called" | "rarely" | "inline") after [ \t]+ ("fun" | "sub")
+    keyword             ("called" | "inline") after [ \t]+ ("fun" | "sub")
+    keyword             line-start [ \t]* "rarely" not after [ \t]* [^ \t#]
     keyword             line-start [ \t]* "new" after [ \t]+ [A-Za-z_]
     keyword             "of" before ' ' after ' '
     keyword             "from" [ \t]+ "static" not after [A-Za-z0-9_]
@@ -636,6 +639,7 @@ simple   = tail
          | NEW target:name "=!" value:tail          → (set op:shadow_fixed)
          | NEW target:name ":" type:type "=!" value:tail → (set op:shadow_fixed)
          | PASS                                     → (pass)
+         | RARELY                                   → (rarely)  # a block's first line (the Parser wrapper)
          | RETURN [value:tail]                      → (return)
          | RETURN rvals                             → (return value:(results ...2))
          | targets:dtargets "=" value:tail          → (destructure)
@@ -695,12 +699,10 @@ mpath    = name
 # Parser wrapper can reject it with the header to write.
 #
 # A marker before `fun` or `sub` asks for a speed, never a meaning:
-# `inline` inlines the function at every call, `called` keeps every call
-# a call, and `rarely` says it is rarely called, so it stays out of the
-# code that calls it.
+# `inline` inlines the function at every call, and `called` keeps every
+# call a call. How often code runs is a block's first line, `rarely`.
 mark     = INLINE                                   → (inline)
          | CALLED                                   → (called)
-         | RARELY                                   → (rarely)
 
 fun      = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] body:block → (fun)
 sub      = [mark:mark] SUB name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)

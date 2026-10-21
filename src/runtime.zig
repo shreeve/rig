@@ -2351,6 +2351,13 @@ pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeO
     return items[b[0]..b[1]];
 }
 
+/// `rarely`, the first line of a block: Zig's cold hint for the branch
+/// or function the block is. Inline, so the hint lands where it is
+/// called, as the hint written first in that branch would.
+pub inline fn cold() void {
+    @branchHint(.cold);
+}
+
 /// The end of a slice `s[lo..=hi]`: one past `hi`. A bound no index
 /// can be panics, as `bounds` does.
 pub fn through(hi: anytype) usize {

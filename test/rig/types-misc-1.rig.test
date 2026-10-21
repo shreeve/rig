@@ -5673,13 +5673,12 @@ fail "main takes parameter", "`main` must be `sub main()`, or `fun main() -> Int
   sub main(x: Int)
     print(x)
 
-fail "marker extern zig", "only the standard library binds declarations to Zig code", "5:3: `fast` is an `extern zig` function, whose body is Zig code: it takes no `inline`", "6:3: `slow` is an `extern zig` function, whose body is Zig code: it takes no `rarely`", "7:3: `kept` is an `extern zig` function, whose body is Zig code: it takes no `called`"
+fail "marker extern zig", "only the standard library binds declarations to Zig code", "5:3: `fast` is an `extern zig` function, whose body is Zig code: it takes no `inline`", "6:3: `kept` is an `extern zig` function, whose body is Zig code: it takes no `called`"
   # An `extern zig` function's body is Zig code, which a marker cannot
   # reach.
 
   extern zig "fast.zig"
     inline fun fast(x: Int) -> Int
-    rarely sub slow()
     called fun kept() -> Int
 
   print(fast(1))
@@ -5871,10 +5870,11 @@ fail "marker main inline", "3:1: `main` is the program's entry point, which the 
   inline sub main()
     print(1)
 
-fail "marker main rarely", "3:1: `main` is the program's entry point, which the program calls once: it takes no `rarely`", errors: 1
+fail "marker main rarely", "4:3: `main` is the program's entry point, which the program calls once: it takes no `rarely`", errors: 1
   # The program's `main` is called once, by the program: it takes no marker.
 
-  rarely fun main() -> Int
+  fun main() -> Int
+    rarely
     0
 
 fail "mask size", "6:9: `[140000]Simd[Bool, 64]` takes 8960000 bytes; a value takes at most 8388608 (8 MiB)", "9:5: `two` keeps 14400136 bytes of values on its stack; a function keeps at most 13631488 (13 MiB)"

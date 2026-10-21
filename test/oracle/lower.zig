@@ -515,7 +515,7 @@ const Lowerer = struct {
     fn isValue(s: Sexp) bool {
         const k = s.kind() orelse return true;
         return switch (k) {
-            .set, .destructure, .drop, .pass, .@"while", .@"for", .@"return", .@"break", .@"continue", .panic, .@"defer", .@"errdefer", .labeled => false,
+            .set, .destructure, .drop, .pass, .rarely, .@"while", .@"for", .@"return", .@"break", .@"continue", .panic, .@"defer", .@"errdefer", .labeled => false,
             .@"if" => ir.If.@"else"(s) != .nil,
             else => true,
         };
@@ -727,7 +727,7 @@ const Lowerer = struct {
             .set => try self.set(s),
             .destructure => try self.destructure(s),
             .drop => try self.dropStmt(s),
-            .pass => {},
+            .pass, .rarely => {},
             .@"if" => try self.ifInto(s, .read, null),
             .match => try self.matchInto(s, .read, null),
             .@"while" => try self.whileStmt(s, null),
@@ -2225,7 +2225,7 @@ const Lowerer = struct {
                 try self.valueInto(e, how, undefined);
                 return null;
             },
-            .pass => return null,
+            .pass, .rarely => return null,
             // A stack closure is called where it is written, bound to a
             // local, or lent to a call; it never leaves its function
             // (Core §7: it may be lent, not stored).

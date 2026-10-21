@@ -77,8 +77,11 @@ changed the language since it:
   only-called functions are emitted `inline` by a size rule the
   compiler decides (`src/inlining.zig`); a function marked `inline fun`
   is inlined at every call, one marked `called fun` is always a call
-  (`noinline fn`), and one marked `rarely fun` is kept out of line with
-  Zig's cold hint (the three words are contextual); a
+  (`noinline fn`), and a block whose first line is `rarely` (a
+  function's body, a branch, a `catch` handler, a loop's body) is laid
+  out as the unlikely path with Zig's cold hint, and such a function is
+  kept out of line (the three words are contextual; `rarely fun` is
+  gone); a
   `for` index counter needs no per-iteration cast.
 - **The stack:** a program runs on a 64 MiB stack the runtime maps
   over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by

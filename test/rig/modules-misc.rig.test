@@ -2252,7 +2252,8 @@ test "markers across modules", release: true, '''
     pub inline fun scale(n: Int, k: Int) -> Int
       n * k
 
-    pub rarely fun warn(n: Int) -> Int
+    pub fun warn(n: Int) -> Int
+      rarely
       print("warn", n)
       0 - n
 

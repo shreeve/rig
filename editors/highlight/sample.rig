@@ -65,7 +65,8 @@ called fun hot(n: Int) -> Int
 inline fun twice(n: Int) -> Int
   n * 2
 
-rarely sub report(msg: ?String)
+sub report(msg: ?String)
+  rarely
   print("error:", msg)
 
 fun numbers() -> Int

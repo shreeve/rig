@@ -342,14 +342,16 @@ test "rev224-called-rarely", '''
   called fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
     f(x)
 
-  rarely fun safe(n: Int) -> Int!
+  fun safe(n: Int) -> Int!
+    rarely
     return E.bad if n == 0
     defer print("safe", n)
     if n > 100
       return 100
     10 / n
 
-  rarely sub check(n: Int)!
+  sub check(n: Int)!
+    rarely
     errdefer print("failed", n)
     defer print("checked", n)
     return E.bad if n < 0
@@ -361,7 +363,8 @@ test "rev224-called-rarely", '''
     called sub add(!@, x: Int)
       !@items.push(x)
 
-    rarely fun first(?@) -> Int?
+    fun first(?@) -> Int?
+      rarely
       return none if @items.len == 0
       @items[0]
 
@@ -371,7 +374,8 @@ test "rev224-called-rarely", '''
   called fun tiny(x: Int) -> Int
     x
 
-  rarely fun sq(x: Float) -> Float
+  fun sq(x: Float) -> Float
+    rarely
     math.sqrt(x)
 
   sub main()
@@ -395,13 +399,15 @@ test "rev224-called-rarely", '''
       pub called fun get(?@) -> T
         @v
 
-      pub rarely sub set(!@, v: T)
+      pub sub set(!@, v: T)
+        rarely
         @v = v
 
     pub called fun twice[T](x: T) -> T
       x + x
 
-    pub rarely fun scaled[k: Int](x: Int) -> Int
+    pub fun scaled[k: Int](x: Int) -> Int
+      rarely
       x * k
 
     pub called fun inc(x: Int) -> Int

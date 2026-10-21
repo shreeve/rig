@@ -792,6 +792,7 @@ const Checker = struct {
                         },
                         .drop => "drop",
                         .pass => "`pass`",
+                        .rarely => "`rarely`",
                         .@"defer", .@"errdefer" => "deferred statement",
                         else => "jump",
                     };
@@ -891,7 +892,7 @@ const Checker = struct {
             .@"break" => try self.checkBreak(stmt),
             .@"continue" => _ = try self.resolveJump(stmt),
             .panic => _ = try self.checkPanic(stmt),
-            .pass => {},
+            .pass, .rarely => {},
             .@"defer", .@"errdefer" => {
                 if (head == .@"errdefer") try self.checkErrdeferCanRun(stmt);
                 const saved = self.body;
@@ -3053,7 +3054,7 @@ const Checker = struct {
     fn yieldsNoValue(self: *Checker, e: Sexp) bool {
         const h = e.kind() orelse return false;
         return switch (h) {
-            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .panic, .labeled => !self.isValueLoop(e),
+            .set, .@"while", .@"for", .drop, .pass, .rarely, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .panic, .labeled => !self.isValueLoop(e),
             else => false,
         };
     }
@@ -4730,6 +4731,10 @@ const Checker = struct {
             },
             .pass => blk: {
                 try self.errAt(e, "`pass` does nothing and has no value, and a value is needed here", .{});
+                break :blk self.t().invalid_id;
+            },
+            .rarely => blk: {
+                try self.errAt(e, "`rarely` marks the block it starts and has no value, and a value is needed here", .{});
                 break :blk self.t().invalid_id;
             },
             .@"return" => blk: {

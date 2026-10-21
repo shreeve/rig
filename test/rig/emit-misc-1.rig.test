@@ -3195,7 +3195,8 @@ test "marker inline large", release: true, '''
       total += each(x)
     total
 
-  rarely fun slow(n: Int) -> Int
+  fun slow(n: Int) -> Int
+    rarely
     print("slow", n)
     n * 2
 

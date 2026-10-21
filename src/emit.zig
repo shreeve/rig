@@ -1547,6 +1547,8 @@ pub const Emitter = struct {
             .drop => try self.emitDrop(sexp),
             // An empty block: a statement wherever Zig wants one.
             .pass => try self.w.writeAll("{}"),
+            // `rarely`: the branch it starts is cold (`rig.cold`).
+            .rarely => try self.w.writeAll("rig.cold();"),
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),
