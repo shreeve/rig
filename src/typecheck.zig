@@ -1825,12 +1825,15 @@ const Checker = struct {
         symbol_text,
         /// A field another module declared `pub ?name: T`.
         read_only,
+        /// The field by which an object names its none (`none id == 0`),
+        /// which only its constructor sets.
+        none_field,
         read_view,
 
         fn rank(b: Block) u2 {
             return switch (b) {
                 .shared => 0,
-                .slice, .string, .len, .text, .symbol_text, .read_only => 1,
+                .slice, .string, .len, .text, .symbol_text, .read_only, .none_field => 1,
                 .read_view => 2,
             };
         }
@@ -1914,6 +1917,9 @@ const Checker = struct {
                     place.block(if (is_text) .string else .slice, self.startOf(p));
                     if (!crossed) place.leaf_blocked = true;
                 }
+            } else if (if (sema.namedNoneOf(self.ctx, inner)) |n| std.mem.eql(u8, n.field, self.text(ir.Member.name(step))) else false) {
+                place.block(.none_field, self.startOf(ir.Member.name(step)));
+                if (!crossed) place.leaf_blocked = true;
             } else if (self.ctx.readOnlyFieldOf(step)) |field| {
                 place.block(.read_only, self.startOf(ir.Member.name(step)));
                 if (place.blocked.?.why == .read_only) place.read_only = field;
@@ -2061,6 +2067,10 @@ const Checker = struct {
                 .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
                 .text => try self.err(b.pos, "cannot {s} `.text`{s}; a variant's name is read-only", .{ verb.head, verb.tail }),
                 .symbol_text => try self.err(b.pos, "cannot {s} `.text`{s}; a symbol's name is read-only", .{ verb.head, verb.tail }),
+                .none_field => {
+                    const obj_ty = sema.unwrapViews(self.ctx, self.ctx.typeOf(ir.get(place.node, .object)) orelse sema.type_invalid);
+                    try self.err(b.pos, "cannot {s} `{s}`{s}: `{s}` names the none of `{s}` (`none {s} == ...`), so only its constructor sets it; make a new `{s}`", .{ verb.head, try self.plainText(place.node), verb.tail, self.text(ir.Member.name(place.node)), try self.tyName(obj_ty), self.text(ir.Member.name(place.node)), try self.tyName(obj_ty) });
+                },
                 .read_only => {
                     const f = place.read_only.?;
                     try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only {s}", .{ verb.head, try self.plainText(place.node), verb.tail, f.field, f.owner, try readOnlyWhere(self.ctx, f, true) });
@@ -10760,7 +10770,32 @@ const Checker = struct {
             .kind = .constructor,
             .instance = result,
         });
+        if (sema.namedNoneOf(self.ctx, result)) |none| try self.checkNoneArg(args, fields, none, sym.name);
         return result;
+    }
+
+    /// A constructor of an object that names its none (`none id == 0`)
+    /// given that value, as a constant, for its field: no value of the
+    /// object holds it. A value known only when the program runs is
+    /// checked then (`rig.notNone`).
+    fn checkNoneArg(self: *Checker, args: []const Sexp, fields: []const Field, none: sema.NamedNone, name: []const u8) Error!void {
+        var data: usize = 0;
+        for (fields) |f| {
+            if (!f.is_method and !f.is_variant) data += 1;
+        }
+        for (args) |a| {
+            const value = if (a.isKind(.kwarg)) blk: {
+                if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), none.field)) continue;
+                break :blk ir.Kwarg.value(a);
+            } else if (data == 1) a else continue;
+            const is_none = if (none.variant) |v|
+                value.isKind(.enum_lit) and std.mem.eql(u8, self.text(ir.EnumLit.name(value)), v)
+            else switch (sema.constIntBy(self.ctx, value, resolve.ConstNames{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params })) {
+                .value => |v| v == none.value,
+                else => false,
+            };
+            if (is_none) try self.errAt(value, "a `{s}` never holds `{s}` {s}, which is what a `{s}?` holds for `none`; write `none` where no `{s}` is meant", .{ name, none.field, self.sourceText(value), name, name });
+        }
     }
 
     /// Whether every data field of a type has a default, so `T()` makes

@@ -2393,6 +2393,9 @@ pub const SemContext = struct {
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
     ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
+    /// An object that names its none (`none id == 0`) -> its none
+    /// (`TypeResolver.resolveNominal`).
+    named_nones: std.AutoHashMapUnmanaged(SymbolId, NamedNone) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: std.AutoHashMapUnmanaged(ForeignRef, SymbolId) = .empty,
@@ -2575,6 +2578,7 @@ pub const SemContext = struct {
         self.const_ints.deinit(self.allocator);
         self.consumed.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
+        self.named_nones.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
         var index = self.generic_index.valueIterator();
@@ -5459,14 +5463,33 @@ pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
 
 /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, and every
 /// operation on it goes through the runtime's optional helpers (`some`,
-/// `somePtr`, `pack`): a type parameter's, whose instance decides its
-/// representation, and every object's, which `pack` writes in one store
-/// where it fits (runtime `OneStore`) and which is a struct under
-/// `RIG_STRICT_OPTIONALS`.
-pub fn optionalRouted(ctx: *const SemContext, inner: TypeId) bool {
+/// `somePtr`, `pack`): where its representation may differ from Zig's
+/// `?T`. A type parameter's may, since its instance decides; so may an
+/// object's, which holds `none` in a niche where it has one, and an
+/// optional of such an optional (`rig.Opt`). `pack` writes an object's flag optional in one store
+/// where it fits (runtime `OneStore`). `strict` (`RIG_STRICT_OPTIONALS`)
+/// holds each of them as a tagged struct.
+pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
     return switch (ctx.types.get(inner)) {
         .type_var => true,
+        .optional => |payload| optionalRouted(ctx, payload, strict),
         else => isObject(ctx, inner),
+    };
+}
+
+/// The none an object names (`none id == 0`): its one field, which never
+/// holds `value` (a plain enum's field: never holds the variant
+/// `variant`, whose value `value` is), so `T?` is a `T` that holds it
+/// for `none` (`rig.Opt`).
+pub const NamedNone = struct { field: []const u8, value: Wide, variant: ?[]const u8 = null };
+
+/// The none the object type `ty` names, itself and not through a view;
+/// null for any other type.
+pub fn namedNoneOf(ctx: *const SemContext, ty: TypeId) ?NamedNone {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |sym| ctx.named_nones.get(sym),
+        .imported_nominal => |in| (ctx.foreign_semas.get(in.module_id) orelse return null).named_nones.get(in.sym_id),
+        else => null,
     };
 }
 
@@ -9284,7 +9307,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.

@@ -508,6 +508,19 @@ and generic functions take their type parameters as `comptime T: type`.
 Emitting Zig source rather than Zig IR or LLVM IR keeps Rig independent
 of backend internals, at the cost of one extra compile step.
 
+### An object that names its none
+
+A handle into a table, an id in a `U32`, often has a value that means
+"no handle": 0. Its optional need not keep a flag beside it, which makes
+it twice the size and stores the id and the flag apart. An object with
+one integer or plain-enum field says which value is its none (`none id
+== 0`), and its optional holds that value for `none`: the size of the
+object, tested by one compare. The value becomes impossible for the
+object itself, rather than a convention: the checker rejects it as a
+constant, a constructor checks a run-time value, and the field is
+read-only, so no `Node` holds it and `none` means one thing. A program
+that used the value as an in-band nil writes `none` instead.
+
 ### No garbage collector
 
 A collector would make the most important effect of all, when memory is

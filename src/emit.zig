@@ -662,8 +662,32 @@ pub const Emitter = struct {
         try self.emitRigName(1);
         try self.emitOwnApis(1);
         try self.emitStrictOptional(1);
+        try self.emitNamedNone(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
+    }
+
+    /// An object that names its none (`none id == 0`): the field and the
+    /// value its optional holds for `none` (`rig.Opt`, `rig.notNone`).
+    fn emitNamedNone(self: *Emitter, depth: u32) Error!void {
+        const sym = self.nominal.?.sym;
+        const none = self.facts.namedNoneOfSym(sym) orelse return;
+        const field = for (self.facts.symbols.items[sym].fields orelse &.{}) |f| {
+            if (std.mem.eql(u8, f.name, none.field)) break f;
+        } else return self.unsupported(.nil, "an object's none without its field");
+        try self.writeIndent(depth);
+        try self.w.print("pub const __rig_none_field = \"{f}\";\n", .{std.zig.fmtString(none.field)});
+        try self.writeIndent(depth);
+        try self.w.writeAll("pub const __rig_none: ");
+        try self.emitTypeTy(field.ty);
+        if (none.variant) |v| try self.w.print(" = .{f};\n", .{ident(v)}) else try self.w.print(" = {d};\n", .{none.value});
+        // Its optional is the size of the object itself.
+        try self.writeIndent(depth);
+        try self.w.writeAll("comptime {\n");
+        try self.writeIndent(depth + 1);
+        try self.w.writeAll("if (@sizeOf(rig.Opt(@This())) != @sizeOf(@This())) @compileError(\"rig: an object's optional is larger than the object, though it names its none\");\n");
+        try self.writeIndent(depth);
+        try self.w.writeAll("}\n");
     }
 
     /// Under `RIG_STRICT_OPTIONALS`, the object being emitted asks for its
@@ -4755,7 +4779,7 @@ pub const Emitter = struct {
 
     /// Whether a `T?` of payload `inner` goes through the helpers.
     fn routesPayload(self: *Emitter, inner: TypeId) bool {
-        return self.facts.optionalRouted(inner);
+        return self.facts.optionalRouted(inner, self.strict_optionals);
     }
 
     /// Whether `ty`, through any views, is an optional whose payload goes
@@ -7827,6 +7851,7 @@ pub const Emitter = struct {
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
     /// sema (a generic type's arguments come from the call's type).
     fn emitConstructor(self: *Emitter, call: Sexp, sym_id: SymbolId) Error!void {
+        if (self.facts.symbols.items[sym_id].kind != .generic_type) if (self.typeOf(call)) |ty| if (self.facts.namedNoneOf(ty) != null) return self.emitNamedNoneConstructor(call, sym_id);
         if (self.facts.symbols.items[sym_id].kind == .generic_type) {
             const ty = self.typeOf(call) orelse return self.unsupported(call, "an untyped generic constructor");
             try self.emitTypeTy(ty);
@@ -7872,6 +7897,22 @@ pub const Emitter = struct {
             try self.emitStored(ir.Kwarg.value(a));
         }
         try self.w.writeAll(if (args.len > 0) " }" else "}");
+    }
+
+    /// A constructor of an object that names its none (`none id == 0`):
+    /// its field's value, checked to be some other value.
+    fn emitNamedNoneConstructor(self: *Emitter, call: Sexp, sym_id: SymbolId) Error!void {
+        const args = ir.Call.args(call);
+        const none = self.facts.namedNoneOf(self.typeOf(call).?).?;
+        const name = self.facts.symbols.items[sym_id].name;
+        const value = if (none.variant) |v| try self.fmt(".{s}", .{v}) else try self.fmt("{d}", .{none.value});
+        const why = try self.fmt("a `{s}` never holds `{s}` {s}, which is what a `{s}?` holds for `none`", .{ name, none.field, value, name });
+        try self.w.writeAll("rig.notNone(");
+        try self.writeNominalName(sym_id);
+        try self.w.print(", \"{f}\", ", .{std.zig.fmtString(why)});
+        try self.writeNominalName(sym_id);
+        try self.emitFieldInit(args, self.facts.symbols.items[sym_id].fields orelse &.{});
+        try self.w.writeAll(")");
     }
 
     /// `List()` / `List(capacity: n)` / `List(a)`: a decl literal of the
