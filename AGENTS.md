@@ -71,7 +71,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
-| `tools/` | generators, migration scripts (`migrate-0.3.py`), `equiv.py` |
+| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`), `equiv.py`, and `heavy` and `low` for sharing a machine |
 | `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (Rig's own Zig notes are docs/internals/zig-0.17.md) |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
@@ -233,6 +233,11 @@ until its rule is built. docs/internals/tests.md has the rest.
 
 Machine-specific practice (the owner's machines):
 
+- **Several agents on one machine:** run builds and Swarm runs through
+  `tools/heavy CMD`, which takes them one at a time in the order they
+  ask, across every worktree; run proof runs, benchmarks, and profiles
+  through `tools/low CMD`. While iterating, run single areas; the full
+  suite runs once, before landing.
 - Before builds, tests, or benchmarks on the Mac, check
   `~/Data/Code/mumps-compare/.mac-quiet`; hold off while it exists.
 - **pup** (`ssh pup`) is a 22-core x86-64 Linux machine. A change to the

@@ -1,0 +1,5 @@
+#!/bin/bash
+# tools/low CMD...: run CMD at the lowest priority, for long work that
+# need not hold the heavy lock: proof runs, benchmarks, profiles. Its
+# timings are only fair on an idle machine.
+exec nice -n 19 "$@"

@@ -1,0 +1,32 @@
+#!/bin/bash
+# tools/heavy CMD...: run CMD holding the repository's heavy lock, so
+# builds and Swarm runs from several worktrees or agents on one machine
+# go one at a time, in the order they asked. The lock is a directory in
+# the repository's shared git directory, which every worktree sees; a
+# holder that died leaves it, and the next waiter clears it.
+G=$(git rev-parse --git-common-dir 2>/dev/null) || { echo "tools/heavy: not in a git checkout" >&2; exit 2; }
+G=$(cd "$G" && pwd)
+L=$G/rig-heavy.lock
+Q=$L.q
+mkdir -p "$Q"
+T="$Q/$(perl -MTime::HiRes=time -e 'printf "%d", time*1e9')-$$"
+: >"$T"
+trap 'rm -f "$T"' EXIT
+first() {
+    local f p
+    for f in $(ls "$Q" | sort -n); do
+        p=${f##*-}
+        if kill -0 "$p" 2>/dev/null; then echo "$Q/$f"; return; fi
+        rm -f "$Q/$f"
+    done
+}
+while :; do
+    if [[ "$(first)" == "$T" ]] && mkdir "$L" 2>/dev/null; then break; fi
+    pid=$(cat "$L/pid" 2>/dev/null)
+    if [[ -n $pid ]] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$L"; continue; fi
+    sleep 2
+done
+echo $$ >"$L/pid"
+rm -f "$T"
+trap '[[ "$(cat "$L/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$L"' EXIT
+"$@"
