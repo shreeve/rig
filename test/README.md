@@ -138,10 +138,16 @@ it exits 0. Files starting with `_` are helpers, not tests.
 
 A script builds its programs with `rig run|build|test ... file.rig`, a
 function in `_lib.sh` that gives each root file its own output directory
-under `$RIG_OUT_DIR/programs/`, whose Zig cache the harness keeps
-between runs. Zig caches one build per root path and flags, and every
-program's root is `__rig_main.zig` in its output directory, so programs
-built in one directory would rebuild cold on every run. (`zig build-exe`
+under `$RIG_OUT_DIR/programs/`, and one more for each setting of the
+variables that change what rig emits (`RIG_LEAK_TRACE`, `RIG_SANITIZE`,
+`RIG_STRICT_OPTIONALS`, ...), whose Zig cache the harness keeps between
+runs. Zig caches one build per root path and flags, and every program's
+root is `__rig_main.zig` in its output directory, so programs built in
+one directory, or one program built with and without such a setting,
+would rebuild cold on every run. A script that reads nothing rig writes
+in an output directory says so with a `# builds: shared` line: the
+harness sets `RIG_BUILD_STORE` for it to the repository's build store,
+so a program that any worktree has built the same is not built again. (`zig build-exe`
 caches nothing, so `rig build` is always cold; prefer `rig run` when the
 executable itself is not under test.) Call `"$RIG"` directly for
 commands that build nothing (`check`, `emit`, usage errors) and when

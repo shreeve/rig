@@ -4,6 +4,7 @@
 # declaration comes before or after the use, in one file or across the
 # files of a directory module. Every declaration kind x clashing site x
 # order is written and checked.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 decl() { case $1 in

@@ -12,6 +12,7 @@
 # stop the rule from inlining it there: each program runs sanitizer-clean,
 # and every owner's account (`rig check --facts=frames`) adds at most
 # 64 KiB.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 helper='fun w(i: Int) -> Int
