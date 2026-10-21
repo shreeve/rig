@@ -331,7 +331,9 @@ const Pass = struct {
         const body = ir.get(node, .body);
         const is_main = !o.member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
         const marker = rig.markerOf(node);
-        var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none;
+        // A function that always panics is cold, and stays out of line
+        // as a `rarely` one does.
+        var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none and !rig.alwaysPanics(body);
         if (body != .nil and holdsClosure(body)) eligible = false;
         // A frame that depends on a compile-time value is unknown.
         if (o.per_instance and sema.tparamsOf(node) != .nil) eligible = false;

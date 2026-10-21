@@ -908,7 +908,10 @@ pub const Emitter = struct {
         const inlined = self.facts.isInlined(name_node);
         const marker = self.facts.markerOf(node);
         const recursive = self.yield_checks and self.facts.isRecursive(name_node);
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = marker == .rarely, .recursive = recursive };
+        // A function that always panics is cold, as a `rarely` one is,
+        // so a call of it is laid out off the path that does not.
+        const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .recursive = recursive };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");

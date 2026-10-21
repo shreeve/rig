@@ -1766,6 +1766,7 @@ pub const String = struct {
     }
 
     noinline fn keepPanic(count: Int, n: usize) noreturn {
+        @branchHint(.cold);
         std.debug.panic("`keep: {d}` is outside 0..{d}, the bytes pushed", .{ count, n });
     }
 
@@ -2192,6 +2193,7 @@ pub const Proven = enum { lower, upper, both };
 const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
 
 fn proofPanic() noreturn {
+    @branchHint(.cold);
     @panic("rig: a proven check failed (compiler bug)");
 }
 
@@ -3204,6 +3206,7 @@ fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
 }
 
 fn slicePanic() noreturn {
+    @branchHint(.cold);
     @panic("slice bounds out of range");
 }
 
@@ -3247,10 +3250,12 @@ noinline fn lenPanic() noreturn {
 }
 
 fn indexPanic() noreturn {
+    @branchHint(.cold);
     @panic("index out of bounds");
 }
 
 pub fn oom() noreturn {
+    @branchHint(.cold);
     @panic("out of memory");
 }
 
@@ -3814,12 +3819,15 @@ fn reportLeaks(before: Usage) bool {
     if (!leak_checked) return false;
     const now = usage();
     if (now.count <= before.count) return false;
-    const n = now.count - before.count;
-    std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{
-        n, if (n == 1) "" else "s", now.bytes -| before.bytes,
-    });
-    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
+    leakReport(now.count - before.count, now.bytes -| before.bytes);
     return true;
+}
+
+/// The leak checker's report of `n` allocations of `bytes` bytes.
+noinline fn leakReport(n: usize, bytes: usize) void {
+    @branchHint(.cold);
+    std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{ n, if (n == 1) "" else "s", bytes });
+    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
 }
 
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
@@ -4210,6 +4218,7 @@ pub fn finish() void {
 /// A failure that left `main`, after its drops and `finish`: report the
 /// error as a Rig program shows it and exit 1.
 pub fn failMain(err: anyerror) noreturn {
+    @branchHint(.cold);
     lockOutput();
     flushQuietly();
     std.debug.print("error: {s}\n", .{errorShown(err)});
@@ -4476,6 +4485,7 @@ fn beginPanic() void {
 /// Wait, in a task that panicked while another task's panic is reported,
 /// for that report to end the program.
 fn awaitOtherPanic() noreturn {
+    @branchHint(.cold);
     while (true) io().sleep(.fromSeconds(1), .awake) catch {};
 }
 
@@ -4500,6 +4510,7 @@ fn flushForPanic() void {
 /// A panic that an isolate stops: its report, with the stack trace in a
 /// debug build, then the isolate (`tasks.panicked`).
 fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) noreturn {
+    @branchHint(.cold);
     reportPanic(msg, first_trace_addr);
     tasks.panicked(iso);
 }
@@ -4521,6 +4532,7 @@ fn reportPanic(msg: []const u8, first_trace_addr: usize) void {
 /// A task this one waited for, or dropped, panicked: the panic passes to
 /// this task's nearest isolate, or, with none, ends the program.
 pub fn passPanic() noreturn {
+    @branchHint(.cold);
     passPanicFrom("a task this one waited for panicked");
 }
 
