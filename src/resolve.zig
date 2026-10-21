@@ -825,6 +825,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     try checkDetachedMethods(ctx, tree);
     try checkUseNames(ctx);
     try ctx.ct.declare(ctx, tree);
+    try sema.cteval.markCalls(ctx, tree);
     const order = try orderModuleConsts(ctx, tree);
     try foldModuleConsts(ctx, order);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
@@ -832,16 +833,29 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
         if ((if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.errors)) tr.declares_errors = true;
     }
     for (ir.Module.decls(tree)) |decl| {
-        // A compile-time function, and a plain enum one names, is
-        // resolved with the constants (`ensureCtFun`).
+        // A compile-time function is resolved with the constants
+        // (`ensureCtFun`), and so are the variants of a plain enum, whose
+        // methods are resolved here.
         if (rig.isCtFun(decl)) {
             if (ctx.symbolOf(ir.Fun.name(rig.unpub(decl)))) |id| _ = try ensureCtFun(ctx, id);
             continue;
         }
         const d = rig.unpub(decl);
-        if (d == .list and ctx.ct.early.contains(d.list.id)) continue;
+        tr.part = if (d == .list and ctx.ct.early.contains(d.list.id)) .rest else .all;
         try tr.resolveDecl(decl);
     }
+}
+
+/// Resolve the variants of plain enum `decl` (an `enum` none of whose
+/// variants has a payload), with their values, ahead of the other
+/// declarations, once: a compile-time function may use them before the
+/// declarations are resolved in order. Its methods, which may name any
+/// type, are resolved in order (`TypeResolver.part`).
+fn resolveVariantsEarly(ctx: *SemContext, decl: Sexp) Error!void {
+    const gop = try ctx.ct.early.getOrPut(ctx.allocator, decl.list.id);
+    if (gop.found_existing) return;
+    var tr: TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope, .part = .variants };
+    try tr.resolveDecl(decl);
 }
 
 /// Resolve the signature of compile-time function `id` of this module
@@ -862,10 +876,15 @@ pub fn ensureCtSig(ctx: *SemContext, id: SymbolId) Error!bool {
     const decl = f.decl;
     const def = rig.unpub(decl);
     const mark = ctx.diagnostics.items.len;
+    // A signature may name any type, so it is resolved outside the window
+    // of a body checked early (`sema.beginEarlyContents`).
+    const window = ctx.ct.window_open;
+    if (window) try sema.endEarlyContents(ctx);
     try resolveEnumsNamed(ctx, def);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope };
     const fn_ty = try tr.resolveFunction(def, sema.symbol_invalid);
     if (!diag.hasErrorsIn(ctx.diagnostics.items[mark..])) try sema.cteval.checkSignature(ctx, def, fn_ty);
+    if (window) _ = try sema.beginEarlyContents(ctx);
     const g = ctx.ct.funs.getPtr(id).?;
     g.sig = .done;
     g.sig_ok = !diag.hasErrorsIn(ctx.diagnostics.items[mark..]);
@@ -907,20 +926,17 @@ pub fn ensureCtFun(ctx: *SemContext, id: SymbolId) Error!bool {
     return ok;
 }
 
-/// Resolve, ahead of the other declarations, each plain enum of this
-/// module that `node` names: a compile-time function's signature and
-/// body may use one before the declarations are resolved in order.
+/// Resolve the variants of each plain enum of this module that `node`
+/// names (`resolveVariantsEarly`): one a compile-time function names is
+/// ordered before it, unless the function is checked out of order, for a
+/// call another compile-time function's body makes.
 fn resolveEnumsNamed(ctx: *SemContext, node: Sexp) Error!void {
     switch (node) {
         .src => {
             const name = identAt(ctx.source, node) orelse return;
             const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return;
-            if (ctx.symbols.items[id].kind != .nominal_type or ctx.symbols.items[id].fields != null) return;
-            const decl = sema.cteval.plainEnumDecl(ctx, id) orelse return;
-            const gop = try ctx.ct.early.getOrPut(ctx.allocator, decl.list.id);
-            if (gop.found_existing) return;
-            var tr: TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope };
-            try tr.resolveDecl(decl);
+            if (ctx.symbols.items[id].kind != .nominal_type) return;
+            try resolveVariantsEarly(ctx, sema.cteval.plainEnumDecl(ctx, id) orelse return);
         },
         .list => for (node.items()) |c| try resolveEnumsNamed(ctx, c),
         else => {},
@@ -1036,6 +1052,16 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error![]const Sexp {
         try index.put(a, id, @intCast(consts.items.len));
         try consts.append(a, decl);
     }
+    // So are the plain enums, whose variants a compile-time function may
+    // use, and whose values may name constants (`resolveVariantsEarly`).
+    if (ctx.ct.funs.count() > 0) for (ir.Module.decls(tree)) |decl| {
+        const d = rig.unpub(decl);
+        if (!d.isKind(.@"enum")) continue;
+        const id = ctx.symbolOf(ir.get(d, .name)) orelse continue;
+        if (index.contains(id) or sema.cteval.plainEnumDecl(ctx, id) == null) continue;
+        try index.put(a, id, @intCast(consts.items.len));
+        try consts.append(a, decl);
+    };
     for (ir.Module.decls(tree)) |decl| {
         if (!rig.isModuleConst(decl)) continue;
         const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
@@ -1058,6 +1084,10 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error![]const Sexp {
         const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
         if (set.isKind(.fun)) {
             try constNamesIn(ctx, set, &index, &deps);
+            continue;
+        }
+        if (set.isKind(.@"enum")) {
+            for (ir.rest(set, .members)) |m| try constNamesIn(ctx, m, &index, &deps);
             continue;
         }
         try constNamesIn(ctx, ir.Set.value(set), &index, &deps);
@@ -1108,13 +1138,14 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error![]const Sexp {
     return order.items;
 }
 
-/// Whether the cycle open on `stack` from `j` on holds a constant: one
-/// of compile-time functions alone is recursion, which is allowed.
+/// Whether the cycle open on `stack` from `j` on holds a constant or an
+/// enum: one of compile-time functions alone is recursion, which is
+/// allowed.
 fn cycleHasConst(consts: []const Sexp, stack: anytype, j: u32) bool {
     var from: usize = stack.len;
     while (from > 0 and stack[from - 1].i != j) from -= 1;
     from -|= 1;
-    for (stack[from..]) |f| if (rig.isModuleConst(consts[f.i])) return true;
+    for (stack[from..]) |f| if (!rig.isCtFun(consts[f.i])) return true;
     return false;
 }
 
@@ -1128,7 +1159,11 @@ fn constNamesIn(ctx: *const SemContext, node: Sexp, index: *const std.AutoHashMa
             const id = ctx.lookupInScopeOnly(sema.module_scope, text) orelse return;
             if (index.get(id)) |i| try out.append(ctx.allocator, i);
         },
-        .list => switch (node.kind() orelse return) {
+        .list => switch (node.kind() orelse {
+            // A group: a function's parameters.
+            for (node.items()) |c| try constNamesIn(ctx, c, index, out);
+            return;
+        }) {
             .member => try constNamesIn(ctx, ir.Member.object(node), index, out),
             .kwarg => try constNamesIn(ctx, ir.Kwarg.value(node), index, out),
             .enum_lit, .builtin => for (rig.children(node)[1..]) |c| try constNamesIn(ctx, c, index, out),
@@ -1152,7 +1187,7 @@ fn reportConstCycle(ctx: *SemContext, consts: []const Sexp, stack: anytype, j: u
     from -|= 1;
     const cycle = stack[from..];
     var first: usize = 0;
-    while (!rig.isModuleConst(consts[cycle[first].i])) first += 1;
+    while (rig.isCtFun(consts[cycle[first].i])) first += 1;
     var path: std.ArrayList(u8) = .empty;
     for (0..cycle.len) |k| {
         const i = cycle[(first + k) % cycle.len].i;
@@ -1164,14 +1199,20 @@ fn reportConstCycle(ctx: *SemContext, consts: []const Sexp, stack: anytype, j: u
     }
     const c = cycle[first].i;
     try path.print(a, "`{s}`", .{constName(ctx, consts[c])});
-    const set = if (consts[c].isKind(.@"pub")) ir.Pub.decl(consts[c]) else consts[c];
-    try ctx.errAt(ir.Set.value(set), "constant `{s}` depends on itself ({s})", .{ constName(ctx, consts[c]), path.items });
+    const d = rig.unpub(consts[c]);
+    if (d.isKind(.@"enum")) {
+        // The enum stays in the order: its value that needs itself is
+        // reported where its variants are resolved.
+        try ctx.errAt(ir.get(d, .name), "enum `{s}` depends on itself ({s})", .{ constName(ctx, consts[c]), path.items });
+        return;
+    }
+    try ctx.errAt(ir.Set.value(d), "constant `{s}` depends on itself ({s})", .{ constName(ctx, consts[c]), path.items });
 }
 
 /// The name a constant or a compile-time function declares.
 fn constName(ctx: *const SemContext, decl: Sexp) []const u8 {
     const def = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
-    if (def.isKind(.fun)) return identAt(ctx.source, ir.Fun.name(def)) orelse "_";
+    if (def.isKind(.fun) or def.isKind(.@"enum")) return identAt(ctx.source, ir.get(def, .name)) orelse "_";
     return identAt(ctx.source, ir.Set.target(def)) orelse "_";
 }
 
@@ -1187,6 +1228,10 @@ fn foldModuleConsts(ctx: *SemContext, order: []const Sexp) Error!void {
         const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
         if (set.isKind(.fun)) {
             if (ctx.symbolOf(ir.Fun.name(set))) |id| _ = try ensureCtFun(ctx, id);
+            continue;
+        }
+        if (set.isKind(.@"enum")) {
+            try resolveVariantsEarly(ctx, set);
             continue;
         }
         const target = ir.Set.target(set);
@@ -1371,6 +1416,10 @@ pub const TypeResolver = struct {
     /// The module declares an error set, which its fallible Zig-backed
     /// functions fail with.
     declares_errors: bool = false,
+    /// Which members of a plain enum `resolveNominal` resolves: all of
+    /// them, its variants alone (ahead of the other declarations,
+    /// `resolveVariantsEarly`), or the rest, once its variants are.
+    part: enum { all, variants, rest } = .all,
 
     /// The type a type name not found here was likely meant as: a
     /// built-in one written in lower case (`i32`, `string`), or a type
@@ -1993,8 +2042,19 @@ pub const TypeResolver = struct {
         var values: EnumValues = .{};
         defer values.seen.deinit(self.ctx.allocator);
         var none_line: ?Sexp = null;
+        // The variants resolved first: the rest of the members follow
+        // them, and none may reuse their names.
+        const rest = self.part == .rest;
+        if (rest) for (self.ctx.symbols.items[sym_id].fields orelse &.{}) |f| {
+            try fields.append(self.ctx.allocator, f);
+            try names.put(self.ctx.allocator, f.name, f.decl_pos);
+        };
 
         for (members) |m| {
+            // A variant is resolved with the variants, any other member
+            // with the rest.
+            const variant = m == .src or m.isKind(.valued);
+            if ((rest and variant) or (self.part == .variants and !variant)) continue;
             switch (m) {
                 .src => |s| {
                     const vname = identAt(self.ctx.source, m).?;

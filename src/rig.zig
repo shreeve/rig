@@ -232,7 +232,7 @@ pub fn eachBody(root: Sexp, ctx: anytype, comptime f: anytype) !void {
 fn bodiesOfDecl(decl: Sexp, ctx: anytype, comptime f: anytype) !void {
     switch (decl.kind() orelse return) {
         .@"pub" => try bodiesOfDecl(ir.Pub.decl(decl), ctx, f),
-        .fun, .sub, .drop_decl, .@"test" => if (ir.get(decl, .body) != .nil and !isCtFun(decl)) try f(ctx, decl, ir.get(decl, .body)),
+        .fun, .sub, .drop_decl, .@"test" => if (ir.get(decl, .body) != .nil) try f(ctx, decl, ir.get(decl, .body)),
         .@"struct", .@"enum", .generic_struct, .generic_enum => for (ir.rest(decl, .members)) |m| try bodiesOfDecl(m, ctx, f),
         else => {},
     }
@@ -276,7 +276,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each

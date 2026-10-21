@@ -2359,7 +2359,7 @@ pub const Emitter = struct {
             if (self.subjectView(target, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
             return self.writeLocalPlace(local);
         };
-        if (target.isKind(.index) and self.facts.ctValueOf(target) == null) {
+        if (target.isKind(.index)) {
             // An element holding a write view denotes the viewed
             // value, as a field holding one does (`emitValue`).
             if (self.onSubjectPath(target)) if (self.genericReadViewOf(target)) |inner| {
@@ -5163,12 +5163,9 @@ pub const Emitter = struct {
                 try self.emitCallDirect(sexp),
             // Compile-time arguments are emitted by the call or type that
             // takes them; sema rejects a bracket list as a value.
-            .inst => {
-                if (self.facts.ctValueOf(sexp)) |r| return self.emitCtCall(r);
-                return self.unsupported(sexp, "a bracket list of compile-time arguments as a value");
-            },
+            .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
+            .ct_call => return self.emitCtCall(self.facts.ctValueOf(sexp) orelse return self.unsupported(sexp, "a compile-time call the checker did not compute")),
             .member, .index => {
-                if (self.facts.ctValueOf(sexp)) |r| return self.emitCtCall(r);
                 if (self.facts.instanceOf(sexp) != null) return self.unsupported(sexp, "a bracket list of compile-time arguments as a value");
                 // A field or element holding a write view denotes the
                 // viewed value, unless the pointer itself is wanted.

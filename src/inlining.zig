@@ -372,6 +372,9 @@ const Pass = struct {
             .use => return,
             // Everything but the name.
             .fun, .sub => if (!rig.isCtFun(e)) for (e.items()[2..]) |c| try self.mentions(module, c),
+            // A compile-time call is a constant: it mentions no function
+            // that runs.
+            .ct_call => return,
             .call => {
                 const raw = ir.Call.callee(e);
                 const callee = self.ctx(module).calleeOf(e);

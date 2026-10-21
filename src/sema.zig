@@ -984,6 +984,8 @@ pub const Facts = struct {
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
     /// for one that gives compile-time arguments rather than an index.
     instances: std.AutoHashMapUnmanaged(NodeKey, Instance) = .empty,
+    /// A compile-time function's call -> its value (`CtCall`).
+    ct_calls: std.AutoHashMapUnmanaged(NodeKey, CtCall) = .empty,
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
     generic_calls: std.AutoHashMapUnmanaged(NodeKey, GenericCall) = .empty,
@@ -1675,11 +1677,12 @@ pub const Instance = union(enum) {
     /// `check[.strict]`, `p.scale[2]`: a function's compile-time
     /// arguments.
     function,
-    /// `cap[8]`: a call of a compile-time function (`rig.isCtFun`), whose
-    /// value the checker computed, `SemContext.ct.results[i]`; null in a
-    /// compile-time function's body, where the evaluator runs the call.
-    ct_call: ?u32,
 };
+
+/// A compile-time function's call, `(ct_call cap 8)` (`cteval.markCalls`):
+/// the value the checker computed, `SemContext.ct.results[result]`; null
+/// in a compile-time function's body, where the evaluator runs the call.
+pub const CtCall = struct { result: ?u32 };
 
 /// The compile-time arguments a call passes, one per compile-time
 /// parameter in order: a type parameter's type, inferred or given, and
@@ -2031,11 +2034,11 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         Instance => switch (v) {
             .type => |ty| try w.print(" type {s}", .{try formatTypeIn(ctx, a, ty)}),
             .function => try w.writeAll(" function"),
-            .ct_call => |i| if (i) |r| {
-                try w.writeAll(" ct ");
-                try cteval.writeValue(ctx, w, ctx.ct.results.items[r].value, ctx.ct.results.items[r].ty);
-            } else try w.writeAll(" ct"),
         },
+        CtCall => if (v.result) |r| {
+            try w.writeAll(" ");
+            try cteval.writeValue(ctx, w, ctx.ct.results.items[r].value, ctx.ct.results.items[r].ty);
+        } else try w.writeAll(" in a compile-time body"),
         GenericCall => {
             for (v.type_args) |ty| try w.print(" {s}", .{if (ty == type_invalid) "_" else try formatTypeIn(ctx, a, ty)});
             if (v.receiver_arg) try w.writeAll(" receiver");
@@ -3706,6 +3709,14 @@ pub const SemContext = struct {
         try self.facts.instances.put(self.allocator, recordKey(node), inst);
     }
 
+    pub fn recordCtCall(self: *SemContext, node: Sexp, call: CtCall) !void {
+        try self.facts.ct_calls.put(self.allocator, recordKey(node), call);
+    }
+
+    pub fn ctCallOf(self: *const SemContext, node: Sexp) ?CtCall {
+        return self.facts.ct_calls.get(nodeKey(node) orelse return null);
+    }
+
     pub fn recordGenericCall(self: *SemContext, node: Sexp, call: GenericCall) !void {
         try self.facts.generic_calls.put(self.allocator, recordKey(node), call);
     }
@@ -4402,25 +4413,34 @@ fn computeContents(ctx: *SemContext) std.mem.Allocator.Error![]const SymbolId {
 
 /// Make the ownership facts of types known for a compile-time
 /// function's body, which is checked before every declaration is
-/// resolved (`resolve.ensureCtFun`): it holds only integers, `Bool`, and
-/// plain enums, resolved ahead of the rest, whose contents are complete
-/// once their variants are. False when they were known already; else
-/// `endEarlyContents` takes them back, to be computed for every type.
+/// resolved (`resolve.ensureCtFun`). The body names only integers,
+/// `Bool`, and plain enums (`cteval.checkNames`), whose variants are
+/// resolved by then (`resolve.resolveVariantsEarly`), so every type the
+/// window reaches is complete; a signature, which may name any type, is
+/// resolved outside it (`resolve.ensureCtSig`). False when the facts are
+/// known already; else `endEarlyContents` takes back everything the
+/// window computed, to be computed again for every type.
 pub fn beginEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!bool {
     if (ctx.contents_ready) return false;
+    ctx.ct.window.clearRetainingCapacity();
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind != .nominal_type or sym.fields == null or sym.decl_pos >= imported_decl_pos) continue;
+        if (sym.kind != .nominal_type or sym.fields == null or sym.contents.done or sym.decl_pos >= imported_decl_pos) continue;
         if (!isPlainEnum(ctx, try ctx.intern(.{ .nominal = @intCast(i) }))) continue;
         try symbolContents(ctx, @intCast(i));
+        try ctx.ct.window.append(ctx.allocator, @intCast(i));
     }
     ctx.contents_ready = true;
+    ctx.ct.window_open = true;
     ctx.type_info.clearRetainingCapacity();
     try ctx.syncTypeInfo();
     return true;
 }
 
 pub fn endEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.ct.window.items) |id| ctx.symbols.items[id].contents = .{};
+    ctx.ct.window.clearRetainingCapacity();
     ctx.contents_ready = false;
+    ctx.ct.window_open = false;
     ctx.type_info.clearRetainingCapacity();
     try ctx.syncTypeInfo();
 }
@@ -9125,12 +9145,8 @@ fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.
         .list => {},
         else => return .none,
     }
-    // `f[Int]`: a function's instance is a value, and so is a
-    // compile-time call's (`cap[8]`); a type's is none.
-    if (ctx) |c| if (c.instanceOf(node)) |inst| return switch (inst) {
-        .function, .ct_call => .made,
-        .type => .none,
-    };
+    // `f[Int]`: a function's instance is a value; a type's is none.
+    if (ctx) |c| if (c.instanceOf(node)) |inst| return if (inst == .function) .made else .none;
     return switch (shapeOf(source, node)) {
         .made => .made,
         .lend => .lend,
@@ -9439,7 +9455,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
         // A destructure's target takes its result out of the statement's
         // temporary, whole, as a binding takes a call's result.
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .symbol, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
+        // A compile-time call is a value made where it is written, as an
+        // array literal is.
+        .call, .builtin, .inst, .ct_call, .lambda, .match, .block, .raw_block, .enum_lit, .symbol, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
@@ -9828,7 +9846,7 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
-            if (h == .index or h == .inst or h == .generic_inst) {
+            if (h == .ct_call) {
                 if (comptime @hasDecl(@TypeOf(names), "ctCall")) return names.ctCall(e);
                 return .not_constant;
             }

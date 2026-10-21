@@ -501,7 +501,7 @@ type mismatch: expected `Static`, got `?String`
 integer, a constant (`[LIMIT]T`, `[lib.N]T`), a compile-time integer
 parameter (`[n]T` in `fun zeros[n: Int]() -> [n]Int`,
 [§16](#16-compile-time-parameters)), a compile-time function's value
-(`[cap[4]]T`, [§16](#compile-time-functions)), or arithmetic on
+(`[cap[4]]T` or `[(cap[4])]T`, [§16](#compile-time-functions)), or arithmetic on
 integers and constants with `+`, `-`, `*`, `/`, `%`, and parentheses
 (`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
 arithmetic is, in its constants' type: with `W: U8 = 200`, `[W * 2]T`
@@ -10356,15 +10356,25 @@ calls, `defer`, `raw`, and calls of run-time functions are rejected
 where they are written. A `sub`, a method, and an `inline` or `called`
 function are never compile-time functions.
 
-A call is computed once per program for each set of arguments, within
-fixed limits, so `rig check` gives the same verdict on every machine:
-10,000,000 steps (each expression, loop iteration, and array element
-copied) and 256 nested compile-time calls. Its result obeys the
-8 MiB value rule. Each failure is a diagnostic at the call, with a
-note at the line of the body that failed: an overflow of the
-operation's type, a division by zero, an index out of range, a
-conversion that does not fit, a limit reached, and a `panic`, whose
-message is the diagnostic's.
+The body means what it would mean when the program runs: each
+operation in the type the checker gives it, a variant converted
+(`Int(m)`) and ordered (`m < Mode.b`) by its value, and an array a
+value, which a binding, an assignment, an element, and a result each
+hold a copy of. It is held to the ownership rules any body is, so a
+loop cannot change the array it walks.
+
+Each call written is computed within fixed limits, from no remembered
+value, so `rig check` gives the same verdict on every machine and
+wherever the call is written: 10,000,000 steps (each expression, loop
+iteration, and array element copied), 256 nested compile-time calls,
+20,000 expressions and statements nested in one another, and 64 MiB of
+values held at once. A call computed once is not computed again, and
+the same call again has the same value or failure. The result must be
+a value of the declared result type, and obeys the 8 MiB value rule.
+Each failure is a diagnostic at the call, with a note at the line of
+the body that failed: an overflow of the operation's type, a division
+by zero, an index out of range, a conversion that does not fit, a
+limit reached, and a `panic`, whose message is the diagnostic's.
 
 ```rig
 enum Mode

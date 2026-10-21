@@ -463,6 +463,7 @@ tokens
     wait                        operand          # `>t`: rewritten by the Parser wrapper to `<t.wait()`'s tree; no pass sees it
     index                       object index
     inst                        object ...args
+    ct_call                     callee ...args @wrapper  # `cap[8]`: a call of a compile-time function, made by sema of the `index`, `inst`, or `generic_inst` that names one (`cteval.markCalls`)
     array                       ...elems
     array_fill                  size value
     tuple                       ...elems         # `(a, b)`: parsed only to be rejected
@@ -937,6 +938,7 @@ dim      = INTEGER
          | "(" name ")"                             → 2
          | object:name "." name:name                → (member)
          | ccall
+         | "(" ccall ")"                            → 2
          | cexp
 
 # A generic type's instance, or a call of a compile-time function in a

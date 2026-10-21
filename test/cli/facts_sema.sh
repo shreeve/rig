@@ -60,7 +60,7 @@ sub main()
   print(squares[3])
 EOF2
 "$RIG" check --facts=sema ct.rig >ct.txt 2>err.txt || fail "rig check --facts=sema ct.rig: $(cat err.txt)"
-expect_has "$(cat ct.txt)" 'instances index 8:9-8:19 "squares[3]" ct [0, 1, 4]' "a compile-time call's value"
+expect_has "$(cat ct.txt)" 'ct_calls ct_call 8:9-8:19 "squares[3]" [0, 1, 4]' "a compile-time call's value"
 
 cat >bad.rig <<'EOF2'
 sub main()

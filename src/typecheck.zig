@@ -119,6 +119,7 @@ pub fn checkCtFun(ctx: *SemContext, decl: Sexp) Error!void {
     defer c.panic_places.deinit(ctx.allocator);
     try c.placePanics(decl, .value);
     try c.checkDecl(decl);
+    try c.checkLendBases(decl, decl, false, true);
 }
 
 /// The diagnostic for an operand of `<`, `<=`, `>`, or `>=` whose type
@@ -4715,6 +4716,7 @@ const Checker = struct {
             .call => self.synthCall(e),
             .member => self.synthMember(e),
             .index, .inst => self.synthIndex(e),
+            .ct_call => self.synthCtCall(e),
             .propagate => self.synthPropagate(e),
             .propagate_none => self.synthPropagateNone(e),
             .@"if" => self.checkIfValue(e, null, .value),
@@ -7178,9 +7180,6 @@ const Checker = struct {
         /// A function, named directly, through its module, or through
         /// its type: `check[.strict]`, `m.f[2]`, `Pair.make[1]`.
         function: FnTarget,
-        /// A compile-time function, `cap[8]`, `lib.cap[8]`: the list is
-        /// its call (`synthCtCall`).
-        ct_function: sema.cteval.Target,
         /// `value.name[...]`: a method's compile-time arguments, or an
         /// element of a field; the receiver's type tells which.
         value_member,
@@ -7207,13 +7206,7 @@ const Checker = struct {
             };
             const sym = self.ctx.symbols.items[id];
             switch (sym.kind) {
-                .function, .@"extern" => {
-                    if (sema.cteval.isCtFunction(self.ctx, id)) {
-                        try self.ctx.recordName(obj, id);
-                        return .{ .ct_function = .{ .ctx = self.ctx, .sym = id, .module_id = self.ctx.module_id } };
-                    }
-                    return .{ .function = fnTarget(self.ctx, sym.ty) };
-                },
+                .function, .@"extern" => return .{ .function = fnTarget(self.ctx, sym.ty) },
                 .generic_type => {
                     try self.ctx.recordName(obj, id);
                     return .{ .generic = .{ .id = id, .sym = sym } };
@@ -7227,11 +7220,6 @@ const Checker = struct {
         const name = self.text(ir.Member.name(obj));
         if (inner == .src) if (self.lookupQuiet(inner)) |id| if (self.ctx.symbols.items[id].kind == .module) {
             const f = self.foreignLookup(id, name) orelse return null;
-            if (sema.cteval.isCtFunction(f.ctx, f.id)) {
-                try self.ctx.recordName(inner, id);
-                const found = (try self.foreignSymbol(id, name, ir.Member.name(obj).src.pos)) orelse return .reported;
-                return .{ .ct_function = .{ .ctx = found.ctx, .sym = found.id, .module_id = found.module_id } };
-            }
             return switch (f.sym.kind) {
                 .function, .@"extern" => .{ .function = fnTarget(f.ctx, f.sym.ty) },
                 .nominal_type, .type_alias => .{ .not_generic = self.sourceText(obj) },
@@ -7314,7 +7302,7 @@ const Checker = struct {
                 } else try self.errAt(e, "`{s}` is a function with compile-time arguments; call it with `{s}({s})`", .{ call, call, if (f.takes_args) "..." else "" });
             },
             .not_generic, .reported => try self.notGeneric(e, target),
-            .value_member, .ct_function => unreachable,
+            .value_member => unreachable,
         }
         return self.t().invalid_id;
     }
@@ -7325,9 +7313,14 @@ const Checker = struct {
     /// call is written; in a compile-time function's body, where the
     /// evaluator runs the call, any value of the parameter's type
     /// (`ctCallInBody`).
-    fn synthCtCall(self: *Checker, e: Sexp, target: sema.cteval.Target) Error!TypeId {
-        const name = self.sourceText(ir.get(e, .object));
-        const given = sema.bracketArgs(e);
+    fn synthCtCall(self: *Checker, e: Sexp) Error!TypeId {
+        const callee = sema.cteval.calleeOf(e);
+        const name = self.sourceText(callee);
+        const given = sema.cteval.argsOf(e);
+        const target = (try self.ctTarget(callee)) orelse {
+            for (given) |g| _ = try self.synthQuiet(g);
+            return self.t().invalid_id;
+        };
         const f = (try sema.cteval.signatureOf(target)) orelse {
             for (given) |g| _ = try self.synthQuiet(g);
             return self.t().invalid_id;
@@ -7376,6 +7369,23 @@ const Checker = struct {
         return c.ty;
     }
 
+    /// The compile-time function `callee` names, `cap` or `lib.cap`, as
+    /// `cteval.markCalls` found; null after a diagnostic.
+    fn ctTarget(self: *Checker, callee: Sexp) Error!?sema.cteval.Target {
+        if (callee == .src) {
+            const id = self.lookupQuiet(callee) orelse return null;
+            try self.ctx.recordName(callee, id);
+            if (!sema.cteval.isCtFunction(self.ctx, id)) return null;
+            return .{ .ctx = self.ctx, .sym = id, .module_id = self.ctx.module_id };
+        }
+        const obj = ir.Member.object(callee);
+        const module = self.lookupQuiet(obj) orelse return null;
+        try self.ctx.recordName(obj, module);
+        const found = (try self.foreignSymbol(module, self.text(ir.Member.name(callee)), ir.Member.name(callee).src.pos)) orelse return null;
+        if (!sema.cteval.isCtFunction(found.ctx, found.id)) return null;
+        return .{ .ctx = found.ctx, .sym = found.id, .module_id = found.module_id };
+    }
+
     /// The compile-time parameter of an enclosing generic function that
     /// `e` names, or a `=!` binding of one: a value that differs per
     /// instance, which a compile-time call does not take.
@@ -7393,34 +7403,23 @@ const Checker = struct {
     /// result's type names, which follows the rule of compile-time
     /// arguments (`ctIntArg`): the body is typed once, and `[n - 1]T` is
     /// no type it can spell.
-    fn ctCallInBody(self: *Checker, e: Sexp, target: sema.cteval.Target, f: sema.FunctionType, name: []const u8) Error!TypeId {
+    fn ctCallInBody(self: *Checker, e: Sexp, target: sema.cteval.Target, f_there: sema.FunctionType, name: []const u8) Error!TypeId {
         const a = self.ctx.arena.allocator();
+        // Another module's signature, as this module reads it: its
+        // integer parameters are proxies here (`sema.importType`), so a
+        // result sized by one is typed as a local one is.
+        const f = if (target.ctx == self.ctx) f_there else blk: {
+            const fn_ty = try sema.importType(self.ctx, target.ctx, target.ctx.symbols.items[target.sym].ty, target.module_id);
+            break :blk self.ctx.types.get(fn_ty).function;
+        };
         var params: std.ArrayList(SymbolId) = .empty;
         var args: std.ArrayList(TypeId) = .empty;
         var ok = true;
-        for (sema.bracketArgs(e), f.ct_params, 0..) |g, pty_there, i| {
-            const pty = if (target.ctx == self.ctx) pty_there else try sema.importType(self.ctx, target.ctx, pty_there, target.module_id);
+        for (sema.cteval.argsOf(e), f.ct_params, 0..) |g, pty, i| {
             const sym = if (i < f.ct_syms.len) f.ct_syms[i] else sema.symbol_invalid;
-            const sized = sym != sema.symbol_invalid and target.ctx.types.get(pty_there) == .int and sema.usesParams(target.ctx, f.returns, &.{sym});
+            const sized = sym != sema.symbol_invalid and self.ctx.types.get(pty) == .int and sema.usesParams(self.ctx, f.returns, &.{sym});
             if (!sized) {
                 try self.checkExpr(g, pty);
-                continue;
-            }
-            if (target.ctx != self.ctx) {
-                // Another module's: its result's type is computed there,
-                // from a constant.
-                const names: resolve.ConstNames = .{ .ctx = self.ctx, .scope = self.scope };
-                try self.checkExpr(g, pty);
-                switch (sema.constIntBy(self.ctx, g, names)) {
-                    .value => |v| {
-                        try params.append(a, sym);
-                        try args.append(a, try sema.ctInt(target.ctx, v));
-                    },
-                    else => {
-                        try self.errAt(g, "compile-time argument {d} of `{s}` sizes its result, so it must be a constant", .{ i + 1, name });
-                        ok = false;
-                    },
-                }
                 continue;
             }
             const arg = (try self.ctIntArg(g, sym, i, name)) orelse {
@@ -7430,12 +7429,9 @@ const Checker = struct {
             try params.append(a, sym);
             try args.append(a, arg);
         }
-        try self.ctx.recordInstance(e, .{ .ct_call = null });
+        try self.ctx.recordCtCall(e, .{ .result = null });
         if (!ok) return self.t().invalid_id;
-        const subst: sema.TypeSubst = .{ .params = params.items, .args = args.items };
-        if (target.ctx == self.ctx) return sema.substituteType(self.ctx, f.returns, subst);
-        const there = try sema.substituteType(target.ctx, f.returns, subst);
-        return sema.importType(self.ctx, target.ctx, there, target.module_id);
+        return sema.substituteType(self.ctx, f.returns, .{ .params = params.items, .args = args.items });
     }
 
     /// The instance of generic type `nt` that bracket list `e` names
@@ -7531,14 +7527,14 @@ const Checker = struct {
                     try self.errAt(e, "a fallible type `{s}` stands only where a call's result is named: a function's return type, or a task's, `Task[T!]`", .{self.sourceText(e)});
                     return self.t().invalid_id;
                 },
+                .ct_call => {
+                    try self.errAt(e, "`{s}` is a compile-time value, not a type", .{self.sourceText(e)});
+                    return self.t().invalid_id;
+                },
                 .index, .inst => if (try self.instTarget(ir.get(e, .object))) |target| switch (target) {
                     .generic => |nt| return self.typeInstance(e, nt),
                     .not_generic, .reported => {
                         try self.notGeneric(e, target);
-                        return self.t().invalid_id;
-                    },
-                    .ct_function => {
-                        try self.errAt(e, "`{s}` is a compile-time value, not a type", .{self.sourceText(e)});
                         return self.t().invalid_id;
                     },
                     else => {},
@@ -7681,7 +7677,6 @@ const Checker = struct {
         const object = ir.get(e, .object);
         if (e.isKind(.index) and ir.Index.index(e).isKind(.@"..")) return self.synthSlice(e, false);
         if (try self.instTarget(object)) |target| {
-            if (target == .ct_function) return self.synthCtCall(e, target.ct_function);
             if (target != .value_member) return self.misusedInstance(e, target);
             // `value.name[...]`: a method's compile-time arguments, which
             // only a call takes, or an element of a field.
@@ -8266,12 +8261,11 @@ const Checker = struct {
                 try self.notGeneric(callee, target);
                 return self.skipCall(args);
             },
-            .ct_function => {
-                const shown = self.sourceText(callee);
-                try self.errAt(node, "`{s}` is a compile-time function: its value is `{s}`, with no parentheses", .{ self.sourceText(ir.get(callee, .object)), shown });
-                return self.skipCall(args);
-            },
         };
+        if (callee.isKind(.ct_call)) {
+            try self.errAt(node, "`{s}` is a compile-time function: its value is `{s}`, with no parentheses", .{ self.sourceText(sema.cteval.calleeOf(callee)), self.sourceText(callee) });
+            return self.skipCall(args);
+        }
 
         if (callee == .src) {
             const name = self.text(callee);
@@ -10892,7 +10886,7 @@ const Checker = struct {
                     .enum_lit, .symbol => true,
                     // `cap[8]`: a compile-time call, whose value the
                     // checker computed.
-                    .index, .inst => if (self.ctx.instanceOf(e)) |inst| inst == .ct_call and inst.ct_call != null else false,
+                    .ct_call => if (self.ctx.ctCallOf(e)) |c| c.result != null else false,
                     .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants"),
                     // `U8(65)`: a constant integer as an integer type.
                     .call => self.constInt(e) != null,
