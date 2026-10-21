@@ -52,14 +52,32 @@ pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".
     if (scheduled) return sched.blocking(f, args);
     return @call(.auto, f, args);
 }
+
+/// `f(args...)`, a call that may block its thread, as a fallible waiting
+/// point: on the scheduler's blocking pool, where a cancel of the task
+/// waiting, or its deadline, ends the wait with `Stop.canceled` or
+/// `Stop.timeout` while the call runs on to its end and its result is
+/// dropped (`sched.blockingStop`). `args` are copied into the call's own
+/// state, a `[]const u8` or `[]u8` among them with what it points to;
+/// anything else they point to must outlive the call. Without the
+/// scheduler it runs here, after a look at the deadline.
+pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (scheduled) return switch (sched.blockingStop(f, args)) {
+        .done => |r| r,
+        .canceled => error.@"std.task.Stop.canceled",
+        .timeout => error.@"std.task.Stop.timeout",
+    };
+    if (task().deadline) |d| if (sched.nowNs() >= d) return error.@"std.task.Stop.timeout";
+    return @call(.auto, f, args);
+}
 pub const Stop = tasks.Stop;
 const Control = tasks.Control;
 
 /// How many turns of a loop run between a task's yield checks (`turn`).
 pub const tick_turns: u32 = 1024;
 
-/// A turn of an outermost loop in a program that makes tasks, counted
-/// down in `n`, the loop's own: every `tick_turns` turns, on the
+/// A turn of a loop in a program that makes tasks, counted down in `n`,
+/// the count its outermost loop keeps: every `tick_turns` turns, on the
 /// scheduler, the task yields if other work waits for its worker
 /// (`sched.tick`), so a long loop never keeps that work waiting.
 pub inline fn turn(n: *u32) void {

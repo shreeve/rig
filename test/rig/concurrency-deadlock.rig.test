@@ -160,7 +160,7 @@ test "deadlock chains that end", seeds: 20, '''
   print(>t, (!l).post() - 1)
   u = look(+b)&
   v = look(+b)&
-  x, y = task.both(<u, <v)
+  x, y = task.all(<u, <v)
   print(x + y - 6)
 
 test "deadlock fails one isolate", seeds: 20, '''
@@ -189,3 +189,22 @@ test "deadlock fails one isolate", seeds: 20, '''
     print(e)
     -1
   print(r, "after")
+
+bomb "deadlock method waits for a slot in its own actor's mailbox", seeds: 20, "deadlock: these calls wait on each other, and none can go on: Hub.run -> a slot in Hub's mailbox", prints: "before"
+  # Calls made with `&` take the actor's slots until they are answered,
+  # and the actor answers none while its own method waits for a slot.
+  obj Hub
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+    fun run(!@, me: *Actor[Hub]) -> Int
+      ts = Tasks[Int]()
+      for 0..3
+        !ts.add(me.get()&)
+      ts.len
+
+  h = *Actor(Hub(n: 3), mailbox: 2)
+  print("before")
+  print((!h).run(+h))

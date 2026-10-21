@@ -231,15 +231,19 @@ fail "wait negated", "`->` gives a function's result type; to negate what the ta
   x = ->t
   print(x)
 
-fail "wait written out", "a task is waited for with `>`: write `>t`", "a set of tasks is waited for with `>`: write `>ts`"
+fail "wait written out", "a task is waited for with `>`: write `>t`", errors: 1
   fun sq(x: Int) -> Int
     x * x
 
   t = sq(5)&
   print(<t.wait())
-  ts = Tasks[Int]()
-  !ts.add(sq(2)&)
-  print(<ts.wait_all())
+
+fail "wait written out with a deadline", "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2 * time.SECOND, |<t| >t!)`", errors: 1
+  fun sq(x: Int) -> Int!
+    x * x
+
+  t = sq(5)&
+  print(<t.wait(within: 5) catch 0)
 
 fail "wait print a task", "`t` is a task, which `print` cannot show: wait for what it gives, `>t`"
   fun sq(x: Int) -> Int
@@ -247,3 +251,24 @@ fail "wait print a task", "`t` is a task, which `print` cannot show: wait for wh
 
   t = sq(5)&
   print(t)
+
+fail "wait a task in a field", "`>j` waits for a task, and `.t` applies to what it gives: write `(>j).t`; to wait for a task that `j.t` holds, take it out to a name first, then wait for that, `>t`", errors: 1
+  # A wait takes a name alone: `>j.t` waits for `j`, so the message
+  # also says how to wait for a task a field holds.
+  fun sq(x: Int) -> Int
+    x * x
+
+  obj Job
+    t: Task[Int]
+
+  j = Job(t: sq(3)&)
+  print(>j.t)
+
+fail "wait twice", "use of `t` after move", "`t` was waited for here; a wait takes what it waits for, so it waits once", errors: 1
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(5)&
+  a = >t
+  b = >t
+  print(a, b)

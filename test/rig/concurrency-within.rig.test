@@ -40,13 +40,13 @@ test "within tasks", seeds: 20, release: true, '''
   inherited -1 true
   set -2
   check -3
-  both -4
+  all -4
   par -5
   ok 1
 '''
   # The tasks a block starts keep its deadline, and every fallible
   # waiting point fails after it: `task.check`, and a wait on a task, a
-  # set, or `task.both`, whose tasks are canceled first.
+  # set, or `task.all`, whose tasks are canceled first.
   use std.par
   use std.task
   use std.time
@@ -74,10 +74,112 @@ test "within tasks", seeds: 20, release: true, '''
   print("set", s)
   print("check", time.within(10 * time.MS, || spin()!) catch -3)
   b = time.within(10 * time.MS, ||
-    p, q = task.both(slow(1)&, slow(10_000)&)!
+    p, q = task.all(slow(1)&, slow(10_000)&)!
     p + q
   ) catch -4
-  print("both", b)
+  print("all", b)
   xs = List([1, 2, 3, 4])
   print("par", time.within(10 * time.MS, |?xs| par.map(xs, |x| slow(x * 10_000)!)!.len) catch -5)
   print("ok", time.within(time.SECOND, || slow(1)!) catch -6)
+
+test "within one task", seeds: 20, '''
+  -1 true
+  3
+'''
+  # `time.within` calls its closure exactly once, so the closure may move
+  # what it captures: a task made before the deadline is waited for
+  # within it, and canceled when the deadline passes.
+  use std.time
+
+  fun slow(ms: Int) -> Int!
+    time.sleep(ms * time.MS)!
+    ms
+
+  start = time.now()
+  t = slow(60_000)&
+  r = time.within(5 * time.MS, |<t| >t!) catch -1
+  print(r, start.elapsed() < 5 * time.SECOND)
+  u = slow(3)&
+  print(time.within(time.SECOND, |<u| >u!) catch -1)
+
+test "within moves its captures", seeds: 20, '''
+  drop 1
+  a 2
+  drop 2
+  b 2
+  drop 3
+  c 0
+  drop 4
+  d -7
+'''
+  # The one call takes what the closure owns of its captures: it may
+  # move them out, and drops the rest when it ends, failing or not.
+  use std.time
+
+  obj Res
+    id: Int
+
+    drop(!@)
+      print("drop", @id)
+
+  fun keep(r: Res) -> Int
+    r.id
+
+  error E
+    bad
+
+  sub boom(ok: Bool)!
+    if not ok
+      return E.bad
+
+  r1 = Res(id: 1)
+  print("a", time.within(time.SECOND, |<r1| r1.id + 1) catch -1)
+  r2 = Res(id: 2)
+  print("b", time.within(time.SECOND, |<r2| keep(<r2)) catch -1)
+  r3 = Res(id: 3)
+  flip = false
+  print("c", time.within(time.SECOND, |<r3, +flip|
+    if flip
+      keep(<r3)
+    else
+      0
+  ) catch -1)
+  r4 = Res(id: 4)
+  print("d", time.within(time.SECOND, |<r4, +flip|
+    boom(flip)!
+    keep(<r4)
+  ) catch -7)
+
+fail "within moves a capture once", "use of `r` after move", errors: 1
+  # Called once, the closure may still move a capture only once.
+  use std.time
+
+  obj Res
+    id: Int
+
+  fun keep(r: Res) -> Int
+    r.id
+
+  r = Res(id: 1)
+  n = time.within(time.SECOND, |<r|
+    s = 0
+    for 0..2
+      s += keep(<r)
+    s
+  ) catch -1
+  print(n)
+
+fail "within a closure called more than once", "cannot move captured `r`: the closure keeps what it captures for every call", errors: 1
+  # Only `time.within`'s closure is called once: one lent elsewhere
+  # keeps its captures for every call.
+  obj Res
+    id: Int
+
+  fun keep(r: Res) -> Int
+    r.id
+
+  fun apply(f: ?fun() -> Int) -> Int
+    f()
+
+  r = Res(id: 1)
+  print(apply(|<r| keep(<r)))
