@@ -1744,7 +1744,6 @@ pub const Emitter = struct {
             try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-            if (in_place and self.provenOf(expr).written) return self.w.writeAll("{}");
             if (in_place) {
                 try self.w.writeAll("@memset(&");
                 try self.writeLocalPlace(local);
@@ -1851,9 +1850,6 @@ pub const Emitter = struct {
         const stored = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(name_node));
         try self.w.print("var {s}: ", .{stored.zig_name});
         try self.emitTypeTy(ty);
-        // A fill whose every element is written before any is read is not
-        // made (`provenOf`): a debug build fills it with 0xAA bytes.
-        if (self.provenOf(fill).written) return self.w.writeAll(" = undefined;");
         try self.w.print(" = undefined; @memset(&{s}, {s});", .{ stored.zig_name, value_buf.written() });
     }
 
@@ -5544,7 +5540,6 @@ pub const Emitter = struct {
         const ty = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped array literal");
         try self.w.writeAll("@as(");
         try self.emitTypeTy(self.peelViews(ty));
-        if (self.provenOf(sexp).written) return self.w.writeAll(", undefined)");
         try self.w.writeAll(", @splat(");
         try self.emitBare(ir.ArrayFill.value(sexp));
         try self.w.writeAll("))");
