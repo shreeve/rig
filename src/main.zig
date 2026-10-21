@@ -16,6 +16,7 @@ const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
 const inlining = @import("inlining.zig");
+const bolt = @import("bolt.zig");
 const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
@@ -29,6 +30,7 @@ const usage =
     \\
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
+    \\       rig build --release --bolt [options] <file.rig> -- <workload>
     \\       rig batch build [--release[=safe|fast]] <dir> <file.rig>...
     \\       rig batch run <dir> <n>
     \\       rig clean
@@ -92,6 +94,12 @@ const usage =
     \\  --seeds=<k>            Run the tests with each seed from 1 to k,
     \\                         stopping at the first that fails (test)
     \\  -o <path>              Executable to write (build; default ./<name>)
+    \\  --bolt                 Lay the release build out again with LLVM's
+    \\                         BOLT, by where <workload> (after `--`) runs
+    \\                         it under perf (build; Linux, with perf,
+    \\                         perf2bolt, and llvm-bolt)
+    \\  --bolt-profile=<file>  Keep BOLT's profile in <file>; with no
+    \\                         workload, lay the build out by <file>
     \\  -h, --help             Show this help
     \\  -V, --version          Show the version
     \\
@@ -181,6 +189,9 @@ const Options = struct {
     time: bool = false,
     /// `check --tasks`: list each local task and what pins it.
     tasks: bool = false,
+    /// `build --bolt` (src/bolt.zig): the workload is `program_args`.
+    bolt: bool = false,
+    bolt_profile: ?[]const u8 = null,
     /// `rig check --tests`: check the program as `rig test` builds it.
     tests: bool = false,
     /// `rig run file.rig -- args...`: the program's own arguments.
@@ -303,9 +314,14 @@ pub fn main(init: std.process.Init) !void {
             }
         },
         .emit => try emitCommand(allocator, io, env, opts.path),
-        .run, .build, .@"test" => buildCommand(allocator, io, env, opts) catch |err| {
-            if (program_pending) notRun("{s}", .{@errorName(err)});
-            return err;
+        .run, .build, .@"test" => {
+            // Before the build, so a missing tool fails at once.
+            const tools = if (opts.bolt) try bolt.Tools.find(allocator, io, env.get("PATH") orelse "/usr/bin:/bin", opts.program_args.len > 0) else null;
+            buildCommand(allocator, io, env, opts) catch |err| {
+                if (program_pending) notRun("{s}", .{@errorName(err)});
+                return err;
+            };
+            if (tools) |t| try bolt.optimize(allocator, io, t, opts.out_path orelse std.fs.path.stem(opts.path), opts.program_args, opts.bolt_profile);
         },
     }
 }
@@ -318,6 +334,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var facts: Facts = .none;
     var time = false;
     var tasks = false;
+    var lay_out = false;
+    var bolt_profile: ?[]const u8 = null;
     var seed: ?u64 = null;
     var seeds: ?u64 = null;
     var tests = false;
@@ -326,7 +344,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (eql(arg, "--")) {
-            if (command != .run) usageError("arguments after `--` are for the program `rig run` runs", .{});
+            if (command != .run and !(command == .build and lay_out)) usageError("arguments after `--` are for the program `rig run` runs, or the workload of `rig build --bolt`", .{});
             program_args = args[i + 1 ..];
             break;
         }
@@ -362,6 +380,10 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .frames;
         } else if (eql(arg, "--time")) {
             time = true;
+        } else if (eql(arg, "--bolt")) {
+            lay_out = true;
+        } else if (std.mem.startsWith(u8, arg, "--bolt-profile=")) {
+            bolt_profile = arg["--bolt-profile=".len..];
         } else if (eql(arg, "--tasks")) {
             tasks = true;
         } else if (eql(arg, "-o")) {
@@ -388,6 +410,10 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
     if (time and cmd != .check) usageError("`--time` applies to check", .{});
     if (tasks and cmd != .check) usageError("`--tasks` applies to check", .{});
+    if (lay_out and cmd != .build) usageError("`--bolt` applies to build", .{});
+    if (lay_out and mode == .debug) usageError("`--bolt` lays out a release build: add `--release`", .{});
+    if (bolt_profile != null and !lay_out) usageError("`--bolt-profile` goes with `--bolt`", .{});
+    if (lay_out and program_args.len == 0 and bolt_profile == null) usageError("`--bolt` needs a workload after `--` (`rig build --release --bolt -o prog prog.rig -- ./prog input`), or a saved `--bolt-profile=FILE`", .{});
     if (tests and cmd != .check) usageError("`--tests` applies to check; `rig test` builds the tests already", .{});
     if (seed != null and cmd != .run and cmd != .@"test") usageError("`--seed` applies to run and test", .{});
     if (seeds != null and cmd != .@"test") usageError("`--seeds` applies to test", .{});
@@ -406,7 +432,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .bolt = lay_out, .bolt_profile = bolt_profile, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
 }
 
 /// `rig check --tasks`: each local task of the program's own modules,
@@ -783,12 +809,13 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{out})} else &.{};
     const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
-    const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args });
+    const relocs: []const []const u8 = if (opts.bolt) bolt.zig_args else &.{};
+    const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, relocs, dashes, program_args });
     if (opts.command == .build) {
         // `zig build-exe` keeps no cache of its own for an output it is
         // told to write: the same build again copies the executable the
         // last one kept (`keptBuild`), and Zig is not run.
-        const zig_args = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, libc });
+        const zig_args = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, libc, relocs });
         const kept = try keptBuild(allocator, io, env, zig_cache, opts.mode, out, zig_args, pkg.files.items);
         if (kept) |k| if (reuseBuild(allocator, io, k, out)) {
             if (home) |h| recordSize(allocator, io, h, dir);
