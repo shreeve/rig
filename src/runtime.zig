@@ -3833,6 +3833,9 @@ const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_
 /// `__rig_heap_profile`, and every allocation goes through `HeapProfile`,
 /// which reports at exit what owned the program's memory at its peak.
 const heap_profile = @hasDecl(root, "__rig_heap_profile") and root.__rig_heap_profile;
+/// `RIG_HEAP_PROFILE=sites` also counts each block under the calls that
+/// made it (`HeapProfile.siteOf`), a stack walk per allocation.
+const heap_sites = heap_profile and @hasDecl(root, "__rig_heap_sites") and root.__rig_heap_sites;
 
 // Tasks. A program that makes tasks (`f(x)&`) declares `__rig_tasks` in
 // its root module, and runs them on the scheduler (`sched.zig`): fibers
@@ -3979,7 +3982,10 @@ pub fn destroy(ptr: anytype) void {
 /// records every owner's then (`peak`). `report`, at exit, prints the
 /// owners at that peak, largest first. The requested bytes are counted,
 /// not the allocator's rounding up of them; its own tables live in
-/// `smp_allocator`, outside the count.
+/// `smp_allocator`, outside the count. Each block is also counted under
+/// its site: its owner and the return addresses of the calls that made
+/// it (`depth` of them), so the report can say which code holds an
+/// owner's bytes, the largest sites printed as stack traces.
 const HeapProfile = struct {
     const Owner = struct {
         name: []const u8,
@@ -3989,15 +3995,29 @@ const HeapProfile = struct {
         blocks_at_peak: usize = 0,
         made: usize = 0,
     };
-    const Block = struct { size: usize, owner: *Owner };
+    /// The calls a site keeps, innermost first.
+    const depth = 24;
+    const SiteKey = struct { owner: *Owner, frames: [depth]usize };
+    const Site = struct {
+        key: SiteKey,
+        len: usize,
+        live: usize = 0,
+        blocks: usize = 0,
+        at_peak: usize = 0,
+        blocks_at_peak: usize = 0,
+    };
+    const Block = struct { size: usize, owner: *Owner, site: *Site };
 
     live: std.AutoHashMapUnmanaged(usize, Block) = .empty,
     owners: std.ArrayList(*Owner) = .empty,
+    sites: std.AutoHashMapUnmanaged(SiteKey, *Site) = .empty,
     bytes: usize = 0,
     peak: usize = 0,
     recorded: usize = 0,
 
     var untyped: Owner = .{ .name = "untyped" };
+    /// Every block's site when sites are not counted.
+    var no_site: Site = .{ .key = .{ .owner = &untyped, .frames = @splat(0) }, .len = 0 };
     /// The owner the next allocation on this thread is for.
     threadlocal var next: ?*Owner = null;
     /// The owner of every allocation on this thread that names none, while
@@ -4045,12 +4065,32 @@ const HeapProfile = struct {
         return o;
     }
 
-    fn add(self: *HeapProfile, addr: usize, size: usize, o: *Owner) void {
+    /// The site of an allocation made by the calls that led to it, after
+    /// `first`, the call into the allocator.
+    fn siteOf(self: *HeapProfile, o: *Owner, first: usize) *Site {
+        if (!heap_sites) return &no_site;
+        var buf: [depth]usize = @splat(0);
+        const trace = std.debug.captureCurrentStackTrace(.{ .first_address = first }, &buf);
+        var key: SiteKey = .{ .owner = o, .frames = @splat(0) };
+        const n = @min(trace.return_addresses.len, depth);
+        @memcpy(key.frames[0..n], trace.return_addresses[0..n]);
+        const got = self.sites.getOrPut(table_allocator, key) catch oom();
+        if (!got.found_existing) {
+            const site = table_allocator.create(Site) catch oom();
+            site.* = .{ .key = key, .len = n };
+            got.value_ptr.* = site;
+        }
+        return got.value_ptr.*;
+    }
+
+    fn add(self: *HeapProfile, addr: usize, size: usize, o: *Owner, site: *Site) void {
         if (o.made == 0 and o.live == 0 and o.blocks == 0) self.owners.append(table_allocator, o) catch oom();
-        self.live.put(table_allocator, addr, .{ .size = size, .owner = o }) catch oom();
+        self.live.put(table_allocator, addr, .{ .size = size, .owner = o, .site = site }) catch oom();
         o.live += size;
         o.blocks += 1;
         o.made += 1;
+        site.live += size;
+        site.blocks += 1;
         self.bytes += size;
         if (self.bytes > self.peak) {
             self.peak = self.bytes;
@@ -4060,15 +4100,23 @@ const HeapProfile = struct {
                     each.at_peak = each.live;
                     each.blocks_at_peak = each.blocks;
                 }
+                var it = self.sites.valueIterator();
+                while (it.next()) |each| {
+                    each.*.at_peak = each.*.live;
+                    each.*.blocks_at_peak = each.*.blocks;
+                }
             }
         }
     }
 
-    fn drop(self: *HeapProfile, addr: usize) void {
-        const b = (self.live.fetchRemove(addr) orelse return).value;
+    fn drop(self: *HeapProfile, addr: usize) ?Block {
+        const b = (self.live.fetchRemove(addr) orelse return null).value;
         b.owner.live -= b.size;
         b.owner.blocks -= 1;
+        b.site.live -= b.size;
+        b.site.blocks -= 1;
         self.bytes -= b.size;
+        return b;
     }
 
     fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
@@ -4077,7 +4125,7 @@ const HeapProfile = struct {
         const p = ownAllocator().rawAlloc(n, alignment, ret_addr) orelse return null;
         lock();
         defer unlock();
-        self.add(@intFromPtr(p), n, o);
+        self.add(@intFromPtr(p), n, o, self.siteOf(o, @returnAddress()));
         return p;
     }
 
@@ -4088,9 +4136,10 @@ const HeapProfile = struct {
         const o = taken();
         lock();
         defer unlock();
-        const was = if (self.live.get(@intFromPtr(memory.ptr))) |b| b.owner else o;
-        self.drop(@intFromPtr(memory.ptr));
-        self.add(@intFromPtr(memory.ptr), new_len, was);
+        // A block keeps its owner and site as it grows in place.
+        const was = self.drop(@intFromPtr(memory.ptr));
+        const kept = if (was) |b| b.owner else o;
+        self.add(@intFromPtr(memory.ptr), new_len, kept, if (was) |b| b.site else self.siteOf(o, @returnAddress()));
         return true;
     }
 
@@ -4100,9 +4149,9 @@ const HeapProfile = struct {
         const o = taken();
         lock();
         defer unlock();
-        const was = if (self.live.get(@intFromPtr(memory.ptr))) |b| b.owner else o;
-        self.drop(@intFromPtr(memory.ptr));
-        self.add(@intFromPtr(p), new_len, was);
+        const was = self.drop(@intFromPtr(memory.ptr));
+        const kept = if (was) |b| b.owner else o;
+        self.add(@intFromPtr(p), new_len, kept, if (was) |b| b.site else self.siteOf(o, @returnAddress()));
         return p;
     }
 
@@ -4110,7 +4159,7 @@ const HeapProfile = struct {
         const self: *HeapProfile = @ptrCast(@alignCast(ctx));
         next = null;
         lock();
-        self.drop(@intFromPtr(memory.ptr));
+        _ = self.drop(@intFromPtr(memory.ptr));
         unlock();
         ownAllocator().rawFree(memory, alignment, ret_addr);
     }
@@ -4133,6 +4182,53 @@ const HeapProfile = struct {
             const share = 100.0 * @as(f64, @floatFromInt(o.at_peak)) / @as(f64, @floatFromInt(@max(self.recorded, 1)));
             std.debug.print("{d:>10.2} {d:>5.1}% {d:>10} {d:>8} {d:>11}  {s}\n", .{ @as(f64, @floatFromInt(o.at_peak)) / mib, share, o.blocks_at_peak, o.at_peak / @max(o.blocks_at_peak, 1), o.made, o.name });
         }
+        if (heap_sites) self.reportSites(mib);
+    }
+
+    /// The sites that held the most at the peak, each with the calls that
+    /// made its blocks.
+    fn reportSites(self: *HeapProfile, mib: f64) void {
+        var all: std.ArrayList(*Site) = .empty;
+        defer all.deinit(table_allocator);
+        var it = self.sites.valueIterator();
+        while (it.next()) |site| if (site.*.at_peak > 0) all.append(table_allocator, site.*) catch return;
+        std.mem.sort(*Site, all.items, {}, struct {
+            fn more(_: void, a: *Site, b: *Site) bool {
+                return a.at_peak > b.at_peak;
+            }
+        }.more);
+        std.debug.print("rig: heap profile: the {d} sites that held the most at the peak, each with the calls that made it:\n", .{@min(all.items.len, 20)});
+        for (all.items[0..@min(all.items.len, 20)], 1..) |site, i| {
+            const share = 100.0 * @as(f64, @floatFromInt(site.at_peak)) / @as(f64, @floatFromInt(@max(self.recorded, 1)));
+            std.debug.print("\n#{d}: {d:.2} MiB, {d:.1}%, {d} blocks of {s}, made in\n", .{ i, @as(f64, @floatFromInt(site.at_peak)) / mib, share, site.blocks_at_peak, site.key.owner.name });
+            printCalls(site.key.frames[0..site.len]);
+        }
+    }
+
+    /// The first calls of `frames` in the program's own code, one a line,
+    /// as `function (file:line)`: frames in the runtime and in Zig's
+    /// library are left out.
+    fn printCalls(frames: []const usize) void {
+        const debug_io = std.Options.debug_io;
+        const info = std.debug.getSelfDebugInfo() catch return;
+        var arena: std.heap.ArenaAllocator = .init(table_allocator);
+        defer arena.deinit();
+        var shown: usize = 0;
+        for (frames) |addr| {
+            if (shown == 5 or addr == 0) break;
+            var symbols: std.ArrayList(std.debug.Symbol) = .empty;
+            // A return address is the instruction after the call.
+            info.getSymbols(debug_io, arena.allocator(), arena.allocator(), addr -| 1, true, &symbols) catch continue;
+            for (symbols.items) |sym| {
+                const loc = sym.source_location orelse continue;
+                const file = loc.file_name;
+                if (std.mem.indexOf(u8, file, "/lib/std/") != null or std.mem.endsWith(u8, file, "/runtime.zig") or std.mem.endsWith(u8, file, "/alloc.zig")) continue;
+                if (shown == 5) break;
+                shown += 1;
+                std.debug.print("    {s} ({s}:{d})\n", .{ sym.name orelse "?", std.fs.path.basename(file), loc.line });
+            }
+        }
+        if (shown == 0) std.debug.print("    (only the runtime's own calls)\n", .{});
     }
 };
 
