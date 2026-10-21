@@ -10753,7 +10753,8 @@ thread.
 | `!T` | when `T` moves | never |
 | `Task[T]` | when `T` moves | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
-| any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`, a function | never | never |
+| a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
+| any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`; a callable view `?fun`; an owned closure `*fun` or `~fun` | never | never |
 
 So a task may be handed to another task, which waits for it, and keeps
 its loans for that task's whole life. A `*T` or `~T` handle never
@@ -10762,7 +10763,7 @@ optional, since its count is not atomic.
 
 **Local tasks.** A task given or lent a value that does not cross (a
 `*T` or `~T` whose count is not atomic, a `Cell` of more than one word,
-a `Signal`, a function given), anywhere in what it is passed, is
+a `Signal`), anywhere in what it is passed, is
 *local*: it runs on the thread of the task that makes it, and that task
 stays on that thread from then on, so no count they share changes on two
 cores at once. Such tasks take turns on one core, at their waits and
@@ -10795,10 +10796,35 @@ sub main()
 
 A local task still takes nothing that no two tasks may hold at once,
 even on one thread: a set of tasks, a task or a write view lent to
-read, or a function lent to read, which may lend what it captures to
-write. A closure literal written in the task's call is lent to it, as
-`?f` is, and its captures live only until the statement ends, so it
-too is rejected: bind the work to a function the task calls. A channel's elements go to any task that holds a handle of it,
+read, a callable view `?fun`, which may lend what a closure captures to
+write, or an owned closure. A closure literal written in the task's
+call is lent to it, as `?f` is, and its captures live only until the
+statement ends, so it too is rejected: bind the work to a function the
+task calls. A function value is a named function's address and holds
+nothing, so it goes to any task, alone or in what a task is given or
+lent:
+
+```rig
+obj Step
+  f: fun(Int) -> Int
+
+fun inc(x: Int) -> Int
+  x + 1
+
+fun run(s: ?Step, n: Int) -> Int
+  s.f(n)
+
+sub main()
+  s = Step(f: inc)
+  t = run(?s, 41)&
+  print(>t)
+```
+
+```output
+42
+```
+
+A channel's elements go to any task that holds a handle of it,
 so they cross cores even when a local task holds the channel.
 
 ```rig reject

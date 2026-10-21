@@ -3931,7 +3931,10 @@ pub const Checker = struct {
         const mark = try self.useAfterValue(node);
         const value: Value = switch (kind) {
             .default, .fixed, .shadow => if (is_lambda) blk: {
-                self.lambda_ok = true;
+                // A closure literal makes a new binding, or is reported
+                // rebinding a closure; stored into any other existing
+                // slot (a `fun` local, a write view) it would escape.
+                self.lambda_ok = kind != .default or (if (self.find(name)) |id| self.vars.items[id].closure else true);
                 break :blk try self.walk(expr);
             } else blk: {
                 const saved = self.binding;

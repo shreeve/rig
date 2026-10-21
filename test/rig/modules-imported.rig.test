@@ -819,7 +819,7 @@ fail "imported write view holder copy", "5:10: a write view is never stored insi
     pub obj WV
       pub b: !Wrap
 
-fail "imported blocker names its own type", "8:15: `x` is lent to a task to read: `?lib.FS` holds `fun(?String) -> String?`, a function, whose captures its type does not show", "12:17: `y` is lent to a task to read: `?lib.Pool` holds `Task[lib.Res]`, a task, which only the one that holds it may wait for", errors: 2
+fail "imported blocker names its own type", "8:15: `x` is lent to a task to read: `?lib.FS` holds `*fun(?String) -> String?`, an owned closure, whose captures its type does not show", "12:17: `y` is lent to a task to read: `?lib.Pool` holds `Task[lib.Res]`, a task, which only the one that holds it may wait for", errors: 2
   # What keeps a value of another module's object from a task is named
   # as that module declares it: the type of the field that blocks, read
   # in its own module's table, never this module's.

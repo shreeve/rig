@@ -6650,7 +6650,9 @@ pub const ParCall = enum { map, each };
 /// Whether a value of `ty` meets `how` (`Crossing`): nothing it reaches
 /// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
 /// `Signal`, which change through handles on this core, a set of tasks,
-/// or a function value, whose captures a function type does not show.
+/// or a callable view `?fun`, whose captures its type does not show. A
+/// function value, `fun(A) -> R`, is a named function's address and
+/// crosses.
 /// A `*Cell` of one word crosses (`isWordCell`): its counts and its
 /// changes are atomic instructions. A read view crosses when what it
 /// views shares; a write view and a `Task` move when what they hold
@@ -6711,10 +6713,10 @@ fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
 /// What in `ty` keeps it from going to a local task as `how` says: one
 /// pinned to the thread of the task that makes it, so values that stay on
 /// one thread go to it (a `*T` or `~T` whose counts are not atomic, a
-/// `Cell`, a `Signal`, a function given). What still stops it: a set of
-/// tasks, a task or a write view lent to read, a function lent to read,
-/// whose captures may lend to write, and a channel's elements, which go
-/// to any task.
+/// `Cell`, a `Signal`). What still stops it: a set of tasks, a task or a
+/// write view lent to read, a callable view `?fun`, whose captures may
+/// lend to write, an owned closure (`*fun`, `~fun`), and a channel's
+/// elements, which go to any task.
 pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocator.Error!?TypeId {
     var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
@@ -6724,6 +6726,12 @@ pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocat
 
 const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
+/// Whether a `*` or `~` handle's `inner` is an owned closure, `*fun` or
+/// `~fun`, which goes to no task.
+fn ownedClosure(ctx: *const SemContext, inner: TypeId) bool {
+    return ctx.types.get(inner) == .function;
+}
+
 /// `local`: what a local task may not take (`localBlocker`).
 fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
     const here: Blocker = .{ .ctx = ctx, .ty = ty };
@@ -6732,9 +6740,13 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // count atomically, and what they reach changes one task at a
         // time. A channel's elements go to any task. A local task reads
         // what another handle reaches on the same thread.
-        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, false, seen) else if (local) blockerIn(ctx, inner, .shares, local, seen) else here,
-        .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local) blockerIn(ctx, inner, .shares, local, seen) else here,
-        .function, .callable => if (local and how == .moves) null else here,
+        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, false, seen) else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
+        .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
+        // A function value is a named function's address and holds
+        // nothing (Core §7); a callable view may view a closure's
+        // captures, which its type does not show.
+        .function => null,
+        .callable => here,
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
         .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, seen),
         .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, local, seen),

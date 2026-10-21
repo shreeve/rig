@@ -264,6 +264,45 @@ fail "closure reassign", "cannot reassign closure binding `f`"
     n + 1
   print(f())
 
+fail "closure stored into a fun local", "6:5: closures cannot escape their defining scope"
+  fun inc(x: Int) -> Int
+    x + 1
+
+  n = 5
+  g: fun(Int) -> Int = inc
+  g = |+n, x| x + n
+  print(g(1))
+
+fail "closure stored into a fun local in a branch", "7:7: closures cannot escape their defining scope"
+  fun inc(x: Int) -> Int
+    x + 1
+
+  total = 0
+  g: fun(Int) -> Int = inc
+  if total == 0
+    g = |!total, x|
+      total += x
+      total
+  print(g(1))
+
+fail "closure stored through a write view", "2:7: closures cannot escape their defining scope", "9:7: closures cannot escape their defining scope", "14:5: closures cannot escape their defining scope"
+  sub set(f: !fun(Int) -> Int)
+    f = |x| x + 2
+
+  fun inc(x: Int) -> Int
+    x + 1
+
+  sub put(f: !fun(Int) -> Int)
+    n = 7
+    f = |+n, x| x + n
+
+  n = 3
+  h: fun(Int) -> Int = inc
+  w = !h
+  w = |+n, x| x + n
+  set(!h)
+  print(h(1))
+
 test "closure result takes tail", '''
   1 2
   drop 2

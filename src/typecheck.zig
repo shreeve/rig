@@ -7991,11 +7991,24 @@ const Checker = struct {
     /// the part that cannot go even to a local task.
     fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
         var part_ty = part_ty_in;
-        // A closure literal written in the call is lent to it, as `?f`
-        // is: it views what it captures.
-        const lent_closure = part.isKind(.lambda) and self.ctx.types.get(part_ty) != .read_view;
-        if (lent_closure) part_ty = try self.ctx.intern(.{ .read_view = part_ty });
+        // A closure literal written in the call is lent to it as a
+        // callable view, as `?f` of a closure is: it views what it
+        // captures.
+        const lent_closure = part.isKind(.lambda);
+        if (lent_closure) {
+            const fn_ty = sema.unwrapViews(self.ctx, part_ty);
+            part_ty = switch (self.ctx.types.get(fn_ty)) {
+                .callable => try self.ctx.intern(.{ .read_view = fn_ty }),
+                else => try sema.callableOfFn(self.ctx, fn_ty),
+            };
+        }
         const k = self.ctx.types.get(part_ty);
+        // A closure binding is typed as a function value but holds its
+        // captures; only its callable view `?g` reaches a call.
+        if (k == .function and self.closureBinding(part)) {
+            try self.errAt(part, "closure `{s}` stays in its binding, so it goes to no task; a task takes a named function by value", .{self.sourceText(part)});
+            return false;
+        }
         const Mode = enum { given, read, write };
         const mode: Mode = if (as_self) |r| switch (r) {
             .read => .read,
@@ -8026,13 +8039,17 @@ const Checker = struct {
     fn blockerReason(self: *Checker, blocker: TypeId, shared: bool, verb: ?[]const u8) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         const what = verb orelse try std.fmt.allocPrint(a, "holds `{s}`,", .{try self.tyName(blocker)});
+        const blocker_is_weak = self.ctx.types.get(blocker) == .weak;
         const why: []const u8 = switch (self.ctx.types.get(blocker)) {
-            .shared => |inner| if (sema.isCell(self.ctx, inner))
+            .shared, .weak => |inner| if (self.ctx.types.get(inner) == .function)
+                "an owned closure, whose captures its type does not show"
+            else if (blocker_is_weak)
+                "a `~` handle whose count is not atomic, so two cores could change it at once"
+            else if (sema.isCell(self.ctx, inner))
                 "a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks"
             else
                 "a `*` handle whose count is not atomic, so two cores could change it at once",
-            .weak => "a `~` handle whose count is not atomic, so two cores could change it at once",
-            .function, .callable => "a function, whose captures its type does not show",
+            .callable => "a closure or function lent for a call, whose captures its type does not show",
             .write_view => "a write view, which no two tasks may hold at once",
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.task_sym_id and shared)
                 "a task, which only the one that holds it may wait for"

@@ -359,7 +359,8 @@ there. The checker derives two facts for every type:
 | `?T` (a read view) | when `T` shares | when `T` shares |
 | `!T` (a write view) | when `T` moves | never |
 | `*T` and `~T` of a type that is not synchronized, `Cell[T]`, `Signal[T]` | never | never |
-| a stack closure | when its captures move | when it captures no `!` view and its captures share |
+| a function value, `fun(A) -> R` or `sub(A)`: a named function's address | yes | yes |
+| a callable view `?fun`, which may view a stack closure's captures; an owned closure `*fun` or `~fun` | never | never |
 | `*Cell[T]`, for a one-word plain `T` | yes | yes |
 | `*Chan[T]` | when `T` moves | when `T` moves |
 | `*Actor[T]` | yes | yes |
