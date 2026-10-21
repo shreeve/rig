@@ -4580,7 +4580,7 @@ const Checker = struct {
     /// language's spelling of a Rig one, or a visible name it is a typo
     /// of.
     fn unboundHint(self: *Checker, leaf: Sexp, name: []const u8) Error![]const u8 {
-        if (sema.retiredNameHint(name)) |hint| return hint;
+        if (sema.builtinNameHint(name)) |hint| return hint;
         const other = try self.ctx.otherFileUse(name);
         if (other.len > 0) return other;
         const Other = struct { []const u8, []const u8 };
@@ -10934,6 +10934,8 @@ const Checker = struct {
                 try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
+            } else if (sema.chanValue(self.ctx, peeled) != null and (std.mem.eql(u8, method, "on_recv") or std.mem.eql(u8, method, "on_send"))) {
+                try self.err(pos, "`{s}` makes an arm of `task.select`, and stands only as one of its arguments: `task.select((!{s}).{s}(...), ...)`", .{ method, try self.plainText(stripSigil(obj)), method });
             } else if (std.mem.eql(u8, method, "text") and (self.hasVariantNames(peeled) or peeled == self.t().symbol_id)) {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
@@ -12435,7 +12437,18 @@ const Checker = struct {
     /// a diagnostic that asks for the mark; empty for any other receiver.
     fn markNote(self: *Checker, recv: Sexp) []const u8 {
         const ty = self.ctx.typeOf(recv) orelse return "";
-        return if (sema.changesByMark(self.ctx, ty)) ": changing a shared Cell is marked with `!`" else "";
+        if (!sema.changesByMark(self.ctx, ty)) return "";
+        const held = sema.unwrapAccess(self.ctx, ty);
+        if (sema.chanValue(self.ctx, held) != null) return ": a channel changes as it sends and receives, and a change through a shared handle is marked with `!`";
+        return switch (self.ctx.types.get(held)) {
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id)
+                ": changing a shared Cell is marked with `!`"
+            else if (pn.sym == self.ctx.signal_sym_id)
+                ": changing a shared Signal is marked with `!`"
+            else
+                ": changing a Cell it holds is marked with `!`",
+            else => ": changing a Cell it holds is marked with `!`",
+        };
     }
 
     /// Receiver rules: `?@` is lent implicitly; `!@` needs an explicit

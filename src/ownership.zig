@@ -937,13 +937,16 @@ pub const Checker = struct {
     fn noteInvalidated(self: *Checker, id: VarId, use_pos: u32) Error!void {
         const v = self.vars.items[id];
         const f = self.flows.items[id];
-        const what = if (f.status == .dropped) "dropped" else "moved";
+        // `>t` takes the task it waits for.
+        const waited = f.status != .dropped and f.at > 0 and f.at <= self.source.len and self.source[f.at - 1] == '>' and if (self.sema) |ctx| if (v.ty) |t| sema.isTask(ctx, t) or sema.isTaskSet(ctx, t) else false else false;
+        const what = if (f.status == .dropped) "dropped" else if (waited) "waited for" else "moved";
+        const why = if (waited) "; a wait takes what it waits for, so it waits once" else "";
         // Deferred code runs after the code that follows it, and a
         // loop's step after its body.
         if (self.loop != null and f.at >= (self.step_at orelse use_pos) and !self.in_defer) {
-            try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop", .{ v.name, what });
+            try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop{s}", .{ v.name, what, why });
         } else {
-            try self.note(f.at, "`{s}` was {s} here", .{ v.name, what });
+            try self.note(f.at, "`{s}` was {s} here{s}", .{ v.name, what, why });
         }
     }
 

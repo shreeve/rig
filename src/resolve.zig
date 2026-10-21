@@ -1129,7 +1129,7 @@ pub const TypeResolver = struct {
     /// it is a typo of.
     fn typeHint(self: *TypeResolver, name: []const u8, pos: u32) Error![]const u8 {
         const a = self.ctx.arena.allocator();
-        if (sema.retiredNameHint(name)) |hint| return hint;
+        if (sema.builtinNameHint(name)) |hint| return hint;
         if (name.len > 0 and std.ascii.isLower(name[0])) {
             const upper = try a.dupe(u8, name);
             upper[0] = std.ascii.toUpper(upper[0]);

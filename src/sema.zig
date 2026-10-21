@@ -5114,12 +5114,12 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     return false;
 }
 
-/// The hint for a name that earlier releases gave a built-in type: what
-/// it is written now. Null for any other name.
-pub fn retiredNameHint(name: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String` (0.3.0 renamed `Text` to `String`, and the view `String` to `?String`)";
-    if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]` (`Vec[T]` before 0.3.0)";
-    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression (`Box[T]` and `Box(value)` before 0.3.0)";
+/// The hint for a name that likely means a built-in type: how that type
+/// is written. Null for any other name.
+pub fn builtinNameHint(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String`";
+    if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]`";
+    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression";
     return null;
 }
 

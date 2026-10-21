@@ -3485,7 +3485,7 @@ pub const Parser = struct {
             .severity = .@"error",
             .pos = self.span(head).end,
             .end = whole.end,
-            .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}`", .{ written, rest, written, rest }) catch "a wait takes a name alone: write `(>t).x`",
+            .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}`; to wait for a task that `{s}{s}` holds, take it out to a name first, then wait for that, `>t`", .{ written, rest, written, rest, written[1..], rest }) catch "a wait takes a name alone: write `(>t).x`",
         };
     }
 
