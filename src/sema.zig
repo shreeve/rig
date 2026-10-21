@@ -419,9 +419,6 @@ pub const Type = union(enum) {
 pub const ParamNominal = struct {
     sym: SymbolId,
     args: []const TypeId,
-    /// `List[T, inline: n]`: how many of its first elements live inside
-    /// the List; 0 for every other instance.
-    inline_len: u32 = 0,
 };
 
 pub const ImportedNominal = struct {
@@ -588,7 +585,6 @@ pub const TypeStore = struct {
                 std.mem.eql(SymbolId, af.ct_syms, b.function.ct_syms) and
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
-                x.inline_len == b.parameterized_nominal.inline_len and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
             .results => |x| std.mem.eql(TypeId, x, b.results),
             // The rest hold ids and numbers only.
@@ -1603,6 +1599,10 @@ pub const ElemOp = enum {
     /// `x.hash()`: a `U64` of any value `==` compares but a float's
     /// (`notHashable`); `num` is the value's type, `elem` `U64`.
     hash,
+    /// `a.order(?b)`: the `Order` of two values of a type that provides
+    /// `Ord` and gives no `order` of its own (`Checker.orderCall`); `num`
+    /// is their type, `elem` `Order`.
+    order,
     /// `xs.sum()`, `xs.sum(start: n)`: the elements of a slice, an array,
     /// or a List of numbers added in order to `start`, `0` by default.
     sum,
@@ -1612,7 +1612,7 @@ pub const ElemOp = enum {
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => false,
         };
     }
 
@@ -1631,7 +1631,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .sum => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .sum => false,
         };
     }
 };
@@ -1643,7 +1643,18 @@ pub const ElemOp = enum {
 /// the bytes of an integer, and `reserve(n)` makes room for `n` more.
 /// `push_keep` is `push(v, keep: k)` of a vector of bytes, or
 /// `push[T, e](w, keep: k)` of an integer: the first `k` bytes of `v`.
-pub const StringCall = enum { new, add, push, push_int, push_keep, reserve, clear };
+pub const StringCall = enum {
+    new,
+    add,
+    push,
+    push_int,
+    push_keep,
+    reserve,
+    clear,
+    /// `!out.value(x)` of a Printer, which writes `x` as `print` shows a
+    /// part of another value (`Checker.printerValue`).
+    printer_value,
+};
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -2282,6 +2293,8 @@ pub const SemContext = struct {
     simd_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
+    order_sym_id: SymbolId = symbol_invalid,
+    printer_sym_id: SymbolId = symbol_invalid,
     arch_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
@@ -5525,6 +5538,9 @@ pub const NotEquatable = struct {
         lanes,
         /// A float, which `.hash()` does not take (`notHashable`).
         float,
+        /// A type with its own `==` and no hash of its own, which hashing
+        /// by its fields would not agree with (`notHashable`).
+        own_eq,
     };
 };
 
@@ -5573,6 +5589,37 @@ pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
     return (try notEquatable(ctx, ty, null)) == null;
 }
 
+/// The name of the method by which a type gives `api` a meaning of its
+/// own, with the signature `api` fixes (docs/design/apis.md, Stage 2);
+/// null for an API whose meaning no type gives.
+pub fn apiMethodName(api: Api) ?[]const u8 {
+    return switch (api) {
+        .Eq => "eq",
+        .Hash => "hash_into",
+        .Ord => "order",
+        .Print => "print",
+        else => null,
+    };
+}
+
+/// The method by which the type `sym` gives `api` a meaning of its own:
+/// its header names `api` and it declares the method `apiMethodName`
+/// names. Null for one that keeps the derived meaning.
+pub fn ownApiMethod(sym: Symbol, api: Api) ?Field {
+    if (!sym.apis.contains(api)) return null;
+    const name = apiMethodName(api) orelse return null;
+    for (sym.fields orelse &.{}) |f| {
+        if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return f;
+    }
+    return null;
+}
+
+/// `ownApiMethod` of the type `ty` names, through views.
+pub fn ownApiOf(ctx: *const SemContext, ty: TypeId, api: Api) ?Field {
+    const decl = nominalDecl(ctx, ty) orelse return null;
+    return ownApiMethod(decl.symbol(), api);
+}
+
 /// Why a type does not provide a built-in API (`lacks`): the type in it
 /// that does not, and the path of fields to it (`NotEquatable.path`).
 pub const Lack = struct {
@@ -5583,6 +5630,8 @@ pub const Lack = struct {
     path: []const u8 = "",
     /// A type parameter whose bounds do not name the API.
     bound: bool = false,
+    /// A type with its own `==` and no hash of its own (`Hash`).
+    own_eq: bool = false,
 };
 
 /// Why `ty` does not provide `api`, or null when it does (docs/design/apis.md,
@@ -5603,8 +5652,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
                 if (isText(ctx, ty)) break :blk null;
                 break :blk try notHashable(ctx, ty, &params);
             };
-            if (not) |n| return .{ .ty = n.ty, .path = n.path };
-            if (api == .Hash and methodReceiver(ctx, ty, "hash") != null) return .{ .ty = ty };
+            if (not) |n| return .{ .ty = n.ty, .path = n.path, .own_eq = n.why == .own_eq };
             return paramsLack(ctx, params.items, api);
         },
         .Ord => return ordLack(ctx, ty, 0),
@@ -5666,6 +5714,12 @@ pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const Typ
     return true;
 }
 
+/// Why `ty`, a type with its own `==` and no hash of its own, cannot be
+/// hashed (docs/design/apis.md, Stage 2).
+pub fn ownEqUnhashed(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error![]const u8 {
+    return ctx.arena.allocator().print("`{s}` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`", .{try formatType(ctx, ty)});
+}
+
 /// What a value cannot do without `api`, as an error says it.
 pub fn cannotDo(api: Api) []const u8 {
     return switch (api) {
@@ -5688,6 +5742,7 @@ pub fn cannotDo(api: Api) []const u8 {
 pub fn reportLack(ctx: *SemContext, at: u32, inst: []const u8, pname: []const u8, arg: TypeId, api: Api, lack: Lack) std.mem.Allocator.Error!void {
     const a = ctx.arena.allocator();
     const aname = try formatType(ctx, arg);
+    if (lack.own_eq) return ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}", .{ inst, pname, aname, try ownEqUnhashed(ctx, lack.ty) });
     try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` {s}{s}", .{ inst, pname, aname, aname, cannotDo(api), try lackDetail(ctx, a, arg, api, lack) });
 }
 
@@ -5700,6 +5755,7 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
         more.insert(api);
         return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[sym].name, try formatApis(a, more) });
     }
+    if (lack.own_eq) return "";
     if (lack.path.len > 0) return a.print("; its field `{s}` is a `{s}`", .{ lack.path, try formatType(ctx, lack.ty) });
     if (lack.ty != ty) return a.print("; it holds a `{s}`", .{try formatType(ctx, lack.ty)});
     // A type a module declares gives itself an order, or its own `==`,
@@ -5843,6 +5899,13 @@ const EquatableWalk = struct {
         if (isBuiltinGeneric(decl.ctx, decl.sym)) return .no_eq;
         const sym = decl.symbol();
         if (sym.flags.error_set) return null;
+        // A type that gives `==` or hashing its own meaning is compared or
+        // hashed by its own method, whatever its fields; one with its own
+        // `==` and no hash of its own has no hash by its fields.
+        if (self.hashing) {
+            if (ownApiMethod(sym, .Hash) != null) return null;
+            if (ownApiMethod(sym, .Eq) != null) return .own_eq;
+        } else if (ownApiMethod(sym, .Eq) != null) return null;
         if ((try self.visited.getOrPut(ctx.allocator, ty)).found_existing) return null;
         const fields = sym.fields orelse return null;
         for (fields) |f| if (f.is_drop_method) return .drop;
@@ -6118,7 +6181,7 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
 /// One of the built-in enums, `Endian` and `Arch`: the runtime's own
 /// type, one in every module.
 pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id;
+    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.order_sym_id;
 }
 
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
@@ -6247,7 +6310,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             defer args.deinit(ctx.allocator);
             for (pn.args) |a| try args.append(ctx.allocator, try substituteType(ctx, a, subst));
             if (std.mem.eql(TypeId, args.items, pn.args)) return ty_id;
-            return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items, .inline_len = pn.inline_len } });
+            return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
         },
         .results => |parts| {
             var out: std.ArrayList(TypeId) = .empty;
@@ -7773,11 +7836,16 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // Every module has its own `Endian` and `Arch`, and each is one type.
+        // Every module has its own `Endian`, `Arch`, `Order`, and
+        // `Printer`, and each is one type.
         .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
         else if (sym_id == foreign_ctx.arch_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.arch_sym_id })
+        else if (sym_id == foreign_ctx.order_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.order_sym_id })
+        else if (sym_id == foreign_ctx.printer_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.printer_sym_id })
         else
             local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
@@ -8273,17 +8341,6 @@ pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: Typ
 
 /// The marked spelling (`formatTypeMarked`) of generic type `sym`
 /// applied to its own parameters: `Pair[A, B]`, with `A` and `B` marked.
-/// `List[T, inline: n]` as `formatGenericSelfMarked` spells a generic: its
-/// element type marked as the List's parameter, and its length marked as
-/// `n`, the runtime's second argument (`InlineList(T, n)`).
-pub fn formatInlineListMarked(ctx: *const SemContext, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
-    const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
-    const list = ctx.list_sym_id;
-    const elem = try p.param(ctx.symbols.items[list].type_params.?[0]);
-    const len = try a.print("{c}n{c}", .{ type_param_mark, type_param_mark });
-    return p.instance(ctx.symbols.items[list].name, try p.withInline(elem, len));
-}
-
 pub fn formatGenericSelfMarked(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
     const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
     var args: std.ArrayList(u8) = .empty;
@@ -8299,11 +8356,6 @@ const TypePrinter = struct {
     a: std.mem.Allocator,
     /// Type parameters are marked (`formatTypeMarked`).
     marked: bool = false,
-
-    /// A List's arguments, `args`, with its inline length `len`.
-    fn withInline(p: TypePrinter, args: []const u8, len: []const u8) std.mem.Allocator.Error![]const u8 {
-        return p.a.print("{s}, inline: {s}", .{ args, len });
-    }
 
     fn id(p: TypePrinter, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
         // Marked whole, as `t` and its id, for the instance to spell.
@@ -8351,8 +8403,6 @@ const TypePrinter = struct {
             // module spells it (`importSymbol`).
             .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
-            else if (pn.inline_len > 0)
-                try p.instance(ctx.symbols.items[pn.sym].name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
             else
                 try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),

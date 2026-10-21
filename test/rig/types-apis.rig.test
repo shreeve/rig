@@ -184,3 +184,135 @@ fail "apis ord header field", "`Tagged` names `Ord`, so it is ordered by its fie
     tags: List[Int]
 
   print(1)
+
+test "apis own meanings", '''
+  true true Name "ab"
+  Pair(n: Name "xy", k: 1)
+  true false
+  1
+'''
+  # A type that names an API and writes its method gives `==`, hashing,
+  # ordering, or printing its own meaning, for itself and as a part of
+  # another value; a Map keys it by its own hash and `==`.
+
+  use std.hash
+
+  obj Name: Eq + Hash + Print
+    text: String
+
+    fun eq(?@, other: ?Name) -> Bool
+      @text.len == other.text.len
+
+    sub hash_into(?@, h: !hash.Hasher)
+      !h.add(@text.len)
+
+    sub print(?@, out: !Printer)
+      !out.text("Name ")
+      !out.value(?@text)
+
+  obj Pair
+    n: Name
+    k: Int
+
+  obj Version: Ord
+    major: Int
+    minor: Int
+
+    fun order(?@, other: ?Version) -> Order
+      @major.order(?other.major).then(@minor.order(?other.minor))
+
+  sub main()
+    a = Name(text: String("ab"))
+    b = Name(text: String("cd"))
+    print(a == b, a.hash() == b.hash(), a)
+    print(Pair(n: Name(text: String("xy")), k: 1))
+    print(Version(major: 1, minor: 9) < Version(major: 2, minor: 0), Version(major: 3, minor: 0) <= Version(major: 2, minor: 9))
+    m: hash.Map[Name, Int] = hash.Map()
+    !m.put(<a, 1)
+    print(m.get(?b))
+
+test "apis order method", '''
+  .less .equal .greater .less
+  .greater .less
+'''
+  # `x.order(?y)` gives the `Order` of two values that provide `Ord`, and
+  # `then` breaks a tie.
+
+  enum Suit: Ord
+    clubs
+    hearts
+
+  fun cmp[T: Ord](a: T, b: T) -> Order
+    a.order(?b)
+
+  sub main()
+    print(3.order(?4), "b".order(?"b"), Suit.hearts.order(?Suit.clubs), false.order(?true))
+    print(cmp(2.5, 1.0), Order.equal.then(cmp(String("a"), String("b"))))
+
+test "apis method named hash", "2 7"
+  # A method merely named `hash` is an ordinary method: a Map keys the
+  # type by its parts.
+
+  use std.hash
+
+  obj K
+    n: Int
+
+    fun hash(?@) -> U64
+      U64(7)
+
+  sub main()
+    m: hash.Map[K, Int] = hash.Map()
+    !m.put(K(n: 1), 2)
+    print(m.get(K(n: 1)), K(n: 3).hash())
+
+test "apis own enum eq", "true false"
+  # A plain enum with its own `==` compares by it.
+
+  enum Level: Eq
+    low
+    mid
+    high
+
+    fun top(?@) -> Bool
+      match @
+        .high => true
+        _ => false
+
+    fun eq(?@, other: ?Level) -> Bool
+      @top() == other.top()
+
+  print(Level.low == Level.mid, Level.mid == Level.high)
+
+fail "apis own eq unhashed", "`key[Name]` cannot use `K = Name`: `Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`"
+  # A type with its own `==` and no hash of its own has no hash.
+
+  obj Name: Eq
+    text: String
+
+    fun eq(?@, other: ?Name) -> Bool
+      @text.len == other.text.len
+
+  fun key[K: Hash](k: ?K) -> U64
+    k.hash()
+
+  a = Name(text: String("ab"))
+  print(key(?a))
+
+fail "apis fixed signatures", "`Version.eq` takes `self` as `!@`, but `Eq` fixes `fun eq(?@, other: ?Self) -> Bool`", "`Version.order` takes `other` as `Version`, but `Ord` fixes `fun order(?@, other: ?Self) -> Order`", "`Version.print` gives `Int`, but `Print` fixes `sub print(?@, out: !Printer)`"
+  # The method by which a type gives an API its own meaning has the
+  # signature the API fixes.
+
+  obj Version: Ord + Eq + Print
+    major: Int
+
+    fun order(?@, other: Version) -> Order
+      .equal
+
+    fun eq(!@, other: ?Version) -> Bool
+      true
+
+    fun print(?@, out: !Printer) -> Int
+      1
+
+  print(1)

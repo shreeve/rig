@@ -87,6 +87,14 @@ changed the language since it:
   true`, a String by its bytes), and so are optionals, arrays, and
   slices of ordered values, element by element (docs/design/apis.md,
   Stage 2).
+- **Own meanings:** a type that names `Eq`, `Hash`, `Ord`, or `Print`
+  on its header and writes `eq`, `hash_into`, `order`, or `print`, with
+  the signature the API fixes, gives `==`, hashing, ordering, or
+  printing its own meaning, at every level of nesting; a type with its
+  own `==` and no `hash_into` has no hash. `Order`, `Printer`, and
+  `hash.Hasher` serve them, and `x.order(?y)` orders any two values that
+  provide `Ord`. A method merely named `hash` is an ordinary method: a
+  Map keys such a type by its parts, where it rejected it.
 - **Parameter names:** a type parameter starts with a capital letter and
   a compile-time value parameter with a lowercase one; `[t]` and
   `[N: Int]`, which earlier releases accepted, are rejected with the

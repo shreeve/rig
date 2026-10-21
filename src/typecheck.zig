@@ -6839,7 +6839,7 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and op != .hash) {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and op != .hash and op != .order) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
@@ -6847,7 +6847,7 @@ const Checker = struct {
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
                     .sum => "xs.sum()",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -7263,20 +7263,7 @@ const Checker = struct {
     /// diagnostic.
     fn typeInstance(self: *Checker, e: Sexp, nt: NamedType) Error!TypeId {
         const params = nt.sym.type_params orelse &.{};
-        var given = sema.bracketArgs(e);
-        // `List[T, inline: n]()`: the first `n` elements live inside the List.
-        var inline_len: u32 = 0;
-        if (given.len > 0 and given[given.len - 1].isKind(.kwarg)) {
-            const kw = given[given.len - 1];
-            given = given[0 .. given.len - 1];
-            const key = self.text(ir.Kwarg.name(kw));
-            if (nt.id != self.ctx.list_sym_id or !std.mem.eql(u8, key, "inline")) {
-                try self.errAt(kw, "`{s}:` names no argument of `{s}`; only a List takes one, `List[T, inline: n]`", .{ key, nt.sym.name });
-                return self.t().invalid_id;
-            }
-            var r = self.resolver();
-            inline_len = (try r.inlineLen(ir.Kwarg.value(kw))) orelse return self.t().invalid_id;
-        }
+        const given = sema.bracketArgs(e);
         if (given.len != params.len) {
             try self.errAt(e, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ nt.sym.name, params.len, resolve.argsNoun(self.ctx, params), plural(params.len), given.len });
             return self.t().invalid_id;
@@ -7295,9 +7282,7 @@ const Checker = struct {
             if (self.isPoison(a.*)) bad = true;
         }
         if (bad) return self.t().invalid_id;
-        var ty = try self.instantiate(nt.id, args, self.startOf(e));
-        if (inline_len > 0 and !self.isPoison(ty))
-            ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = nt.id, .args = args, .inline_len = inline_len } });
+        const ty = try self.instantiate(nt.id, args, self.startOf(e));
         try self.ctx.recordInstance(e, .{ .type = ty });
         return ty;
     }
@@ -7825,31 +7810,6 @@ const Checker = struct {
 
     /// A call whose type is `T!` must be the operand of `!` or `catch`:
     /// the failure path is never implicit.
-    /// A List made through a `List[T, inline: n]` named in the call,
-    /// `List[T, inline: n](a)` or `List[T, inline: n].filled(k, x)`, is
-    /// that instance, which the List's own signature, of `List[T]`, does
-    /// not say.
-    fn inlineResult(self: *Checker, callee: Sexp, ty: TypeId) Error!TypeId {
-        const inst_node = if (callee.isKind(.member)) ir.Member.object(callee) else callee;
-        if (!inst_node.isKind(.inst) and !inst_node.isKind(.index)) return ty;
-        const inst = self.ctx.instanceOf(inst_node) orelse return ty;
-        const named = switch (inst) {
-            .type => |inst_ty| inst_ty,
-            else => return ty,
-        };
-        const want = switch (self.ctx.types.get(named)) {
-            .parameterized_nominal => |pn| pn,
-            else => return ty,
-        };
-        if (want.inline_len == 0) return ty;
-        const got = switch (self.ctx.types.get(ty)) {
-            .parameterized_nominal => |pn| pn,
-            else => return ty,
-        };
-        if (got.sym != want.sym or got.inline_len != 0 or !std.mem.eql(TypeId, got.args, want.args)) return ty;
-        return named;
-    }
-
     fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
         const handled = sameNode(node, self.handled);
         const saved = self.current_call;
@@ -7868,7 +7828,7 @@ const Checker = struct {
             const obj = ir.Member.object(callee_node);
             if (obj.isKind(.move)) self.task_wait = ir.Move.operand(obj);
         }
-        const ty = try self.inlineResult(callee_node, try self.synthCallInner(node));
+        const ty = try self.synthCallInner(node);
         if (ir.Call.task(node) != .nil) return self.taskOf(node, ty);
         // Only a task that can fail can be stopped: one that cannot runs
         // to its end.
@@ -8580,7 +8540,7 @@ const Checker = struct {
         while (sema.boxedType(self.ctx, held)) |inner| held = sema.unwrapViews(self.ctx, inner);
         if (held != self.t().string_id) return null;
         const op = std.meta.stringToEnum(sema.StringCall, method) orelse return null;
-        if (op == .new or op == .push_int or op == .push_keep) return null;
+        if (op == .new or op == .push_int or op == .push_keep or op == .printer_value) return null;
         // Only `push` takes compile-time arguments: `push[T, e](v)`.
         if (ct != null and op != .push) return try self.badCall(args, ct.?, "`{s}` takes no compile-time arguments", .{method});
         const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
@@ -8601,7 +8561,7 @@ const Checker = struct {
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
             // One byte, as a List's `push` takes one element.
-            .push_int, .push_keep => unreachable,
+            .push_int, .push_keep, .printer_value => unreachable,
             // `push[T, e](v)`: the bytes of an integer; `push(v, keep:
             // k)` the first `k` bytes of a vector.
             .push => if (ct) |b| {
@@ -8840,6 +8800,52 @@ const Checker = struct {
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = value })}), .returns = u64_ty, .is_sub = false });
         try self.ctx.recordElemCall(callee, .{ .op = .hash, .elem = u64_ty, .num = value });
         return self.noteMethod(callee, .read, u64_ty);
+    }
+
+    /// `a.order(?b)`: how two values of a type that provides `Ord` order,
+    /// an `Order`, where the type declares no `order` of its own (a number,
+    /// text, an enum, or a type whose header names `Ord` and is ordered by
+    /// its fields). On a type parameter, the bounds or each instance
+    /// provide `Ord`. Null when the type provides no `Ord`.
+    fn orderCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
+        var value = sema.unwrapViews(self.ctx, obj_ty);
+        if (value == self.t().int_literal_id) {
+            try self.defaultIntLiteral(obj);
+            value = self.t().int_id;
+        }
+        if (value == self.t().float_literal_id) value = self.t().float_id;
+        switch (self.ctx.types.get(value)) {
+            .type_var => |tv| {
+                const bounds = self.ctx.symbols.items[tv].apis;
+                if (bounds.count() > 0 and !sema.implied(bounds).contains(.Ord)) return null;
+                if (bounds.count() == 0) try self.require(tv, .ordered, self.startOf(obj), "order");
+            },
+            else => if ((try sema.lacks(self.ctx, value, .Ord)) != null) return null,
+        }
+        const order_ty = try self.ctx.intern(.{ .nominal = self.ctx.order_sym_id });
+        if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, "order", "only reads `self`");
+        if (!self.hands(obj).hasStorage()) try self.readLeaf(obj) else try self.rejectResourceTemporary(obj, obj_ty);
+        const view = try self.ctx.intern(.{ .read_view = value });
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ view, view }), .returns = order_ty, .is_sub = false });
+        try self.checkArgs(args, .{ .params = try self.ctx.dupeIds(&.{view}), .returns = order_ty, .is_sub = false }, .{ .names = &.{"other"} }, "order", pos, .{ .receiver = true, .origins = .{ .result = 0, .stores = 0 }, .declared = &.{view} });
+        try self.ctx.recordElemCall(callee, .{ .op = .order, .elem = order_ty, .num = value });
+        return try self.noteMethod(callee, .read, order_ty);
+    }
+
+    /// `!out.value(x)`: `x` written to a Printer as `print` shows a part of
+    /// another value, text in quotes. `x` is any value `print` takes, and
+    /// only read.
+    fn printerValue(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!TypeId {
+        _ = obj_ty;
+        if (!obj.isKind(.write)) try self.errAt(obj, "`value` writes the Printer: `!{s}.value(...)`", .{try self.plainText(stripSigil(obj))});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`value` takes the one value it writes: `!out.value(x)`", .{});
+        try self.recordUse(stripSigil(obj), .lend);
+        try self.checkFormatArgs(args, "`value`", "print");
+        const arg_ty = self.ctx.typeOf(args[0]) orelse self.t().invalid_id;
+        const printer = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id }) });
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ printer, arg_ty }), .returns = self.t().void_id, .is_sub = true });
+        try self.ctx.recordStringCall(callee, .printer_value);
+        return try self.noteMethod(callee, .write, self.t().void_id);
     }
 
     /// Whether `obj_ty` has a data field `name`, here or in the module
@@ -11039,6 +11045,10 @@ const Checker = struct {
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.hash()`, unless the type declares a `hash` of its own.
         if (resolved_method == null and ct == null and std.mem.eql(u8, method, "hash") and !try self.hasDataField(obj_ty, method)) return self.hashCall(callee, obj, obj_ty, pos, args);
+        // `a.order(?b)`, unless the type declares an `order` of its own.
+        if (resolved_method == null and ct == null and std.mem.eql(u8, method, "order") and !try self.hasDataField(obj_ty, method)) if (try self.orderCall(callee, obj, obj_ty, pos, args)) |ty| return ty;
+        // `!out.value(x)` of a Printer.
+        if (ct == null and std.mem.eql(u8, method, "value") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id })) return self.printerValue(callee, obj, obj_ty, pos, args);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
             const field_ty = try self.memberOf(callee, obj, obj_ty);
@@ -11606,7 +11616,7 @@ const Checker = struct {
     /// has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
-        if (op.isBits() or op.isSimd() or op.isTypeFn() or op == .hash) return null;
+        if (op.isBits() or op.isSimd() or op.isTypeFn() or op == .hash or op == .order) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -11638,14 +11648,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -11660,7 +11670,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
         }
         return self.t().void_id;
     }
@@ -16517,7 +16527,7 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, site: u32) Error!bool {
 
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     try checkBoundedBodies(ctx);
-    try checkOrdHeaders(ctx);
+    try checkHeaders(ctx);
     var reqs: Requirements = .empty;
     defer {
         var lists = reqs.valueIterator();
@@ -17236,10 +17246,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                     try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
                 },
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
-                .hashable => if (try sema.notHashable(ctx, arg, null)) |n|
-                    try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, n) })
-                else
-                    try ctx.err(at, cannot ++ "hashes a `{s}` with the built-in `.hash()`, and `{s}` declares a `hash` of its own, which that would not call", .{ inst, pname, aname, pname, aname }),
+                .hashable => try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, (try sema.notHashable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
@@ -17445,14 +17452,20 @@ fn reportUnbounded(ctx: *SemContext, pos: u32, param: SymbolId, api: sema.Api, w
     try ctx.err(pos, "`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, try sema.formatApis(a, sym.apis), what, @tagName(api), sym.name, try sema.formatApis(a, more) });
 }
 
-/// A type that names `Ord` on its header, with no `order` of its own, is
-/// ordered by its fields in declared order, and an enum by its variant,
-/// then its payload's fields: each must provide `Ord`. A field of a
-/// type parameter's type is decided by each instance (`sema.lacks`).
-fn checkOrdHeaders(ctx: *SemContext) Error!void {
+/// The APIs this module's types name on their headers. A type that
+/// declares the method of an API it names (`sema.apiMethodName`) gives
+/// that API its own meaning, by that method, whose signature the API
+/// fixes (`checkApiMethod`). A type that names `Ord` with no `order` of its
+/// own is ordered by its fields in declared order, and an enum by its
+/// variant, then its payload's fields: each must provide `Ord`. A field of
+/// a type parameter's type is decided by each instance (`sema.lacks`).
+fn checkHeaders(ctx: *SemContext) Error!void {
     for (ctx.symbols.items) |sym| {
         if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
-        if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos or !sym.apis.contains(.Ord)) continue;
+        if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos or sym.apis.count() == 0) continue;
+        var it = sym.apis.iterator();
+        while (it.next()) |api| if (sema.ownApiMethod(sym, api)) |m| try checkApiMethod(ctx, sym, api, m);
+        if (!sym.apis.contains(.Ord) or sema.ownApiMethod(sym, .Ord) != null) continue;
         for (sym.fields orelse &.{}) |f| {
             if (f.is_method) continue;
             const parts: []const Field = if (f.is_variant) f.payload orelse &.{} else &.{f};
@@ -17466,10 +17479,68 @@ fn checkOrdHeaders(ctx: *SemContext) Error!void {
     }
 }
 
-/// Whether `ty` is a type that declares a method `hash`, which a call
-/// `x.hash()` on it reaches instead of the built-in one.
-fn declaresHash(ctx: *SemContext, ty: TypeId) bool {
-    return sema.methodReceiver(ctx, ty, "hash") != null;
+/// The signature `api` fixes for the method by which a type gives it its
+/// own meaning, as an error shows it.
+fn fixedSignature(api: sema.Api) []const u8 {
+    return switch (api) {
+        .Eq => "fun eq(?@, other: ?Self) -> Bool",
+        .Hash => "sub hash_into(?@, h: !hash.Hasher)",
+        .Ord => "fun order(?@, other: ?Self) -> Order",
+        .Print => "sub print(?@, out: !Printer)",
+        else => "",
+    };
+}
+
+/// Whether `ty` is a write view of std.hash's `Hasher`.
+fn isHasherView(ctx: *SemContext, ty: TypeId) bool {
+    const inner = switch (ctx.types.get(ty)) {
+        .write_view => |i| i,
+        else => return false,
+    };
+    const decl = sema.nominalDecl(ctx, inner) orelse return false;
+    return decl.ctx.is_std and std.mem.eql(u8, decl.symbol().name, "Hasher") and std.mem.eql(u8, decl.ctx.name, "std.hash");
+}
+
+/// The method `m` of `sym`, by which it gives `api` its own meaning, has
+/// the signature `api` fixes: another signature is an error, not a quiet
+/// opt-out (docs/design/apis.md, Stage 2).
+fn checkApiMethod(ctx: *SemContext, sym: sema.Symbol, api: sema.Api, m: Field) Error!void {
+    const a = ctx.arena.allocator();
+    const f = switch (ctx.types.get(m.ty)) {
+        .function => |f| f,
+        else => return,
+    };
+    if (f.params.len == 0) return;
+    const self_view = f.params[0];
+    const owner = try a.print("{s}.{s}", .{ sym.name, m.name });
+    const names = m.param_names orelse &.{};
+    const what: ?[]const u8 = blk: {
+        if (m.receiver != .read) break :blk try a.print("takes `self` as `{s}`", .{switch (m.receiver) {
+            .write => "!@",
+            .value => "<@",
+            .none => "nothing",
+            .read => "?@",
+        }});
+        if (f.ct_params.len > 0) break :blk "takes compile-time parameters";
+        if (f.params.len != 2) break :blk try a.print("takes {d} parameter{s}", .{ f.params.len - 1, if (f.params.len == 2) "" else "s" });
+        const p = f.params[1];
+        const ok = switch (api) {
+            .Eq, .Ord => p == self_view,
+            .Hash => isHasherView(ctx, p),
+            .Print => p == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.printer_sym_id }) }),
+            else => true,
+        };
+        if (!ok) break :blk try a.print("takes `{s}` as `{s}`", .{ if (names.len > 1) names[1] else "?", try sema.formatType(ctx, p) });
+        const want: TypeId = switch (api) {
+            .Eq => ctx.types.bool_id,
+            .Ord => try ctx.intern(.{ .nominal = ctx.order_sym_id }),
+            else => ctx.types.void_id,
+        };
+        if (f.returns != want) break :blk if (f.returns == ctx.types.void_id) "gives nothing" else try a.print("gives `{s}`", .{try sema.formatType(ctx, f.returns)});
+        break :blk null;
+    };
+    const why = what orelse return;
+    try ctx.err(m.decl_pos, "`{s}` {s}, but `{s}` fixes `{s}`", .{ owner, why, @tagName(api), fixedSignature(api) });
 }
 
 /// Why `==` is not defined for a type, as a diagnostic says it.
@@ -17486,6 +17557,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .unique => a.print("field `{s}` is a `{s}`, which is unique", .{ n.path, t }),
         .lanes => a.print("field `{s}` is a `{s}`, whose `==` compares lane by lane; compare the fields and reduce the mask: `(x.{s} == y.{s}).all()`", .{ n.path, t, n.path, n.path }),
         .float => a.print("field `{s}` is a `{s}`, and `==` calls `0.0` and `-0.0` equal and NaN equal to nothing", .{ n.path, t }),
+        .own_eq => a.print("field `{s}` is a `{s}`, which declares its own `==` and no hash of its own", .{ n.path, t }),
     };
     return switch (n.why) {
         .handle => a.print("`{s}` is a handle, which could compare by identity or by content", .{t}),
@@ -17497,6 +17569,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .unique => a.print("`{s}` is unique", .{t}),
         .lanes => a.print("`{s}` holds a vector, whose `==` compares lane by lane", .{t}),
         .float => a.print("`==` calls `0.0` and `-0.0` equal and NaN equal to nothing; hash its bits, `x.to_bits().hash()`", .{}),
+        .own_eq => sema.ownEqUnhashed(ctx, n.ty),
     };
 }
 
@@ -17528,7 +17601,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             else => false,
         },
         .equatable => sema.isEquatable(ctx, ty),
-        .hashable => isText(ctx, ty) or ((try sema.notHashable(ctx, ty, null)) == null and !declaresHash(ctx, ty)),
+        .hashable => isText(ctx, ty) or (try sema.notHashable(ctx, ty, null)) == null,
         .whole_division => sema.isInteger(ctx, ty),
         .printable => try sema.printable(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),

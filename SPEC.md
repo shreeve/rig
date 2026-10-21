@@ -3246,6 +3246,105 @@ sub main()
 `max[Point]` cannot use `T = Point`: `Point` cannot be ordered; name `Ord` on its header: `obj Point: Ord`
 ```
 
+### Own meanings
+
+A type gives `==`, hashing, ordering, or printing a meaning of its own
+by naming the API on its header and writing its method, with the
+signature the API fixes:
+
+| Header names | The type writes |
+|---|---|
+| `Eq` | `fun eq(?@, other: ?Self) -> Bool` |
+| `Hash` | `sub hash_into(?@, h: !hash.Hasher)` |
+| `Ord` | `fun order(?@, other: ?Self) -> Order` |
+| `Print` | `sub print(?@, out: !Printer)` |
+
+`==` and `!=`, `.hash()`, `<` and its kin, `print` and text building
+then call the method, for the type and for the type as a part of
+another value, at every level. Another signature under one of these
+names, on a type that names the API, is an error. A method merely named
+`eq`, `hash`, or `order` on a type that does not name the API is an
+ordinary method. Naming an API without writing its method keeps the
+derived meaning: `Eq`, `Hash`, and `Print` by the fields, and `Ord` by
+the fields in declared order. A type with its own `Eq` and no
+`hash_into` has no hash: hashing by its fields would not agree with its
+`==`.
+
+Three small types serve the methods. `Order` is a built-in enum,
+`.less`, `.equal`, `.greater`, and `a.then(b)` is `a` unless it is
+`.equal`, then `b`, for ties; `x.order(?y)` gives the `Order` of any two
+values of a type that provides `Ord`. `hash.Hasher` takes the parts a
+hash is made of, `!h.add(x)`, each a value that provides `Hash`, and
+mixes them. `Printer` writes a printed form: `!out.text(s)` writes text
+as it is, and `!out.value(x)` a value as `print` shows a part of
+another, text in quotes. A module that declares a type of its own named
+`Order` or `Printer` hides the built-in one.
+
+```rig
+use std.hash
+
+obj Name: Eq + Hash + Print
+  text: String
+
+  fun eq(?@, other: ?Name) -> Bool
+    @text.len == other.text.len
+
+  sub hash_into(?@, h: !hash.Hasher)
+    !h.add(@text.len)
+
+  sub print(?@, out: !Printer)
+    !out.text("Name ")
+    !out.value(?@text)
+
+obj Version: Ord
+  major: Int
+  minor: Int
+
+  fun order(?@, other: ?Version) -> Order
+    @major.order(?other.major).then(@minor.order(?other.minor))
+
+sub main()
+  a = Name(text: String("ab"))
+  b = Name(text: String("cd"))
+  print(a == b, a.hash() == b.hash(), a)
+  print(Version(major: 1, minor: 9) < Version(major: 2, minor: 0))
+```
+
+```output
+true true Name "ab"
+true
+```
+
+```rig reject
+obj Name: Eq
+  text: String
+
+  fun eq(?@, other: ?Name) -> Bool
+    @text.len == other.text.len
+
+sub main()
+  print(Name(text: String("a")).hash())
+```
+
+```error
+`Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`
+```
+
+```rig reject
+obj Version: Ord
+  major: Int
+
+  fun order(?@, other: Version) -> Order
+    @major.order(?other.major)
+
+sub main()
+  print(Version(major: 1) < Version(major: 2))
+```
+
+```error
+`Version.order` takes `other` as `Version`, but `Ord` fixes `fun order(?@, other: ?Self) -> Order`
+```
+
 ### Type aliases
 
 `type Name = T` gives a type a second name. An alias is transparent: it
@@ -4167,12 +4266,14 @@ its bytes whatever its type (`String`, `?String`, `Static`, or a boxed
 String), an optional holding a value hashes as that value, an integer
 as its value, and the rest by their parts, as `==` compares them. The
 seed is fixed, so a value hashes the same in every run. `x.hash()` reads
-`x` where it is, as `==` does. A type that declares a method `hash`
-gets its own; in a generic body, `k.hash()` on a type parameter's value
-is checked at each instance, as `==` is, and an instance whose type
-declares its own `hash` is rejected, since the body calls the built-in
-one. `std.hash`'s Map and Set ([docs/STD.md](docs/STD.md#stdhash)) key
-on it.
+`x` where it is, as `==` does. A method merely named `hash` is an
+ordinary method, which `x.hash()` calls on that type; the built-in
+`.hash()` of a type parameter's value, and a Map's, hash it by its
+parts. A type gives `==` or hashing a meaning of its own by naming the
+API on its header ([Own meanings](#own-meanings)). In a generic body,
+`k.hash()` on a type parameter's value is checked at each instance, as
+`==` is. `std.hash`'s Map and Set ([docs/STD.md](docs/STD.md#stdhash))
+key on it.
 
 ```rig
 obj P
@@ -7403,30 +7504,6 @@ owns one), and read views.
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
-
-**Inline room.** `List[T, inline: n]` keeps its first `n` elements
-inside the List value itself, and allocates only once it holds more,
-when they all move to the heap: a short-lived List of a few elements
-then makes no allocation at all. `n` is a constant from 1 to 1024. It
-has every member a `List[T]` has, and is a type of its own:
-`List[Int, inline: 4]` is not `List[Int]`, nor `List[Int, inline: 8]`,
-so a function that takes one names it (or a slice, `?[T]`). A move of
-such a List copies its inline elements; a view of one points into the
-List, which its loan keeps in place.
-
-```rig
-sub main()
-  xs = List[Int, inline: 4]()
-  for i in 0..3
-    !xs.push(i)
-  !xs.push(10)
-  !xs.push(11)
-  print(xs, xs.len)
-```
-
-```output
-[0, 1, 2, 10, 11] 5
-```
 
 An array literal is an array, not a List: `xs: List[Int] = [1, 2, 3]` is
 a type mismatch, since a List allocates and the allocation is shown at the

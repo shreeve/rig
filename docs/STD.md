@@ -951,6 +951,16 @@ type, as any generic is.
 | `!m.update(f)` | `sub update(!@, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 | `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
 
+`hash.Hasher` makes a type's own hash: a type that names `Hash` on its
+header writes `sub hash_into(?@, h: !hash.Hasher)` and adds each part
+its hash is made of, `!h.add(x)`, where `x` is any value that provides
+`Hash` ([SPEC, Own meanings](../SPEC.md#own-meanings)).
+
+| Member | Signature | Ownership |
+|---|---|---|
+| `!h.add(x)` | `sub add[T: Hash](!@, x: ?T)` | mixes `x`'s hash into what was added, in order |
+| `h.finish()` | `fun finish(?@) -> U64` | the hash of what was added |
+
 `hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
 is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`,
@@ -1156,6 +1166,19 @@ and the next growth drops the entry, key and all, keeping the rest in
 order. A Set's key is optional, and taking one hands it back. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
+
+## Order and Printer
+
+Two built-in types serve a type's own ordering and printing
+([SPEC, Own meanings](../SPEC.md#own-meanings)). `Order` is an enum,
+`.less`, `.equal`, `.greater`: `a.then(b)` is `a` unless it is `.equal`,
+then `b`, and `x.order(?y)` gives the `Order` of two values of a type
+that provides `Ord`. `Printer` is where a type's own `print` writes:
+
+| Member | Signature | Ownership |
+|---|---|---|
+| `!out.text(s)` | `sub text(!@, s: ?String)` | writes `s` as it is |
+| `!out.value(x)` | `sub value(!@, x)`, any value `print` takes | writes `x` as `print` shows a part of another value, text in quotes; reads `x` |
 
 ## print, warn, and panic
 

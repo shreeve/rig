@@ -918,7 +918,6 @@ types    = targ                                     → (1)
 # A bare name is read as a type; the checker reads it as a value where
 # the parameter is one. An integer or arithmetic is always a value.
 targ     = type
-         | name:name ":" value:targ                 → (kwarg)   # `List[T, inline: 8]`
          | INTEGER
          | "-" operand:INTEGER                      → (neg)
          | "(" INTEGER ")"                          → 2
@@ -1215,10 +1214,6 @@ args     = callargs                                 → 1
 targs    = expr ","                                 → (1)
          | expr "," expr                            → (1 3)
          | expr "," targs                           → (1 ...3)
-         | expr "," tkwarg                          → (1 3)
-
-# `inline: n` in `List[T, inline: n]()`.
-tkwarg   = name:name ":" value:expr                 → (kwarg)
 
 callargs = callarg                                  → (1)
          | callargs "," callarg                     → (...1 3)

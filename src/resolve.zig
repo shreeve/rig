@@ -204,7 +204,12 @@ const SymbolResolver = struct {
             .scope = self.scope,
             .flags = flags,
         };
-        const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
+        var dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
+        // A module's own `Order` or `Printer` hides the built-in one, which
+        // a type's own `order` and `print` take (docs/design/apis.md).
+        if (dup) |prev| if (prev == self.ctx.order_sym_id or prev == self.ctx.printer_sym_id) {
+            dup = null;
+        };
         // `String`, `Static`, and `Symbol` are built-in types, like `List`,
         // though no symbol holds them.
         const reserved = self.scope == self.module_scope and isNominalBuiltinName(name);
@@ -2867,19 +2872,7 @@ pub const TypeResolver = struct {
         const sym = self.ctx.symbols.items[sym_id];
         const name = sym.name;
         const tparams = sym.type_params orelse &.{};
-        var supplied = ir.GenericInst.args(sexp);
-        // `List[T, inline: n]`: the first `n` elements live inside the List.
-        var inline_len: u32 = 0;
-        if (supplied.len > 0 and supplied[supplied.len - 1].isKind(.kwarg)) {
-            const kw = supplied[supplied.len - 1];
-            supplied = supplied[0 .. supplied.len - 1];
-            const key = identAt(self.ctx.source, ir.Kwarg.name(kw)) orelse "";
-            if (sym_id != self.ctx.list_sym_id or !std.mem.eql(u8, key, "inline")) {
-                try self.ctx.errAt(kw, "`{s}:` names no argument of `{s}`; only a List takes one, `List[T, inline: n]`", .{ key, name });
-                return t.invalid_id;
-            }
-            inline_len = (try self.inlineLen(ir.Kwarg.value(kw))) orelse return t.invalid_id;
-        }
+        const supplied = ir.GenericInst.args(sexp);
         if (supplied.len != tparams.len) {
             try self.ctx.err(pos, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ name, tparams.len, argsNoun(self.ctx, tparams), if (tparams.len == 1) @as([]const u8, "") else "s", supplied.len });
             return t.invalid_id;
@@ -2906,33 +2899,7 @@ pub const TypeResolver = struct {
         // An instance with a rejected argument is poison: what follows
         // from it was already reported.
         if (any_bad) return t.invalid_id;
-        const inst = try self.instanceOf(sym_id, args.items, pos);
-        if (inline_len == 0 or self.isPoison(inst)) return inst;
-        return self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args.items, .inline_len = inline_len } });
-    }
-
-    /// The most elements a List keeps inline: they live in its value, on
-    /// the frame that holds it.
-    const max_inline_len = 1024;
-
-    /// `n` in `List[T, inline: n]`: a constant from 1 to `max_inline_len`;
-    /// null after a diagnostic.
-    pub fn inlineLen(self: *TypeResolver, node: Sexp) Error!?u32 {
-        try self.recordCtNames(node);
-        const folded = (try self.ctIntOf(node, "an inline length")) orelse return null;
-        switch (self.ctx.types.get(folded.ty)) {
-            .ct_value => |v| {
-                if (v.int < 1 or v.int > max_inline_len) {
-                    try self.ctx.errAt(node, "a List's inline length is from 1 to {d}; got {d}", .{ max_inline_len, v.int });
-                    return null;
-                }
-                return @intCast(v.int);
-            },
-            else => {
-                try self.ctx.errAt(node, "a List's inline length is a constant, from 1 to {d}", .{max_inline_len});
-                return null;
-            },
-        }
+        return self.instanceOf(sym_id, args.items, pos);
     }
 
     /// The type `sigil` over `inner` would be, as a diagnostic spells it.
@@ -3257,6 +3224,48 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         try setFields(ctx, sym, &.{
             .{ .name = "little", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
             .{ .name = "big", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
+        });
+    }
+
+    // Order: how two values order, `.less`, `.equal`, or `.greater`,
+    // which a type's own `order` gives; `a.then(b)` breaks a tie
+    // (docs/design/apis.md, Stage 2).
+    {
+        const sym = try ctx.addSymbol(.{
+            .name = "Order",
+            .kind = .nominal_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_pos,
+            .scope = module_scope,
+        });
+        try ctx.addToScope(module_scope, sym);
+        ctx.order_sym_id = sym;
+        const self_ty = try ctx.intern(.{ .nominal = sym });
+        try setFields(ctx, sym, &.{
+            .{ .name = "less", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
+            .{ .name = "equal", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
+            .{ .name = "greater", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
+            try method(ctx, "then", .read, &.{ try ctx.intern(.{ .read_view = self_ty }), self_ty }, self_ty, null),
+        });
+    }
+
+    // Printer: where a type's own `print` writes its printed form.
+    // `!out.text(s)` writes text as it is; `!out.value(x)`, which typing
+    // knows (`Checker.printerValue`), writes a value as `print` shows a
+    // part of another.
+    {
+        const sym = try ctx.addSymbol(.{
+            .name = "Printer",
+            .kind = .nominal_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_pos,
+            .scope = module_scope,
+        });
+        try ctx.addToScope(module_scope, sym);
+        ctx.printer_sym_id = sym;
+        const self_ty = try ctx.intern(.{ .nominal = sym });
+        try setFields(ctx, sym, &.{
+            try method(ctx, "text", .write, &.{ try ctx.intern(.{ .write_view = self_ty }), ctx.types.string_view_id }, ctx.types.void_id, null),
         });
     }
 
