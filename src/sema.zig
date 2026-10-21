@@ -419,6 +419,9 @@ pub const Type = union(enum) {
 pub const ParamNominal = struct {
     sym: SymbolId,
     args: []const TypeId,
+    /// `List[T, inline: n]`: how many of its first elements live inside
+    /// the List; 0 for every other instance.
+    inline_len: u32 = 0,
 };
 
 pub const ImportedNominal = struct {
@@ -585,6 +588,7 @@ pub const TypeStore = struct {
                 std.mem.eql(SymbolId, af.ct_syms, b.function.ct_syms) and
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
+                x.inline_len == b.parameterized_nominal.inline_len and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
             .results => |x| std.mem.eql(TypeId, x, b.results),
             // The rest hold ids and numbers only.
@@ -6338,7 +6342,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             defer args.deinit(ctx.allocator);
             for (pn.args) |a| try args.append(ctx.allocator, try substituteType(ctx, a, subst));
             if (std.mem.eql(TypeId, args.items, pn.args)) return ty_id;
-            return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
+            return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items, .inline_len = pn.inline_len } });
         },
         .results => |parts| {
             var out: std.ArrayList(TypeId) = .empty;
@@ -8448,6 +8452,8 @@ const TypePrinter = struct {
             // module spells it (`importSymbol`).
             .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
+            else if (pn.inline_len > 0)
+                try p.instance(ctx.symbols.items[pn.sym].name, try a.print("{s}, inline: {d}", .{ try p.list(pn.args), pn.inline_len }))
             else
                 try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),

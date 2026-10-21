@@ -1677,13 +1677,56 @@ inline fn invariant(ok: bool) void {
 /// `List(T)`: a growable array that owns its elements. Dropping it drops
 /// the elements in reverse order, then frees the buffer.
 pub fn List(comptime T: type) type {
+    return ListOf(T, 0);
+}
+
+/// `List[T, inline: n]`: a List whose first `n` elements live inside it,
+/// which allocates only once it holds more.
+pub fn InlineList(comptime T: type, comptime n: usize) type {
+    return ListOf(T, n);
+}
+
+/// A List of `T`, whose first `inline_len` elements live inside it, in
+/// `inline_buf`: it allocates only once it holds more, and then moves
+/// them all to `buf`. A move of such a List copies its inline elements,
+/// so a view of one points into the List itself, which its loan keeps
+/// in place. With no inline room it is a plain List.
+fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
+    // A zero-bit element takes no memory either way.
+    const inline_len = if (@sizeOf(T) == 0) 0 else inline_len_in;
     return struct {
+        /// The elements, once they are on the heap; empty while they fit
+        /// inline.
         buf: []T = &.{},
         len: usize = 0,
+        inline_buf: [inline_len]T = undefined,
 
         const Self = @This();
         /// Its arguments, for `typeName`.
-        pub const __rig_args = .{T};
+        pub const __rig_args = if (inline_len == 0) .{T} else .{ T, inline_len };
+        pub const __rig_inline = inline_len;
+
+        /// Where its elements are: `buf`, or `inline_buf` while they fit.
+        inline fn mem(self: *Self) []T {
+            if (comptime inline_len == 0) return self.buf;
+            if (self.buf.len != 0) return self.buf;
+            return &self.inline_buf;
+        }
+
+        /// `mem`, to read through a `*const Self`.
+        inline fn memConst(self: *const Self) []const T {
+            if (comptime inline_len == 0) return self.buf;
+            if (self.buf.len != 0) return self.buf;
+            return &self.inline_buf;
+        }
+
+        /// What `items` gives through a pointer of type `P`: elements to
+        /// write through a `*Self`, and through a `*const Self` too for a
+        /// List with no inline room, whose elements are on the heap.
+        fn Items(comptime P: type) type {
+            if (inline_len == 0) return []T;
+            return if (@typeInfo(P).pointer.attrs.@"const") []const T else []T;
+        }
 
         pub const empty: Self = .{};
 
@@ -1693,7 +1736,7 @@ pub fn List(comptime T: type) type {
         /// is negative.
         pub fn initCapacity(capacity: Int) Self {
             const n = std.math.cast(usize, capacity) orelse @panic("negative size");
-            if (n == 0) return .empty;
+            if (n <= inline_len) return .empty;
             if (comptime @sizeOf(T) == 0) {
                 var v: Self = .empty;
                 v.reserve(capacity);
@@ -1710,7 +1753,7 @@ pub fn List(comptime T: type) type {
                 v.len = src.len;
                 return v;
             }
-            @memcpy(v.buf[0..src.len], src);
+            @memcpy(v.mem()[0..src.len], src);
             v.len = src.len;
             return v;
         }
@@ -1731,14 +1774,17 @@ pub fn List(comptime T: type) type {
 
         /// The live elements. Invalidated by `push`. Inside the buffer by
         /// `len <= buf.len`, so the slice needs no test of its own.
-        pub fn items(self: *const Self) []T {
-            invariant(self.len <= self.buf.len);
-            return self.buf.ptr[0..self.len];
+        pub fn items(self: anytype) Items(@TypeOf(self)) {
+            if (comptime inline_len == 0) {
+                invariant(self.len <= self.buf.len);
+                return self.buf.ptr[0..self.len];
+            }
+            return if (comptime @typeInfo(@TypeOf(self)).pointer.attrs.@"const") self.memConst()[0..self.len] else self.mem()[0..self.len];
         }
 
         /// Room for `want` elements in all.
         fn reserveTotal(self: *Self, want: usize) void {
-            if (want <= self.buf.len) return;
+            if (want <= self.memConst().len) return;
             self.grow(want);
         }
 
@@ -1758,6 +1804,13 @@ pub fn List(comptime T: type) type {
                 self.buf = self.buf.ptr[0..std.math.maxInt(usize)];
                 return;
             }
+            if (inline_len > 0 and self.buf.len == 0) {
+                // Past its inline room: all of it to the heap.
+                const buf = allocSlice(T, @max(want, 2 * inline_len));
+                @memcpy(buf[0..self.len], self.inline_buf[0..self.len]);
+                self.buf = buf;
+                return;
+            }
             self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len * 2));
         }
 
@@ -1765,16 +1818,17 @@ pub fn List(comptime T: type) type {
         /// leaves `len < buf.len`, so the slot at `len` exists, `len + 1`
         /// cannot overflow, and the store needs no bounds check.
         pub fn push(self: *Self, value: T) void {
-            if (self.len == self.buf.len) self.grow(self.len +% 1);
-            invariant(self.len < self.buf.len);
-            self.buf.ptr[self.len] = value;
+            if (self.len == self.mem().len) self.grow(self.len +% 1);
+            const m = self.mem();
+            invariant(self.len < m.len);
+            m.ptr[self.len] = value;
             self.len +%= 1;
         }
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
         pub fn get(self: *const Self, i: Int) Opt(T) {
             const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
-            return pack(Opt(T), if (idx < self.len) self.buf[idx] else null);
+            return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
         }
 
         /// `v[i]`: the element at `i`; panics when out of range. One test,
@@ -1782,25 +1836,25 @@ pub fn List(comptime T: type) type {
         /// buf.len`, so it is read through the buffer's pointer, which
         /// makes no second test.
         pub fn at(self: *const Self, i: anytype) T {
-            return self.buf.ptr[self.indexOf(i)];
+            return self.memConst().ptr[self.indexOf(i)];
         }
 
         /// `v[i] = x`: the slot at `i`; panics when out of range.
         pub fn slot(self: *Self, i: anytype) *T {
-            return &self.buf.ptr[self.indexOf(i)];
+            return &self.mem().ptr[self.indexOf(i)];
         }
 
         /// The slot at `i`, read-only, for an element reached through a
         /// read view; panics when out of range.
         pub fn constSlot(self: *const Self, i: anytype) *const T {
-            return &self.buf.ptr[self.indexOf(i)];
+            return &self.memConst().ptr[self.indexOf(i)];
         }
 
         /// `i` as a slot of the live elements, panicking unless `0 <= i <
         /// len`; inside the buffer by `len <= buf.len`.
         inline fn indexOf(self: *const Self, i: anytype) usize {
             const idx = index(i, self.len);
-            invariant(idx < self.buf.len);
+            invariant(idx < self.memConst().len);
             return idx;
         }
 
@@ -1808,27 +1862,27 @@ pub fn List(comptime T: type) type {
         /// (`Proven`), and, with `If`, the tests `q` too while `ok`, a flag
         /// the compiler made before the statement (`offsetIf`).
         pub inline fn atProven(self: *const Self, i: Int, comptime p: Proven) T {
-            return self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+            return self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn slotProven(self: *Self, i: Int, comptime p: Proven) *T {
-            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+            return &self.mem().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn constSlotProven(self: *const Self, i: Int, comptime p: Proven) *const T {
-            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+            return &self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
-            return self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
         }
         pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
-            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
         }
         pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
-            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
         }
 
         inline fn provenSlot(self: *const Self, idx: ?usize) usize {
             const slot_ = idx orelse indexPanic();
-            invariant(slot_ < self.buf.len);
+            invariant(slot_ < self.memConst().len);
             return slot_;
         }
 
@@ -1836,7 +1890,7 @@ pub fn List(comptime T: type) type {
         pub fn pop(self: *Self) Opt(T) {
             if (self.len == 0) return pack(Opt(T), null);
             self.len -= 1;
-            return pack(Opt(T), self.buf[self.len]);
+            return pack(Opt(T), self.mem()[self.len]);
         }
 
         /// Insert `value` at `i`, moving the elements from `i` on up by
@@ -1844,8 +1898,9 @@ pub fn List(comptime T: type) type {
         pub fn insert(self: *Self, i: Int, value: T) void {
             const idx = index(i, self.len + 1);
             self.reserveTotal(self.len + 1);
-            std.mem.copyBackwards(T, self.buf[idx + 1 .. self.len + 1], self.buf[idx..self.len]);
-            self.buf[idx] = value;
+            const m = self.mem();
+            std.mem.copyBackwards(T, m[idx + 1 .. self.len + 1], m[idx..self.len]);
+            m[idx] = value;
             self.len += 1;
         }
 
@@ -1854,8 +1909,9 @@ pub fn List(comptime T: type) type {
         /// `0 <= i < len`.
         pub fn remove(self: *Self, i: Int) T {
             const idx = index(i, self.len);
-            const value = self.buf[idx];
-            std.mem.copyForwards(T, self.buf[idx .. self.len - 1], self.buf[idx + 1 .. self.len]);
+            const m = self.mem();
+            const value = m[idx];
+            std.mem.copyForwards(T, m[idx .. self.len - 1], m[idx + 1 .. self.len]);
             self.len -= 1;
             return value;
         }
@@ -1867,7 +1923,7 @@ pub fn List(comptime T: type) type {
 
             pub fn next(it: *IntoIter) Opt(T) {
                 if (it.next_index >= it.list.len) return pack(Opt(T), null);
-                const value = it.list.buf[it.next_index];
+                const value = it.list.mem()[it.next_index];
                 it.next_index += 1;
                 return pack(Opt(T), value);
             }
@@ -1876,10 +1932,11 @@ pub fn List(comptime T: type) type {
             /// last first as a List does, then free the buffer.
             pub fn deinit(it: *IntoIter) void {
                 if (comptime needsDrop(T)) {
-                    invariant(it.list.len <= it.list.buf.len);
+                    const m = it.list.mem();
+                    invariant(it.list.len <= m.len);
                     while (it.list.len > it.next_index) {
                         it.list.len -= 1;
-                        dropElement(T, &it.list.buf.ptr[it.list.len]);
+                        dropElement(T, &m.ptr[it.list.len]);
                     }
                 }
                 it.list.len = 0;
@@ -1900,10 +1957,11 @@ pub fn List(comptime T: type) type {
                 self.len = 0;
                 return;
             }
-            invariant(self.len <= self.buf.len);
+            const m = self.mem();
+            invariant(self.len <= m.len);
             while (self.len > 0) {
                 self.len -= 1;
-                dropElement(T, &self.buf.ptr[self.len]);
+                dropElement(T, &m.ptr[self.len]);
             }
         }
 
@@ -1916,10 +1974,11 @@ pub fn List(comptime T: type) type {
                 self.len = rest;
                 return;
             }
-            invariant(self.len <= self.buf.len);
+            const m = self.mem();
+            invariant(self.len <= m.len);
             while (self.len > rest) {
                 self.len -= 1;
-                dropElement(T, &self.buf.ptr[self.len]);
+                dropElement(T, &m.ptr[self.len]);
             }
         }
 
@@ -1929,6 +1988,11 @@ pub fn List(comptime T: type) type {
         pub fn filled(n: Int, value: T) Self {
             const count = std.math.cast(usize, n) orelse @panic("negative size");
             if (count == 0) return .empty;
+            if (count <= inline_len) {
+                var v: Self = .{ .len = count };
+                @memset(v.inline_buf[0..count], value);
+                return v;
+            }
             const buf = allocSlice(T, count);
             @memset(buf, value);
             return .{ .buf = buf, .len = count };
@@ -1943,14 +2007,15 @@ pub fn List(comptime T: type) type {
             const want = std.math.cast(usize, n) orelse @panic("negative size");
             if (want <= self.len) return self.keep(n);
             self.reserveTotal(want);
-            invariant(want <= self.buf.len);
-            @memset(self.buf.ptr[self.len..want], value);
+            const m = self.mem();
+            invariant(want <= m.len);
+            @memset(m.ptr[self.len..want], value);
             self.len = want;
         }
 
         pub fn __rig_drop(self: *Self) void {
             self.clear();
-            freeSlice(T, self.buf);
+            if (inline_len == 0 or self.buf.len != 0) freeSlice(T, self.buf);
             self.buf = &.{};
         }
     };
@@ -2202,6 +2267,8 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
             handleName("^", @typeInfo(@FieldType(T, "value")).pointer.child, names)
         else if (@hasDecl(T, "__rig_fn"))
             fnName(T.__rig_fn[0], T.__rig_fn[1], names)
+        else if (@hasDecl(T, "__rig_inline") and T.__rig_inline > 0)
+            std.fmt.comptimePrint("List[{s}, inline: {d}]", .{ nameOf(T.__rig_args[0], names), T.__rig_inline })
         else
             genericName(T, names),
         else => @compileError("rig.typeName: no Rig name for " ++ @typeName(T)),
