@@ -215,7 +215,7 @@ test "cancel storm", seeds: 20, "true"
     ts = Tasks[Int!]()
     for k in 0..8
       !ts.add(nap((i + k) % 40)&)
-    xs = <ts.wait_all(within: (i % 30) * time.US) catch List[Int]()
+    xs = time.within((i % 30) * time.US, |<ts| >ts!) catch List[Int]()
     got += xs.len
     got += early(i) catch 0
     got

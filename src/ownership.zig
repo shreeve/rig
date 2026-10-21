@@ -5298,13 +5298,16 @@ pub const Checker = struct {
                 .cap_clone => !self.copies(ty),
                 .cap_weak, .cap_move, .cap_read, .cap_write => true,
             };
+            // A closure called exactly once takes what it owns of its
+            // captures, as a function takes a parameter given by value.
+            const once = if (self.sema) |ctx| if (ctx.symbolOf(name)) |sym| ctx.isOnceCapture(sym) else false else false;
             _ = try self.addVar(.{
                 .name = self.text(name),
                 .decl = name.src.pos,
                 .ty = ty,
-                .kind = .capture,
+                .kind = if (once) .local else .capture,
                 .ref = self.refOfType(ty),
-                .capture_resource = resource,
+                .capture_resource = resource and !once,
             }, .{ .loans = cv.loans });
         }
         try self.bindParams(params);

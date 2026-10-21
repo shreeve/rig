@@ -10160,10 +10160,11 @@ it holds.
 - `<ts.wait_first()` gives the first result to succeed and cancels the
   rest; when every task fails, it fails with the last error. It is only
   for tasks that can fail, since the rest must be stopped.
-- `<ts.wait_all(within: ns)` and `<ts.wait_first(within: ns)` take a
-  deadline, in nanoseconds: when it passes, the tasks still running are
-  canceled, and the wait fails with `task.Stop.timeout`. It too is only
-  for tasks that can fail.
+- A wait with a deadline is written in `time.within`
+  ([Deadlines](#deadlines)), which takes the set into its closure:
+  `time.within(ns, |<ts| >ts!)`. When the deadline passes, the tasks
+  still running are canceled, and the wait fails with
+  `task.Stop.timeout`.
 - Waiting on tasks that can fail is a waiting point: a canceled waiter
   cancels them all and fails with `Stop.canceled`.
 - Dropping a set cancels the tasks that can fail, all of them first,
@@ -10190,7 +10191,7 @@ fun first_two() -> List[Int]!
   ts = Tasks[Int!]()
   !ts.add(fetch(1, 20)&)
   !ts.add(fetch(2, 1)&)
-  <ts.wait_all(within: 5 * time.SECOND)!
+  time.within(5 * time.SECOND, |<ts| >ts!)!
 
 fun any_one() -> Int!
   ts = Tasks[Int!]()
@@ -10208,10 +10209,10 @@ sub main()
 50
 ```
 
-`task.both(a, b)` and `task.all(a, b, ...)` of `std.task`
-([std.task](docs/STD.md#stdtask)) wait for tasks of different types and
-give each one's value as several results:
-`u, o = task.both(user(id)&, orders(id)&)!`. The call takes its tasks,
+`task.all(a, b, ...)` of `std.task`
+([std.task](docs/STD.md#stdtask)) waits for two tasks or more, of
+different types, and gives each one's value as several results:
+`u, o = task.all(user(id)&, orders(id)&)!`. The call takes its tasks,
 and can fail when any of them can; then the first to fail cancels the
 others.
 
@@ -10374,7 +10375,11 @@ deadline `ns` nanoseconds from now, and gives what `f` gives. `f` may
 propagate with `!`, so the call can fail. Every fallible waiting point
 `f` reaches after the deadline fails with `task.Stop.timeout`:
 `time.sleep`, which sleeps only until the deadline, `task.check`, and
-a wait on a task, a set, or `task.both`, whose tasks are canceled first.
+a wait on a task, a set, or `task.all`, whose tasks are canceled first.
+`within` calls `f` exactly once, so a closure written in the call may
+move what it captures, and its one call drops what it leaves: a task or
+a set made before the deadline is waited for in it,
+`time.within(ns, |<t| >t!)`.
 
 - The tasks `f` starts keep the deadline.
 - Inside another deadline, the earlier one holds, and the outer one is
@@ -10392,6 +10397,8 @@ fun slow(ms: Int) -> Int!
 sub main()
   print(time.within(time.SECOND, || slow(1)!) catch -1)
   print(time.within(5 * time.MS, || slow(60_000)!) catch -1)
+  t = slow(60_000)&
+  print(time.within(5 * time.MS, |<t| >t!) catch -1)
   n = time.within(time.SECOND, ||
     a = slow(1)!
     b = time.within(5 * time.MS, || slow(60_000)!) catch 0
@@ -10402,6 +10409,7 @@ sub main()
 
 ```output
 1
+-1
 -1
 1
 ```
