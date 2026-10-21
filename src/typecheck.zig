@@ -8540,7 +8540,7 @@ const Checker = struct {
         while (sema.boxedType(self.ctx, held)) |inner| held = sema.unwrapViews(self.ctx, inner);
         if (held != self.t().string_id) return null;
         const op = std.meta.stringToEnum(sema.StringCall, method) orelse return null;
-        if (op == .new or op == .push_int or op == .push_keep or op == .printer_value) return null;
+        if (op == .new or op == .push_int or op == .push_keep or op == .printer_value or op == .hasher_add) return null;
         // Only `push` takes compile-time arguments: `push[T, e](v)`.
         if (ct != null and op != .push) return try self.badCall(args, ct.?, "`{s}` takes no compile-time arguments", .{method});
         const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
@@ -8561,7 +8561,7 @@ const Checker = struct {
         switch (op) {
             .add => try self.checkFormatArgs(args, "`add`", "write"),
             // One byte, as a List's `push` takes one element.
-            .push_int, .push_keep, .printer_value => unreachable,
+            .push_int, .push_keep, .printer_value, .hasher_add => unreachable,
             // `push[T, e](v)`: the bytes of an integer; `push(v, keep:
             // k)` the first `k` bytes of a vector.
             .push => if (ct) |b| {
@@ -8830,6 +8830,36 @@ const Checker = struct {
         try self.checkArgs(args, .{ .params = try self.ctx.dupeIds(&.{view}), .returns = order_ty, .is_sub = false }, .{ .names = &.{"other"} }, "order", pos, .{ .receiver = true, .origins = .{ .result = 0, .stores = 0 }, .declared = &.{view} });
         try self.ctx.recordElemCall(callee, .{ .op = .order, .elem = order_ty, .num = value });
         return try self.noteMethod(callee, .read, order_ty);
+    }
+
+    /// `!h.add(x)`: the hash of `x`, any value that provides `Hash`, mixed
+    /// into the hash a Hasher makes. `x` is only read.
+    fn hasherAdd(self: *Checker, callee: Sexp, obj: Sexp, pos: u32, args: []const Sexp) Error!TypeId {
+        if (!obj.isKind(.write)) try self.errAt(obj, "`add` writes the Hasher: `!{s}.add(...)`", .{try self.plainText(stripSigil(obj))});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`add` takes the one value whose hash it mixes in: `!h.add(x)`", .{});
+        try self.recordUse(stripSigil(obj), .lend);
+        const arg = args[0];
+        const saved_view = self.view_arg;
+        defer self.view_arg = saved_view;
+        self.view_arg = arg;
+        const ty = try self.synthReadTemp(arg);
+        if (ty == self.t().int_literal_id) try self.defaultIntLiteral(arg);
+        if (!self.isPoison(ty)) {
+            const value = sema.unwrapViews(self.ctx, if (ty == self.t().int_literal_id) self.t().int_id else ty);
+            switch (self.ctx.types.get(value)) {
+                .type_var => |tv| if (self.ctx.symbols.items[tv].apis.count() == 0) try self.require(tv, .hashable, self.startOf(arg), "!h.add(x)"),
+                else => {},
+            }
+            if (try sema.lacks(self.ctx, value, .Hash)) |lack| {
+                if (lack.own_eq) {
+                    try self.errAt(arg, "{s}", .{try sema.ownEqUnhashed(self.ctx, lack.ty)});
+                } else try self.errAt(arg, "`!h.add(x)` takes a value that provides `Hash`, and `{s}` cannot be hashed{s}", .{ try self.tyName(value), try sema.lackDetail(self.ctx, self.ctx.arena.allocator(), value, .Hash, lack) });
+            }
+        }
+        const hasher = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .nominal = self.ctx.hasher_sym_id }) });
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ hasher, ty }), .returns = self.t().void_id, .is_sub = true });
+        try self.ctx.recordStringCall(callee, .hasher_add);
+        return try self.noteMethod(callee, .write, self.t().void_id);
     }
 
     /// `!out.value(x)`: `x` written to a Printer as `print` shows a part of
@@ -11047,6 +11077,8 @@ const Checker = struct {
         if (resolved_method == null and ct == null and std.mem.eql(u8, method, "hash") and !try self.hasDataField(obj_ty, method)) return self.hashCall(callee, obj, obj_ty, pos, args);
         // `a.order(?b)`, unless the type declares an `order` of its own.
         if (resolved_method == null and ct == null and std.mem.eql(u8, method, "order") and !try self.hasDataField(obj_ty, method)) if (try self.orderCall(callee, obj, obj_ty, pos, args)) |ty| return ty;
+        // `!h.add(x)` of a Hasher.
+        if (ct == null and std.mem.eql(u8, method, "add") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.hasher_sym_id })) return self.hasherAdd(callee, obj, pos, args);
         // `!out.value(x)` of a Printer.
         if (ct == null and std.mem.eql(u8, method, "value") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id })) return self.printerValue(callee, obj, obj_ty, pos, args);
         // `x.f[i](args)` where `f` is a field: its element is called.
@@ -17484,21 +17516,16 @@ fn checkHeaders(ctx: *SemContext) Error!void {
 fn fixedSignature(api: sema.Api) []const u8 {
     return switch (api) {
         .Eq => "fun eq(?@, other: ?Self) -> Bool",
-        .Hash => "sub hash_into(?@, h: !hash.Hasher)",
+        .Hash => "sub hash_into(?@, h: !Hasher)",
         .Ord => "fun order(?@, other: ?Self) -> Order",
         .Print => "sub print(?@, out: !Printer)",
         else => "",
     };
 }
 
-/// Whether `ty` is a write view of std.hash's `Hasher`.
-fn isHasherView(ctx: *SemContext, ty: TypeId) bool {
-    const inner = switch (ctx.types.get(ty)) {
-        .write_view => |i| i,
-        else => return false,
-    };
-    const decl = sema.nominalDecl(ctx, inner) orelse return false;
-    return decl.ctx.is_std and std.mem.eql(u8, decl.symbol().name, "Hasher") and std.mem.eql(u8, decl.ctx.name, "std.hash");
+/// Whether `ty` is a write view of the built-in `Hasher`.
+fn isHasherView(ctx: *SemContext, ty: TypeId) Error!bool {
+    return ty == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.hasher_sym_id }) });
 }
 
 /// The method `m` of `sym`, by which it gives `api` its own meaning, has
@@ -17526,7 +17553,7 @@ fn checkApiMethod(ctx: *SemContext, sym: sema.Symbol, api: sema.Api, m: Field) E
         const p = f.params[1];
         const ok = switch (api) {
             .Eq, .Ord => p == self_view,
-            .Hash => isHasherView(ctx, p),
+            .Hash => try isHasherView(ctx, p),
             .Print => p == try ctx.intern(.{ .write_view = try ctx.intern(.{ .nominal = ctx.printer_sym_id }) }),
             else => true,
         };

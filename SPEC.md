@@ -3255,7 +3255,7 @@ signature the API fixes:
 | Header names | The type writes |
 |---|---|
 | `Eq` | `fun eq(?@, other: ?Self) -> Bool` |
-| `Hash` | `sub hash_into(?@, h: !hash.Hasher)` |
+| `Hash` | `sub hash_into(?@, h: !Hasher)` |
 | `Ord` | `fun order(?@, other: ?Self) -> Order` |
 | `Print` | `sub print(?@, out: !Printer)` |
 
@@ -3270,26 +3270,24 @@ the fields in declared order. A type with its own `Eq` and no
 `hash_into` has no hash: hashing by its fields would not agree with its
 `==`.
 
-Three small types serve the methods. `Order` is a built-in enum,
+Three small built-in types serve the methods. `Order` is an enum,
 `.less`, `.equal`, `.greater`, and `a.then(b)` is `a` unless it is
 `.equal`, then `b`, for ties; `x.order(?y)` gives the `Order` of any two
-values of a type that provides `Ord`. `hash.Hasher` takes the parts a
+values of a type that provides `Ord`. `Hasher` takes the parts a
 hash is made of, `!h.add(x)`, each a value that provides `Hash`, and
 mixes them. `Printer` writes a printed form: `!out.text(s)` writes text
 as it is, and `!out.value(x)` a value as `print` shows a part of
 another, text in quotes. A module that declares a type of its own named
-`Order` or `Printer` hides the built-in one.
+`Order`, `Printer`, or `Hasher` hides the built-in one.
 
 ```rig
-use std.hash
-
 obj Name: Eq + Hash + Print
   text: String
 
   fun eq(?@, other: ?Name) -> Bool
     @text.len == other.text.len
 
-  sub hash_into(?@, h: !hash.Hasher)
+  sub hash_into(?@, h: !Hasher)
     !h.add(@text.len)
 
   sub print(?@, out: !Printer)
@@ -3327,7 +3325,7 @@ sub main()
 ```
 
 ```error
-`Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`
+`Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !Hasher)`
 ```
 
 ```rig reject

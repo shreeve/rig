@@ -1654,6 +1654,9 @@ pub const StringCall = enum {
     /// `!out.value(x)` of a Printer, which writes `x` as `print` shows a
     /// part of another value (`Checker.printerValue`).
     printer_value,
+    /// `!h.add(x)` of a Hasher, which mixes in the hash of `x`
+    /// (`Checker.hasherAdd`).
+    hasher_add,
 };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
@@ -2295,6 +2298,7 @@ pub const SemContext = struct {
     endian_sym_id: SymbolId = symbol_invalid,
     order_sym_id: SymbolId = symbol_invalid,
     printer_sym_id: SymbolId = symbol_invalid,
+    hasher_sym_id: SymbolId = symbol_invalid,
     arch_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
@@ -5717,7 +5721,7 @@ pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const Typ
 /// Why `ty`, a type with its own `==` and no hash of its own, cannot be
 /// hashed (docs/design/apis.md, Stage 2).
 pub fn ownEqUnhashed(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error![]const u8 {
-    return ctx.arena.allocator().print("`{s}` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`", .{try formatType(ctx, ty)});
+    return ctx.arena.allocator().print("`{s}` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !Hasher)`", .{try formatType(ctx, ty)});
 }
 
 /// What a value cannot do without `api`, as an error says it.
@@ -6628,7 +6632,24 @@ pub fn crosses(ctx: *const SemContext, ty: TypeId, how: Crossing) bool {
 pub fn crossingBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
-    return blockerIn(ctx, ty, how, false, &seen);
+    if (blockerIn(ctx, ty, how, false, &seen)) |b| return b;
+    return boundBlocker(ctx, ty, how);
+}
+
+/// A type parameter `ty` reaches whose bounds do not name `Moves` (or
+/// `Shares`, by `how`): a bounded `T` crosses only as its bounds say; one
+/// with no bound as each instance does.
+fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
+    if (!ctx.typeInfo(ty).has_type_var) return null;
+    var params: std.ArrayList(SymbolId) = .empty;
+    defer params.deinit(ctx.allocator);
+    reachedTypeVars(ctx, ty, &params, ctx.allocator) catch return null;
+    for (params.items) |p| {
+        const bounds = implied(ctx.symbols.items[p].apis);
+        if (bounds.count() == 0 or bounds.contains(if (how == .moves) .Moves else .Shares)) continue;
+        return ctx.types.find(.{ .type_var = p }) orelse ty;
+    }
+    return null;
 }
 
 /// What in `ty` keeps it from going to a local task as `how` says: one
@@ -6676,13 +6697,6 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk ty;
             break :blk fieldsBlock(decl.ctx, decl.sym, how, local, seen);
-        },
-        // A bounded `T` crosses only as its bounds say, `Moves` or
-        // `Shares`; one with no bound as each instance does.
-        .type_var => |sym| blk: {
-            const bounds = implied(ctx.symbols.items[sym].apis);
-            if (bounds.count() == 0 or bounds.contains(if (how == .moves) .Moves else .Shares)) break :blk null;
-            break :blk ty;
         },
         else => null,
     };
@@ -7836,8 +7850,8 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // Every module has its own `Endian`, `Arch`, `Order`, and
-        // `Printer`, and each is one type.
+        // Every module has its own `Endian`, `Arch`, `Order`, `Printer`,
+        // and `Hasher`, and each is one type.
         .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
         else if (sym_id == foreign_ctx.arch_sym_id)
@@ -7846,6 +7860,8 @@ pub fn importType(
             local_ctx.intern(.{ .nominal = local_ctx.order_sym_id })
         else if (sym_id == foreign_ctx.printer_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.printer_sym_id })
+        else if (sym_id == foreign_ctx.hasher_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.hasher_sym_id })
         else
             local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),

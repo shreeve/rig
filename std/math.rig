@@ -8,20 +8,20 @@ pub E = 2.718281828459045
 # a type's minimum integer, whose magnitude the type does not hold. A
 # Float's zero comes back as +0.0, and a NaN stays one. (`x - x` is the
 # zero or NaN `x` is, with no sign.)
-pub fun abs[T](x: T) -> T
+pub fun abs[T: Signed + Ord](x: T) -> T
   x if x > 0 else (-x if x < 0 else x - x)
 
 # The smaller of `a` and `b`, by `<`; `a` when they are equal.
-pub fun min[T](a: T, b: T) -> T
+pub fun min[T: Ord](a: T, b: T) -> T
   b if b < a else a
 
 # The larger of `a` and `b`, by `<`; `a` when they are equal.
-pub fun max[T](a: T, b: T) -> T
+pub fun max[T: Ord](a: T, b: T) -> T
   b if a < b else a
 
 # `x` limited to `lo..hi`, both ends included: `lo` when `x < lo`, `hi`
 # when `x > hi`. Panics when `hi < lo`.
-pub fun clamp[T](x: T, lo: T, hi: T) -> T
+pub fun clamp[T: Ord](x: T, lo: T, hi: T) -> T
   if hi < lo
     clamp_bounds()
   lo if x < lo else (hi if hi < x else x)

@@ -11,12 +11,12 @@ pub sub reverse[T](xs: ![]T)
     j -= 1
 
 # Whether some element of `xs` equals `x`.
-pub fun contains[T](xs: []T, x: T) -> Bool
-  index_of(xs, x) != none
+pub fun contains[T: Eq](xs: []T, x: T) -> Bool
+  index_of(xs, <x) != none
 
 # The index of the first element of `xs` equal to `x`, or `none`.
-pub fun index_of[T](xs: []T, x: T) -> Int?
-  for e, i in xs
-    if e == x
+pub fun index_of[T: Eq](xs: []T, x: T) -> Int?
+  for i in 0..xs.len
+    if xs[i] == x
       return i
   none

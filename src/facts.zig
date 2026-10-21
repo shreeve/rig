@@ -122,6 +122,7 @@ pub const Facts = struct {
     endian_sym_id: SymbolId,
     order_sym_id: SymbolId,
     printer_sym_id: SymbolId,
+    hasher_sym_id: SymbolId,
     arch_sym_id: SymbolId,
     /// The decisions emit still makes itself (the allowlist).
     pending: Pending,
@@ -146,6 +147,7 @@ pub const Facts = struct {
             .endian_sym_id = ctx.endian_sym_id,
             .order_sym_id = ctx.order_sym_id,
             .printer_sym_id = ctx.printer_sym_id,
+            .hasher_sym_id = ctx.hasher_sym_id,
             .arch_sym_id = ctx.arch_sym_id,
             .pending = .{ .sema_context = ctx },
         };

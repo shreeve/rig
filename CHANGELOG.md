@@ -91,10 +91,15 @@ changed the language since it:
   on its header and writes `eq`, `hash_into`, `order`, or `print`, with
   the signature the API fixes, gives `==`, hashing, ordering, or
   printing its own meaning, at every level of nesting; a type with its
-  own `==` and no `hash_into` has no hash. `Order`, `Printer`, and
-  `hash.Hasher` serve them, and `x.order(?y)` orders any two values that
-  provide `Ord`. A method merely named `hash` is an ordinary method: a
+  own `==` and no `hash_into` has no hash. The built-in types `Order`,
+  `Printer`, and `Hasher` serve them, and `x.order(?y)` orders any two
+  values that provide `Ord`. A method merely named `hash` is an ordinary method: a
   Map keys such a type by its parts, where it rejected it.
+- **std takes bounds:** `hash.Map[K: Hash, V]` and `hash.Set[K: Hash]`;
+  `sort`, `search`, `lower_bound`, and `math.min`, `max`, and `clamp`
+  take `T: Ord`; `slices.contains` and `index_of` take `T: Eq`;
+  `math.abs` takes `T: Signed + Ord`; and `sort.sort_by_key` sorts by a
+  key that provides `Ord`.
 - **Parameter names:** a type parameter starts with a capital letter and
   a compile-time value parameter with a lowercase one; `[t]` and
   `[N: Int]`, which earlier releases accepted, are rejected with the

@@ -50,6 +50,20 @@ pub const Info = struct {
 };
 
 pub const Kinds = struct {
+    /// Whether `ty` holds, by value, a type parameter whose bounds do not
+    /// name `Copy`: a copy of it is no instance's question, but rejected.
+    fn holdsUncopied(self: *Kinds, ty: TypeId) !bool {
+        if (!self.generic) return false;
+        var held: std.ArrayList(sema.SymbolId) = .empty;
+        defer held.deinit(self.a);
+        try sema.heldTypeVars(self.ctx, ty, &held, self.a);
+        for (held.items) |sym| {
+            const bounds = sema.implied(self.ctx.symbols.items[sym].apis);
+            if (bounds.count() > 0 and !bounds.contains(.Copy)) return true;
+        }
+        return false;
+    }
+
     a: std.mem.Allocator,
     ctx: *const SemContext,
     /// Apply the Core's planned rules: a type holding a `Cell` is unique
@@ -73,6 +87,29 @@ pub const Kinds = struct {
             try self.memo.put(self.a, ty, info);
             return info;
         }
+        // A bounded type parameter in a generic body is what its bounds
+        // say (docs/design/apis.md, Stage 2): `Copy` copies, and with
+        // `Owned` views nothing; without `Copy` it is an owner that the
+        // body may not copy.
+        if (self.generic) switch (ctx.types.get(ty)) {
+            .type_var => |sym| {
+                const bounds = sema.implied(ctx.symbols.items[sym].apis);
+                if (bounds.count() > 0) {
+                    const copy = bounds.contains(.Copy);
+                    const owned = bounds.contains(.Owned);
+                    const info: Info = .{
+                        .kind = if (!copy) .owning else if (owned) .plain else .read_view,
+                        .holds_views = !owned,
+                        .holds_pointers = !owned,
+                        .drop_reads = false,
+                        .unsupported = null,
+                    };
+                    try self.memo.put(self.a, ty, info);
+                    return info;
+                }
+            },
+            else => {},
+        };
         const ti = ctx.typeInfo(ty);
         var scan: Scan = .{ .a = self.a };
         defer scan.seen.deinit(self.a);
@@ -100,7 +137,7 @@ pub const Kinds = struct {
             .holds_writes = ti.views.write,
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
-            .generic_copy = kind == .owning and !(ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell)),
+            .generic_copy = kind == .owning and !(ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell)) and !try self.holdsUncopied(ty),
         };
         try self.memo.put(self.a, ty, info);
         return info;

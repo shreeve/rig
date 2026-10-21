@@ -59,9 +59,9 @@ checked for its type, as any generic call is.
 
 | Function | Result |
 |---|---|
-| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
-| `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
-| `clamp[T](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
+| `abs[T: Signed + Ord](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
+| `min[T: Ord](a: T, b: T) -> T`, `max[T: Ord](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
+| `clamp[T: Ord](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
 | `pow(base: Int, power: Int) -> Int` | `base` to the power `power`; a negative `power` gives 1 divided by `base` to the power `-power`, truncated as `/` truncates: 1 for `base` 1, 1 or -1 for `base` -1, and 0 for any other but 0, which panics as dividing by 0 does |
 | `mod(a: Int, b: Int) -> Int` | the floored remainder, with the sign of `b`; panics when `b` is 0 |
@@ -810,17 +810,19 @@ true true
 ## std.sort
 
 Sorting, and searching sorted slices, written in Rig over slices, so
-they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
-`lower_bound`, and `search` order elements with `<` (numbers, plain
-enums, and `?String` values), and `search` compares them with `==`; each call is checked
-for its element type, as any generic call is.
+they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`).
+`sort`, `lower_bound`, and `search` take `T: Ord` and order elements
+with `<` ([SPEC, Bounds](../SPEC.md#bounds)); `sort_by` takes any `T`
+and the order a comparator gives, and `sort_by_key` the order of a key
+that provides `Ord`.
 
 | Function | Result |
 |---|---|
-| `sort(xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
-| `sort_by(xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
-| `lower_bound(xs: []T, x: T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
-| `search(xs: []T, x: T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
+| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
+| `sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
+| `sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)` | the same, in the order of the keys `key` gives, by `<`; `key` is called twice for each comparison |
+| `lower_bound[T: Ord](xs: []T, x: T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
+| `search[T: Ord](xs: []T, x: T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
 
 `sort` sorts runs of 20 elements by insertion, then merges them in
 place by rotations: O(n log n) comparisons, O(n log² n) swaps, and
@@ -846,6 +848,8 @@ sub main()
   sort.sort_by(!v, |a, b| a.score > b.score)
   for p in ?v
     print(p.name, p.score)
+  sort.sort_by_key(!v, |p| p.name)
+  print(v[0].name)
 ```
 
 ```output
@@ -854,6 +858,7 @@ sub main()
 bob 9
 ann 7
 cy 7
+ann
 ```
 
 A NaN is not ordered by `<`: no comparison with one is true, so `sort`
@@ -875,7 +880,7 @@ sub main()
 [1.0, 2.0, nan]
 ```
 
-`sort` needs `<` on its elements:
+`sort` takes `T: Ord`, so its elements must be ordered:
 
 ```rig reject
 use std.sort
@@ -890,19 +895,20 @@ sub main()
 ```
 
 ```error
-`sort.sort[Player]` cannot use `T = Player`: the generic body applies `<` to `T`
+`sort.sort[Player]` cannot use `T = Player`: `Player` cannot be ordered; name `Ord` on its header: `obj Player: Ord`
 ```
 
 ## std.slices
 
 Linear operations on slices, written in Rig, on arrays and on Lists
-through a slice. `contains` and `index_of` compare elements with `==`.
+through a slice. `contains` and `index_of` take `T: Eq` and compare
+elements with `==`.
 
 | Function | Result |
 |---|---|
 | `reverse(xs: ![]T)` | reverse the order of `xs` in place |
-| `contains(xs: []T, x: T) -> Bool` | whether some element equals `x` |
-| `index_of(xs: []T, x: T) -> Int?` | the index of the first element equal to `x`, or `none` |
+| `contains[T: Eq](xs: []T, x: T) -> Bool` | whether some element equals `x` |
+| `index_of[T: Eq](xs: []T, x: T) -> Int?` | the index of the first element equal to `x`, or `none` |
 
 ```rig
 use std.slices
@@ -919,7 +925,7 @@ sub main()
 
 ## std.hash
 
-`hash.Map[K, V]` and `hash.Set[K]`, hash tables written in Rig over
+`hash.Map[K: Hash, V]` and `hash.Set[K: Hash]`, hash tables written in Rig over
 Lists. Iteration is in the order keys were first put in, as in Python,
 Ruby, and JavaScript: `put` on a key already there keeps its place, and
 `take` keeps the rest in order. A key is any value `x.hash()` takes
@@ -950,16 +956,6 @@ type, as any generic is.
 | `?m.keys()`, `?m.values()` | `fun keys(?@) -> Keys[K, V] from @` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!@, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 | `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
-
-`hash.Hasher` makes a type's own hash: a type that names `Hash` on its
-header writes `sub hash_into(?@, h: !hash.Hasher)` and adds each part
-its hash is made of, `!h.add(x)`, where `x` is any value that provides
-`Hash` ([SPEC, Own meanings](../SPEC.md#own-meanings)).
-
-| Member | Signature | Ownership |
-|---|---|---|
-| `!h.add(x)` | `sub add[T: Hash](!@, x: ?T)` | mixes `x`'s hash into what was added, in order |
-| `h.finish()` | `fun finish(?@) -> U64` | the hash of what was added |
 
 `hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
@@ -1118,7 +1114,7 @@ sub main()
 ```
 
 ```error
-cannot use `K = Float`: the generic body hashes a `K` with `.hash()`, which `Float` does not support
+`hash.Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
 ```
 
 `hash.Symbols` holds a set of strings, each with a dense `U32` id from
@@ -1167,16 +1163,19 @@ order. A Set's key is optional, and taking one hands it back. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 
-## Order and Printer
+## Order, Hasher, and Printer
 
-Two built-in types serve a type's own ordering and printing
-([SPEC, Own meanings](../SPEC.md#own-meanings)). `Order` is an enum,
-`.less`, `.equal`, `.greater`: `a.then(b)` is `a` unless it is `.equal`,
-then `b`, and `x.order(?y)` gives the `Order` of two values of a type
-that provides `Ord`. `Printer` is where a type's own `print` writes:
+Three built-in types serve a type's own ordering, hashing, and printing
+([SPEC, Own meanings](../SPEC.md#own-meanings)), named with no import.
+`Order` is an enum, `.less`, `.equal`, `.greater`: `a.then(b)` is `a`
+unless it is `.equal`, then `b`, and `x.order(?y)` gives the `Order` of
+two values of a type that provides `Ord`. `Hasher` is what a type's own
+`hash_into` adds the parts of its hash to, and `Printer` where a type's
+own `print` writes:
 
 | Member | Signature | Ownership |
 |---|---|---|
+| `!h.add(x)` | `sub add(!@, x)`, any value that provides `Hash` | mixes `x`'s hash into what was added, in order; reads `x` |
 | `!out.text(s)` | `sub text(!@, s: ?String)` | writes `s` as it is |
 | `!out.value(x)` | `sub value(!@, x)`, any value `print` takes | writes `x` as `print` shows a part of another value, text in quotes; reads `x` |
 
