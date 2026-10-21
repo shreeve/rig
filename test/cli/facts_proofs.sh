@@ -4,13 +4,15 @@
 source "$ROOT/test/cli/_lib.sh"
 
 # The loops of test/cli/fixtures/swar.rig, line by line: every test in
-# `skip_space`'s loop but the sign of `s[i]`, which needs `0 <= at`; in
-# the loops that start at `at`, the upper bound of each access and every
-# `+=`, but not the 8-byte guard's own `i + 8` or the reads' sign tests;
-# and all of the loop that starts at 0 but its guard's add.
+# `skip_space`'s loop but the sign of `s[i]`, which needs `0 <= at`, and
+# which a flag before the loop proves while it holds (`ok`); in the loops
+# that start at `at`, the upper bound of each access and every `+=`, but
+# not the 8-byte guard's own `i + 8` or the reads' sign tests; and all of
+# the loop that starts at 0 but its guard's add.
 swar="$ROOT/test/cli/fixtures/swar.rig"
 "$RIG" check --facts=proofs "$swar" >facts.txt 2>err.txt || fail "rig check --facts=proofs: $(cat err.txt)"
 expected='11:9 index upper
+11:9 ok index lower
 12:20 + no_overflow
 12:39 read lower upper
 13:7 += no_overflow
