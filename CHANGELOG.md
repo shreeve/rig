@@ -171,6 +171,11 @@ changed the language since it:
   amounts and `$fromBackingInt`: they cast through the unsigned type of
   the source's width, since Zig 0.17 lowers a direct cast as LLVM
   `trunc nsw`, which made such values poison.
+- **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
+  to 1024) inside the List value itself and allocates only once it
+  holds more, when they all move to the heap, so a short-lived List of
+  a few elements makes no allocation. It has every member a `List[T]`
+  has and is a type of its own (SPEC, "Inline room").
 - **`reduce`:** `xs.reduce(start, f)` on a slice, an array, or a List
   passes the running value, `start` first, and each element in order,
   lent as `?T`, to `f`, and keeps what `f` gives; an empty one gives
