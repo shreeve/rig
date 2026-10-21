@@ -40,7 +40,7 @@ it.
 | Stage | What it adds | New syntax | Status |
 |---|---|---|---|
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
-| 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]` | *(planned)* |
+| 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]`, `obj X: Eq` | *(planned, next)* |
 | 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(planned)* |
 | 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
 | 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Moves}` | *(planned)* |
@@ -244,17 +244,41 @@ includes and a call through a `T` would not.
 **Where it is described.** SPEC's "Generic bodies" gives the rule, and
 DESIGN's "Per-instance checking" its reasons.
 
-## Stage 2: built-in bounds *(planned)*
+## Stage 2: built-in bounds *(planned, next)*
 
 A bound names, in the signature, a capability a body uses, so the error
-moves to the user's line and the signature becomes the contract:
+moves to the user's line and the signature becomes the contract. Stage
+2 adds bounds over the built-in APIs, and a type's header naming the
+ones it gives a meaning of its own; `api` and `add` come with Stage 3.
 
 ```text
-fun max[T: Ord](a: T, b: T) -> T
+fun max[T: Ord](a: T, b: T) -> T               # a bound, in the brackets
   a if a > b else b
 
-hash.Map[K: Hash, V]
+fun keys[K: Hash + Print, V](m: ?hash.Map[K, V])   # several, joined with +
+
+obj Name: Eq + Hash                            # Name gives Eq and Hash its own meaning
+  text: String
+
+  fun eq(?@, other: ?Name) -> Bool
+    text.same_fold(?@text, ?other.text)
+
+  sub hash_into(?@, h: !hash.Hasher)
+    for b in ?@text
+      !h.add(text.to_lower(b))
+
+obj Version: Ord                               # Ord named, no `order`: ordered by its fields
+  major: Int
+  minor: Int
+
+enum Suit: Ord                                 # an enum takes the list too
 ```
+
+**Bounds.** A bound is written in the brackets, `[T: Ord]`, and several
+are joined with `+`. The compiler tells `[T: Ord]` from `[n: Int]` by
+what the name after the colon is, an API or a type. A type parameter
+starts with a capital letter and a value parameter with a lowercase
+one, so the two read apart, and each mistake has its own error.
 
 **The built-in APIs.** Two kinds, split along the mantra: facts the
 compiler derives from a type's parts, which no type ever declares, and
@@ -272,10 +296,20 @@ capabilities a type may give its own meaning.
 | `Ord: Eq` | `<` and its kin | `fun order(?@, other: ?Self) -> Order` |
 | `Print` | `print` and text building | `sub print(?@, out: !Printer)` |
 | `Num`, `Integer: Num`, `Signed: Num` | arithmetic; `%`, bits, shifts; negation | never: built-in numbers only |
-| `Iter` | `for x in !it` | `type Item` and `fun next(!@) -> Item?` |
 
 `Copy` never implies `Owned`: `[T: Copy]` with `T = ?String` keeps its
-loan. A Cell's elements need both.
+loan. A Cell's elements need both, written `Copy + Owned`; there is no
+shorter name. `Iter` comes with Stage 3, since its useful bound names
+its item type, `[I: Iter, I.Item: Ord]`.
+
+**Which types provide which.** Numbers, `Bool`, text (`String`,
+`?String`, `Static`), and plain enums provide `Eq`, `Hash`, `Ord`, and
+`Print`. `Float` provides `Eq` and `Ord`, with `NaN` comparing false as
+`==` and `<` do today, and not `Hash`, so a float never keys a Map. A
+`List`, a `Map`, an optional, and the other built-in containers provide
+what their elements provide. An object or an enum with fields provides
+`Eq`, `Hash`, and `Print` by its fields, as today, and `Ord` only when
+its header names it.
 
 **Giving a capability a meaning of one's own.** A type changes `==`,
 hashing, ordering, or printing only by naming the API on its header,
@@ -285,17 +319,33 @@ removes SPEC §5's trap. Naming `Ord` without an `order` method orders
 by the fields, in declared order. A type that declares its own `Eq`
 loses the derived `Hash`, so a key whose `==` and hash disagree is
 rejected where it is used. Derived `==` and `.hash()` call a part's own
-`eq` and `hash_into` at every level of nesting. The signatures above are
-fixed: another signature under one of these names is an error, not a
-quiet opt-out. `Order` is a built-in enum, `less`, `equal`, `greater`,
-with `then` to chain comparisons.
+`eq` and `hash_into` at every level of nesting. The signatures in the
+table are fixed: another signature under one of these names, on a type
+that names the API, is an error, not a quiet opt-out. A type's own
+`print` comes with this stage: `print` and text building already run
+through the path it joins.
+
+**`Order`, `Hasher`, and `Printer`.** Three small types in std:
+
+- `Order` is a built-in enum, `.less`, `.equal`, `.greater`, and
+  `a.then(b)` gives `a` unless it is `.equal`, then `b`, for ties:
+  `@major.order(?o.major).then(@minor.order(?o.minor))`.
+- `hash.Hasher` takes what a type's hash is made of, `!h.add(x)`, where
+  `x` is any value that provides `Hash`; the hasher mixes them, so a
+  type never combines numbers by hand.
+- `Printer` writes a type's printed form: `!out.text(...)` writes text
+  as it is, and `!out.value(x)` writes a value as `print` shows a part
+  of another, text in quotes. Padding and other bases are wrappers that
+  come later.
 
 **What a bound changes in a body.** A type parameter with any bound is
 checked against its bounds alone: a body may copy a `T: Copy`, compare
-a `T: Ord`, and put a `T: Owned` in a Cell, and may not do what its
-bounds do not name. A parameter with no bound keeps per-instance
-checking. A view as a type argument, `T = ?X`, meets only these
-built-in bounds in this stage.
+a `T: Ord`, and put a `T: Copy + Owned` in a Cell, and may not do what
+its bounds do not name. A parameter with no bound keeps per-instance
+checking, method calls included (Stage 1). Bounds are optional in this
+stage: no generic must state them, and std adopts them by choice; the
+rule that a `pub` generic states its bounds comes with Stage 3. A view
+as a type argument, `T = ?X`, meets only these built-in bounds.
 
 **Tasks.** A bounded `T` without `Moves` or `Shares` does not cross, so
 a task that takes one is local, as SPEC §18 makes any task whose
@@ -306,8 +356,18 @@ arguments do not cross; a channel send, an actor's argument, and
 implied wherever the type is named; `sort`, `search`, `lower_bound`,
 `min`, `max`, `clamp` take `T: Ord`; `contains` and `index_of` take
 `T: Eq`; `abs` takes `T: Signed + Ord`. `sort_by` stays unbounded, and
-`sort_by_key` and `iter.count` and `iter.sum` join it. `BigInt` keeps
-`compare` and `equals`, with no `<`.
+`sort_by_key` joins it. `BigInt` keeps `compare` and `equals`, with no
+`<`. `iter.count` and `iter.sum` wait for `Iter`, in Stage 3.
+
+**Errors.** An error about a built-in API says what cannot be done, at
+the user's line:
+
+```text
+`hash.Map[Reading, Int]` cannot use `K = Reading`: `Reading` cannot be hashed; its field `value` is a `Float`
+`max[Point]` cannot use `T = Point`: `Point` cannot be ordered; name `Ord` on its header: `obj Point: Ord`
+`Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`
+`Version.order` takes `other` as `Version`, but `Ord` fixes `fun order(?@, other: ?Self) -> Order`
+```
 
 **Lowering.** None: a built-in bound is today's recorded requirement
 written into the signature, and the runtime's `rig.eql`, `rig.hash`,
@@ -345,6 +405,11 @@ and two defaults for one method are an error until the type writes the
 method. A default's `from` and `keeps` are as written, never inferred
 from its body. Associated constants, and APIs with parameters of
 their own (`api Into[T]`), wait for a later decision.
+
+**`Iter`** is the built-in API a `for` loop already accepts: `type Item`
+and `fun next(!@) -> Item?`. It comes with this stage because its
+useful bound names its item type, `[I: Iter, I.Item: Ord]`, and with it
+come `iter.count` and `iter.sum`.
 
 **A type provides an API on its header,** `obj Square: Shape`,
 beside `unique` (`obj Ticket unique: Print`). The type's methods are
@@ -395,10 +460,6 @@ method that exists only for some instances is written with its bound
 in the type's brackets, `fun Wrap[T: Print].show(?@)`; repeating a
 bound the type already has is rejected, and a conformance is met only
 by methods its own bounds imply.
-
-**Names.** A type parameter starts with a capital letter and a value
-parameter with a lowercase one, so `[T: Ord]` and `[n: Int]` read
-apart; each mistake has its own error.
 
 **What a bounded body may do.** Call what its bounds declare, and use
 what the built-in bounds name, and no more. Actors never provide a
