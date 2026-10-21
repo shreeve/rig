@@ -135,6 +135,9 @@ const usage =
     \\                   does, with that seed
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
+    \\  RIG_HEAP_PROFILE Set to 1 when building to report, at exit, what
+    \\                   owned the program's memory at its peak: live
+    \\                   bytes by the type allocated (slower)
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
     \\                   any use of freed memory crash where it happens
     \\                   (much slower; the test suite sets it)
@@ -218,6 +221,10 @@ const Env = struct {
         return env.flag("RIG_LEAK_TRACE");
     }
 
+    fn heapProfile(env: Env) bool {
+        return env.flag("RIG_HEAP_PROFILE");
+    }
+
     fn sanitize(env: Env) bool {
         return env.flag("RIG_SANITIZE");
     }
@@ -244,6 +251,7 @@ const Env = struct {
         if (tasks) |guard| try w.print("pub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{guard});
         if (actors) try w.writeAll("pub const __rig_actors = true;\n");
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
+        if (env.heapProfile()) try w.writeAll("pub const __rig_heap_profile = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
@@ -1583,7 +1591,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook or tasks)) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or hook or tasks)) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
         }

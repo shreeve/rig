@@ -171,6 +171,9 @@ changed the language since it:
   amounts and `$fromBackingInt`: they cast through the unsigned type of
   the source's width, since Zig 0.17 lowers a direct cast as LLVM
   `trunc nsw`, which made such values poison.
+- **Heap profile:** a program built with `RIG_HEAP_PROFILE=1` (debug or
+  release) reports at exit what owned its memory at its peak: live bytes
+  by the type each block holds, largest first.
 - **Map and Set:** a key of 8 bytes or fewer keeps no stored hash, so
   such a Map takes 8 bytes an entry fewer; Trig's ts-pattern peaks at
   403 MB rather than 425.
