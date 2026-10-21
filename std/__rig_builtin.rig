@@ -88,7 +88,7 @@ obj Table
       !@tags.push(0)
       !@at.push(0)
 
-# `hash.Map[K, V]()` is an empty Map, which allocates nothing until the
+# `Map[K, V]()` is an empty Map, which allocates nothing until the
 # first `put`.
 pub obj Map[K: Hash, V]
   # How many entries the Map holds.
@@ -395,7 +395,7 @@ pub obj Map[K: Hash, V]
 # A set of keys, kept in the order they were first added. Its keys are
 # held as a Map's entries are, each a `K?` that is `none` once taken.
 #
-# `hash.Set[K]()` is an empty Set, which allocates nothing until the
+# `Set[K]()` is an empty Set, which allocates nothing until the
 # first `add`.
 pub obj Set[K: Hash]
   # How many keys the Set holds.
@@ -543,7 +543,7 @@ pub obj Set[K: Hash]
 # A set of strings, each with a dense `U32` id from 0, in the order it
 # was first interned. Their text lives in one String, end to end, so
 # interning a new string copies it once and an id costs four bytes;
-# `intern`, `id`, and `text` never copy. `hash.Symbols()` is an empty
+# `intern`, `id`, and `text` never copy. `Symbols()` is an empty
 # one. It finds a string as a Map finds a key.
 pub obj Symbols
   # How many distinct strings it holds.

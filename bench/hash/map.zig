@@ -1,4 +1,4 @@
-//! Zig's std.HashMap timed as bench/hash/map.rig times std.hash's Map:
+//! Zig's std.HashMap timed as bench/hash/map.rig times the built-in Map:
 //! `std.AutoHashMapUnmanaged(i64, i64)` and `std.StringHashMapUnmanaged(i64)`,
 //! with Rig's allocator. Each String key is built as Rig builds
 //! `String("key", i)`, by an `std.Io.Writer.Allocating` over an
@@ -116,7 +116,7 @@ fn small(io: std.Io, n: i64, size: i64) !void {
 }
 
 /// `n` words, from 50,000 distinct ones, each given a dense id, as
-/// `hash.Symbols` does: a map from the text to its id, the text of a
+/// `Symbols` does: a map from the text to its id, the text of a
 /// new word copied once into one arena.
 fn intern(io: std.Io, n: usize) !void {
     const words = try gpa.alloc(std.ArrayList(u8), n);

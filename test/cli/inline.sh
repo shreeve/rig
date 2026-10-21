@@ -211,7 +211,7 @@ sub main()
   print(m.get(1), m.get(2))
 RIG
 emit ensure.rig >/dev/null
-lib=$(cat "$RIG_OUT_DIR"/programs/ensure/__rig_std_h?sh.zig) || fail "std's module is not in the package"
+lib=$(cat "$RIG_OUT_DIR"/programs/ensure/__rig_std___rig_builtin.zig) || fail "std's module is not in the package"
 expect_has "$lib" 'pub inline fn ensure(' "Map.ensure"
 expect_has "$lib" 'pub inline fn ensure_with(' "Map.ensure_with"
 expect_has "$lib" 'pub inline fn edit(' "Map.edit"
@@ -248,7 +248,7 @@ RIG
 emit writes.rig >/dev/null
 out=$(rig run writes.rig 2>&1) || fail "rig run writes.rig: $out"
 expect_eq "$out" "2 true 4 true 7 3 0" "writes.rig"
-python3 - "$RIG_OUT_DIR"/programs/writes/__rig_std_h?sh.zig <<'PY' || fail "an inlined write method holds a loop"
+python3 - "$RIG_OUT_DIR"/programs/writes/__rig_std___rig_builtin.zig <<'PY' || fail "an inlined write method holds a loop"
 import re, sys
 src = open(sys.argv[1]).read().splitlines()
 fns, struct, i = {}, None, 0
