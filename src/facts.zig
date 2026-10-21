@@ -363,6 +363,9 @@ pub const Facts = struct {
     pub fn isHttpServe(f: Facts, call: Sexp) bool {
         return f.c().isHttpServe(call);
     }
+    pub fn isReduceCall(f: Facts, call: Sexp) bool {
+        return f.c().isReduceCall(call);
+    }
     pub fn isIoCopy(f: Facts, call: Sexp) bool {
         return f.c().isIoCopy(call);
     }

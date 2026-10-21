@@ -1237,6 +1237,51 @@ sub main()
 `resize` copies its value into every element it adds, and a `List[Int]` owns a resource, so it cannot be copied
 ```
 
+## reduce
+
+`xs.reduce(start, f)` folds the elements of a slice, an array, or a
+List into one value. It passes the running value, `start` first, and
+each element in order, lent as `?T`, to `f`, and keeps what `f` gives;
+it gives the last, or `start` when there are no elements. A `start` of
+type `A` takes an `f` of type `?fun(A, ?T) -> A`: a closure written in
+the call, or a function's name. It only reads the elements.
+
+The running value moves through each call, so it may own what it
+holds: a `String` built up a piece at a time is moved into `f` and back
+out, never copied. When `f` can fail, so can `reduce`: the first
+failure ends it, the running value `f` took is dropped, and the call
+fails with that error.
+
+```rig
+obj Shape
+  w: Float
+  h: Float
+
+  fun area(?@) -> Float
+    @w * @h
+
+sub main()
+  shapes = [Shape(w: 2.0, h: 3.0), Shape(w: 1.5, h: 4.0)]
+  print(shapes.reduce(0.0, |sum, s| sum + s.area()))
+  scores = [72, 95, 88]
+  print(scores.reduce(0, |best, x| x if x > best else best))
+  names = ["ann", "bob", "cy"]
+  print(names.reduce(String(), |s, n| String(s, n, " ")))
+```
+
+```output
+12.0
+95
+ann bob cy 
+```
+
+In a generic body, `xs.reduce(0.0, |sum, x| sum + x.area())` on a
+`[]T` calls the `area` that each instance's type gives through its
+APIs, its result a `Float` from the other operand, `sum`. A closure
+written at the call is inlined in a release build: the loop is as fast
+as one written out, with no call through a function pointer per
+element.
+
 ## Text: bytes, runes, units, chars
 
 Every text API is described in four words, each with one meaning: a
