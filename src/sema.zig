@@ -994,6 +994,9 @@ pub const Facts = struct {
     /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
     actor_supervised: std.AutoHashMapUnmanaged(u64, void) = .empty,
     actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The method calls made on a value of a type parameter
+    /// (`Checker.typeParamCall`), whose method each instance gives.
+    type_param_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.isolate` (`Checker.isolateCall`).
     isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.supervise` (`Checker.isolateCall`).
@@ -2105,6 +2108,40 @@ pub const GenericRequirement = struct {
     module_id: u32 = 0,
 };
 
+/// A call `x.m(args)` a generic body makes on a value of a type
+/// parameter, or a view of one (`?T`, `!T`), checked at each instance
+/// (`typecheck.checkMethodCalls`): the instance's type declares a method
+/// `m`, visible from the body's module, that takes self as the call's
+/// sigil does, takes the arguments as the body passes them, and gives
+/// the result the body takes.
+pub const GenericMethodCall = struct {
+    param: SymbolId,
+    method: []const u8,
+    /// How the call takes self: `x.m()` reads, `!x.m()` writes, and
+    /// `<x.m()` consumes.
+    self_mode: MethodReceiver,
+    /// The arguments' types in the body, in order.
+    args: []const TypeId,
+    result: Result,
+    pos: u32,
+    /// The value the call is made on and the call, as written: `x`,
+    /// `x.bump()`.
+    recv: []const u8,
+    call: []const u8,
+    /// The module whose source `pos` is in: 0 for this one, or the
+    /// module that declares the body of a proxy's call.
+    module_id: u32 = 0,
+
+    pub const Result = union(enum) {
+        /// The type the body takes the result as.
+        ty: TypeId,
+        /// A statement: the method gives nothing.
+        nothing,
+        /// `_ = x.m()`: any result that cannot fail, dropped there.
+        dropped,
+    };
+};
+
 /// A shared or weak handle of `inner` (`*T`, `~T`, by `op`) is made or
 /// spelled at `pos`: when `inner` is a type parameter, each instance must
 /// give it a type that is no function (`Requirement.not_function`).
@@ -2318,6 +2355,8 @@ pub const SemContext = struct {
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
+    /// The method calls generic bodies make on type parameters.
+    generic_methods: std.ArrayList(GenericMethodCall) = .empty,
     /// The hidden storage emit makes (`Storage`), but for the kinds the
     /// facts table keeps (`temp` is `temp_drops`, `header_copy` is
     /// `header_copies`): recorded after the expressions are checked
@@ -2496,6 +2535,7 @@ pub const SemContext = struct {
         self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
+        self.generic_methods.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
@@ -3347,6 +3387,16 @@ pub const SemContext = struct {
     /// (`recordActorCall`).
     pub fn isActorCall(self: *const SemContext, call: Sexp) bool {
         return self.facts.actor_calls.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordTypeParamCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.type_param_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` calls a method on a value of a type parameter
+    /// (`recordTypeParamCall`).
+    pub fn isTypeParamCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.type_param_calls.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordSuperviseCall(self: *SemContext, call: Sexp) !void {
@@ -7603,6 +7653,20 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     };
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
         try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .module_id = if (r.module_id == 0) m else r.module_id });
+    };
+    for (foreign.generic_methods.items) |c| if (c.param == origin.sym) {
+        const args = try a.alloc(TypeId, c.args.len);
+        for (c.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
+        const result: GenericMethodCall.Result = switch (c.result) {
+            .ty => |t| .{ .ty = try importType(ctx, foreign, t, m) },
+            .nothing, .dropped => c.result,
+        };
+        var copy = c;
+        copy.param = proxy;
+        copy.args = args;
+        copy.result = result;
+        copy.module_id = if (c.module_id == 0) m else c.module_id;
+        try ctx.generic_methods.append(ctx.allocator, copy);
     };
     for (foreign.paramEntries(.arrays, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .arrays, i)) continue;

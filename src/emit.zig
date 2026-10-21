@@ -1713,7 +1713,14 @@ pub const Emitter = struct {
     /// `_ = expr`, and a statement `<e` of anything but a name, which
     /// drops what it takes.
     fn emitDiscard(self: *Emitter, expr: Sexp) Error!void {
-        // A discarded resource is dropped at once.
+        // A discarded resource is dropped at once, and so is what a
+        // method gives through a type parameter, whose type each
+        // instance decides.
+        if (self.facts.isTypeParamCall(expr)) {
+            try self.w.writeAll("rig.discard(");
+            try self.emitBare(expr);
+            return self.w.writeAll(");");
+        }
         if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
             try self.w.writeAll("rig.discard(");
             try self.emitBare(expr);

@@ -388,7 +388,7 @@ it.
 
 Generics take no traits or bounds: `fun max[T](a: T, b: T) -> T` is
 checked at each instance a program makes, against what the body does
-with `T`, and after a name `[]` is compile time and `()` is run time.
+with `T`, the methods it calls on one included, and after a name `[]` is compile time and `()` is run time.
 A closure's capture list says how it holds each outer value,
 `|+total, ~clicks| ...`. Rig also has objects, enums with payloads and
 exhaustive `match`, modules of one file or a directory, SIMD vectors

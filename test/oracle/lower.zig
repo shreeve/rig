@@ -3153,11 +3153,16 @@ const Lowerer = struct {
                 cell_store = self.isCell(recv_ty);
                 if (fn_params) |fp| {
                     shapes = try self.shapesOf(fp.ctx, if (fp.ctx == self.ctx) try self.instParams(recv_ty, fp.params) else fp.params);
-                    if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.ctx, fp.decl_pos) orelse 0 };
+                    // A call on a type parameter's value is a call of a
+                    // function value: what its type could hold, it may
+                    // keep (Core s7).
+                    if (fp.type_param) {
+                        sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true };
+                    } else if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.ctx, fp.decl_pos) orelse 0 };
                     // A built-in generic's `T` parameter stores what it is
                     // given (`push`, `insert`, a Cell's `set`).
                     const st = try self.a.alloc(bool, fp.params.len);
-                    for (fp.params, st) |pt, *x| x.* = fp.ctx.types.get(pt) == .type_var;
+                    for (fp.params, st) |pt, *x| x.* = fp.builtin and fp.ctx.types.get(pt) == .type_var;
                     stored = st;
                 } else if (self.ctx.elemCallOf(callee)) |ec| switch (ec.op) {
                     // `fill` stores a copy of its value in every element,
@@ -3775,6 +3780,10 @@ const Lowerer = struct {
         builtin: bool = true,
         /// Where its name is declared.
         decl_pos: u32 = 0,
+        /// A method called on a value of a type parameter, which each
+        /// instance gives: its signature is the call's, with no `from` or
+        /// `keeps` (SPEC "Generic bodies").
+        type_param: bool = false,
     };
 
     /// A callee's declared signature (`receiver`: a method's, called on
@@ -3814,6 +3823,14 @@ const Lowerer = struct {
         }
         const inner_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
         var recv_ty = try self.typeOf(inner_obj);
+        // A method on a value of a type parameter: the sigil says how it
+        // takes the receiver, and the call's own type its parameters.
+        if (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty)) == .type_var) {
+            const ft = self.ctx.types.get(self.ctx.typeOf(callee) orelse return abstain("a method of a type parameter, untyped"));
+            if (ft != .function or ft.function.params.len == 0) return abstain("a method of a type parameter, untyped");
+            const mode: sema.MethodReceiver = if (obj.isKind(.write)) .write else if (obj.isKind(.move)) .value else .read;
+            return .{ mode, .{ .ctx = self.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .type_param = true } };
+        }
         try self.plainInstance(recv_ty);
         // A method of what a handle holds reads it through the handle
         // (Core s8).
