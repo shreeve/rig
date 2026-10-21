@@ -770,7 +770,35 @@ pub const Symbol = struct {
     /// compile-time parameter it stands for. `.{}` for a symbol declared
     /// here.
     from: ForeignRef = .{},
+    /// A type parameter: its bounds (`[T: Ord]`), with what they imply
+    /// (`implied`). A nominal or generic type: the APIs its header names
+    /// (`obj Name: Eq + Hash`), which it gives a meaning of its own.
+    apis: Apis = .empty,
 };
+
+pub const Api = rig.Api;
+pub const Apis = std.EnumSet(Api);
+
+/// `apis` with what each implies: `Hash` and `Ord` need `Eq`, `Integer`
+/// and `Signed` need `Num`, and a value that copies also clones.
+pub fn implied(apis: Apis) Apis {
+    var out = apis;
+    if (out.contains(.Hash) or out.contains(.Ord)) out.insert(.Eq);
+    if (out.contains(.Integer) or out.contains(.Signed)) out.insert(.Num);
+    if (out.contains(.Copy)) out.insert(.Clone);
+    return out;
+}
+
+/// `apis` as a bound is written: `Ord + Print`, in declared order.
+pub fn formatApis(a: std.mem.Allocator, apis: Apis) std.mem.Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var it = apis.iterator();
+    while (it.next()) |api| {
+        if (out.items.len > 0) try out.appendSlice(a, " + ");
+        try out.appendSlice(a, @tagName(api));
+    }
+    return out.items;
+}
 
 /// A symbol of another module: the module's id and the symbol's id there.
 pub const ForeignRef = struct { module_id: u32 = 0, sym: SymbolId = symbol_invalid };
@@ -5541,6 +5569,217 @@ pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
     return (try notEquatable(ctx, ty, null)) == null;
 }
 
+/// Why a type does not provide a built-in API (`lacks`): the type in it
+/// that does not, and the path of fields to it (`NotEquatable.path`).
+pub const Lack = struct {
+    /// In the checked module's type store.
+    ty: TypeId,
+    /// Field names from the type to `ty`, joined by `.`; empty for the
+    /// type itself or what it holds outside a field.
+    path: []const u8 = "",
+    /// A type parameter whose bounds do not name the API.
+    bound: bool = false,
+};
+
+/// Why `ty` does not provide `api`, or null when it does (docs/design/apis.md,
+/// "Which types provide which"). A type parameter provides what its
+/// bounds name; one with no bound is decided by each instance, so it
+/// lacks nothing here.
+pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?Lack {
+    if (containsPoison(ctx, ty)) return null;
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| return boundLack(ctx, ty, sym, api),
+        else => {},
+    }
+    switch (api) {
+        .Eq, .Hash => {
+            var params: std.ArrayList(SymbolId) = .empty;
+            defer params.deinit(ctx.allocator);
+            const not = if (api == .Eq) try notEquatable(ctx, ty, &params) else blk: {
+                if (isText(ctx, ty)) break :blk null;
+                break :blk try notHashable(ctx, ty, &params);
+            };
+            if (not) |n| return .{ .ty = n.ty, .path = n.path };
+            if (api == .Hash and methodReceiver(ctx, ty, "hash") != null) return .{ .ty = ty };
+            return paramsLack(ctx, params.items, api);
+        },
+        .Ord => return ordLack(ctx, ty, 0),
+        .Print => {
+            if (!try printable(ctx, ty)) return .{ .ty = ty };
+            return heldLack(ctx, ty, api);
+        },
+        .Num => return if (isNumeric(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
+        .Integer => return if (isInteger(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
+        .Signed => return switch (ctx.types.get(unwrapViews(ctx, ty))) {
+            .int => |info| if (info.signed) null else .{ .ty = ty },
+            .float, .int_literal, .float_literal => null,
+            else => .{ .ty = ty },
+        },
+        .Copy => return switch (copies(ctx, ty)) {
+            .yes => null,
+            .no => .{ .ty = ty },
+            .depends => heldLack(ctx, ty, api),
+        },
+        .Clone => return switch (cloneable(ctx, ty)) {
+            .no => .{ .ty = ty },
+            .depends => heldLack(ctx, ty, api),
+            else => null,
+        },
+        .Owned => {
+            if (mayHoldView(ctx, ty)) return .{ .ty = ty };
+            return heldLack(ctx, ty, api);
+        },
+        .Moves, .Shares => {
+            const blocker = crossingBlocker(ctx, ty, if (api == .Moves) .moves else .shares) orelse return heldLack(ctx, ty, api);
+            return switch (ctx.types.get(blocker)) {
+                .type_var => |sym| boundLack(ctx, blocker, sym, api),
+                else => .{ .ty = blocker },
+            };
+        },
+    }
+}
+
+/// Each argument of the instance `of`, made at `at`, provides what its
+/// parameter's bounds name (`lacks`); the first that does not is
+/// reported there. False after a diagnostic.
+pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: InstanceRoot) std.mem.Allocator.Error!bool {
+    for (params, 0..) |param, i| {
+        if (i >= args.len) break;
+        const written = ctx.symbols.items[param].apis;
+        if (written.count() == 0) continue;
+        const arg = args[i];
+        if (containsPoison(ctx, arg)) continue;
+        // What the bounds name first, then what they imply.
+        for ([_]Apis{ written, implied(written).differenceWith(written) }) |set| {
+            var it = set.iterator();
+            while (it.next()) |api| {
+                const lack = (try lacks(ctx, arg, api)) orelse continue;
+                try reportLack(ctx, at, try rootName(ctx, of), ctx.symbols.items[param].name, arg, api, lack);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/// What a value cannot do without `api`, as an error says it.
+pub fn cannotDo(api: Api) []const u8 {
+    return switch (api) {
+        .Copy => "cannot be copied",
+        .Clone => "cannot be cloned",
+        .Owned => "may hold a loan",
+        .Moves => "cannot move to another task",
+        .Shares => "cannot be read by several tasks",
+        .Eq => "cannot be compared with `==`",
+        .Hash => "cannot be hashed",
+        .Ord => "cannot be ordered",
+        .Print => "cannot be printed",
+        .Num => "is no number",
+        .Integer => "is no integer",
+        .Signed => "is no signed number",
+    };
+}
+
+/// `inst` cannot use `pname = arg`, which lacks `api` (`lack`), at `at`.
+pub fn reportLack(ctx: *SemContext, at: u32, inst: []const u8, pname: []const u8, arg: TypeId, api: Api, lack: Lack) std.mem.Allocator.Error!void {
+    const a = ctx.arena.allocator();
+    const aname = try formatType(ctx, arg);
+    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` {s}{s}", .{ inst, pname, aname, aname, cannotDo(api), try lackDetail(ctx, a, arg, api, lack) });
+}
+
+/// Why `ty` lacks `api` (`lack`), for the end of an error: the fix for a
+/// type parameter's bounds or a type's header, or the part that lacks it.
+pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, lack: Lack) std.mem.Allocator.Error![]const u8 {
+    if (lack.bound) {
+        const sym = ctx.types.get(lack.ty).type_var;
+        var more = ctx.symbols.items[sym].apis;
+        more.insert(api);
+        return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[sym].name, try formatApis(a, more) });
+    }
+    if (lack.path.len > 0) return a.print("; its field `{s}` is a `{s}`", .{ lack.path, try formatType(ctx, lack.ty) });
+    if (lack.ty != ty) return a.print("; it holds a `{s}`", .{try formatType(ctx, lack.ty)});
+    // A type a module declares gives itself an order, or its own `==`,
+    // hashing, or printing, by naming the API on its header.
+    if (api == .Ord) if (nominalDecl(ctx, ty)) |decl| {
+        const sym = decl.symbol();
+        if (sym.decl_pos != builtin_decl_pos and !sym.flags.error_set and !decl.ctx.is_std) {
+            var named = sym.apis;
+            named.insert(.Ord);
+            const is_enum = for (sym.fields orelse &.{}) |f| {
+                if (f.is_variant) break true;
+            } else false;
+            return a.print("; name `Ord` on its header: `{s} {s}: {s}`", .{ if (is_enum) "enum" else "obj", sym.name, try formatApis(a, named) });
+        }
+    };
+    return "";
+}
+
+/// A type parameter `ty` (`sym`): what its bounds name; with no bound,
+/// nothing, since each instance decides.
+fn boundLack(ctx: *const SemContext, ty: TypeId, sym: SymbolId, api: Api) ?Lack {
+    const bounds = implied(ctx.symbols.items[sym].apis);
+    if (bounds.count() == 0 or bounds.contains(api)) return null;
+    return .{ .ty = ty, .bound = true };
+}
+
+fn paramsLack(ctx: *SemContext, params: []const SymbolId, api: Api) std.mem.Allocator.Error!?Lack {
+    for (params) |p| {
+        const bounds = implied(ctx.symbols.items[p].apis);
+        if (bounds.count() == 0 or bounds.contains(api)) continue;
+        return .{ .ty = try ctx.intern(.{ .type_var = p }), .bound = true };
+    }
+    return null;
+}
+
+/// The first type parameter a value of `ty` reaches whose bounds do not
+/// name `api`.
+fn heldLack(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?Lack {
+    var params: std.ArrayList(SymbolId) = .empty;
+    defer params.deinit(ctx.allocator);
+    try reachedTypeVars(ctx, ty, &params, ctx.allocator);
+    return paramsLack(ctx, params.items, api);
+}
+
+/// Why `ty` has no order (`lacks` of `Ord`): numbers, `Bool`, text, and
+/// plain enums are ordered; an object or an enum whose header names
+/// `Ord`; and an optional, an array, or a slice of ordered values.
+fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?Lack {
+    if (depth > 64) return .{ .ty = ty };
+    if (isText(ctx, ty)) return null;
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| return boundLack(ctx, ty, sym, .Ord),
+        .int, .float, .int_literal, .float_literal, .bool => return null,
+        .read_view, .write_view => |inner| return ordLack(ctx, inner, depth + 1),
+        .optional => |inner| return ordLack(ctx, inner, depth + 1),
+        .array => |arr| return ordLack(ctx, arr.elem, depth + 1),
+        .slice => |sl| return ordLack(ctx, sl.elem, depth + 1),
+        .nominal, .imported_nominal => {
+            if (isOrderedEnum(ctx, ty)) return null;
+            const decl = nominalDecl(ctx, ty) orelse return .{ .ty = ty };
+            // Its fields were checked where it is declared.
+            if (decl.symbol().apis.contains(.Ord)) return null;
+            return .{ .ty = ty };
+        },
+        // A generic type that names `Ord` orders by its fields at its
+        // instance's types.
+        .parameterized_nominal => |pn| {
+            const sym = ctx.symbols.items[pn.sym];
+            if (!sym.apis.contains(.Ord)) return .{ .ty = ty };
+            const subst: TypeSubst = .{ .params = sym.type_params orelse &.{}, .args = pn.args };
+            for (sym.fields orelse &.{}) |f| {
+                if (f.is_method) continue;
+                const parts: []const Field = if (f.is_variant) f.payload orelse &.{} else &.{f};
+                for (parts) |part| {
+                    const t = try substituteType(ctx, part.ty, subst);
+                    if (try ordLack(ctx, t, depth + 1)) |l| return .{ .ty = l.ty, .path = if (l.path.len > 0) try ctx.arena.allocator().print("{s}.{s}", .{ part.name, l.path }) else part.name, .bound = l.bound };
+                }
+            }
+            return null;
+        },
+        else => return .{ .ty = ty },
+    }
+}
+
 /// The types a compared value holds, walked depth first with an explicit
 /// stack, so a long chain of types does not nest the walk. Each is in
 /// `ctx`'s store: the field types of another module's struct are
@@ -6370,6 +6609,13 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk ty;
             break :blk fieldsBlock(decl.ctx, decl.sym, how, local, seen);
+        },
+        // A bounded `T` crosses only as its bounds say, `Moves` or
+        // `Shares`; one with no bound as each instance does.
+        .type_var => |sym| blk: {
+            const bounds = implied(ctx.symbols.items[sym].apis);
+            if (bounds.count() == 0 or bounds.contains(if (how == .moves) .Moves else .Shares)) break :blk null;
+            break :blk ty;
         },
         else => null,
     };
@@ -7592,6 +7838,7 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
         .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known, .per_target = fsym.flags.per_target },
         .contents = fsym.contents,
         .from = origin,
+        .apis = fsym.apis,
     });
     // Recorded first: the members of a generic type name the type.
     try ctx.imported.put(ctx.allocator, origin, id);
@@ -8946,7 +9193,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.

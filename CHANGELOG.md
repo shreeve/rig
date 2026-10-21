@@ -78,6 +78,19 @@ changed the language since it:
   passes, and giving the result the body takes from where the call
   stands (SPEC "Generic bodies", Stage 1 of
   [docs/design/apis.md](docs/design/apis.md)).
+- **Bounds:** a type parameter may name built-in APIs in its brackets,
+  `[T: Ord]`, `[K: Hash + Print]`, and its body is checked against them
+  alone; each instance must provide them, checked at the call. A type's
+  header names the APIs it gives a meaning of its own, `obj Version:
+  Ord`, which orders an object by its fields and an enum by its
+  variants, then payloads. `Bool` and `String` are ordered (`false <
+  true`, a String by its bytes), and so are optionals, arrays, and
+  slices of ordered values, element by element (docs/design/apis.md,
+  Stage 2).
+- **Parameter names:** a type parameter starts with a capital letter and
+  a compile-time value parameter with a lowercase one; `[t]` and
+  `[N: Int]`, which earlier releases accepted, are rejected with the
+  rename.
 - **Evaluation order:** every assignment evaluates its value first,
   then its target's steps, then stores; the order is one recorded fact
   (`storage.SetOrder`, `storage.eachSetStep`) that emit and the

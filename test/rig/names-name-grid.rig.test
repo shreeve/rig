@@ -1055,22 +1055,1030 @@ fail "name grid error panic", ""
   sub main()
     t0()
 
-fail "name grid tparam none", "`none` is the absent optional"
-  obj GT0[none]
-    x: none
+fail "name grid tparam addrspace", "a type parameter starts with a capital letter"
+  obj GT0[addrspace]
+    x: addrspace
 
-    fun first(?@) -> none
+    fun first(?@) -> addrspace
       @x
 
-  enum HT0[none]
-    one(v: none)
+  enum HT0[addrspace]
+    one(v: addrspace)
     two
 
-  fun id0[none](x: none) -> none
+  fun id0[addrspace](x: addrspace) -> addrspace
     x
 
-  fun sz0[none]() -> Int
-    $size(none)
+  fun sz0[addrspace]() -> Int
+    $size(addrspace)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam align", "a type parameter starts with a capital letter"
+  obj GT0[align]
+    x: align
+
+    fun first(?@) -> align
+      @x
+
+  enum HT0[align]
+    one(v: align)
+    two
+
+  fun id0[align](x: align) -> align
+    x
+
+  fun sz0[align]() -> Int
+    $size(align)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam allowzero", "a type parameter starts with a capital letter"
+  obj GT0[allowzero]
+    x: allowzero
+
+    fun first(?@) -> allowzero
+      @x
+
+  enum HT0[allowzero]
+    one(v: allowzero)
+    two
+
+  fun id0[allowzero](x: allowzero) -> allowzero
+    x
+
+  fun sz0[allowzero]() -> Int
+    $size(allowzero)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam anyframe", "a type parameter starts with a capital letter"
+  obj GT0[anyframe]
+    x: anyframe
+
+    fun first(?@) -> anyframe
+      @x
+
+  enum HT0[anyframe]
+    one(v: anyframe)
+    two
+
+  fun id0[anyframe](x: anyframe) -> anyframe
+    x
+
+  fun sz0[anyframe]() -> Int
+    $size(anyframe)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam anytype", "a type parameter starts with a capital letter"
+  obj GT0[anytype]
+    x: anytype
+
+    fun first(?@) -> anytype
+      @x
+
+  enum HT0[anytype]
+    one(v: anytype)
+    two
+
+  fun id0[anytype](x: anytype) -> anytype
+    x
+
+  fun sz0[anytype]() -> Int
+    $size(anytype)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam asm", "a type parameter starts with a capital letter"
+  obj GT0[asm]
+    x: asm
+
+    fun first(?@) -> asm
+      @x
+
+  enum HT0[asm]
+    one(v: asm)
+    two
+
+  fun id0[asm](x: asm) -> asm
+    x
+
+  fun sz0[asm]() -> Int
+    $size(asm)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam callconv", "a type parameter starts with a capital letter"
+  obj GT0[callconv]
+    x: callconv
+
+    fun first(?@) -> callconv
+      @x
+
+  enum HT0[callconv]
+    one(v: callconv)
+    two
+
+  fun id0[callconv](x: callconv) -> callconv
+    x
+
+  fun sz0[callconv]() -> Int
+    $size(callconv)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam comptime", "a type parameter starts with a capital letter"
+  obj GT0[comptime]
+    x: comptime
+
+    fun first(?@) -> comptime
+      @x
+
+  enum HT0[comptime]
+    one(v: comptime)
+    two
+
+  fun id0[comptime](x: comptime) -> comptime
+    x
+
+  fun sz0[comptime]() -> Int
+    $size(comptime)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam export", "a type parameter starts with a capital letter"
+  obj GT0[export]
+    x: export
+
+    fun first(?@) -> export
+      @x
+
+  enum HT0[export]
+    one(v: export)
+    two
+
+  fun id0[export](x: export) -> export
+    x
+
+  fun sz0[export]() -> Int
+    $size(export)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam fn", "a type parameter starts with a capital letter"
+  obj GT0[fn]
+    x: fn
+
+    fun first(?@) -> fn
+      @x
+
+  enum HT0[fn]
+    one(v: fn)
+    two
+
+  fun id0[fn](x: fn) -> fn
+    x
+
+  fun sz0[fn]() -> Int
+    $size(fn)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam inline", "a type parameter starts with a capital letter"
+  obj GT0[inline]
+    x: inline
+
+    fun first(?@) -> inline
+      @x
+
+  enum HT0[inline]
+    one(v: inline)
+    two
+
+  fun id0[inline](x: inline) -> inline
+    x
+
+  fun sz0[inline]() -> Int
+    $size(inline)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam linksection", "a type parameter starts with a capital letter"
+  obj GT0[linksection]
+    x: linksection
+
+    fun first(?@) -> linksection
+      @x
+
+  enum HT0[linksection]
+    one(v: linksection)
+    two
+
+  fun id0[linksection](x: linksection) -> linksection
+    x
+
+  fun sz0[linksection]() -> Int
+    $size(linksection)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam noalias", "a type parameter starts with a capital letter"
+  obj GT0[noalias]
+    x: noalias
+
+    fun first(?@) -> noalias
+      @x
+
+  enum HT0[noalias]
+    one(v: noalias)
+    two
+
+  fun id0[noalias](x: noalias) -> noalias
+    x
+
+  fun sz0[noalias]() -> Int
+    $size(noalias)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam noinline", "a type parameter starts with a capital letter"
+  obj GT0[noinline]
+    x: noinline
+
+    fun first(?@) -> noinline
+      @x
+
+  enum HT0[noinline]
+    one(v: noinline)
+    two
+
+  fun id0[noinline](x: noinline) -> noinline
+    x
+
+  fun sz0[noinline]() -> Int
+    $size(noinline)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam nosuspend", "a type parameter starts with a capital letter"
+  obj GT0[nosuspend]
+    x: nosuspend
+
+    fun first(?@) -> nosuspend
+      @x
+
+  enum HT0[nosuspend]
+    one(v: nosuspend)
+    two
+
+  fun id0[nosuspend](x: nosuspend) -> nosuspend
+    x
+
+  fun sz0[nosuspend]() -> Int
+    $size(nosuspend)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam opaque", "a type parameter starts with a capital letter"
+  obj GT0[opaque]
+    x: opaque
+
+    fun first(?@) -> opaque
+      @x
+
+  enum HT0[opaque]
+    one(v: opaque)
+    two
+
+  fun id0[opaque](x: opaque) -> opaque
+    x
+
+  fun sz0[opaque]() -> Int
+    $size(opaque)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam orelse", "a type parameter starts with a capital letter"
+  obj GT0[orelse]
+    x: orelse
+
+    fun first(?@) -> orelse
+      @x
+
+  enum HT0[orelse]
+    one(v: orelse)
+    two
+
+  fun id0[orelse](x: orelse) -> orelse
+    x
+
+  fun sz0[orelse]() -> Int
+    $size(orelse)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam packed", "a type parameter starts with a capital letter"
+  obj GT0[packed]
+    x: packed
+
+    fun first(?@) -> packed
+      @x
+
+  enum HT0[packed]
+    one(v: packed)
+    two
+
+  fun id0[packed](x: packed) -> packed
+    x
+
+  fun sz0[packed]() -> Int
+    $size(packed)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam resume", "a type parameter starts with a capital letter"
+  obj GT0[resume]
+    x: resume
+
+    fun first(?@) -> resume
+      @x
+
+  enum HT0[resume]
+    one(v: resume)
+    two
+
+  fun id0[resume](x: resume) -> resume
+    x
+
+  fun sz0[resume]() -> Int
+    $size(resume)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam struct", "a type parameter starts with a capital letter"
+  obj GT0[struct]
+    x: struct
+
+    fun first(?@) -> struct
+      @x
+
+  enum HT0[struct]
+    one(v: struct)
+    two
+
+  fun id0[struct](x: struct) -> struct
+    x
+
+  fun sz0[struct]() -> Int
+    $size(struct)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam suspend", "a type parameter starts with a capital letter"
+  obj GT0[suspend]
+    x: suspend
+
+    fun first(?@) -> suspend
+      @x
+
+  enum HT0[suspend]
+    one(v: suspend)
+    two
+
+  fun id0[suspend](x: suspend) -> suspend
+    x
+
+  fun sz0[suspend]() -> Int
+    $size(suspend)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam switch", "a type parameter starts with a capital letter"
+  obj GT0[switch]
+    x: switch
+
+    fun first(?@) -> switch
+      @x
+
+  enum HT0[switch]
+    one(v: switch)
+    two
+
+  fun id0[switch](x: switch) -> switch
+    x
+
+  fun sz0[switch]() -> Int
+    $size(switch)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam threadlocal", "a type parameter starts with a capital letter"
+  obj GT0[threadlocal]
+    x: threadlocal
+
+    fun first(?@) -> threadlocal
+      @x
+
+  enum HT0[threadlocal]
+    one(v: threadlocal)
+    two
+
+  fun id0[threadlocal](x: threadlocal) -> threadlocal
+    x
+
+  fun sz0[threadlocal]() -> Int
+    $size(threadlocal)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam union", "a type parameter starts with a capital letter"
+  obj GT0[union]
+    x: union
+
+    fun first(?@) -> union
+      @x
+
+  enum HT0[union]
+    one(v: union)
+    two
+
+  fun id0[union](x: union) -> union
+    x
+
+  fun sz0[union]() -> Int
+    $size(union)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam unreachable", "a type parameter starts with a capital letter"
+  obj GT0[unreachable]
+    x: unreachable
+
+    fun first(?@) -> unreachable
+      @x
+
+  enum HT0[unreachable]
+    one(v: unreachable)
+    two
+
+  fun id0[unreachable](x: unreachable) -> unreachable
+    x
+
+  fun sz0[unreachable]() -> Int
+    $size(unreachable)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam usingnamespace", "a type parameter starts with a capital letter"
+  obj GT0[usingnamespace]
+    x: usingnamespace
+
+    fun first(?@) -> usingnamespace
+      @x
+
+  enum HT0[usingnamespace]
+    one(v: usingnamespace)
+    two
+
+  fun id0[usingnamespace](x: usingnamespace) -> usingnamespace
+    x
+
+  fun sz0[usingnamespace]() -> Int
+    $size(usingnamespace)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam var", "a type parameter starts with a capital letter"
+  obj GT0[var]
+    x: var
+
+    fun first(?@) -> var
+      @x
+
+  enum HT0[var]
+    one(v: var)
+    two
+
+  fun id0[var](x: var) -> var
+    x
+
+  fun sz0[var]() -> Int
+    $size(var)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam volatile", "a type parameter starts with a capital letter"
+  obj GT0[volatile]
+    x: volatile
+
+    fun first(?@) -> volatile
+      @x
+
+  enum HT0[volatile]
+    one(v: volatile)
+    two
+
+  fun id0[volatile](x: volatile) -> volatile
+    x
+
+  fun sz0[volatile]() -> Int
+    $size(volatile)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam null", "a type parameter starts with a capital letter"
+  obj GT0[null]
+    x: null
+
+    fun first(?@) -> null
+      @x
+
+  enum HT0[null]
+    one(v: null)
+    two
+
+  fun id0[null](x: null) -> null
+    x
+
+  fun sz0[null]() -> Int
+    $size(null)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam undefined", "a type parameter starts with a capital letter"
+  obj GT0[undefined]
+    x: undefined
+
+    fun first(?@) -> undefined
+      @x
+
+  enum HT0[undefined]
+    one(v: undefined)
+    two
+
+  fun id0[undefined](x: undefined) -> undefined
+    x
+
+  fun sz0[undefined]() -> Int
+    $size(undefined)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam u8", "a type parameter starts with a capital letter"
+  obj GT0[u8]
+    x: u8
+
+    fun first(?@) -> u8
+      @x
+
+  enum HT0[u8]
+    one(v: u8)
+    two
+
+  fun id0[u8](x: u8) -> u8
+    x
+
+  fun sz0[u8]() -> Int
+    $size(u8)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam i64", "a type parameter starts with a capital letter"
+  obj GT0[i64]
+    x: i64
+
+    fun first(?@) -> i64
+      @x
+
+  enum HT0[i64]
+    one(v: i64)
+    two
+
+  fun id0[i64](x: i64) -> i64
+    x
+
+  fun sz0[i64]() -> Int
+    $size(i64)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam u0", "a type parameter starts with a capital letter"
+  obj GT0[u0]
+    x: u0
+
+    fun first(?@) -> u0
+      @x
+
+  enum HT0[u0]
+    one(v: u0)
+    two
+
+  fun id0[u0](x: u0) -> u0
+    x
+
+  fun sz0[u0]() -> Int
+    $size(u0)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam i7", "a type parameter starts with a capital letter"
+  obj GT0[i7]
+    x: i7
+
+    fun first(?@) -> i7
+      @x
+
+  enum HT0[i7]
+    one(v: i7)
+    two
+
+  fun id0[i7](x: i7) -> i7
+    x
+
+  fun sz0[i7]() -> Int
+    $size(i7)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam u65535", "a type parameter starts with a capital letter"
+  obj GT0[u65535]
+    x: u65535
+
+    fun first(?@) -> u65535
+      @x
+
+  enum HT0[u65535]
+    one(v: u65535)
+    two
+
+  fun id0[u65535](x: u65535) -> u65535
+    x
+
+  fun sz0[u65535]() -> Int
+    $size(u65535)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam bool", "a type parameter starts with a capital letter"
+  obj GT0[bool]
+    x: bool
+
+    fun first(?@) -> bool
+      @x
+
+  enum HT0[bool]
+    one(v: bool)
+    two
+
+  fun id0[bool](x: bool) -> bool
+    x
+
+  fun sz0[bool]() -> Int
+    $size(bool)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam void", "a type parameter starts with a capital letter"
+  obj GT0[void]
+    x: void
+
+    fun first(?@) -> void
+      @x
+
+  enum HT0[void]
+    one(v: void)
+    two
+
+  fun id0[void](x: void) -> void
+    x
+
+  fun sz0[void]() -> Int
+    $size(void)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1111,22 +2119,470 @@ fail "name grid tparam type", ""
   sub main()
     t0()
 
-fail "name grid tparam drop", ""
-  obj GT0[drop]
-    x: drop
+fail "name grid tparam noreturn", "a type parameter starts with a capital letter"
+  obj GT0[noreturn]
+    x: noreturn
 
-    fun first(?@) -> drop
+    fun first(?@) -> noreturn
       @x
 
-  enum HT0[drop]
-    one(v: drop)
+  enum HT0[noreturn]
+    one(v: noreturn)
     two
 
-  fun id0[drop](x: drop) -> drop
+  fun id0[noreturn](x: noreturn) -> noreturn
     x
 
-  fun sz0[drop]() -> Int
-    $size(drop)
+  fun sz0[noreturn]() -> Int
+    $size(noreturn)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam anyerror", "a type parameter starts with a capital letter"
+  obj GT0[anyerror]
+    x: anyerror
+
+    fun first(?@) -> anyerror
+      @x
+
+  enum HT0[anyerror]
+    one(v: anyerror)
+    two
+
+  fun id0[anyerror](x: anyerror) -> anyerror
+    x
+
+  fun sz0[anyerror]() -> Int
+    $size(anyerror)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam anyopaque", "a type parameter starts with a capital letter"
+  obj GT0[anyopaque]
+    x: anyopaque
+
+    fun first(?@) -> anyopaque
+      @x
+
+  enum HT0[anyopaque]
+    one(v: anyopaque)
+    two
+
+  fun id0[anyopaque](x: anyopaque) -> anyopaque
+    x
+
+  fun sz0[anyopaque]() -> Int
+    $size(anyopaque)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam f16", "a type parameter starts with a capital letter"
+  obj GT0[f16]
+    x: f16
+
+    fun first(?@) -> f16
+      @x
+
+  enum HT0[f16]
+    one(v: f16)
+    two
+
+  fun id0[f16](x: f16) -> f16
+    x
+
+  fun sz0[f16]() -> Int
+    $size(f16)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam f32", "a type parameter starts with a capital letter"
+  obj GT0[f32]
+    x: f32
+
+    fun first(?@) -> f32
+      @x
+
+  enum HT0[f32]
+    one(v: f32)
+    two
+
+  fun id0[f32](x: f32) -> f32
+    x
+
+  fun sz0[f32]() -> Int
+    $size(f32)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam f64", "a type parameter starts with a capital letter"
+  obj GT0[f64]
+    x: f64
+
+    fun first(?@) -> f64
+      @x
+
+  enum HT0[f64]
+    one(v: f64)
+    two
+
+  fun id0[f64](x: f64) -> f64
+    x
+
+  fun sz0[f64]() -> Int
+    $size(f64)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam f80", "a type parameter starts with a capital letter"
+  obj GT0[f80]
+    x: f80
+
+    fun first(?@) -> f80
+      @x
+
+  enum HT0[f80]
+    one(v: f80)
+    two
+
+  fun id0[f80](x: f80) -> f80
+    x
+
+  fun sz0[f80]() -> Int
+    $size(f80)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam f128", "a type parameter starts with a capital letter"
+  obj GT0[f128]
+    x: f128
+
+    fun first(?@) -> f128
+      @x
+
+  enum HT0[f128]
+    one(v: f128)
+    two
+
+  fun id0[f128](x: f128) -> f128
+    x
+
+  fun sz0[f128]() -> Int
+    $size(f128)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam usize", "a type parameter starts with a capital letter"
+  obj GT0[usize]
+    x: usize
+
+    fun first(?@) -> usize
+      @x
+
+  enum HT0[usize]
+    one(v: usize)
+    two
+
+  fun id0[usize](x: usize) -> usize
+    x
+
+  fun sz0[usize]() -> Int
+    $size(usize)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam isize", "a type parameter starts with a capital letter"
+  obj GT0[isize]
+    x: isize
+
+    fun first(?@) -> isize
+      @x
+
+  enum HT0[isize]
+    one(v: isize)
+    two
+
+  fun id0[isize](x: isize) -> isize
+    x
+
+  fun sz0[isize]() -> Int
+    $size(isize)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam c_int", "a type parameter starts with a capital letter"
+  obj GT0[c_int]
+    x: c_int
+
+    fun first(?@) -> c_int
+      @x
+
+  enum HT0[c_int]
+    one(v: c_int)
+    two
+
+  fun id0[c_int](x: c_int) -> c_int
+    x
+
+  fun sz0[c_int]() -> Int
+    $size(c_int)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam c_char", "a type parameter starts with a capital letter"
+  obj GT0[c_char]
+    x: c_char
+
+    fun first(?@) -> c_char
+      @x
+
+  enum HT0[c_char]
+    one(v: c_char)
+    two
+
+  fun id0[c_char](x: c_char) -> c_char
+    x
+
+  fun sz0[c_char]() -> Int
+    $size(c_char)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam c_long", "a type parameter starts with a capital letter"
+  obj GT0[c_long]
+    x: c_long
+
+    fun first(?@) -> c_long
+      @x
+
+  enum HT0[c_long]
+    one(v: c_long)
+    two
+
+  fun id0[c_long](x: c_long) -> c_long
+    x
+
+  fun sz0[c_long]() -> Int
+    $size(c_long)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam comptime_int", "a type parameter starts with a capital letter"
+  obj GT0[comptime_int]
+    x: comptime_int
+
+    fun first(?@) -> comptime_int
+      @x
+
+  enum HT0[comptime_int]
+    one(v: comptime_int)
+    two
+
+  fun id0[comptime_int](x: comptime_int) -> comptime_int
+    x
+
+  fun sz0[comptime_int]() -> Int
+    $size(comptime_int)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam comptime_float", "a type parameter starts with a capital letter"
+  obj GT0[comptime_float]
+    x: comptime_float
+
+    fun first(?@) -> comptime_float
+      @x
+
+  enum HT0[comptime_float]
+    one(v: comptime_float)
+    two
+
+  fun id0[comptime_float](x: comptime_float) -> comptime_float
+    x
+
+  fun sz0[comptime_float]() -> Int
+    $size(comptime_float)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam std", "a type parameter starts with a capital letter"
+  obj GT0[std]
+    x: std
+
+    fun first(?@) -> std
+      @x
+
+  enum HT0[std]
+    one(v: std)
+    two
+
+  fun id0[std](x: std) -> std
+    x
+
+  fun sz0[std]() -> Int
+    $size(std)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam rig", "a type parameter starts with a capital letter"
+  obj GT0[rig]
+    x: rig
+
+    fun first(?@) -> rig
+      @x
+
+  enum HT0[rig]
+    one(v: rig)
+    two
+
+  fun id0[rig](x: rig) -> rig
+    x
+
+  fun sz0[rig]() -> Int
+    $size(rig)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1167,7 +2623,91 @@ fail "name grid tparam panic", ""
   sub main()
     t0()
 
-fail "name grid tparam main", "module-level declaration `main`"
+fail "name grid tparam debug", "a type parameter starts with a capital letter"
+  obj GT0[debug]
+    x: debug
+
+    fun first(?@) -> debug
+      @x
+
+  enum HT0[debug]
+    one(v: debug)
+    two
+
+  fun id0[debug](x: debug) -> debug
+    x
+
+  fun sz0[debug]() -> Int
+    $size(debug)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam os", "a type parameter starts with a capital letter"
+  obj GT0[os]
+    x: os
+
+    fun first(?@) -> os
+      @x
+
+  enum HT0[os]
+    one(v: os)
+    two
+
+  fun id0[os](x: os) -> os
+    x
+
+  fun sz0[os]() -> Int
+    $size(os)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam tracy", "a type parameter starts with a capital letter"
+  obj GT0[tracy]
+    x: tracy
+
+    fun first(?@) -> tracy
+      @x
+
+  enum HT0[tracy]
+    one(v: tracy)
+    two
+
+  fun id0[tracy](x: tracy) -> tracy
+    x
+
+  fun sz0[tracy]() -> Int
+    $size(tracy)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam main", "a type parameter starts with a capital letter"
   obj GT0[main]
     x: main
 
@@ -1183,6 +2723,510 @@ fail "name grid tparam main", "module-level declaration `main`"
 
   fun sz0[main]() -> Int
     $size(main)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam std_options", "a type parameter starts with a capital letter"
+  obj GT0[std_options]
+    x: std_options
+
+    fun first(?@) -> std_options
+      @x
+
+  enum HT0[std_options]
+    one(v: std_options)
+    two
+
+  fun id0[std_options](x: std_options) -> std_options
+    x
+
+  fun sz0[std_options]() -> Int
+    $size(std_options)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam std_options_debug_io", "a type parameter starts with a capital letter"
+  obj GT0[std_options_debug_io]
+    x: std_options_debug_io
+
+    fun first(?@) -> std_options_debug_io
+      @x
+
+  enum HT0[std_options_debug_io]
+    one(v: std_options_debug_io)
+    two
+
+  fun id0[std_options_debug_io](x: std_options_debug_io) -> std_options_debug_io
+    x
+
+  fun sz0[std_options_debug_io]() -> Int
+    $size(std_options_debug_io)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam std_options_cwd", "a type parameter starts with a capital letter"
+  obj GT0[std_options_cwd]
+    x: std_options_cwd
+
+    fun first(?@) -> std_options_cwd
+      @x
+
+  enum HT0[std_options_cwd]
+    one(v: std_options_cwd)
+    two
+
+  fun id0[std_options_cwd](x: std_options_cwd) -> std_options_cwd
+    x
+
+  fun sz0[std_options_cwd]() -> Int
+    $size(std_options_cwd)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam wWinMain", "a type parameter starts with a capital letter"
+  obj GT0[wWinMain]
+    x: wWinMain
+
+    fun first(?@) -> wWinMain
+      @x
+
+  enum HT0[wWinMain]
+    one(v: wWinMain)
+    two
+
+  fun id0[wWinMain](x: wWinMain) -> wWinMain
+    x
+
+  fun sz0[wWinMain]() -> Int
+    $size(wWinMain)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam wWinMainCRTStartup", "a type parameter starts with a capital letter"
+  obj GT0[wWinMainCRTStartup]
+    x: wWinMainCRTStartup
+
+    fun first(?@) -> wWinMainCRTStartup
+      @x
+
+  enum HT0[wWinMainCRTStartup]
+    one(v: wWinMainCRTStartup)
+    two
+
+  fun id0[wWinMainCRTStartup](x: wWinMainCRTStartup) -> wWinMainCRTStartup
+    x
+
+  fun sz0[wWinMainCRTStartup]() -> Int
+    $size(wWinMainCRTStartup)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam self", "a type parameter starts with a capital letter"
+  obj GT0[self]
+    x: self
+
+    fun first(?@) -> self
+      @x
+
+  enum HT0[self]
+    one(v: self)
+    two
+
+  fun id0[self](x: self) -> self
+    x
+
+  fun sz0[self]() -> Int
+    $size(self)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam none", "a type parameter starts with a capital letter"
+  obj GT0[none]
+    x: none
+
+    fun first(?@) -> none
+      @x
+
+  enum HT0[none]
+    one(v: none)
+    two
+
+  fun id0[none](x: none) -> none
+    x
+
+  fun sz0[none]() -> Int
+    $size(none)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam some", "a type parameter starts with a capital letter"
+  obj GT0[some]
+    x: some
+
+    fun first(?@) -> some
+      @x
+
+  enum HT0[some]
+    one(v: some)
+    two
+
+  fun id0[some](x: some) -> some
+    x
+
+  fun sz0[some]() -> Int
+    $size(some)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam from_int", "a type parameter starts with a capital letter"
+  obj GT0[from_int]
+    x: from_int
+
+    fun first(?@) -> from_int
+      @x
+
+  enum HT0[from_int]
+    one(v: from_int)
+    two
+
+  fun id0[from_int](x: from_int) -> from_int
+    x
+
+  fun sz0[from_int]() -> Int
+    $size(from_int)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam drop", ""
+  obj GT0[drop]
+    x: drop
+
+    fun first(?@) -> drop
+      @x
+
+  enum HT0[drop]
+    one(v: drop)
+    two
+
+  fun id0[drop](x: drop) -> drop
+    x
+
+  fun sz0[drop]() -> Int
+    $size(drop)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam new", "a type parameter starts with a capital letter"
+  obj GT0[new]
+    x: new
+
+    fun first(?@) -> new
+      @x
+
+  enum HT0[new]
+    one(v: new)
+    two
+
+  fun id0[new](x: new) -> new
+    x
+
+  fun sz0[new]() -> Int
+    $size(new)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam len", "a type parameter starts with a capital letter"
+  obj GT0[len]
+    x: len
+
+    fun first(?@) -> len
+      @x
+
+  enum HT0[len]
+    one(v: len)
+    two
+
+  fun id0[len](x: len) -> len
+    x
+
+  fun sz0[len]() -> Int
+    $size(len)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam get", "a type parameter starts with a capital letter"
+  obj GT0[get]
+    x: get
+
+    fun first(?@) -> get
+      @x
+
+  enum HT0[get]
+    one(v: get)
+    two
+
+  fun id0[get](x: get) -> get
+    x
+
+  fun sz0[get]() -> Int
+    $size(get)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam it", "a type parameter starts with a capital letter"
+  obj GT0[it]
+    x: it
+
+    fun first(?@) -> it
+      @x
+
+  enum HT0[it]
+    one(v: it)
+    two
+
+  fun id0[it](x: it) -> it
+    x
+
+  fun sz0[it]() -> Int
+    $size(it)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam value", "a type parameter starts with a capital letter"
+  obj GT0[value]
+    x: value
+
+    fun first(?@) -> value
+      @x
+
+  enum HT0[value]
+    one(v: value)
+    two
+
+  fun id0[value](x: value) -> value
+    x
+
+  fun sz0[value]() -> Int
+    $size(value)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam init", "a type parameter starts with a capital letter"
+  obj GT0[init]
+    x: init
+
+    fun first(?@) -> init
+      @x
+
+  enum HT0[init]
+    one(v: init)
+    two
+
+  fun id0[init](x: init) -> init
+    x
+
+  fun sz0[init]() -> Int
+    $size(init)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam clone", "a type parameter starts with a capital letter"
+  obj GT0[clone]
+    x: clone
+
+    fun first(?@) -> clone
+      @x
+
+  enum HT0[clone]
+    one(v: clone)
+    two
+
+  fun id0[clone](x: clone) -> clone
+    x
+
+  fun sz0[clone]() -> Int
+    $size(clone)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam x0", "a type parameter starts with a capital letter"
+  obj GT0[x0]
+    x: x0
+
+    fun first(?@) -> x0
+      @x
+
+  enum HT0[x0]
+    one(v: x0)
+    two
+
+  fun id0[x0](x: x0) -> x0
+    x
+
+  fun sz0[x0]() -> Int
+    $size(x0)
 
   sub t0()
     g = GT0[Int](x: 4)

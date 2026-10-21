@@ -114,10 +114,12 @@ one small reactive type in the runtime
 Rig calls them APIs, `api Shape`: the methods a type provides, not
 their implementation. They are designed and built in stages, each when
 a program needs it; closures, enums with payloads, and generics checked
-per instance cover today's programs. A generic body may do with
-`T` whatever each instance supports, calling its methods included
-(`x.area()`), and each instance a program makes is checked, with an
-error at the call and a note at the body line
+per instance cover today's programs. A bound names a built-in API,
+`fun max[T: Ord](a: T, b: T)`, and a header names the ones a type
+gives a meaning of its own, `obj Version: Ord`. A generic body with no
+bound may do with `T` whatever each instance supports, calling its
+methods included (`x.area()`), and each instance a program makes is
+checked, with an error at the call and a note at the body line
 ([more](docs/DESIGN.md#per-instance-checking-instead-of-traits)). The
 design, which keeps method dispatch and ownership visible, is
 [design/apis.md](docs/design/apis.md).

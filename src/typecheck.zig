@@ -90,7 +90,6 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
 
 /// The diagnostic for an operand of `<`, `<=`, `>`, or `>=` whose type
 /// has no order: the operator, then the type.
-const ordering_operands = "operator `{s}` orders numbers, plain enums, Strings, and `[]U8` slices; got `{s}`";
 
 /// Where a binding that cannot be written got its value: a loop element
 /// or `as` binding copied from a place, or a match binding of a field of
@@ -4847,6 +4846,18 @@ const Checker = struct {
             try self.errAt(l, "operator `{s}` is not defined for `Symbol`: a symbol has no order; compare with `==` and `!=`", .{op});
             return self.t().bool_id;
         }
+        // Two values of one type that provides `Ord` beside the numbers
+        // and text: `Bool`, a String, an optional, an array, or a slice of
+        // ordered values, and an object or an enum whose header names `Ord`.
+        if (try self.orderedBeside(a, b)) {
+            // An operand whose value may move is read where it is, and a
+            // temporary of it is dropped with its statement, as beside `==`.
+            for ([2]Sexp{ l, r }) |operand| {
+                const own = self.ctx.typeOf(operand) orelse continue;
+                if (!self.isPoison(own) and sema.moves(self.ctx, own) != .no) try self.readLeaf(operand);
+            }
+            return self.t().bool_id;
+        }
         if (self.enumValues(a) != null or self.enumValues(b) != null) {
             if (a != b) {
                 try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
@@ -4869,6 +4880,22 @@ const Checker = struct {
         return self.t().bool_id;
     }
 
+    /// Whether `a` and `b`, an ordering's operands, are one type that
+    /// provides `Ord` (`sema.lacks`) and is ordered by `rig.compare`: not a
+    /// number, `?String`, `Static`, or byte slice, which their own paths
+    /// order, nor a type parameter, whose bounds or instances do.
+    fn orderedBeside(self: *Checker, a: TypeId, b: TypeId) Error!bool {
+        const ra = sema.unwrapViews(self.ctx, a);
+        if (ra != sema.unwrapViews(self.ctx, b)) return false;
+        if (sema.isNumeric(self.ctx, ra) or self.isBytes(ra) or sema.containsTypeVar(self.ctx, ra)) return false;
+        switch (self.ctx.types.get(ra)) {
+            .string_view, .static => return false,
+            else => {},
+        }
+        if (sema.isOrderedEnum(self.ctx, ra)) return false;
+        return (try sema.lacks(self.ctx, ra, .Ord)) == null;
+    }
+
     /// Two values of type `ty` ordered by operator `op`, at `at`, where
     /// one is an enum's: a plain enum orders by its variants' values.
     fn checkOrderedEnum(self: *Checker, at: Sexp, ty: TypeId, op: []const u8) Error!void {
@@ -4882,8 +4909,15 @@ const Checker = struct {
         } else if (self.ctx.types.get(ty) == .parameterized_nominal) {
             try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` is a generic enum, whose variants have no integer value", .{ op, try self.tyName(ty) });
         } else if (self.enumValues(ty) == false) {
-            try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` has variants with payloads, which have no integer value", .{ op, try self.tyName(ty) });
-        } else try self.errAt(at, ordering_operands, .{ op, try self.tyName(ty) });
+            try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` has variants with payloads, which have no integer value; name `Ord` on its header to order it by variant, then payload: `enum {s}: Ord`", .{ op, try self.tyName(ty), try self.tyName(ty) });
+        } else try self.orderingOperand(at, op, ty);
+    }
+
+    /// An operand of an ordering at `at`, of type `ty`, that provides no
+    /// `Ord`.
+    fn orderingOperand(self: *Checker, at: Sexp, op: []const u8, ty: TypeId) Error!void {
+        const lack: sema.Lack = (try sema.lacks(self.ctx, ty, .Ord)) orelse .{ .ty = ty };
+        try self.errAt(at, "operator `{s}` orders values of one type that provides `Ord`, and `{s}` cannot be ordered{s}", .{ op, try self.tyName(ty), try sema.lackDetail(self.ctx, self.ctx.arena.allocator(), ty, .Ord, lack) });
     }
 
     /// `not` applies to the whole comparison after it: `not a > b` is
@@ -5056,7 +5090,7 @@ const Checker = struct {
             const ok = if (want_int) sema.isInteger(self.ctx, ty) else sema.isNumeric(self.ctx, ty);
             if (!ok) {
                 if (req == .ordered) {
-                    try self.errAt(operands[i], ordering_operands, .{ op, try self.tyName(ty) });
+                    try self.orderingOperand(operands[i], op, ty);
                 } else {
                     // String is built, not added: `String(a, b)`, `!t.add(b)`.
                     const is_text = ty == self.t().string_view_id or ty == self.t().static_id or ty == self.t().string_id;
@@ -9772,12 +9806,22 @@ const Checker = struct {
         const result = self.ctx.types.get(instance).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
         self.inst_own = .{ .params = own.items, .args = own_args };
-        if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
-            .name = callee,
-            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
-            .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
-            .own = @intCast(own.items.len),
-        }, pos, null);
+        if (self.tentative == 0) {
+            const inst: sema.FnInstance = .{
+                .name = callee,
+                .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
+                .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
+                .own = @intCast(own.items.len),
+            };
+            // An instance at a generic body's own parameters meets its
+            // bounds by theirs, here; a concrete one where it is checked
+            // (`checkGenericInstantiations`).
+            for (own_args) |arg| if (sema.containsTypeVar(self.ctx, arg)) {
+                _ = try sema.checkBounds(self.ctx, own.items, own_args, pos, .{ .func = inst });
+                break;
+            };
+            _ = try self.ctx.recordFnInstance(inst, pos, null);
+        }
         return result;
     }
 
@@ -11145,6 +11189,10 @@ const Checker = struct {
     fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv: TypeId, param: SymbolId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const tname = try self.tyName(tv);
         if (ct) |b| return self.badCall(args, b, "a method called on a `{s}` takes no compile-time arguments", .{tname});
+        // A bounded `T` is checked against its bounds alone, and the
+        // built-in APIs give a body no method to call.
+        const bounds = self.ctx.symbols.items[param].apis;
+        if (bounds.count() > 0) return self.badCall(args, pos, "`{s}` is bounded by `{s}`, which gives no method `{s}`; a call on a `{s}` is checked at each instance only where `{s}` has no bound", .{ tname, try sema.formatApis(self.ctx.arena.allocator(), bounds), method, tname, tname });
         // Emit writes the call as Zig resolves it on the value, so the
         // value is the `T` or a view of one, not a box or a handle of it.
         if (sema.unwrapViews(self.ctx, obj_ty) != tv) return self.badCall(args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, self.sourceText(stripSigil(obj)), try self.tyName(obj_ty) });
@@ -16428,6 +16476,8 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, site: u32) Error!bool {
 }
 
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
+    try checkBoundedBodies(ctx);
+    try checkOrdHeaders(ctx);
     var reqs: Requirements = .empty;
     defer {
         var lists = reqs.valueIterator();
@@ -16448,6 +16498,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
         if (try misplacedArgs(ctx, pn.args, entry.value_ptr.*)) continue;
         const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
+        if (!try sema.checkBounds(ctx, params, pn.args, entry.value_ptr.*, of)) continue;
         if (!try checkRequirements(ctx, &reqs, params, pn.args, entry.value_ptr.*, of)) continue;
         if (!try checkMethodCalls(ctx, .{ .params = params, .args = pn.args }, params, entry.value_ptr.*, of)) continue;
         try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
@@ -16459,7 +16510,9 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         const f = ctx.fn_instances.items[i];
         if (try misplacedArgs(ctx, f.inst.ownArgs(), f.site)) continue;
         const of: sema.InstanceRoot = .{ .func = f.inst };
-        if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
+        if (!try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) {
+            if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
+        } else if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
             try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))
         {
             try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
@@ -17309,6 +17362,70 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
     return false;
 }
 
+/// The API that gives a body requirement `req` on a type parameter
+/// (docs/design/apis.md, "What a bound changes in a body"), or null for
+/// one each instance still decides with any bounds: a literal's fit, a
+/// shift's width, a size, a name.
+fn apiOf(req: Requirement) ?sema.Api {
+    return switch (req) {
+        .numeric, .bytes => .Num,
+        .integer, .whole_division => .Integer,
+        .signed => .Signed,
+        .ordered => .Ord,
+        .equatable => .Eq,
+        .hashable => .Hash,
+        .copies, .no_cleanup => .Copy,
+        .printable => .Print,
+        .float, .fits, .shift, .array_len, .lane_count, .sized, .not_error, .not_function, .named => null,
+    };
+}
+
+/// A type parameter with bounds is checked against its bounds alone: what
+/// this module's bodies do with one must be what its bounds name. A
+/// parameter with no bound keeps per-instance checking.
+fn checkBoundedBodies(ctx: *SemContext) Error!void {
+    const a = ctx.arena.allocator();
+    for (ctx.generic_requirements.items) |r| {
+        if (r.module_id != 0) continue;
+        const sym = ctx.symbols.items[r.param];
+        if (sym.apis.count() == 0) continue;
+        const api = apiOf(r.req) orelse continue;
+        if (sema.implied(sym.apis).contains(api)) continue;
+        try reportUnbounded(ctx, r.pos, r.param, api, try a.print("{s}", .{r.req.describe()}));
+    }
+}
+
+/// A body at `pos` does with a `T` (`param`, which has bounds) what `api`
+/// gives (`what`), and its bounds do not name it.
+fn reportUnbounded(ctx: *SemContext, pos: u32, param: SymbolId, api: sema.Api, what: []const u8) Error!void {
+    const a = ctx.arena.allocator();
+    const sym = ctx.symbols.items[param];
+    var more = sym.apis;
+    more.insert(api);
+    try ctx.err(pos, "`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, try sema.formatApis(a, sym.apis), what, @tagName(api), sym.name, try sema.formatApis(a, more) });
+}
+
+/// A type that names `Ord` on its header, with no `order` of its own, is
+/// ordered by its fields in declared order, and an enum by its variant,
+/// then its payload's fields: each must provide `Ord`. A field of a
+/// type parameter's type is decided by each instance (`sema.lacks`).
+fn checkOrdHeaders(ctx: *SemContext) Error!void {
+    for (ctx.symbols.items) |sym| {
+        if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
+        if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos or !sym.apis.contains(.Ord)) continue;
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_method) continue;
+            const parts: []const Field = if (f.is_variant) f.payload orelse &.{} else &.{f};
+            for (parts) |part| {
+                const lack = (try sema.lacks(ctx, part.ty, .Ord)) orelse continue;
+                const shown = if (f.is_variant) try ctx.arena.allocator().print("{s}.{s}", .{ f.name, part.name }) else part.name;
+                try ctx.err(sym.decl_pos, "`{s}` names `Ord`, so it is ordered by its fields, but its field `{s}` is a `{s}`, which {s}{s}", .{ sym.name, shown, try sema.formatType(ctx, part.ty), sema.cannotDo(.Ord), try sema.lackDetail(ctx, ctx.arena.allocator(), part.ty, .Ord, lack) });
+                break;
+            }
+        }
+    }
+}
+
 /// Whether `ty` is a type that declares a method `hash`, which a call
 /// `x.hash()` on it reaches instead of the built-in one.
 fn declaresHash(ctx: *SemContext, ty: TypeId) bool {
@@ -17346,7 +17463,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
         .numeric, .bytes => sema.isNumeric(ctx, ty),
-        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static or sema.isOrderedEnum(ctx, ty),
+        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static or sema.isOrderedEnum(ctx, ty) or (try sema.lacks(ctx, ty, .Ord)) == null,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {
             .int => |info| info.signed,

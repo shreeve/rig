@@ -304,12 +304,17 @@ its item type, `[I: Iter, I.Item: Ord]`.
 
 **Which types provide which.** Numbers, `Bool`, text (`String`,
 `?String`, `Static`), and plain enums provide `Eq`, `Hash`, `Ord`, and
-`Print`. `Float` provides `Eq` and `Ord`, with `NaN` comparing false as
-`==` and `<` do today, and not `Hash`, so a float never keys a Map. A
-`List`, a `Map`, an optional, and the other built-in containers provide
-what their elements provide. An object or an enum with fields provides
-`Eq`, `Hash`, and `Print` by its fields, as today, and `Ord` only when
-its header names it.
+`Print`, so `false < true`, and a String orders by its bytes as a
+`?String` does. `Float` provides `Eq` and `Ord`, with `NaN` comparing
+false as `==` and `<` do today, and not `Hash`, so a float never keys a
+Map. An optional, an array, and a slice provide `Eq`, `Hash`, `Ord`, and
+`Print` when their elements do; arrays and slices order element by
+element. A `List[T]` provides `Print`, and `Clone` when `T` does, and
+not `Eq`, `Hash`, or `Ord`, as its `==` today. A `Map`, a `Set`, a
+Cell, a Signal, a handle, and a task provide only the derived facts,
+and `Print` where `print` takes them today. An
+object or an enum with fields provides `Eq`, `Hash`, and `Print` by its
+fields, as today, and `Ord` only when its header names it.
 
 **Giving a capability a meaning of one's own.** A type changes `==`,
 hashing, ordering, or printing only by naming the API on its header,

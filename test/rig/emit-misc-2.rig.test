@@ -846,8 +846,8 @@ test "renamed local names", '''
       n += take(<var_2) + take(<debug_2)
     n
 
-  obj G[get_1]
-    v: get_1
+  obj G[T]
+    v: T
 
     fun get(?@) -> Int
       get = 5

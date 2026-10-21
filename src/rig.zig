@@ -262,7 +262,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each
         // before any pass reads a statement.
@@ -2038,6 +2038,40 @@ pub fn isHiddenLeaf(leaf: Sexp) bool {
 /// Leaf ids from here are hidden names; the lexer's are keyword ordinals.
 const hidden_id_base: u16 = 0xFF00;
 
+/// The built-in APIs a bound or a type's header names (docs/design/apis.md,
+/// Stage 2). The first five are facts the compiler derives from a type's
+/// parts; `Eq`, `Hash`, `Ord`, and `Print` a type may give a meaning of
+/// its own by naming them on its header; the number APIs only the
+/// built-in numbers provide.
+pub const Api = enum {
+    Copy,
+    Clone,
+    Owned,
+    Moves,
+    Shares,
+    Eq,
+    Hash,
+    Ord,
+    Print,
+    Num,
+    Integer,
+    Signed,
+
+    /// The API a name spells, or null.
+    pub fn named(text: []const u8) ?Api {
+        return std.meta.stringToEnum(Api, text);
+    }
+
+    /// Whether a type may name this API on its header to give it a meaning
+    /// of its own.
+    pub fn ownable(api: Api) bool {
+        return switch (api) {
+            .Eq, .Hash, .Ord, .Print => true,
+            else => false,
+        };
+    }
+};
+
 /// The text of a leaf: the source it spans, or its name when the rewrite
 /// built it (`hiddenLeaf`). Every pass reads a name through this.
 pub fn leafText(source: []const u8, leaf: parser.Src) []const u8 {
@@ -2188,6 +2222,10 @@ pub const Parser = struct {
     /// Where the names of the methods declared outside their type's body
     /// are (`attachMethods`).
     outside_members: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The bounds of the type parameters written with them (`[T: Ord]`,
+    /// `[K: Hash + Print]`), by where each parameter's name is: the
+    /// parameter itself is left a bare name, as `[T]` (`tparamBounds`).
+    bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
     /// The methods declared outside a body that name no type of this
     /// module as it declares it (`fun Nope.m()`, `fun geo.Point.m()`),
     /// each as written, `pub` included; the checker says why.
@@ -3044,7 +3082,15 @@ pub const Parser = struct {
                 self.moduleConsts(out);
                 return self.attachMethods(out);
             },
-            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.pubMembers(out),
+            .@"struct", .@"enum", .errors => try self.pubMembers(out),
+            .generic_struct => {
+                try self.tparamBounds(walked, ir.slot(.generic_struct, .tparams));
+                try self.pubMembers(out);
+            },
+            .generic_enum => {
+                try self.tparamBounds(walked, ir.slot(.generic_enum, .tparams));
+                try self.pubMembers(out);
+            },
             .lambda => {
                 try self.splitBars(out, walked);
                 // A closure's value is its body's last line.
@@ -3079,10 +3125,15 @@ pub const Parser = struct {
             .read_view, .write_view, .shared, .boxed => self.touchesOperand(out),
             // The body's value is returned.
             .fun => {
+                try self.tparamBounds(walked, ir.slot(.fun, .tparams));
                 try self.paramList(out);
                 if (ir.Fun.returns(out) != .nil) try self.valueTail(&walked[ir.slot(.fun, .body)]);
             },
-            .sub, .extern_fun, .extern_sub => try self.paramList(out),
+            .sub => {
+                try self.tparamBounds(walked, ir.slot(.sub, .tparams));
+                try self.paramList(out);
+            },
+            .extern_fun, .extern_sub => try self.paramList(out),
             // The expression's value is bound or returned.
             .set => try self.valueTail(&walked[ir.slot(.set, .value)]),
             .@"return" => try self.valueTail(&walked[ir.slot(.@"return", .value)]),
@@ -3091,6 +3142,41 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// The type parameters among `walked[slot]`, a declaration's
+    /// compile-time parameters, written with bounds: `[T: Ord]`, whose
+    /// name after the colon is a built-in API (`Api`), and `[K: Hash +
+    /// Print]`. Each becomes a bare name, as `[T]`, and its bounds are
+    /// recorded by where its name is (`bounds`). `[n: Int]` names a type
+    /// and stays a compile-time value.
+    fn tparamBounds(self: *Parser, walked: []Sexp, slot: usize) std.mem.Allocator.Error!void {
+        const group = walked[slot];
+        if (group != .list) return;
+        const items = try self.allocator().dupe(Sexp, group.items());
+        var changed = false;
+        for (items) |*p| {
+            const name: Sexp, const apis: []const Sexp = switch (p.kind() orelse continue) {
+                .@":" => blk: {
+                    const ty = ir.get(p.*, .type);
+                    if (ty != .src or Api.named(leafText(self.base.source, ty.src)) == null) continue;
+                    break :blk .{ ir.get(p.*, .name), try self.allocator().dupe(Sexp, &.{ty}) };
+                },
+                .bound => .{ ir.get(p.*, .name), ir.get(p.*, .apis).items() },
+                else => continue,
+            };
+            if (name != .src) continue;
+            try self.bounds.put(self.allocator(), name.src.pos, apis);
+            p.* = name;
+            changed = true;
+        }
+        if (changed) walked[slot] = .{ .list = parser.List.withId(items, group.list.id) };
+    }
+
+    /// The bounds written on the type parameter whose name is at `pos`
+    /// (`tparamBounds`); empty for one written bare.
+    pub fn boundsAt(self: *const Parser, pos: u32) []const Sexp {
+        return self.bounds.get(pos) orelse &.{};
     }
 
     /// A `rarely` that starts the body of a function, a branch of `if` or

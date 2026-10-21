@@ -472,7 +472,7 @@ sub main()
 ```
 
 ```error
-operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `bigint.BigInt`
+operator `<` orders values of one type that provides `Ord`, and `bigint.BigInt` cannot be ordered
 ```
 
 ## Color on a terminal

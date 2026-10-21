@@ -789,10 +789,29 @@ pub const Checker = struct {
     pub fn check(self: *Checker, sexp: Sexp) Error!void {
         try self.walkDecl(sexp);
         self.own_plain_reqs = self.plain_reqs.items.len;
+        try self.checkBoundedCopies();
         if (self.sema) |ctx| for (ctx.plain_reqs.items) |r| {
             if (r.module_id != 0) try self.plain_reqs.append(self.gpa, r);
         };
         try self.checkInstantiations();
+    }
+
+    /// A type parameter with bounds is checked against its bounds alone:
+    /// a body copies a `T` only when its bounds name `Copy`, and stores
+    /// one where no loan is tracked only when they name `Owned`.
+    fn checkBoundedCopies(self: *Checker) Error!void {
+        const ctx = self.sema orelse return;
+        const a = self.arena();
+        for (self.plain_reqs.items[0..self.own_plain_reqs]) |r| {
+            const sym = ctx.symbols.items[r.param];
+            if (sym.apis.count() == 0) continue;
+            const api: sema.Api = if (r.view) .Owned else .Copy;
+            if (sema.implied(sym.apis).contains(api)) continue;
+            var more = sym.apis;
+            more.insert(api);
+            const what = if (r.view) "a value that holds no loan, which a Cell, a Signal, or an owned closure keeps" else if (r.element) "taking an element its collection still owns" else "a copy";
+            try self.err(r.pos, "`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, try sema.formatApis(a, sym.apis), what, @tagName(api), sym.name, try sema.formatApis(a, more) });
+        }
     }
 
     /// Generic bodies are checked once, for a `T` that may own a resource.

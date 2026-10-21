@@ -4841,7 +4841,7 @@ fail "unique after header", "3:19: unexpected name `extra`; expected an indented
   obj Random unique extra
     seed: Int
 
-fail "unique enum", "4:11: unexpected name `unique`; expected an indented block or `[`"
+fail "unique enum", "4:11: unexpected name `unique`; expected an indented block, `:` or `[`"
   # Only a struct is declared `unique`; an enum is unique when a payload
   # holds a unique value.
 
