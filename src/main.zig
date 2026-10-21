@@ -31,6 +31,7 @@ const usage =
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
     \\       rig build --pgo=<profile> [options] <file.rig> [-- <workload>]
+    \\       rig build --bolt [options] <file.rig> -- <workload>
     \\       rig batch build [--release[=safe|fast]] <dir> <file.rig>...
     \\       rig batch run <dir> <n>
     \\       rig clean
@@ -101,6 +102,11 @@ const usage =
     \\                         where it runs, run <command> (which runs
     \\                         the executable -o names), and write the
     \\                         profile <file> from the counts
+    \\  --bolt                 After building, run <workload> (after `--`)
+    \\                         under perf and lay the executable out
+    \\                         again by where it ran, with LLVM's BOLT
+    \\                         (build; Linux, with perf, llvm-bolt, and
+    \\                         perf2bolt installed)
     \\  -h, --help             Show this help
     \\  -V, --version          Show the version
     \\
@@ -197,6 +203,9 @@ const Options = struct {
     /// `build --pgo=FILE`: the profile; `program_args` is then the
     /// workload that records it, when given.
     pgo: ?[]const u8 = null,
+    /// `build --bolt`: lay the executable out by a perf profile of the
+    /// workload in `program_args` (`boltOptimize`).
+    bolt: bool = false,
     /// `--seed=n`: run deterministically with seed `n` (run, test).
     seed: ?u64 = null,
     /// `rig test --seeds=k`: run the tests with each seed from 1 to `k`.
@@ -335,11 +344,12 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var tests = false;
     var program_args: []const []const u8 = &.{};
     var profile: ?[]const u8 = null;
+    var bolt = false;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (eql(arg, "--")) {
-            if (command != .run and !(command == .build and profile != null)) usageError("arguments after `--` are for the program `rig run` runs, or the workload `rig build --pgo` records a profile from", .{});
+            if (command != .run and !(command == .build and (profile != null or bolt))) usageError("arguments after `--` are for the program `rig run` runs, or the workload of `rig build --pgo` or `--bolt`", .{});
             program_args = args[i + 1 ..];
             break;
         }
@@ -377,6 +387,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             time = true;
         } else if (eql(arg, "--tasks")) {
             tasks = true;
+        } else if (eql(arg, "--bolt")) {
+            bolt = true;
         } else if (std.mem.startsWith(u8, arg, "--pgo=")) {
             profile = arg["--pgo=".len..];
             if (profile.?.len == 0) usageError("`--pgo` names the profile: `--pgo=prog.profile`", .{});
@@ -405,6 +417,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (time and cmd != .check) usageError("`--time` applies to check", .{});
     if (tasks and cmd != .check) usageError("`--tasks` applies to check", .{});
     if (profile != null and cmd != .build) usageError("`--pgo` applies to build", .{});
+    if (bolt and cmd != .build) usageError("`--bolt` applies to build", .{});
+    if (bolt and program_args.len == 0) usageError("`--bolt` needs a workload to profile, after `--`: `rig build --bolt -o prog prog.rig -- ./prog input`", .{});
     if (tests and cmd != .check) usageError("`--tests` applies to check; `rig test` builds the tests already", .{});
     if (seed != null and cmd != .run and cmd != .@"test") usageError("`--seed` applies to run and test", .{});
     if (seeds != null and cmd != .@"test") usageError("`--seeds` applies to test", .{});
@@ -423,7 +437,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds, .pgo = profile };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds, .pgo = profile, .bolt = bolt };
 }
 
 /// `rig check --tasks`: each local task of the program's own modules,
@@ -752,13 +766,111 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 /// or `test` is the program's. `build --pgo` builds by a profile, which
 /// it first records when given a workload (`recordProfile`).
 fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
-    const file = opts.pgo orelse return buildPackage(allocator, io, env, opts, null);
-    if (opts.program_args.len > 0) try recordProfile(allocator, io, env, opts, file);
-    const text = std.Io.Dir.cwd().readFileAlloc(io, file, allocator, .unlimited) catch |err|
-        fatal("error: cannot read the profile `{s}`: {s}", .{ file, @errorName(err) });
-    var profile = pgo.State.read(allocator, text) catch fatal("error: `{s}` is not a profile `rig build --pgo` wrote", .{file});
-    build_profile = &profile;
-    return buildPackage(allocator, io, env, opts, &profile);
+    // Before building, so a system without them fails at once.
+    const bolt = if (opts.bolt) try boltTools(allocator, io, env) else null;
+    if (opts.pgo) |file| {
+        if (opts.program_args.len > 0) try recordProfile(allocator, io, env, opts, file);
+        const text = std.Io.Dir.cwd().readFileAlloc(io, file, allocator, .unlimited) catch |err|
+            fatal("error: cannot read the profile `{s}`: {s}", .{ file, @errorName(err) });
+        var profile = pgo.State.read(allocator, text) catch fatal("error: `{s}` is not a profile `rig build --pgo` wrote", .{file});
+        build_profile = &profile;
+        try buildPackage(allocator, io, env, opts, &profile);
+    } else try buildPackage(allocator, io, env, opts, null);
+    if (bolt) |tools| try boltOptimize(allocator, io, opts, tools);
+}
+
+/// The tools `rig build --bolt` runs: perf, perf2bolt, and llvm-bolt.
+const BoltTools = struct { perf: []const u8, perf2bolt: []const u8, bolt: []const u8 };
+
+/// The tools `--bolt` needs, found on PATH (each also under the names
+/// of LLVM's versioned packages, `llvm-bolt-21`, and in
+/// `/usr/lib/llvm-NN/bin`), or a fatal error naming what is missing.
+fn boltTools(allocator: std.mem.Allocator, io: std.Io, env: Env) !BoltTools {
+    if (builtin.os.tag != .linux) fatal("error: `--bolt` needs Linux: it records the workload with perf and lays out an ELF executable with LLVM's BOLT", .{});
+    const missing = "error: `--bolt` needs LLVM's BOLT ({s}): install it, as Ubuntu's `bolt-NN` package for LLVM NN (`bolt-21`); Ubuntu's package named plain `bolt` is the Thunderbolt daemon, not LLVM's";
+    return .{
+        .perf = (try findTool(allocator, io, env, "perf", false)) orelse fatal("error: `--bolt` needs perf to record the workload: install Linux's perf (Ubuntu's linux-tools package)", .{}),
+        .perf2bolt = (try findTool(allocator, io, env, "perf2bolt", true)) orelse fatal(missing, .{"perf2bolt"}),
+        .bolt = (try findTool(allocator, io, env, "llvm-bolt", true)) orelse fatal(missing, .{"llvm-bolt"}),
+    };
+}
+
+/// An executable `name` on PATH; with `llvm`, also `name-NN` there and
+/// `/usr/lib/llvm-NN/bin/name`, the newest LLVM first. Null if none.
+fn findTool(allocator: std.mem.Allocator, io: std.Io, env: Env, name: []const u8, llvm: bool) !?[]const u8 {
+    const path = env.get("PATH") orelse "/usr/bin:/bin";
+    var names: std.ArrayList([]const u8) = .empty;
+    try names.append(allocator, name);
+    var dirs: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.tokenizeScalar(u8, path, ':');
+    while (it.next()) |d| try dirs.append(allocator, d);
+    var extra: std.ArrayList([]const u8) = .empty;
+    if (llvm) {
+        var v: u32 = 40;
+        while (v >= 14) : (v -= 1) {
+            try names.append(allocator, try allocator.print("{s}-{d}", .{ name, v }));
+            try extra.append(allocator, try allocator.print("/usr/lib/llvm-{d}/bin/{s}", .{ v, name }));
+        }
+    }
+    for (names.items) |n| for (dirs.items) |d| {
+        const candidate = try std.fs.path.join(allocator, &.{ d, n });
+        if (isExecutable(io, candidate)) return candidate;
+    };
+    for (extra.items) |candidate| if (isExecutable(io, candidate)) return candidate;
+    return null;
+}
+
+fn isExecutable(io: std.Io, path: []const u8) bool {
+    const st = std.Io.Dir.cwd().statFile(io, path, .{}) catch return false;
+    return st.kind == .file and st.permissions.toMode() & 0o111 != 0;
+}
+
+/// `rig build --bolt -- WORKLOAD`: run the workload under perf, which
+/// records the branches the program takes (`-j any,u`, where the
+/// processor has a branch record; samples alone where it has not), turn
+/// that into BOLT's profile (perf2bolt), and lay the executable `-o`
+/// names out again by it (llvm-bolt): hot blocks together, cold ones
+/// split off, functions in the order they call each other. The build
+/// keeps its relocations (`--emit-relocs`) for BOLT to move code.
+fn boltOptimize(allocator: std.mem.Allocator, io: std.Io, opts: Options, tools: BoltTools) !void {
+    const out = opts.out_path orelse std.fs.path.stem(opts.path);
+    const data = try allocator.print("{s}.perf.data", .{out});
+    const fdata = try allocator.print("{s}.fdata", .{out});
+    const laid = try allocator.print("{s}.bolt", .{out});
+    defer {
+        std.Io.Dir.cwd().deleteFile(io, data) catch {};
+        std.Io.Dir.cwd().deleteFile(io, fdata) catch {};
+        std.Io.Dir.cwd().deleteFile(io, laid) catch {};
+    }
+    var branches = true;
+    for (0..2) |_| {
+        std.Io.Dir.cwd().deleteFile(io, data) catch {};
+        const record: []const []const u8 = if (branches) &.{ tools.perf, "record", "-q", "-e", "cycles:u", "-j", "any,u", "-o", data, "--" } else &.{ tools.perf, "record", "-q", "-e", "cycles:u", "-o", data, "--" };
+        _ = try runTool(io, try std.mem.concat(allocator, []const u8, &.{ record, opts.program_args }), null, "perf");
+        const st = std.Io.Dir.cwd().statFile(io, data, .{}) catch null;
+        if (st != null and st.?.size > 0) break;
+        if (!branches) fatal("error: perf recorded nothing of the workload `{s}`: it must run the executable `rig build` wrote", .{opts.program_args[0]});
+        branches = false;
+    }
+    const convert: []const []const u8 = &.{ tools.perf2bolt, "-p", data, "-o", fdata, out };
+    if (try runTool(io, try std.mem.concat(allocator, []const u8, &.{ convert, if (branches) &.{} else &.{"-nl"} }), null, "perf2bolt") != 0)
+        fatal("error: perf2bolt could not read the workload's profile of `{s}`", .{out});
+    if (try runTool(io, &.{ tools.bolt, out, "-o", laid, try allocator.print("-data={s}", .{fdata}), "-reorder-blocks=ext-tsp", "-reorder-functions=cdsort", "-split-functions", "-split-all-cold", "-icf=1", "-dyno-stats" }, null, "llvm-bolt") != 0)
+        fatal("error: llvm-bolt could not lay out `{s}`", .{out});
+    std.Io.Dir.cwd().rename(laid, std.Io.Dir.cwd(), out, io) catch |err| fatal("error: cannot replace `{s}`: {s}", .{ out, @errorName(err) });
+    std.debug.print("note: laid out {s} with BOLT by a profile of `{s}`{s}\n", .{ out, opts.program_args[0], if (branches) "" else " (samples only: this processor records no branches)" });
+}
+
+/// Run a tool or a workload, its output this process's; its status, a
+/// signal's as 128 more than its number.
+fn runTool(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map, what: []const u8) !u8 {
+    var child = std.process.spawn(io, .{ .argv = argv, .environ_map = environ, .stdin = .inherit, .stdout = .inherit, .stderr = .inherit }) catch |err|
+        fatal("error: cannot run {s} (`{s}`): {s}", .{ what, argv[0], @errorName(err) });
+    return switch (try child.wait(io)) {
+        .exited => |code| code,
+        .signal => |sig| 128 +| @as(u8, @truncate(@backingInt(sig))),
+        else => 255,
+    };
 }
 
 /// The profile `rig build --pgo` builds by, which `inlining.decide` reads
@@ -778,16 +890,15 @@ fn recordProfile(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Optio
     std.Io.Dir.cwd().deleteFile(io, counts) catch {};
     var environ = try env.map.clone(allocator);
     try environ.put("RIG_PGO_OUT", counts);
-    const ended = runZigReport(io, opts.program_args, &environ) catch |err|
-        fatal("error: cannot run the workload `{s}`: {s}", .{ opts.program_args[0], @errorName(err) });
+    const status = try runTool(io, opts.program_args, &environ, "the workload");
     const text = std.Io.Dir.cwd().readFileAlloc(io, counts, allocator, .unlimited) catch
-        fatal("error: the workload `{s}` (status {d}) left no counts: it must run the executable `rig build` wrote to its end", .{ opts.program_args[0], ended.code });
+        fatal("error: the workload `{s}` (status {d}) left no counts: it must run the executable `rig build` wrote to its end", .{ opts.program_args[0], status });
     std.Io.Dir.cwd().deleteFile(io, counts) catch {};
     const profile = state.profileOf(text) catch fatal("error: the counts `{s}` are not this build's", .{counts});
     var out: std.Io.Writer.Allocating = .init(allocator);
     try profile.write(&out.writer);
     try writeFile(io, file, out.written());
-    std.debug.print("note: wrote the profile {s}: {d} functions, {d} sites, from a workload that exited {d}\n", .{ file, profile.funs.count(), state.sites.items.len, ended.code });
+    std.debug.print("note: wrote the profile {s}: {d} functions, {d} sites, from a workload that exited {d}\n", .{ file, profile.funs.count(), state.sites.items.len, status });
 }
 
 fn buildPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options, profile: ?*pgo.State) !void {
@@ -841,12 +952,14 @@ fn buildPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{out})} else &.{};
     const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
-    const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args });
+    // `--bolt` keeps the relocations, for BOLT to move code (`boltOptimize`).
+    const relocs: []const []const u8 = if (opts.bolt) &.{"--emit-relocs"} else &.{};
+    const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, relocs, dashes, program_args });
     if (opts.command == .build) {
         // `zig build-exe` keeps no cache of its own for an output it is
         // told to write: the same build again copies the executable the
         // last one kept (`keptBuild`), and Zig is not run.
-        const zig_args = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, libc });
+        const zig_args = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, libc, relocs });
         const kept = try keptBuild(allocator, io, env, zig_cache, opts.mode, out, zig_args, pkg.files.items);
         if (kept) |k| if (reuseBuild(allocator, io, k, out)) {
             if (home) |h| recordSize(allocator, io, h, dir);
