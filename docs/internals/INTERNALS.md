@@ -1889,7 +1889,7 @@ a fact emit and the ownership checker read too:
 | block | its statements in order; at its end, the kills of its `defer`s |
 | `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
 | `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
-| `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (emit reads both ends once, before the first iteration); any other `for` binding gets no facts |
+| `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration); any other `for` binding gets no facts |
 | statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
 | `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
 | `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, `continue`, or `panic` statement nothing is reached |
@@ -1928,7 +1928,7 @@ In a loop the flag is invariant, and LLVM unswitches on it. The shapes
 |---|---|
 | a statement unit with two or more indexes `s[i + c]` (`c >= 0`, `i + 0` is `i`) of one place and one binding | `nonneg(i)` and `below(i, cmax + 1, len(s))`, those the facts do not already hold |
 | a `while` whose guard bounds `i` by an `Int` binding `n` (`below(i, g, int(n))`) or by `len(s)`, with indexes `s[i + c]` in its body | `below(n, cmax + 1 - g, len(s))`, which gives `below(i, cmax + 1, len(s))` on the guard's true edge; and `nonneg(i)` as the loop starts, which writes that add keep |
-| `for k in lo..n` with indexes `s[k + c]` in its body | `below(n, cmax, len(s))`, which gives `below(k, cmax + 1, len(s))` with the binding's `below(k, 1, int(n))`; and `nonneg(lo)` |
+| `for k in lo..n` (not `lo..=n`) with indexes `s[k + c]` in its body | `below(n, cmax, len(s))`, which gives `below(k, cmax + 1, len(s))` with the binding's `below(k, 1, int(n))`; and `nonneg(lo)` |
 
 A test is made only if no write in the statement (the unit's `K(u)`, or
 the loop's) ends it. A fact under a flag ends as every fact does, a

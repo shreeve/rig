@@ -41,6 +41,35 @@ bomb "list range push", "index out of bounds", release: true
     !xs.push(v)
   grow(!xs)
 
+bomb "inclusive range", "index out of bounds", release: true
+  # `for k in 0..=xs.len` reaches `xs.len`: `k <= xs.len` leaves no room.
+
+  fun total(xs: ?List[Int]) -> Int
+    t = 0
+    for k in 0..=xs.len
+      t += xs[k] # keeps: index upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs))
+
+test "inclusive range below", "6", release: true
+  # `for k in 0..=n` with `n < xs.len`: `k <= n` and `n + 1 <= xs.len`.
+
+  fun total(xs: ?List[Int], n: Int) -> Int
+    t = 0
+    if n < xs.len
+      for k in 0..=n
+        t += xs[k] # proves: index lower upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs, 2))
+
 test "field range", "6", release: true
   # A List in a field of a view of an object: `@words.len` is a bound.
 

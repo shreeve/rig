@@ -1248,9 +1248,9 @@ const Pass = struct {
     /// What `for k in lo..hi` gives its body, for every iteration: `0 <=
     /// k` when `0 <= lo` (a literal, or a binding known not negative), and
     /// `k + 1 <= hi` when `hi` is a bound (`s.len`, or an `Int` binding)
-    /// that nothing in the loop writes. Emit reads both ends once, before
-    /// the first iteration, and counts `k` up from `lo` while it is below
-    /// `hi`.
+    /// that nothing in the loop writes (`k <= hi` for `lo..=hi`). Emit
+    /// reads both ends once, before the first iteration, and counts `k`
+    /// up from `lo` while it is below `hi` (or, inclusive, up to it).
     fn rangeFacts(p: *Pass, loop: Sexp, source_node: Sexp, head: *const State, kills: *const Kills, body: *State) Error!void {
         if (!source_node.isKind(.@"..")) return;
         const k = p.intLocal(ir.For.@"var"(loop)) orelse return;
@@ -1260,7 +1260,7 @@ const Pass = struct {
             try body.add(p.a, .{ .nonneg = k }, 0);
         } else if (p.intLocal(lo)) |j| if (head.nonnegFlag(j)) |flag| try body.add(p.a, .{ .nonneg = k }, flag);
         const b = (try p.boundOf(hi)) orelse return;
-        const fact: Fact = .{ .below = .{ .i = k, .k = 1, .b = b } };
+        const fact: Fact = .{ .below = .{ .i = k, .k = @intFromBool(!rig.isInclusive(source_node)), .b = b } };
         if (kills.ends(fact)) return;
         if (b == .len) try body.add(p.a, .{ .fits = b.len }, 0);
         try body.add(p.a, fact, 0);
@@ -1284,8 +1284,8 @@ const Pass = struct {
     /// - a `while` whose guard bounds `i` by an `Int` binding `n` (`i <
     ///   n`, `i + k <= n`) or by `s.len`, with indexes `s[i + c]` in its
     ///   body: `n + j <= s.len`, for room for every `c`, and `0 <= i`;
-    /// - a `for k in lo..n` with indexes `s[k + c]` in its body: `n + cmax
-    ///   <= s.len`, and `0 <= lo`.
+    /// - a `for k in lo..n` (not `lo..=n`) with indexes `s[k + c]` in its
+    ///   body: `n + cmax <= s.len`, and `0 <= lo`.
     ///
     /// Each test is one no write in the statement (or the loop) ends,
     /// and none the facts held already give.
@@ -1394,7 +1394,7 @@ const Pass = struct {
     /// The tests for `for k in lo..n`: room in a length for the indexes of
     /// `k`, and `lo` not negative.
     fn rangeTests(p: *Pass, loop: Sexp, source_node: Sexp, body: Sexp, st: *const State, tests: *std.ArrayList(FlagFact)) Error!void {
-        if (!source_node.isKind(.@"..")) return;
+        if (!source_node.isKind(.@"..") or rig.isInclusive(source_node)) return;
         const k = p.intLocal(ir.For.@"var"(loop)) orelse return;
         const kills = try p.killsOf(loop);
         const lo = ir.get(source_node, .left);
