@@ -24,15 +24,42 @@ pub const Error = rig.Stop || FileError;
 
 const not_found = error.@"std.file.FileError.not_found";
 
-/// Run `f` on the blocking pool, once the task is neither canceled nor
-/// past its deadline.
+/// Run `f` on the blocking pool as a fallible waiting point: a cancel of
+/// the task, or its deadline, ends the wait with a `task.Stop` while `f`
+/// runs on to its end and its result is dropped (`rig.blockingStop`).
+/// So `args` hold nothing the task may free meanwhile: paths and bytes,
+/// which the pool copies, and plain values; a result that owns something
+/// (a String, a descriptor, `Fd`) is freed by its drop.
 fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
-    try stopped();
-    return rig.blocking(f, args);
+    return try (try rig.blockingStop(f, args));
 }
 
-/// Fail when the task is canceled or past its deadline, as `net`'s
-/// waiting points do, without yielding (`task.check` yields).
+/// A descriptor a pool call opened or was given, closed when dropped, as
+/// a call whose task stopped waiting drops its result.
+const Fd = struct {
+    fd: i32,
+
+    pub fn __rig_drop(self: *Fd) void {
+        _ = sys.close(self.fd);
+    }
+};
+
+/// A descriptor of the same open file as `fd`, for a pool call to own:
+/// the task may close its own while the call runs on.
+fn dupFd(fd: i64) FileError!Fd {
+    while (true) {
+        const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
+        switch (posix.errno(rc)) {
+            .SUCCESS => return .{ .fd = @intCast(rc) },
+            .INTR => {},
+            else => |e| return errnoFailure(e),
+        }
+    }
+}
+
+/// Fail when the task is canceled or past its deadline, without
+/// yielding: before a descriptor is duplicated for a pool call, so a
+/// stopped task makes none.
 fn stopped() rig.Stop!void {
     const t = rig.task();
     if (t.control) |c| if (c.canceled.load(.seq_cst)) return error.@"std.task.Stop.canceled";
@@ -224,15 +251,17 @@ fn realpathHere(path: []const u8) FileError!?rig.String {
 /// `stat`'s answer onto `info` (std/file.rig), or false when nothing is
 /// at `path`.
 pub fn stat_into(path: []const u8, info: *rig.List(i64)) Error!bool {
-    return pool(bool, statHere, .{ path, info });
+    const got = (try pool(?[4]i64, statHere, .{path})) orelse return false;
+    for (got) |n| info.push(n);
+    return true;
 }
 
-fn statHere(path: []const u8, info: *rig.List(i64)) FileError!bool {
+fn statHere(path: []const u8) FileError!?[4]i64 {
     const io = rig.io();
     const cwd = std.Io.Dir.cwd();
     const here = cwd.statFile(io, path, .{ .follow_symlinks = false }) catch |err| {
         try absent(err);
-        return false;
+        return null;
     };
     var s = here;
     if (here.kind == .sym_link) {
@@ -245,11 +274,12 @@ fn statHere(path: []const u8, info: *rig.List(i64)) FileError!bool {
             break :blk broken;
         };
     }
-    info.push(kindCode(s.kind));
-    info.push(@intFromBool(here.kind == .sym_link));
-    info.push(@intCast(@min(s.size, std.math.maxInt(i64))));
-    info.push(@intCast(std.math.clamp(s.mtime.nanoseconds, std.math.minInt(i64), std.math.maxInt(i64))));
-    return true;
+    return .{
+        kindCode(s.kind),
+        @intFromBool(here.kind == .sym_link),
+        @intCast(@min(s.size, std.math.maxInt(i64))),
+        @intCast(std.math.clamp(s.mtime.nanoseconds, std.math.minInt(i64), std.math.maxInt(i64))),
+    };
 }
 
 fn kindCode(kind: std.Io.File.Kind) i64 {
@@ -264,16 +294,27 @@ fn kindCode(kind: std.Io.File.Kind) i64 {
 /// and each one's kind, plus 4 for a link, onto `codes`; false when
 /// nothing is at `path`.
 pub fn dir_entries(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(i64)) Error!bool {
-    return pool(bool, entriesHere, .{ path, names, codes });
+    var got = (try pool(?Entries, entriesHere, .{path})) orelse return false;
+    std.mem.swap(rig.List(rig.String), names, &got.names);
+    std.mem.swap(rig.List(i64), codes, &got.codes);
+    rig.dropElement(Entries, &got);
+    return true;
 }
 
-fn entriesHere(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(i64)) FileError!bool {
+/// A directory's entries as `dir_entries` gives them, which a pool call
+/// owns until it returns.
+const Entries = struct {
+    names: rig.List(rig.String) = .empty,
+    codes: rig.List(i64) = .empty,
+};
+
+fn entriesHere(path: []const u8) FileError!?Entries {
     const io = rig.io();
     const gpa = std.heap.smp_allocator;
     var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch |err| {
         // A file at the path, or on the way to it, is not a directory.
         if (failure(err) != not_found) return failure(err);
-        return false;
+        return null;
     };
     defer dir.close(io);
     const Found = struct { name: []u8, code: i64 };
@@ -303,11 +344,12 @@ fn entriesHere(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(
             return std.mem.order(u8, a.name, b.name) == .gt;
         }
     }.later);
+    var out: Entries = .{};
     for (found.items) |f| {
-        names.push(fresh(f.name));
-        codes.push(f.code);
+        out.names.push(fresh(f.name));
+        out.codes.push(f.code);
     }
-    return true;
+    return out;
 }
 
 // -----------------------------------------------------------------------------
@@ -317,26 +359,27 @@ fn entriesHere(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(
 /// A descriptor of the file at `path` open to read, or null when nothing
 /// is there.
 pub fn open_fd(path: []const u8) Error!?i64 {
-    return pool(?i64, openHere, .{path});
+    const got = (try pool(?Fd, openHere, .{path})) orelse return null;
+    return got.fd;
 }
 
-fn openHere(path: []const u8) FileError!?i64 {
+fn openHere(path: []const u8) FileError!?Fd {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const fd = openAt(try terminated(path, &buf), .{ .ACCMODE = .RDONLY, .CLOEXEC = true }) catch |err| {
         try absent(err);
         return null;
     };
-    return fd;
+    return .{ .fd = fd };
 }
 
 /// A descriptor of the file at `path`, created or emptied, open to
 /// write, each missing directory on the way to it made when `parents`.
 pub fn create_fd(path: []const u8, parents: bool) Error!i64 {
-    return pool(i64, createHere, .{ path, parents });
+    return (try pool(Fd, createHere, .{ path, parents })).fd;
 }
 
-fn createHere(path: []const u8, parents: bool) FileError!i64 {
-    return try openMaking(path, .truncate, parents);
+fn createHere(path: []const u8, parents: bool) FileError!Fd {
+    return .{ .fd = try openMaking(path, .truncate, parents) };
 }
 
 /// Open `path` to write, creating it when it is not there, and each
@@ -380,10 +423,22 @@ fn terminated(path: []const u8, buf: *[std.Io.Dir.max_path_bytes:0]u8) FileError
 pub fn read_from(fd: i64, into: *rig.String, max: i64) Error!i64 {
     const want: usize = @intCast(@max(max, 0));
     if (want == 0) return 0;
-    into.list.ensureUnusedCapacity(rig.defaultAllocator(), want) catch rig.oom();
-    const n = try pool(usize, readSome, .{ @as(i32, @intCast(fd)), into.list.unusedCapacitySlice()[0..want] });
-    into.list.items.len += n;
-    return @intCast(n);
+    try stopped();
+    var got = try pool(rig.String, readOwned, .{ try dupFd(fd), want });
+    defer rig.dropElement(rig.String, &got);
+    into.list.appendSlice(rig.defaultAllocator(), got.list.items) catch rig.oom();
+    return @intCast(got.list.items.len);
+}
+
+/// Up to `want` bytes read from `fd`, which it closes, in a fresh String.
+fn readOwned(fd: Fd, want: usize) FileError!rig.String {
+    var own = fd;
+    defer own.__rig_drop();
+    var s: rig.String = .empty;
+    errdefer rig.dropElement(rig.String, &s);
+    s.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), want) catch rig.oom();
+    s.list.items.len = try readSome(own.fd, s.list.unusedCapacitySlice()[0..want]);
+    return s;
 }
 
 fn readSome(fd: i32, dest: []u8) FileError!usize {
@@ -398,7 +453,15 @@ fn readSome(fd: i32, dest: []u8) FileError!usize {
 }
 
 pub fn write_to(fd: i64, bytes: []const u8) Error!void {
-    return pool(void, writeAll, .{ @as(i32, @intCast(fd)), bytes });
+    try stopped();
+    return pool(void, writeOwned, .{ try dupFd(fd), bytes });
+}
+
+/// Write all of `bytes` to `fd`, which it closes.
+fn writeOwned(fd: Fd, bytes: []const u8) FileError!void {
+    var own = fd;
+    defer own.__rig_drop();
+    try writeAll(own.fd, bytes);
 }
 
 fn writeAll(fd: i32, bytes: []const u8) FileError!void {

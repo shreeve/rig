@@ -67,11 +67,10 @@
 tokens
     # Literals
     ident           # identifier
-    integer         # 0, 42, 1_000, 0xff, 0b1010, 0o17, b'A'
+    integer         # 0, 42, 1_000, 0xff, 0b1010, 0o17
     real            # 3.14, .5, 1.0e10, 2e-3
     string_sq       # 'single'
     string_dq       # "double"
-    bytes           # b"bytes": an array of them
 
     # Keywords, `true` first and `yield` last (src/rig.zig reads the range
     # as Rig's keywords). Every keyword but `new`, `obj`, `inline`,
@@ -235,12 +234,6 @@ tokens
 # escape (`\t`, `\n`), which only double-quoted strings take.
 '"' ([^"\\\x00-\x1f\x7f] | '\\' [^\x00-\x1f\x7f])* '"'  → string_dq
 "'" ([^'\x00-\x1f\x7f] | "''")* "'"             → string_sq
-
-# A byte, `b'A'`, is an integer, and a byte string, `b"AB"`, the array
-# of them. They take a double-quoted string's escapes; the lexer wrapper
-# checks each holds bytes, and `b'…'` one of them.
-"b'" ([^'\\\x00-\x1f\x7f] | '\\' [^\x00-\x1f\x7f])* "'"  → integer
-'b"' ([^"\\\x00-\x1f\x7f] | '\\' [^\x00-\x1f\x7f])* '"'  → bytes
 
 # Numbers: `_` may separate digits; radix prefixes are lowercase, and a
 # decimal number has no leading zero. Anything else that starts with a
@@ -496,7 +489,7 @@ tokens
     # Tokens by what they read as in a message; every keyword and
     # operator as it is written.
     IDENT: "a name", INTEGER: "an integer", REAL: "a number"
-    STRING_SQ: "a string", STRING_DQ: "a string", BYTES: "a byte string"
+    STRING_SQ: "a string", STRING_DQ: "a string"
     NEWLINE: "the end of the line", INDENT: "an indented block"
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
@@ -583,9 +576,8 @@ tokens
     constant            "true" "false" "none"
     variable.special    '@'
     constant.numeric    INTEGER REAL
-    string              STRING_DQ STRING_SQ BYTES
+    string              STRING_DQ STRING_SQ
     string.escape       '\\' [^\x00-\x1f\x7f] within STRING_DQ
-    string.escape       '\\' [^\x00-\x1f\x7f] within BYTES
     string.escape       "''" within STRING_SQ
     comment             COMMENT
     invalid             "**" "&&"
@@ -1080,13 +1072,12 @@ pats     = pattern
 palts    = pattern "," pattern                      → (1 3)
          | palts "," pattern                        → (...1 3)
 
-# A string matches text with the same bytes; it is no range's bound.
-# `lo..hi` excludes its end, `lo..=hi` includes it.
+# A string matches text with the same bytes, and against a `U8` is that
+# byte, which may bound a range. `lo..hi` excludes its end, `lo..=hi`
+# includes it.
 pattern  = patatom
          | lo:patatom ".." hi:patatom               → (range_pattern)
          | lo:patatom "..=" hi:patatom              → (range_pattern inclusive:inclusive)
-         | STRING_DQ
-         | STRING_SQ
 
 # A member of an error set is named with its set, `E.name`, or through
 # its module, `m.E.name`. The module's set is its own rule rather than
@@ -1096,6 +1087,8 @@ patatom  = name
          | object:pqual "." name:name               → (member)
          | INTEGER
          | "-" operand:INTEGER                      → (neg)
+         | STRING_DQ
+         | STRING_SQ
          | TRUE
          | FALSE
          | "." name:name                            → (enum_lit)
@@ -1212,7 +1205,6 @@ atom     = name
          | REAL
          | STRING_SQ
          | STRING_DQ
-         | BYTES
          | TRUE
          | FALSE
          | "." name:name                            → (enum_lit)

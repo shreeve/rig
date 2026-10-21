@@ -334,7 +334,11 @@ while its task waits, so other tasks go on; to do several at once, make
 them tasks and wait with `>`, as for any call. Like a socket's calls
 ([std.net](#stdnet)), it fails with `task.Stop.canceled` in a canceled
 task and with `task.Stop.timeout` past the task's deadline
-(`time.within`), checked when the call is made.
+(`time.within`): before it starts, and while it waits, so a cancel or a
+deadline ends the wait for a call that blocks (a read of a pipe no one
+writes). The call itself runs on to its end on the pool, and what it
+gives is dropped: a write may still happen, and a file it opened is
+closed.
 
 A `File` reads and writes from where its last read or write ended, with
 the methods a `net.Stream` has, and closes when it is dropped:
@@ -721,9 +725,9 @@ body (`100 Continue`) only once its length is within the limit; any
 other expectation is answered 417. Once the process has run out of
 file descriptors, `serve` pauses, from 5 ms doubling to 1 s, and
 accepts again, as Go's server does, so the connections it holds can
-close; the listener stays open. A deterministic run (`RIG_SEED`, `rig
-test`) leaves the two timeouts off: its virtual clock would reach them
-while bytes are still on their way. Arguments to `http.serve` that set
+close; the listener stays open. In a deterministic run (`RIG_SEED`,
+`rig test`) the timeouts count on its virtual clock, so a test of one
+takes no time. Arguments to `http.serve` that set
 these limits per server are planned; the environment sets them for the
 whole process.
 

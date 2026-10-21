@@ -195,47 +195,48 @@ operands have different types `I32` and `Int`
 
 #### Byte literals
 
-`b'A'` is a byte: the integer literal of one ASCII character's byte,
-here `65`, typed from its context like any integer literal, and usable
-wherever one is, as a `match` pattern and a module constant included.
-`b"AB"` is a byte string: the array literal `[b'A', b'B']`, always of
-type `[N]U8`, with no terminator; `b""` is an empty `[0]U8`. A byte
-string goes wherever an array literal goes; it is not a pattern. Both
-take the escapes of a double-quoted string that name a byte: `\\`,
-`\'`, `\"`, `\n`, `\r`, `\t`, and `\xNN`. A `b'…'` holds exactly one
-byte, and neither holds a code point (`\u{…}`), a control character
-written raw, or a character outside ASCII, which takes two or more
-bytes. The `b` touches the quote: `b 'A'` is the name `b` and a string.
-A plain `'…'` is always a raw string.
+A string literal is a byte where a `U8` is expected, and the bytes of an
+array where a `[N]U8` is, as an integer literal takes the type its
+context gives it: `c: U8 = 'A'` is 65, `"\n"` is 10, and
+`HOME: [3]U8 = "\x1b[H"` is `[27, 91, 72]`. A `U8` is expected by a
+typed binding, a field, an argument, a result, an element, the other
+side of an operator (`c == 'A'`, `c - '0'`), and a `match` on a `U8`,
+whose patterns and range bounds may be bytes (`'0'..='9'`). The quotes
+decide only the escapes, as for any string: `"\x1b"` is one byte, and
+`'\n'` the two bytes `\` and `n`. A literal whose bytes do not fit its
+type is an error. With no type expected, a string literal is text, as
+`x = 3` is an `Int`.
 
 ```rig
-ESC: U8 = b'\x1b'
-HOME = b"\x1b[H"
+ESC: U8 = "\x1b"
+HOME: [3]U8 = "\x1b[H"
 
 fun act(c: U8) -> ?String
   match c
     ESC => "escape"
-    b'H', b'f' => "cursor"
-    b'0'..b':' => "digit"
+    'H', 'f' => "cursor"
+    '0'..='9' => "digit"
     _ => "other"
 
 sub main()
-  print(b'A', b'\n', HOME, HOME.len)
-  print(act(HOME[0]), act(b'H'), act(b'7'))
+  a: U8 = 'A'
+  print(a, a == 'A', a - '0', HOME, HOME.len)
+  print(act(HOME[0]), act('H'), act('7'), act('x'))
 ```
 
 ```output
-65 10 [27, 91, 72] 3
-escape cursor digit
+65 true 17 [27, 91, 72] 3
+escape cursor digit other
 ```
 
 ```rig reject
 sub main()
-  print(b'AB')
+  c: U8 = '\n'
+  print(c)
 ```
 
 ```error
-a byte literal holds one byte; `b"AB"` is an array of bytes
+`'\n'` is raw, the two bytes `\` and `n`; for a newline write `"\n"`
 ```
 
 ### Numeric conversions
@@ -1691,10 +1692,20 @@ words that ask for a speed and never change what the program means:
   out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
-([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and a function
-whose every path ends in a `panic` is taken as `rarely`: the branch to
-a panic, and to the runtime's own failure reports, is laid out as the
-path that is not taken. A marker applies to every
+([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and LLVM may
+inline larger ones. A function whose every path ends in a `panic` is
+taken as `rarely`: the branch to a panic, and to the runtime's own
+failure reports, is laid out as the path that is not taken.
+`rig build --release` warns about a function whose frame, as the
+executable reserves it, passes a page though its own values fit in one,
+and names the functions it calls to mark `called`; a `rarely` function,
+which is cold, is not named:
+
+```text
+main.rig:10:12: warning: `step` reserves 4864 bytes of stack, more than a page (4096 bytes), though its own values take 16: what is inlined into it holds the rest, and every call pays for the whole frame; to keep the function it calls out of line, mark it `called`: `report`
+```
+
+A marker applies to every
 instance of a function with compile-time parameters, and a method
 takes one as any function does, in its type's body or outside it.
 
@@ -10747,7 +10758,7 @@ not parse, and their words and sigils stay reserved:
 | `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
 | `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
 | `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
-| byte string and float match patterns | `` a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant `` |
+| float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):
