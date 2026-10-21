@@ -68,7 +68,13 @@ changed the language since it:
   is inlined at every call, one marked `called fun` is always a call
   (`noinline fn`), and one marked `rarely fun` is kept out of line with
   Zig's cold hint (the three words are contextual); a
-  `for` index counter needs no per-iteration cast.
+  `for` index counter needs no per-iteration cast; a List index makes
+  one bounds test, not two; and the proven checks cover Lists, Lists in
+  fields, `for` ranges, `s[i + c]`, a bound through a bound, and flags:
+  facts tested once before a statement, which omit the tests they prove
+  while they hold, so a record read from consecutive slots or a loop
+  whose bound may pass a List's length makes its tests once
+  (docs/internals/INTERNALS.md, "Flags").
 - **The stack:** a program runs on a 64 MiB stack the runtime maps
   over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by
   deep recursion or a frame no larger than the guard, stops with
