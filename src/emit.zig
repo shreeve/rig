@@ -7139,6 +7139,14 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         }
         // `io.copy(!from, !to)`: the runtime's, for files and sockets.
+        // `xs.reduce(start, f)`: `rig.reduce(elems, start, f)`.
+        if (self.facts.isReduceCall(sexp)) {
+            try self.w.writeAll("rig.reduce(");
+            try self.emitElems(ir.Member.object(callee));
+            try self.w.writeAll(", ");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
+        }
         if (self.facts.isIoCopy(sexp)) {
             try self.w.writeAll("rig.net.copy(");
             try self.emitArgs(sexp);

@@ -2473,6 +2473,23 @@ pub fn sum(items: anytype, from: std.meta.Elem(@TypeOf(items))) std.meta.Elem(@T
     return total;
 }
 
+/// `xs.reduce(start, f)`: the running value, `first`, passed with
+/// each element in order, lent, to `f`, which gives the next; the last.
+/// A fallible `f` makes it fallible, failing with `f`'s first failure.
+/// Inline, so a closure written at the call is called directly.
+pub inline fn reduce(items: anytype, first: anytype, f: anytype) @typeInfo(@TypeOf(@TypeOf(f).call)).@"fn".return_type.? {
+    const R = @typeInfo(@TypeOf(@TypeOf(f).call)).@"fn".return_type.?;
+    const A = if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
+    var acc: A = first;
+    // A receiver held apart is a pointer to its slice.
+    const P = @typeInfo(@TypeOf(items));
+    const xs = if (P == .pointer and P.pointer.size == .one and @typeInfo(P.pointer.child) == .pointer) items.* else items;
+    for (xs) |*x| {
+        acc = if (comptime @typeInfo(R) == .error_union) try f.call(.{ acc, lend(x) }) else f.call(.{ acc, lend(x) });
+    }
+    return acc;
+}
+
 /// `!s.swap(i, j)`: panics unless both indexes are in range.
 pub fn swap(items: anytype, i: anytype, j: anytype) void {
     const a = index(i, items.len);
