@@ -120,6 +120,8 @@ pub const Facts = struct {
     tasks_sym_id: SymbolId,
     box_sym_id: SymbolId,
     endian_sym_id: SymbolId,
+    order_sym_id: SymbolId,
+    printer_sym_id: SymbolId,
     arch_sym_id: SymbolId,
     /// The decisions emit still makes itself (the allowlist).
     pending: Pending,
@@ -142,6 +144,8 @@ pub const Facts = struct {
             .tasks_sym_id = ctx.tasks_sym_id,
             .box_sym_id = ctx.box_sym_id,
             .endian_sym_id = ctx.endian_sym_id,
+            .order_sym_id = ctx.order_sym_id,
+            .printer_sym_id = ctx.printer_sym_id,
             .arch_sym_id = ctx.arch_sym_id,
             .pending = .{ .sema_context = ctx },
         };
@@ -783,6 +787,12 @@ pub const Facts = struct {
         }
     };
 
+    /// The method by which `ty`'s type gives `api` a meaning of its own
+    /// (`sema.ownApiOf`).
+    pub fn ownApiOf(f: Facts, ty: TypeId, api: sema.Api) ?sema.Field {
+        return sema.ownApiOf(f.c(), ty, api);
+    }
+
     pub fn nominalDecl(f: Facts, ty: TypeId) ?Nominal {
         const d = sema.nominalDecl(f.c(), ty) orelse return null;
         return .{ .facts = of(d.ctx), .sym = d.sym, .module_id = d.module_id };
@@ -796,9 +806,6 @@ pub const Facts = struct {
     }
     pub fn formatGenericSelfMarked(f: Facts, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
         return sema.formatGenericSelfMarked(f.c(), a, sym);
-    }
-    pub fn formatInlineListMarked(f: Facts, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
-        return sema.formatInlineListMarked(f.c(), a);
     }
 
     // How a type is held in Zig: one answer per type, which every pass
@@ -887,6 +894,8 @@ pub const syntax = struct {
     pub const tparamsOf = sema.tparamsOf;
     pub const dataFields = sema.dataFields;
     pub const isProxy = sema.isProxy;
+    pub const ownApiMethod = sema.ownApiMethod;
+    pub const Api = sema.Api;
     pub const isIntLiteralText = sema.isIntLiteralText;
     pub const isFloatLiteralText = sema.isFloatLiteralText;
     pub const isNumericTypeName = resolve.isNumericTypeName;

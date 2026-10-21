@@ -259,6 +259,22 @@ pub fn ReadView(comptime T: type) type {
     return if (needsDrop(T) or !copiedByReadView(T)) *const T else T;
 }
 
+/// The read view a method's `?@` takes of the value `p` points to: the
+/// pointer, or a copy where a read view copies (`ReadView`).
+pub inline fn viewOf(comptime T: type, p: *const T) ReadView(T) {
+    return if (comptime ReadView(T) == *const T) p else p.*;
+}
+
+/// Whether type `T` gives `api` (`__rig_own_eq`, `__rig_own_hash`,
+/// `__rig_own_order`, `__rig_own_print`) a meaning of its own: its header
+/// names the API and it declares the method (docs/design/apis.md).
+fn ownsApi(comptime T: type, comptime decl: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum" => @hasDecl(T, decl),
+        else => false,
+    };
+}
+
 fn copiedByReadView(comptime T: type) bool {
     if (comptime isOptStruct(T)) return copiedByReadView(Payload(T));
     return switch (@typeInfo(T)) {
@@ -543,6 +559,7 @@ pub fn textIs(x: anytype, lit: []const u8) bool {
 }
 
 fn eqlAs(comptime T: type, a: T, b: T) bool {
+    if (comptime ownsApi(T, "__rig_own_eq")) return T.__rig_own_eq(&a, &b);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return some(b) == null;
         const y = some(b) orelse return false;
@@ -595,6 +612,7 @@ pub fn hash(x: anytype) u64 {
 
 /// `hash` of a value of type `T`.
 pub fn hashAs(comptime T: type, x: T) u64 {
+    if (comptime ownsApi(T, "__rig_own_hash")) return T.__rig_own_hash(&x);
     if (comptime isString(T)) return hashBytes(stringBytes(x));
     if (comptime isOptStruct(T)) return if (some(x)) |v| hashAs(Payload(T), v) else hash_none;
     switch (@typeInfo(T)) {
@@ -729,6 +747,11 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
 /// then its payload's fields.
 pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
     const T = @TypeOf(a);
+    if (comptime ownsApi(T, "__rig_own_order")) return switch (T.__rig_own_order(&a, &b)) {
+        .less => .lt,
+        .equal => .eq,
+        .greater => .gt,
+    };
     if (comptime isStringView(T)) return std.mem.order(u8, a, b);
     if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
     if (comptime isOptStruct(T)) {
@@ -1469,56 +1492,13 @@ inline fn invariant(ok: bool) void {
 /// `List(T)`: a growable array that owns its elements. Dropping it drops
 /// the elements in reverse order, then frees the buffer.
 pub fn List(comptime T: type) type {
-    return ListOf(T, 0);
-}
-
-/// `List[T, inline: n]`: a List whose first `n` elements live inside it,
-/// which allocates only once it holds more.
-pub fn InlineList(comptime T: type, comptime n: usize) type {
-    return ListOf(T, n);
-}
-
-/// A List of `T`, whose first `inline_len` elements live inside it, in
-/// `inline_buf`: it allocates only once it holds more, and then moves
-/// them all to `buf`. A move of such a List copies its inline elements,
-/// so a view of one points into the List itself, which its loan keeps
-/// in place. With no inline room it is a plain List.
-fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
-    // A zero-bit element takes no memory either way.
-    const inline_len = if (@sizeOf(T) == 0) 0 else inline_len_in;
     return struct {
-        /// The elements, once they are on the heap; empty while they fit
-        /// inline.
         buf: []T = &.{},
         len: usize = 0,
-        inline_buf: [inline_len]T = undefined,
 
         const Self = @This();
         /// Its arguments, for `typeName`.
-        pub const __rig_args = if (inline_len == 0) .{T} else .{ T, inline_len };
-        pub const __rig_inline = inline_len;
-
-        /// Where its elements are: `buf`, or `inline_buf` while they fit.
-        inline fn mem(self: *Self) []T {
-            if (comptime inline_len == 0) return self.buf;
-            if (self.buf.len != 0) return self.buf;
-            return &self.inline_buf;
-        }
-
-        /// `mem`, to read through a `*const Self`.
-        inline fn memConst(self: *const Self) []const T {
-            if (comptime inline_len == 0) return self.buf;
-            if (self.buf.len != 0) return self.buf;
-            return &self.inline_buf;
-        }
-
-        /// What `items` gives through a pointer of type `P`: elements to
-        /// write through a `*Self`, and through a `*const Self` too for a
-        /// List with no inline room, whose elements are on the heap.
-        fn Items(comptime P: type) type {
-            if (inline_len == 0) return []T;
-            return if (@typeInfo(P).pointer.attrs.@"const") []const T else []T;
-        }
+        pub const __rig_args = .{T};
 
         pub const empty: Self = .{};
 
@@ -1528,7 +1508,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// is negative.
         pub fn initCapacity(capacity: Int) Self {
             const n = std.math.cast(usize, capacity) orelse @panic("negative size");
-            if (n <= inline_len) return .empty;
+            if (n == 0) return .empty;
             if (comptime @sizeOf(T) == 0) {
                 var v: Self = .empty;
                 v.reserve(capacity);
@@ -1545,7 +1525,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 v.len = src.len;
                 return v;
             }
-            @memcpy(v.mem()[0..src.len], src);
+            @memcpy(v.buf[0..src.len], src);
             v.len = src.len;
             return v;
         }
@@ -1566,17 +1546,14 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         /// The live elements. Invalidated by `push`. Inside the buffer by
         /// `len <= buf.len`, so the slice needs no test of its own.
-        pub fn items(self: anytype) Items(@TypeOf(self)) {
-            if (comptime inline_len == 0) {
-                invariant(self.len <= self.buf.len);
-                return self.buf.ptr[0..self.len];
-            }
-            return if (comptime @typeInfo(@TypeOf(self)).pointer.attrs.@"const") self.memConst()[0..self.len] else self.mem()[0..self.len];
+        pub fn items(self: *const Self) []T {
+            invariant(self.len <= self.buf.len);
+            return self.buf.ptr[0..self.len];
         }
 
         /// Room for `want` elements in all.
         fn reserveTotal(self: *Self, want: usize) void {
-            if (want <= self.memConst().len) return;
+            if (want <= self.buf.len) return;
             self.grow(want);
         }
 
@@ -1596,13 +1573,6 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 self.buf = self.buf.ptr[0..std.math.maxInt(usize)];
                 return;
             }
-            if (inline_len > 0 and self.buf.len == 0) {
-                // Past its inline room: all of it to the heap.
-                const buf = allocSlice(T, @max(want, 2 * inline_len));
-                @memcpy(buf[0..self.len], self.inline_buf[0..self.len]);
-                self.buf = buf;
-                return;
-            }
             self.buf = reallocSlice(T, self.buf, @max(want, 4, self.buf.len * 2));
         }
 
@@ -1610,17 +1580,16 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// leaves `len < buf.len`, so the slot at `len` exists, `len + 1`
         /// cannot overflow, and the store needs no bounds check.
         pub fn push(self: *Self, value: T) void {
-            if (self.len == self.mem().len) self.grow(self.len +% 1);
-            const m = self.mem();
-            invariant(self.len < m.len);
-            m.ptr[self.len] = value;
+            if (self.len == self.buf.len) self.grow(self.len +% 1);
+            invariant(self.len < self.buf.len);
+            self.buf.ptr[self.len] = value;
             self.len +%= 1;
         }
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
         pub fn get(self: *const Self, i: Int) Opt(T) {
             const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
-            return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
+            return pack(Opt(T), if (idx < self.len) self.buf[idx] else null);
         }
 
         /// `v[i]`: the element at `i`; panics when out of range. One test,
@@ -1628,25 +1597,25 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// buf.len`, so it is read through the buffer's pointer, which
         /// makes no second test.
         pub fn at(self: *const Self, i: anytype) T {
-            return self.memConst().ptr[self.indexOf(i)];
+            return self.buf.ptr[self.indexOf(i)];
         }
 
         /// `v[i] = x`: the slot at `i`; panics when out of range.
         pub fn slot(self: *Self, i: anytype) *T {
-            return &self.mem().ptr[self.indexOf(i)];
+            return &self.buf.ptr[self.indexOf(i)];
         }
 
         /// The slot at `i`, read-only, for an element reached through a
         /// read view; panics when out of range.
         pub fn constSlot(self: *const Self, i: anytype) *const T {
-            return &self.memConst().ptr[self.indexOf(i)];
+            return &self.buf.ptr[self.indexOf(i)];
         }
 
         /// `i` as a slot of the live elements, panicking unless `0 <= i <
         /// len`; inside the buffer by `len <= buf.len`.
         inline fn indexOf(self: *const Self, i: anytype) usize {
             const idx = index(i, self.len);
-            invariant(idx < self.memConst().len);
+            invariant(idx < self.buf.len);
             return idx;
         }
 
@@ -1654,27 +1623,27 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// (`Proven`), and, with `If`, the tests `q` too while `ok`, a flag
         /// the compiler made before the statement (`offsetIf`).
         pub inline fn atProven(self: *const Self, i: Int, comptime p: Proven) T {
-            return self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+            return self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn slotProven(self: *Self, i: Int, comptime p: Proven) *T {
-            return &self.mem().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn constSlotProven(self: *const Self, i: Int, comptime p: Proven) *const T {
-            return &self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
-            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
         }
         pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
-            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
         }
         pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
-            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
         }
 
         inline fn provenSlot(self: *const Self, idx: ?usize) usize {
             const slot_ = idx orelse indexPanic();
-            invariant(slot_ < self.memConst().len);
+            invariant(slot_ < self.buf.len);
             return slot_;
         }
 
@@ -1682,7 +1651,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         pub fn pop(self: *Self) Opt(T) {
             if (self.len == 0) return pack(Opt(T), null);
             self.len -= 1;
-            return pack(Opt(T), self.mem()[self.len]);
+            return pack(Opt(T), self.buf[self.len]);
         }
 
         /// Insert `value` at `i`, moving the elements from `i` on up by
@@ -1690,9 +1659,8 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         pub fn insert(self: *Self, i: Int, value: T) void {
             const idx = index(i, self.len + 1);
             self.reserveTotal(self.len + 1);
-            const m = self.mem();
-            std.mem.copyBackwards(T, m[idx + 1 .. self.len + 1], m[idx..self.len]);
-            m[idx] = value;
+            std.mem.copyBackwards(T, self.buf[idx + 1 .. self.len + 1], self.buf[idx..self.len]);
+            self.buf[idx] = value;
             self.len += 1;
         }
 
@@ -1701,9 +1669,8 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `0 <= i < len`.
         pub fn remove(self: *Self, i: Int) T {
             const idx = index(i, self.len);
-            const m = self.mem();
-            const value = m[idx];
-            std.mem.copyForwards(T, m[idx .. self.len - 1], m[idx + 1 .. self.len]);
+            const value = self.buf[idx];
+            std.mem.copyForwards(T, self.buf[idx .. self.len - 1], self.buf[idx + 1 .. self.len]);
             self.len -= 1;
             return value;
         }
@@ -1715,7 +1682,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
             pub fn next(it: *IntoIter) Opt(T) {
                 if (it.next_index >= it.list.len) return pack(Opt(T), null);
-                const value = it.list.mem()[it.next_index];
+                const value = it.list.buf[it.next_index];
                 it.next_index += 1;
                 return pack(Opt(T), value);
             }
@@ -1724,11 +1691,10 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             /// last first as a List does, then free the buffer.
             pub fn deinit(it: *IntoIter) void {
                 if (comptime needsDrop(T)) {
-                    const m = it.list.mem();
-                    invariant(it.list.len <= m.len);
+                    invariant(it.list.len <= it.list.buf.len);
                     while (it.list.len > it.next_index) {
                         it.list.len -= 1;
-                        dropElement(T, &m.ptr[it.list.len]);
+                        dropElement(T, &it.list.buf.ptr[it.list.len]);
                     }
                 }
                 it.list.len = 0;
@@ -1749,11 +1715,10 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 self.len = 0;
                 return;
             }
-            const m = self.mem();
-            invariant(self.len <= m.len);
+            invariant(self.len <= self.buf.len);
             while (self.len > 0) {
                 self.len -= 1;
-                dropElement(T, &m.ptr[self.len]);
+                dropElement(T, &self.buf.ptr[self.len]);
             }
         }
 
@@ -1766,11 +1731,10 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 self.len = rest;
                 return;
             }
-            const m = self.mem();
-            invariant(self.len <= m.len);
+            invariant(self.len <= self.buf.len);
             while (self.len > rest) {
                 self.len -= 1;
-                dropElement(T, &m.ptr[self.len]);
+                dropElement(T, &self.buf.ptr[self.len]);
             }
         }
 
@@ -1780,11 +1744,6 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         pub fn filled(n: Int, value: T) Self {
             const count = std.math.cast(usize, n) orelse @panic("negative size");
             if (count == 0) return .empty;
-            if (count <= inline_len) {
-                var v: Self = .{ .len = count };
-                @memset(v.inline_buf[0..count], value);
-                return v;
-            }
             const buf = allocSlice(T, count);
             @memset(buf, value);
             return .{ .buf = buf, .len = count };
@@ -1799,15 +1758,14 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             const want = std.math.cast(usize, n) orelse @panic("negative size");
             if (want <= self.len) return self.keep(n);
             self.reserveTotal(want);
-            const m = self.mem();
-            invariant(want <= m.len);
-            @memset(m.ptr[self.len..want], value);
+            invariant(want <= self.buf.len);
+            @memset(self.buf.ptr[self.len..want], value);
             self.len = want;
         }
 
         pub fn __rig_drop(self: *Self) void {
             self.clear();
-            if (inline_len == 0 or self.buf.len != 0) freeSlice(T, self.buf);
+            freeSlice(T, self.buf);
             self.buf = &.{};
         }
     };
@@ -2086,9 +2044,7 @@ fn spell(comptime parts: anytype, comptime args: anytype, comptime names: anytyp
     var out: []const u8 = "";
     inline for (parts) |part| out = out ++ switch (@typeInfo(@TypeOf(part))) {
         .pointer => part,
-        // An argument that is a value (`List[T, inline: n]`'s `n`) is
-        // its number.
-        .comptime_int => if (@TypeOf(args[part]) == type) nameOf(args[part], names) else std.fmt.comptimePrint("{d}", .{args[part]}),
+        .comptime_int => nameOf(args[part], names),
         else => nameOf(part, names),
     };
     return out;
@@ -2633,6 +2589,62 @@ pub fn swap(items: anytype, i: anytype, j: anytype) void {
 
 /// Rig's `Endian`: the byte order of `read` and `write`.
 pub const Endian = enum { little, big };
+
+/// `Order`: how two values order, which a type's own `order` gives
+/// (docs/design/apis.md, Stage 2).
+pub const Order = enum {
+    less,
+    equal,
+    greater,
+
+    /// `a.then(b)`: `a`, unless it is `.equal`, then `b`, for ties.
+    pub fn then(self: Order, other: Order) Order {
+        return if (self == .equal) other else self;
+    }
+};
+
+/// How `a` and `b` of one type that provides `Ord` order, as an `Order`:
+/// `a.order(?b)`.
+pub fn orderOf(a: anytype, b: anytype) Order {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (comptime isString(A) or isString(B)) return fromMath(std.mem.order(u8, stringBytes(a), stringBytes(b)));
+    if (comptime isValuePointer(A)) return orderOf(a.*, b);
+    if (comptime isValuePointer(B)) return orderOf(a, b.*);
+    const T = @TypeOf(a, b);
+    return fromMath(order(@as(T, a), @as(T, b)));
+}
+
+fn fromMath(o: std.math.Order) Order {
+    return switch (o) {
+        .lt => .less,
+        .eq => .equal,
+        .gt => .greater,
+    };
+}
+
+/// `Printer`: where a type's own `print` writes its printed form.
+/// `text` writes text as it is, and `value` a value as `print` shows a
+/// part of another, text in quotes. A failed write is kept and reported
+/// once the type's `print` returns.
+pub const Printer = struct {
+    w: *std.Io.Writer,
+    failed: bool = false,
+
+    pub fn text(self: *Printer, s: []const u8) void {
+        if (self.failed) return;
+        self.w.writeAll(s) catch {
+            self.failed = true;
+        };
+    }
+
+    pub fn value(self: *Printer, x: anytype) void {
+        if (self.failed) return;
+        writeValue(self.w, x, false) catch {
+            self.failed = true;
+        };
+    }
+};
 
 /// Rig's `Arch`: the target's processor architecture, Zig's own enum.
 pub const Arch = std.Target.Cpu.Arch;
@@ -5029,6 +5041,12 @@ const max_print_depth = 64;
 /// is, and quoted everywhere else.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
+    if (comptime ownsApi(T, "__rig_own_print")) {
+        var out: Printer = .{ .w = w };
+        T.__rig_own_print(&value, &out);
+        if (out.failed) return error.WriteFailed;
+        return;
+    }
     if (comptime isStringView(T)) {
         return if (top) w.writeAll(value) else writeQuoted(w, value);
     }
@@ -5248,11 +5266,11 @@ const Counter = struct {
 };
 
 /// Records the order values are dropped in.
-const Order = struct {
+const DropOrder = struct {
     log: *[16]u8,
     n: *usize,
     id: u8,
-    pub fn __rig_drop(self: *Order) void {
+    pub fn __rig_drop(self: *DropOrder) void {
         self.log[self.n.*] = self.id;
         self.n.* += 1;
     }
@@ -5664,8 +5682,8 @@ test "List owns and drops its elements, last first" {
     const before = usage();
     var log: [16]u8 = undefined;
     var n: usize = 0;
-    var v: List(*Shared(Order)) = .empty;
-    for (1..11) |i| v.push(shared(Order{ .log = &log, .n = &n, .id = @intCast(i) }));
+    var v: List(*Shared(DropOrder)) = .empty;
+    for (1..11) |i| v.push(shared(DropOrder{ .log = &log, .n = &n, .id = @intCast(i) }));
     try testing.expectEqual(10, v.len);
     v.__rig_drop();
     try testing.expectEqualSlices(u8, &.{ 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 }, log[0..n]);
@@ -5707,7 +5725,7 @@ test "a consuming loop left early drops the rest last first" {
     const before = usage();
     var log: [16]u8 = undefined;
     var n: usize = 0;
-    var v: List(Order) = .empty;
+    var v: List(DropOrder) = .empty;
     for (1..5) |i| v.push(.{ .log = &log, .n = &n, .id = @intCast(i) });
     var it = v.intoIter();
     var first = it.next().?;
@@ -5882,8 +5900,8 @@ test "queued drops keep the order of a recursive release" {
     const before = usage();
     const Tree = struct {
         next: ?*Shared(@This()),
-        a: ?*Shared(Order),
-        b: ?*Shared(Order),
+        a: ?*Shared(DropOrder),
+        b: ?*Shared(DropOrder),
     };
     var log: [16]u8 = undefined;
     var n: usize = 0;
@@ -5891,13 +5909,13 @@ test "queued drops keep the order of a recursive release" {
         n = 0;
         const child = shared(Tree{
             .next = null,
-            .a = shared(Order{ .log = &log, .n = &n, .id = 3 }),
-            .b = shared(Order{ .log = &log, .n = &n, .id = 4 }),
+            .a = shared(DropOrder{ .log = &log, .n = &n, .id = 3 }),
+            .b = shared(DropOrder{ .log = &log, .n = &n, .id = 4 }),
         });
         var head: ?*Shared(Tree) = shared(Tree{
             .next = child,
-            .a = shared(Order{ .log = &log, .n = &n, .id = 1 }),
-            .b = shared(Order{ .log = &log, .n = &n, .id = 2 }),
+            .a = shared(DropOrder{ .log = &log, .n = &n, .id = 1 }),
+            .b = shared(DropOrder{ .log = &log, .n = &n, .id = 2 }),
         });
         for (0..depth) |_| head = shared(Tree{ .next = head, .a = null, .b = null });
         drop(&head);

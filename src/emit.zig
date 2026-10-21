@@ -449,7 +449,7 @@ pub const Emitter = struct {
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
         if (self.uses_names) try self.emitNamesTable();
-        for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
+        for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id, self.facts.order_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
         if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
     }
 
@@ -660,6 +660,7 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitFields(1);
         try self.emitRigName(1);
+        try self.emitOwnApis(1);
         try self.emitStrictOptional(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
@@ -681,6 +682,7 @@ pub const Emitter = struct {
         try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
         try self.emitFields(2);
         try self.emitRigName(2);
+        try self.emitOwnApis(2);
         try self.emitStrictOptional(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
@@ -714,6 +716,7 @@ pub const Emitter = struct {
             if (self.facts.hasTextTable(self.nominal.?.sym)) try self.emitTextTable(self.nominal.?.sym);
         }
         try self.emitRigName(1);
+        try self.emitOwnApis(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
     }
@@ -750,6 +753,7 @@ pub const Emitter = struct {
         try self.emitGenericHead(ir.GenericEnum.tparams(node), "union(enum)");
         try self.emitUnionVariants(2);
         try self.emitRigName(2);
+        try self.emitOwnApis(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -812,6 +816,44 @@ pub const Emitter = struct {
     /// a type parameter (`rig.typeName`): its module (`nameModule`), and
     /// its spelling, a generic type's at the parameters of each instance
     /// (`.{ "Pair[", A, ", ", B, "]" }`).
+    /// The runtime's hooks into the methods by which the type being
+    /// emitted gives `==`, hashing, ordering, or printing a meaning of its
+    /// own (docs/design/apis.md, Stage 2): `rig.eql`, `rig.hash`,
+    /// `rig.order`, and `print` call them for the type, and for it as a
+    /// part of another value, at every level.
+    fn emitOwnApis(self: *Emitter, depth: u32) Error!void {
+        const sym = self.facts.symbols.items[self.nominal.?.sym];
+        const view = "rig.viewOf(@This(), a), rig.viewOf(@This(), b)";
+        if (facts.syntax.ownApiMethod(sym, .Eq) != null) {
+            try self.writeIndent(depth);
+            try self.w.print("pub fn __rig_own_eq(a: *const @This(), b: *const @This()) bool {{ return @This().eq({s}); }}\n", .{view});
+        }
+        if (facts.syntax.ownApiMethod(sym, .Ord) != null) {
+            try self.writeIndent(depth);
+            try self.w.print("pub fn __rig_own_order(a: *const @This(), b: *const @This()) rig.Order {{ return @This().order({s}); }}\n", .{view});
+        }
+        if (facts.syntax.ownApiMethod(sym, .Print) != null) {
+            try self.writeIndent(depth);
+            try self.w.writeAll("pub fn __rig_own_print(a: *const @This(), out: *rig.Printer) void { @This().print(rig.viewOf(@This(), a), out); }\n");
+        }
+        if (facts.syntax.ownApiMethod(sym, .Hash)) |m| {
+            // The hasher is the type `hash_into` takes, `hash.Hasher`.
+            const f = switch (self.facts.types.get(m.ty)) {
+                .function => |f| f,
+                else => return self.unsupported(.nil, "a `hash_into` that is no function"),
+            };
+            if (f.params.len != 2) return self.unsupported(.nil, "a `hash_into` of another signature");
+            const hasher = switch (self.facts.types.get(f.params[1])) {
+                .write_view => |inner| inner,
+                else => return self.unsupported(.nil, "a `hash_into` of another signature"),
+            };
+            try self.writeIndent(depth);
+            try self.w.writeAll("pub fn __rig_own_hash(a: *const @This()) u64 { var h: ");
+            try self.emitTypeTy(hasher);
+            try self.w.writeAll(" = .{}; @This().hash_into(rig.viewOf(@This(), a), &h); return h.finish(); }\n");
+        }
+    }
+
     fn emitRigName(self: *Emitter, depth: u32) Error!void {
         const sym = self.nominal.?.sym;
         const a = self.arena.allocator();
@@ -6207,11 +6249,6 @@ pub const Emitter = struct {
                 try self.w.print("\"{s}\"", .{piece});
                 continue;
             }
-            // `List[T, inline: n]`'s length: `InlineList`'s second argument.
-            if (std.mem.eql(u8, piece, "n")) {
-                try self.w.writeAll("1");
-                continue;
-            }
             if (piece[0] == 't') {
                 const ty = std.fmt.parseInt(TypeId, piece[1..], 10) catch unreachable;
                 if (how == .concat) try self.w.writeAll("rig.typeName(");
@@ -6258,7 +6295,7 @@ pub const Emitter = struct {
             try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
-        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id }) |sym| {
+        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.order_sym_id, ctx.printer_sym_id }) |sym| {
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, .{ .nominal = sym })});
@@ -6273,11 +6310,6 @@ pub const Emitter = struct {
             try self.w.writeAll(", ");
             try self.writeSpelling(try ctx.formatGenericSelfMarked(a, sym), .parts, sym);
             try self.w.writeAll(" },\n");
-            if (sym == ctx.list_sym_id) {
-                try self.w.writeAll("        .{ rig.InlineList, ");
-                try self.writeSpelling(try ctx.formatInlineListMarked(a), .parts, sym);
-                try self.w.writeAll(" },\n");
-            }
         }
         try self.w.writeAll("    },\n};\n");
     }
@@ -6575,6 +6607,15 @@ pub const Emitter = struct {
         const args = ir.Call.args(call);
         switch (op) {
             .new => try self.w.writeAll("rig.String.of("),
+            // `out.value(x)`, which the runtime writes as `print` writes a
+            // part of another value (`rig.Printer.value`).
+            .printer_value => {
+                const recv = ir.Member.object(self.facts.calleeOf(call));
+                try self.emitMemberBase(recv, self.typeOf(recv));
+                try self.w.writeAll(".value(");
+                try self.emitExpr(args[0]);
+                return self.w.writeAll(")");
+            },
             .add, .push, .push_int, .push_keep, .reserve, .clear => {
                 const recv = ir.Member.object(self.facts.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
@@ -6839,6 +6880,14 @@ pub const Emitter = struct {
                 try self.emitElems(ir.Member.object(callee));
                 try self.w.writeAll(", ");
                 if (args.len == 1) try self.emitBare(ir.get(args[0], .value)) else try self.w.writeAll("0");
+                return self.w.writeAll(")");
+            },
+            // `rig.orderOf(a, b)`: an `Order` (`Checker.orderCall`).
+            .order => {
+                try self.w.writeAll("rig.orderOf(");
+                try self.emitExpr(ir.Member.object(callee));
+                try self.w.writeAll(", ");
+                try self.emitExpr(if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0]);
                 return self.w.writeAll(")");
             },
             // `rig.hash(x)`, of the value the receiver reaches.
@@ -8416,12 +8465,6 @@ pub const Emitter = struct {
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
-                if (pn.inline_len > 0) {
-                    // `List[T, inline: n]`.
-                    try self.w.writeAll("rig.InlineList(");
-                    try self.emitTypeList(pn.args);
-                    return self.w.print(", {d})", .{pn.inline_len});
-                }
                 try self.writeNominalName(pn.sym);
                 try self.w.writeAll("(");
                 try self.emitTypeList(pn.args);
@@ -8485,7 +8528,7 @@ pub const Emitter = struct {
     /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.facts.symbols.items[sym];
-        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym)) {
+        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or sym == self.facts.printer_sym_id) {
             // The runtime's `Box(T)` is `^T`.
             return self.w.print("rig.{s}", .{if (sym == self.facts.box_sym_id) "Box" else s.name});
         }
@@ -8695,6 +8738,8 @@ pub const Emitter = struct {
         for (operands) |o| {
             const ty = self.typeOf(o) orelse continue;
             const t = self.peelViews(ty);
+            // A type with its own `==` compares by it (`rig.eql`).
+            if (self.facts.ownApiOf(t, .Eq) != null) return true;
             const scalar = switch (self.facts.types.get(t)) {
                 .optional => |inner| self.isScalarTy(inner) and !self.isErrorSetTy(inner),
                 // A vector's `==` is Zig's, lane by lane.
