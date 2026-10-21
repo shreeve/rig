@@ -1246,6 +1246,8 @@ const Call = struct {
 var pool: Pool = .{};
 
 fn poolMain(p: *Pool) void {
+    // The thread's heap goes to the next thread as it ends (`alloc.zig`).
+    defer rt.fast_alloc.threadExit();
     p.lock.lock();
     // Started for a call: it is busy, not among the threads waiting.
     var waited = false;
@@ -1582,6 +1584,7 @@ fn workerCount() usize {
 }
 
 fn workerMain(w: *Worker) void {
+    defer rt.fast_alloc.threadExit();
     std.Thread.maybeAttachSignalStack();
     me_slot = w;
     loop(w);

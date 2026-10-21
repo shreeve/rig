@@ -109,6 +109,7 @@ pub const httpServe = net.serve;
 
 test {
     _ = sched;
+    _ = fast_alloc;
 }
 
 // -----------------------------------------------------------------------------
@@ -3269,8 +3270,8 @@ pub fn oom() noreturn {
 // allocation. Built with `RIG_SANITIZE=1`, the root module declares
 // `__rig_sanitize`, and the checker sits on `Sanitizer`, which makes any
 // use of freed memory crash where it happens (it takes precedence over
-// `RIG_LEAK_TRACE`). Release builds allocate from `smp_allocator`
-// directly.
+// `RIG_LEAK_TRACE`). Release builds allocate from Rig's own allocator
+// (`alloc.zig`): a heap per thread, with no lock.
 
 const builtin = @import("builtin");
 const root = @import("root");
@@ -3341,10 +3342,15 @@ var trace_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{}
 var sanitizer: Sanitizer = .{};
 var leak_checker: LeakChecker = .{};
 
-/// The allocator behind every runtime allocation.
+/// The allocator behind every runtime allocation: in a release build,
+/// Rig's own, a heap per thread with no lock (`alloc.zig`); in a debug
+/// build, the leak checker's.
 pub fn defaultAllocator() std.mem.Allocator {
-    return if (leak_checked) leak_checker.allocator() else std.heap.smp_allocator;
+    return if (leak_checked) leak_checker.allocator() else fast_alloc.allocator;
 }
+
+/// The allocator of release builds (`alloc.zig`).
+pub const fast_alloc = @import("alloc.zig");
 
 // Rig's own allocations skip the fill Zig's safe builds write over every
 // new, moved, and freed buffer (`std.mem.Allocator.alloc`, `realloc`,

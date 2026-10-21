@@ -50,6 +50,11 @@ pub const tasks_source = @embedFile("tasks.zig");
 pub const sched_filename = "rig/sched.zig";
 pub const sched_source = @embedFile("sched.zig");
 
+/// The allocator of release builds (`src/alloc.zig`), written beside the
+/// runtime too.
+pub const alloc_filename = "rig/alloc.zig";
+pub const alloc_source = @embedFile("alloc.zig");
+
 /// Sockets and the HTTP server (`src/net.zig`), written beside the runtime too.
 pub const net_filename = "rig/net.zig";
 pub const net_source = @embedFile("net.zig");

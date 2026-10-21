@@ -871,6 +871,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
         .{ .path = emit.sched_filename, .contents = emit.sched_source },
         .{ .path = emit.net_filename, .contents = emit.net_source },
+        .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
         .{ .path = "main.zig", .contents = root.written() },
     } });
     try writePackage(allocator, io, dir, &.{.{ .path = "programs", .contents = list.written() }});
@@ -1396,6 +1397,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try files.append(allocator, .{ .path = emit.tasks_filename, .contents = emit.tasks_source });
         try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
         try files.append(allocator, .{ .path = emit.net_filename, .contents = emit.net_source });
+        try files.append(allocator, .{ .path = emit.alloc_filename, .contents = emit.alloc_source });
     }
 
     var root_source: []const u8 = "";
