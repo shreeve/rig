@@ -500,8 +500,9 @@ type mismatch: expected `Static`, got `?String`
 `[N]T` is a fixed-size array. Its length is known at compile time: an
 integer, a constant (`[LIMIT]T`, `[lib.N]T`), a compile-time integer
 parameter (`[n]T` in `fun zeros[n: Int]() -> [n]Int`,
-[§16](#16-compile-time-parameters)), or arithmetic on integers and
-constants with `+`, `-`, `*`, `/`, `%`, and parentheses
+[§16](#16-compile-time-parameters)), a compile-time function's value
+(`[cap[4]]T`, [§16](#compile-time-functions)), or arithmetic on
+integers and constants with `+`, `-`, `*`, `/`, `%`, and parentheses
 (`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
 arithmetic is, in its constants' type: with `W: U8 = 200`, `[W * 2]T`
 overflows `U8`. A length runs from 0 to 4294967295, and one
@@ -3495,8 +3496,10 @@ seed 1: `rig test --seed=1` runs these tests the same way again
 
 A binding at module level is a constant, `name = value` or
 `name: T = value`, and `pub` exports it. Its value must be known at
-compile time: a literal, `.variant`, a constant, or operators,
-ternaries (`a if c else b`), and array literals over them. Every function, type, and constant in the module
+compile time: a literal, `.variant`, a constant, a compile-time
+function's value (`TABLE = squares[16]`,
+[§16](#compile-time-functions)), or operators, ternaries
+(`a if c else b`), and array literals over them. Every function, type, and constant in the module
 reads it, wherever it is declared; nothing can reassign or move it,
 and a local or parameter may not reuse its name (`new` shadows it on
 purpose).
@@ -3529,8 +3532,9 @@ sub main()
 10 5 high true
 ```
 
-Constants are folded in the order they name each other, not the order
-they are written, so a constant that depends on itself is rejected:
+Constants are folded in the order they name each other, and the
+compile-time functions they call, not the order they are written, so a
+constant that depends on itself is rejected:
 
 ```rig reject
 A = B + 1
@@ -10256,7 +10260,9 @@ The brackets choose an instance and the parentheses call it, so a call
 of a function with no run-time parameters is still written `show[3]()`,
 and a statement `show[3]` is rejected, as a statement `greet` is. A
 function with compile-time parameters can only be called, never used
-as a value.
+as a value. A `fun` declared with brackets and no parentheses is a
+compile-time function ([below](#compile-time-functions)), whose call
+`cap[3]` has none.
 
 ```rig
 enum Mode
@@ -10310,6 +10316,129 @@ sub main()
 ```error
 compile-time argument 1 of `show` must be known at compile time
 compile-time argument 1 of `show` does arithmetic on a compile-time parameter
+```
+
+### Compile-time functions
+
+A module-level `fun` (or `pub fun`) with compile-time parameters and no
+run-time parameter list is a **compile-time function**:
+`fun cap[n: Int] -> Int`. Rig runs it when it checks the program, and
+the program never does: a call, written with brackets alone (`cap[8]`,
+`lib.cap[8]`), is a constant of the declared result type, wherever a
+constant may stand. It may be an expression, a module constant
+(`X = fib[20]`, `TABLE = squares[16]`), an array length (`[cap[8]]T`,
+`[cap[8] * 2]T`), a compile-time argument (`show[cap[2]]()`), a
+generic type's value argument (`Ring[Int, cap[4]]`, the same type as
+`Ring[Int, 9]`), an enum value, or an operand of constant arithmetic.
+Zig receives the value: a scalar as a literal, and an array once per
+module, however many calls give it.
+
+Its parameters are integers, `Bool`, and plain enums; its result is one
+of these or a fixed array of them. Each argument is a value known where
+the call is written, as a compile-time argument is (a literal, an enum
+value, a module constant, constant arithmetic, or another compile-time
+call), and must fit its parameter. In a compile-time function's own
+body its parameters are values Rig knows, so a call there takes any
+argument of the parameter's type (`fib[n - 1]`), but one for a
+parameter the result's type names (`-> [n]Int`), which follows the rule
+of compile-time arguments. Recursion and mutual recursion are allowed.
+
+The body may use locals (`=`, `=!`, assignment, compound assignment,
+and assignment to an element of a local array), integer, `Bool`, and
+plain enum literals and operators, conversions between integer types
+(`U8(x)`), integer constants (this module's or another's), integer
+limits (`Int.max`), `if`, `match`, `while`, `for` over a range or an
+array, labels, `break`, `continue`, `return`, array literals and fills,
+indexing, `.len`, calls of compile-time functions, and `panic`. It
+holds only integers, `Bool`, plain enums, and arrays of them, so text,
+floats, objects, Lists, optionals, failures, closures, sigils, method
+calls, `defer`, `raw`, and calls of run-time functions are rejected
+where they are written. A `sub`, a method, and an `inline` or `called`
+function are never compile-time functions.
+
+A call is computed once per program for each set of arguments, within
+fixed limits, so `rig check` gives the same verdict on every machine:
+10,000,000 steps (each expression, loop iteration, and array element
+copied) and 256 nested compile-time calls. Its result obeys the
+8 MiB value rule. Each failure is a diagnostic at the call, with a
+note at the line of the body that failed: an overflow of the
+operation's type, a division by zero, an index out of range, a
+conversion that does not fit, a limit reached, and a `panic`, whose
+message is the diagnostic's.
+
+```rig
+enum Mode
+  loose
+  strict
+
+fun cap[n: Int] -> Int
+  n * 2 + 1
+
+fun fib[n: Int] -> Int
+  if n < 2
+    return n
+  fib[n - 1] + fib[n - 2]
+
+fun squares[n: Int] -> [n]Int
+  t = [n of 0]
+  for i in 0..n
+    t[i] = i * i
+  t
+
+fun width[m: Mode] -> Int
+  match m
+    .loose => 1
+    .strict => 2
+
+obj Ring[T, n: Int]
+  items: [n]T
+
+TABLE = squares[5]
+
+sub main()
+  a: [cap[2]]Int = [5 of 0]
+  r = Ring[Int, cap[1]](items: [3 of 7])
+  print(cap[3], a.len, r.items.len)
+  print(fib[40], TABLE, width[.strict])
+```
+
+```output
+7 5 3
+102334155 [0, 1, 4, 9, 16] 2
+```
+
+```rig reject
+fun cap[n: Int] -> Int
+  if n <= 0
+    panic("cap needs a positive n")
+  n * 2 + 1
+
+fun ask[n: Int] -> Int
+  print(n)
+  n
+
+sub main()
+  print(cap[0], ask[1])
+```
+
+```error
+compile-time call `cap[0]` panics: cap needs a positive n
+a compile-time function cannot call `print`
+```
+
+A compile-time call over a generic's own compile-time parameter
+(`cap[n]` in `fun make[n: Int]`) would compute a value for each
+instance, which Rig does not yet do; it is rejected, as `[n + 1]T` is:
+
+```rig pending
+fun cap[n: Int] -> Int
+  n * 2 + 1
+
+fun make[n: Int]() -> [cap[n]]Int
+  [cap[n] of 0]
+
+sub main()
+  print(make[2]().len)
 ```
 
 ---

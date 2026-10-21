@@ -181,6 +181,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
 | `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian` and `Arch` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
+| `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
@@ -894,7 +895,11 @@ orders the constants so each comes after those its value and its type
 name (`SemContext.const_order`, depth first with an explicit stack);
 the fold (`resolve.foldModuleConsts`) and typecheck take them in that
 order, and a constant that depends on itself is rejected, with its
-cycle, and left out.
+cycle, and left out. The module's compile-time functions are ordered
+with them, each after the constants and functions its declaration
+names, so a constant that calls one is folded after it is checked; a
+cycle of compile-time functions alone is recursion, and one through a
+constant is that constant's cycle (`N` → `f` → `N`).
 
 Every module's `SemContext` is in one shared table, and cross-module
 references go through it: an imported nominal type is
@@ -2163,6 +2168,49 @@ value, or a write view, is no type argument, [Sema](#sema)), and every
 instance against the requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the
 body's ownership assumptions ([Ownership](#ownership)).
+
+### Compile-time functions
+
+A module-level `fun` with compile-time parameters and no run-time list
+is a compile-time function (`rig.isCtFun`, from the IR alone: the
+Parser wrapper lets the form stand only there, `Parser.ctFunShape`).
+Every pass after sema skips one through that predicate: storage,
+ownership, proofs, frames (`OwnerWalker`), inlining, `rig.eachBody`,
+emit, and the oracle. It is never emitted.
+
+Sema checks each when the module's constants are folded, in their
+combined order ([Constants](#constants)), before the other declarations
+are resolved, since a type or a constant may need a call's value:
+`resolve.ensureCtSig` resolves its signature, with the plain enums it
+names resolved ahead of the rest (`resolveEnumsNamed`), and
+`resolve.ensureCtFun` then checks its body. `cteval.checkNames` holds
+the names the body reads to integer constants, plain enums, and
+integer aliases; `typecheck.checkCtFun` types the body as any body
+(`Checker.in_ct_fun`, where a compile-time call takes any argument),
+with the ownership facts of its types made known for the purpose
+(`sema.beginEarlyContents`); and `cteval.checkBody` holds every node to
+the positive list `Eval` runs and every value to integers, `Bool`,
+plain enums, and arrays of them. Each function has a stage for its
+signature and one for its body (`cteval.CtFun`), so a signature that
+needs its own value is rejected rather than followed forever.
+
+A call is computed where it is first needed, once per program for each
+set of arguments (`cteval.callAt`, the memo of the declaring module's
+`SemContext.ct`): where a type, a constant, or an enum value is
+resolved, `ctFoldBy` asks `ConstNames.ctCall`, which computes it; in a
+body, typecheck computes it (`Checker.synthCtCall`) and records it as
+the call's instance, `Instance.ct_call`, which `CheckedNames.ctCall`,
+`handsOver` (a made value), emit, and the oracle read. `Eval` walks the
+checked IR of the body, reading each node's type from the checker, with
+the one arithmetic core of constant folding (`sema.ctArith`); it counts
+steps and nesting against fixed limits, and stops at a failure, which
+`callAt` reports at the call with a note at the body's node. A failure
+is remembered too, so the call is not computed again.
+
+Emit writes a scalar as a literal and an array, at a call in a body, as
+one hidden constant per module per value (`__rig_ct_<i>`,
+`cteval.Hidden`, decided once when the call is recorded); a module
+constant's array is written where the constant is.
 
 ### Diagnostics
 

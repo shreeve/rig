@@ -2087,6 +2087,8 @@ const Lowerer = struct {
     fn eval(self: *Lowerer, e: Sexp, how: How, want: ?TypeId) Error!?VarId {
         const pos = self.posOf(e);
         const k = e.kind() orelse return self.leafValue(e, how, want);
+        // A compile-time call is a constant: the checker computed it.
+        if ((k == .index or k == .inst) and self.isCtCall(e)) return null;
         switch (k) {
             .member, .index => {
                 if (k == .member and try self.constant(e)) return null;
@@ -2319,6 +2321,13 @@ const Lowerer = struct {
             .module, .nominal_type, .type_alias, .generic_type => true,
             else => false,
         };
+    }
+
+    /// `cap[8]`: a call of a compile-time function, whose value the
+    /// checker computed (`Instance.ct_call`).
+    fn isCtCall(self: *Lowerer, e: Sexp) bool {
+        const inst = self.ctx.instanceOf(e) orelse return false;
+        return inst == .ct_call;
     }
 
     fn constRooted(self: *Lowerer, e: Sexp) bool {

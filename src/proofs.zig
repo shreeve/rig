@@ -1577,7 +1577,7 @@ const Summaries = struct {
     fn all(s: *Summaries, root: Sexp) Error!void {
         for (ir.Module.decls(root)) |decl| {
             const d = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
-            if (!d.isKind(.fun)) continue;
+            if (!d.isKind(.fun) or rig.isCtFun(d)) continue;
             try s.fns.put(s.a, s.ctx.startOf(ir.get(d, .name)), d);
         }
         var it = s.fns.keyIterator();

@@ -436,7 +436,9 @@ fn collectDecl(a: std.mem.Allocator, m: *const modules.Module, decl: Sexp, owner
     switch (kind) {
         .@"pub" => try collectDecl(a, m, ir.Pub.decl(decl), owner, generic, units, names),
         .fun, .sub, .drop_decl, .@"test" => {
-            if (ir.get(decl, .body) == .nil) return;
+            // A compile-time function runs in the checker, never when the
+            // program does: it holds plain values, and lends nothing.
+            if (ir.get(decl, .body) == .nil or lib.rig.isCtFun(decl)) return;
             const base = switch (kind) {
                 .drop_decl => "drop",
                 .@"test" => lower.leafText(ir.Test.name(decl), m.source),

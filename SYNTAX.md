@@ -712,7 +712,10 @@ sign -1
   ([SPEC](SPEC.md#closures-called-once)).
 - A function always writes its parameter list, even when empty, as
   its calls (`f()`) and its type (`sub()`) do: `sub main()`,
-  `fun answer() -> Int`.
+  `fun answer() -> Int`. A module-level `fun` with compile-time
+  parameters and no parameter list is a compile-time function, which
+  runs when Rig checks the program: `fun cap[n: Int] -> Int`, called
+  `cap[8]` ([SPEC](SPEC.md#compile-time-functions)).
 - The body's last expression is its value; `return e` leaves early.
 - Several results are a list of types in parentheses, `-> (Int, Int)`,
   given by `return a, b` and bound by name, `q, r = divmod(17, 5)`
@@ -971,13 +974,17 @@ one ([SPEC, Bounds](SPEC.md#bounds)). There is no `<T>` and no
 | both | `sub rep[T, n: Int](x: T)` | `rep[?String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
 | a type with a value | `obj Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [4 of 0])` |
+| compile-time function | `fun cap[n: Int] -> Int` | `cap[8]`, `[cap[8]]Int`, `Ring[Int, cap[2]]` |
 
 A method's own parameters sit beside its type's: inside `Wrap[T]`,
 `fun map[U]` has both `T` and `U`. A call gives every compile-time
 argument in brackets, or none and lets them be inferred
 ([SPEC §3](SPEC.md#generic-functions)). A function with no run-time
 parameters writes `()` after its brackets, in its declaration as in a
-call: `sub show[n: Int]()` is called `show[3]()`.
+call: `sub show[n: Int]()` is called `show[3]()`. A `fun` without them
+is a compile-time function: no parentheses, nothing when the program
+runs. `fun cap[n: Int] -> Int` is called `cap[3]`, and its value is a
+constant ([SPEC](SPEC.md#compile-time-functions)).
 
 ```rig
 obj Wrap[T]
@@ -1578,7 +1585,10 @@ this rule's.
 ### Compile-time arguments
 
 `x[...]` after `x` indexes, unless `x` names a generic type or a
-function: then the brackets hold compile-time arguments. What the name
+function: then the brackets hold compile-time arguments. When `x` is a
+compile-time function, the brackets are its call, with no parentheses
+after them: `cap[3]`, `lib.cap[3]`, also in a type, `[cap[3]]Int`,
+`[cap[3] * 2]Int`, `Ring[Int, cap[3]]`. What the name
 denotes decides, whether it is named directly, through a module
 (`lib.scaled[3]`), through a type (`Scale.unit[6]()`), or as a method
 (`s.times[5]()`), including a built-in method: `bytes.read[U32, .little](at)`

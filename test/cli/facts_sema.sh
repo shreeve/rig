@@ -48,6 +48,20 @@ expect_has "$(cat lift.txt)" 'lifts / 3:3-3:8 "n / 2" Int? from Int' "a result l
 expect_has "$(cat lift.txt)" 'lifts leaf 6:13-6:14 "4" Int? from Int' "a literal lifted into an optional"
 if grep -q '"x ?? 0"' <(grep '^lifts' lift.txt); then fail "a value that goes where its own type goes is no lift"; fi
 
+# A compile-time call's value, on the call.
+cat >ct.rig <<'EOF2'
+fun squares[n: Int] -> [n]Int
+  t = [n of 0]
+  for i in 0..n
+    t[i] = i * i
+  t
+
+sub main()
+  print(squares[3])
+EOF2
+"$RIG" check --facts=sema ct.rig >ct.txt 2>err.txt || fail "rig check --facts=sema ct.rig: $(cat err.txt)"
+expect_has "$(cat ct.txt)" 'instances index 8:9-8:19 "squares[3]" ct [0, 1, 4]' "a compile-time call's value"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)

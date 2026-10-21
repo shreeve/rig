@@ -1878,7 +1878,9 @@ pub const Checker = struct {
                 for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walkDecl(c);
                 for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walkDecl(c);
             },
-            .fun, .sub => try self.walkFun(ir.get(sexp, .name), sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
+            // A compile-time function's values are plain, and it runs in
+            // the checker (`rig.isCtFun`).
+            .fun, .sub => if (!rig.isCtFun(sexp)) try self.walkFun(ir.get(sexp, .name), sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
             .drop_decl => try self.walkFun(.nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
             .@"struct", .@"enum", .errors, .generic_struct => {
                 const saved = self.decl_owner;

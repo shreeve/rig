@@ -69,6 +69,9 @@ pub const self_check = @import("build_options").self_check;
 pub const check_units = self_check;
 
 pub const UnitEvent = sema.UnitEvent;
+pub const CtVal = sema.cteval.CtVal;
+pub const CtResult = sema.cteval.Result;
+pub const CtHidden = sema.cteval.Hidden;
 pub const GenericCall = sema.GenericCall;
 pub const Use = sema.Use;
 pub const Header = sema.Header;
@@ -291,6 +294,20 @@ pub const Facts = struct {
     }
     pub fn instanceOf(f: Facts, node: Sexp) ?Instance {
         return f.c().instanceOf(node);
+    }
+    /// The value of a compile-time call (`cap[8]`), which the checker
+    /// computed, and the hidden constant that holds an array one.
+    pub fn ctValueOf(f: Facts, node: Sexp) ?CtResult {
+        return sema.cteval.recorded(f.c(), node);
+    }
+    /// The hidden constants of the module's compile-time values, in order:
+    /// the one at `i` is `__rig_ct_<i>`.
+    pub fn ctHidden(f: Facts) []const CtHidden {
+        return f.c().ct.hidden.items;
+    }
+    /// The name of variant `i` of plain enum `ty`.
+    pub fn variantName(f: Facts, ty: TypeId, i: u32) []const u8 {
+        return sema.cteval.variantName(f.c(), ty, i);
     }
     pub fn genericCallOf(f: Facts, node: Sexp) ?GenericCall {
         return f.c().genericCallOf(node);

@@ -1376,6 +1376,10 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
         for (e.items()) |c| try planConsumed(ctx, c);
         return;
     };
+    if (head == .module) {
+        for (ir.Module.decls(e)) |d| if (!rig.isCtFun(d)) try planConsumed(ctx, d);
+        return;
+    }
     switch (head) {
         .move => try consumeName(ctx, ir.Move.operand(e)),
         .drop => try consumeName(ctx, ir.Drop.target(e)),
@@ -1436,7 +1440,12 @@ const Planner = struct {
 
     fn walk(p: *Planner, e: Sexp) std.mem.Allocator.Error!void {
         switch (e) {
-            .list => for (if (e.kind() == null) e.items() else rig.children(e)) |c| try p.walk(c),
+            .list => {
+                // A compile-time function runs in the checker, which
+                // stores nothing for it.
+                const module = e.isKind(.module);
+                for (if (e.kind() == null) e.items() else rig.children(e)) |c| if (!module or !rig.isCtFun(c)) try p.walk(c);
+            },
             .src => {},
             else => return,
         }
