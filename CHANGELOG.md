@@ -29,6 +29,12 @@ changed the language since it:
   type's largest value without stepping past it), a slice
   (`xs[a..=b]`, `xs[..=b]`), and a range pattern (`1..=5 =>`,
   `200..=255 =>`).
+- **Bytes are strings:** where a `U8` is expected, a string literal of
+  one byte is that byte (`c: U8 = 'A'`, `c == "\n"`, `'0'..='9' =>` on a
+  `U8`, `U8('>')`), and where a `[N]U8` is, its bytes
+  (`HOME: [3]U8 = "\x1b[H"`). `b'…'` and `b"…"` are gone: `b'A'` is the
+  name `b` and a string. Quotes decide only escapes, so a byte that
+  needs one is written in double quotes (`"\n"`, `"\x1b"`).
 - **Weak handles:** `*w` upgrades a weak handle to a `*T?` (`*<w`
   upgrades and takes it); the method `w.upgrade()` is rejected with a
   hint, and so is `*~T`, as every holding sigil over a held value is.

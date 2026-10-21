@@ -2641,7 +2641,7 @@ fail "match else block arm", "7:3: the catch-all arm is `_`, or a name that bind
     else
       print("other")
 
-fail "match float pattern", "unexpected `1.5`", "a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant"
+fail "match float pattern", "unexpected `1.5`", "a pattern is a name, an integer, a string, `true`, `false`, or an enum variant"
   # A match pattern is a name, an integer, a Bool, a string, or an enum
   # variant; a float literal is not a pattern.
 
