@@ -62,27 +62,6 @@ from the journey before it, and from the docs map's question table in
 
 ## The journeys still to write
 
-**07. Generics and compile time.** What a generic body may do with a
-`T`, written for the generics Rig has.
-- Opens on the largest item of a list, a function every reader has
-  written: C's macro or copy per type, Go's old `interface{}`, C++
-  templates' page of errors, Rust's `T: PartialOrd + Copy`.
-- Sections: one body for many types (`max[T]`, inferred and explicit);
-  what the compiler makes (`rig emit`: one instance per type, no
-  run-time cost); values known when compiling (`[n: Int]`, `Ring[T, n]`);
-  what a body may do with a `T` and how each instance is checked, with
-  the error at the call and a note at the body; calling a `T`'s methods
-  (APIs Stage 1), the result typed from where the call stands; `reduce`
-  over a `[]T`, once std has it; many kinds in one list today, an enum
-  with payloads or an object of `*fun` fields.
-- What is not there yet: bounds (`[K: Hash]`), APIs of a program's own,
-  and API objects (`?{Shape}`), each a stage of
-  [design/apis.md](../design/apis.md). Rewrite the chapter's later
-  sections as each stage lands.
-- Mine: SPEC "Generic types", "Generic functions", "Generic bodies";
-  DESIGN "Per-instance checking"; WELCOME's generics table;
-  design/apis.md Stage 1; design/simd.md for `Simd[T, n]`.
-
 **11. A real program, end to end.** What a whole Rig program looks like,
 from the first file to a tested concurrent service. Written last.
 - Outline: modules and directory modules; errors at the boundaries; an

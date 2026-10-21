@@ -661,6 +661,8 @@ client. `BigInt` has no division.
 
 - [Text done right](05-text.md) covers `std.text` and the four units
   of text.
+- [Write it once, for every type](07-generics.md) writes code once for
+  many types, as `Map`, `sort`, and `reduce` are written.
 - [Tests that fail the same way twice](08-tests.md) tests a tool like
   this one, concurrent parts included.
 - [STD](../STD.md) documents every module in this chapter, and the rest:

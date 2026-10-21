@@ -70,10 +70,10 @@ decisions, model, checks, and what is left are in
 flight; the next piece (a reading API for renderers, OSC, resize, or
 `std.tty` last) is the owner's choice.
 
-Learn Rig ([docs/learn/](docs/learn/README.md)) has journeys 01 to 06
-and 08 to 10. Journey 07 is written next, on APIs' Stages 1 and 2 and
-`xs.reduce(start, f)`, and journey 11 last; how a journey is written, and the
-outlines of both, are in
+Learn Rig ([docs/learn/](docs/learn/README.md)) has journeys 01 to 10.
+Journey 07 teaches APIs' Stages 1 and 2 and `xs.reduce(start, f)`;
+rewrite its later sections as Stages 3 and 4 land. Journey 11 is
+written last; how a journey is written, and its outline, are in
 [docs/internals/journeys.md](docs/internals/journeys.md). What the
 journeys found in the compiler and its docs is at the end of
 [docs/internals/backlog.md](docs/internals/backlog.md).
