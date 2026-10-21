@@ -102,7 +102,8 @@ changed the language since it:
   variants, then payloads. `Bool` and `String` are ordered (`false <
   true`, a String by its bytes), and so are optionals, arrays, and
   slices of ordered values, element by element (docs/design/apis.md,
-  Stage 2).
+  Stage 2). A `T` bounded by `Copy` is copied out of a view of it as out
+  of a name: `fun get[T: Copy](x: ?T) -> T` gives `x`.
 - **Own meanings:** a type that names `Eq`, `Hash`, `Ord`, or `Print`
   on its header and writes `eq`, `hash_into`, `order`, or `print`, with
   the signature the API fixes, gives `==`, hashing, ordering, or

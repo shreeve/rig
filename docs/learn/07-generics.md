@@ -475,28 +475,28 @@ obj Circle
 fun total_area[T](shapes: []T) -> Float
   shapes.reduce(0.0, |sum, s| sum + s.area())
 
-fun count_above[T: Ord](xs: []T, limit: ?T) -> Int
-  xs.reduce(0, |?limit, n, x| n + 1 if x > limit else n)
+fun largest[T: Ord + Copy](xs: []T, first: T) -> T
+  xs.reduce(first, |best, x| x if x > best else best)
 
 sub main()
   print(total_area([Square(side: 2.0), Square(side: 3.0)]), total_area([Circle(r: 1.0)]))
-  print(count_above([3, 9, 4], 3), count_above(["fig", "pear", "apple"], "b"))
+  print(largest([3, 9, 4], 0), largest(["fig", "pear", "apple"], ""))
   words = ["generic", "once", "many"]
   print(words.reduce(0, |n, w| n + w.len))
 ```
 
 ```output
 13.0 3.14159
-2 2
+9 pear
 15
 ```
 
 `total_area` is the loop from before, in one line. Each element is
 lent to the closure as a read view, so `reduce` never copies one, and
-`s.area()` reaches each instance's own method. `count_above` captures
-`limit` with `|?limit|`, as journey 02 showed, and compares under its
-bound. `reduce` works on a slice, an array, or a `List`, and an empty
-one gives `start`.
+`s.area()` reaches each instance's own method. `largest` is this
+chapter's first function, in one line too: `x` is a `?T`, and the bound
+`Copy` lets the closure hand back a `T` copied out of it. `reduce` works
+on a slice, an array, or a `List`, and an empty one gives `start`.
 
 The running value moves through each call, so it may own what it
 holds, such as a `String` built up a piece at a time. A closure written

@@ -13128,6 +13128,12 @@ const Checker = struct {
         switch (at) {
             .read_view, .write_view => |inner| if (compatible(self.ctx, inner, expected)) {
                 if (try self.payloadViewTaken(e, "move")) return;
+                // A bounded `T` copies only where its bounds name `Copy`.
+                switch (self.ctx.types.get(inner)) {
+                    .type_var => |param| if (self.ctx.symbols.items[param].apis.count() > 0)
+                        return reportUnbounded(self.ctx, self.startOf(e), param, .Copy, "a copy"),
+                    else => {},
+                }
                 const name = try self.tyName(inner);
                 const why = if (sema.copies(self.ctx, inner) == .depends) "may not copy in every instance" else self.movesBecause(inner);
                 return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; only a value that copies is copied out of a view, and `{s}` {s}: lend it on where it goes (`?{s}` or `!{s}`)", .{ try self.tyName(expected), try self.tyName(actual), name, why, name, name });

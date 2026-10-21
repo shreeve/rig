@@ -7644,6 +7644,11 @@ pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
 /// copy clones it instead (`cloneable`).
 pub fn copies(ctx: *const SemContext, ty: TypeId) Answer {
     if (ctx.holds(ty).views.write) return .no;
+    // A type parameter whose bounds name `Copy` copies in every instance.
+    switch (ctx.types.get(ty)) {
+        .type_var => |param| if (implied(ctx.symbols.items[param].apis).contains(.Copy)) return .yes,
+        else => {},
+    }
     return switch (moves(ctx, ty)) {
         .no => .yes,
         .yes => .no,
