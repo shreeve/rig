@@ -22,6 +22,7 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | How do I write a form? | [SYNTAX.md](../SYNTAX.md) |
 | What exactly does a form mean? | [SPEC.md](../SPEC.md) |
 | Why was it designed this way? | [FAQ.md](../FAQ.md), then [DESIGN.md](DESIGN.md) and [design/](design/) |
+| Will Rig have traits? | [design/traits.md](design/traits.md): the design, in five stages |
 | How fast is it, and how was that measured? | [launch/benchmarks.md](launch/benchmarks.md), and each benchmark's README under [bench/](../bench/) |
 | What changed since the last release? | [CHANGELOG.md](../CHANGELOG.md) |
 | What is planned? | [ROADMAP.md](ROADMAP.md), and the engineering detail in [internals/backlog.md](internals/backlog.md) |
@@ -61,7 +62,7 @@ your language, then the journeys in order: [sigils](learn/01-sigils.md),
 | Folder | Holds |
 |---|---|
 | [learn/](learn/README.md) | the journeys: one chapter for each of Rig's big ideas |
-| [design/](design/) | the records of decisions that hold today: concurrency and its panel, `as` patterns, the formal plan, the mantras, JSON, SIMD |
+| [design/](design/) | the records of decisions that hold today: concurrency and its panel, traits and their panels, `as` patterns, the formal plan, the mantras, JSON, SIMD |
 | [internals/](internals/) | for contributors: the compiler, Zig 0.17, the scheduler, SIMD lowering, the tests, the weak spots, and the backlog |
 | [launch/](launch/) | the launch post on concurrency, its FAQ, its benchmarks, and one server in three languages |
 | [history/](history/) | superseded and dated documents, each opening with what replaced it |
