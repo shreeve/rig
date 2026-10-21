@@ -35,25 +35,32 @@ planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## In flight
 
-In landing order (each is a branch, not yet on `main`):
-
-1. `m.first()` on masks, and `any` and `all` that stay fast in loops
-   (`simdfirst`).
-2. Checker-proved check elimination, redesigned around units: first
-   `loopfacts` (where loop steps run and jumps go, recorded once; no
-   emitted change), then `proofs2`.
+Nothing is on a branch: `main` is the only one.
 
 APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
-built in stages. Stage 1, method calls on a type parameter, is on
-`main`; Rig builds Stage 2, built-in bounds, from the record. Its design
-questions are answered from the record, and what the record does not
-settle goes to the owner as a decision with a default. Stages 3 to 5
-wait for a program that needs them.
+built in stages. Stage 1, method calls on a type parameter, and Stage 2,
+built-in bounds (`[T: Ord]`, `obj Version: Ord`, a type's own `eq`,
+`hash_into`, `order`, and `print`), are on `main`. Stages 3 to 5 wait
+for a program that needs them; a design question is answered from the
+record, and what it does not settle goes to the owner as a decision with
+a default.
 
-`reduce` is being added to std (`xs.reduce(start, f)`). Still the
-owner's call: whether it is `inline`, so a closure written at the call
-is inlined; whether `sum` is added as its own plain loop; and one
-benchmark of the two against a hand-written loop.
+`Map`, `Set`, `Hasher`, `Order`, `Printer`, and `Symbol` are built in;
+the run-time string interner is `text.Interner` in `std.text`. Trig
+moves to these names with `tools/migrate-builtin-map.py` and
+`tools/rename-interner.py`.
+
+An object's optional is the size of the object where a field has room
+for `none` (a String's, List's, box's, or handle's address, a `Bool`,
+an enum's spare tag), an object that is an id names its own
+(`none id == 0`), and every other flag optional is written in one
+store. On Trig's binder (checker.ts, x86), a 4-byte `Node?` measured
+14% faster and the one store alone 7%; Trig takes the first by naming
+`Node`'s none and writing `none` for its `Node(id: 0)` placeholders.
+
+Release builds on Linux can be laid out by a workload with BOLT,
+`rig build --release --bolt -- WORKLOAD`: 7.6 to 7.9% fewer cycles on
+Trig projects it was not trained on.
 
 `std.terminal`, a terminal emulator library, matches Ghostty (pinned
 at `31bdcd5a7963`) on 416 recorded cases and its fuzzer, scrollback
@@ -64,8 +71,8 @@ flight; the next piece (a reading API for renderers, OSC, resize, or
 `std.tty` last) is the owner's choice.
 
 Learn Rig ([docs/learn/](docs/learn/README.md)) has journeys 01 to 06
-and 08 to 10. Journey 07 is written next, on Stage 1 (and `reduce`
-once it lands), and journey 11 last; how a journey is written, and the
+and 08 to 10. Journey 07 is written next, on APIs' Stages 1 and 2 and
+`xs.reduce(start, f)`, and journey 11 last; how a journey is written, and the
 outlines of both, are in
 [docs/internals/journeys.md](docs/internals/journeys.md). What the
 journeys found in the compiler and its docs is at the end of
@@ -96,8 +103,8 @@ The North Star (AGENTS.md) and `docs/CORE.md` are fixed points.
 - **A change to a rule.** It goes through `docs/CORE.md` first, as its
   own reviewed change, and needs the user's agreement. Ask the "Rig"
   session (below).
-- **New library modules** beyond those in the roadmap. Examples:
-  io, fs, Map/Set, traits, threads.
+- **New library modules** beyond those in the roadmap, such as threads,
+  and a new type built into the language.
 
 A change that rejects programs a release accepted lists them in the
 release notes.
@@ -121,6 +128,9 @@ release notes.
 - **Builtins:** a builtin call is `$name(...)`. Rig's raw builtins track
   Zig's names exactly (`$fromBackingInt`, `$trunc`). The old names are
   rejected with a hint.
+- **Speed work:** a speed feature lands when its gain on a real program,
+  measured on runs it was not trained on, pays for its lines
+  (AGENTS.md, "Working rules").
 - **Merging:** after a branch merges, delete it locally and on GitHub,
   and remove its worktree. `main` stays the only branch.
 

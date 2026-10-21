@@ -63,9 +63,10 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `src/inlining.zig`, `symbols.zig` | program-wide inlining decisions; the program's `:name` symbols |
 | `src/facts.zig` | emit's read-only view of a checked module; decisions emit still makes itself are `Pending` |
 | `src/emit.zig` | Zig code generation, one file per module |
-| `src/runtime.zig`, `sched.zig`, `tasks.zig`, `net.zig` | the runtime, scheduler, tasks and actors, and sockets, embedded in `bin/rig` and written beside each program |
+| `src/runtime.zig`, `sched.zig`, `tasks.zig`, `net.zig`, `alloc.zig` | the runtime, scheduler, tasks and actors, sockets, and the allocator of release builds (a heap per thread), embedded in `bin/rig` and written beside each program |
 | `src/main.zig`, `lsp.zig`, `editor.zig` | the CLI (`rig --help`), the language server, editor support |
-| `std/` | the standard library (`.rig`, with Zig shims), embedded in `bin/rig` |
+| `src/frames.zig`, `bolt.zig` | what `rig build` does to an executable: reads each function's frame to warn of one larger than a page, and lays it out again with BOLT (`--bolt`, Linux) |
+| `std/` | the standard library (`.rig`, with Zig shims), embedded in `bin/rig`; `std/__rig_builtin.rig` is the built-in `Map` and `Set`, which no program imports |
 | `test/rig/*.rig.test` | the behavior and rejection cases, one file per area |
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
@@ -124,7 +125,7 @@ swarm test/rig.rip doc-SPEC        # one doc's examples (doc: every doc's)
 swarm test/rig.rip cli.lsp         # one script of test/cli
 swarm test/rig.rip all             # core, test/cli, and the probes: the full suite
 swarm test/rig.rip proofs          # by hand, after a change to src/proofs.zig
-swarm -q test/rig.rip all          # -q whenever the run is backgrounded or piped
+swarm test/rig.rip all -q          # -q, after the script, whenever the run is backgrounded or piped
 ```
 
 The runner first rebuilds `bin/rig` with `-Dself-check=true`. `all` takes
@@ -190,6 +191,11 @@ until its rule is built. docs/internals/tests.md has the rest.
   comments.
 - **Timeless prose.** Docs and comments describe what is, never what
   changed; history belongs in git.
+- **A speed feature pays for its lines.** It lands when its gain,
+  measured on a real program (Trig) on runs it was not trained on, is
+  worth the code every later change carries. A small gain woven
+  through the compiler does not clear that bar; a large one in code
+  that can be cut out in one step, as `src/bolt.zig` can, does.
 - **One vocabulary.** *You lend a view; the compiler remembers the
   loan*: lend is the act, view the value handed over, loan the owner's
   record. Never "borrow". A Rig `obj` is an "object", never a "struct".

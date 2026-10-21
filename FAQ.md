@@ -109,9 +109,9 @@ source with derived values is a page of Rig
 one small reactive type in the runtime
 ([more](docs/DESIGN.md#substrate-not-a-reactive-framework)).
 
-## Why no traits or interfaces?
+## Does Rig have traits or interfaces?
 
-Rig calls them APIs, `api Shape`: the methods a type provides, not
+Yes, and it calls them APIs, `api Shape`: the methods a type provides, not
 their implementation. They are designed and built in stages, each when
 a program needs it; closures, enums with payloads, and generics checked
 per instance cover today's programs. A bound names a built-in API,

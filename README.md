@@ -224,6 +224,12 @@ up with `?`. `pop` lends `v` to write and gives an `Int!`; `drain`
 passes a failure up with `!`, which `catch` turns into `-1`. There are
 no exceptions and no hidden control flow.
 
+An optional costs nothing where its value has room for `none`: a view
+or handle uses address 0, an object holding a String, List, box, `Bool`,
+or enum uses a value of that field no real one holds, and an object
+that is an id names its own, `none id == 0`, so a `Node?` is a
+`Node` or id 0. Any other `T?` is a `T` beside a flag.
+
 ## Concurrency
 
 Concurrency is the last row of the sigil table, built on the same rules
@@ -386,9 +392,13 @@ it.
 
 ## The rest of the language
 
-Generics take no traits or bounds: `fun max[T](a: T, b: T) -> T` is
-checked at each instance a program makes, against what the body does
-with `T`, the methods it calls on one included, and after a name `[]` is compile time and `()` is run time.
+A generic body is checked at each instance a program makes, against
+what it does with `T`, the methods it calls on one included:
+`fun max[T](a: T, b: T) -> T`. A bound checks the body against the
+bound instead, `fun max[T: Ord](a: T, b: T) -> T`, and a type names
+the built-in APIs it gives a meaning of its own, `obj Version: Ord`
+([docs/design/apis.md](docs/design/apis.md)). After a name, `[]` is
+compile time and `()` is run time.
 A closure's capture list says how it holds each outer value,
 `|+total, ~clicks| ...`. Rig also has objects, enums with payloads and
 exhaustive `match`, modules of one file or a directory, SIMD vectors
@@ -401,7 +411,8 @@ Zig, C, Python, Ruby, JavaScript, or Go.
 
 A program imports a module with `use std.NAME`
 ([docs/STD.md](docs/STD.md)). Built in, with no import: `print`,
-`String`, `List`, `Cell`, `Signal`, `Actor`, `Chan`, and `Tasks`.
+`String`, `List`, `Map`, `Set`, `Cell`, `Signal`, `Actor`, `Chan`, and
+`Tasks`.
 
 | Area | Modules |
 |---|---|
@@ -480,7 +491,8 @@ to `^T`, `List`, `String`, and `obj`; `tools/migrate-0.3.py` migrates
 0.2 programs.
 
 **Built and tested:** the language in this README, its ownership
-checker, generics, closures, modules, SIMD vectors, C functions through
+checker, generics with built-in bounds (`[K: Hash]`), closures, modules,
+SIMD vectors, C functions through
 `extern`, `test` blocks, the language server, the concurrency model
 (tasks, sets of tasks, cancellation, deadlines, actors, supervision,
 channels, `select`, `par`, deterministic tests), and the standard
@@ -491,7 +503,8 @@ x86-64.
 
 - TLS, and an HTTP client.
 - Errors that carry data (declared sets such as `T!E`).
-- Traits or bounds, and raw pointers.
+- APIs of a program's own (`api Shape`), API objects (`?{Shape}`), and
+  raw pointers.
 - Storing or returning a stack closure, and `drop` bodies on enums and
   generic objects. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
   lists every form the compiler rejects as not supported yet, each
