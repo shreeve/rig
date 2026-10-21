@@ -7075,12 +7075,12 @@ pub const Emitter = struct {
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
             if (rig.isWaitMember(callee)) {
                 try self.emitMemberNamed(callee, "wait_all");
-                return self.w.writeAll("(null)");
+                return self.w.writeAll("()");
             }
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "wait_first")) {
                 try self.emitExpr(callee);
-                return self.w.writeAll("(null)");
+                return self.w.writeAll("()");
             }
         };
         try self.checkCallTarget(sexp);
