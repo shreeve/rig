@@ -5459,13 +5459,14 @@ pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
 
 /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, and every
 /// operation on it goes through the runtime's optional helpers (`some`,
-/// `somePtr`, `pack`): where its representation may differ from Zig's
-/// `?T`. A type parameter's may, since its instance decides; under
-/// `RIG_STRICT_OPTIONALS` (`strict`), so does every object's.
-pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
+/// `somePtr`, `pack`): a type parameter's, whose instance decides its
+/// representation, and every object's, which `pack` writes in one store
+/// where it fits (runtime `OneStore`) and which is a struct under
+/// `RIG_STRICT_OPTIONALS`.
+pub fn optionalRouted(ctx: *const SemContext, inner: TypeId) bool {
     return switch (ctx.types.get(inner)) {
         .type_var => true,
-        else => strict and isObject(ctx, inner),
+        else => isObject(ctx, inner),
     };
 }
 

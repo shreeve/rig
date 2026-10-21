@@ -3756,8 +3756,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   `orelse`, and `if (x) |v|`, unless its representation may differ
   from that, which `Facts.optionalRouted` decides once per payload
   type (`sema.optionalRouted`): a type parameter's `T?`, whose
-  instance decides, and, under `RIG_STRICT_OPTIONALS`, every
-  object's. Such an optional is written `rig.Opt(T)`, and every
+  instance decides, and every object's. Such an optional is written `rig.Opt(T)`, and every
   operation on it goes through the runtime's helpers: `rig.some(x)` is
   the Zig `?T` that `if x as v`, `while x as v`, `??`, `?`, and
   `== none` test; `rig.somePtr(&x)` is the payload's address a `|*v|`
@@ -3769,9 +3768,22 @@ symbols); a query that decides more than that belongs in `Pending`.
   in one place, `emitLift`, called from `emitValue`, packing each level
   of the optional that goes through the helpers; a default value
   (`emitDefault`) is packed the same way, and a hoisted argument is held
-  as itself and packed where the call reads it. The helpers are the
-  identity on a `?T`, so a type parameter's `T?` is Zig's `?T` in every
-  instance, and inlines to nothing.
+  as itself and packed where the call reads it. `some` and `somePtr`
+  are the identity on a `?T`, so a routed `T?` is Zig's `?T`, and they
+  inline to nothing.
+
+  `pack` writes a flag optional in one store. Zig's `?T`, for a `T`
+  with no spare value, is the payload's bytes and then a flag byte;
+  written field by field, a later load of the whole word spans two
+  stores and cannot be forwarded from them, which on x86 waits for both
+  to reach the cache (in Trig's binder, a `Node?` of one `U32` built
+  from the tree's words and read back whole lost about 7% of the bind
+  this way on an x86 core). So where `?T` is 2, 4, or 8 bytes on a
+  little-endian target, `pack` (`OneStore`, `packOneStore`) builds the
+  payload's bytes and the flag byte 1 after them (none is all zero) in
+  one integer and stores that. The type and its layout stay Zig's `?T`;
+  a runtime test checks that Zig's own `?T` has that layout. Every
+  object's optional is routed so that each one is made by `pack`.
 
   `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object
   declares `__rig_strict_optional`, and `rig.Opt` of it is a tagged

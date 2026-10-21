@@ -4755,7 +4755,7 @@ pub const Emitter = struct {
 
     /// Whether a `T?` of payload `inner` goes through the helpers.
     fn routesPayload(self: *Emitter, inner: TypeId) bool {
-        return self.facts.optionalRouted(inner, self.strict_optionals);
+        return self.facts.optionalRouted(inner);
     }
 
     /// Whether `ty`, through any views, is an optional whose payload goes

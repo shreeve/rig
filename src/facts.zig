@@ -833,9 +833,9 @@ pub const Facts = struct {
     }
     /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, with
     /// every operation through the optional helpers
-    /// (`sema.optionalRouted`); `strict` under `RIG_STRICT_OPTIONALS`.
-    pub fn optionalRouted(f: Facts, inner: TypeId, strict: bool) bool {
-        return sema.optionalRouted(f.c(), inner, strict);
+    /// (`sema.optionalRouted`).
+    pub fn optionalRouted(f: Facts, inner: TypeId) bool {
+        return sema.optionalRouted(f.c(), inner);
     }
     /// Whether the type `sym` declares is an object (`sema.isObjectSym`).
     pub fn isObjectSym(f: Facts, sym: SymbolId) bool {
