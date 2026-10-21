@@ -1453,9 +1453,11 @@ pub fn List(comptime T: type) type {
             return out;
         }
 
-        /// The live elements. Invalidated by `push`.
+        /// The live elements. Invalidated by `push`. Inside the buffer by
+        /// `len <= buf.len`, so the slice needs no test of its own.
         pub fn items(self: *const Self) []T {
-            return self.buf[0..self.len];
+            invariant(self.len <= self.buf.len);
+            return self.buf.ptr[0..self.len];
         }
 
         /// Room for `want` elements in all.
@@ -1499,20 +1501,59 @@ pub fn List(comptime T: type) type {
             return pack(Opt(T), if (idx < self.len) self.buf[idx] else null);
         }
 
-        /// `v[i]`: the element at `i`; panics when out of range.
+        /// `v[i]`: the element at `i`; panics when out of range. One test,
+        /// against `len`: the slot is inside the buffer by `len <=
+        /// buf.len`, so it is read through the buffer's pointer, which
+        /// makes no second test.
         pub fn at(self: *const Self, i: anytype) T {
-            return self.buf[index(i, self.len)];
+            return self.buf.ptr[self.indexOf(i)];
         }
 
         /// `v[i] = x`: the slot at `i`; panics when out of range.
         pub fn slot(self: *Self, i: anytype) *T {
-            return &self.buf[index(i, self.len)];
+            return &self.buf.ptr[self.indexOf(i)];
         }
 
         /// The slot at `i`, read-only, for an element reached through a
         /// read view; panics when out of range.
         pub fn constSlot(self: *const Self, i: anytype) *const T {
-            return &self.buf[index(i, self.len)];
+            return &self.buf.ptr[self.indexOf(i)];
+        }
+
+        /// `i` as a slot of the live elements, panicking unless `0 <= i <
+        /// len`; inside the buffer by `len <= buf.len`.
+        inline fn indexOf(self: *const Self, i: anytype) usize {
+            const idx = index(i, self.len);
+            invariant(idx < self.buf.len);
+            return idx;
+        }
+
+        /// `at`, `slot`, and `constSlot` with the tests `p` proves omitted
+        /// (`Proven`), and, with `If`, the tests `q` too while `ok`, a flag
+        /// the compiler made before the statement (`offsetIf`).
+        pub inline fn atProven(self: *const Self, i: Int, comptime p: Proven) T {
+            return self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn slotProven(self: *Self, i: Int, comptime p: Proven) *T {
+            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn constSlotProven(self: *const Self, i: Int, comptime p: Proven) *const T {
+            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
+            return self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+        pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
+            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+        pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
+            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+
+        inline fn provenSlot(self: *const Self, idx: ?usize) usize {
+            const slot_ = idx orelse indexPanic();
+            invariant(slot_ < self.buf.len);
+            return slot_;
         }
 
         /// Remove and return the last element; the caller owns it.
@@ -2229,6 +2270,51 @@ pub inline fn atProven(items: anytype, i: Int, comptime p: Proven) std.meta.Elem
 /// `elemPtr` with the tests `p` proves omitted.
 pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(&items[0]) {
     return &items.ptr[provenOffset(i, items.len, 1, p) orelse indexPanic()];
+}
+
+// Flags (docs/internals/INTERNALS.md, "Flags"). The compiler tests some
+// facts once, as a statement starts, into a flag (`okNonneg`, `okBelow`),
+// and a test those facts prove is omitted while the flag is true. While
+// it is false, the test is made where it is written, as it always is, so
+// a test that fails fails there, with its own message.
+
+/// The flag test `0 <= i`.
+pub inline fn okNonneg(i: Int) bool {
+    return i >= 0;
+}
+
+/// The flag test `i + k <= n`, exactly, of a length `n`.
+pub inline fn okBelow(i: Int, comptime k: u64, n: usize) bool {
+    return @as(i128, i) + k <= n;
+}
+
+/// `i` as the start of `width` elements within `count`: the tests `p`
+/// proves (or none) are omitted, and while `ok`, those `q` proves too; a
+/// test that is made fails as `index` fails.
+inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comptime q: Proven, ok: bool) ?usize {
+    const both: Proven = comptime if (p) |pp| (if (pp == q) q else .both) else q;
+    if (ok) return provenOffset(i, count, width, both);
+    if (p) |pp| return provenOffset(i, count, width, pp);
+    const u = std.math.cast(usize, i) orelse return null;
+    if (u > count or count - u < width) return null;
+    return u;
+}
+
+/// `atProven` and `elemPtrProven` with the tests `q` omitted too while
+/// `ok` (`offsetIf`).
+pub inline fn atIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) std.meta.Elem(@TypeOf(items)) {
+    return items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+}
+
+pub inline fn elemPtrIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) @TypeOf(&items[0]) {
+    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+}
+
+/// `a + b`, which cannot overflow while `ok`; else the add tests it, and
+/// an overflow panics as any add's does.
+pub inline fn addIf(a: Int, b: Int, ok: bool) Int {
+    if (ok) return addProven(a, b);
+    return a + b;
 }
 
 /// `a + b` that the compiler proved cannot overflow: an add LLVM may

@@ -55,6 +55,8 @@ pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
 pub const Proven = sema.Proven;
+pub const ProvenIf = sema.ProvenIf;
+pub const FlagTest = sema.FlagTest;
 pub const UnitKind = rig.UnitKind;
 pub const NodeKey = sema.NodeKey;
 
@@ -305,6 +307,12 @@ pub const Facts = struct {
     /// emit omits those, and a debug build makes them as assertions.
     pub fn provenOf(f: Facts, node: Sexp) Proven {
         return f.c().provenOf(node);
+    }
+    pub fn provenIfOf(f: Facts, node: Sexp) ?ProvenIf {
+        return f.c().provenIfOf(node);
+    }
+    pub fn flagOf(f: Facts, stmt: Sexp) ?[]const FlagTest {
+        return f.c().flagOf(stmt);
     }
     pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().callableOf(node);
