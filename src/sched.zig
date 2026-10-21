@@ -1539,6 +1539,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     // Workers stopped asleep are still listed; the next run, in a test,
     // starts with none.
     sleepers = .{};
+    workers_asked = null;
     searching.store(0, .seq_cst);
     waiting.store(0, .monotonic);
     next_quiet.store(false, .monotonic);
@@ -1585,6 +1586,19 @@ fn startWorkers() void {
     for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
 }
 
+/// How many workers the program asked for (`task.workers`), in place of
+/// `RIG_WORKERS` or one per core.
+var workers_asked: ?usize = null;
+
+/// `task.workers(n)`: run tasks on `n` workers, at most `max_workers`,
+/// once they start, as the program makes its first task; whether that is
+/// still to come. A deterministic run keeps to one thread.
+pub fn askWorkers(n: usize) bool {
+    if (started) return false;
+    workers_asked = @max(1, @min(n, max_workers));
+    return true;
+}
+
 /// How many workers run tasks, starting them first if they have not.
 pub fn workersRunning() usize {
     if (!started) startWorkers();
@@ -1593,6 +1607,7 @@ pub fn workersRunning() usize {
 
 fn workerCount() usize {
     if (workers_override) |n| return n;
+    if (workers_asked) |n| return n;
     if (rt.process) |p| if (p.environ.getPosix("RIG_WORKERS")) |v| {
         const n = std.fmt.parseInt(usize, v, 10) catch 0;
         if (n > 0) return n;

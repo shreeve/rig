@@ -698,3 +698,18 @@ code "task local spawns local", ".spawnLocal(peek, "
   n = *Node(v: 1)
   t = peek(?n)&
   print(>t)
+
+test "task.workers takes effect only before the first task", seeds: 20, '''
+  true
+  false
+  false
+  1
+'''
+  use std.task
+  fun one() -> Int
+    1
+  print(task.workers(3))
+  t = one()&
+  print(task.workers(2))
+  print(task.workers(0))
+  print(>t)

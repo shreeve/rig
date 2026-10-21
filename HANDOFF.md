@@ -23,7 +23,10 @@ planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
   generates the parser at every build, from the sibling checkout's
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
   [docs/internals/zig-0.17.md](docs/internals/zig-0.17.md) covers every
-  Zig API Rig uses.
+  Zig API Rig uses. Its `@intCast` from a signed type to a narrower
+  unsigned one miscompiles in release builds (LLVM `trunc nsw`); Rig's
+  emitted Zig and runtime cast through the unsigned type of the source's
+  width instead, until Zig fixes it.
 - **Health:** the bar for landing is a green full run on `main`: the
   full suite (`swarm test/rig.rip all`, with the doc examples, their
   pending examples the planned Core rules), `test/matrix.py`, the unit
