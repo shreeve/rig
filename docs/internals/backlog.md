@@ -170,6 +170,16 @@ Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before
 fixing.
 
+- **A `Copy` bound does not let a body copy a `T` out of a view**
+  *(checked)*. `fun get[T: Copy](x: ?T) -> T` with body `x` is "type
+  mismatch: expected `T`, got `?T`; ... `T` may not copy in every
+  instance", though the bound says every instance copies. So
+  `xs.reduce(first, |best, x| x if x > best else best)` on a
+  `[T: Ord + Copy]` is rejected the same way; journey 07 shows
+  `largest` with a loop and `reduce` with a count instead. Let a body
+  copy a bounded `T: Copy` out of `?T`, as `best = xs[0]` copies one
+  out of a `[]T`.
+
 - **A discarded result passes silently** *(checked)*. `file.remove(p)!`
   as a statement drops its `Bool` with no error, while a bare `0` is
   rejected. Make the rule one: a statement whose value is not `Void`
