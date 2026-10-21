@@ -16,6 +16,7 @@ const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
 const inlining = @import("inlining.zig");
+const pgo = @import("pgo.zig");
 const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
@@ -29,6 +30,7 @@ const usage =
     \\
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
+    \\       rig build --pgo=<profile> [options] <file.rig> [-- <workload>]
     \\       rig batch build [--release[=safe|fast]] <dir> <file.rig>...
     \\       rig batch run <dir> <n>
     \\       rig clean
@@ -92,6 +94,13 @@ const usage =
     \\  --seeds=<k>            Run the tests with each seed from 1 to k,
     \\                         stopping at the first that fails (test)
     \\  -o <path>              Executable to write (build; default ./<name>)
+    \\  --pgo=<file>           Build by the profile <file> (build): a
+    \\                         function its run never entered is cold and
+    \\                         never inlined. With `-- <command>` after
+    \\                         the file, first build the program counting
+    \\                         where it runs, run <command> (which runs
+    \\                         the executable -o names), and write the
+    \\                         profile <file> from the counts
     \\  -h, --help             Show this help
     \\  -V, --version          Show the version
     \\
@@ -185,6 +194,9 @@ const Options = struct {
     tests: bool = false,
     /// `rig run file.rig -- args...`: the program's own arguments.
     program_args: []const []const u8 = &.{},
+    /// `build --pgo=FILE`: the profile; `program_args` is then the
+    /// workload that records it, when given.
+    pgo: ?[]const u8 = null,
     /// `--seed=n`: run deterministically with seed `n` (run, test).
     seed: ?u64 = null,
     /// `rig test --seeds=k`: run the tests with each seed from 1 to `k`.
@@ -322,11 +334,12 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var seeds: ?u64 = null;
     var tests = false;
     var program_args: []const []const u8 = &.{};
+    var profile: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (eql(arg, "--")) {
-            if (command != .run) usageError("arguments after `--` are for the program `rig run` runs", .{});
+            if (command != .run and !(command == .build and profile != null)) usageError("arguments after `--` are for the program `rig run` runs, or the workload `rig build --pgo` records a profile from", .{});
             program_args = args[i + 1 ..];
             break;
         }
@@ -364,6 +377,9 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             time = true;
         } else if (eql(arg, "--tasks")) {
             tasks = true;
+        } else if (std.mem.startsWith(u8, arg, "--pgo=")) {
+            profile = arg["--pgo=".len..];
+            if (profile.?.len == 0) usageError("`--pgo` names the profile: `--pgo=prog.profile`", .{});
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -388,6 +404,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (facts != .none and cmd != .check) usageError("`--facts` applies to check", .{});
     if (time and cmd != .check) usageError("`--time` applies to check", .{});
     if (tasks and cmd != .check) usageError("`--tasks` applies to check", .{});
+    if (profile != null and cmd != .build) usageError("`--pgo` applies to build", .{});
     if (tests and cmd != .check) usageError("`--tests` applies to check; `rig test` builds the tests already", .{});
     if (seed != null and cmd != .run and cmd != .@"test") usageError("`--seed` applies to run and test", .{});
     if (seeds != null and cmd != .@"test") usageError("`--seeds` applies to test", .{});
@@ -406,7 +423,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds, .pgo = profile };
 }
 
 /// `rig check --tasks`: each local task of the program's own modules,
@@ -685,6 +702,7 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     graph.std_dir = env.get("RIG_STD");
     graph.with_tests = with_tests;
     graph.timing = times;
+    graph.profile = build_profile;
     try graph.loadRoot(path);
 
     var buffer: [4096]u8 = undefined;
@@ -731,8 +749,48 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 
 /// `rig run`, `build`, and `test`: emit the package and hand it to Zig.
 /// Zig's own errors name the emitted files; any other failure of `run`
-/// or `test` is the program's.
+/// or `test` is the program's. `build --pgo` builds by a profile, which
+/// it first records when given a workload (`recordProfile`).
 fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
+    const file = opts.pgo orelse return buildPackage(allocator, io, env, opts, null);
+    if (opts.program_args.len > 0) try recordProfile(allocator, io, env, opts, file);
+    const text = std.Io.Dir.cwd().readFileAlloc(io, file, allocator, .unlimited) catch |err|
+        fatal("error: cannot read the profile `{s}`: {s}", .{ file, @errorName(err) });
+    var profile = pgo.State.read(allocator, text) catch fatal("error: `{s}` is not a profile `rig build --pgo` wrote", .{file});
+    build_profile = &profile;
+    return buildPackage(allocator, io, env, opts, &profile);
+}
+
+/// The profile `rig build --pgo` builds by, which `inlining.decide` reads
+/// (`loadChecked`).
+var build_profile: ?*const pgo.State = null;
+
+/// `rig build --pgo=FILE ... -- WORKLOAD`: build the program counting its
+/// sites (`pgo.zig`) at the executable `-o` names, run the workload with
+/// RIG_PGO_OUT naming where the program writes its counts, and write the
+/// profile FILE from them. The workload's own status does not matter, but
+/// a run of the program that ends normally must have left its counts.
+fn recordProfile(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options, file: []const u8) !void {
+    var state: pgo.State = .{ .allocator = allocator, .instrument = true };
+    try buildPackage(allocator, io, env, opts, &state);
+    const cwd = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
+    const counts = try std.fs.path.resolve(allocator, &.{ cwd, try allocator.print("{s}.pgo-counts", .{file}) });
+    std.Io.Dir.cwd().deleteFile(io, counts) catch {};
+    var environ = try env.map.clone(allocator);
+    try environ.put("RIG_PGO_OUT", counts);
+    const ended = runZigReport(io, opts.program_args, &environ) catch |err|
+        fatal("error: cannot run the workload `{s}`: {s}", .{ opts.program_args[0], @errorName(err) });
+    const text = std.Io.Dir.cwd().readFileAlloc(io, counts, allocator, .unlimited) catch
+        fatal("error: the workload `{s}` (status {d}) left no counts: it must run the executable `rig build` wrote to its end", .{ opts.program_args[0], ended.code });
+    std.Io.Dir.cwd().deleteFile(io, counts) catch {};
+    const profile = state.profileOf(text) catch fatal("error: the counts `{s}` are not this build's", .{counts});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    try profile.write(&out.writer);
+    try writeFile(io, file, out.written());
+    std.debug.print("note: wrote the profile {s}: {d} functions, {d} sites, from a workload that exited {d}\n", .{ file, profile.funs.count(), state.sites.items.len, ended.code });
+}
+
+fn buildPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options, profile: ?*pgo.State) !void {
     // A caller's RIG_RUN_STARTED is cleared first, and created only once
     // the program has started, so it never outlives a failure.
     if (opts.command != .build) if (env.get(run_started_var)) |path| {
@@ -747,7 +805,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     program_pending = opts.command != .build;
     // A program `rig run` builds starts by creating the file
     // RIG_PROGRAM_STARTED names; `rig test`'s driver is its root instead.
-    var pkg = try emitPackage(allocator, env, &graph, .{ .hook = opts.command == .run });
+    var pkg = try emitPackage(allocator, env, &graph, .{ .hook = opts.command == .run, .pgo = profile });
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
 
@@ -1506,6 +1564,9 @@ const PackageKind = struct {
     /// batch shares, which the package leaves out, and the batch's root
     /// declares the runtime's settings.
     batch: bool = false,
+    /// `rig build --pgo` (`pgo.zig`): the sites to count, in a build
+    /// that counts them, or the profile to build by.
+    pgo: ?*pgo.State = null,
 };
 
 /// Emit the runtime and every module. With `RIG_LEAK_TRACE` or
@@ -1524,6 +1585,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     }
 
     var root_source: []const u8 = "";
+    var root_index: usize = 0;
     var links_libc = false;
     var uses_symbols = false;
     const tasks = makesTasks(graph);
@@ -1538,6 +1600,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.yield_checks = tasks;
         em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
+        em.pgo = kind.pgo;
         // A debug build of the compiler checks that emit writes the units
         // the proof pass walks, in the same order (`proofs.checkUnitOrder`).
         var trace: std.ArrayList(emit.UnitEvent) = .empty;
@@ -1558,6 +1621,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
         }
+        if (i == 0) root_index = files.items.len;
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| {
             // A shim beside the runtime imports it by its path; in a batch
@@ -1575,6 +1639,12 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try symbols.write(allocator, &out.writer, try symbols.collect(allocator, sources), runtime_import);
         try files.append(allocator, .{ .path = emit.symbols_filename, .contents = out.written() });
     }
+    // A build that counts its sites declares how many, for the runtime's
+    // counters (`rig.pgoHit`).
+    if (kind.pgo) |state| if (state.instrument) {
+        const root_file = &files.items[root_index];
+        root_file.contents = try std.fmt.allocPrint(allocator, "{s}\npub const __rig_pgo_sites: usize = {d};\n", .{ root_file.contents, state.sites.items.len });
+    };
     return .{ .files = files, .root_source = root_source, .links_libc = links_libc };
 }
 
@@ -2352,6 +2422,7 @@ test {
     _ = proofs;
     _ = lsp;
     _ = frames;
+    _ = pgo;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");

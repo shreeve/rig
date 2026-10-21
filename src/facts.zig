@@ -28,6 +28,8 @@
 //!   should become a recorded node fact, and the list only shrinks.
 
 const std = @import("std");
+/// Profiles of `rig build --pgo`, which emit counts sites for and reads.
+pub const pgo = @import("pgo.zig");
 const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
@@ -208,6 +210,12 @@ pub const Facts = struct {
     }
     /// Whether the function or method whose name leaf is `name` is
     /// emitted `inline` (`inlining.decide`).
+    /// The source text of a whole node, keywords and all, which a
+    /// profile hashes to know a function unchanged (`pgo.funKey`).
+    pub fn textOf(f: Facts, node: Sexp) []const u8 {
+        const at = f.c().span(node);
+        return f.source[at.start..at.end];
+    }
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }

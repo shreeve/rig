@@ -56,6 +56,7 @@ const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const modules = @import("modules.zig");
 const rig = @import("rig.zig");
+const pgo = @import("pgo.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -216,6 +217,9 @@ const Instances = struct { own: FrameCount, total: FrameCount, params: u128 = 0 
 const Pass = struct {
     a: std.mem.Allocator,
     mods: []const *modules.Module,
+    /// The profile of a `rig build --pgo` build (`pgo.zig`): a function
+    /// its run never entered is never inlined.
+    profile: ?*const pgo.State = null,
     fns: std.ArrayList(Fn) = .empty,
     owners: std.ArrayList(Owner) = .empty,
     /// Per module: the index in `owners` of its first owner.
@@ -335,6 +339,10 @@ const Pass = struct {
         // as a `rarely` one does.
         var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none and !rig.alwaysPanics(body);
         if (body != .nil and holdsClosure(body)) eligible = false;
+        if (self.profile) |p| if (eligible) {
+            const at = c.span(node);
+            if (p.neverRan(try pgo.funKey(self.a, c.zig_file, name, c.source[at.start..at.end]))) eligible = false;
+        };
         // A frame that depends on a compile-time value is unknown.
         if (o.per_instance and sema.tparamsOf(node) != .nil) eligible = false;
         const idx: u32 = @intCast(self.fns.items.len);
@@ -974,6 +982,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         .owner_base = try a.alloc(u32, mods.len),
         .max = max,
         .with_tests = graph.with_tests,
+        .profile = graph.profile,
     };
     for (pass.by_pos) |*m| m.* = .empty;
     // Each generic owner's frame at its instances, wherever they are made:

@@ -32,6 +32,7 @@ const Facts = facts.Facts;
 const Wide = facts.Wide;
 const diag = @import("diag.zig");
 const nametable = @import("nametable.zig");
+const pgo = facts.pgo;
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -271,6 +272,14 @@ pub const Emitter = struct {
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{ .quota = false },
+    /// `rig build --pgo` (`pgo.zig`): the sites an instrumented build
+    /// counts, or the profile a build reads; null otherwise.
+    pgo: ?*pgo.State = null,
+    /// The function whose sites are being emitted (`pgo.funKey`), and the
+    /// ordinal of its next site: its entry is 0, and each block of its
+    /// body that `emitBlock` writes is the next.
+    pgo_fun: []const u8 = "",
+    pgo_ordinal: u32 = 0,
     /// The result the `result_part` being emitted takes: `__rig_res_N[j]`,
     /// of the destructure whose target it is (`emitDestructure`).
     part_name: []const u8 = "",
@@ -908,9 +917,23 @@ pub const Emitter = struct {
         const inlined = self.facts.isInlined(name_node);
         const marker = self.facts.markerOf(node);
         const recursive = self.yield_checks and self.facts.isRecursive(name_node);
+        // With a profile, a function its run never entered is cold, as
+        // `rarely` makes it (and `inlining.decide` never inlines it).
+        const saved_fun = self.pgo_fun;
+        const saved_ordinal = self.pgo_ordinal;
+        defer {
+            self.pgo_fun = saved_fun;
+            self.pgo_ordinal = saved_ordinal;
+        }
+        var never_ran = false;
+        if (self.pgo) |state| {
+            self.pgo_fun = try pgo.funKey(state.allocator, self.facts.zig_file, name, self.facts.textOf(node));
+            self.pgo_ordinal = 0;
+            never_ran = !state.instrument and !is_main and state.neverRan(self.pgo_fun);
+        }
         // A function that always panics is cold, as a `rarely` one is,
         // so a call of it is laid out off the path that does not.
-        const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
+        const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body)) or never_ran;
         self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .recursive = recursive };
 
         // The runtime's panic handler flushes buffered `print` output first.
@@ -926,7 +949,7 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    {s}{s};\n}}\n\n", .{ run, catches });
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
+        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or never_ran or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
@@ -1365,8 +1388,21 @@ pub const Emitter = struct {
     fn emitBlock(self: *Emitter, body: Sexp) Error!void {
         try self.openBrace();
         try self.emitFunPrologue();
+        try self.emitSite();
         try self.emitStmts(try self.stmtsOf(body));
         try self.closeBrace();
+    }
+
+    /// The counter of the next site of the function being emitted, in an
+    /// instrumented build (`pgo.zig`): the runtime adds one to it each
+    /// time the block runs. Every build numbers the sites alike, so a
+    /// build with a profile finds each one's count by its ordinal.
+    fn emitSite(self: *Emitter) Error!void {
+        const state = self.pgo orelse return;
+        if (self.pgo_fun.len == 0) return;
+        const ordinal = self.pgo_ordinal;
+        self.pgo_ordinal += 1;
+        if (state.instrument) try self.line("rig.pgoHit({d});", .{try state.site(self.pgo_fun, ordinal)});
     }
 
     fn emitStmts(self: *Emitter, stmts: []const Sexp) Error!void {
@@ -1381,6 +1417,7 @@ pub const Emitter = struct {
     fn emitValueBody(self: *Emitter, body: Sexp) Error!void {
         try self.openBrace();
         try self.emitFunPrologue();
+        try self.emitSite();
         const stmts = try self.stmtsOf(body);
         const last = stmts.len - 1;
         try self.emitStmts(stmts[0..last]);
