@@ -441,6 +441,9 @@ const FnCtx = struct {
     stored: sema.ParamMask = 0,
     /// Where each was first returned or stored, for the diagnostic.
     returned_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// The expression each was first returned by, so the diagnostic
+    /// points at the branch that gives the view (`resultPos`).
+    returned_by: [@bitSizeOf(sema.ParamMask)]Sexp = @splat(.nil),
     stored_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
     /// The parameters whose loans reached a value of a type parameter's
     /// type, which carries no loan in a generic body (`taintGeneric`),
@@ -1187,10 +1190,20 @@ pub const Checker = struct {
     /// `held` whose only views are Strings (a `?String` field or result):
     /// the `?String` was meant to own its text.
     fn noteStringViewOfString(self: *Checker, l: Loan, held: ?TypeId) Error!void {
+        return self.noteStringView(l, held, "store a `String` to own it");
+    }
+
+    /// `noteStringViewOfString` for a result: the function gives text of
+    /// its own by returning a `String`.
+    fn noteStringResultOfString(self: *Checker, l: Loan, held: ?TypeId) Error!void {
+        return self.noteStringView(l, held, "return a `String` to give text of its own");
+    }
+
+    fn noteStringView(self: *Checker, l: Loan, held: ?TypeId, fix: []const u8) Error!void {
         const ctx = self.sema orelse return;
         const t = held orelse return;
         if (!self.isString(self.vars.items[l.root].ty) or !sema.holdsViewOnly(ctx, t)) return;
-        try self.note(l.pos, "a `?String` views text it doesn't own; store a `String` to own it", .{});
+        try self.note(l.pos, "a `?String` views text it doesn't own; {s}", .{fix});
     }
 
     /// A view of a read match's binding `l` names, kept past its arm.
@@ -3572,9 +3585,11 @@ pub const Checker = struct {
                     try self.err(pos, "bare use of loop view `{s}` in {s} would carry the viewed handle past the loop; " ++ loop_view_rule, .{ name, sink.text() });
                     return;
                 }
-                // A captured read view or Copy value is copied out, and
-                // a captured view passed to a call is lent for the call.
-                const copied = v.ref == .read or self.copies(v.ty) or (sink == .argument and v.ref != .none);
+                // A captured read view or Copy value is copied out, so is
+                // a captured write view whose value its context reads (a
+                // closure's `Int` result), and a captured view passed to a
+                // call is lent for the call.
+                const copied = v.ref == .read or self.copies(v.ty) or self.readsThroughWriteView(v.ty) or (sink == .argument and v.ref != .none);
                 if (v.capture_resource and !copied and v.ref == .write) {
                     try self.err(pos, "`{s}` is a write view the closure captures, and a {s} would hand it out of the closure at each call, though a write view has one holder; use it inside the closure instead", .{ name, sink.text() });
                     return;
@@ -5416,9 +5431,9 @@ pub const Checker = struct {
             // A result keeps only the loans its own type could hold.
             const kept = if (part) |t| try self.carry(t, value) else value;
             try self.checkEscape(kept);
-            self.recordResult(kept, self.startOf(expr));
+            self.recordResult(kept, expr);
         } else if (self.reachable and self.genericType(ret)) {
-            self.recordResult(value, self.startOf(expr));
+            self.recordResult(value, expr);
         }
         // A result that holds a value of a type parameter's type may carry,
         // in an instance, whatever reached one (`taintGeneric`).
@@ -5467,6 +5482,25 @@ pub const Checker = struct {
         return sema.defaultOrigins(ctx, scratch.allocator(), f);
     }
 
+    /// Where result `expr` gives the view of parameter `name`: through
+    /// an `if`'s branches, the branch whose value is `name` itself, or
+    /// else one whose value reads it; null when it is `expr` as a whole.
+    fn resultPos(self: *const Checker, expr: Sexp, name: []const u8) ?u32 {
+        const tail = sema.tailOf(expr);
+        if (tail == .nil) return null;
+        if (!tail.isKind(.@"if")) return if (self.startOf(tail) == self.startOf(expr)) null else self.startOf(tail);
+        const branches = [_]Sexp{ ir.If.then(tail), ir.If.@"else"(tail) };
+        for (branches) |b| {
+            const bt = sema.tailOf(b);
+            if (bt == .src and std.mem.eql(u8, self.text(bt), name)) return self.startOf(bt);
+        }
+        for (branches) |b| {
+            if (b == .nil) continue;
+            if (self.readsName(sema.tailOf(b), name)) return self.resultPos(b, name) orelse self.startOf(sema.tailOf(b));
+        }
+        return null;
+    }
+
     /// The index of the current function's run-time parameter that
     /// loan `l` is on, if any: a loan the caller handed in through it,
     /// or one of it as a view (`?p` with `p: !T`).
@@ -5479,12 +5513,15 @@ pub const Checker = struct {
 
     /// Record that the function returns `v`: the parameters whose loans
     /// it carries are among those a call's result carries.
-    fn recordResult(self: *Checker, v: Value, pos: u32) void {
+    fn recordResult(self: *Checker, v: Value, expr: Sexp) void {
         // A loan on what is the function's own (a parameter taken by
         // value) cannot leave it, which `checkEscape` reports.
         for (v.loans) |l| if (!self.isLocalLoan(l)) if (self.paramOf(l)) |i| {
             const bit = sema.paramBit(i);
-            if (self.func.returned & bit == 0) self.func.returned_at[i] = pos;
+            if (self.func.returned & bit == 0) {
+                self.func.returned_at[i] = self.startOf(expr);
+                self.func.returned_by[i] = expr;
+            }
             self.func.returned |= bit;
         };
     }
@@ -5538,9 +5575,10 @@ pub const Checker = struct {
             if (self.func.returned & bit != 0 and o.result & bit == 0) {
                 if (o.declared) {
                     const only = try self.paramList(items, o.result, true);
+                    const at = self.resultPos(self.func.returned_by[i], pname) orelse self.func.returned_at[i];
                     if (only.len == 0) {
-                        try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
-                    } else try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
+                        try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
+                    } else try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
                     if (self.declaredFrom(name)) |d| {
                         const all = try self.paramList(items, self.func.returned, false);
                         if (self.namesStatic(items, self.func.returned)) {
@@ -5611,12 +5649,12 @@ pub const Checker = struct {
             if (r.kind == .param) {
                 const shown = if (self.sema != null and r.ty != null) try sema.formatTypeIn(self.sema.?, self.arena(), r.ty.?) else "T";
                 try self.err(l.pos, "cannot return a view of `{s}`: a parameter taken by value belongs to this function and ends with it; take `{s}: ?{s}` to return a view of the caller's value", .{ r.name, r.name, shown });
-                try self.noteStringViewOfString(l, self.func.ret_ty);
+                try self.noteStringResultOfString(l, self.func.ret_ty);
                 continue;
             }
             try self.err(l.pos, "cannot return a view of `{s}`, which this function was not lent", .{r.name});
             try self.note(r.decl, "`{s}` is local to this {s}", .{ r.name, if (self.func.in_closure) "closure" else "function" });
-            try self.noteStringViewOfString(l, self.func.ret_ty);
+            try self.noteStringResultOfString(l, self.func.ret_ty);
         }
     }
 
@@ -6212,7 +6250,13 @@ pub const Checker = struct {
             if (self.resolvePlace(source) == null) spec.moved = value.loans;
             // A source already reported (used while a write loan is live) is
             // not reported again as a conflicting view.
-            if (self.errors_found == found) if (self.resolvePlace(source)) |p| {
+            // A read view held in a part of a value (`s.names`, a
+            // `?List[T]` field) is read as any view is, and its elements
+            // view what it views, not the value holding it: the loop walks
+            // the view it read, as `all = s.names` and `for n in all` do.
+            const held_view = if (self.resolvePlace(source)) |p| p.path != whole_path and mode != .write and self.refOfType(self.exprType(source)) == .read else false;
+            if (held_view) spec.moved = value.loans;
+            if (self.errors_found == found and !held_view) if (self.resolvePlace(source)) |p| {
                 const id = p.root;
                 const kind: LoanKind = if (mode == .write) .write else .read;
                 spec.source_root = id;
