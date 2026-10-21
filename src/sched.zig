@@ -1292,7 +1292,8 @@ fn nowReal() i96 {
 /// while the fiber making it waits, so its worker runs other fibers.
 /// Outside every fiber, and in a deterministic run, it runs here. No
 /// cancel or deadline ends the wait (`blockingStop` is the waiting point
-/// that does).
+/// that does), so the fiber waits until the call is done, and `args` are
+/// passed as they are: a call may read into a buffer its caller lends.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (deterministic or current() == null) return @call(.auto, f, args);
     return switch (poolCall(f, args, false)) {
@@ -1311,9 +1312,11 @@ pub fn PoolResult(comptime R: type) type {
 /// `.timeout`) while the call runs on to its end on its thread, which
 /// then drops its result (`rt.dropElement`). So the call must not point
 /// into the waiter's frame: `args` are copied into the call's own state,
-/// a `[]const u8` or `[]u8` among them copied with what it points to,
-/// and freed once `f` returns; anything else they point to must outlive
-/// the call. A task canceled, or past its deadline, before the call
+/// a `[]const u8` among them copied with what it points to, and freed
+/// once `f` returns; anything else they point to must outlive the call.
+/// A pointer the call could write through (`[]u8`, `*T`) is rejected as
+/// the program compiles: the call reads into memory it owns and returns
+/// it. A task canceled, or past its deadline, before the call
 /// starts does not make it. Outside every fiber, and in a deterministic
 /// run, it runs here.
 pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
@@ -1345,7 +1348,7 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
         fn run(c: *Call) void {
             const self: *Self = @fieldParentPtr("call", c);
             self.result = @call(.auto, f, self.args);
-            freeArgs(&self.args);
+            if (stoppable) freeArgs(&self.args);
             if (self.state.cmpxchgStrong(pending, finishing, .seq_cst, .seq_cst) != null) {
                 // The waiter gave up: no one takes the result.
                 rt.dropElement(R, &self.result);
@@ -1358,7 +1361,7 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
     };
     const c = std.heap.smp_allocator.create(C) catch rt.oom();
     c.* = .{ .args = args, .fiber = fiber };
-    ownArgs(&c.args);
+    if (stoppable) ownArgs(&c.args);
     if (stoppable) if (stopReason(fiber)) |why| {
         freeArgs(&c.args);
         std.heap.smp_allocator.destroy(c);
@@ -1406,10 +1409,16 @@ fn stopped(comptime R: type, why: PoolResultTag) PoolResult(R) {
     };
 }
 
-/// Copy each byte slice among `args` into memory of its own.
+/// Copy each `[]const u8` among `args` into memory of its own, for a call
+/// its waiter may leave (`blockingStop`); and reject a mutable pointer
+/// among them, which the call could write through after its waiter left.
 fn ownArgs(args: anytype) void {
     const info = @typeInfo(@TypeOf(args.*)).@"struct";
-    inline for (info.field_names, info.field_types) |name, T| {
+    inline for (info.field_names, info.field_types, 0..) |name, T, i| {
+        comptime if (writableArg(T)) @compileError(std.fmt.comptimePrint(
+            "rig.blockingStop: argument {d} ({s}) can be written through, and a canceled waiter goes on while the call may still write; read into memory the call owns and return it",
+            .{ i, @typeName(T) },
+        ));
         if (comptime isBytes(T)) {
             const s = @field(args.*, name);
             @field(args.*, name) = std.heap.smp_allocator.dupe(u8, s) catch rt.oom();
@@ -1425,7 +1434,17 @@ fn freeArgs(args: anytype) void {
 }
 
 fn isBytes(comptime T: type) bool {
-    return T == []const u8 or T == []u8;
+    return T == []const u8;
+}
+
+/// Whether `T` is, or holds as an optional, a pointer to memory that may
+/// be written.
+fn writableArg(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| !p.attrs.@"const",
+        .optional => |o| writableArg(o.child),
+        else => false,
+    };
 }
 
 /// Stop running until another fiber wakes this one (`wake`). `after`
@@ -3760,4 +3779,43 @@ test "a deterministic run waits for bytes on their way on a socket, though every
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
+}
+
+test "a blocking call fills a buffer its caller lends, and a stoppable one takes no pointer it could write through" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    // blockingStop rejects, as it compiles, what the call could write
+    // through after its waiter left, and copies what it only reads.
+    comptime {
+        std.debug.assert(writableArg([]u8));
+        std.debug.assert(writableArg(*u64));
+        std.debug.assert(writableArg(?[]u8));
+        std.debug.assert(!writableArg([]const u8));
+        std.debug.assert(!writableArg(u64));
+        std.debug.assert(isBytes([]const u8) and !isBytes([]u8));
+    }
+    const Run = struct {
+        var filled = false;
+        const Unit = struct {};
+        fn fill(buf: []u8) usize {
+            @memset(buf, 'z');
+            return buf.len;
+        }
+        fn caller(_: *Unit) u8 {
+            var buf: [64]u8 = @splat(0);
+            const n = blocking(fill, .{@as([]u8, &buf)});
+            filled = n == 64 and std.mem.allEqual(u8, &buf, 'z');
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const j = spawn(u8, Unit, caller, .{}, .{}, false).job;
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.filled);
 }
