@@ -3405,6 +3405,26 @@ The result is an ordinary `while` with an `as` header, which the
 ownership checker walks (`walkWhile`) and emit writes (`emitWhile`) like
 one the program wrote.
 
+### Strings as bytes
+
+A string literal where a `U8` is expected is its one byte, and where a
+`[N]U8` is, the array of its bytes (SPEC, "Byte literals"). Only
+typecheck knows what a literal's context expects, so the literal is
+rewritten as `for` loops over an iterator are: `Checker.byteString`,
+reached where a literal meets its expected type (`checkContextual`), the
+other side of an operator (`byteBeside`), a conversion `U8('A')`, and a
+string pattern against a `U8` (`checkBytePattern`), checks the count of
+bytes and records the literal (`SemContext.byte_literals`). Then
+`ModuleGraph.check` calls `Parser.byteLiterals`, which writes each as the
+integer leaf of its byte, spanning the string, or as the array literal of
+its bytes, each a leaf inside the string so no two share a position,
+and checks the module again. A byte leaf reads as its decimal value
+(`rig.leafText`), so every pass after typecheck, and the second check,
+sees an integer literal where the program wrote a byte: a pattern's
+coverage, a constant's value, and emit need nothing of their own. A
+literal of the wrong size is not recorded, and the second check reports
+it again. Each round rewrites what it found, so the checks end.
+
 ### Assignments
 
 Every assignment, to a name, a field, or an element, plain or compound,
@@ -4345,6 +4365,25 @@ rule would inline in each kind of owner and each body that belongs to
 one, `test/cli/frame_owners_inline.sh` does the same through a marked
 function and checks each owner's marked part, and `test/cli/frames.sh`
 holds each owner's account to the frame Zig's prologue reserves.
+
+**The frame warning.** After `rig build --release` writes the executable,
+`main.warnFrames` reads the frame each function's prologue reserves from
+the executable itself (`src/frames.zig`: the Mach-O or ELF symbol table,
+then on aarch64 each `sub sp, sp, #N` and the pair `stp ..., [sp, #-N]!`
+pushes, on x86_64 `sub rsp, N`, the size the stack probe is called
+with, and a probe loop's step). A function of the program's own modules
+whose frame passes a page (4096 bytes) though its own values and those
+of the marked `inline` functions in it fit in one (`own` and `marked` of
+its account) is named in a warning, with the largest of the Rig
+functions it calls that no marker keeps out of line, by the frame the
+executable gives each that is still a function, else by its account: LLVM
+inlined them, and `called` keeps them calls. A function whose own values
+pass a page is large as its source shows, and a `rarely` one is cold:
+neither is named. A symbol's name is its module's emitted file, then its
+type for a method, then its name, less what tells instances apart
+(`(...)`, `__func_N`). A debug build is not read. `test/cli/frame_warning.sh`
+checks the warning, a callee marked `called`, a `rarely` function, and a
+debug build.
 
 ### The program's stack
 

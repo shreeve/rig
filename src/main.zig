@@ -22,6 +22,7 @@ const modules = @import("modules.zig");
 const sema = @import("sema.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");
+const frames = @import("frames.zig");
 
 const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
@@ -36,7 +37,9 @@ const usage =
     \\Commands:
     \\  check     Check the program and its imports
     \\  run       Check, build, and run the program
-    \\  build     Check and build a native executable
+    \\  build     Check and build a native executable; with --release, warn
+    \\            about a function whose frame passes a page because of
+    \\            what is inlined into it, naming what to mark `called`
     \\  test      Check, build, and run the program's `test` blocks,
     \\            deterministically (`--seed`)
     \\  emit      Check, then print the root module's Zig to stdout
@@ -432,6 +435,124 @@ fn printLocalTasks(allocator: std.mem.Allocator, io: std.Io, graph: *modules.Mod
     try writer.interface.flush();
 }
 
+/// A page of stack: a frame larger than it makes each call of its
+/// function touch a fresh page, and on x86_64 probe the stack first.
+const page_bytes: u64 = 4096;
+
+/// `rig build --release`: warn about each function of the program's own
+/// modules whose frame, as the executable `exe` reserves it, is larger
+/// than a page though its own values fit in one: the functions inlined
+/// into it make the rest. The warning names the largest of the Rig
+/// functions it calls that no marker keeps out of line, to mark
+/// `called`. A function whose own values pass a page is large as its
+/// source shows, and a `rarely` one is cold: neither is named. Nothing
+/// here changes the build.
+fn warnFrames(allocator: std.mem.Allocator, io: std.Io, graph: *modules.ModuleGraph, exe: []const u8) void {
+    warnFramesIn(allocator, io, graph, exe) catch {};
+}
+
+fn warnFramesIn(allocator: std.mem.Allocator, io: std.Io, graph: *modules.ModuleGraph, exe: []const u8) !void {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, exe, allocator, .limited(1 << 32)) catch return;
+    // Each function's frame by its name without an instance's suffix:
+    // the largest of its instances.
+    var by_name: std.StringHashMapUnmanaged(u64) = .empty;
+    for (try frames.read(allocator, bytes)) |f| {
+        const gop = try by_name.getOrPut(allocator, try instanceBase(allocator, f.name));
+        gop.value_ptr.* = if (gop.found_existing) @max(gop.value_ptr.*, f.bytes) else f.bytes;
+    }
+    const Callee = struct { name: []const u8, bytes: u64 };
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
+    for (graph.modules.items) |*m| {
+        if (m.is_std) continue;
+        const file: diag.File = .{ .source = m.source, .path = m.display, .parts = m.parts };
+        for (m.sema.frame_owners.items, 0..) |o, i| {
+            // A `rarely` function is cold, so its frame costs little.
+            if (o.kind != .function or rig.markerOf(o.root) == .rarely) continue;
+            const reserved = by_name.get(try zigName(allocator, m, o)) orelse continue;
+            if (reserved <= page_bytes) continue;
+            const acc = m.sema.account(@intCast(i));
+            const own = acc.own orelse continue;
+            const own_bytes = own.bytes + acc.marked.bytes;
+            if (own_bytes > page_bytes) continue;
+            // The Rig functions it calls that no marker keeps out of line,
+            // largest first: by the frame the executable gives one that
+            // is still a function, else by the values the checker counts.
+            var callees: std.ArrayList(Callee) = .empty;
+            for (o.calls) |ci| {
+                const call = m.sema.frame_calls.items[ci];
+                const ref = switch (m.sema.callTargetOf(call.node) orelse continue) {
+                    .function => |r| r,
+                    .none => continue,
+                };
+                if (ref.module == 0 or ref.module > graph.modules.items.len) continue;
+                const tm = graph.get(ref.module);
+                if (tm.is_std) continue;
+                for (tm.sema.frame_owners.items, 0..) |t, ti| {
+                    if (t.kind != .function or t.pos != ref.pos) continue;
+                    if (rig.markerOf(t.root) != .none) break;
+                    const name = bareName(t.label);
+                    const counted = if (tm.sema.account(@intCast(ti)).total()) |c| @as(u64, @intCast(@min(c.bytes, std.math.maxInt(u64)))) else 0;
+                    const size = by_name.get(try zigName(allocator, tm, t)) orelse counted;
+                    for (callees.items) |c| {
+                        if (std.mem.eql(u8, c.name, name)) break;
+                    } else try callees.append(allocator, .{ .name = name, .bytes = size });
+                    break;
+                }
+            }
+            std.mem.sort(Callee, callees.items, {}, struct {
+                fn moreThan(_: void, a: Callee, b: Callee) bool {
+                    return a.bytes > b.bytes;
+                }
+            }.moreThan);
+            const at = file.locate(o.pos);
+            const lc = diag.lineCol(at.text, o.pos - at.start);
+            try writer.interface.print("{s}:{d}:{d}: warning: `{s}` reserves {d} bytes of stack, more than a page ({d} bytes), though its own values take {d}: what is inlined into it holds the rest, and every call pays for the whole frame", .{ at.path, lc.line, lc.col, bareName(o.label), reserved, page_bytes, own_bytes });
+            const shown = callees.items[0..@min(callees.items.len, 3)];
+            for (shown, 0..) |c, k| {
+                if (k == 0) try writer.interface.print("; to keep {s} out of line, mark {s} `called`: ", .{ if (shown.len == 1) "the function it calls" else "the largest functions it calls", if (shown.len == 1) "it" else "them" });
+                try writer.interface.print("{s}`{s}`", .{ if (k == 0) "" else ", ", c.name });
+            }
+            try writer.interface.writeAll("\n");
+        }
+    }
+    try writer.interface.flush();
+}
+
+/// A frame owner's name as a message shows it: its label without the
+/// backticks.
+fn bareName(label: []const u8) []const u8 {
+    return std.mem.trim(u8, label, "`");
+}
+
+/// The name Zig gives function `o` of module `m` in the executable:
+/// the module's file, then its type for a method, then its name.
+fn zigName(allocator: std.mem.Allocator, m: *const modules.Module, o: sema.FrameOwner) ![]const u8 {
+    const prefix = m.out_basename[0 .. m.out_basename.len - ".zig".len];
+    const name = bareName(o.label);
+    const base = name[if (std.mem.findScalarLast(u8, name, '.')) |d| d + 1 else 0..];
+    if (o.member) return std.fmt.allocPrint(allocator, "{s}.{s}.{s}", .{ prefix, o.type_name, base });
+    return std.fmt.allocPrint(allocator, "{s}.{s}", .{ prefix, base });
+}
+
+/// A symbol's name without what tells its instances apart: a type's
+/// arguments, `(...)`, and a generic function's `__func_N` or
+/// `__anon_N`.
+fn instanceBase(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var depth: usize = 0;
+    for (name) |c| {
+        if (c == '(') depth += 1 else if (c == ')') {
+            if (depth > 0) depth -= 1;
+        } else if (depth == 0) try out.append(allocator, c);
+    }
+    var s = out.items;
+    for ([_][]const u8{ "__func_", "__anon_" }) |tag| if (std.mem.findLast(u8, s, tag)) |at| {
+        if (at + tag.len < s.len and std.ascii.isDigit(s[at + tag.len])) s = s[0..at];
+    };
+    return s;
+}
+
 fn eql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
@@ -671,13 +792,17 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         const kept = try keptBuild(allocator, io, env, zig_cache, opts.mode, out, zig_args, pkg.files.items);
         if (kept) |k| if (reuseBuild(allocator, io, k, out)) {
             if (home) |h| recordSize(allocator, io, h, dir);
+            if (opts.mode != .debug) warnFrames(allocator, io, &graph, out);
             return;
         };
         const objects_before = if (kept != null) zigObjects(allocator, io, zig_cache) else &.{};
         const code = try runZig(io, argv);
         if (code == 0) if (kept) |k| keepBuild(allocator, io, k, out, zig_cache, objects_before);
         if (home) |h| recordSize(allocator, io, h, dir);
-        if (code == 0) return;
+        if (code == 0) {
+            if (opts.mode != .debug) warnFrames(allocator, io, &graph, out);
+            return;
+        }
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
         std.process.exit(code);
     }
@@ -2228,6 +2353,7 @@ test {
     _ = sema;
     _ = proofs;
     _ = lsp;
+    _ = frames;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");

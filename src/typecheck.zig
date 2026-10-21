@@ -3948,7 +3948,10 @@ const Checker = struct {
         switch (pattern) {
             .src => {
                 const name = self.text(pattern);
-                if (sema.isStringLiteralText(name)) return self.checkTextPattern(pattern, scrutinee, cov);
+                if (sema.isStringLiteralText(name)) {
+                    if (isU8(self.ctx, sema.unwrapViews(self.ctx, scrutinee))) return self.checkBytePattern(pattern, scrutinee, cov);
+                    return self.checkTextPattern(pattern, scrutinee, cov);
+                }
                 if (isLiteralText(name)) {
                     try self.checkExpr(pattern, scrutinee);
                     if (std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) {
@@ -4018,6 +4021,18 @@ const Checker = struct {
     /// subject is a `String`, a `?String`, or a `Static`. No set of
     /// strings covers every text, so the match needs `_`; a string an
     /// earlier arm matches, however it is written, is reported.
+    /// A string pattern against a `U8` is its byte (`byteString`).
+    fn checkBytePattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        const ty = sema.unwrapViews(self.ctx, scrutinee);
+        try self.checkExpr(pattern, ty);
+        if (self.isPoison(self.ctx.typeOf(pattern) orelse self.t().invalid_id)) {
+            cov.rejected = true;
+            return;
+        }
+        const bytes = textLiteralBytes(self.ctx.arena.allocator(), self.text(pattern)) orelse return;
+        try self.coverInts(cov, bytes[0], bytes[0], pattern.src.pos);
+    }
+
     fn checkTextPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
         try self.ctx.recordType(pattern, self.t().static_id);
         const mark = self.ctx.diagnostics.items.len;
@@ -4058,6 +4073,8 @@ const Checker = struct {
             if (hi_node.isKind(.neg)) try self.ctx.recordType(ir.Neg.operand(hi_node), bound_ty);
         } else try self.checkExpr(hi_node, scrutinee);
         if (self.isPoison(scrutinee)) return;
+        // A bound already reported (a string of more than one byte).
+        for ([2]Sexp{ lo_node, hi_node }) |b| if (self.isPoison(self.ctx.typeOf(b) orelse self.t().int_id)) return;
         const lo = self.constInt(lo_node);
         const hi = self.constInt(hi_node);
         if (lo == null or hi == null) {
@@ -4811,6 +4828,7 @@ const Checker = struct {
         const a = try self.synthReached(l);
         const b = try self.synthReached(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
         if (sema.unwrapViews(self.ctx, a) == self.t().symbol_id or sema.unwrapViews(self.ctx, b) == self.t().symbol_id) {
             try self.errAt(l, "operator `{s}` is not defined for `Symbol`: a symbol has no order; compare with `==` and `!=`", .{op});
             return self.t().bool_id;
@@ -4997,6 +5015,7 @@ const Checker = struct {
         const b = if (synthesized) |ts| ts[1] else try self.synthOperandValue(operands[1]);
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
+        if (try self.byteBeside(operands, a, b)) |ty| return ty;
         if (sema.simdOf(self.ctx, a) != null or sema.simdOf(self.ctx, b) != null) return self.simdOperands(e, op, req, a, b);
 
         const ta = self.ctx.types.get(a);
@@ -5156,6 +5175,7 @@ const Checker = struct {
             b = try self.synthEqOperand(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
         // Lane by lane: a mask. (An optional vector has no `==`, which
         // the optional's comparison reports.)
         const optional = self.ctx.types.get(a) == .optional or self.ctx.types.get(b) == .optional;
@@ -8121,6 +8141,12 @@ const Checker = struct {
             return target;
         }
         const arg = args[0];
+        // A string literal takes the target type, as an integer literal
+        // does: `U8('>')` is a byte (`byteString`).
+        if (arg == .src and sema.isStringLiteralText(self.text(arg)) and isU8(self.ctx, target)) {
+            try self.checkExpr(arg, target);
+            return target;
+        }
         const from = try self.synthValue(arg);
         if (self.isPoison(from)) return target;
         if (self.enumValues(from)) |values| {
@@ -13131,6 +13157,77 @@ const Checker = struct {
 
     /// A form whose type comes from context: its type, or null when `e`
     /// is not one.
+    /// A string literal where a `U8` goes is its one byte, and where a
+    /// `[N]U8` goes, its bytes, as an integer literal takes the type its
+    /// context gives it: recorded (`SemContext.byte_literals`) for the
+    /// Parser wrapper to write as the integer or array literal it is, and
+    /// the module checked again on that tree (`Parser.byteLiterals`).
+    /// Null where `target` is neither, so the literal stays text.
+    fn byteString(self: *Checker, e: Sexp, target: TypeId) Error!?TypeId {
+        const len: ?u64 = switch (self.ctx.types.get(target)) {
+            .array => |a| if (isU8(self.ctx, a.elem)) (sema.arrayLen(self.ctx, a) orelse return null) else return null,
+            else => if (isU8(self.ctx, target)) null else return null,
+        };
+        const lit = self.text(e);
+        const mark = self.ctx.diagnostics.items.len;
+        try self.checkEscapes(e);
+        if (self.ctx.diagnostics.items.len > mark) return self.t().invalid_id;
+        const bytes = textLiteralBytes(self.ctx.arena.allocator(), lit) orelse return self.t().invalid_id;
+        if (len) |n| {
+            if (bytes.len != n) {
+                try self.errAt(e, "string literal `{s}` is {d} byte{s}; `{s}` needs {d}", .{ lit, bytes.len, plural(bytes.len), try self.tyName(target), n });
+                return self.t().invalid_id;
+            }
+        } else if (bytes.len != 1) {
+            try self.errAt(e, "{s}", .{try self.notOneByte(lit, bytes.len)});
+            return self.t().invalid_id;
+        }
+        try self.ctx.recordByteLiteral(e.src.pos, bytes, len != null);
+        return target;
+    }
+
+    /// Why string literal `lit`, of `n` bytes, is no `U8`: its size, a
+    /// raw escape's bytes and the double-quoted literal that is the byte,
+    /// or the bytes of a character outside ASCII.
+    fn notOneByte(self: *Checker, lit: []const u8, n: usize) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const body = lit[1 .. lit.len - 1];
+        if (lit[0] == '\'' and std.mem.findScalar(u8, body, '\\') != null) {
+            const quoted = try std.fmt.allocPrint(a, "\"{s}\"", .{body});
+            const escaped = std.zig.string_literal.parseAlloc(a, quoted) catch null;
+            if (escaped != null and escaped.?.len == 1) {
+                const b = escaped.?[0];
+                const what = switch (b) {
+                    '\n' => "a newline",
+                    '\t' => "a tab",
+                    '\r' => "a carriage return",
+                    '\\' => "a backslash",
+                    else => try std.fmt.allocPrint(a, "the byte 0x{x:0>2}", .{b}),
+                };
+                const raw = if (body.len == 2) try std.fmt.allocPrint(a, "the two bytes `\\` and `{c}`", .{body[1]}) else try std.fmt.allocPrint(a, "the {d} bytes `{s}`", .{ n, body });
+                return std.fmt.allocPrint(a, "`{s}` is raw, {s}; for {s} write `{s}`", .{ lit, raw, what, quoted });
+            }
+            return std.fmt.allocPrint(a, "`{s}` is {d} bytes, and raw: a `U8` is one byte, and a `\\` is a byte of its own in single quotes; write the literal in double quotes for its escapes", .{ lit, n });
+        }
+        if (n > 1 and body.len == n and body[0] >= 0x80 and (std.unicode.utf8ByteSequenceLength(body[0]) catch 0) == n)
+            return std.fmt.allocPrint(a, "`{s}` is one character of {d} bytes; a `U8` is one byte", .{ lit, n });
+        if (n == 0) return std.fmt.allocPrint(a, "`{s}` holds no bytes; a `U8` is one byte", .{lit});
+        return std.fmt.allocPrint(a, "`{s}` is {d} bytes; a `U8` is one byte", .{ lit, n });
+    }
+
+    /// `c == 'A'`, `c - '0'`: a string literal beside a `U8` goes where a
+    /// `U8` does (`byteString`). The `U8`, or null.
+    fn byteBeside(self: *Checker, operands: [2]Sexp, a: TypeId, b: TypeId) Error!?TypeId {
+        for (operands, [2]TypeId{ b, a }) |o, other| {
+            if (o != .src or !sema.isStringLiteralText(self.text(o))) continue;
+            const ty = sema.unwrapViews(self.ctx, other);
+            if (!isU8(self.ctx, ty)) continue;
+            try self.checkExpr(o, ty);
+            return ty;
+        }
+        return null;
+    }
+
     fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
         const target = self.liftTarget(expected);
         switch (e) {
@@ -13146,6 +13243,7 @@ const Checker = struct {
                     },
                     else => {},
                 };
+                if (sema.isStringLiteralText(s)) return self.byteString(e, target);
                 if (!sema.isIntLiteralText(s) or !sema.isInteger(self.ctx, target)) return null;
                 try self.checkLiteralFits(e, target);
                 return target;
@@ -16028,6 +16126,14 @@ fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
 /// `if c` with no `else`: a statement, never a value.
 fn isIfWithoutElse(s: Sexp) bool {
     return s.isKind(.@"if") and ir.If.@"else"(s) == .nil;
+}
+
+/// Whether `ty` is `U8`, the byte.
+fn isU8(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .int => |info| info.bits == 8 and !info.signed,
+        else => false,
+    };
 }
 
 /// An integer literal, possibly negated: `42`, `-1`.

@@ -2125,8 +2125,8 @@ test "text lent as string", "5 3 1 2 3"
   t = String("abc")
   print(a(?t), n(t), n(?String("x")), n(String("yz")), b(t))
 
-fail "text push bytes", "4:9: type mismatch: expected `U8`, got `Static`", "5:4: `push` takes one byte, a `U8`; got 2 arguments", "6:9: `push` takes its byte by position, not by name: `!t.push(U8(68))`", errors: 3
-  # `push` appends one `U8`.
+fail "text push bytes", "4:9: `\"ab\"` is 2 bytes; a `U8` is one byte", "5:4: `push` takes one byte, a `U8`; got 2 arguments", "6:9: `push` takes its byte by position, not by name: `!t.push(U8(68))`", errors: 3
+  # `push` appends one `U8`; a string literal of one byte is one.
 
   t = String()
   !t.push("ab")

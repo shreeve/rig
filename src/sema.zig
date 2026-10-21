@@ -2368,6 +2368,11 @@ pub const SemContext = struct {
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
     iter_loops: std.ArrayList(rig.IterLoop) = .empty,
+    /// The string literals typecheck found where a `U8` or a `[N]U8` goes,
+    /// each to be written as the byte or the array of bytes it is there
+    /// (`rig.ByteLiteral`); a module with any is checked again on the
+    /// rewritten tree, as for `iter_loops`.
+    byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
     /// beside the facts table, not in `check --facts=sema`.
     write_sites: std.AutoHashMapUnmanaged(NodeKey, WriteSite) = .empty,
@@ -2434,6 +2439,7 @@ pub const SemContext = struct {
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
+        self.byte_literals.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
         self.const_order.deinit(self.allocator);
@@ -2837,6 +2843,13 @@ pub const SemContext = struct {
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
         try self.facts.names.put(self.allocator, node.src.pos, sym);
+    }
+
+    /// A string literal at `pos` that holds `bytes` where a `U8` goes, or
+    /// a `[N]U8` (`array`); recorded once.
+    pub fn recordByteLiteral(self: *SemContext, pos: u32, bytes: []const u8, array: bool) !void {
+        for (self.byte_literals.items) |l| if (l.pos == pos) return;
+        try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
     }
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
