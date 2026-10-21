@@ -54,20 +54,20 @@ gitDir = gitCommon()
 # not built again (`rig batch build`).
 store = process.env.RIG_BUILD_STORE ?? (if gitDir? then join(gitDir, 'rig-build-store') else '')
 
-# The packs' entries of the store (`rig batch build`'s, each named by a
-# 64-digit hash and holding `package/main.zig`) that no build has used
-# for `packDays` days go, checked at most once a day: each is renamed
-# out of the store in one step, so no build sees half an entry, and then
-# deleted. The store's other entries are left alone.
-packDays = 3
-trimPacks = ->
+# The store's entries (each named by a hash, which `rig run`, `build`,
+# `test`, and `batch build` mark used each time in its `used`) that no
+# build has used for `storeDays` days go, checked at most once a day:
+# each is renamed out of the store in one step, so no build sees half
+# an entry, and then deleted.
+storeDays = 5
+trimStore = ->
   return if store is '' or not existsSync(store)
-  stamp = join(store, '.packs-trimmed')
+  stamp = join(store, '.trimmed')
   return if existsSync(stamp) and Date.now() - statSync(stamp).mtimeMs < 24 * 3600 * 1000
   writeFileSync(stamp, '')
-  for e in readdirSync(store) when /^[0-9a-f]{64}$/.test(e) and existsSync(join(store, e, 'package', 'main.zig'))
+  for e in readdirSync(store) when /^[0-9a-f]{32}([0-9a-f]{32})?$/.test(e)
     used = join(store, e, 'used')
-    continue if existsSync(used) and Date.now() - statSync(used).mtimeMs < packDays * 24 * 3600 * 1000
+    continue unless existsSync(used) and Date.now() - statSync(used).mtimeMs > storeDays * 24 * 3600 * 1000
     gone = join(store, ".gone-#{e}-#{process.pid}")
     try
       renameSync(join(store, e), gone)
@@ -533,7 +533,7 @@ setup = ->
   unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'generated', 'doc', 'full', 'proofs', 'proofs-all'] and n not in scripts and not sources.some((s) -> s.area is n))
   throw new Error((if unknown[0].startsWith('cli.') then "no script test/cli/#{unknown[0].slice(4)}.sh" else "no test file test/rig/#{unknown[0]}.rig.test")) if unknown.length > 0
   init()
-  trimPacks()
+  trimStore()
   # The compiler, with its own consistency checks on; the reference
   # ownership checker, which the oracle's jobs and scripts of test/cli
   # run; and, when this run has the unit tests, their build too: one zig
@@ -722,7 +722,12 @@ setup = ->
     m = text.match(/^# timeout:[ \t]*(\d+)[ \t]*$/m)
     limit = if m then Number(m[1]) else 120
     sweeps = if full then [...new Set(text.match(/\b[A-Z0-9_]+_FULL\b/g) ?? [])] else []
-    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env: Object.fromEntries(sweeps.map((v) -> [v, '1'])), opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit) } }))
+    # A script marked `# builds: shared`, which reads nothing rig writes
+    # in an output directory, builds its programs in the build store, so
+    # a program any worktree has built is not built again.
+    env = Object.fromEntries(sweeps.map((v) -> [v, '1']))
+    env.RIG_BUILD_STORE = store if /^# builds:[ \t]*shared[ \t]*$/m.test(text)
+    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env, opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit) } }))
   # Its id sorts before every other job's, as Swarm starts them in that
   # order: the slowest job, a compile of minutes when the compiler changed,
   # runs beside the rest instead of after them.

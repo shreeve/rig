@@ -1,6 +1,7 @@
 # A closed stdout pipe (`rig test f.rig | head`) ends a program quietly
 # with status 0, but never turns a failure into success: a program that
 # panics, and a `rig test` run cut off before its summary, exit non-zero.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 printf 'test "ok"\n  print("fine")\n\ntest "bad"\n  panic("boom")\n' >failing.rig

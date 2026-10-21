@@ -137,7 +137,7 @@ crashes on fails too.
    compiles only what its changes changed. Within a pack, a file that
    several cases' programs share (a module of the standard library, for
    one) is one file that Zig compiles once, not once a case. The runner
-   removes the store's packs that no run has used for three days.
+   removes the store's entries that no build has used for five days.
 
 `test/rig.rip` does this with Rip's Swarm. Its setup builds the compiler
 with its own checks on (`-Dself-check=true`), the reference ownership

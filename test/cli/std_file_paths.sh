@@ -3,6 +3,7 @@
 # working directory; `none` only when nothing is there, any other
 # failure an error; in debug (sanitized) and --release, and from tasks.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >paths.rig <<'EOF2'

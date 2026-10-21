@@ -2,6 +2,7 @@
 # whose leaves lie past the end of the source. Every dump and listing the
 # CLI has must handle them: none panics, and a diagnostic about the
 # closure points into it.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 # The example of SPEC.md, "Closures" (a closure leaves out parameters).

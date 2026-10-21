@@ -2,6 +2,7 @@
 # Zig compile time against the type its Rig signature lowers to, and
 # the checker rejects the ones it could not trust. `RIG_STD` stands in
 # for the embedded library.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 mkdir lib

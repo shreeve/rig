@@ -21,6 +21,7 @@
 # its argument, in each mode; checks that `--release=fast` drops
 # (overflow, conversion, division) are run in the modes that keep them.
 # PANIC_STATUS_FULL=1 also builds each of the three in every mode.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 # <exe> <what> <mode> <message> [stdout] [arg]: run a built program with
