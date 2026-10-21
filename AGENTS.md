@@ -71,6 +71,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
 | `tools/` | generators, migration scripts (`migrate-0.3.py`), `equiv.py` |
+| `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (Rig's own Zig notes are docs/internals/zig-0.17.md) |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
 Which document answers which question:
