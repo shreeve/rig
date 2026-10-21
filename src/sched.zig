@@ -1246,6 +1246,8 @@ const Call = struct {
 var pool: Pool = .{};
 
 fn poolMain(p: *Pool) void {
+    // The thread's heap goes to the next thread as it ends (`alloc.zig`).
+    defer rt.fast_alloc.threadExit();
     p.lock.lock();
     // Started for a call: it is busy, not among the threads waiting.
     var waited = false;
@@ -1616,6 +1618,7 @@ fn workerCount() usize {
 }
 
 fn workerMain(w: *Worker) void {
+    defer rt.fast_alloc.threadExit();
     std.Thread.maybeAttachSignalStack();
     me_slot = w;
     loop(w);
@@ -3833,4 +3836,79 @@ test "a blocking call fills a buffer its caller lends, and a stoppable one takes
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.filled);
+}
+
+test "a fiber that allocates, moves to another worker, and allocates again uses its new thread's heap" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var moved = std.atomic.Value(u32).init(0);
+        const Unit = struct {};
+        var stale_used = std.atomic.Value(u32).init(0);
+        fn noteLost() void {
+            _ = lost.fetchAdd(1, .monotonic);
+        }
+        var lost = std.atomic.Value(u32).init(0);
+        /// What a caller that kept its thread's heap across a switch
+        /// would do: the owner check must see it.
+        fn stale(_: *Unit) u8 {
+            for (0..2000) |_| {
+                const before = me();
+                const h = rt.fast_alloc.heapForTest();
+                yield();
+                if (me() == before) continue;
+                rt.fast_alloc.checkOwnForTest(h);
+                _ = stale_used.fetchAdd(1, .monotonic);
+                return 0;
+            }
+            return 0;
+        }
+        /// Two allocations with a switch between, in one function, where
+        /// a compiler could keep the first thread-local address for the
+        /// second; a safe build's owner check catches a stale heap.
+        fn hop(_: *Unit) u8 {
+            const a = rt.fast_alloc.allocator;
+            for (0..2000) |_| {
+                const before = me();
+                const x = a.alloc(u8, 24) catch unreachable;
+                yield();
+                const y = a.alloc(u8, 40) catch unreachable;
+                if (me() != before) _ = moved.fetchAdd(1, .monotonic);
+                a.free(x);
+                a.free(y);
+            }
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            var jobs: [16]*Job(u8) = undefined;
+            for (&jobs) |*j| j.* = spawn(u8, Unit, hop, .{}, .{}, false).job;
+            for (jobs) |j| {
+                _ = j.join();
+                j.free();
+            }
+            hop_lost = lost.load(.monotonic);
+            // A heap kept across a switch, used on another thread.
+            var stales: [8]*Job(u8) = undefined;
+            for (&stales) |*j| j.* = spawn(u8, Unit, stale, .{}, .{}, false).job;
+            for (stales) |j| {
+                _ = j.join();
+                j.free();
+            }
+        }
+        var hop_lost: u32 = 0;
+    };
+    if (!std.debug.runtime_safety) return error.SkipZigTest;
+    rt.fast_alloc.owner_lost = Run.noteLost;
+    defer rt.fast_alloc.owner_lost = rt.fast_alloc.owner_lost_default;
+    workers_override = 4;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    // The fibers did move, and allocating through the allocator never
+    // used another thread's heap.
+    try std.testing.expect(Run.moved.load(.monotonic) > 0);
+    try std.testing.expectEqual(@as(u32, 0), Run.hop_lost);
+    // A heap kept across a move is caught each time it is used.
+    try std.testing.expect(Run.stale_used.load(.monotonic) > 0);
+    try std.testing.expectEqual(Run.stale_used.load(.monotonic), Run.lost.load(.monotonic) - Run.hop_lost);
 }
