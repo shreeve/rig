@@ -3405,6 +3405,26 @@ The result is an ordinary `while` with an `as` header, which the
 ownership checker walks (`walkWhile`) and emit writes (`emitWhile`) like
 one the program wrote.
 
+### Strings as bytes
+
+A string literal where a `U8` is expected is its one byte, and where a
+`[N]U8` is, the array of its bytes (SPEC, "Byte literals"). Only
+typecheck knows what a literal's context expects, so the literal is
+rewritten as `for` loops over an iterator are: `Checker.byteString`,
+reached where a literal meets its expected type (`checkContextual`), the
+other side of an operator (`byteBeside`), a conversion `U8('A')`, and a
+string pattern against a `U8` (`checkBytePattern`), checks the count of
+bytes and records the literal (`SemContext.byte_literals`). Then
+`ModuleGraph.check` calls `Parser.byteLiterals`, which writes each as the
+integer leaf of its byte, spanning the string, or as the array literal of
+its bytes, each a leaf inside the string so no two share a position,
+and checks the module again. A byte leaf reads as its decimal value
+(`rig.leafText`), so every pass after typecheck, and the second check,
+sees an integer literal where the program wrote a byte: a pattern's
+coverage, a constant's value, and emit need nothing of their own. A
+literal of the wrong size is not recorded, and the second check reports
+it again. Each round rewrites what it found, so the checks end.
+
 ### Assignments
 
 Every assignment, to a name, a field, or an element, plain or compound,

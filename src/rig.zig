@@ -899,12 +899,6 @@ pub const Lexer = struct {
         symbol_name,
         symbol_long,
         control_in_string,
-        control_in_bytes,
-        byte_empty,
-        byte_many,
-        byte_non_ascii,
-        byte_code_point,
-        byte_escape,
         lone_cr,
         leading_zero,
         radix_case,
@@ -923,12 +917,6 @@ pub const Lexer = struct {
                 .bad_char => "invalid character",
                 .unterminated_string => "unterminated string",
                 .control_in_string => "control character in a string; write it as an escape (`\\t`, `\\n`) in a double-quoted string",
-                .control_in_bytes => "control character in a byte literal; write it as an escape (`\\t`, `\\n`, `\\xNN`)",
-                .byte_empty => "a byte literal holds one byte: `b'A'`",
-                .byte_many => "a byte literal holds one byte; `b\"AB\"` is an array of bytes",
-                .byte_non_ascii => "a byte literal holds ASCII characters alone; write a byte above 0x7F as `\\xNN`",
-                .byte_code_point => "`\\u{...}` names a code point, not a byte; write `\\xNN`",
-                .byte_escape => "unknown escape in a byte literal; it takes `\\\\`, `\\'`, `\\\"`, `\\n`, `\\r`, `\\t`, and `\\xNN`",
                 .lone_cr => "carriage return without a line feed; end lines with `\\n` or `\\r\\n`",
                 .leading_zero => "a decimal number has no leading zero",
                 .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
@@ -1321,7 +1309,6 @@ pub const Lexer = struct {
             // `x as a` separates arguments or elements.
             .comma => if (self.nesting == 0 and self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma)) .as_comma else .comma,
             .err => return self.lexError(tok),
-            .integer, .bytes => if (byteError(self.base.text(tok))) |e| return self.fail(e.err, tok.pos + e.at) else tok.cat,
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok) else tok.cat,
         };
         // A jump's label ends at its name: a value after it stands apart
@@ -1735,7 +1722,7 @@ pub const Lexer = struct {
     /// A literal comes next: a number, a string, or an array.
     fn literalFollows(self: *const Lexer) bool {
         return switch (self.nextJoined().cat) {
-            .integer, .real, .string_sq, .string_dq, .bytes, .lbracket => true,
+            .integer, .real, .string_sq, .string_dq, .lbracket => true,
             else => false,
         };
     }
@@ -1750,7 +1737,7 @@ pub const Lexer = struct {
     fn lexError(self: *Lexer, tok: Token) Token {
         const t = self.base.text(tok);
         return switch (t[0]) {
-            '"', '\'' => self.stringError(tok.pos, self.afterBareB(tok.pos)),
+            '"', '\'' => self.stringError(tok.pos),
             '0'...'9' => self.fail(if (t.len > 1 and t[0] == '0' and std.mem.findScalar(u8, "XBO", t[1]) != null)
                 .radix_case
             else if (t.len > 1 and t[0] == '0' and (std.ascii.isDigit(t[1]) or t[1] == '_'))
@@ -1773,7 +1760,7 @@ pub const Lexer = struct {
         return pos > 0 and src[pos - 1] == 'b' and (pos < 2 or !isIdentCont(src[pos - 2]));
     }
 
-    fn stringError(self: *Lexer, open: u32, bytes: bool) Token {
+    fn stringError(self: *Lexer, open: u32) Token {
         const src = self.base.source;
         const quote = src[open];
         var p = open + 1;
@@ -1786,7 +1773,7 @@ pub const Lexer = struct {
                 continue;
             }
             const at_line_end = src[p] == '\r' and p + 1 < src.len and src[p + 1] == '\n';
-            if ((src[p] < 0x20 or src[p] == 0x7f) and !at_line_end) return self.fail(if (bytes) .control_in_bytes else .control_in_string, p);
+            if ((src[p] < 0x20 or src[p] == 0x7f) and !at_line_end) return self.fail(.control_in_string, p);
         }
         return self.fail(.unterminated_string, open);
     }
@@ -1804,7 +1791,6 @@ fn isValue(cat: TokenCat) bool {
         .real,
         .string_sq,
         .string_dq,
-        .bytes,
         .true,
         .false,
         .rparen,
@@ -1943,7 +1929,8 @@ fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
 }
 
 /// The integer leaf of byte `value`, which spans `len` bytes at `pos`
-/// (`b'A'`, or the `A` of `b"AB"`) and reads as its decimal value.
+/// (a string literal where a `U8` goes, or one byte of one where a
+/// `[N]U8` goes) and reads as its decimal value.
 fn byteLeaf(pos: u32, len: u16, value: u8) Sexp {
     return .{ .src = .{ .pos = pos, .len = len, .id = byte_id_base + value } };
 }
@@ -1958,60 +1945,6 @@ const byte_texts = blk: {
     for (&texts, 0..) |*t, i| t.* = std.fmt.comptimePrint("{d}", .{i});
     break :blk texts;
 };
-
-/// What `ByteReader.next` finds that is no byte.
-pub const ByteError = error{ NonAscii, CodePoint, UnknownEscape };
-
-/// The bytes of a byte literal's text, `b'A'` or `b"AB"`, in order. The
-/// lexer rule closes the quote, and no backslash comes right before it.
-pub const ByteReader = struct {
-    text: []const u8,
-    /// Where the byte `next` read last starts in `text`, and ends.
-    at: usize = 2,
-    end: usize = 2,
-
-    /// The next byte, null at the closing quote, or why the text at `at`
-    /// is no byte.
-    pub fn next(r: *ByteReader) ByteError!?u8 {
-        const t = r.text;
-        r.at = r.end;
-        if (r.at >= t.len - 1) return null;
-        const c = t[r.at];
-        if (c >= 0x80) return error.NonAscii;
-        r.end = r.at + 1;
-        if (c != '\\') return c;
-        r.end = r.at + 2;
-        return switch (t[r.at + 1]) {
-            '\\', '\'', '"' => |e| e,
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            'x' => {
-                if (r.at + 4 >= t.len or !std.ascii.isHex(t[r.at + 2]) or !std.ascii.isHex(t[r.at + 3])) return error.UnknownEscape;
-                r.end = r.at + 4;
-                return std.fmt.parseInt(u8, t[r.at + 2 .. r.at + 4], 16) catch unreachable;
-            },
-            'u' => error.CodePoint,
-            else => error.UnknownEscape,
-        };
-    }
-};
-
-/// Why the text of an integer or byte string token holds no bytes (an
-/// integer's text holds none to check), or `b'…'` holds more or fewer
-/// than one: the error, and where it is in the text.
-fn byteError(text: []const u8) ?struct { err: Lexer.LexError, at: u32 } {
-    if (text.len < 3 or text[0] != 'b') return null;
-    var r: ByteReader = .{ .text = text };
-    var n: usize = 0;
-    while (r.next() catch |e| return .{ .at = @intCast(r.at), .err = switch (e) {
-        error.NonAscii => .byte_non_ascii,
-        error.CodePoint => .byte_code_point,
-        error.UnknownEscape => .byte_escape,
-    } }) |_| n += 1;
-    if (text[1] == '\'' and n != 1) return .{ .at = 0, .err = if (n == 0) .byte_empty else .byte_many };
-    return null;
-}
 
 /// Whether `leaf` is a name a rewrite built (`hiddenLeaf`), such as the
 /// `next` a `for` over an iterator calls.
@@ -2124,6 +2057,10 @@ pub const IterSource = enum {
 /// A `for` node to rewrite (`Parser.desugarIterLoops`), with how it
 /// walks its source.
 pub const IterLoop = struct { node: parser.NodeId, source: IterSource };
+
+/// A string literal typecheck found where a `U8` or a `[N]U8` goes
+/// (`Parser.byteLiterals`): the position of its leaf and its bytes.
+pub const ByteLiteral = struct { pos: u32, bytes: []const u8, array: bool };
 
 pub const Parser = struct {
     base: BaseParser,
@@ -2701,7 +2638,7 @@ pub const Parser = struct {
         // Only a function type's result must follow here.
         if (std.mem.eql(u8, expected, "`->`")) return "a function type writes its result after `->`: `fun(Int) -> Int`";
         return switch (tok.cat) {
-            .real, .string_sq, .string_dq, .bytes => if (in_pattern) "a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant" else null,
+            .real, .string_sq, .string_dq => if (in_pattern) "a pattern is a name, an integer, a string, `true`, `false`, or an enum variant" else null,
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
@@ -2997,31 +2934,7 @@ pub const Parser = struct {
     // `captures` node and receiver sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
-    /// `b'A'` is the integer leaf `65` where it is written, and `b"AB"`
-    /// the array literal `[U8(65), U8(66)]`, each element where its byte
-    /// is written; `b""` is `[0 of U8(0)]`, an empty `[0]U8`. The lexer
-    /// checked their bytes.
-    fn byteLiteral(self: *Parser, leaf: Sexp) std.mem.Allocator.Error!Sexp {
-        const text = leafText(self.base.source, leaf.src);
-        if (text.len < 3 or text[0] != 'b' or (text[1] != '\'' and text[1] != '"')) return leaf;
-        const pos = leaf.src.pos;
-        var r: ByteReader = .{ .text = text };
-        if (text[1] == '\'') return byteLeaf(pos, leaf.src.len, (r.next() catch null) orelse 0);
-        const whole: parser.Span = .{ .start = pos, .end = pos + leaf.src.len };
-        var elems: std.ArrayList(Sexp) = .empty;
-        while (r.next() catch null) |b| {
-            const at: u32 = pos + @as(u32, @intCast(r.at));
-            const len: u16 = @intCast(r.end - r.at);
-            try elems.append(self.allocator(), try self.base.newNode(.call, &.{ .nil, hiddenLeaf(at, .u8), byteLeaf(at, len, b) }, .{ .start = at, .end = at + len }));
-        }
-        if (elems.items.len > 0) return self.base.newNode(.array, elems.items, whole);
-        const zero = byteLeaf(pos, leaf.src.len, 0);
-        const elem = try self.base.newNode(.call, &.{ .nil, hiddenLeaf(pos, .u8), zero }, whole);
-        return self.base.newNode(.array_fill, &.{ zero, elem }, whole);
-    }
-
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        if (sexp == .src) return self.byteLiteral(sexp);
         if (sexp != .list) return sexp;
         var items = sexp.items();
         // A `for` source sigil is the loop's mode, taken before the
@@ -3777,6 +3690,37 @@ pub const Parser = struct {
             return null;
         }
     };
+
+    /// Each string literal of `lits` in `tree` as the literal it is
+    /// where it stands: where a `U8` goes, the integer leaf of its byte,
+    /// spanning the string; where a `[N]U8` goes, the array literal of
+    /// its bytes, each a leaf inside the string, so that no two share a
+    /// position. Every other node keeps its position and id.
+    pub fn byteLiterals(self: *Parser, tree: Sexp, lits: []const ByteLiteral) std.mem.Allocator.Error!void {
+        if (lits.len == 0) return;
+        var at: std.AutoHashMapUnmanaged(u32, usize) = .empty;
+        defer at.deinit(self.allocator());
+        for (lits, 0..) |l, i| try at.put(self.allocator(), l.pos, i);
+        try self.bytesIn(tree, lits, &at);
+    }
+
+    fn bytesIn(self: *Parser, node: Sexp, lits: []const ByteLiteral, at: *const std.AutoHashMapUnmanaged(u32, usize)) std.mem.Allocator.Error!void {
+        if (node != .list) return;
+        for (@constCast(node.items())) |*slot| switch (slot.*) {
+            .src => |leaf| if (at.get(leaf.pos)) |i| {
+                const lit = lits[i];
+                if (!lit.array) {
+                    slot.* = byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
+                    continue;
+                }
+                const elems = try self.allocator().alloc(Sexp, lit.bytes.len);
+                for (lit.bytes, elems, 0..) |b, *e, k| e.* = byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
+                slot.* = try self.base.newNode(.array, elems, .{ .start = leaf.pos, .end = leafEnd(self.base.source, leaf) });
+            },
+            .list => try self.bytesIn(slot.*, lits, at),
+            else => {},
+        };
+    }
 
     /// Rewrite each `for` of `loops` in `tree` into the `while` it means.
     /// Every other node keeps its position and id.
