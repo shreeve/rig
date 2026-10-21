@@ -217,6 +217,10 @@ const FunState = struct {
     recursive: bool = false,
     /// How many loops the code being emitted is inside.
     loops: u32 = 0,
+    /// The count of turns of the outermost loop the code being emitted is
+    /// inside (`Emitter.yield_checks`), which every loop in it counts
+    /// down too.
+    turns: ?[]const u8 = null,
 };
 
 const Nominal = struct {
@@ -365,8 +369,8 @@ pub const Emitter = struct {
     /// compiles only if every operation on one goes through the optional
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
     strict_optionals: bool = false,
-    /// The program makes tasks: its outermost loops count their turns
-    /// toward a yield check (`rig.turn`), and its recursive functions
+    /// The program makes tasks: its loops count their turns toward a
+    /// yield check (`rig.turn`), and its recursive functions
     /// check for work left waiting (`rig.tickCall`), so no task keeps
     /// the others waiting for long.
     yield_checks: bool = false,
@@ -2724,8 +2728,9 @@ pub const Emitter = struct {
         /// A `for` whose source's unit is being written (`enterUnit`),
         /// until the loop is entered.
         source_unit: bool = false,
-        /// An outermost loop's count of turns (`Emitter.yield_checks`),
-        /// which each turn's body starts by counting down.
+        /// The count of turns of the outermost loop it is in, or its own
+        /// (`Emitter.yield_checks`), which each turn's body starts by
+        /// counting down.
         turns: ?[]const u8 = null,
     };
 
@@ -2755,11 +2760,19 @@ pub const Emitter = struct {
         const has_res = else_ != .nil or value != null;
         lp.target = .{ .node = loop, .rig_label = rig_label, .brk = if (has_res) lp.res else lp.loop, .loop = lp.loop, .body = lp.body, .value_ty = value };
         if (has_res) try self.openLoopBlock(&lp);
-        // An outermost loop counts its turns, in the block around it.
-        if (self.yield_checks and self.fun.loops == 0) {
-            try self.openLoopBlock(&lp);
-            lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
-            try self.line("var {s}: u32 = rig.tick_turns;", .{lp.turns.?});
+        // Every loop counts its turns: an outermost loop keeps the count,
+        // in the block around it, and the loops in it count it down too,
+        // so an inner loop that runs long between the outer loop's turns
+        // still reaches a yield check.
+        const outer_turns = self.fun.turns;
+        defer self.fun.turns = outer_turns;
+        if (self.yield_checks) {
+            if (self.fun.loops == 0 or outer_turns == null) {
+                try self.openLoopBlock(&lp);
+                lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
+                try self.line("var {s}: u32 = rig.tick_turns;", .{lp.turns.?});
+                self.fun.turns = lp.turns;
+            } else lp.turns = outer_turns;
         }
         self.fun.loops += 1;
         defer self.fun.loops -= 1;

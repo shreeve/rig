@@ -20,7 +20,11 @@ starts; a program that makes none starts no workers.
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
-  never blocks; every `std.file` call does so. Sockets are registered
+  never blocks; every `std.file` call does so. `rig.blockingStop` makes
+  such a call a fallible waiting point: a cancel or the task's deadline
+  ends the wait, and the call runs on to its end on its thread, which
+  drops its result; its arguments live in the call's own state, a byte
+  slice among them copied, so nothing it reads is freed under it. Sockets are registered
   with the workers' pollers and wait there (`net.zig`, increment 8).
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
@@ -33,6 +37,16 @@ starts; a program that makes none starts no workers.
 - **Queues.** Each worker owns a ring of 256 ready tasks, pushed with
   one store; other workers steal half with one compare-and-swap. A "run
   next" slot keeps a just-woken task in cache, at most 3 in a row. A
+  worker with nothing else to steal takes a task left in another's slot
+  3 µs (`sched.stealNext`), as Go takes a `runnext`: long enough that a
+  task made and waited for at once still runs by handoff on its maker's
+  worker, and a task made while its maker computes runs beside it.
+  Filling the slot wakes a sleeping worker when none is looking, until
+  a worker so woken finds the slot emptied by its owner first, as when
+  each task made is waited for at once: from then, until a worker takes
+  one, filling the slot sets `sched.waiting` instead, and the maker's
+  next yield check hands the task on (`sched.next_quiet`), so a chain of
+  tasks pays no system call to wake a worker that finds nothing. A
   global queue takes overflow and work from outside the workers.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
@@ -115,13 +129,13 @@ until it ends. In a program that makes tasks, the compiler adds yield
 checks where a computation can run long without waiting. A check never
 fails, and yields only when other work waits.
 
-- **Loops.** Each outermost loop keeps a count of its turns, a local of
-  its own, and every 1,024 turns calls the scheduler (`rig.turn`,
-  `sched.tick`). The task yields when work waits for its worker (in its
-  "run next" slot, its ring, or the global queue) or for another busy
-  one (the flag below). A loop inside another
-  is not counted, so the inner loops that do the most work stay as
-  tight as they were.
+- **Loops.** Each outermost loop keeps a count of turns, a local of its
+  own, which it and every loop inside it count down, and every 1,024
+  turns of any of them calls the scheduler (`rig.turn`, `sched.tick`).
+  So an inner loop that runs long between its outer loop's turns still
+  yields. The task yields when work waits for its worker (in its "run
+  next" slot, its ring, or the global queue) or for another busy one
+  (the flag below).
 - **Recursion.** A function on a cycle of calls (`inlining.decide`)
   starts by reading one flag, `sched.waiting`, on a cache line of its
   own. Work woken or made while every worker is busy sets it. The first
@@ -142,8 +156,8 @@ worker takes about 1 ms, where it took 1.5 s. A recursive call's check
 reads only its flag, so a worker deep in recursion leaves its timers to
 the workers that sleep.
 
-The loop check costs a decrement and a branch per turn of an outermost
-loop: within noise on `bench/tasks`. The recursion check is a load and
+The loop check costs a decrement and a branch per turn of any loop:
+within noise on `bench/tasks`. The recursion check is a load and
 a branch per call: free in any function that does work, but a
 function as small as `fib` runs about 1.5x slower with it.
 
@@ -238,6 +252,44 @@ every time; the suite runs each concurrency case again under seeds 1 to
     deadline, then reads when each sleeper wakes, and a worker about to
     sleep notes that it may sleep for good, then reads the deadlines,
     all sequentially consistent, so one of the two sees the other.
+
+11. **Fork-join in parallel**: every loop's turns count toward a yield
+    check, and a task left in a busy worker's run-next slot is taken by
+    an idle worker, so `t = f()&; g(); >t` runs `f` and `g` at once
+    (`test/cli/sched_forkjoin.sh`).
+
+12. **Every poller watched, and the pool's threads counted**: while a
+    worker that does not sleep holds descriptors, one sleeping worker at
+    a time watches every poller (`sched.sleepIn`): it sleeps at most
+    1 ms, and as it wakes looks at every worker's poller, so a busy
+    worker's sockets wait no longer than that even when its own yield
+    checks do not come (in recursion, say), and it passes the watch on
+    as it goes back to work. A look at another worker's poller leaves the
+    kick it finds there, which that worker, about to sleep, needs. The
+    blocking pool counts a thread busy as it hands it a call, starts
+    threads outside its lock, up to `RIG_BLOCKING_THREADS` (64 by
+    default), and ends a thread idle 10 s; a cancel or a deadline ends a
+    wait on it (`rig.blockingStop`).
+
+13. **Checks of where work runs**: with `RIG_SCHED_STATS=1` set, a
+    program prints, as `main` ends, what each worker did, to stderr:
+
+    ```
+    rig: worker 0: ran 1203, pinned 1, stole 0, slept 4
+    ```
+
+    the fibers it ran (by handoff too), of them pinned ones, the fibers
+    it stole, and the times it slept, so a test can check where work ran
+    without timing it (`test/cli/sched_stats.sh`). A safe or debug build
+    panics when a pinned fiber resumes on a worker other than its home
+    (`sched.checkHome`), a load and a branch per switch.
+
+14. **A wait for a mailbox slot counts in deadlock detection**: it
+    blocks on the actor as a call does (`tasks.actorSpawn`), so a
+    deadlock's walk finds a method waiting for a slot in its own actor's
+    mailbox. A wait on channels alone that nothing can end is reported
+    in deterministic runs only (above, "Deadlock"): elsewhere an
+    interrupt may still end it.
 
 Each increment is held to the gate in `bench/tasks/README.md`
 (`bench-tasks --gate`), which fails a benchmark more than 1.5 times
