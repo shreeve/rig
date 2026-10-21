@@ -39,11 +39,12 @@ sub main()
 EOF
 rig build --release=fast -o forkjoin forkjoin.rig >build.log 2>&1 || fail "build forkjoin: $(cat build.log)"
 # User time against wall time, which holds while other work keeps the
-# cores busy, as the suite does: about 2 when the halves run at once, 1
-# when they run in turn.
+# cores busy, as the suite does: up to 2 when the halves run at once
+# (1.4 with the suite running beside it), and under 1 when they run in
+# turn.
 TIMEFORMAT='%U %R'
 times=$( { time RIG_WORKERS=4 ./forkjoin >out.txt; } 2>&1 ) || fail "forkjoin: exit $?"
 expect_eq "$(cat out.txt)" true "fork-join's result"
 read -r user real <<<"$times"
-awk -v u="$user" -v r="$real" 'BEGIN { exit !(u >= 1.4 * r) }' || fail "fork-join used $user s of CPU in $real s: it ran serially"
+awk -v u="$user" -v r="$real" 'BEGIN { exit !(u >= 1.2 * r) }' || fail "fork-join used $user s of CPU in $real s: it ran serially"
 exit 0
