@@ -170,6 +170,55 @@ test "hash churn", '''
   print(run(5, 40, 3000, 100), run(6, 9, 3000, 9))
   print(run_set(7, 6, 400, 0), run_set(8, 40, 4000, 0), run_set(9, 300, 6000, 50))
 
+test "hash churn wide keys", "true true true"
+  # The churn above with a key of 16 bytes, which a Map and a Set keep the
+  # hash of (a key of 8 bytes or fewer they hash again): puts, takes and
+  # gets against a reference, across a small Map and a table, and a Set
+  # the same way.
+
+  obj Wide
+    k: Int
+    tag: Int
+
+  obj Rand
+    s: U64
+
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
+
+  fun wide(k: Int) -> Wide
+    Wide(k: k, tag: k ^ 7)
+
+  fun run(seed: U64, span: Int, steps: Int) -> Bool
+    r = Rand(s: seed)
+    m: Map[Wide, Int] = Map()
+    s: Set[Wide] = Set()
+    ref: List[Int] = List()
+    for _ in 0..span
+      !ref.push(-1)
+    for step in 0..steps
+      k = (!r).next(span)
+      if (!r).next(3) < 2
+        !m.put(wide(k), step)
+        _ = (!s).add(wide(k))
+        ref[k] = step
+      else
+        got = (!m).take(wide(k)) ?? -1
+        return false if got != ref[k]
+        _ = (!s).take(wide(k))
+        ref[k] = -1
+      live = 0
+      for x in 0..span
+        want = ref[x]
+        live += 1 if want >= 0
+        return false if (m.get(wide(x)) ?? -1) != want
+        return false if s.has(wide(x)) != (want >= 0)
+      return false if m.len != live or s.len != live
+    true
+
+  print(run(1, 6, 300), run(2, 40, 2000), run(3, 300, 3000))
+
 test "hash compound keys", '''
   10 5 false
   10 5 false
