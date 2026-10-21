@@ -1337,6 +1337,18 @@ std/terminal.zig's `widen` does (3x the plain loop). Each such shim is
 for this release only: on Zig 0.18, check that the plain loop vectorizes,
 and move it back into Rig.
 
+**Checking the next Zig.** Rig stays on Zig 0.17.0 until 0.18.0 is
+released; `tools/zig-next.py` shows ahead of time what 0.18 breaks. It
+takes a pinned nightly (its version and sha256s are at the top of the
+script), kept in `~/.cache/rig-zig-next` (`$RIG_ZIG_NEXT`) because
+ziglang.org keeps only recent nightlies, and in a copy of the commit
+checked out builds rig and runs the core suite with it, reporting the
+first build errors and the failed cases by test file; `--bench` also
+times bench/terminal built with each Zig, runs interleaved and counted in
+CPU cycles, and checks both end on the same screen. This checkout's bin/ and caches stay
+0.17's. To move the pin, take the newer nightly's version and sha256s
+from ziglang.org/download/index.json (`master`).
+
 **A NaN converted to an integer is not safety-checked.** In debug and
 safe builds, `@trunc`, `@floor`, `@ceil`, and
 `@round` with an integer result type, panic on an out-of-range value
