@@ -35,7 +35,7 @@ never read as the library's.
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | copying bytes between files and sockets: `copy` |
 | [`std.time`](#stdtime) | clocks and sleeping |
-| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate` |
+| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
@@ -334,7 +334,11 @@ while its task waits, so other tasks go on; to do several at once, make
 them tasks and wait with `>`, as for any call. Like a socket's calls
 ([std.net](#stdnet)), it fails with `task.Stop.canceled` in a canceled
 task and with `task.Stop.timeout` past the task's deadline
-(`time.within`), checked when the call is made.
+(`time.within`): before it starts, and while it waits, so a cancel or a
+deadline ends the wait for a call that blocks (a read of a pipe no one
+writes). The call itself runs on to its end on the pool, and what it
+gives is dropped: a write may still happen, and a file it opened is
+closed.
 
 A `File` reads and writes from where its last read or write ended, with
 the methods a `net.Stream` has, and closes when it is dropped:
@@ -518,6 +522,7 @@ same waiting points fail with `Stop.timeout`.
 |---|---|
 | `error Stop` | `canceled`, the request to stop, `timeout`, and `panicked` |
 | `check()!` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other threads a turn |
+| `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. It takes effect only before the program makes its first task, which starts the workers, and gives whether it did; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: ns)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `ns` nanoseconds; past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
@@ -720,9 +725,9 @@ body (`100 Continue`) only once its length is within the limit; any
 other expectation is answered 417. Once the process has run out of
 file descriptors, `serve` pauses, from 5 ms doubling to 1 s, and
 accepts again, as Go's server does, so the connections it holds can
-close; the listener stays open. A deterministic run (`RIG_SEED`, `rig
-test`) leaves the two timeouts off: its virtual clock would reach them
-while bytes are still on their way. Arguments to `http.serve` that set
+close; the listener stays open. In a deterministic run (`RIG_SEED`,
+`rig test`) the timeouts count on its virtual clock, so a test of one
+takes no time. Arguments to `http.serve` that set
 these limits per server are planned; the environment sets them for the
 whole process.
 

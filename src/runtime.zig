@@ -26,6 +26,7 @@ pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
 pub const taskCheck = tasks.check;
+pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
 pub const Actor = tasks.Actor;
@@ -47,7 +48,8 @@ pub const restoreDeadline = tasks.restoreDeadline;
 
 /// `f(args...)`, a call that may block its thread, as `std`'s shims make
 /// one (reading a file): on the scheduler, on its blocking pool, while the
-/// task waits; otherwise here.
+/// task waits until it is done; otherwise here. `args` are passed as they
+/// are, so a call may read into a buffer its caller lends.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (scheduled) return sched.blocking(f, args);
     return @call(.auto, f, args);
@@ -58,9 +60,12 @@ pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".
 /// waiting, or its deadline, ends the wait with `Stop.canceled` or
 /// `Stop.timeout` while the call runs on to its end and its result is
 /// dropped (`sched.blockingStop`). `args` are copied into the call's own
-/// state, a `[]const u8` or `[]u8` among them with what it points to;
-/// anything else they point to must outlive the call. Without the
-/// scheduler it runs here, after a look at the deadline.
+/// state, a `[]const u8` among them with what it points to; anything else
+/// they point to must outlive the call. An argument the call could write
+/// through (`[]u8`, `*T`) does not compile: a canceled waiter goes on
+/// while the call may still write, so the call reads into memory it owns
+/// and returns it. Without the scheduler it runs here, after a look at
+/// the deadline.
 pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (scheduled) return switch (sched.blockingStop(f, args)) {
         .done => |r| r,
@@ -1448,9 +1453,11 @@ pub fn List(comptime T: type) type {
             return out;
         }
 
-        /// The live elements. Invalidated by `push`.
+        /// The live elements. Invalidated by `push`. Inside the buffer by
+        /// `len <= buf.len`, so the slice needs no test of its own.
         pub fn items(self: *const Self) []T {
-            return self.buf[0..self.len];
+            invariant(self.len <= self.buf.len);
+            return self.buf.ptr[0..self.len];
         }
 
         /// Room for `want` elements in all.
@@ -1494,20 +1501,59 @@ pub fn List(comptime T: type) type {
             return pack(Opt(T), if (idx < self.len) self.buf[idx] else null);
         }
 
-        /// `v[i]`: the element at `i`; panics when out of range.
+        /// `v[i]`: the element at `i`; panics when out of range. One test,
+        /// against `len`: the slot is inside the buffer by `len <=
+        /// buf.len`, so it is read through the buffer's pointer, which
+        /// makes no second test.
         pub fn at(self: *const Self, i: anytype) T {
-            return self.buf[index(i, self.len)];
+            return self.buf.ptr[self.indexOf(i)];
         }
 
         /// `v[i] = x`: the slot at `i`; panics when out of range.
         pub fn slot(self: *Self, i: anytype) *T {
-            return &self.buf[index(i, self.len)];
+            return &self.buf.ptr[self.indexOf(i)];
         }
 
         /// The slot at `i`, read-only, for an element reached through a
         /// read view; panics when out of range.
         pub fn constSlot(self: *const Self, i: anytype) *const T {
-            return &self.buf[index(i, self.len)];
+            return &self.buf.ptr[self.indexOf(i)];
+        }
+
+        /// `i` as a slot of the live elements, panicking unless `0 <= i <
+        /// len`; inside the buffer by `len <= buf.len`.
+        inline fn indexOf(self: *const Self, i: anytype) usize {
+            const idx = index(i, self.len);
+            invariant(idx < self.buf.len);
+            return idx;
+        }
+
+        /// `at`, `slot`, and `constSlot` with the tests `p` proves omitted
+        /// (`Proven`), and, with `If`, the tests `q` too while `ok`, a flag
+        /// the compiler made before the statement (`offsetIf`).
+        pub inline fn atProven(self: *const Self, i: Int, comptime p: Proven) T {
+            return self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn slotProven(self: *Self, i: Int, comptime p: Proven) *T {
+            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn constSlotProven(self: *const Self, i: Int, comptime p: Proven) *const T {
+            return &self.buf.ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
+            return self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+        pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
+            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+        pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
+            return &self.buf.ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+
+        inline fn provenSlot(self: *const Self, idx: ?usize) usize {
+            const slot_ = idx orelse indexPanic();
+            invariant(slot_ < self.buf.len);
+            return slot_;
         }
 
         /// Remove and return the last element; the caller owns it.
@@ -1766,6 +1812,7 @@ pub const String = struct {
     }
 
     noinline fn keepPanic(count: Int, n: usize) noreturn {
+        @branchHint(.cold);
         std.debug.panic("`keep: {d}` is outside 0..{d}, the bytes pushed", .{ count, n });
     }
 
@@ -2192,6 +2239,7 @@ pub const Proven = enum { lower, upper, both };
 const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
 
 fn proofPanic() noreturn {
+    @branchHint(.cold);
     @panic("rig: a proven check failed (compiler bug)");
 }
 
@@ -2222,6 +2270,51 @@ pub inline fn atProven(items: anytype, i: Int, comptime p: Proven) std.meta.Elem
 /// `elemPtr` with the tests `p` proves omitted.
 pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(&items[0]) {
     return &items.ptr[provenOffset(i, items.len, 1, p) orelse indexPanic()];
+}
+
+// Flags (docs/internals/INTERNALS.md, "Flags"). The compiler tests some
+// facts once, as a statement starts, into a flag (`okNonneg`, `okBelow`),
+// and a test those facts prove is omitted while the flag is true. While
+// it is false, the test is made where it is written, as it always is, so
+// a test that fails fails there, with its own message.
+
+/// The flag test `0 <= i`.
+pub inline fn okNonneg(i: Int) bool {
+    return i >= 0;
+}
+
+/// The flag test `i + k <= n`, exactly, of a length `n`.
+pub inline fn okBelow(i: Int, comptime k: u64, n: usize) bool {
+    return @as(i128, i) + k <= n;
+}
+
+/// `i` as the start of `width` elements within `count`: the tests `p`
+/// proves (or none) are omitted, and while `ok`, those `q` proves too; a
+/// test that is made fails as `index` fails.
+inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comptime q: Proven, ok: bool) ?usize {
+    const both: Proven = comptime if (p) |pp| (if (pp == q) q else .both) else q;
+    if (ok) return provenOffset(i, count, width, both);
+    if (p) |pp| return provenOffset(i, count, width, pp);
+    const u = std.math.cast(usize, i) orelse return null;
+    if (u > count or count - u < width) return null;
+    return u;
+}
+
+/// `atProven` and `elemPtrProven` with the tests `q` omitted too while
+/// `ok` (`offsetIf`).
+pub inline fn atIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) std.meta.Elem(@TypeOf(items)) {
+    return items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+}
+
+pub inline fn elemPtrIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) @TypeOf(&items[0]) {
+    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+}
+
+/// `a + b`, which cannot overflow while `ok`; else the add tests it, and
+/// an overflow panics as any add's does.
+pub inline fn addIf(a: Int, b: Int, ok: bool) Int {
+    if (ok) return addProven(a, b);
+    return a + b;
 }
 
 /// `a + b` that the compiler proved cannot overflow: an add LLVM may
@@ -2342,6 +2435,13 @@ pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@Ty
 pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeOf(items)) {
     const b = bounds(items.len, lo, hi);
     return items[b[0]..b[1]];
+}
+
+/// `rarely`, the first line of a block: Zig's cold hint for the branch
+/// or function the block is. Inline, so the hint lands where it is
+/// called, as the hint written first in that branch would.
+pub inline fn cold() void {
+    @branchHint(.cold);
 }
 
 /// The end of a slice `s[lo..=hi]`: one past `hi`. A bound no index
@@ -3219,6 +3319,7 @@ fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
 }
 
 fn slicePanic() noreturn {
+    @branchHint(.cold);
     @panic("slice bounds out of range");
 }
 
@@ -3262,10 +3363,12 @@ noinline fn lenPanic() noreturn {
 }
 
 fn indexPanic() noreturn {
+    @branchHint(.cold);
     @panic("index out of bounds");
 }
 
 pub fn oom() noreturn {
+    @branchHint(.cold);
     @panic("out of memory");
 }
 
@@ -3829,12 +3932,15 @@ fn reportLeaks(before: Usage) bool {
     if (!leak_checked) return false;
     const now = usage();
     if (now.count <= before.count) return false;
-    const n = now.count - before.count;
-    std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{
-        n, if (n == 1) "" else "s", now.bytes -| before.bytes,
-    });
-    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
+    leakReport(now.count - before.count, now.bytes -| before.bytes);
     return true;
+}
+
+/// The leak checker's report of `n` allocations of `bytes` bytes.
+noinline fn leakReport(n: usize, bytes: usize) void {
+    @branchHint(.cold);
+    std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{ n, if (n == 1) "" else "s", bytes });
+    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
 }
 
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
@@ -4225,6 +4331,7 @@ pub fn finish() void {
 /// A failure that left `main`, after its drops and `finish`: report the
 /// error as a Rig program shows it and exit 1.
 pub fn failMain(err: anyerror) noreturn {
+    @branchHint(.cold);
     lockOutput();
     flushQuietly();
     std.debug.print("error: {s}\n", .{errorShown(err)});
@@ -4491,6 +4598,7 @@ fn beginPanic() void {
 /// Wait, in a task that panicked while another task's panic is reported,
 /// for that report to end the program.
 fn awaitOtherPanic() noreturn {
+    @branchHint(.cold);
     while (true) io().sleep(.fromSeconds(1), .awake) catch {};
 }
 
@@ -4515,6 +4623,7 @@ fn flushForPanic() void {
 /// A panic that an isolate stops: its report, with the stack trace in a
 /// debug build, then the isolate (`tasks.panicked`).
 fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) noreturn {
+    @branchHint(.cold);
     reportPanic(msg, first_trace_addr);
     tasks.panicked(iso);
 }
@@ -4536,6 +4645,7 @@ fn reportPanic(msg: []const u8, first_trace_addr: usize) void {
 /// A task this one waited for, or dropped, panicked: the panic passes to
 /// this task's nearest isolate, or, with none, ends the program.
 pub fn passPanic() noreturn {
+    @branchHint(.cold);
     passPanicFrom("a task this one waited for panicked");
 }
 

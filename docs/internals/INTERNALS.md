@@ -230,7 +230,7 @@ the finished semantic IR.
 
 ### Keywords
 
-The reserved words (all but `new`, `obj`, `called`, `rarely`, and `of`) are literal lexer
+The reserved words (all but `new`, `obj`, `inline`, `called`, `rarely`, and `of`) are literal lexer
 rules in `rig.grammar` ahead of the identifier rule (`"if" → if`), so
 the lexer's DFA classifies them; `src/rig.zig` keeps no keyword table and
 checks token categories. `new` and `obj` need the next token to be told
@@ -243,16 +243,30 @@ state accepts both and promotion would turn every statement-initial
 written `struct Name` fails to parse and is reported with the word to
 write (`foreignWord` in the Parser wrapper).
 
-`called` and `rarely`, a function's markers, are contextual in the
-wrapper for the same reason as `obj`: each is a keyword only at the start
-of a declaration (after any `pub`) when the next token is `fun` or `sub`,
+`called`, a function's marker, is contextual in the wrapper for the
+same reason as `obj`: it is a keyword only at the start of a
+declaration (after any `pub`) when the next token is `fun` or `sub`,
 and a name everywhere else, so no program that names something `called`
-or `rarely` changes. Two markers before one `fun` (`called rarely fun`)
-are the lexer's error `two_markers`, and a marker before `pub` its error
+changes. Two markers before one `fun` (`inline called fun`) are the
+lexer's error `two_markers`, and a marker before `pub` its error
 `marker_before_pub`. The grammar takes one optional `mark` before `FUN`
 or `SUB` in every function form (`fun`, `sub`, `method`, and `zfun`,
-which sema rejects) and builds it as the node `(called)` or `(rarely)`
+which sema rejects) and builds it as the node `(inline)` or `(called)`
 in the `mark` role of `fun` and `sub`; it adds no conflict.
+
+`rarely` is a keyword only at the start of a statement that it ends
+alone on its line, and a name everywhere else. The grammar takes it as
+a statement, `(rarely)`; the Parser wrapper keeps the one that starts
+the body of a function, a branch of `if` or `match`, a `catch` handler,
+or a loop (`placeRarely`) and rejects any other (`strayRarely`). Every
+pass reads it as `pass`, and emit writes it `rig.cold();`, an inline
+function whose body is `@branchHint(.cold)`: Zig takes the hint only as
+the first statement of a branch or a function, and through an inline
+call it lands in the branch the call is in wherever the call stands, so
+a capture or a loop's bookkeeping written before the block's statements
+needs no care. `rig.markerOf` reads a body that starts with `rarely` as
+the `rarely` marker, which the inlining rule and the function's cold
+start follow.
 
 `unique`, `from` and `static` are contextual. `@keywords ctx unique from
 static` with `@as IDENT = [ctx!]` lets the parser accept each wherever a
@@ -310,8 +324,9 @@ detached sigil, is the one reported.
 | `$size(T)` vs `$outer: for`, `$outer:` over a block, `break $outer`, `break $outer (x)` | `$` vs `LABEL`, `LABEL_COLON` | decided in `Lexer.classifyDollar`. `$` touching a name that touches a `(` is a builtin call, anywhere. Any other `$name` is a label: declared at the start of a line or after another label, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`), with a `:` touching the name, which is `LABEL_COLON` (`label_decl` without it); and named after `break` or `continue`. The `$` touches the name (`dollar_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a `$name` anywhere else is an error (`dollar_stray`). After a declared label's `:` a statement starts; after a jump's label the next token starts an operand |
 | `@`, `!@`, `@hits`, `@visit()` | `IDENT`, and `.` | `@` is self, a name the rewriter returns as `IDENT` whose text is `@`; an `@` touching a name is followed by a `.` the rewriter returns before the name (`member_dot`), so `@hits` parses as the member access `@ . hits`. `@.hits` is an error (`receiver_dot`) |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
-| keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `called` and `rarely` only there before `fun` or `sub` |
-| `called fun g()`, `pub rarely sub s()` vs `called = 3`, `p.rarely`, `fun called()` | `CALLED`, `RARELY` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
+| keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `inline` and `called` only there before `fun` or `sub`, `rarely` only alone on its line |
+| `called fun g()`, `pub inline sub s()` vs `called = 3`, `p.inline`, `fun called()` | `CALLED`, `INLINE` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
+| `rarely` alone on its line vs `rarely = 1`, `p.rarely`, `rarely fun f()` | `RARELY` vs `IDENT` | `rarely` is a keyword at the start of a statement when the line ends after it |
 | `obj Point`, `pub obj Pair[T]` vs `obj = 5`, `obj.x`, `f(obj: 1)` | `OBJ` vs `IDENT` | `obj` is a keyword at the start of a statement (after any `pub`) when a name follows it on the line; the parser's `@keywords` promotion cannot tell the two apart by state, since a statement may start with either |
 | `b\n  .add(1)` vs `match c\n  .red => 1` | no token | a line starting with `.` and a name, indented deeper than the statement above it, is joined to it (no `NEWLINE`, no `INDENT`) when that statement is complete and opens no block; see The lexer rewriter |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
@@ -1805,8 +1820,11 @@ nested in `u` starts from `E - K(u)` too.
 `fits(s)`, `s.len <= 2^62 - 1`; `eq(n, s)`, `n == s.len`; and
 `upto(d, f, h)`, `0 <= d.f <= h`. `i` and
 `n` are locals or parameters of type `Int` of the body being walked (not
-a capture, a view, or a field); a bound `b` is `len(s)`, where `s` is
-such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `d` is
+a capture, a view, or a field); a bound `b` is `len(s)` or `int(n)`,
+where `s` is a place: such a binding of type `?String`, `[]T`, or
+`![]T`, such a binding that is a `List[T]` or a view of one, or a field
+path `d.f.g` from such a binding `d`, an object or a view of one,
+through fields that hold objects by value, to a `List[T]`; `d` is
 such a binding of an object type, held by value; `k` and `h` are at most
 `2^62`. Each list below is positive: a shape not on it makes
 nothing and proves nothing. A unit makes its facts on its exit, each
@@ -1817,18 +1835,22 @@ and then what the store makes.
 |---|---|
 | a guard part, on its true edge | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; each either way round. `b` is written `s.len` (which also gives `fits(s)`: the length was read through `rig.len`, which tests the margin) or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
 | `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)`, `T` concrete: the check ran | `nonneg(i)`, `below(i, width, len(s))`, before the store |
-| `i = c` with a literal `c`, `i = j` with `nonneg(j)` | `nonneg(i)`, after the store |
+| `x = s[i + c]`, `c` a literal: the check ran | `below(i, c + 1, len(s))`, before the store |
+| `i = c` with a literal `c`, `i = j` with `nonneg(j)`, `i = Int(u)` of an unsigned `u` | `nonneg(i)`, after the store |
 | `n = s.len` | `nonneg(n)`, `fits(s)`, and `eq(n, s)`, after the store |
 | `d = g(...)`, `g` a function that bounds fields of its result | `upto(d, f, h)` for each field `f` that `g` bounds by `h`, after the store |
 
 With `eq(n, s)` held, `below(i, k, int(n))` also gives `below(i, k,
-len(s))`, which then lasts while `i` and `s` do, whatever `n` does. A
+len(s))`, which then lasts while `i` and `s` do, whatever `n` does; with
+`below(n, j, b)` held, it gives `below(i, k + j, b)` (`i + k <= n` and
+`n + j <= b`), one step, as each of the two is made. A
 guard in a value (`x = s[i] if i < s.len else 0`, `ok = i < n and s[i]`)
 is part of its unit, and makes nothing.
 
 | Node | Proven |
 |---|---|
 | `s[i]`, read or a place | `lower` under `nonneg(i)`; `upper` under `below(i, k, len(s))`, `k >= 1` |
+| `s[i + c]` or `s[c + i]`, `c` a literal | `lower` under `nonneg(i)` (the add is tested, or proven, before the index is); `upper` under `below(i, k, len(s))`, `k >= c + 1` |
 | `s.read[T, e](i)`, `!s.write[T, e](i, v)`, on the callee | the same, with `k >= $size(T)`: the width of a number `T`, or `n` times the width of `E` for a `Simd[E, n]` of numbers with a known `n` (a vector's bytes are tested as an integer's of that size) |
 | `i + c`, and the `set` of `i += c`, `0 < c <= 2^62` a literal | `no_overflow` under `below(i, k, b)` with `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` and `fits(s)` (`i + c <= 2^62 - 1 + c`) |
 | `i + x`, and the `set` of `i += x`, `x` an `Int` with `0 <= x <= h`: `d.f` under `upto(d, f, h)`, or `g(...).f` or `g(...)` where `g` bounds that field or its result by `h` | as `i + max(h, 1)`: `i + x <= i + max(h, 1)` |
@@ -1864,10 +1886,12 @@ an assignment or compound assignment of the binding, a `!x` or
 a `|!x|` capture, and `<x` of the binding itself. The binding's
 `reassigned` and `written` flags are derived from that record. A write
 ends every fact naming the binding it writes, but `i += c` and
-`i = i + c` with a literal `c >= 0` keep `nonneg(i)`, and a `!s`,
+`i = i + c` with a literal `c >= 0` keep `nonneg(i)`; a `!s`,
 `s[j] = x`, or `!s.write` of a slice view `s` keeps `len(s)`, `fits(s)`,
 and `eq(_, s)`, since writing through a view changes elements, never its
-length. A `raw` block ends every fact, and nothing in it is proven. A
+length; and `v[j] = x` or `v[j].f = x` of a List binding `v` keeps
+`len(v)`, an element store. A write of `d` ends every fact about a
+field path from `d`. A `raw` block ends every fact, and nothing in it is proven. A
 write view made before a guard and used after it makes the guard's read
 of what it views a rejection (Core sentences 5 and 6), so in an accepted
 module every write between a fact and its use is in a unit between them.
@@ -1880,7 +1904,7 @@ a fact emit and the ownership checker read too:
 | block | its statements in order; at its end, the kills of its `defer`s |
 | `if` | the guard parts in order, each from the true edge of the one before (`rig.eachGuardPart`, `rig.eachGuardOperand`); `then` from the last one's; `else` from `E - K(condition)`; after it, `E - K(if)` |
 | `while` | `L = E - K(loop)`, keeping `nonneg(i)` when every write of `i` in the loop adds a constant; the guard parts from `L` each iteration; the body from the last part's true edge; the step from the facts at the body's end met with what each `continue` to the step carries; `else` from `L - K(condition)`; after it, `E - K(loop)` |
-| `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding gets no facts |
+| `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding of `lo..hi` gets `nonneg(k)` when `lo` is a literal or a binding with `nonneg`, and `below(k, 1, b)` when `hi` is a bound `b` the loop writes nothing of (`below(k, 0, b)` for `lo..=hi`; emit reads both ends once, before the first iteration); any other `for` binding gets no facts |
 | statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
 | `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
 | `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, `continue`, or `panic` statement nothing is reached |
@@ -1889,6 +1913,51 @@ a fact emit and the ownership checker read too:
 
 A meet keeps the facts both sides hold, a `below` with the smaller `k`.
 Every state inside a loop holds `L`, so no fixpoint is needed.
+
+### Flags
+
+Some tests the facts do not prove would be proven by facts a program
+could test once, earlier: a record read from consecutive slots
+(`binary_expression(n)` reading `words[d]` to `words[d + 4]`, five tests
+of one place where one of the last would do), or an index of a loop's
+counter into a List whose length the loop's bound never passes. Before
+such a statement, the proof pass makes a flag (`Pass.proposeFlag`): a
+few facts about bindings and lengths as the statement starts, which emit
+tests there, once, into a constant; the walk then holds them under the
+flag, beside the facts of every path. A test one proves is written so
+that it is omitted while the flag is true, and made where it is written,
+as before, while it is false:
+
+```text
+const __rig_ok_7 = rig.okNonneg(d) and rig.okBelow(d, 5, self.words.len);
+s[d + c]  ==>  the tests the facts prove omitted; while __rig_ok_7, the ones its facts prove too
+d + c     ==>  rig.addIf(d, c, __rig_ok_7): an add that cannot overflow while the flag holds, else tested
+```
+
+So a test that fails still fails where it is written, with its own
+message: a flag decides only whether a test runs that is known to pass.
+In a loop the flag is invariant, and LLVM unswitches on it. The shapes
+(a positive list):
+
+| Statement | Its flag tests |
+|---|---|
+| a statement unit with two or more indexes `s[i + c]` (`c >= 0`, `i + 0` is `i`) of one place and one binding | `nonneg(i)` and `below(i, cmax + 1, len(s))`, those the facts do not already hold |
+| a `while` whose guard bounds `i` by an `Int` binding `n` (`below(i, g, int(n))`) or by `len(s)`, with indexes `s[i + c]` in its body | `below(n, cmax + 1 - g, len(s))`, which gives `below(i, cmax + 1, len(s))` on the guard's true edge; and `nonneg(i)` as the loop starts, which writes that add keep |
+| `for k in lo..n` (not `lo..=n`) with indexes `s[k + c]` in its body | `below(n, cmax, len(s))`, which gives `below(k, cmax + 1, len(s))` with the binding's `below(k, 1, int(n))`; and `nonneg(lo)` |
+
+A test is made only if no write in the statement (the unit's `K(u)`, or
+the loop's) ends it. A fact under a flag ends as every fact does, a
+fact made from one is under the same flag (from two different flags,
+it is not made), and a meet keeps it only where both sides hold it under
+that flag or on every path. A flag is made only before a statement of a
+block of statements of a function's body (not a closure's, and not a
+block inside a unit's expression), so its constant is in Zig scope for
+the statement and those after it in the block; its facts end with the
+block, and a `continue` carries none of a flag made inside its loop to
+the step, which Zig writes outside the body. A flag that proves nothing
+is not written. `rig check --facts=proofs` prints a node's tests under a
+flag on a line of its own, `L:C ok KIND TESTS`, after the line of its
+tests of every path.
 
 **Keeping emit and the walk together.** Three checks make a divergence
 fail a run rather than a proof:
@@ -1927,6 +1996,28 @@ together and checks the dump against its own copy of these tables; its
 beside a use, and checks that the use is proven exactly when a guard
 dominates its unit and no write of `i` is in that unit or on a path
 from the guard.
+
+### Fills written before they are read
+
+A fill `[n of x]` writes every element before the program can read one.
+Where the program itself writes every element before it reads any, the
+fill does nothing, and the proof pass (`Pass.fillWritten`) records it as
+`written` on the fill; emit then writes the array `undefined`, with no
+`@memset`. The shape is a positive list: a statement `t = [n of v]`, `v`
+a literal and the elements numbers or `Bool`, `t` a local of the body;
+then, as the next statement, `for k in 0..n` (`n` the same literal, or
+`t.len`; not `0..=n`) whose body starts with `t[k] = e`, names `t`
+nowhere else (`e` included), and holds no `break` or `continue`. Each
+iteration writes element `k` before anything else of it runs; only a
+`return` or a failure leaves the loop early, and either leaves `t`'s
+scope too; so wherever `t` is read, every element was written.
+
+A debug build fills an `undefined` array with 0xAA bytes, so a read the
+proof missed reads those rather than the fill's value: the differential
+run (`swarm test/rig.rip proofs`, against `RIG_NO_PROOFS=1`, which makes
+every fill) sees it, and `RIG_SANITIZE` builds, which are debug builds,
+read the same bytes. `rig check --facts=proofs` prints such a fill as
+`L:C fill written`.
 
 ### Generics
 
@@ -3405,6 +3496,26 @@ The result is an ordinary `while` with an `as` header, which the
 ownership checker walks (`walkWhile`) and emit writes (`emitWhile`) like
 one the program wrote.
 
+### Strings as bytes
+
+A string literal where a `U8` is expected is its one byte, and where a
+`[N]U8` is, the array of its bytes (SPEC, "Byte literals"). Only
+typecheck knows what a literal's context expects, so the literal is
+rewritten as `for` loops over an iterator are: `Checker.byteString`,
+reached where a literal meets its expected type (`checkContextual`), the
+other side of an operator (`byteBeside`), a conversion `U8('A')`, and a
+string pattern against a `U8` (`checkBytePattern`), checks the count of
+bytes and records the literal (`SemContext.byte_literals`). Then
+`ModuleGraph.check` calls `Parser.byteLiterals`, which writes each as the
+integer leaf of its byte, spanning the string, or as the array literal of
+its bytes, each a leaf inside the string so no two share a position,
+and checks the module again. A byte leaf reads as its decimal value
+(`rig.leafText`), so every pass after typecheck, and the second check,
+sees an integer literal where the program wrote a byte: a pattern's
+coverage, a constant's value, and emit need nothing of their own. A
+literal of the wrong size is not recorded, and the second check reports
+it again. Each round rewrites what it found, so the checks end.
+
 ### Assignments
 
 Every assignment, to a name, a field, or an element, plain or compound,
@@ -3803,7 +3914,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   cycle of calls among marked `inline` functions (`decide`,
   `forcedCycles`, whose edges are each one's calls in its own frame, so
   a closure that calls it back is a call). A function marked `called
-  fun` or `rarely fun` is never inlined by the rule below (`rig.markerOf`,
+  fun`, or whose body starts with `rarely`, is never inlined by the rule below (`rig.markerOf`,
   read where `inlining.decide` collects the functions). Emit writes a
   `called` function `noinline fn`, so LLVM keeps every call a call too:
   each instance of a function with compile-time values is then a
@@ -3811,7 +3922,17 @@ symbols); a query that decides more than that belongs in `Pending`.
   `@branchHint(.cold);`, before the evaluation budget, the one place Zig
   takes the hint for a whole function: Zig 0.17 then gives the function
   LLVM's `cold` attribute, so its callers lay out the call as the
-  unlikely path and LLVM does not inline it. No marker changes what the
+  unlikely path and LLVM does not inline it. A function with no marker
+  whose every path ends in a `panic` (`rig.alwaysPanics`: its last
+  statement panics, or is an `if` with an `else` or a `match` whose
+  branches all do, and nothing in it returns or passes a failure or a
+  `none` on) is treated as `rarely`: the rule does not inline it, and
+  emit starts it with the cold hint. The runtime's failure paths (a
+  bounds, length, or overflow report, `oom`, a panic passed on from a
+  task, the leak checker's report) start with the hint too, and a
+  safety check's panic goes through Zig's `FullPanic`, whose members
+  are cold, so every branch to one is laid out as the unlikely path
+  with nothing written in the program. No marker changes what the
   checker walks: a marked function is the same function, called, and an
   inlined one's calls are read through `rig.rt` as any inlined
   function's. The program's `main` and an `extern zig` function take no
@@ -4244,6 +4365,7 @@ reviewed.
 | `enumText`, `enumFromText`, `NameTable` | a plain enum's names: `e.text` is the variant's `@tagName`, less the `'` a renamed one carries (`rigName`); `E.from_text(word)` finds `word` in a `NameTable`, the enum's names in declaration order in an open-addressed table the compiler emits (`src/nametable.zig`): a power of two of at least 16 slots, at most four fifths full, a one-byte tag per slot from the word's Wyhash, and each slot's index into the names. `find` hashes once, probes, and compares bytes only where a tag agrees, and the index gives the variant (`std.enums.values`). `bench/names/` times it against comparing names one by one |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
+| `atIf`, `elemPtrIf`, `addIf`, `okNonneg`, `okBelow`, and a List's `atProven`, `slotProven`, `constSlotProven`, `atIf`, `slotIf`, `constSlotIf` | the same for a List, and with a flag ([Flags](#flags)): `okNonneg` and `okBelow` are a flag's tests, and an `If` operation omits the tests its `q` names too while the flag it is given is true, and otherwise makes them where it is, as the plain operation does |
 | `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
@@ -4335,6 +4457,25 @@ rule would inline in each kind of owner and each body that belongs to
 one, `test/cli/frame_owners_inline.sh` does the same through a marked
 function and checks each owner's marked part, and `test/cli/frames.sh`
 holds each owner's account to the frame Zig's prologue reserves.
+
+**The frame warning.** After `rig build --release` writes the executable,
+`main.warnFrames` reads the frame each function's prologue reserves from
+the executable itself (`src/frames.zig`: the Mach-O or ELF symbol table,
+then on aarch64 each `sub sp, sp, #N` and the pair `stp ..., [sp, #-N]!`
+pushes, on x86_64 `sub rsp, N`, the size the stack probe is called
+with, and a probe loop's step). A function of the program's own modules
+whose frame passes a page (4096 bytes) though its own values and those
+of the marked `inline` functions in it fit in one (`own` and `marked` of
+its account) is named in a warning, with the largest of the Rig
+functions it calls that no marker keeps out of line, by the frame the
+executable gives each that is still a function, else by its account: LLVM
+inlined them, and `called` keeps them calls. A function whose own values
+pass a page is large as its source shows, and a `rarely` one is cold:
+neither is named. A symbol's name is its module's emitted file, then its
+type for a method, then its name, less what tells instances apart
+(`(...)`, `__func_N`). A debug build is not read. `test/cli/frame_warning.sh`
+checks the warning, a callee marked `called`, a `rarely` function, and a
+debug build.
 
 ### The program's stack
 

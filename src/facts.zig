@@ -55,6 +55,8 @@ pub const LendStep = sema.LendStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
 pub const Proven = sema.Proven;
+pub const ProvenIf = sema.ProvenIf;
+pub const FlagTest = sema.FlagTest;
 pub const UnitKind = rig.UnitKind;
 pub const NodeKey = sema.NodeKey;
 
@@ -226,8 +228,9 @@ pub const Facts = struct {
     pub fn isLargeOwner(f: Facts, node: Sexp) bool {
         return f.c().large_frames.contains(f.c().startOf(node));
     }
-    /// The marker of the `fun` or `sub` `node`: `rarely` starts its body
-    /// with the cold hint, and `called` emits it `noinline fn`.
+    /// The marker of the `fun` or `sub` `node`: `rarely`, its body's
+    /// first line, starts it with the cold hint, and `called` emits it
+    /// `noinline fn`.
     pub fn markerOf(f: Facts, node: Sexp) rig.Marker {
         _ = f;
         return rig.markerOf(node);
@@ -306,6 +309,12 @@ pub const Facts = struct {
     pub fn provenOf(f: Facts, node: Sexp) Proven {
         return f.c().provenOf(node);
     }
+    pub fn provenIfOf(f: Facts, node: Sexp) ?ProvenIf {
+        return f.c().provenIfOf(node);
+    }
+    pub fn flagOf(f: Facts, stmt: Sexp) ?[]const FlagTest {
+        return f.c().flagOf(stmt);
+    }
     pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().callableOf(node);
     }
@@ -332,6 +341,9 @@ pub const Facts = struct {
     }
     pub fn isActorCall(f: Facts, call: Sexp) bool {
         return f.c().isActorCall(call);
+    }
+    pub fn isTypeParamCall(f: Facts, call: Sexp) bool {
+        return f.c().isTypeParamCall(call);
     }
     pub fn isChanMake(f: Facts, call: Sexp) bool {
         return f.c().isChanMake(call);

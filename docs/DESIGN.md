@@ -427,8 +427,17 @@ need a `type` alias there.
 
 A generic body is checked once, with `T` unknown, and records what it
 does with a `T`: arithmetic, ordering, `==`, a literal beside a `T`, a
-copy. Each instance the program makes is then checked against that
-record. There are no traits or bounds for now.
+copy, a method it calls. Each instance the program makes is then
+checked against that record. There are no traits or bounds for now.
+
+A method call on a `T` is typed where it stands: its result takes the
+type the context expects, or the other operand's, and the instance's
+method must give exactly that, take the arguments the body passes, and
+take self as the call's sigil says. The body is not adjusted to fit an
+instance, and its Zig is written once, so Zig resolves the call in each
+instance as Rig checked it. The body's ownership check treats the call
+as a call of a function value with no `from` or `keeps`, which bounds
+every method, so ownership is still checked once.
 
 What this buys: generics without a trait system, whose design space
 (method dispatch, coherence, trait objects) Rig has not settled; any type that
@@ -449,9 +458,9 @@ has checked in full before its importers: an instance made in another
 module is checked there, and its note points into the declaring
 module's file. The recorded requirements are an unwritten contract: a
 library that starts applying a new operation to `T` can break its
-importers, who see the note in the library. The traits that keep
-method dispatch and ownership visible are designed, to be built in
-stages ([design/traits.md](design/traits.md)).
+importers, who see the note in the library. APIs, `api Shape`, which
+keep method dispatch and ownership visible, are designed, to be built
+in stages ([design/apis.md](design/apis.md)).
 
 ### Generic functions are called, not passed
 
@@ -568,7 +577,7 @@ goals, and says no where they don't.
 - a reactive framework in the language
 - macros
 - traits and interfaces ahead of a program that needs them: the design
-  is in [design/traits.md](design/traits.md), built in stages
+  is in [design/apis.md](design/apis.md), built in stages
 - lifetime annotations, unless second-class views prove too weak
 - marketing Rig as an AI language: that tools can read it well follows
   from its design, and is not the goal

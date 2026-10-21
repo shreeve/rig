@@ -994,6 +994,9 @@ pub const Facts = struct {
     /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
     actor_supervised: std.AutoHashMapUnmanaged(u64, void) = .empty,
     actor_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The method calls made on a value of a type parameter
+    /// (`Checker.typeParamCall`), whose method each instance gives.
+    type_param_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.isolate` (`Checker.isolateCall`).
     isolate_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `task.supervise` (`Checker.isolateCall`).
@@ -1142,11 +1145,38 @@ pub const Proven = packed struct(u8) {
     upper: bool = false,
     /// The `+` cannot overflow.
     no_overflow: bool = false,
-    _: u5 = 0,
+    /// Of a fill `[n of x]`: every element is written before any is
+    /// read, so the fill is not made.
+    written: bool = false,
+    _: u4 = 0,
 
     pub fn any(p: Proven) bool {
-        return p.lower or p.upper or p.no_overflow;
+        return p.lower or p.upper or p.no_overflow or p.written;
     }
+};
+
+/// Of a node: the tests known to pass while the flag `flag` holds, besides
+/// those `Proven` gives always (docs/internals/INTERNALS.md, "Flags").
+/// Recorded by `src/proofs.zig` alone, on the nodes `Proven` is, and read
+/// by emit through `Facts.provenIfOf`.
+pub const ProvenIf = struct {
+    tests: Proven,
+    /// The statement whose flag it is (`SemContext.flagOf`).
+    flag: NodeKey,
+};
+
+/// A binding, or a field of one (a field path from it), whose length a
+/// flag's test reads: by the symbol of its root and the field names after
+/// it.
+pub const FlagPlace = struct { root: SymbolId, fields: []const []const u8 = &.{} };
+
+/// One test of a flag (`SemContext.flagOf`), each of an own binding's
+/// value or a place's length as the statement starts.
+pub const FlagTest = union(enum) {
+    /// `0 <= i`.
+    nonneg: SymbolId,
+    /// `i + k <= s.len`, exactly.
+    below: struct { i: SymbolId, k: u64, s: FlagPlace },
 };
 
 /// What a function bounds of its result on every path that returns
@@ -2081,6 +2111,40 @@ pub const GenericRequirement = struct {
     module_id: u32 = 0,
 };
 
+/// A call `x.m(args)` a generic body makes on a value of a type
+/// parameter, or a view of one (`?T`, `!T`), checked at each instance
+/// (`typecheck.checkMethodCalls`): the instance's type declares a method
+/// `m`, visible from the body's module, that takes self as the call's
+/// sigil does, takes the arguments as the body passes them, and gives
+/// the result the body takes.
+pub const GenericMethodCall = struct {
+    param: SymbolId,
+    method: []const u8,
+    /// How the call takes self: `x.m()` reads, `!x.m()` writes, and
+    /// `<x.m()` consumes.
+    self_mode: MethodReceiver,
+    /// The arguments' types in the body, in order.
+    args: []const TypeId,
+    result: Result,
+    pos: u32,
+    /// The value the call is made on and the call, as written: `x`,
+    /// `x.bump()`.
+    recv: []const u8,
+    call: []const u8,
+    /// The module whose source `pos` is in: 0 for this one, or the
+    /// module that declares the body of a proxy's call.
+    module_id: u32 = 0,
+
+    pub const Result = union(enum) {
+        /// The type the body takes the result as.
+        ty: TypeId,
+        /// A statement: the method gives nothing.
+        nothing,
+        /// `_ = x.m()`: any result that cannot fail, dropped there.
+        dropped,
+    };
+};
+
 /// A shared or weak handle of `inner` (`*T`, `~T`, by `op`) is made or
 /// spelled at `pos`: when `inner` is a type parameter, each instance must
 /// give it a type that is no function (`Requirement.not_function`).
@@ -2298,6 +2362,8 @@ pub const SemContext = struct {
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
+    /// The method calls generic bodies make on type parameters.
+    generic_methods: std.ArrayList(GenericMethodCall) = .empty,
     /// The hidden storage emit makes (`Storage`), but for the kinds the
     /// facts table keeps (`temp` is `temp_drops`, `header_copy` is
     /// `header_copies`): recorded after the expressions are checked
@@ -2372,6 +2438,11 @@ pub const SemContext = struct {
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
     iter_loops: std.ArrayList(rig.IterLoop) = .empty,
+    /// The string literals typecheck found where a `U8` or a `[N]U8` goes,
+    /// each to be written as the byte or the array of bytes it is there
+    /// (`rig.ByteLiteral`); a module with any is checked again on the
+    /// rewritten tree, as for `iter_loops`.
+    byte_literals: std.ArrayList(rig.ByteLiteral) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
     /// beside the facts table, not in `check --facts=sema`.
     write_sites: std.AutoHashMapUnmanaged(NodeKey, WriteSite) = .empty,
@@ -2379,6 +2450,12 @@ pub const SemContext = struct {
     /// `src/proofs.zig` once the ownership checker accepted the module.
     /// Printed by `check --facts=proofs`, not `--facts=sema`.
     proven: std.AutoHashMapUnmanaged(NodeKey, Proven) = .empty,
+    /// The tests each node is known to pass while a flag holds
+    /// (`ProvenIf`), and each flag's tests, by the statement it is made
+    /// before (`FlagTest`): written only by `src/proofs.zig`, with the
+    /// tests above, and allocated in `arena`.
+    proven_if: std.AutoHashMapUnmanaged(NodeKey, ProvenIf) = .empty,
+    flags: std.AutoHashMapUnmanaged(NodeKey, []const FlagTest) = .empty,
     /// What each function of the module bounds of its result
     /// (`ResultBound`), by where its name is declared: written only by
     /// `src/proofs.zig`, with the tests above.
@@ -2438,6 +2515,7 @@ pub const SemContext = struct {
         self.declared_keeps.deinit(self.allocator);
         self.declared_once.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
+        self.byte_literals.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
         self.const_order.deinit(self.allocator);
@@ -2465,6 +2543,7 @@ pub const SemContext = struct {
         self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
+        self.generic_methods.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
@@ -2485,6 +2564,8 @@ pub const SemContext = struct {
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
+        self.proven_if.deinit(self.allocator);
+        self.flags.deinit(self.allocator);
         self.result_bounds.deinit(self.allocator);
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
@@ -2844,6 +2925,13 @@ pub const SemContext = struct {
         try self.facts.names.put(self.allocator, node.src.pos, sym);
     }
 
+    /// A string literal at `pos` that holds `bytes` where a `U8` goes, or
+    /// a `[N]U8` (`array`); recorded once.
+    pub fn recordByteLiteral(self: *SemContext, pos: u32, bytes: []const u8, array: bool) !void {
+        for (self.byte_literals.items) |l| if (l.pos == pos) return;
+        try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
+    }
+
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
         try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
     }
@@ -3043,6 +3131,18 @@ pub const SemContext = struct {
     /// recorded some.
     pub fn provenOf(self: *const SemContext, node: Sexp) Proven {
         return self.proven.get(nodeKey(node) orelse return .{}) orelse .{};
+    }
+
+    /// The tests `node` is known to pass while a flag holds, and the
+    /// flag's statement; null unless the proof pass recorded some.
+    pub fn provenIfOf(self: *const SemContext, node: Sexp) ?ProvenIf {
+        return self.proven_if.get(nodeKey(node) orelse return null);
+    }
+
+    /// The tests of the flag made before statement `stmt`, which the
+    /// tests `provenIfOf` gives rest on; null when it has none.
+    pub fn flagOf(self: *const SemContext, stmt: Sexp) ?[]const FlagTest {
+        return self.flags.get(nodeKey(stmt) orelse return null);
     }
 
     pub fn takes(self: *const SemContext, node: Sexp) bool {
@@ -3295,6 +3395,16 @@ pub const SemContext = struct {
     /// (`recordActorCall`).
     pub fn isActorCall(self: *const SemContext, call: Sexp) bool {
         return self.facts.actor_calls.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordTypeParamCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.type_param_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` calls a method on a value of a type parameter
+    /// (`recordTypeParamCall`).
+    pub fn isTypeParamCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.type_param_calls.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordSuperviseCall(self: *SemContext, call: Sexp) !void {
@@ -7557,6 +7667,20 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     if (foreign.ct_defaults.get(origin.sym)) |d| try ctx.ct_defaults.put(ctx.allocator, proxy, try importType(ctx, foreign, d, m));
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
         try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .module_id = if (r.module_id == 0) m else r.module_id });
+    };
+    for (foreign.generic_methods.items) |c| if (c.param == origin.sym) {
+        const args = try a.alloc(TypeId, c.args.len);
+        for (c.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
+        const result: GenericMethodCall.Result = switch (c.result) {
+            .ty => |t| .{ .ty = try importType(ctx, foreign, t, m) },
+            .nothing, .dropped => c.result,
+        };
+        var copy = c;
+        copy.param = proxy;
+        copy.args = args;
+        copy.result = result;
+        copy.module_id = if (c.module_id == 0) m else c.module_id;
+        try ctx.generic_methods.append(ctx.allocator, copy);
     };
     for (foreign.paramEntries(.arrays, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .arrays, i)) continue;

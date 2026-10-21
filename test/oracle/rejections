@@ -4500,6 +4500,7 @@ doc/learn-02-ownership/da0926a793e5 main
 doc/learn-02-ownership/f760280c2daa main
 doc/learn-05-text/2ee81974a525 main
 doc/learn-06-stdlib/5909f4c068da main
+doc/learn-09-safety/cff47cdac207 main
 error.arg_then_write.destructure run
 error.arg_then_write.destructure_branch run
 error.arg_then_write.destructure_view run
@@ -4777,6 +4778,7 @@ test/reject/ownership/if_header_view_escapes.rig main
 test/reject/ownership/joined_as_failing_part_stores.rig viaIf
 test/reject/ownership/joined_as_failing_part_stores.rig viaWhile
 test/reject/ownership/while_step_reads_binding_after_grow.rig joined
+test/reject/ownership/type_param_method_result_view.rig pick
 test/reject/probes/rev255-a05_nested_generic_keeps.rig main
 test/reject/probes/rev255-c03_optional_write.rig f
 test/reject/probes/rev255-c04_coalesce_return.rig f

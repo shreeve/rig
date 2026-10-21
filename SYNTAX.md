@@ -273,10 +273,11 @@ function's result type (`-> ?Item from a`), and `static` only right
 after that `from`; `keeps` only at the end of a function's header
 (`sub watch(!@, s: ?String) keeps s`); a parameter or a local may be
 named any of them.
-`inline`, `called`, and `rarely` are keywords only at the start of a
+`inline` and `called` are keywords only at the start of a
 declaration (after any `pub`), right before its `fun` or `sub`
-(`inline fun f()`, `pub rarely sub s()`), so a local, a parameter, a
-field, or a method may be named any of them. `none`
+(`inline fun f()`, `pub called sub s()`), and `rarely` only alone on a
+line, so a local, a parameter, a field, or a method may be named any of
+them. `none`
 is a reserved name, the absent optional, which no binding, variant, or
 error may take ([SPEC](SPEC.md#enums)). The words
 held for later start no form yet. Words that are keywords elsewhere but
@@ -291,10 +292,8 @@ are names a declaration may hide.
 | Literal | Examples | Notes |
 |---|---|---|
 | integer | `42`, `1_000_000`, `0xff`, `0b1010`, `0o17` | `_` separates digits; radix prefixes are lowercase; no leading zero and no type suffix |
-| byte | `b'A'`, `b'\n'`, `b'\x1b'` | the integer of one ASCII byte, `65`; the escapes of a double-quoted string but `\u{…}` ([SPEC](SPEC.md#byte-literals)) |
-| byte string | `b"AB"`, `b"\x1b[H"`, `b""` | the array of its bytes, `[b'A', b'B']`, of type `[N]U8` with no terminator |
 | float | `3.14`, `.5`, `1e10`, `2.5e-3`, `1.5E+2` | a `.` or an exponent; the digits before `.` may be left out |
-| string | `"tab\t, newline\n"`, `'it''s raw'` | double quotes take Zig's escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'` |
+| string | `"tab\t, newline\n"`, `'it''s raw'` | double quotes take Zig's escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'`; where a `U8` is expected, a string of one byte is that byte (`'A'` is 65, `"\n"` is 10), and where a `[N]U8` is, its bytes ([SPEC](SPEC.md#byte-literals)) |
 | bool | `true`, `false` | |
 | absent optional | `none` | |
 | array | `[1, 2, 3]`, `[]` | |
@@ -556,12 +555,12 @@ From lowest to highest precedence:
 
 | Operators | Notes |
 |---|---|
-| `a if c else b`, `e catch f` | ternary and error fallback, right-nested; `e catch return v` and `a ?? return v` take a jump at this level |
+| `a if c else b` | ternary, right-nested; `e catch return v` and `a ?? return v` take a jump here, and the whole expression before it, and `e catch \|err\|` takes a block below |
 | `or` | |
 | `and` | |
 | `not` | |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
-| `??` | optional fallback, right-associative |
+| `??` `catch` | optional and error fallback, read left to right, as Zig's `orelse` and `catch`: `f() catch none ?? -1` is `(f() catch none) ?? -1`; a handler that compares, joins, or chooses is parenthesized, `f() catch (a if c else b)`; a chain of `??` gives what `a ?? (b ?? c)` does |
 | `..` `..=` | a range, `a..b` up to and not including `b`, `a..=b` through `b`: a `for` source, a match pattern, or a slice's index, where a side may be open (`xs[a..]`, `xs[..=b]`) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
@@ -729,14 +728,18 @@ sign -1
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
-- A marker before `fun` or `sub` asks for a speed, and changes no
+- A marker before `fun` or `sub` says how calls compile, and changes no
   meaning: `inline fun number(s: ?String, i: Int) -> Num` inlines the
-  function at every call, `called fun document[dense: Bool](...)` keeps
-  every call a call, and `rarely fun utf8_text(s: ?String, i: Int) ->
-  Int` says it is rarely called, so it stays out of the code that calls
-  it ([SPEC §3](SPEC.md#function-markers)). A function takes one
-  marker, and a method takes one as any function does
-  (`inline fun Point.norm(?@) -> Int`).
+  function at every call, and `called fun document[dense: Bool](...)`
+  keeps every call a call ([SPEC §3](SPEC.md#function-markers)). A
+  function takes one marker, and a method takes one as any function
+  does (`inline fun Point.norm(?@) -> Int`).
+- `rarely`, alone as the first line of a function's body, a branch of
+  `if` or `match`, a `catch` handler, or a loop's body, says the block
+  rarely runs, so the code around it is laid out for the case that does
+  not, and a function so marked stays out of line: `fun utf8_text(s:
+  ?String, i: Int) -> Int` with `rarely` as its body's first line
+  ([SPEC](SPEC.md#rarely)).
 
 A definition without its parameter list is rejected, with the header
 to write:
@@ -1795,8 +1798,8 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `.name(_, b)` | a payload variant, ignoring a field |
 | `.name(f: a)` | a payload variant, binding the fields it names, in any order; the rest are not bound |
-| `42`, `-1`, `b'A'`, `true` | a literal |
-| `"GET"`, `'GET'` | text with the same bytes |
+| `42`, `-1`, `true` | a literal |
+| `"GET"`, `'GET'` | text with the same bytes; against a `U8`, a byte (`'A'`, `"\n"`), which may bound a range (`'0'..='9'`) |
 | `NAME`, `m.NAME` | a module constant's value: an integer, a `Bool`, or an enum value |
 | `:name` | a symbol |
 | `lo..hi` | an integer from `lo` up to, not including, `hi` |
@@ -1877,6 +1880,7 @@ stmt      = decl | "@" name stmt | simple ["if" value]
 simple    = tail | assign
           | postfix "=!" tail | name ":" type ("=" | "=!") tail
           | "new" name [":" type] ("=" | "=!") tail | "-" name | "pass"
+          | "rarely"                                # alone, a block's first line
           | "return" [tail] | "return" value "," value, ...
           | ["new"] postfix "," postfix, ... ("=" | "=!") tail   # names or `_`
           | "break" ["@" name] [tail] | "continue" ["@" name]

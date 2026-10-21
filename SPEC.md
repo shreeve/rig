@@ -195,47 +195,48 @@ operands have different types `I32` and `Int`
 
 #### Byte literals
 
-`b'A'` is a byte: the integer literal of one ASCII character's byte,
-here `65`, typed from its context like any integer literal, and usable
-wherever one is, as a `match` pattern and a module constant included.
-`b"AB"` is a byte string: the array literal `[b'A', b'B']`, always of
-type `[N]U8`, with no terminator; `b""` is an empty `[0]U8`. A byte
-string goes wherever an array literal goes; it is not a pattern. Both
-take the escapes of a double-quoted string that name a byte: `\\`,
-`\'`, `\"`, `\n`, `\r`, `\t`, and `\xNN`. A `b'…'` holds exactly one
-byte, and neither holds a code point (`\u{…}`), a control character
-written raw, or a character outside ASCII, which takes two or more
-bytes. The `b` touches the quote: `b 'A'` is the name `b` and a string.
-A plain `'…'` is always a raw string.
+A string literal is a byte where a `U8` is expected, and the bytes of an
+array where a `[N]U8` is, as an integer literal takes the type its
+context gives it: `c: U8 = 'A'` is 65, `"\n"` is 10, and
+`HOME: [3]U8 = "\x1b[H"` is `[27, 91, 72]`. A `U8` is expected by a
+typed binding, a field, an argument, a result, an element, the other
+side of an operator (`c == 'A'`, `c - '0'`), and a `match` on a `U8`,
+whose patterns and range bounds may be bytes (`'0'..='9'`). The quotes
+decide only the escapes, as for any string: `"\x1b"` is one byte, and
+`'\n'` the two bytes `\` and `n`. A literal whose bytes do not fit its
+type is an error. With no type expected, a string literal is text, as
+`x = 3` is an `Int`.
 
 ```rig
-ESC: U8 = b'\x1b'
-HOME = b"\x1b[H"
+ESC: U8 = "\x1b"
+HOME: [3]U8 = "\x1b[H"
 
 fun act(c: U8) -> ?String
   match c
     ESC => "escape"
-    b'H', b'f' => "cursor"
-    b'0'..b':' => "digit"
+    'H', 'f' => "cursor"
+    '0'..='9' => "digit"
     _ => "other"
 
 sub main()
-  print(b'A', b'\n', HOME, HOME.len)
-  print(act(HOME[0]), act(b'H'), act(b'7'))
+  a: U8 = 'A'
+  print(a, a == 'A', a - '0', HOME, HOME.len)
+  print(act(HOME[0]), act('H'), act('7'), act('x'))
 ```
 
 ```output
-65 10 [27, 91, 72] 3
-escape cursor digit
+65 true 17 [27, 91, 72] 3
+escape cursor digit other
 ```
 
 ```rig reject
 sub main()
-  print(b'AB')
+  c: U8 = '\n'
+  print(c)
 ```
 
 ```error
-a byte literal holds one byte; `b"AB"` is an array of bytes
+`'\n'` is raw, the two bytes `\` and `n`; for a newline write `"\n"`
 ```
 
 ### Numeric conversions
@@ -1674,8 +1675,9 @@ sub main()
 
 ### Function markers
 
-A function may be marked, before its `fun` or `sub`, with one of three
-words that ask for a speed and never change what the program means:
+A function may be marked, before its `fun` or `sub`, with one of two
+words that say how its calls compile and never change what the program
+means:
 
 - `inline fun` inlines the function at every call: its body is compiled
   into each caller, whatever its size. A call means what it means
@@ -1686,12 +1688,27 @@ words that ask for a speed and never change what the program means:
   never inlined, and stays as hot as any function. Each instance of one
   with compile-time parameters is a function of its own, so two
   specialized copies of a large function stay apart, each called.
-- `rarely fun` says the function is rarely called, so the code that
-  calls it is laid out for the case that does not: the function stays
-  out of line, as `called` keeps it, and is also cold.
+
+How often code runs is said where the code is: a function whose body
+starts with `rarely` ([Rarely](#rarely)) is rarely called, so the code
+that calls it is laid out for the case that does not: the function
+stays out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
-([INTERNALS](docs/internals/INTERNALS.md), "Inlining"). A marker applies to every
+([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and LLVM may
+inline larger ones. A function whose every path ends in a `panic` is
+taken as `rarely`: the branch to a panic, and to the runtime's own
+failure reports, is laid out as the path that is not taken.
+`rig build --release` warns about a function whose frame, as the
+executable reserves it, passes a page though its own values fit in one,
+and names the functions it calls to mark `called`; a `rarely` function,
+which is cold, is not named:
+
+```text
+main.rig:10:12: warning: `step` reserves 4864 bytes of stack, more than a page (4096 bytes), though its own values take 16: what is inlined into it holds the rest, and every call pays for the whole frame; to keep the function it calls out of line, mark it `called`: `report`
+```
+
+A marker applies to every
 instance of a function with compile-time parameters, and a method
 takes one as any function does, in its type's body or outside it.
 
@@ -1699,7 +1716,8 @@ takes one as any function does, in its type's body or outside it.
 inline fun clamp(x: Int, lo: Int, hi: Int) -> Int
   lo if x < lo else hi if x > hi else x
 
-rarely fun report(n: Int) -> Int
+fun report(n: Int) -> Int
+  rarely
   print("out of range:", n)
   0
 
@@ -1755,14 +1773,13 @@ sub main()
 ```
 
 A function takes one marker: `inline` and `called` contradict each
-other, and `rarely` already keeps every call a call, so any two are an
-error (`inline rarely fun`, `rarely called fun`). A `called` or `rarely`
-function is a function value as any other. The
+other (`inline called fun`). A `called` function, and one whose body
+starts with `rarely`, is a function value as any other. The
 program's `main`, which the program calls once, takes none, and neither
 does an `extern zig` function, whose body is Zig's.
 
 ```rig reject
-inline rarely fun f() -> Int
+inline called fun f() -> Int
   1
 
 sub main()
@@ -1771,6 +1788,65 @@ sub main()
 
 ```error
 a function takes one marker
+```
+
+### Rarely
+
+A block whose first line is `rarely` rarely runs: the body of a
+function or `sub`, a branch of `if` or `else`, a `match` arm, a `catch`
+handler, or a loop's body. The code around it is laid out for the case
+that does not run it (the branch starts with Zig's cold hint), and
+nothing else changes: `rarely` asks for a speed, as a marker does, and
+never changes what the program means. A function whose body starts with
+`rarely` is rarely called, so it stays out of line and is cold.
+`rarely` is a word only alone on its line; anywhere else it is a name.
+
+```rig
+error Parse
+  bad
+
+fun parse(s: ?String) -> Int!
+  return Parse.bad if s.len == 0
+  s.len
+
+fun warn(what: ?String) -> Int
+  rarely
+  print("warning:", what)
+  -1
+
+sub main()
+  total = 0
+  for w in ["ab", "", "cde"]
+    n = parse(w) catch |_|
+      rarely
+      warn("empty")
+    if n > 100
+      rarely
+      print("long")
+    total += n
+  print(total)
+```
+
+```output
+warning: empty
+4
+```
+
+`rarely` starts the block it marks, and marks only the blocks above: a
+closure, a `defer`, and a `test` take none.
+
+```rig reject
+fun f(n: Int) -> Int
+  m = n + 1
+  rarely
+  m
+
+sub main()
+  print(f(1))
+```
+
+```error
+`rarely` is the first line of the block it marks
 ```
 
 ### Objects
@@ -2839,8 +2915,75 @@ checked against it. On a `T`, `==` compares whatever `==` compares
 outside a generic body, and ordering compares numbers, plain enums, and
 `?String` values. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
-declares the body. A body cannot call a method on a `T`, read a field
-of one, or call `T` itself.
+declares the body. A body cannot read a field of a `T` or call `T`
+itself.
+
+A body may call a method on a `T`, or on a view of one (`?T`, `!T`):
+`x.m(args)` reads self, `!x.m(args)` writes it, and `<x.m(args)`
+consumes it, as the sigil says at any call. The call's result takes its
+type from where the call stands: the type its context expects (a typed
+binding, an argument, a return, an assignment), through `!`, `?`,
+`catch`, and `??`, which make it fallible or optional; the other operand
+of an arithmetic or comparison operator, a literal there as a binding of
+it would be; nothing, as a statement; and any result that cannot fail,
+dropped at once, under `_ =`. Anywhere else the body cannot know the
+result's type, and the call is rejected. Each instance's type must be an
+`obj` or an `enum` that declares the method, visible from the body's
+module, taking self as the sigil does, and the arguments with the types
+the body passes (a literal as `Int` or `Float`), and giving exactly the
+result the body takes. The method of a built-in type, one marked
+`inline`, and one with compile-time parameters of its own are not
+reached through a `T`. The body's ownership check treats the call as a
+call of a function value with no `from` or `keeps`: its result may
+carry the loans of self and of every view argument, and a call that
+writes self may store in it what any argument views. Every method is
+within that, so an instance needs no second check.
+
+```rig
+obj Square
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+obj Circle
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+fun total[T](xs: []T) -> Float
+  t = 0.0
+  for x in xs
+    t += x.area()
+  t
+
+sub main()
+  print(total([Square(side: 2.0), Square(side: 3.0)]), total([Circle(r: 1.0)]))
+```
+
+```output
+13.0 3.0
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  sub bump(!@)
+    @n += 1
+
+fun touch[T](x: ?T)
+  x.bump()
+
+sub main()
+  c = Counter(n: 0)
+  touch(?c)
+```
+
+```error
+`touch[Counter]` cannot use `T = Counter`: the generic body calls `x.bump()`, which reads `x`, but `Counter.bump` takes `self` as `!@`
+```
 
 A literal becomes a `T` only as an operand beside one (`x * 3`), and
 must fit every instance's `T`; a binding annotated `T` takes a `T`,
@@ -8561,8 +8704,10 @@ step, even after a jump (`while a ?? break : i += 1`), and a jump there
 may name a label (`while a ?? break $outer : i += 1`). The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
-chain of `??`, where the jump belongs to the nearest one, as `??` is
-right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
+chain of `??`, where the jump belongs to the nearest one:
+`a ?? b ?? return v` is `a ?? (b ?? return v)`. A chain of `??` reads
+left to right, and gives what `a ?? (b ?? c)` gives, so each fallback is
+the value inside, not another optional.
 Where `a ?? b` is only read, it reads the value inside `a`, or `b`,
 where it is ([§7](#temporaries)). Where it is taken, it takes from each
 side: the optional may hold an owning value when it is made there
@@ -8680,6 +8825,14 @@ must say what happens to the failure, visibly:
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
+- `catch` binds as `??` does, and the two read left to right, as Zig's
+  `catch` and `orelse` do ([SYNTAX §6](SYNTAX.md#6-operators-and-precedence)):
+  `f() catch none ?? -1` is `(f() catch none) ?? -1`, and a handler is
+  an operand of the operators that bind tighter, so one that compares,
+  joins with `and` or `or`, or chooses with `if` is parenthesized:
+  `f() catch |e| (1 if e == E.bad else 2)`. A jump handler takes the rest
+  of the expression, and the whole expression before it, as a jump
+  after `??` does; a handler below `catch |e|` is a block.
 - A `catch` whose value goes nowhere, a statement or the value of
   `_ =`, may have a handler that gives nothing: `f() catch |e| print(e)`
   handles the failure and goes on. A handler that gives a value gives
@@ -8996,7 +9149,7 @@ fun fetch() -> Int!
   return Disk.timeout
 
 sub main()
-  n = fetch() catch |err| 1 if err == .timeout else 2
+  n = fetch() catch |err| (1 if err == .timeout else 2)
   print(n)
 ```
 
@@ -10399,7 +10552,8 @@ be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs them on Rig's scheduler:
 each is a fiber on a stack of its own as large as `main`'s, run by a
-worker thread per core (`RIG_WORKERS` sets how many), with a guard
+worker thread per core (`task.workers(n)` before the first task, or
+`RIG_WORKERS`, sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).
@@ -10772,7 +10926,7 @@ not parse, and their words and sigils stay reserved:
 | `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
 | `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
 | `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
-| byte string and float match patterns | `` a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant `` |
+| float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):

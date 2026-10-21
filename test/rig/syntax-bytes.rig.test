@@ -1,70 +1,84 @@
-# syntax: byte literals `b'A'` and byte strings `b"AB"`.
+# syntax: string literals where a `U8` or a `[N]U8` is expected are bytes.
 
-test "byte literal values", "65 10 92 39 34 27 13 9 0 255"
-  # `b'A'` is the integer literal of the byte; it takes the escapes of a
-  # double-quoted string.
-  print(b'A', b'\n', b'\\', b'\'', b'"', b'\x1b', b'\r', b'\t', b'\x00', b'\xFF')
+test "byte values", "65 10 92 39 34 27 13 9 0 255 92"
+  # Where a `U8` is expected, a string literal of one byte is that byte;
+  # double quotes read escapes, single quotes do not.
+  bytes: [11]U8 = ['A', "\n", "\\", "'", '"', "\x1b", "\r", "\t", "\x00", "\xFF", '\']
+  print(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10])
 
-test "byte literal types", "65 122 49 true"
-  # A byte literal is typed from its context, as any integer literal is.
-  c: U8 = b'A'
-  u: U32 = b'z'
-  n: Int = b'0' + 1
-  print(c, u, n, c == b'A')
+test "byte contexts", '''
+  65 66 67 68 69
+  true true false 2
+  [70, 71]
+'''
+  # A binding's type, a field, an argument, a result, an element, and the
+  # other side of an operator each expect a `U8`.
+  obj Glyph
+    ch: U8
 
-test "byte literal beside a binding named b", "66"
-  # Only a `b` touching the quote starts a byte literal; a binding named
-  # `b` is still a name.
-  b = 1
-  print(b'A' + b)
+  fun code(c: U8) -> Int
+    Int(c)
 
-test "byte literal patterns", "cursor erase digit other"
-  # A byte literal is a pattern, and a range's bound.
+  fun first() -> U8
+    'D'
+
+  a: U8 = 'A'
+  cell = Glyph(ch: 'B')
+  print(a, cell.ch, code('C'), first(), U8('E'))
+  digit: U8 = '7'
+  print(a == 'A', 'A' == a, a > 'Z', digit - '5')
+  pair: [2]U8 = ['F', 'G']
+  print(pair)
+
+test "byte text without a type", "A AB 2"
+  # With no type expected, a string literal is text, as `x = 3` is an
+  # `Int`.
+  x = 'A'
+  y = "AB"
+  print(x, y, y.len)
+
+test "byte patterns", "cursor erase digit other control"
+  # Against a `U8`, a string pattern is a byte, and a range's bound.
   fun act(c: U8) -> ?String
     match c
-      b'H', b'f' => "cursor"
-      b'J' => "erase"
-      b'0'..b':' => "digit"
+      'H', 'f' => "cursor"
+      'J' => "erase"
+      '0'..='9' => "digit"
+      "\x00".."\x20" => "control"
       _ => "other"
 
-  print(act(b'f'), act(b'J'), act(b'7'), act(b'x'))
+  print(act('f'), act('J'), act('7'), act('x'), act("\n"))
 
-fail "byte literal pattern overlaps", "4:5: this pattern overlaps an earlier arm"
+fail "byte pattern overlaps", "4:5: this pattern overlaps an earlier arm"
   fun act(c: U8) -> Int
     match c
-      b'A' => 1
+      'A' => 1
       65 => 2
       _ => 0
 
   print(act(1))
 
-test "byte strings", '''
+test "byte arrays", '''
   [104, 105, 10] 3
   [97, 98, 99]
   []
-  104
-  105
 '''
-  # `b"..."` is the array literal of its bytes, of type `[N]U8`, with no
-  # terminator; `b""` is an empty `[0]U8`.
-  x = b"hi\n"
-  y: [3]U8 = b"abc"
-  e = b""
+  # Where a `[N]U8` is expected, a string literal is its bytes, with no
+  # terminator.
+  x: [3]U8 = "hi\n"
+  y: [3]U8 = 'abc'
+  e: [0]U8 = ""
   print(x, x.len)
   print(y)
   print(e)
-  for c in b"hi"
-    print(c)
 
 test "byte module constants", '''
   [27, 91, 72] 91
-  []
   esc
 '''
-  # Byte literals and byte strings are constants.
-  ESC: U8 = b'\x1b'
-  HOME = b"\x1b[H"
-  NONE = b""
+  # Bytes are constants, of their module too.
+  ESC: U8 = "\x1b"
+  HOME: [3]U8 = "\x1b[H"
 
   fun kind(c: U8) -> ?String
     match c
@@ -73,52 +87,68 @@ test "byte module constants", '''
 
   sub main()
     print(HOME, HOME[1])
-    print(NONE)
     print(kind(HOME[0]))
 
-fail "byte string of the wrong length", "1:12: array literal has 3 elements; `[2]U8` needs 2"
-  y: [2]U8 = b"abc"
+fail "byte array of the wrong length", "1:12: string literal `\"abc\"` is 3 bytes; `[2]U8` needs 2"
+  y: [2]U8 = "abc"
   print(y)
 
-fail "empty byte literal", "1:7: a byte literal holds one byte"
-  print(b'')
+fail "byte of no bytes", "1:9: `''` holds no bytes; a `U8` is one byte"
+  c: U8 = ''
+  print(c)
 
-fail "byte literal of two bytes", "1:7: a byte literal holds one byte; `b\"AB\"` is an array of bytes"
-  print(b'AB')
+fail "byte of two bytes", "1:9: `'AB'` is 2 bytes; a `U8` is one byte"
+  c: U8 = 'AB'
+  print(c)
 
-fail "byte literal of a non-ASCII character", "1:9: a byte literal holds ASCII characters alone; write a byte above 0x7F as `\\xNN`"
-  print(b'é')
+fail "byte of a raw escape", "1:9: `'\\n'` is raw, the two bytes `\\` and `n`; for a newline write `\"\\n\"`"
+  c: U8 = '\n'
+  print(c)
 
-fail "byte string of a non-ASCII character", "1:10: a byte literal holds ASCII characters alone"
-  print(b"aé")
+fail "byte of a raw hex escape", "1:9: `'\\x1b'` is raw, the 4 bytes `\\x1b`; for the byte 0x1b write `\"\\x1b\"`"
+  c: U8 = '\x1b'
+  print(c)
 
-fail "byte literal with a code point", "1:9: `\\u{...}` names a code point, not a byte; write `\\xNN`"
-  print(b'\u{41}')
+fail "byte of a raw escape and more", "1:9: `'a\\n'` is 3 bytes, and raw"
+  c: U8 = 'a\n'
+  print(c)
 
-fail "byte string with a code point", "1:10: `\\u{...}` names a code point, not a byte"
-  print(b"a\u{41}")
+fail "byte of a non-ASCII character", "1:9: `'é'` is one character of 2 bytes; a `U8` is one byte"
+  c: U8 = 'é'
+  print(c)
 
-fail "byte literal with an unknown escape", "1:9: unknown escape in a byte literal"
-  print(b'\q')
+fail "byte of a code point", "1:9: `\"\\u{e9}\"` is 2 bytes; a `U8` is one byte"
+  c: U8 = "\u{e9}"
+  print(c)
 
-fail "byte literal with a raw control character", "1:9: control character in a byte literal; write it as an escape"
-  print(b'	')
+fail "byte beside a byte of two", "2:12: `'AB'` is 2 bytes; a `U8` is one byte"
+  c: U8 = 'A'
+  print(c == 'AB')
 
-fail "byte string with a raw control character", "1:10: control character in a byte literal"
-  print(b"a	")
-
-fail "byte string is not a pattern", "a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant"
-  fun f(c: U8) -> Int
+fail "byte pattern of two", "4:5: `'AB'` is 2 bytes; a `U8` is one byte", errors: 1
+  fun act(c: U8) -> Int
     match c
-      b"A" => 1
+      'A' => 1
+      'AB' => 2
       _ => 0
 
-  print(f(1))
+  print(act(1))
 
-fail "b apart from the quote", "2:9: unexpected"
+fail "byte range bound of two", "4:5: `'AB'` is 2 bytes; a `U8` is one byte", errors: 1
+  fun act(c: U8) -> Int
+    match c
+      'A' => 1
+      'AB'..='Z' => 2
+      _ => 0
+
+  print(act(1))
+
+fail "byte only for U8", "type mismatch: expected `Int`, got `Static`"
+  # Only a `U8` takes a string literal as a byte.
+  n: Int = 'A'
+  print(n)
+
+fail "byte prefix is a name", "3:8: unexpected `'A'`"
+  # `b'A'` is the name `b` followed by a string.
   b = 1
-  print(b 'A')
-
-fail "a name ending in b before a quote", "unexpected"
-  ab = 1
-  print(ab'A')
+  print(b'A')

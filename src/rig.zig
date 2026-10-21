@@ -38,6 +38,44 @@ pub fn returnType(fun_or_sub: Sexp) Sexp {
     return if (fun_or_sub.isKind(.fun)) ir.Fun.returns(fun_or_sub) else .nil;
 }
 
+/// Whether the function body `body` ends in a panic on every path: its
+/// last statement panics, or is an `if` with an `else` or a `match`
+/// each of whose branches does, and nothing in it returns or passes a
+/// failure or a `none` on first.
+pub fn alwaysPanics(body: Sexp) bool {
+    if (holdsExit(body)) return false;
+    return endsInPanic(body);
+}
+
+fn endsInPanic(s: Sexp) bool {
+    const h = s.kind() orelse return false;
+    return switch (h) {
+        .panic => true,
+        .block => blk: {
+            const items = ir.Block.stmts(s);
+            break :blk items.len > 0 and endsInPanic(items[items.len - 1]);
+        },
+        .@"if" => ir.If.@"else"(s) != .nil and endsInPanic(ir.If.then(s)) and endsInPanic(ir.If.@"else"(s)),
+        .match => for (ir.Match.arms(s)) |arm| {
+            if (!endsInPanic(ir.Arm.body(arm))) break false;
+        } else ir.Match.arms(s).len > 0,
+        else => false,
+    };
+}
+
+/// Whether `e` holds a `return`, or a `!` or `?` that passes a failure
+/// or a `none` on, outside the closures in it.
+fn holdsExit(e: Sexp) bool {
+    if (e != .list) return false;
+    if (e.kind()) |h| switch (h) {
+        .lambda => return false,
+        .@"return", .propagate, .propagate_none => return true,
+        else => {},
+    };
+    for (e.items()) |c| if (holdsExit(c)) return true;
+    return false;
+}
+
 /// A fallible `sub`: `sub save(p: Page)!`.
 pub fn subFails(fun_or_sub: Sexp) bool {
     return fun_or_sub.isKind(.sub) and ir.Sub.fails(fun_or_sub) != .nil;
@@ -45,19 +83,35 @@ pub fn subFails(fun_or_sub: Sexp) bool {
 
 /// A function's marker, which asks for a speed and never changes what
 /// the program means: `inline fun` (inline it at every call), `called
-/// fun` (every call stays a call), `rarely fun` (it is rarely called), or
-/// none (`inlining.decide` decides).
+/// fun` (every call stays a call), a body whose first line is `rarely`
+/// (it is rarely called), or none (`inlining.decide` decides). The header
+/// says how calls compile and wins over the body's `rarely`.
 pub const Marker = enum { none, @"inline", called, rarely };
 
 pub fn markerOf(fun_or_sub: Sexp) Marker {
     const m = ir.get(fun_or_sub, .mark);
-    if (m == .nil) return .none;
+    if (m == .nil) return if (startsRarely(ir.get(fun_or_sub, .body))) .rarely else .none;
     return switch (m.kind().?) {
         .@"inline" => .@"inline",
         .called => .called,
-        .rarely => .rarely,
         else => unreachable,
     };
+}
+
+/// Where the marker of a `fun` or `sub` is written: its header's word,
+/// or the `rarely` that starts its body.
+pub fn markNode(fun_or_sub: Sexp) Sexp {
+    const m = ir.get(fun_or_sub, .mark);
+    if (m != .nil) return m;
+    const body = ir.get(fun_or_sub, .body);
+    return if (startsRarely(body)) ir.Block.stmts(body)[0] else fun_or_sub;
+}
+
+/// Whether `body`, a block, starts with `rarely`: it rarely runs.
+pub fn startsRarely(body: Sexp) bool {
+    if (!body.isKind(.block)) return false;
+    const stmts = ir.Block.stmts(body);
+    return stmts.len > 0 and stmts[0].isKind(.rarely);
 }
 
 /// A module-level constant (`name = value`, or a `pub` one). Passes take
@@ -207,8 +261,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each
         // before any pass reads a statement.
@@ -899,12 +953,6 @@ pub const Lexer = struct {
         symbol_name,
         symbol_long,
         control_in_string,
-        control_in_bytes,
-        byte_empty,
-        byte_many,
-        byte_non_ascii,
-        byte_code_point,
-        byte_escape,
         lone_cr,
         leading_zero,
         radix_case,
@@ -923,12 +971,6 @@ pub const Lexer = struct {
                 .bad_char => "invalid character",
                 .unterminated_string => "unterminated string",
                 .control_in_string => "control character in a string; write it as an escape (`\\t`, `\\n`) in a double-quoted string",
-                .control_in_bytes => "control character in a byte literal; write it as an escape (`\\t`, `\\n`, `\\xNN`)",
-                .byte_empty => "a byte literal holds one byte: `b'A'`",
-                .byte_many => "a byte literal holds one byte; `b\"AB\"` is an array of bytes",
-                .byte_non_ascii => "a byte literal holds ASCII characters alone; write a byte above 0x7F as `\\xNN`",
-                .byte_code_point => "`\\u{...}` names a code point, not a byte; write `\\xNN`",
-                .byte_escape => "unknown escape in a byte literal; it takes `\\\\`, `\\'`, `\\\"`, `\\n`, `\\r`, `\\t`, and `\\xNN`",
                 .lone_cr => "carriage return without a line feed; end lines with `\\n` or `\\r\\n`",
                 .leading_zero => "a decimal number has no leading zero",
                 .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
@@ -959,9 +1001,9 @@ pub const Lexer = struct {
                 .symbol_detached => "a prefix `:` touches its operand: a symbol is written `:width`",
                 .symbol_name => "a symbol is `:` and a name: `:width`, `:content-type`",
                 .symbol_long => "a symbol's name is too long",
-                .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun`, `pub called fun`, or `pub rarely fun`",
+                .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun` or `pub called fun`",
                 .repeated_marker => "a function's marker is written once",
-                .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
+                .two_markers => "a function takes one marker: `inline` (inline it at every call) or `called` (keep every call a call), which contradict each other",
             };
         }
     };
@@ -1321,7 +1363,6 @@ pub const Lexer = struct {
             // `x as a` separates arguments or elements.
             .comma => if (self.nesting == 0 and self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma)) .as_comma else .comma,
             .err => return self.lexError(tok),
-            .integer, .bytes => if (byteError(self.base.text(tok))) |e| return self.fail(e.err, tok.pos + e.at) else tok.cat,
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok) else tok.cat,
         };
         // A jump's label ends at its name: a value after it stands apart
@@ -1403,9 +1444,31 @@ pub const Lexer = struct {
         return true;
     }
 
+    /// `catch` before a jump, after any `|e|` (`f() catch return -1`),
+    /// is CATCH_JUMP, whose handler takes the rest of the expression;
+    /// before `|e|` and the end of the line, CATCH_BLOCK, whose handler
+    /// is the block below; any other is CATCH, an operator on `??`'s
+    /// level.
+    fn catchCat(self: *const Lexer) TokenCat {
+        var probe = self.base;
+        var t = probe.next();
+        var bars = false;
+        if (t.cat == .bar) {
+            _ = probe.next();
+            if (probe.next().cat != .bar) return .@"catch";
+            t = probe.next();
+            bars = true;
+        }
+        return switch (t.cat) {
+            .@"return", .@"break", .@"continue" => .catch_jump,
+            .newline, .comment, .eof => if (bars) .catch_block else .@"catch",
+            else => .@"catch",
+        };
+    }
+
     fn classifyKeyword(self: *const Lexer, tok: Token) TokenCat {
         const kw = tok.cat;
-        if (kw != .@"if") return self.memberName(tok) orelse kw;
+        if (kw != .@"if") return self.memberName(tok) orelse if (kw == .@"catch") self.catchCat() else kw;
         switch (self.last_cat) {
             .@"return", .@"break", .@"continue", .pass => return .post_if,
             else => {},
@@ -1425,17 +1488,24 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, word, "obj")) return if ((self.stmtStart() or self.last_cat == .@"pub") and self.nextIsName()) .obj else .ident;
         if (isMarker(word)) {
             if (!(self.stmtStart() or self.last_cat == .@"pub") or !self.nextIsFunOrSub()) return .ident;
-            return switch (word[0]) {
-                'i' => .@"inline",
-                'c' => .called,
-                else => .rarely,
-            };
+            return if (word[0] == 'i') .@"inline" else .called;
         }
+        // `rarely` alone on its line starts the block it marks.
+        if (std.mem.eql(u8, word, "rarely")) return if (self.stmtStart() and self.nextEndsLine()) .rarely else .ident;
         return .ident;
     }
 
+    /// The next token ends the line: a newline, a comment, or the end.
+    fn nextEndsLine(self: *const Lexer) bool {
+        var probe = self.base;
+        return switch (probe.next().cat) {
+            .newline, .comment, .eof => true,
+            else => false,
+        };
+    }
+
     /// The next token is `fun` or `sub`: a function's marker (`inline`,
-    /// `called`, `rarely`) stands right before it.
+    /// `called`) stands right before it.
     fn nextIsFunOrSub(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.next();
@@ -1443,7 +1513,7 @@ pub const Lexer = struct {
     }
 
     /// A marker `tok` puts where a declaration cannot take it: a second
-    /// one (`inline rarely fun f()`), since a function takes one, the same
+    /// one (`inline called fun f()`), since a function takes one, the same
     /// one again (`inline inline fun f()`), or one before `pub`
     /// (`inline pub fun f()`), which comes first.
     fn misplacedMarker(self: *const Lexer, tok: Token) ?struct { err: LexError, pos: u32 } {
@@ -1460,7 +1530,7 @@ pub const Lexer = struct {
     }
 
     fn isMarker(word: []const u8) bool {
-        return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "called") or std.mem.eql(u8, word, "rarely");
+        return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "called");
     }
 
     /// `of` after a value directly inside [ ] separates a fill literal's
@@ -1735,7 +1805,7 @@ pub const Lexer = struct {
     /// A literal comes next: a number, a string, or an array.
     fn literalFollows(self: *const Lexer) bool {
         return switch (self.nextJoined().cat) {
-            .integer, .real, .string_sq, .string_dq, .bytes, .lbracket => true,
+            .integer, .real, .string_sq, .string_dq, .lbracket => true,
             else => false,
         };
     }
@@ -1750,7 +1820,7 @@ pub const Lexer = struct {
     fn lexError(self: *Lexer, tok: Token) Token {
         const t = self.base.text(tok);
         return switch (t[0]) {
-            '"', '\'' => self.stringError(tok.pos, self.afterBareB(tok.pos)),
+            '"', '\'' => self.stringError(tok.pos),
             '0'...'9' => self.fail(if (t.len > 1 and t[0] == '0' and std.mem.findScalar(u8, "XBO", t[1]) != null)
                 .radix_case
             else if (t.len > 1 and t[0] == '0' and (std.ascii.isDigit(t[1]) or t[1] == '_'))
@@ -1773,7 +1843,7 @@ pub const Lexer = struct {
         return pos > 0 and src[pos - 1] == 'b' and (pos < 2 or !isIdentCont(src[pos - 2]));
     }
 
-    fn stringError(self: *Lexer, open: u32, bytes: bool) Token {
+    fn stringError(self: *Lexer, open: u32) Token {
         const src = self.base.source;
         const quote = src[open];
         var p = open + 1;
@@ -1786,7 +1856,7 @@ pub const Lexer = struct {
                 continue;
             }
             const at_line_end = src[p] == '\r' and p + 1 < src.len and src[p + 1] == '\n';
-            if ((src[p] < 0x20 or src[p] == 0x7f) and !at_line_end) return self.fail(if (bytes) .control_in_bytes else .control_in_string, p);
+            if ((src[p] < 0x20 or src[p] == 0x7f) and !at_line_end) return self.fail(.control_in_string, p);
         }
         return self.fail(.unterminated_string, open);
     }
@@ -1804,7 +1874,6 @@ fn isValue(cat: TokenCat) bool {
         .real,
         .string_sq,
         .string_dq,
-        .bytes,
         .true,
         .false,
         .rparen,
@@ -1943,7 +2012,8 @@ fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
 }
 
 /// The integer leaf of byte `value`, which spans `len` bytes at `pos`
-/// (`b'A'`, or the `A` of `b"AB"`) and reads as its decimal value.
+/// (a string literal where a `U8` goes, or one byte of one where a
+/// `[N]U8` goes) and reads as its decimal value.
 fn byteLeaf(pos: u32, len: u16, value: u8) Sexp {
     return .{ .src = .{ .pos = pos, .len = len, .id = byte_id_base + value } };
 }
@@ -1958,60 +2028,6 @@ const byte_texts = blk: {
     for (&texts, 0..) |*t, i| t.* = std.fmt.comptimePrint("{d}", .{i});
     break :blk texts;
 };
-
-/// What `ByteReader.next` finds that is no byte.
-pub const ByteError = error{ NonAscii, CodePoint, UnknownEscape };
-
-/// The bytes of a byte literal's text, `b'A'` or `b"AB"`, in order. The
-/// lexer rule closes the quote, and no backslash comes right before it.
-pub const ByteReader = struct {
-    text: []const u8,
-    /// Where the byte `next` read last starts in `text`, and ends.
-    at: usize = 2,
-    end: usize = 2,
-
-    /// The next byte, null at the closing quote, or why the text at `at`
-    /// is no byte.
-    pub fn next(r: *ByteReader) ByteError!?u8 {
-        const t = r.text;
-        r.at = r.end;
-        if (r.at >= t.len - 1) return null;
-        const c = t[r.at];
-        if (c >= 0x80) return error.NonAscii;
-        r.end = r.at + 1;
-        if (c != '\\') return c;
-        r.end = r.at + 2;
-        return switch (t[r.at + 1]) {
-            '\\', '\'', '"' => |e| e,
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            'x' => {
-                if (r.at + 4 >= t.len or !std.ascii.isHex(t[r.at + 2]) or !std.ascii.isHex(t[r.at + 3])) return error.UnknownEscape;
-                r.end = r.at + 4;
-                return std.fmt.parseInt(u8, t[r.at + 2 .. r.at + 4], 16) catch unreachable;
-            },
-            'u' => error.CodePoint,
-            else => error.UnknownEscape,
-        };
-    }
-};
-
-/// Why the text of an integer or byte string token holds no bytes (an
-/// integer's text holds none to check), or `b'…'` holds more or fewer
-/// than one: the error, and where it is in the text.
-fn byteError(text: []const u8) ?struct { err: Lexer.LexError, at: u32 } {
-    if (text.len < 3 or text[0] != 'b') return null;
-    var r: ByteReader = .{ .text = text };
-    var n: usize = 0;
-    while (r.next() catch |e| return .{ .at = @intCast(r.at), .err = switch (e) {
-        error.NonAscii => .byte_non_ascii,
-        error.CodePoint => .byte_code_point,
-        error.UnknownEscape => .byte_escape,
-    } }) |_| n += 1;
-    if (text[1] == '\'' and n != 1) return .{ .at = 0, .err = if (n == 0) .byte_empty else .byte_many };
-    return null;
-}
 
 /// Whether `leaf` is a name a rewrite built (`hiddenLeaf`), such as the
 /// `next` a `for` over an iterator calls.
@@ -2125,6 +2141,10 @@ pub const IterSource = enum {
 /// walks its source.
 pub const IterLoop = struct { node: parser.NodeId, source: IterSource };
 
+/// A string literal typecheck found where a `U8` or a `[N]U8` goes
+/// (`Parser.byteLiterals`): the position of its leaf and its bytes.
+pub const ByteLiteral = struct { pos: u32, bytes: []const u8, array: bool };
+
 pub const Parser = struct {
     base: BaseParser,
     /// Set when parsing succeeded but the tree was rejected.
@@ -2147,6 +2167,8 @@ pub const Parser = struct {
     /// The node ids of the parameters written `f: once ?fun() -> T`,
     /// each made a `(: f type)` (`isOnceParam`).
     once_params: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// Each `rarely` that starts a body it may mark (`placeRarely`).
+    placed_rarely: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// For each `for` whose `?` before its source reaches the receiver
     /// of a method call by the receiver-sigil rule
     /// (`for x in ?b.each()`), the source with the sigil there,
@@ -2701,7 +2723,7 @@ pub const Parser = struct {
         // Only a function type's result must follow here.
         if (std.mem.eql(u8, expected, "`->`")) return "a function type writes its result after `->`: `fun(Int) -> Int`";
         return switch (tok.cat) {
-            .real, .string_sq, .string_dq, .bytes => if (in_pattern) "a pattern is a name, an integer, a byte `b'A'`, a string, `true`, `false`, or an enum variant" else null,
+            .real, .string_sq, .string_dq => if (in_pattern) "a pattern is a name, an integer, a string, `true`, `false`, or an enum variant" else null,
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
@@ -2997,31 +3019,7 @@ pub const Parser = struct {
     // `captures` node and receiver sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
-    /// `b'A'` is the integer leaf `65` where it is written, and `b"AB"`
-    /// the array literal `[U8(65), U8(66)]`, each element where its byte
-    /// is written; `b""` is `[0 of U8(0)]`, an empty `[0]U8`. The lexer
-    /// checked their bytes.
-    fn byteLiteral(self: *Parser, leaf: Sexp) std.mem.Allocator.Error!Sexp {
-        const text = leafText(self.base.source, leaf.src);
-        if (text.len < 3 or text[0] != 'b' or (text[1] != '\'' and text[1] != '"')) return leaf;
-        const pos = leaf.src.pos;
-        var r: ByteReader = .{ .text = text };
-        if (text[1] == '\'') return byteLeaf(pos, leaf.src.len, (r.next() catch null) orelse 0);
-        const whole: parser.Span = .{ .start = pos, .end = pos + leaf.src.len };
-        var elems: std.ArrayList(Sexp) = .empty;
-        while (r.next() catch null) |b| {
-            const at: u32 = pos + @as(u32, @intCast(r.at));
-            const len: u16 = @intCast(r.end - r.at);
-            try elems.append(self.allocator(), try self.base.newNode(.call, &.{ .nil, hiddenLeaf(at, .u8), byteLeaf(at, len, b) }, .{ .start = at, .end = at + len }));
-        }
-        if (elems.items.len > 0) return self.base.newNode(.array, elems.items, whole);
-        const zero = byteLeaf(pos, leaf.src.len, 0);
-        const elem = try self.base.newNode(.call, &.{ .nil, hiddenLeaf(pos, .u8), zero }, whole);
-        return self.base.newNode(.array_fill, &.{ zero, elem }, whole);
-    }
-
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        if (sexp == .src) return self.byteLiteral(sexp);
         if (sexp != .list) return sexp;
         var items = sexp.items();
         // A `for` source sigil is the loop's mode, taken before the
@@ -3039,8 +3037,10 @@ pub const Parser = struct {
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
+        try self.placeRarely(out);
         switch (out.kind() orelse return out) {
             .module => {
+                self.strayRarely(out, false);
                 self.moduleConsts(out);
                 return self.attachMethods(out);
             },
@@ -3054,7 +3054,7 @@ pub const Parser = struct {
             .@"defer", .@"errdefer" => try self.dropStatement(&walked[ir.slot(.@"defer", .body)]),
             .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
-            .@"??" => return self.nearestFallback(out),
+            .@"??" => return self.nearestFallback(try self.rightNested(out)),
             .destructure => try self.destructureTargets(walked),
             .as_results => try self.resultNames(walked),
             .as_pattern => return self.asMatch(out),
@@ -3091,6 +3091,36 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// A `rarely` that starts the body of a function, a branch of `if` or
+    /// `match`, a `catch` handler, or a loop marks it: the block rarely
+    /// runs, and emit starts its branch with Zig's cold hint.
+    fn placeRarely(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
+        const bodies: [2]Sexp = switch (node.kind() orelse return) {
+            .fun, .sub => .{ ir.get(node, .body), .nil },
+            .@"if" => .{ ir.If.then(node), ir.If.@"else"(node) },
+            .arm => .{ ir.Arm.body(node), .nil },
+            .@"while" => .{ ir.While.body(node), .nil },
+            .@"for" => .{ ir.For.body(node), .nil },
+            .@"catch" => .{ ir.Catch.handler(node), .nil },
+            else => return,
+        };
+        for (bodies) |b| if (startsRarely(b)) try self.placed_rarely.put(self.allocator(), ir.Block.stmts(b)[0].list.id, {});
+    }
+
+    /// A `rarely` anywhere else is rejected: after a block's first line,
+    /// or starting a block it may not mark.
+    fn strayRarely(self: *Parser, node: Sexp, first: bool) void {
+        if (node != .list) return;
+        if (node.isKind(.rarely) and !self.placed_rarely.contains(node.list.id)) return self.reject(node, if (first)
+            "`rarely` marks the body of a function, a branch of `if` or `match`, a `catch` handler, or a loop"
+        else
+            "`rarely` is the first line of the block it marks");
+        const block = node.isKind(.block);
+        // A group (a parameter list) has no kind in front.
+        const kids = if (node.kind() != null) node.items()[1..] else node.items();
+        for (kids, 0..) |child, i| self.strayRarely(child, block and i == 0);
     }
 
     /// `q, r = f()`: each target but `_` takes the result in its position,
@@ -3374,6 +3404,31 @@ pub const Parser = struct {
         if (!m.isKind(.read)) return null;
         const field = ir.Read.operand(m);
         return if (field.isKind(.@":") or field.isKind(.default)) field else null;
+    }
+
+    /// `a ?? b ?? c`: the grammar reads a chain left to right, `(a ?? b)
+    /// ?? c`, and every pass reads it nested to the right, `a ?? (b ??
+    /// c)`, which gives the same value and lets each fallback have the
+    /// payload's type. A parenthesized left side keeps its grouping: it
+    /// starts after the node that holds it. A jump fallback is
+    /// `nearestFallback`'s.
+    fn rightNested(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const right = ir.@"??".right(node);
+        if (right.kind()) |k| switch (k) {
+            .@"return", .@"break", .@"continue" => return node,
+            else => {},
+        };
+        const left = ir.@"??".left(node);
+        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        const middle = ir.@"??".right(left);
+        // The new right side starts where `middle` is written, with any
+        // parentheses around it, so a grouped `middle` stays grouped.
+        const src = self.base.source;
+        var start = self.span(middle).start;
+        while (start > 0 and (src[start - 1] == '(' or isSpaceBefore(src[start - 1]))) start -= 1;
+        while (start < self.span(middle).start and isSpaceBefore(src[start])) start += 1;
+        const inner = try self.rightNested(try self.base.newNode(.@"??", &.{ middle, right }, .{ .start = start, .end = self.span(node).end }));
+        return self.base.newNode(.@"??", &.{ ir.@"??".left(left), inner }, self.span(node));
     }
 
     /// `a ?? b ?? return v`: the grammar reads a jump fallback after the
@@ -3778,6 +3833,37 @@ pub const Parser = struct {
         }
     };
 
+    /// Each string literal of `lits` in `tree` as the literal it is
+    /// where it stands: where a `U8` goes, the integer leaf of its byte,
+    /// spanning the string; where a `[N]U8` goes, the array literal of
+    /// its bytes, each a leaf inside the string, so that no two share a
+    /// position. Every other node keeps its position and id.
+    pub fn byteLiterals(self: *Parser, tree: Sexp, lits: []const ByteLiteral) std.mem.Allocator.Error!void {
+        if (lits.len == 0) return;
+        var at: std.AutoHashMapUnmanaged(u32, usize) = .empty;
+        defer at.deinit(self.allocator());
+        for (lits, 0..) |l, i| try at.put(self.allocator(), l.pos, i);
+        try self.bytesIn(tree, lits, &at);
+    }
+
+    fn bytesIn(self: *Parser, node: Sexp, lits: []const ByteLiteral, at: *const std.AutoHashMapUnmanaged(u32, usize)) std.mem.Allocator.Error!void {
+        if (node != .list) return;
+        for (@constCast(node.items())) |*slot| switch (slot.*) {
+            .src => |leaf| if (at.get(leaf.pos)) |i| {
+                const lit = lits[i];
+                if (!lit.array) {
+                    slot.* = byteLeaf(leaf.pos, leaf.len, lit.bytes[0]);
+                    continue;
+                }
+                const elems = try self.allocator().alloc(Sexp, lit.bytes.len);
+                for (lit.bytes, elems, 0..) |b, *e, k| e.* = byteLeaf(leaf.pos + 1 + @as(u32, @intCast(k)), 1, b);
+                slot.* = try self.base.newNode(.array, elems, .{ .start = leaf.pos, .end = leafEnd(self.base.source, leaf) });
+            },
+            .list => try self.bytesIn(slot.*, lits, at),
+            else => {},
+        };
+    }
+
     /// Rewrite each `for` of `loops` in `tree` into the `while` it means.
     /// Every other node keeps its position and id.
     pub fn desugarIterLoops(self: *Parser, tree: Sexp, loops: []const IterLoop) std.mem.Allocator.Error!void {
@@ -3936,19 +4022,24 @@ test "`obj` is a keyword only where a declaration starts; `struct` is a name" {
     try parses("obj P\n  obj: Int\n  struct: Int\n");
 }
 
-test "`inline`, `called`, and `rarely` are keywords only before a declaration's `fun` or `sub`" {
+test "`inline` and `called` are keywords only before a declaration's `fun` or `sub`, and `rarely` only alone on its line" {
     try testing.expect(keyword("inline") == null and keyword("called") == null and keyword("rarely") == null);
     try expectCats("inline fun f()", &.{ .@"inline", .fun, .ident, .lparen, .rparen });
     try expectCats("called fun f()", &.{ .called, .fun, .ident, .lparen, .rparen });
     try expectCats("called = 1", &.{ .ident, .assign, .integer });
-    try expectCats("pub rarely sub s()", &.{ .@"pub", .rarely, .sub, .ident, .lparen, .rparen });
+    try expectCats("pub called sub s()", &.{ .@"pub", .called, .sub, .ident, .lparen, .rparen });
+    try expectCats("rarely", &.{.rarely});
+    try expectCats("rarely  # cold", &.{.rarely});
+    try expectCats("rarely fun f()", &.{ .ident, .fun, .ident, .lparen, .rparen });
+    try expectCats("rarely = 2", &.{ .ident, .assign, .integer });
     try expectCats("inline = 5", &.{ .ident, .assign, .integer });
     try expectCats("x = rarely", &.{ .ident, .assign, .ident });
     try expectCats("f(inline: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
     try expectCats("p.inline(rarely)", &.{ .ident, .dot, .ident, .lparen, .ident, .rparen });
     try parses("inline fun f() -> Int\n  1\n");
-    try parses("obj P\n  inline: Int\n  rarely sub m(?@)\n    pass\n  fun inline(?@) -> Int\n    @inline\n");
+    try parses("obj P\n  inline: Int\n  rarely: Int\n  called sub m(?@)\n    pass\n  fun inline(?@) -> Int\n    @inline\n");
     try parses("fun f(inline: Int, rarely: Int) -> Int\n  inline + rarely\n");
+    try parses("fun f(n: Int) -> Int\n  rarely\n  n\n");
 }
 
 test "a deeper line starting with `.` continues a complete statement" {

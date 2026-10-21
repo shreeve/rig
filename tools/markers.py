@@ -4,8 +4,8 @@ and, for test/cli/markers.sh, its programs.
 
 The function markers (SPEC.md, "Function markers"): `inline fun` is
 emitted `inline fn` at any size, `called fun` is emitted `noinline fn`,
-and `rarely fun` starts with Zig's cold hint; the last two are never
-inlined by the compiler's own rule.
+and a function whose body starts with `rarely` starts with Zig's cold
+hint; the last two are never inlined by the compiler's own rule.
 
     python3 tools/markers.py            # rewrite the test file
     python3 tools/markers.py --check    # exit 1 if it is stale
@@ -20,7 +20,8 @@ SHAPES = """inline fun big(a: Int) -> Int
   x = a
 """ + "  x = x * 3 + 1\n" * 20 + """  x
 
-rarely fun small(a: Int) -> Int
+fun small(a: Int) -> Int
+  rarely
   a + 1
 
 called fun tiny(a: Int) -> Int
@@ -32,7 +33,8 @@ obj Wrap[T]
   inline fun get(?@) -> T
     @value
 
-  rarely fun peek(?@) -> T
+  fun peek(?@) -> T
+    rarely
     @value
 
   called fun same(?@) -> T
@@ -45,7 +47,7 @@ sub main()
   w = Wrap[Int](value: 2)
   print(big(1), small(2), tiny(3), w.get(), w.peek(), w.same(), larger(3, 4))
 """
-PLAIN = re.sub(r"^( *)(inline|called|rarely) ", r"\1", SHAPES, flags=re.M)
+PLAIN = re.sub(r"^ *rarely\n", "", re.sub(r"^( *)(inline|called) ", r"\1", SHAPES, flags=re.M), flags=re.M)
 
 # std.json's shape: `doc[dense]` has two instances, each calling `number`,
 # which is over the size limit, and rarely `utf8_text`.
@@ -123,7 +125,7 @@ DOC = ("# The shape std.json wants: one parser, two compile-time instances that\
 
 
 def marked(text):
-    return re.sub(r"^fun utf8_text", "rarely fun utf8_text", re.sub(r"^fun number", "inline fun number", text, flags=re.M), flags=re.M)
+    return re.sub(r"^(fun utf8_text[^\n]*\n)", r"\1  rarely\n", re.sub(r"^fun number", "inline fun number", text, flags=re.M), flags=re.M)
 
 
 def called(text):
@@ -165,7 +167,8 @@ sub main()
 TESTED = """inline fun twice(n: Int) -> Int
   n * 2
 
-rarely fun fallback(n: Int) -> Int
+fun fallback(n: Int) -> Int
+  rarely
   0 - n
 
 called fun kept(n: Int) -> Int
@@ -203,7 +206,8 @@ def text():
     out = [
         "# The function markers, written by tools/markers.py (edit it, not this\n"
         "# file): `inline fun` is emitted `inline fn` at any size, `called fun`\n"
-        "# `noinline fn`, and `rarely fun` starts with Zig's cold hint; the last\n"
+        "# `noinline fn`, and a body that starts with `rarely` starts with Zig's\n"
+        "# cold hint; the last\n"
         "# two are never inlined by the compiler's own rule, and no marker changes\n"
         "# what a program does (test/cli/markers.sh reads the symbols of an\n"
         "# optimized build, and the limits `rig check` holds).\n\n",

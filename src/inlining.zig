@@ -2,14 +2,15 @@
 //! program, after every module is checked (docs/internals/INTERNALS.md, "Inlining").
 //!
 //! A function marked `inline fun` is emitted `inline fn`, whatever its
-//! size, and one marked `called fun` or `rarely fun` never is; the rule
-//! below decides the rest. A cycle of calls of marked `inline` functions
-//! is an error (`forcedCycles`). What a marked function's values land in
-//! each frame owner that calls it is typecheck's to count (the account's
-//! `marked` part, `typecheck.checkFrames`); what the rule inlines into it
-//! lands in that owner too, so this pass counts it there (`added`). The
-//! sizes below never undo a marker, they only choose among the functions
-//! the compiler picked.
+//! size, and one marked `called fun`, or whose body starts with `rarely`,
+//! never is; the rule below decides the rest. A cycle of calls of marked
+//! `inline` functions is an error (`forcedCycles`). What a marked
+//! function's values land in each frame owner that calls it is
+//! typecheck's to count (the account's `marked` part,
+//! `typecheck.checkFrames`); what the rule inlines into it lands in that
+//! owner too, so this pass counts it there (`added`). The sizes below
+//! never undo a marker, they only choose among the functions the
+//! compiler picked.
 //!
 //! Zig inlines a small function only when asked, and LLVM leaves a
 //! small hot helper as a call when its body grows. A `fun` or `sub` with
@@ -98,8 +99,8 @@ const Fn = struct {
     size: u32 = 0,
     /// Whether the declaration alone allows the rule to inline it.
     eligible: bool,
-    /// Its marker: `inline` inlines it at every call, `called` and
-    /// `rarely` never.
+    /// Its marker: `inline` inlines it at every call, `called` and a
+    /// body that starts with `rarely` never.
     marker: rig.Marker,
     /// Mentioned other than as a callee.
     used_as_value: bool = false,
@@ -331,7 +332,9 @@ const Pass = struct {
         const body = ir.get(node, .body);
         const is_main = !o.member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
         const marker = rig.markerOf(node);
-        var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none;
+        // A function that always panics is cold, and stays out of line
+        // as a `rarely` one does.
+        var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none and !rig.alwaysPanics(body);
         if (body != .nil and holdsClosure(body)) eligible = false;
         // A frame that depends on a compile-time value is unknown.
         if (o.per_instance and sema.tparamsOf(node) != .nil) eligible = false;

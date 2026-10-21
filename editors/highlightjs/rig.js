@@ -16,7 +16,8 @@ export default function (hljs) {
     "contains": [
       {"scope": {"1": "keyword", "2": "title.function"}, "match": ["(?:fun|sub)[\\x09 ]+", "[A-Z_a-z][0-9A-Z_a-z]*"]},
       {"scope": {"1": "keyword", "2": "type"}, "match": ["(?:obj|enum|type)[\\x09 ]+", "[A-Z_a-z][0-9A-Z_a-z]*"]},
-      {"scope": "keyword", "match": "(?:called|rarely|inline)(?=[\\x09 ]+(?:fun|sub))"},
+      {"scope": "keyword", "match": "(?:called|inline)(?=[\\x09 ]+(?:fun|sub))"},
+      {"scope": "keyword", "match": "^[\\x09 ]*rarely(?![\\x09 ]*[^\\x09\\x0a #])"},
       {"scope": "keyword", "match": "^[\\x09 ]*new(?=[\\x09 ]+[A-Z_a-z])"},
       {"scope": "keyword", "match": "(?<= )(?<![0-9A-Za-z_])of(?![0-9A-Za-z_])(?= )"},
       {"scope": "keyword", "match": "from[\\x09 ]+static(?![0-9A-Z_a-z])"},
@@ -68,16 +69,6 @@ export default function (hljs) {
         "contains": [
           {"scope": "char.escape", "match": "''"},
           {"match": "[^\\x00-\\x1f'\\x7f]|''"}
-        ]
-      },
-      {"scope": "number", "match": "b'(?:[^\\x00-\\x1f'\\\\\\x7f]|\\\\[^\\x00-\\x1f\\x7f])*'"},
-      {
-        "scope": "string",
-        "begin": "b\"",
-        "end": "\"",
-        "contains": [
-          {"scope": "char.escape", "match": "\\\\[^\\x00-\\x1f\\x7f]"},
-          {"match": "[^\\x00-\\x1f\"\\\\\\x7f]|\\\\[^\\x00-\\x1f\\x7f]"}
         ]
       },
       {"scope": "number", "match": "0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*"},

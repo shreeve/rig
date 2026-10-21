@@ -237,7 +237,7 @@ Python's type hints (`list[int]`) write them the same way.
 
 There are no traits or bounds. A generic body is checked once, and each
 instance a program makes is checked against what the body does with
-`T`, like a Zig `comptime T: type` function but with the error at the
+`T`, the methods it calls on one included, like a Zig `comptime T: type` function but with the error at the
 call ([SPEC §3](SPEC.md#generic-bodies)).
 
 ### What a program becomes

@@ -6,3 +6,7 @@ const rig = @import("../runtime.zig");
 pub fn check() rig.Stop!void {
     return rig.taskCheck();
 }
+
+pub fn workers(n: i64) bool {
+    return rig.taskWorkers(n);
+}

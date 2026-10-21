@@ -25,9 +25,6 @@ syn match rigConstantNumeric "\v%(0|[1-9]%(_=[0-9])*)=\.[0-9]%(_=[0-9])*%([Ee][+
 syn match rigConstantNumeric "\v0o[0-7]%(_=[0-7])*"
 syn match rigConstantNumeric "\v0b[01]%(_=[01])*"
 syn match rigConstantNumeric "\v0x[0-9A-Fa-f]%(_=[0-9A-Fa-f])*"
-syn region rigString matchgroup=rigString start="\vb\"" skip="\v[^\x00-\x1f\x22\\\x7f]|\\[^\x00-\x1f\x7f]" end="\v\"" contains=rigStringEscapeInBytes
-syn match rigStringEscapeInBytes "\v\\[^\x00-\x1f\x7f]" contained
-syn match rigConstantNumeric "\vb\'%([^\x00-\x1f'\\\x7f]|\\[^\x00-\x1f\x7f])*\'"
 syn region rigString matchgroup=rigString start="\v\'" skip="\v[^\x00-\x1f'\x7f]|\'\'" end="\v\'" contains=rigStringEscapeInStringSq
 syn match rigStringEscapeInStringSq "\v\'\'" contained
 syn region rigString matchgroup=rigString start="\v\"" skip="\v[^\x00-\x1f\x22\\\x7f]|\\[^\x00-\x1f\x7f]" end="\v\"" contains=rigStringEscapeInStringDq
@@ -68,7 +65,8 @@ syn match rigKeyword "\v%( )@<=%(from|keeps)%( [@-Z_a-z])@="
 syn match rigKeyword "\vfrom[\x09 ]+static%([0-9A-Z_a-z])@!"
 syn match rigKeyword "\v%( )@<=\w@<!of\w@!%( )@="
 syn match rigKeyword "\v^[\x09 ]*new%([\x09 ]+[A-Z_a-z])@="
-syn match rigKeyword "\v%(called|rarely|inline)%([\x09 ]+%(fun|sub))@="
+syn match rigKeyword "\v^[\x09 ]*rarely%([\x09 ]*[^\x09\x0a #])@!"
+syn match rigKeyword "\v%(called|inline)%([\x09 ]+%(fun|sub))@="
 syn match rigKeyword "\v%(obj|enum|type)[\x09 ]+\ze[A-Z_a-z][0-9A-Z_a-z]*" nextgroup=rigSeq2Part2
 syn match rigSeq2Part2 "\v[A-Z_a-z][0-9A-Z_a-z]*" contained
 syn match rigKeyword "\v%(fun|sub)[\x09 ]+\ze[A-Z_a-z][0-9A-Z_a-z]*" nextgroup=rigSeq1Part2
@@ -96,7 +94,6 @@ hi def link rigInvalid Error
 hi def link rigSeq1Part2 rigFunction
 hi def link rigSeq2Part2 rigType
 hi def link rigSeq3Part2 rigLabel
-hi def link rigStringEscapeInBytes rigStringEscape
 hi def link rigStringEscapeInStringDq rigStringEscape
 hi def link rigStringEscapeInStringSq rigStringEscape
 

@@ -539,9 +539,10 @@ same run, and a failing run names the seed that repeats it.**
 
 ## Where to go next
 
-The next chapters are Safety you can trust, which says what Rig promises,
-where `raw` suspends it, and how the promises are checked, and A real
-program, end to end, which grows a service with seeded tests.
+[Safety you can trust](09-safety.md) is the next journey: what Rig
+promises, where `raw` suspends it, and how the promises are checked.
+A real program, end to end, still to come, grows a service with seeded
+tests.
 
 - [SPEC, Tests](../../SPEC.md#tests) states every rule of test blocks,
   the seed, and the virtual clock.
