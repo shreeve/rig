@@ -3824,7 +3824,7 @@ const Lowerer = struct {
         const inner_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
         var recv_ty = try self.typeOf(inner_obj);
         // A method on a value of a type parameter: the sigil says how it
-        // takes the receiver, and the call's own type its parameters.
+        // takes self, and the call's own type its parameters.
         if (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty)) == .type_var) {
             const ft = self.ctx.types.get(self.ctx.typeOf(callee) orelse return abstain("a method of a type parameter, untyped"));
             if (ft != .function or ft.function.params.len == 0) return abstain("a method of a type parameter, untyped");

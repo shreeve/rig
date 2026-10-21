@@ -3,8 +3,10 @@
 Two panels of three experts designed traits for Rig, with no code. The
 first proposed; the second reviewed the proposal. Each report is kept
 as written. The owner approved the decisions below, which
-[traits.md](../traits.md) records in full; where a report differs from
-them, the decisions hold.
+[apis.md](../apis.md) records in full; where a report differs from
+them, the decisions hold. A later panel renamed traits to APIs
+([naming-panel/](../naming-panel/README.md)): `trait Shape` is `api
+Shape`, and `impl Int: Shape` is `extend Int: Shape`.
 
 | Report | Expert |
 |---|---|
