@@ -38,13 +38,18 @@ sub main()
   print(c == d)
 EOF
 rig build --release=fast -o forkjoin forkjoin.rig >build.log 2>&1 || fail "build forkjoin: $(cat build.log)"
-# User time against wall time, which holds while other work keeps the
-# cores busy, as the suite does: up to 2 when the halves run at once
-# (1.4 with the suite running beside it), and under 1 when they run in
-# turn.
-TIMEFORMAT='%U %R'
-times=$( { time RIG_WORKERS=4 ./forkjoin >out.txt; } 2>&1 ) || fail "forkjoin: exit $?"
-expect_eq "$(cat out.txt)" true "fork-join's result"
-read -r user real <<<"$times"
-awk -v u="$user" -v r="$real" 'BEGIN { exit !(u >= 1.2 * r) }' || fail "fork-join used $user s of CPU in $real s: it ran serially"
+# Wall time against the same run on one worker, which holds while other
+# work keeps the cores busy, as the suite does: the two halves run at
+# once in about half the time, and in turn in about the same. The best
+# of three runs on four workers counts.
+TIMEFORMAT='%R'
+serial=$( { time RIG_WORKERS=1 ./forkjoin >out.txt; } 2>&1 ) || fail "forkjoin on one worker: exit $?"
+expect_eq "$(cat out.txt)" true "fork-join's result on one worker"
+best=
+for _ in 1 2 3; do
+    real=$( { time RIG_WORKERS=4 ./forkjoin >out.txt; } 2>&1 ) || fail "forkjoin: exit $?"
+    expect_eq "$(cat out.txt)" true "fork-join's result"
+    best=$(awk -v a="$best" -v b="$real" 'BEGIN { print (a == "" || b < a) ? b : a }')
+done
+awk -v p="$best" -v s="$serial" 'BEGIN { exit !(p < 0.8 * s) }' || fail "fork-join took $best s on four workers and $serial s on one: it ran serially"
 exit 0
