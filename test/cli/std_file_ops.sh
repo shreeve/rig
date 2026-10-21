@@ -139,6 +139,69 @@ sub main()
     false
 EOF2
 
+# Many reads canceled, before their calls on the pool run and wherever
+# they are, leave no descriptor open: the count of open descriptors is the
+# same after as before. Release only: in debug, Zig's stat of a poller's
+# entry in /dev/fd panics (EBADF) where release reports it.
+cat >fds.rig <<'EOF2'
+use std.file
+use std.time
+
+# How many descriptors the process has open: the entries of
+# /proc/self/fd (Linux) or /dev/fd (macOS).
+fun count() -> Int!
+  path = "/proc/self/fd" if file.exists("/proc/self/fd")! else "/dev/fd"
+  if file.read_dir(path)! as es
+    return es.len
+  -1
+
+# Sleep a second: false when canceled first.
+fun napped() -> Bool
+  time.sleep(time.SECOND) catch return false
+  true
+
+# A read whose task is canceled first: the stop comes before the call on
+# the pool runs, so it never runs.
+fun first() -> Int!
+  if file.open("h.txt")! as f
+    _ = napped()
+    got = String()
+    return (!f).read(!got, 4) catch |e| -1
+  0
+
+# Reads a byte at a time until canceled, wherever that finds it.
+fun many() -> Int!
+  n = 0
+  while n >= 0
+    if file.open("h.txt")! as f
+      got = String()
+      while (!f).read(!got, 1)! > 0
+        n += 1
+  n
+
+# `n` reads canceled before they run, then `n` canceled wherever they are.
+sub stress(n: Int)!
+  for _ in 0..n
+    t = first()&
+    time.sleep(time.MS)!
+    _ = <t.cancel() catch |e| -2
+  for i in 0..n
+    t = many()&
+    time.sleep((i % 3) * 100 * time.US)!
+    _ = <t.cancel() catch |e| -2
+  # Calls the canceled tasks left running finish, and close what they hold.
+  time.sleep(200 * time.MS)!
+
+sub main()!
+  file.write("h.txt", "hello world")!
+  # A first round makes what the runtime keeps open: workers' pollers.
+  stress(20)!
+  before = count()!
+  stress(200)!
+  after = count()!
+  print(before == after, before > 2)
+EOF2
+
 want_ops='append with no parent FileError.not_found
 hello world b
 mkdir with no parent FileError.not_found
@@ -158,6 +221,9 @@ read a directory FileError.is_directory
   long2.txt .file
   new .directory
   x .directory'
+out=$(rig run --release fds.rig 2>&1); expect_rc $? 0 "fds: $out"
+expect_eq "$out" "true true" "canceled reads leave no descriptor open"
+
 for mode in debug release; do
     flag=; [[ $mode == release ]] && flag=--release
     rm -rf d f.txt h.txt never.txt fifo; mkfifo fifo

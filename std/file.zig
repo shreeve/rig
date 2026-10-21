@@ -44,28 +44,6 @@ const Fd = struct {
     }
 };
 
-/// A descriptor of the same open file as `fd`, for a pool call to own:
-/// the task may close its own while the call runs on.
-fn dupFd(fd: i64) FileError!Fd {
-    while (true) {
-        const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
-        switch (posix.errno(rc)) {
-            .SUCCESS => return .{ .fd = @intCast(rc) },
-            .INTR => {},
-            else => |e| return errnoFailure(e),
-        }
-    }
-}
-
-/// Fail when the task is canceled or past its deadline, without
-/// yielding: before a descriptor is duplicated for a pool call, so a
-/// stopped task makes none.
-fn stopped() rig.Stop!void {
-    const t = rig.task();
-    if (t.control) |c| if (c.canceled.load(.seq_cst)) return error.@"std.task.Stop.canceled";
-    if (t.deadline) |d| if (rig.sched.nowNs() >= d) return error.@"std.task.Stop.timeout";
-}
-
 /// The FileError for a failure of Zig's, or the FileError itself.
 fn failure(err: anyerror) FileError {
     if (std.mem.startsWith(u8, @errorName(err), "std.file.FileError.")) return @errorCast(err);
@@ -423,45 +401,14 @@ fn terminated(path: []const u8, buf: *[std.Io.Dir.max_path_bytes:0]u8) FileError
 pub fn read_from(fd: i64, into: *rig.String, max: i64) Error!i64 {
     const want: usize = @intCast(@max(max, 0));
     if (want == 0) return 0;
-    try stopped();
-    var got = try pool(rig.String, readOwned, .{ try dupFd(fd), want });
+    var got = try rig.net.fileRead(fd, want);
     defer rig.dropElement(rig.String, &got);
     into.list.appendSlice(rig.defaultAllocator(), got.list.items) catch rig.oom();
     return @intCast(got.list.items.len);
 }
 
-/// Up to `want` bytes read from `fd`, which it closes, in a fresh String.
-fn readOwned(fd: Fd, want: usize) FileError!rig.String {
-    var own = fd;
-    defer own.__rig_drop();
-    var s: rig.String = .empty;
-    errdefer rig.dropElement(rig.String, &s);
-    s.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), want) catch rig.oom();
-    s.list.items.len = try readSome(own.fd, s.list.unusedCapacitySlice()[0..want]);
-    return s;
-}
-
-fn readSome(fd: i32, dest: []u8) FileError!usize {
-    while (true) {
-        const rc = sys.read(fd, dest.ptr, dest.len);
-        switch (posix.errno(rc)) {
-            .SUCCESS => return @intCast(rc),
-            .INTR => {},
-            else => |e| return errnoFailure(e),
-        }
-    }
-}
-
 pub fn write_to(fd: i64, bytes: []const u8) Error!void {
-    try stopped();
-    return pool(void, writeOwned, .{ try dupFd(fd), bytes });
-}
-
-/// Write all of `bytes` to `fd`, which it closes.
-fn writeOwned(fd: Fd, bytes: []const u8) FileError!void {
-    var own = fd;
-    defer own.__rig_drop();
-    try writeAll(own.fd, bytes);
+    return rig.net.fileWrite(fd, bytes);
 }
 
 fn writeAll(fd: i32, bytes: []const u8) FileError!void {
