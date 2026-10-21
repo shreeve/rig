@@ -355,9 +355,10 @@ tests, and the oracle, the core is about 4,100 jobs and takes about 15
 seconds when nothing changed; `all`, with the 65 scripts of `test/cli`
 and the probes, about 8,200 jobs and a minute. A script keeps only what
 needs the command line and builds nothing it built before, so none takes
-more than about 20 seconds. After a change to the compiler, every pack
-compiles again, once: a run takes about four minutes on 5 cores,
-and the first jobs are done within a minute.
+more than about 20 seconds. After a change to the checkers alone, no
+pack compiles again; after a change to the runtime, every pack does,
+once, and the 31 packs of `all` take about 250 CPU seconds, where the
+167 packs of one file each took about 700.
 
 The verdicts are the same. A case runs in a few milliseconds; a warm
 run's time is the cases themselves, a few of which are deliberate
