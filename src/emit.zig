@@ -8357,6 +8357,12 @@ pub const Emitter = struct {
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
+                if (pn.inline_len > 0) {
+                    // `List[T, inline: n]`.
+                    try self.w.writeAll("rig.InlineList(");
+                    try self.emitTypeList(pn.args);
+                    return self.w.print(", {d})", .{pn.inline_len});
+                }
                 try self.writeNominalName(pn.sym);
                 try self.w.writeAll("(");
                 try self.emitTypeList(pn.args);

@@ -7207,7 +7207,20 @@ const Checker = struct {
     /// diagnostic.
     fn typeInstance(self: *Checker, e: Sexp, nt: NamedType) Error!TypeId {
         const params = nt.sym.type_params orelse &.{};
-        const given = sema.bracketArgs(e);
+        var given = sema.bracketArgs(e);
+        // `List[T, inline: n]()`: the first `n` elements live inside the List.
+        var inline_len: u32 = 0;
+        if (given.len > 0 and given[given.len - 1].isKind(.kwarg)) {
+            const kw = given[given.len - 1];
+            given = given[0 .. given.len - 1];
+            const key = self.text(ir.Kwarg.name(kw));
+            if (nt.id != self.ctx.list_sym_id or !std.mem.eql(u8, key, "inline")) {
+                try self.errAt(kw, "`{s}:` names no argument of `{s}`; only a List takes one, `List[T, inline: n]`", .{ key, nt.sym.name });
+                return self.t().invalid_id;
+            }
+            var r = self.resolver();
+            inline_len = (try r.inlineLen(ir.Kwarg.value(kw))) orelse return self.t().invalid_id;
+        }
         if (given.len != params.len) {
             try self.errAt(e, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ nt.sym.name, params.len, resolve.argsNoun(self.ctx, params), plural(params.len), given.len });
             return self.t().invalid_id;
@@ -7226,7 +7239,9 @@ const Checker = struct {
             if (self.isPoison(a.*)) bad = true;
         }
         if (bad) return self.t().invalid_id;
-        const ty = try self.instantiate(nt.id, args, self.startOf(e));
+        var ty = try self.instantiate(nt.id, args, self.startOf(e));
+        if (inline_len > 0 and !self.isPoison(ty))
+            ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = nt.id, .args = args, .inline_len = inline_len } });
         try self.ctx.recordInstance(e, .{ .type = ty });
         return ty;
     }
@@ -7754,6 +7769,31 @@ const Checker = struct {
 
     /// A call whose type is `T!` must be the operand of `!` or `catch`:
     /// the failure path is never implicit.
+    /// A List made through a `List[T, inline: n]` named in the call,
+    /// `List[T, inline: n](a)` or `List[T, inline: n].filled(k, x)`, is
+    /// that instance, which the List's own signature, of `List[T]`, does
+    /// not say.
+    fn inlineResult(self: *Checker, callee: Sexp, ty: TypeId) Error!TypeId {
+        const inst_node = if (callee.isKind(.member)) ir.Member.object(callee) else callee;
+        if (!inst_node.isKind(.inst) and !inst_node.isKind(.index)) return ty;
+        const inst = self.ctx.instanceOf(inst_node) orelse return ty;
+        const named = switch (inst) {
+            .type => |inst_ty| inst_ty,
+            else => return ty,
+        };
+        const want = switch (self.ctx.types.get(named)) {
+            .parameterized_nominal => |pn| pn,
+            else => return ty,
+        };
+        if (want.inline_len == 0) return ty;
+        const got = switch (self.ctx.types.get(ty)) {
+            .parameterized_nominal => |pn| pn,
+            else => return ty,
+        };
+        if (got.sym != want.sym or got.inline_len != 0 or !std.mem.eql(TypeId, got.args, want.args)) return ty;
+        return named;
+    }
+
     fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
         const handled = sameNode(node, self.handled);
         const saved = self.current_call;
@@ -7772,7 +7812,7 @@ const Checker = struct {
             const obj = ir.Member.object(callee_node);
             if (obj.isKind(.move)) self.task_wait = ir.Move.operand(obj);
         }
-        const ty = try self.synthCallInner(node);
+        const ty = try self.inlineResult(callee_node, try self.synthCallInner(node));
         if (ir.Call.task(node) != .nil) return self.taskOf(node, ty);
         // Only a task that can fail can be stopped: one that cannot runs
         // to its end.
