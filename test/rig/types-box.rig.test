@@ -540,9 +540,9 @@ test "box recursive enum", '''
     .add(l, _) => print("left", eval(?l))
     _ => print("other")
 
-fail "box retired name", "6:13: use of unbound type `Box`; a box is written `^T` as a type and `^value` as an expression", "9:5: use of unbound name `Box`; a box is written `^T` as a type and `^value` as an expression", "10:5: `Cell3` is a type alias for `^Int`; a box is made with `^`: write `^value`"
-  # `Box[T]` and `Box(v)` are written `^T` and `^v`. The old name is
-  # unbound, with a hint, and a type alias of a box is not a constructor.
+fail "box type by another name", "6:13: use of unbound type `Box`; a box is written `^T` as a type and `^value` as an expression", "9:5: use of unbound name `Box`; a box is written `^T` as a type and `^value` as an expression", "10:5: `Cell3` is a type alias for `^Int`; a box is made with `^`: write `^value`"
+  # A box is written `^T` and `^v`. `Box` is unbound, with a hint, and a
+  # type alias of a box is not a constructor.
 
   type Cell3 = ^Int
 
