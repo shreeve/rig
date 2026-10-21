@@ -3849,9 +3849,12 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
         }
         var lost = std.atomic.Value(u32).init(0);
         /// What a caller that kept its thread's heap across a switch
-        /// would do: the owner check must see it.
+        /// would do: the owner check must see it. A fiber moves only
+        /// when a worker steals it, which a busy machine may not do for
+        /// thousands of switches, so each waits for its move, returning
+        /// at the first.
         fn stale(_: *Unit) u8 {
-            for (0..2000) |_| {
+            for (0..1_000_000) |_| {
                 const before = me();
                 const h = rt.fast_alloc.heapForTest();
                 yield();
