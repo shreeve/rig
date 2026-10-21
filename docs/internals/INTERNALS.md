@@ -3756,8 +3756,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   `orelse`, and `if (x) |v|`, unless its representation may differ
   from that, which `Facts.optionalRouted` decides once per payload
   type (`sema.optionalRouted`): a type parameter's `T?`, whose
-  instance decides, and, under `RIG_STRICT_OPTIONALS`, every
-  object's. Such an optional is written `rig.Opt(T)`, and every
+  instance decides, every object's, and an optional of either. Such an
+  optional is written `rig.Opt(T)`, and every
   operation on it goes through the runtime's helpers: `rig.some(x)` is
   the Zig `?T` that `if x as v`, `while x as v`, `??`, `?`, and
   `== none` test; `rig.somePtr(&x)` is the payload's address a `|*v|`
@@ -3770,15 +3770,29 @@ symbols); a query that decides more than that belongs in `Pending`.
   of the optional that goes through the helpers; a default value
   (`emitDefault`) is packed the same way, and a hoisted argument is held
   as itself and packed where the call reads it. The helpers are the
-  identity on a `?T`, so a type parameter's `T?` is Zig's `?T` in every
-  instance, and inlines to nothing.
+  identity on a `?T`, so a `T?` that is Zig's `?T` in an instance
+  inlines to nothing.
+
+  An object with a niche holds `none` in it ([The runtime](#the-runtime),
+  `Niche`): a word of its bytes that no value of it holds, chosen at
+  compile time from its fields by `rig.nicheOf` (a String's, List's,
+  box's, or handle's address, a `Bool`, a plain enum's spare tag
+  values, a field's own niche). Its optional is the size of the object
+  and `== none` is one load and one compare
+  (`test/cli/niche_optional.sh`). An optional of it takes the next value
+  while one is free (a `Bool` has 254, a plain enum what its tag leaves, an
+  address only 0), else Zig's flag. Only the objects emit writes (`__rig_name`) take
+  a niche: a `String?`, `List[T]?`, `^T?`, `~T?`, `Bool?`, or enum's
+  optional is written `?T` outside generic code, so `rig.Opt` of it
+  stays `?T` everywhere.
 
   `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object
-  declares `__rig_strict_optional`, and `rig.Opt` of it is a tagged
-  struct (`rig.Strict`), so a program compiles only if emit and the
-  runtime write every operation on such an optional through the
-  helpers. Run the suite in this mode after a change to optionals;
-  `test/cli/strict_optionals.sh` runs one program both ways every run.
+  declares `__rig_strict_optional`, and `rig.Opt` of it, or of an
+  optional of it, is a tagged struct (`rig.Strict`), so a program
+  compiles only if emit and the runtime write every operation on such
+  an optional through the helpers. Run the suite in this mode after a
+  change to optionals; `test/cli/strict_optionals.sh` runs one program
+  both ways every run.
 - **Cells.** A value whose type holds a Cell by value lives only
   behind a shared handle (Core sentence 9): it is always in the heap
   memory a `*T` points to (`rig.Shared(T)`), as a `Cell[T]`'s value or
@@ -4322,7 +4336,7 @@ reviewed.
 | `Shared(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
 | `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `Shared` past 256 nested releases |
 | `Weak(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
-| `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way (`Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`); `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
+| `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `nicheOf`, `Niche(T, n)`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way: `Niche(T, n)`, an object's bytes holding `none` in its niche `n` (`nicheOf`), which it keeps as bytes since they are no `T` while they hold `none`, and reads as a `T` only past that one compare; `Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`; `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `swap`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |

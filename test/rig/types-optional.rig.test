@@ -331,3 +331,86 @@ test "optional text eq", '''
   print(v == t, v == u, v == "a")
   bx = ^String("a")
   print(o == bx, n == bx)
+
+code "optional niche layout", "a: rig.Opt(rig.Opt(Flagged)) =", "rig.List(rig.Opt(Cheese))", "f: rig.Opt(Flagged),", "[3]rig.Opt(Flagged)"
+  # An object's optional, an optional of one, and one in a List, an
+  # array, or a field are written `rig.Opt`, which holds `none` in the
+  # object's niche where it has one.
+  obj Cheese
+    name: String
+    age: Int
+
+  obj Flagged
+    n: Int
+    on: Bool
+
+  obj Outer
+    f: Flagged?
+    n: Int
+
+  a: (Flagged?)? = none
+  xs: List[Cheese?] = List()
+  !xs.push(none)
+  arr: [3]Flagged? = [none, none, none]
+  o = Outer(f: none, n: 1)
+  print(a == none, xs.len, arr[0] == none, o.f == none)
+
+test "optional niche", '''
+  true true true
+  true
+  3 true
+  true none
+  true true 2
+  none
+  brie 3
+  true true Flagged(n: 3, on: true)
+  true false Outer(f: Flagged(n: 1, on: false), n: 2)
+  none Flagged(n: 2, on: true) none
+'''
+  # An optional held in its object's niche means what any optional does:
+  # `none`, `if x as v`, `==`, an optional of it holding `none` or a
+  # value, a List and an array of them, and a field that is one.
+  obj Cheese
+    name: String
+    age: Int
+
+  obj Flagged
+    n: Int
+    on: Bool
+
+  obj Outer
+    f: Flagged?
+    n: Int
+
+  a: (Flagged?)? = none
+  b: Flagged? = none
+  c: (Flagged?)? = b
+  d: (Flagged?)? = Flagged(n: 3, on: true)
+  print(a == none, c != none, d != none)
+  if c as inner
+    print(inner == none)
+  if d as inner
+    if inner as f
+      print(f.n, f.on)
+  e: ((Flagged?)?)? = c
+  print(e != none, e)
+  xs: List[Cheese?] = List()
+  !xs.push(none)
+  !xs.push(Cheese(name: String("brie"), age: 3))
+  print(xs[0] == none, xs[1] != none, xs.len)
+  for i in 0..xs.len
+    if xs[i] as ch
+      print(ch.name, ch.age)
+    else
+      print("none")
+  ys: List[(Flagged?)?] = List()
+  !ys.push(none)
+  !ys.push(b)
+  !ys.push(d)
+  print(ys[0] == none, ys[1] != none, ys[2])
+  o: Outer? = Outer(f: none, n: 2)
+  if !o as v
+    v.f = Flagged(n: 1, on: false)
+  print(o != none, o == none, o)
+  arr: [3]Flagged? = [none, Flagged(n: 2, on: true), none]
+  print(arr[0], arr[1], arr[2])
