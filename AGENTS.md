@@ -84,6 +84,7 @@ Which document answers which question:
 | What are the ownership rules, built and planned? | docs/CORE.md |
 | How does the compiler work? | docs/internals/INTERNALS.md |
 | What does the standard library offer? | docs/STD.md |
+| How does std.terminal work, and how is it checked against Ghostty? | docs/design/terminal.md |
 | How do tasks, actors, and the scheduler work? | docs/design/concurrency.md, docs/internals/scheduler.md |
 | How are tests written and run? | docs/internals/tests.md, test/README.md |
 | Why is Rig this way? | docs/DESIGN.md, docs/design/mantras.md |

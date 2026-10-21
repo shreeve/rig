@@ -1938,9 +1938,11 @@ program writes go in through `feed`, and the screen and cursor come out.
 It reads and writes nothing itself; a caller owns the pty, the keyboard,
 and the drawing. Its behavior is xterm's, as Ghostty implements it: the
 cases of `test/rig/std-terminal-ghostty.rig.test` are Ghostty's answers,
-recorded by `tools/terminal_ghostty.py`. So far it takes printable ASCII,
-autowrap with a pending wrap, and the C0 controls BS, HT, LF, VT, FF,
-and CR; escape and control sequences, parsed by the DEC state machine
+recorded by `tools/terminal_ghostty.py`; its design, and how a change
+is checked, are in [docs/design/terminal.md](design/terminal.md). So
+far it takes printable ASCII, autowrap with a pending wrap, and the C0
+controls BS, HT, LF, VT, FF, and CR; escape and control sequences,
+parsed by the DEC state machine
 (https://vt100.net/emu/dec_ansi_parser), for cursor movement (CUU, CUD,
 CUF, CUB, CNL, CPL, CHA, HPA, HPR, VPA, VPR, CUP, HVP), tab stops (HT,
 CHT, CBT, HTS, TBC), IND, NEL, RI, DECSC/DECRC, scroll margins (DECSTBM,
