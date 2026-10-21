@@ -2008,7 +2008,7 @@ pub const Blocked = union(enum) {
     /// An actor's answer to a call.
     call: CallWait,
     /// The end of any of several tasks: a set that can fail, or
-    /// `task.both`.
+    /// `task.all`.
     any: AnyWait,
 
     pub const CallWait = struct {
