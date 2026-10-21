@@ -2186,17 +2186,18 @@ pub const Emitter = struct {
                 try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
             const cast = shift and !lanes;
-            try self.w.writeAll(if (cast) ", @intCast(" else ", ");
+            try self.w.writeAll(", ");
+            const through = if (cast) try self.openUnsignedCast(value, self.typeOf(value), null) else false;
             try self.emitBare(value);
-            if (cast) try self.w.writeAll(")");
+            if (cast) try self.closeUnsignedCast(through);
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return self.closeAssign(order);
         }
         try self.emitTarget(target);
         try self.w.print(" {s}= ", .{if (op == .@"<<%") "<<" else @tagName(op)});
-        if (shift) try self.w.writeAll("@intCast(");
+        const through = if (shift) try self.openUnsignedCast(value, self.typeOf(value), null) else false;
         try self.emitBare(value);
-        if (shift) try self.w.writeAll(")");
+        if (shift) try self.closeUnsignedCast(through);
         try self.w.writeAll(";");
         return self.closeAssign(order);
     }
@@ -4851,6 +4852,34 @@ pub const Emitter = struct {
         try self.w.writeAll(", ");
     }
 
+    /// `@intCast(` of `value`, of type `from`, to an unsigned integer
+    /// type `to_bits` wide (null when Zig infers it, a shift amount's or
+    /// an enum's backing type), closed by `closeUnsignedCast` with what it
+    /// returns. A signed value narrowed is cast to the unsigned type of
+    /// its own width first: Zig lowers a cast from a signed type to a
+    /// narrower unsigned one as LLVM `trunc nsw`, a promise that the value
+    /// fits the narrower *signed* type, so in a release build any value at
+    /// or above the target's sign bit would be poison (`U8(200) >= 128`
+    /// false). From the unsigned type the narrowing is `trunc nuw`, and a
+    /// negative value still fails the first cast. A constant is cast when
+    /// Zig compiles.
+    fn openUnsignedCast(self: *Emitter, value: Sexp, from: ?TypeId, to_bits: ?u8) Error!bool {
+        try self.w.writeAll("@intCast(");
+        const ty = from orelse return false;
+        const info = switch (self.facts.types.get(self.peelViews(ty))) {
+            .int => |i| i,
+            else => return false,
+        };
+        if (!info.signed or self.literalLeaves(value)) return false;
+        if (to_bits) |bits| if (bits >= info.width()) return false;
+        try self.w.print("@as(u{d}, @intCast(", .{info.width()});
+        return true;
+    }
+
+    fn closeUnsignedCast(self: *Emitter, through: bool) Error!void {
+        try self.w.writeAll(if (through) ")))" else ")");
+    }
+
     /// The pointer a view of `inner` held by address is: a write view's
     /// is mutable, `*T`; a read view's is `*const T`.
     fn emitViewPtrTy(self: *Emitter, inner: TypeId, view: enum { read, write }) Error!void {
@@ -5094,9 +5123,12 @@ pub const Emitter = struct {
                 if (shl) try self.w.writeAll("@shlExact(");
                 try self.writeAsOpen(self.typeOf(sexp) orelse self.facts.types.int_id);
                 try self.emitBare(ir.get(sexp, .left));
-                try self.w.writeAll(if (shl) "), @intCast(" else if (wrap) ") << @intCast(" else ") >> @intCast(");
-                try self.emitBare(ir.get(sexp, .right));
-                try self.w.writeAll(if (shl) "))" else ")");
+                try self.w.writeAll(if (shl) "), " else if (wrap) ") << " else ") >> ");
+                const amount = ir.get(sexp, .right);
+                const through = try self.openUnsignedCast(amount, self.typeOf(amount), null);
+                try self.emitBare(amount);
+                try self.closeUnsignedCast(through);
+                if (shl) try self.w.writeAll(")");
                 if (parens) try self.w.writeAll(")");
             },
             .@"/", .@"%" => try self.emitDivision(sexp),
@@ -6041,20 +6073,23 @@ pub const Emitter = struct {
 
     /// `$builtin(args)`. Arguments that name Rig types are spelled as Zig
     /// types. A builtin call as Zig names it. `@fromBackingInt` takes the enum's
-    /// backing integer type exactly, so its operand, any integer, goes
-    /// through `@intCast` (checked in safe builds, as the tag is).
+    /// backing integer type exactly, an unsigned one, so its operand, any
+    /// integer, goes through `@intCast` (checked in safe builds, as the
+    /// tag is; `openUnsignedCast`).
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "variants")) return self.emitVariants(sexp);
         if (std.mem.eql(u8, self.srcText(ir.Builtin.name(sexp)), "name")) return self.emitNameQuery(sexp);
         const name = zigBuiltinName(self.srcText(ir.Builtin.name(sexp)));
         const cast = std.mem.eql(u8, name, "fromBackingInt");
         try self.w.print("@{s}(", .{name});
-        if (cast) try self.w.writeAll("@intCast(");
-        for (ir.Builtin.args(sexp), 0..) |a, i| {
+        const args = ir.Builtin.args(sexp);
+        const through = if (cast and args.len == 1) try self.openUnsignedCast(args[0], self.typeOf(args[0]), null) else false;
+        if (cast and args.len != 1) try self.w.writeAll("@intCast(");
+        for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
             if (self.isTypeArg(sexp, a)) try self.emitTypeTy(self.typeOf(a).?) else try self.emitBare(a);
         }
-        if (cast) try self.w.writeAll(")");
+        if (cast) try self.closeUnsignedCast(through);
         try self.w.writeAll(")");
     }
 
@@ -7201,8 +7236,9 @@ pub const Emitter = struct {
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
-    /// chosen by the kinds of the two types. Zig checks that the value
-    /// fits in safe builds; `@trunc` truncates toward zero, and
+    /// chosen by the kinds of the two types; a signed integer converted to
+    /// an unsigned one goes through `openUnsignedCast`. Zig checks that the
+    /// value fits in safe builds; `@trunc` truncates toward zero, and
     /// `rig.notNan` panics on a NaN.
     fn emitConversion(self: *Emitter, call: Sexp) Error!void {
         const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
@@ -7231,10 +7267,13 @@ pub const Emitter = struct {
             return self.w.print("{d})", .{v});
         };
         const from_int = self.facts.types.get(from) == .int;
+        // To an unsigned type, through `openUnsignedCast`.
+        const unsigned = to_int and from_int and !self.facts.types.get(target).int.signed;
         const builtin = if (to_int) (if (from_int) "@intCast" else "@trunc") else (if (from_int) "@floatFromInt" else "@floatCast");
         const nan_check = to_int and !from_int;
         try self.writeAsOpen(target);
-        try self.w.print("{s}({s}", .{ builtin, if (nan_check) "rig.notNan(" else "" });
+        const through = if (unsigned) try self.openUnsignedCast(arg, from, self.facts.types.get(target).int.width()) else false;
+        if (!unsigned) try self.w.print("{s}({s}", .{ builtin, if (nan_check) "rig.notNan(" else "" });
         try self.writeAsOpen(from);
         // A constant is converted at run time, where Zig checks it as Rig
         // does, not at compile time.
@@ -7242,6 +7281,11 @@ pub const Emitter = struct {
         defer self.rt_names = saved_rt;
         self.rt_names = true;
         try self.emitBare(arg);
+        if (unsigned) {
+            try self.w.writeAll(")");
+            try self.closeUnsignedCast(through);
+            return self.w.writeAll(")");
+        }
         try self.w.writeAll(if (nan_check) "))))" else ")))");
     }
 

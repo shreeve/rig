@@ -1933,7 +1933,7 @@ const Message = struct {
 /// `*Actor(x)` and `*Actor(x, mailbox: n)`: the actor, behind its first
 /// handle.
 pub fn actor(value: anytype, capacity: Int) *rt.Shared(Actor(@TypeOf(value))) {
-    const box = rt.shared(Actor(@TypeOf(value)){ .value = value, .capacity = @intCast(@max(capacity, 1)) });
+    const box = rt.shared(Actor(@TypeOf(value)){ .value = value, .capacity = @intCast(rt.unsigned(@max(capacity, 1))) });
     return box;
 }
 
@@ -1944,7 +1944,7 @@ pub fn actor(value: anytype, capacity: Int) *rt.Shared(Actor(@TypeOf(value))) {
 pub fn actorSupervised(make: anytype, capacity: Int, restarts: Int, per: Int) *rt.Shared(Actor(@TypeOf(make.value).__rig_fn[1])) {
     const T = @TypeOf(make.value).__rig_fn[1];
     const value = make.value.invoke(.{});
-    return rt.shared(Actor(T){ .value = value, .capacity = @intCast(@max(capacity, 1)), .make = make, .restarts = restarts, .per = per });
+    return rt.shared(Actor(T){ .value = value, .capacity = @intCast(rt.unsigned(@max(capacity, 1))), .make = make, .restarts = restarts, .per = per });
 }
 
 /// The `Shared(Actor(T))` a handle reaches: the handle, or a view of one.
