@@ -4336,6 +4336,25 @@ one, `test/cli/frame_owners_inline.sh` does the same through a marked
 function and checks each owner's marked part, and `test/cli/frames.sh`
 holds each owner's account to the frame Zig's prologue reserves.
 
+**The frame warning.** After `rig build --release` writes the executable,
+`main.warnFrames` reads the frame each function's prologue reserves from
+the executable itself (`src/frames.zig`: the Mach-O or ELF symbol table,
+then on aarch64 each `sub sp, sp, #N` and the pair `stp ..., [sp, #-N]!`
+pushes, on x86_64 `sub rsp, N`, the size the stack probe is called
+with, and a probe loop's step). A function of the program's own modules
+whose frame passes a page (4096 bytes) though its own values and those
+of the marked `inline` functions in it fit in one (`own` and `marked` of
+its account) is named in a warning, with the largest of the Rig
+functions it calls that no marker keeps out of line, by the frame the
+executable gives each that is still a function, else by its account: LLVM
+inlined them, and `called` keeps them calls. A function whose own values
+pass a page is large as its source shows, and a `rarely` one is cold:
+neither is named. A symbol's name is its module's emitted file, then its
+type for a method, then its name, less what tells instances apart
+(`(...)`, `__func_N`). A debug build is not read. `test/cli/frame_warning.sh`
+checks the warning, a callee marked `called`, a `rarely` function, and a
+debug build.
+
 ### The program's stack
 
 A program's Rig code runs on a stack the runtime maps itself
