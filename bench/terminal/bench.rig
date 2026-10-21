@@ -1,7 +1,9 @@
-# bench/terminal's Rig side: `bench FILE N COLS ROWS` feeds FILE's bytes to
-# N new terminals of COLS by ROWS and prints `<ns> <check>`: the
-# nanoseconds the N feeds took, and the 64-bit FNV-1a hash of the last
-# terminal's dump, which Ghostty's must equal (tools/terminal_ghostty.zig).
+# bench/terminal's Rig side: `bench FILE N COLS ROWS [SCROLLBACK]` feeds
+# FILE's bytes to N new terminals of COLS by ROWS, each keeping SCROLLBACK
+# rows of history (10000, the default, when not given), and prints
+# `<ns> <check>`: the nanoseconds the N feeds took, and the 64-bit FNV-1a
+# hash of the last terminal's dump of its screen, which Ghostty's must
+# equal (tools/terminal_ghostty.zig).
 
 use std.file
 use std.os
@@ -15,15 +17,18 @@ sub main()!
   n = text.parse_int(args[2])!
   cols = text.parse_int(args[3])!
   rows = text.parse_int(args[4])!
+  scrollback = 10000
+  if args.len > 5
+    scrollback = text.parse_int(args[5])!
   ns = 0
   check = U64(0)
   for i in 0..n
-    t = terminal.Terminal.new(cols, rows)
+    t = terminal.Terminal.new(cols, rows, scrollback)
     start = time.now()
     !t.feed(data)
     ns += start.elapsed()
     if i == n - 1
-      check = fnv(t.dump())
+      check = fnv(t.dump(history: false))
   print(ns, check)
 
 # The 64-bit FNV-1a hash of `s`.

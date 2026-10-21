@@ -1949,7 +1949,7 @@ and XTRESTORE of the private ones), REP, `CSI s` and `CSI u`, RIS, and
 character sets (SCS into G0 to G3 of ASCII, British, and DEC Special
 Graphics, with SO, SI, SS2, SS3, LS2, and LS3), and the alternate screen
 (modes 47, 1047, and 1049, as xterm switches them). `dump` shows the
-screen in use. It answers DA (primary, secondary, tertiary, and DECID),
+history, then the screen in use. It answers DA (primary, secondary, tertiary, and DECID),
 DSR 5 and 6, DECRQM of every mode Ghostty knows (which SM, RM, DECSET,
 DECRST, XTSAVE, and XTRESTORE keep), XTVERSION, and the kitty keyboard
 flags (pushed, popped, and set per screen). In the ground state bytes
@@ -1968,12 +1968,24 @@ syllable is one char, and a char's width is its runes' together, so
 VS16 or a spacing mark makes it wide and VS15 narrow; a wide char at the
 last column wraps whole.
 
+The primary screen keeps a history (scrollback) of up to `scrollback`
+rows, as Ghostty does: a row goes into it when it scrolls off the top
+of the screen, by a line feed, IND, NEL, a wrap, or SU, while the scroll
+region starts at the top row. The row keeps its text, styles, wide
+runes, joined runes, and wrap. When the history is full, its oldest row
+is dropped for each new one. The alternate screen keeps none. ED 3
+(`CSI 3 J`) erases the history; ED 22 (`CSI 22 J`) scrolls the screen,
+down to its last row that is not empty, into it; RIS erases it. A
+scroll costs the same with history as without: rows are not copied.
+
 | Member | Result |
 |---|---|
-| `Terminal.new(cols: Int, rows: Int) -> Terminal` | an empty terminal, the cursor at the top left |
+| `Terminal.new(cols: Int, rows: Int, scrollback: Int = 10000) -> Terminal` | an empty terminal, the cursor at the top left, keeping up to `scrollback` rows of history (0 for none) |
 | `!t.feed(bytes: ?String)` | take `bytes` as a program's output, in order |
 | `t.replies` | a `String`: the bytes the terminal answers with (DA, DSR and CPR, DECRQM, XTVERSION, the kitty keyboard flags), in order, for the caller to send to the program and then `!t.replies.clear()` |
-| `t.dump() -> String` | a line per row, `\|` and its text with trailing blanks dropped and the spacer of each wide rune left out; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`); a line `reply BYTES` when there are replies (ESC as `\e`, other controls as `\xNN`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
+| `t.history_len() -> Int` | the rows in the history |
+| `t.history_row(i: Int) -> String` | row `i` of the history, from 0 (the oldest) to `history_len() - 1`, as `dump` shows its text; empty for any other `i` |
+| `t.dump(history: Bool = true) -> String` | a line per row of the history, oldest first, `^` and its text (left out without `history`); a line per row of the screen, `\|` and its text, with trailing blanks dropped and the spacer of each wide rune left out; a line `~ROW FIRST-LAST STYLE` per run of cells with the same style other than the plain one (its flags, then `ul=`, `fg=`, `bg=`, `ulc=`, a color a palette index or `#rrggbb`), the history's rows numbered from -1, the newest, up; a line `reply BYTES` when there are replies (ESC as `\e`, other controls as `\xNN`); then `cursor ROW COL`, with ` wrap` when the next rune wraps first |
 
 ```rig
 use std.terminal
@@ -1989,6 +2001,28 @@ sub main()
 |terminal
 |!
 cursor 2 1
+```
+
+```rig
+use std.terminal
+
+sub main()
+  t = terminal.Terminal.new(8, 2, scrollback: 2)
+  !t.feed("one\r\ntwo\r\nthree\r\nfour\r\nfive")
+  print(t.history_len(), t.history_row(0), t.history_row(1))
+  print(t.dump())
+  !t.feed("\x1b[3J")
+  print(t.history_len())
+```
+
+```output
+2 two three
+^two
+^three
+|four
+|five
+cursor 1 4
+0
 ```
 
 ## std.json

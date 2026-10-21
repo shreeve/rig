@@ -15,13 +15,16 @@ usage: bench/terminal/bench-terminal [options]
                       rgb      a truecolor word after word: a new RGB color each,
                                so styles number in the thousands
   --variants a,b    what to build and time (default: all but experiments):
-                      rig-safe        bench.rig, rig build --release (Zig's safe mode)
-                      rig-fast        bench.rig, rig build --release=fast
+                      rig-safe        bench.rig, rig build --release (Zig's safe
+                                      mode), with std.terminal's default
+                                      scrollback, 10,000 rows
+                      rig-fast        the same, rig build --release=fast
                       ghostty         libghostty-vt (tools/terminal_ghostty.zig,
                                       ReleaseFast, without its C++ SIMD paths),
-                                      no scrollback, as std.terminal has none
+                                      no scrollback
                       ghostty-scroll  the same with 10 MB of scrollback, Ghostty's
-                                      default
+                                      default, about as much as std.terminal's
+                                      10,000 rows of 120 columns
                       ghostty-simd    ghostty with its C++ SIMD paths (simdutf,
                                       Highway); only when $GHOSTTY_SDK names a
                                       macOS SDK Zig 0.16's libc++ builds against
@@ -33,6 +36,8 @@ usage: bench/terminal/bench-terminal [options]
                       rig-nocheck     rig-fast with Rig's index, slice, and read
                                       bounds checks removed from its runtime (as
                                       bench/json's): sizes what they cost
+                      rig-noscroll    rig-fast with no scrollback: sizes what
+                                      keeping history costs
   --size COLSxROWS  the terminal (default 120x40)
   --ms N            aim each timed run at about N ms (default 300)
   --reps N          timed runs per variant, interleaved (default 5)
@@ -170,7 +175,7 @@ def time_it(cmd, variant, path, n, cols, rows):
     elif variant == "dispatch":
         args = cmd + [path, str(n), str(cols), str(rows), "0"]
     else:
-        args = cmd + [path, str(n), str(cols), str(rows)]
+        args = cmd + [path, str(n), str(cols), str(rows)] + (["0"] if variant == "rig-noscroll" else [])
     r = subprocess.run(args, capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit("bench-terminal: %s failed on %s: %s" % (variant, path, r.stderr.strip()[-400:]))
