@@ -759,9 +759,21 @@ const Poller = struct {
     /// Wait up to `timeout` nanoseconds (0: only look; null: until an
     /// event) for events, and wake the fibers waiting on what they make
     /// ready; whether any. One who cannot take the lock does nothing,
-    /// unless it means to wait.
+    /// unless it means to wait. A look that takes the poller's kick
+    /// leaves it there again: a worker looks at the pollers of others as
+    /// it goes to sleep (`serviceAll`), and at its own, and one of them,
+    /// or itself, may be between its last look for work and its sleep,
+    /// when a kick taken from under it would leave it asleep with work
+    /// queued for it.
     fn poll(p: *Poller, timeout: ?i96) bool {
-        if (timeout != null and timeout.? == 0) {
+        // A look, which leaves a kick it takes; but a deterministic run,
+        // on one thread, has no worker to leave it for, and waits a
+        // moment in its poller after a look (`advanceClock`), which a
+        // kick left there would end.
+        const look = timeout != null and timeout.? == 0 and !deterministic;
+        var kicked = false;
+        defer if (kicked) p.kick();
+        if (look) {
             if (!p.lock.tryLock()) return false;
         } else {
             while (p.removers.load(.seq_cst) != 0) std.atomic.spinLoopHint();
@@ -779,7 +791,10 @@ const Poller = struct {
             const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
-                if (ev.udata == 0) continue;
+                if (ev.udata == 0) {
+                    if (look) kicked = true;
+                    continue;
+                }
                 const r: *Registration = @ptrFromInt(ev.udata);
                 var bits: u32 = if (ev.filter == std.c.EVFILT.READ) Registration.readable else Registration.writable;
                 if (ev.flags & std.c.EV.EOF != 0) bits |= Registration.closed;
@@ -793,6 +808,10 @@ const Poller = struct {
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
+                    if (look) {
+                        kicked = true;
+                        continue;
+                    }
                     var drain: u64 = 0;
                     _ = linux_.read(p.kick_fd, std.mem.asBytes(&drain), 8);
                     continue;
@@ -2906,4 +2925,19 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
+}
+
+test "a look at a poller leaves its kick for the worker that sleeps in it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    var p: Poller = .{};
+    p.open();
+    defer p.close();
+    // A waker kicks the worker about to sleep in `p`; another worker,
+    // going to sleep itself, looks at `p` first.
+    p.kick();
+    _ = p.poll(0);
+    // The worker's sleep ends at once, not at its timeout.
+    const start = nowNs();
+    _ = p.poll(2 * std.time.ns_per_s);
+    try std.testing.expect(nowNs() - start < std.time.ns_per_s);
 }

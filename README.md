@@ -406,7 +406,7 @@ A program imports a module with `use std.NAME`
 | Area | Modules |
 |---|---|
 | Numbers | `std.math`, `std.bigint` (integers of any size), `std.random` (seedable) |
-| System | `std.os` (arguments and environment), `std.file` (files, whole or open, making, moving, and removing them, and what is at a path), `std.time`, `std.target` |
+| System | `std.os` (arguments and environment), `std.file` (files, whole or open, making, moving, and removing them, and what is at a path), `std.io` (copying between files and sockets), `std.time`, `std.target` |
 | Concurrency | `std.task` (cancel, wait, isolate, supervise), `std.par` (parallel `map` and `each`) |
 | Networking | `std.net` (TCP), `std.http` (an HTTP/1.1 server) |
 | Data | `std.hash` (`Map` and `Set`, in insertion order), `std.sort`, `std.slices` |

@@ -34,6 +34,7 @@ never read as the library's.
 | [`std.bigint`](#stdbigint) | integers of any size: parsing, printing, arithmetic, shifts, powers, and the nearest Float |
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
+| [`std.io`](#stdio) | copying bytes between files and sockets: `copy` |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
@@ -438,6 +439,36 @@ sub main()
     return
   file.rename("out/gen/main.zig.tmp", "out/gen/main.zig") catch |e|
     print("cannot rename:", e)
+```
+
+## std.io
+
+Moving bytes between what reads and what writes. A `file.File`
+([std.file](#stdfile)) and a `net.Stream` ([std.net](#stdnet)) read and
+write with the same two methods, `read(!@, into, max) -> Int!` and
+`write(!@, bytes)!`, and `io.copy` takes either at each end.
+
+| Function | Result |
+|---|---|
+| `copy(!from, !to) -> Int!` | reads `from` to its end, writing all of it to `to`, 64 KiB at a time: how many bytes |
+
+It fails as the reads and writes fail, with a `file.FileError`, a
+`net.NetError`, or a `task.Stop`, once what it read before has been
+written. Rig has no interfaces, so the checker types the call, as it
+does `http.serve`: each end must be a `file.File` or a `net.Stream`,
+lent to write.
+
+```rig
+use std.file
+use std.io
+use std.net
+
+# Send the file at `path` to the next client of `l`.
+fun send_file(l: ?net.Listener, path: ?String) -> Int!
+  c = l.accept()!
+  if file.open(path)! as f
+    return io.copy(!f, !c)!
+  0
 ```
 
 ## std.time

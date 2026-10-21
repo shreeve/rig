@@ -1000,6 +1000,8 @@ pub const Facts = struct {
     supervise_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `http.serve` (`Checker.httpServe`).
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The calls of `io.copy` (`Checker.ioCopy`).
+    io_copies: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
     /// that makes them (`Checker.crossCheck`), with what pins each.
     local_tasks: std.AutoHashMapUnmanaged(u64, LocalTask) = .empty,
@@ -3279,6 +3281,15 @@ pub const SemContext = struct {
     /// Whether `call` is `http.serve` (`recordHttpServe`).
     pub fn isHttpServe(self: *const SemContext, call: Sexp) bool {
         return self.facts.http_serves.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordIoCopy(self: *SemContext, call: Sexp) !void {
+        try self.facts.io_copies.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `io.copy` (`recordIoCopy`).
+    pub fn isIoCopy(self: *const SemContext, call: Sexp) bool {
+        return self.facts.io_copies.contains(exprKey(call) orelse return false);
     }
 
     /// Records that the task `call` makes is local, pinned by `local`;
