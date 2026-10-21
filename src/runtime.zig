@@ -4206,6 +4206,40 @@ fn faultAddress(info: *const std.posix.siginfo_t) usize {
     };
 }
 
+/// The counters of a build `rig build --pgo` instruments (src/pgo.zig):
+/// its root declares how many sites emit counts, each counted by
+/// `pgoHit`, and the counts go to the file `RIG_PGO_OUT` names when the
+/// program ends (`finish`, `failMain`), `SITE COUNT` a line for each site
+/// that ran. A program that panics or exits otherwise writes none.
+const pgo_sites: usize = if (@hasDecl(root, "__rig_pgo_sites")) root.__rig_pgo_sites else 0;
+var pgo_counts: [pgo_sites]u64 = @splat(0);
+var pgo_out: ?[]const u8 = null;
+
+/// Count a run of site `site`; nothing at compile time.
+pub inline fn pgoHit(comptime site: usize) void {
+    if (@inComptime()) return;
+    _ = @atomicRmw(u64, &pgo_counts[site], .Add, 1, .monotonic);
+}
+
+fn pgoWrite() void {
+    if (pgo_sites == 0) return;
+    const path = pgo_out orelse return;
+    pgo_out = null;
+    const file = std.Io.Dir.cwd().createFile(io(), path, .{}) catch |err| {
+        std.debug.print("rig: cannot write the profile counts to `{s}`: {s}\n", .{ path, @errorName(err) });
+        return;
+    };
+    defer file.close(io());
+    var buffer: [4096]u8 = undefined;
+    var w = file.writerStreaming(io(), &buffer);
+    w.interface.writeAll("# rig counts 1\n") catch return;
+    for (&pgo_counts, 0..) |*n, i| {
+        const v = @atomicLoad(u64, n, .monotonic);
+        if (v > 0) w.interface.print("{d} {d}\n", .{ i, v }) catch return;
+    }
+    w.interface.flush() catch {};
+}
+
 /// What the process started with, which Zig hands only to `main`:
 /// the arguments and environment, for the standard library.
 pub var process: ?std.process.Init.Minimal = null;
@@ -4264,6 +4298,7 @@ pub fn start(init: std.process.Init.Minimal) void {
         sanitizer.configure(init.environ);
         Sanitizer.installHandler();
     }
+    if (pgo_sites > 0) pgo_out = init.environ.getPosix("RIG_PGO_OUT");
     if (@TypeOf(init.args.vector) != []const [*:0]const u8) return;
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
@@ -4314,6 +4349,7 @@ pub fn exitStatus(n: Int) u8 {
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    pgoWrite();
     if (makes_tasks) threaded.deinit();
     releaseProcess();
     lockOutput();
@@ -4332,6 +4368,7 @@ pub fn finish() void {
 /// error as a Rig program shows it and exit 1.
 pub fn failMain(err: anyerror) noreturn {
     @branchHint(.cold);
+    pgoWrite();
     lockOutput();
     flushQuietly();
     std.debug.print("error: {s}\n", .{errorShown(err)});
