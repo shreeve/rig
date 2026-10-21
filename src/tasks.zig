@@ -1,5 +1,5 @@
 //! Tasks: a call running as a task of its own (`f(x)&`), sets of tasks
-//! (`Tasks[T]`), waiting for several (`task.both`, `task.all`), how a
+//! (`Tasks[T]`), waiting for several (`task.all`), how a
 //! task is canceled, deadlines (`time.within`), calling a function on
 //! each element on several tasks (`par.map`, `par.each`), the boundary a
 //! panic stops at (`task.isolate`), and actors (`*Actor(x)`). The runtime (`runtime.zig`) imports this file and
@@ -214,7 +214,7 @@ fn Handle(comptime T: type) type {
 
 /// What a task and its owner share: whether the task is canceled, and
 /// whether it has ended. Its owner records a cancel (`cancel`), and the
-/// task records one that reaches it through a wait (`Task.wait`). A task in a set, or in `task.both`, also tells the
+/// task records one that reaches it through a wait (`Task.wait`). A task in a set, or in `task.all`, also tells the
 /// `Wakeup` of what waits on it when it ends. Allocated outside the leak
 /// count, as the backend's own records are.
 pub const Control = struct {
@@ -257,7 +257,7 @@ pub const Control = struct {
     }
 };
 
-/// What a set of tasks, or `task.both`, waits on: a count each of its
+/// What a set of tasks, or `task.all`, waits on: a count each of its
 /// tasks adds to as it ends, which a waiter sleeps on until it changes.
 const Wakeup = struct {
     ticks: std.atomic.Value(u32) = .init(0),
@@ -306,7 +306,7 @@ const Wakeup = struct {
     }
 };
 
-/// What `task.both` and `task.all` give for the tasks `Tup` (a tuple of
+/// What `task.all` gives for the tasks `Tup` (a tuple of
 /// `Task`s): each one's value, in order, failing when any can fail.
 fn TaskValues(comptime Tup: type) type {
     const tasks = @typeInfo(Tup).@"struct".field_types;
@@ -323,7 +323,7 @@ fn TaskValues(comptime Tup: type) type {
     return if (fallible) anyerror!Values else Values;
 }
 
-/// `task.both(a, b)`, `task.all(a, b, c, ...)`: wait for tasks of any
+/// `task.all(a, b, c, ...)`: wait for tasks of any
 /// types, and give each one's value. When some can fail, waiting is a
 /// waiting point, and the first task to fail, in the order they end,
 /// cancels the others: the call waits for them, drops what they gave,
@@ -548,8 +548,9 @@ pub fn Tasks(comptime T: type) type {
             }
         };
 
-        /// `>ts`, or `<ts.wait_all(within: ns)`: every result, in the order added; nothing
-        /// for tasks that give none.
+        /// `>ts`: every result, in the order added; nothing for tasks
+        /// that give none. `within` is null: a deadline is the running
+        /// task's (`time.within`).
         pub fn wait_all(self: Self, within: ?Int) All {
             var s = self;
             defer s.free();

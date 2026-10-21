@@ -421,13 +421,17 @@ const Lowerer = struct {
         };
         self.cur = try self.newBlock();
         try self.regions.append(self.a, .{});
+        // A closure its callee calls at most once owns what it moved in,
+        // as a function owns a parameter taken by value: its one call may
+        // move it out (`f: once ?fun() -> T`).
+        const once = self.ctx.isOnceClosure(e);
         for (sema.captureList(ir.Lambda.captures(e))) |cap| {
             const leaf = sema.captureNameNode(cap) orelse return abstain("an unusual capture");
             const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
             const sym = self.ctx.symbols.items[sym_id];
             const v = try self.newVar(sym.name, sym.ty, false, leaf.src.pos);
             self.f.vars.items[v].param = true;
-            self.f.vars.items[v].capture = true;
+            self.f.vars.items[v].capture = !(once and sema.captureModeOf(cap).? == .cap_move);
             try self.vars.put(self.a, sym_id, v);
             try self.f.params.append(self.a, v);
             if (self.f.vars.items[v].kind == .write_view) try self.write_params.append(self.a, v);

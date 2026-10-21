@@ -946,6 +946,10 @@ pub const Facts = struct {
     /// parameters, and which arguments it passes loans on from
     /// (`CallParams`).
     call_params: std.AutoHashMapUnmanaged(NodeKey, CallParams) = .empty,
+    /// Closure literals passed to a parameter their callee calls at most
+    /// once (`Origins.once`): each owns what it moves in as its own
+    /// parameters do, and may move it out (`SemContext.isOnceClosure`).
+    once_closures: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Match nodes whose non-default arms cover every value.
     exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
@@ -977,7 +981,7 @@ pub const Facts = struct {
     /// The `Bool`s that decide a test, its last line and each `return`
     /// with a value in it -> what a failing one reports.
     test_checks: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
-    /// The calls of `task.both` and `task.all`, which wait for the tasks
+    /// The calls of `task.all`, which wait for the tasks
     /// they take (`Checker.taskJoin`).
     task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `par.map` and `par.each`, which run a function on
@@ -1687,6 +1691,10 @@ pub const Origins = struct {
     /// where the declaration's `keeps` names them; none for a function
     /// type's origins, which keep by type.
     lent: ParamMask = 0,
+    /// The closure parameters the function calls at most once, written
+    /// `f: once ?fun() -> T`: a closure literal passed to one may move
+    /// what it captures out (`|<t| >t!`), as its own parameters.
+    once: ParamMask = 0,
 };
 
 /// A function's `from` clause: the names it lists (empty for `from
@@ -1742,6 +1750,12 @@ pub const CallParams = struct {
     /// lent parameter its callee's `keeps` names.
     pub fn keepsLent(self: CallParams, arg: usize) bool {
         return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores & self.origins.lent);
+    }
+
+    /// Whether the argument at index `arg` fills a parameter the callee
+    /// calls at most once (`Origins.once`).
+    pub fn fillsOnce(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.once);
     }
 
     /// Whether the call keeps its receiver, which its callee's `keeps`
@@ -2339,6 +2353,9 @@ pub const SemContext = struct {
     /// (`keeps s, @`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
     declared_keeps: std.AutoHashMapUnmanaged(u32, DeclaredKeeps) = .empty,
+    /// The parameters each function and method calls at most once, those
+    /// written `f: once ?fun() -> T`, by where its name is declared.
+    declared_once: std.AutoHashMapUnmanaged(u32, ParamMask) = .empty,
     /// The `for` loops over an iterator that typecheck found, each to be
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
@@ -2407,6 +2424,7 @@ pub const SemContext = struct {
         self.facts.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
         self.declared_keeps.deinit(self.allocator);
+        self.declared_once.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
@@ -2731,6 +2749,17 @@ pub const SemContext = struct {
     pub fn callParamsOf(self: *const SemContext, call: Sexp) ?CallParams {
         const key = nodeKey(call) orelse return null;
         return self.facts.call_params.get(key);
+    }
+
+    /// Whether closure literal `lambda` is passed to a parameter its
+    /// callee calls at most once (`recordOnceClosure`).
+    pub fn isOnceClosure(self: *const SemContext, lambda: Sexp) bool {
+        const key = nodeKey(lambda) orelse return false;
+        return self.facts.once_closures.contains(key);
+    }
+
+    pub fn recordOnceClosure(self: *SemContext, lambda: Sexp) !void {
+        try self.facts.once_closures.put(self.allocator, recordKey(lambda), {});
     }
 
     /// What a bracket list instantiates; null for an index (or a node
@@ -3205,7 +3234,7 @@ pub const SemContext = struct {
         try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, {});
     }
 
-    /// Whether `call` is a `task.both` or `task.all` (`recordTaskJoin`).
+    /// Whether `call` is a `task.all` (`recordTaskJoin`).
     pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
         return self.facts.task_joins.contains(exprKey(call) orelse return false);
     }
@@ -6810,6 +6839,7 @@ fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, po
 fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
     try declKeeps(ctx, name, pos, f, &o);
+    o.once = ctx.declared_once.get(pos) orelse 0;
     const d = ctx.declared_origins.get(pos) orelse return o;
     const results = try viewTargets(ctx, a, f.returns);
     if (results.isEmpty()) {
@@ -8766,8 +8796,8 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
-        // `>t`, which the Parser wrapper rewrites to a call first.
-        .wait => .none,
+        // `>t` and `f: once T`, which the Parser wrapper rewrites first.
+        .wait, .once => .none,
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed, .task => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,

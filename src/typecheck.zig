@@ -9341,6 +9341,12 @@ const Checker = struct {
         }
         const recorded: sema.CallParams = .{ .fills = fills, .origins = origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
+        // A closure literal passed to a parameter the callee calls at most
+        // once owns what it moves in, as its own parameters would.
+        if (origins.once != 0) for (args, 0..) |a, ai| {
+            const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (value.isKind(.lambda) and recorded.fillsOnce(ai)) try self.ctx.recordOnceClosure(value);
+        };
         // What the call may store outlives its statement. A place lent to
         // a parameter the call may keep is lent with `?` written (Core
         // sentence 4): one its callee's `keeps` names, and, where nothing
@@ -11470,7 +11476,7 @@ const Checker = struct {
     /// A `Cell[List[E]]` answers its List's `push`, `pop`, `keep`,
     /// `clear`, and, for a plain-data `E`, `get(i)`, through any path to
     /// the cell, as `set` does. Null for the Cell's own members.
-    /// `task.both(a, b)` and `task.all(a, b, ...)` of `std.task`: wait for
+    /// `task.all(a, b, ...)` of `std.task`: wait for
     /// tasks of any types, which the call takes, and give each one's value
     /// as several results, failing when any task can. Rig declares no
     /// function of any number of arguments, so the call is typed here,
@@ -11480,10 +11486,9 @@ const Checker = struct {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
         if (!std.mem.eql(u8, foreign.name, "std.task")) return null;
-        const both = std.mem.eql(u8, name, "both");
-        if (!both and !std.mem.eql(u8, name, "all")) return null;
-        if (both and args.len != 2) return try self.badCall(args, pos, "`task.both` waits for two tasks, `task.both(f(x)&, g(y)&)`; for more, `task.all`", .{});
-        if (!both and args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
+        if (std.mem.eql(u8, name, "both")) return try self.badCall(args, pos, "two tasks are waited for with `task.all`, as more are: `task.all(f(x)&, g(y)&)`", .{});
+        if (!std.mem.eql(u8, name, "all")) return null;
+        if (args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
         const a = self.ctx.arena.allocator();
         const params = try a.alloc(TypeId, args.len);
         const parts = try a.alloc(TypeId, args.len);
@@ -11942,10 +11947,10 @@ const Checker = struct {
         return false;
     }
 
-    /// `>ts` (all of them), `<ts.wait_all(within: ns)`, and `<ts.wait_first()`, each with a deadline
-    /// when its tasks can fail, `within: ns`: the waits of a set of
-    /// tasks, whose results depend on whether its tasks can fail. Null
-    /// when the receiver is not a set, or `method` neither wait.
+    /// `>ts` (all of them) and `<ts.wait_first()`: the waits of a set of
+    /// tasks, whose results depend on whether its tasks can fail; a
+    /// deadline is `time.within`'s. Null when the receiver is not a set,
+    /// or `method` neither wait.
     fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const set = sema.unwrapViews(self.ctx, obj_ty);
         if (!sema.isTaskSet(self.ctx, set)) return null;
@@ -11978,18 +11983,12 @@ const Checker = struct {
             try self.synthArgs(args);
             return self.t().invalid_id;
         }
-        if (args.len > 1 or (args.len == 1 and !(args[0].isKind(.kwarg) and std.mem.eql(u8, self.text(ir.Kwarg.name(args[0])), "within")))) {
-            try self.err(pos, "`{s}` takes only a deadline, in nanoseconds: `<{s}.{s}(within: 2 * time.SECOND)`", .{ method, shown, method });
+        // A deadline is `time.within`'s, for one task or a set alike.
+        if (args.len > 0) {
+            const wait = if (first) try self.ctx.arena.allocator().print("<{s}.wait_first()!", .{shown}) else try self.ctx.arena.allocator().print(">{s}!", .{shown});
+            try self.err(pos, "`{s}` takes no arguments; to wait with a deadline, wait inside `time.within`: `time.within(2 * time.SECOND, |<{s}| {s})`", .{ method, shown, wait });
             try self.synthArgs(args);
             return self.t().invalid_id;
-        }
-        if (args.len == 1) {
-            if (!fails) {
-                try self.errAt(args[0], "a deadline cancels the tasks still running, and the tasks of `{s}` cannot fail, so they cannot be canceled: remove `within:`", .{try self.tyName(set)});
-                try self.synthArgs(args);
-                return self.t().invalid_id;
-            }
-            try self.checkExpr(ir.Kwarg.value(args[0]), self.t().int_id);
         }
         return result;
     }
@@ -12008,14 +12007,14 @@ const Checker = struct {
     }
 
     /// `t.wait()` or `ts.wait_all()` written out: a task is waited for
-    /// with `>t`, and a set with `>ts` (a set's wait with a deadline,
-    /// `<ts.wait_all(within: ns)`, stays a method).
+    /// with `>t`, and a set with `>ts`; a deadline is `time.within`'s.
     fn spelledWait(self: *Checker, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const held = sema.unwrapViews(self.ctx, obj_ty);
         const task = sema.isTask(self.ctx, held) and std.mem.eql(u8, method, "wait");
-        const set = sema.isTaskSet(self.ctx, held) and std.mem.eql(u8, method, "wait_all") and args.len == 0;
+        const set = sema.isTaskSet(self.ctx, held) and std.mem.eql(u8, method, "wait_all");
         if (!task and !set) return null;
         const shown = try self.plainText(stripSigil(obj));
+        if (args.len > 0) return try self.badCall(args, pos, "a {s} is waited for with `>`, and a deadline is `time.within`'s: `time.within(2 * time.SECOND, |<{s}| >{s}!)`", .{ if (task) "task" else "set of tasks", shown, shown });
         return try self.badCall(args, pos, "a {s} is waited for with `>`: write `>{s}`", .{ if (task) "task" else "set of tasks", shown });
     }
 

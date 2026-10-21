@@ -21,6 +21,7 @@ export default function (hljs) {
       {"scope": "keyword", "match": "(?<= )(?<![0-9A-Za-z_])of(?![0-9A-Za-z_])(?= )"},
       {"scope": "keyword", "match": "from[\\x09 ]+static(?![0-9A-Z_a-z])"},
       {"scope": "keyword", "match": "(?<= )(?:from|keeps)(?= [@-Z_a-z])"},
+      {"scope": "keyword", "match": "(?<=: )(?<![0-9A-Za-z_])once(?![0-9A-Za-z_])(?= [(*?A-Z_a-z])"},
       {"scope": "keyword", "match": "(?<=[0-9A-Z\\]_a-z] )(?<![0-9A-Za-z_])unique(?![0-9A-Za-z_])(?![\\x09 ]*[^\\x09\\x0a #])"},
       {"scope": {"1": "keyword", "2": "symbol"}, "match": ["(?:break|continue)[\\x09 ]+", "\\$[A-Z_a-z][0-9A-Z_a-z]*"]},
       {"scope": "symbol", "match": "\\$[A-Z_a-z][0-9A-Z_a-z]*:"},

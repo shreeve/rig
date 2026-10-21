@@ -40,13 +40,13 @@ test "within tasks", seeds: 20, release: true, '''
   inherited -1 true
   set -2
   check -3
-  both -4
+  all -4
   par -5
   ok 1
 '''
   # The tasks a block starts keep its deadline, and every fallible
   # waiting point fails after it: `task.check`, and a wait on a task, a
-  # set, or `task.both`, whose tasks are canceled first.
+  # set, or `task.all`, whose tasks are canceled first.
   use std.par
   use std.task
   use std.time
@@ -74,10 +74,36 @@ test "within tasks", seeds: 20, release: true, '''
   print("set", s)
   print("check", time.within(10 * time.MS, || spin()!) catch -3)
   b = time.within(10 * time.MS, ||
-    p, q = task.both(slow(1)&, slow(10_000)&)!
+    p, q = task.all(slow(1)&, slow(10_000)&)!
     p + q
   ) catch -4
-  print("both", b)
+  print("all", b)
   xs = List([1, 2, 3, 4])
   print("par", time.within(10 * time.MS, |?xs| par.map(xs, |x| slow(x * 10_000)!)!.len) catch -5)
   print("ok", time.within(time.SECOND, || slow(1)!) catch -6)
+
+test "within one task", seeds: 20, '''
+  5
+  slow stops
+  -1
+  slow stops
+  3
+'''
+  # A deadline for one task: the closure `time.within` calls once moves
+  # the task in and waits for it, and past the deadline the wait cancels
+  # it first.
+  use std.time
+
+  fun slow(ms: Int) -> Int!
+    defer print("slow stops") if ms > 1000
+    time.sleep(ms * time.MS)!
+    ms
+
+  t = slow(5)&
+  print(time.within(time.SECOND, |<t| >t!) catch -1)
+  u = slow(60_000)&
+  print(time.within(5 * time.MS, |<u| >u!) catch -1)
+  ts = Tasks[Int!]()
+  !ts.add(slow(60_000)&)
+  !ts.add(slow(3)&)
+  print(time.within(time.SECOND, |<ts| <ts.wait_first()!) catch -1)

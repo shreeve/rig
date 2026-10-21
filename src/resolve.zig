@@ -1554,11 +1554,35 @@ pub const TypeResolver = struct {
     /// A function's `keeps` clause, which `sema.computeOrigins` reads
     /// once every type's contents are known.
     fn recordKeeps(self: *TypeResolver, node: Sexp, params: Sexp) Error!void {
+        try self.recordOnce(node, params);
         const names = ir.get(node, .keeps);
         if (names == .nil) return;
         const name = ir.get(node, .name);
         if (name != .src) return;
         try self.ctx.declared_keeps.put(self.ctx.allocator, name.src.pos, .{ .names = names, .params = params });
+    }
+
+    /// The parameters written `f: once ?fun() -> T`, which the function
+    /// calls at most once, as a mask over its run-time parameters, which
+    /// `sema.computeOrigins` reads into its origins. Only a closure is.
+    fn recordOnce(self: *TypeResolver, node: Sexp, params: Sexp) Error!void {
+        const p = self.ctx.parser orelse return;
+        var mask: sema.ParamMask = 0;
+        for (params.items(), 0..) |param, i| {
+            if (!p.isOnceParam(param)) continue;
+            const pn = sema.paramNameNode(param) orelse continue;
+            const ty = if (self.ctx.symbolOf(pn)) |id| self.ctx.symbols.items[id].ty else continue;
+            if (sema.callableFn(self.ctx, ty) == null) {
+                try self.ctx.errAt(param, "`once` marks a closure the function calls at most once, and `{s}` is a `{s}`: write it before a closure's type, `{s}: once ?fun() -> T`", .{ identAt(self.ctx.source, pn) orelse "f", try sema.formatType(self.ctx, ty), identAt(self.ctx.source, pn) orelse "f" });
+                continue;
+            }
+            if (i >= @bitSizeOf(sema.ParamMask)) continue;
+            mask |= sema.paramBit(i);
+        }
+        if (mask == 0) return;
+        const name = ir.get(node, .name);
+        if (name != .src) return;
+        try self.ctx.declared_once.put(self.ctx.allocator, name.src.pos, mask);
     }
 
     /// C functions take and return only integers, floats, and Bool.

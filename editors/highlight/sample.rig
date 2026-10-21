@@ -53,6 +53,9 @@ obj Random unique
   sub watch(!@, s: ?String) keeps s
     @name = s
 
+fun run(f: once ?fun() -> Int) -> Int
+  f()
+
 fun table() -> String from static
   "fixed"
 

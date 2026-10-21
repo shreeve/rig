@@ -160,7 +160,7 @@ test "deadlock chains that end", seeds: 20, '''
   print(>t, (!l).post() - 1)
   u = look(+b)&
   v = look(+b)&
-  x, y = task.both(<u, <v)
+  x, y = task.all(<u, <v)
   print(x + y - 6)
 
 test "deadlock fails one isolate", seeds: 20, '''

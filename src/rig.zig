@@ -209,8 +209,9 @@ pub fn stmtClass(tag: Tag) StmtClass {
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
-        // `>t`, rewritten to a call before any pass reads a statement.
-        .wait => .none,
+        // `>t`, rewritten to a call before any pass reads a statement,
+        // and `f: once T`, rewritten to a parameter.
+        .wait, .once => .none,
     };
 }
 
@@ -1895,7 +1896,7 @@ const HiddenName = enum(u16) {
     /// The type of each byte of a byte string, `[U8(65), U8(66)]`.
     u8 = 3,
     /// The method a wait calls: `>t` is `<t.wait()`, and on a set of
-    /// tasks, `<ts.wait_all()` (`isWaitCall`).
+    /// tasks, the set's wait for every task (`isWaitCall`).
     wait = 4,
 
     fn text(self: HiddenName) []const u8 {
@@ -2136,6 +2137,9 @@ pub const Parser = struct {
     /// `(move place)` receivers written in front of the call
     /// (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The node ids of the parameters written `f: once ?fun() -> T`,
+    /// each made a `(: f type)` (`isOnceParam`).
+    once_params: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// For each `for` whose `?` before its source reaches the receiver
     /// of a method call by the receiver-sigil rule
     /// (`for x in ?b.each()`), the source with the sigil there,
@@ -2193,12 +2197,27 @@ pub const Parser = struct {
         if (self.failure == null) {
             const lexer = &self.base.lexer;
             for (lexer.layouts[0..lexer.layout_count]) |sp| {
+                if (self.afterOnce(sp)) continue;
                 const d: diag.Diagnostic = .{ .severity = .@"error", .pos = sp.pos, .end = sp.pos + sp.len, .message = self.layoutMessage(sp) };
                 if (self.failure == null) self.failure = d else try self.more_failures.append(self.allocator(), d);
             }
         }
         if (self.failure != null) return error.ParseError;
         return tree;
+    }
+
+    /// Whether spacing record `sp` is the sigil that starts the type after
+    /// `once` in a parameter (`f: once ?fun() -> T`), where `once` is a
+    /// keyword, not a value the sigil would follow.
+    fn afterOnce(self: *Parser, sp: Lexer.Layout) bool {
+        const src = self.base.source;
+        var i = sp.pos;
+        while (i > 0 and isSpace(src[i - 1])) i -= 1;
+        if (i < 4 or !std.mem.eql(u8, src[i - 4 .. i], "once")) return false;
+        var j = i - 4;
+        if (j > 0 and (std.ascii.isAlphanumeric(src[j - 1]) or src[j - 1] == '_')) return false;
+        while (j > 0 and isSpace(src[j - 1])) j -= 1;
+        return j > 0 and src[j - 1] == ':';
     }
 
     /// Why an operator's spacing is wrong, with the text to write.
@@ -3047,6 +3066,11 @@ pub const Parser = struct {
                 self.touchesOperand(out);
                 return self.waitCall(out);
             },
+            .once => {
+                const param = try self.base.newNode(.@":", &.{ ir.get(out, .name), ir.get(out, .type) }, self.span(out));
+                try self.once_params.put(self.allocator(), param.list.id, {});
+                return param;
+            },
             .member, .index, .inst => self.waitTakesName(out, ir.get(out, .object)),
             .call => self.waitTakesName(out, ir.Call.callee(out)),
             .share, .box => try self.noteParenSuffix(out),
@@ -3499,6 +3523,12 @@ pub const Parser = struct {
     /// receiver: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
     pub fn isReceiverSigil(self: *const Parser, node: Sexp) bool {
         return node == .list and self.receiver_sigils.contains(node.list.id);
+    }
+
+    /// Whether `node`, a `(: name type)`, was written `name: once type`:
+    /// a parameter the function calls at most once.
+    pub fn isOnceParam(self: *const Parser, node: Sexp) bool {
+        return node == .list and self.once_params.contains(node.list.id);
     }
 
     /// Where the token after the sigil that starts `node` starts, past

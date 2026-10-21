@@ -3045,6 +3045,25 @@ fields of one value are disjoint paths, and two elements of one
 collection overlap, which the hint `!a.swap(i, j)` says once
 (`sameCollection`).
 
+
+**Closures called once.** A third set, `once`, holds the closure
+parameters written `f: once ?fun() -> T`. The Parser wrapper turns the
+`(once name type)` node into a `(: name type)` and records it
+(`Parser.isOnceParam`); `resolve.recordOnce` checks that each is a
+closure and records the mask by the function's name, and
+`sema.declaredOrigins` reads it into the origins, which an importer
+reads with the rest. Where a call fills a `once` parameter with a
+closure literal, `checkArgs` records it (`SemContext.isOnceClosure`).
+The ownership checker then binds what that closure moves in as locals
+of its body, which it may move out or drops at its end, and treats a
+call of a `once` parameter, or a pass of it to another, as a move of it
+(`walkCall`, `onceUses`), so a second use is an error. Emit gives such
+a closure's environment a `__rig_called` flag: its call sets it and
+owns every capture, with the drop guards a local has, and the
+environment drops what it holds only when the flag is clear, when the
+callee never called it. The reference checker takes the closure's
+moved captures as owned parameters (`runClosure`).
+
 ### Several results
 
 A function gives several results with `-> (A, B)` (also `(A, B)!` and

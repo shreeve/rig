@@ -318,6 +318,9 @@ pub const Facts = struct {
     pub fn readsThrough(f: Facts, node: Sexp) bool {
         return f.c().readsThrough(node);
     }
+    pub fn isOnceClosure(f: Facts, lambda: Sexp) bool {
+        return f.c().isOnceClosure(lambda);
+    }
     pub fn copiesPayload(f: Facts, node: Sexp) bool {
         return f.c().copiesPayload(node);
     }

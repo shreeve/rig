@@ -205,6 +205,11 @@ const FunState = struct {
     cold: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
+    /// A closure passed to a parameter its callee calls at most once: its
+    /// environment, which the call marks called, and the captures it
+    /// moved in, which the body owns from there (`emitFunPrologue`).
+    once_env: []const u8 = "",
+    once_caps: []const SymbolId = &.{},
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
@@ -1023,6 +1028,19 @@ pub const Emitter = struct {
         if (self.fun.unused_env.len > 0) {
             try self.line("_ = {s};", .{self.fun.unused_env});
             self.fun.unused_env = "";
+        }
+        if (self.fun.once_env.len > 0) {
+            // The call owns what the closure moved in: its environment
+            // no longer drops it, and the body drops what it keeps.
+            try self.line("{s}.__rig_called = true;", .{self.fun.once_env});
+            self.fun.once_env = "";
+            for (self.fun.once_caps) |sym| {
+                const local = self.localBySym(sym) orelse continue;
+                try self.writeIndent(self.indent);
+                try self.emitGuard(local);
+                try self.w.writeAll("\n");
+            }
+            self.fun.once_caps = &.{};
         }
         const tparams = self.fun.tparams;
         self.fun.tparams = .nil;
@@ -6966,8 +6984,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
-        // `task.both(a, b)`, `task.all(a, b, ...)`: the tasks, waited for
-        // together.
+        // `task.all(a, b, ...)`: the tasks, waited for together.
         if (self.facts.isTaskJoin(sexp)) {
             try self.w.writeAll("rig.waitTasks(.{ ");
             try self.emitArgs(sexp);
@@ -7044,19 +7061,16 @@ pub const Emitter = struct {
             if (args.len == 2) try self.w.writeAll(", 0");
             return self.w.writeAll(")");
         }
-        // A set's wait, `<ts.wait_all(within: d)`: its deadline, or none;
-        // `>ts` waits for them all, with none.
+        // A set's waits, `>ts` and `<ts.wait_first()`, take no deadline
+        // of their own: a deadline is the running task's (`time.within`).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
             if (rig.isWaitMember(callee)) {
                 try self.emitMemberNamed(callee, "wait_all");
                 return self.w.writeAll("(null)");
             }
-            const m = self.srcText(ir.Member.name(callee));
-            if (std.mem.eql(u8, m, "wait_all") or std.mem.eql(u8, m, "wait_first")) {
+            if (std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "wait_first")) {
                 try self.emitExpr(callee);
-                try self.w.writeAll("(");
-                if (args.len == 1) try self.emitExpr(ir.Kwarg.value(args[0])) else try self.w.writeAll("null");
-                return self.w.writeAll(")");
+                return self.w.writeAll("(null)");
             }
         };
         try self.checkCallTarget(sexp);
@@ -7902,7 +7916,11 @@ pub const Emitter = struct {
         try self.w.writeAll("struct ");
         try self.openBrace();
         const env = if (self.closure_depth == 0) "__rig_self" else try self.fmt("__rig_self{d}", .{self.closure_depth});
-        var uses_env = false;
+        // A closure its callee calls at most once owns what it moves in
+        // once called, as a function owns its parameters.
+        const once = self.facts.isOnceClosure(lambda);
+        var once_caps: std.ArrayList(SymbolId) = .empty;
+        var uses_env = once;
         for (caps) |c| {
             try self.writeIndent(self.indent);
             try self.w.print("{s}: ", .{try self.capField(c.name)});
@@ -7910,8 +7928,18 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
             uses_env = uses_env or self.usage.used.contains(c.sym);
             // Inside the body, a capture is a field of the environment.
-            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("{s}.{s}", .{ env, try self.capField(c.name) }), .ty = c.ty }, c.name);
+            var local: Local = .{ .sym = c.sym, .zig_name = try self.fmt("{s}.{s}", .{ env, try self.capField(c.name) }), .ty = c.ty };
+            // Once called, the closure owns every capture its environment
+            // owns: it moves out what it may, and drops the rest at its end.
+            const owned = once and self.kindOf(c.ty) != null;
+            if (owned) {
+                local.kind = self.kindOf(c.ty);
+                local.guard = self.resourceGuard(c.sym);
+            }
+            _ = try self.declare(local, c.name);
+            if (owned) try once_caps.append(self.arena.allocator(), c.sym);
         }
+        if (once) try self.line("__rig_called: bool = false,", .{});
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
         // A large frame is never inlined into its caller's.
@@ -7920,7 +7948,7 @@ pub const Emitter = struct {
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
-        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env };
+        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env, .once_env = if (once) env else "", .once_caps = once_caps.items };
         try self.bindParams(params, false);
         for (params.items()) |p| {
             try self.w.writeAll(", ");
@@ -8138,7 +8166,13 @@ pub const Emitter = struct {
         const owns = try self.emitStackClosure(env, h.node);
         try self.w.writeAll("\n");
         try self.poisonAtExit(env);
-        if (owns) try self.line("defer rig.dropFields(&{s});", .{env});
+        if (owns) {
+            // A closure called at most once drops what it moved in when
+            // it runs; its environment, only when it never ran.
+            if (self.facts.isOnceClosure(h.node)) {
+                try self.line("defer if (!{s}.__rig_called) rig.dropFields(&{s});", .{ env, env });
+            } else try self.line("defer rig.dropFields(&{s});", .{env});
+        }
         try self.writeIndent(self.indent);
         try self.w.print("const {s} = ", .{h.name});
         try self.emitCallableTy("FnRef", self.facts.types.get(fn_ty).function);

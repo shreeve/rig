@@ -134,7 +134,7 @@ fun fetch_all(urls: ?List[String]) -> List[Page]!
   ts = Tasks[Page!]()
   for u in urls
     !ts.add(http.get(?u)&)
-  <ts.wait_all(within: time.seconds(2))!
+  time.within(2 * time.SECOND, |<ts| >ts!)!
 ```
 
 The first error, or the deadline, cancels the rest and waits for them.
@@ -196,8 +196,8 @@ place a fallible type stands as a type argument.
   result is passed on with `>t!` or handled with `catch`.
 - `<t.cancel()` cancels a fallible task, waits for it, and gives what it
   returned, usually `error.Canceled`.
-- `task.both(a, b)` and `task.all(a, b, c)` wait for several tasks of
-  different types at once. The first error cancels the others.
+- `task.all(a, b, c)` waits for two tasks or more, of different types,
+  at once. The first error cancels the others.
 - A function may return a task (`-> Task[T]`). The task keeps the loans
   its signature shows, as any result does.
 
@@ -232,8 +232,9 @@ no syntax:
   has finished is removed at once, so a long-running server loop never
   piles up finished work.
 - `>ts` waits for all and gives their results in the order
-  added. `<ts.wait_first()` gives the first success. Both take
-  `within:`.
+  added. `<ts.wait_first()` gives the first success. A deadline for
+  either is `time.within`'s, whose closure moves the set in and is
+  called once: `time.within(d, |<ts| >ts!)`.
 - The first error of a fallible set cancels the rest.
 - Dropping a set cancels every task first, then waits for them all, so
   the costs of cancelling do not add up.
@@ -630,7 +631,7 @@ restarted by a small parent) remains, as defence in depth.
 ## The library
 
 **First wave, shipped with tasks:**
-- `Tasks[T]`, `task.both`, `task.all`, `par.map`, and `par.each`;
+- `Tasks[T]`, `task.all`, `par.map`, and `par.each`;
 - `time.sleep`, deadlines, and `time.within(d, || ...)`, a deadline over
   a block of calls;
 - `task.check()!` and `task.isolate`;

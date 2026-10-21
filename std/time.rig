@@ -33,7 +33,7 @@ pub fun now() -> Instant
 # task or a set that can fail, whose tasks are canceled first. The tasks
 # `f` starts keep the deadline. Inside another deadline, the earlier
 # one holds, and the outer one is back once `f` returns.
-pub fun within[R](ns: Int, f: ?fun() -> R!) -> R!
+pub fun within[R](ns: Int, f: once ?fun() -> R!) -> R!
   outer = enter_deadline(ns)
   defer restore_deadline(outer)
   f()!

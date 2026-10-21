@@ -63,6 +63,7 @@ syn match rigLabel "\v\$[A-Z_a-z][0-9A-Z_a-z]*\:"
 syn match rigKeywordControl "\v%(break|continue)[\x09 ]+\ze\$[A-Z_a-z][0-9A-Z_a-z]*" nextgroup=rigSeq3Part2
 syn match rigSeq3Part2 "\v\$[A-Z_a-z][0-9A-Z_a-z]*" contained
 syn match rigKeyword "\v%([0-9A-Z\]_a-z] )@<=\w@<!unique\w@!%([\x09 ]*[^\x09\x0a #])@!"
+syn match rigKeyword "\v%(\: )@<=\w@<!once\w@!%( [(*?A-Z_a-z])@="
 syn match rigKeyword "\v%( )@<=%(from|keeps)%( [@-Z_a-z])@="
 syn match rigKeyword "\vfrom[\x09 ]+static%([0-9A-Z_a-z])@!"
 syn match rigKeyword "\v%( )@<=\w@<!of\w@!%( )@="

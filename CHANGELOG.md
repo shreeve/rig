@@ -108,8 +108,8 @@ first step is on `main` (SPEC §18):
   result; a task is never left running past its scope.
 - **Cancellation:** `<t.cancel()`, a cancel that sticks, `std.task`
   (`Stop`, `check`), and a fallible `time.sleep`.
-- **Sets and joins:** `Tasks[T]` with `wait_all`, `wait_first`, and
-  `within:` deadlines; `task.both` and `task.all`.
+- **Sets and joins:** `Tasks[T]`, waited for with `>ts` or
+  `<ts.wait_first()`; `task.all` for two tasks or more of any types.
 - **Isolating a panic:** `task.isolate(f)` stops a panic in `f`, or
   in a task under it, cancels and waits for those tasks, leaves `f`'s
   frames where they stand, and fails with `task.Stop.panicked`
@@ -133,8 +133,18 @@ first step is on `main` (SPEC §18):
   the suite's concurrency cases run again under 20 seeds.
 - **Deadlines and parallel loops:** `time.within(ns, || ...)`, a
   deadline every fallible waiting point honors, kept by the tasks it
-  starts; `par.map` and `par.each` (`std.par`), typed by the checker
-  as `task.both` is, with chunks taken in turn by a task per worker.
+  starts; it calls its closure once, so `time.within(d, |<t| >t!)`
+  gives a deadline to a task, or a set, started before it. `par.map`
+  and `par.each` (`std.par`), typed by the checker as `task.all` is,
+  with chunks taken in turn by a task per worker.
+- **Closures called once:** a parameter written `f: once ?fun() -> T`
+  is called at most once, and a closure literal passed to one owns
+  what it moves in, so its call may move it out
+  (`resolve.recordOnce`, `Origins.once`).
+- **Removed:** `within:` on a set's wait, `wait_all`, and `task.both`.
+  A deadline is `time.within`'s, a set is waited for with `>ts`, and
+  `task.all` takes two tasks; each removed form is rejected with the
+  form to write.
 - **Where tasks run:** on Rig's own scheduler (`src/sched.zig`,
   `src/tasks.zig`): fibers on a worker per core, `RIG_WORKERS` of
   them when set, with yield checks in long loops and recursion

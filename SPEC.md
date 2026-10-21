@@ -7781,7 +7781,9 @@ call, and clone a captured owning value, but not move, drop, or
 reassign it: the closure may be called again, so it cannot be the
 closure's value either. For the same reason `<` of any capture is
 rejected, a copy (`|+n|`) too: `<n` would leave the closure's `n` as
-it was for the next call, and a plain `n` copies it. A captured view
+it was for the next call, and a plain `n` copies it. A closure passed
+to a parameter its callee calls once is the exception
+([Closures called once](#closures-called-once)). A captured view
 may be passed to a call, which views it for the call. A captured read view may be the
 closure's value, and a call's result then views what the closure
 captured. Through a captured write view the body can write fields,
@@ -8062,6 +8064,49 @@ sub main()
 
 ```error
 cannot lend `c` to write while a read loan is live
+```
+
+### Closures called once
+
+A parameter written `f: once ?fun(A) -> R` is a callable view its
+function calls at most once. The body calls it, `f(x)`, or passes it to
+another `once` parameter, and either uses it up: a second call, a call
+in a loop, or a pass to any other parameter is rejected. `once` comes
+before a closure's type only.
+
+A closure literal passed to a `once` parameter owns what it moves in
+(`|<x|`) as a function owns a parameter taken by value: its one call may
+move it out, and drops what it keeps. When the callee never calls it,
+the closure's environment drops it. Every other capture is as for any
+closure. `time.within` takes its closure this way, so a deadline can
+wait for a task started before it ([Deadlines](#deadlines)).
+
+```rig
+fun run(f: once ?fun() -> Int) -> Int
+  f() + 1
+
+fun take(s: String) -> Int
+  s.len
+
+sub main()
+  name = String("Ada")
+  print(run(|<name| take(<name)))
+```
+
+```output
+4
+```
+
+```rig reject
+fun twice(f: once ?fun() -> Int) -> Int
+  f() + f()
+
+sub main()
+  print(twice(|| 1))
+```
+
+```error
+`f` is called at most once (`once`), and it is used up already
 ```
 
 ### Owned closures
@@ -10160,10 +10205,10 @@ it holds.
 - `<ts.wait_first()` gives the first result to succeed and cancels the
   rest; when every task fails, it fails with the last error. It is only
   for tasks that can fail, since the rest must be stopped.
-- `<ts.wait_all(within: ns)` and `<ts.wait_first(within: ns)` take a
-  deadline, in nanoseconds: when it passes, the tasks still running are
-  canceled, and the wait fails with `task.Stop.timeout`. It too is only
-  for tasks that can fail.
+- A wait with a deadline is written inside `time.within`, whose
+  closure moves the set in: `time.within(2 * time.SECOND, |<ts| >ts!)`
+  ([Deadlines](#deadlines)). Past the deadline the tasks still running
+  are canceled, and the wait fails with `task.Stop.timeout`.
 - Waiting on tasks that can fail is a waiting point: a canceled waiter
   cancels them all and fails with `Stop.canceled`.
 - Dropping a set cancels the tasks that can fail, all of them first,
@@ -10190,7 +10235,7 @@ fun first_two() -> List[Int]!
   ts = Tasks[Int!]()
   !ts.add(fetch(1, 20)&)
   !ts.add(fetch(2, 1)&)
-  <ts.wait_all(within: 5 * time.SECOND)!
+  time.within(5 * time.SECOND, |<ts| >ts!)!
 
 fun any_one() -> Int!
   ts = Tasks[Int!]()
@@ -10208,10 +10253,10 @@ sub main()
 50
 ```
 
-`task.both(a, b)` and `task.all(a, b, ...)` of `std.task`
-([std.task](docs/STD.md#stdtask)) wait for tasks of different types and
-give each one's value as several results:
-`u, o = task.both(user(id)&, orders(id)&)!`. The call takes its tasks,
+`task.all(a, b, ...)` of `std.task` ([std.task](docs/STD.md#stdtask))
+waits for two tasks or more, of different types, and gives each one's
+value as several results: `u, o = task.all(user(id)&, orders(id)&)!`.
+The call takes its tasks,
 and can fail when any of them can; then the first to fail cancels the
 others.
 
@@ -10374,8 +10419,12 @@ deadline `ns` nanoseconds from now, and gives what `f` gives. `f` may
 propagate with `!`, so the call can fail. Every fallible waiting point
 `f` reaches after the deadline fails with `task.Stop.timeout`:
 `time.sleep`, which sleeps only until the deadline, `task.check`, and
-a wait on a task, a set, or `task.both`, whose tasks are canceled first.
+a wait on a task, a set, or `task.all`, whose tasks are canceled first.
 
+- `within` calls `f` once (its parameter is written `f: once ?fun() ->
+  R!`, [Closures called once](#closures-called-once)), so `f` may move in
+  a task started before it and wait for it: `time.within(d, |<t| >t!)`
+  gives a deadline to one task, and `|<ts| >ts!` to a set.
 - The tasks `f` starts keep the deadline.
 - Inside another deadline, the earlier one holds, and the outer one is
   back once `f` returns.
@@ -10398,12 +10447,15 @@ sub main()
     a + b
   ) catch -1
   print(n)
+  t = slow(60_000)&
+  print(time.within(5 * time.MS, |<t| >t!) catch -1)
 ```
 
 ```output
 1
 -1
 1
+-1
 ```
 
 ### Actors

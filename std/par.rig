@@ -1,6 +1,6 @@
 # std.par: running a function on each element of a List, an array, or a
 # slice, on several tasks at once, each taking chunks of the elements in
-# turn. The checker types both calls, as it does `task.both`.
+# turn. The checker types both calls, as it does `task.all`.
 #
 # - `par.map(?xs, f, limit: n)` gives a List of `f(x)` for each `x`, in
 #   the order of `xs`.
