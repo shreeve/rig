@@ -55,6 +55,7 @@ DUPLICATE = "duplicate declaration of `main`"
 # Rig's own keywords (`type`, `drop`, `panic`) name nothing but a member
 # (SYNTAX.md, "Keywords"); any diagnostic will do.
 KEYWORD = "error:"
+CAPITAL = "a type parameter starts with a capital letter"
 BINDING = {"none": NONE, "_": UNDERSCORE, "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD, "main": MAIN}
 REJECTED = {
     "local": {**BINDING},
@@ -63,7 +64,8 @@ REJECTED = {
     "field": {},
     "variant": {"none": "none", "from_int": "from_int", "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD},
     "error": {"none": "none", "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD},
-    "tparam": {**BINDING, "_": None, "Self": "built-in type"},
+    # A type parameter starts with a capital letter (SPEC, "Bounds").
+    "tparam": {**{n: CAPITAL for n in NAMES if n[0].islower()}, "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD, "_": None, "Self": "built-in type"},
     "type": {**BINDING, "new": "new", "main": DUPLICATE},
     "root_const": {**BINDING, "main": DUPLICATE},
     "root_fun": {**BINDING, "main": DUPLICATE},

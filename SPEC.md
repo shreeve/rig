@@ -2886,15 +2886,16 @@ conflicting values for `n` in the call to `both`: `2` (argument 1) and `3` (argu
 ### Generic bodies
 
 A generic type's methods and a generic function's body are checked
-once, with each type parameter standing for any type. There are no
-traits or bounds. What the body does with a `T` that only some types
+once, with each type parameter standing for any type. A parameter with
+bounds is checked against its bounds alone ([Bounds](#bounds)); for one
+with no bound, what the body does with a `T` that only some types
 support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 `T`) is recorded, a viewed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, in any module, is
 checked against it. On a `T`, `==` compares whatever `==` compares
-outside a generic body, and ordering compares numbers, plain enums, and
-`?String` values. A failure is reported at the call or type that makes the instance, with a
+outside a generic body, and ordering compares what `<` compares outside
+one. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
 declares the body. A body cannot read a field of a `T` or call `T`
 itself.
@@ -3118,9 +3119,8 @@ sub main()
 ```
 
 ```error
-`max[Bool]` cannot use `T = Bool`: the generic body applies `>` to `T`, which `Bool` does not support
-`>` used on `T` here (ordering comparison)
 `max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
+`>` used on `T` here (ordering comparison)
 `larger[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
 ```
 
@@ -3146,6 +3146,104 @@ sub main()
 ```error
 `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 `T` copied here; move it with `<` instead
+```
+
+### Bounds
+
+A bound names, in the brackets, what a body does with a type parameter:
+`[T: Ord]`, and several joined with `+`, `[K: Hash + Print]`. A bound is
+a built-in API ([docs/design/apis.md](docs/design/apis.md)), and the
+name after the colon tells `[T: Ord]`, a type parameter with a bound,
+from `[n: Int]`, a compile-time value. A type parameter starts with a
+capital letter and a value parameter with a lowercase one.
+
+| API | Means |
+|---|---|
+| `Copy` | a bare use copies: plain data and read views |
+| `Clone` | `+x` makes a new owner; implied by `Copy` |
+| `Owned` | holds no loan: no part is a view (a `Static` is fine) |
+| `Moves` | may move to another task ([§18](#18-tasks)) |
+| `Shares` | may be read by several tasks |
+| `Eq` | `==` and `!=` |
+| `Hash` | `.hash()`; implies `Eq` |
+| `Ord` | `<`, `<=`, `>`, `>=`; implies `Eq` |
+| `Print` | `print` and text building |
+| `Num`, `Integer`, `Signed` | arithmetic; `%`, bits, and shifts; negation. `Integer` and `Signed` imply `Num` |
+
+The first five are facts of a type's parts, which no type declares;
+`Copy` never implies `Owned`, so a Cell's element needs `Copy + Owned`.
+The number APIs belong to the built-in numbers alone. Numbers, `Bool`,
+text (`String`, `?String`, `Static`), and plain enums provide `Eq`,
+`Hash`, `Ord`, and `Print`, but a float provides no `Hash`. An
+optional, an array, and a slice provide what their elements provide,
+and order element by element, a shorter prefix first. A `List`
+provides `Print`, and `Clone` where its elements do; a `Map`, a `Set`,
+a Cell, a Signal, a handle, and a task provide only the facts, and
+`Print` where `print` takes them. An
+object or an enum provides `Eq`, `Hash`, and `Print` by its fields, and
+`Ord` only where its header names it: `obj Version: Ord` orders by the
+fields in declared order, and `enum Suit: Ord` by its variants, then a
+payload's fields, each of which must be ordered. A type's header names
+`Eq`, `Hash`, `Ord`, or `Print`, the APIs whose meaning a type may give.
+
+A body may do with a bounded `T` what its bounds name and no more: copy
+a `T: Copy`, compare a `T: Ord`, hash a `T: Hash`, and call no method
+on it. Whether a literal fits a `T` is still checked at each instance.
+A bounded `T` passed to another generic provides only what its bounds
+name, and one without `Moves` or `Shares` does not cross to another
+task. Each instance must provide every bound, checked at the call or
+type that makes it, with the fix in the error.
+
+```rig
+obj Version: Ord
+  major: Int
+  minor: Int
+
+fun max[T: Ord](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  v = max(Version(major: 1, minor: 2), Version(major: 1, minor: 10))
+  print(v.minor, max(String("ab"), String("b")), max(false, true))
+```
+
+```output
+10 b true
+```
+
+```rig reject
+obj Point
+  x: Int
+  y: Int
+
+fun max[T: Ord](a: T, b: T) -> T
+  a if a > b else b
+
+fun add[T: Ord](a: T, b: T) -> T
+  a + b
+
+sub main()
+  print(max(Point(x: 1, y: 2), Point(x: 2, y: 1)).x, add(1, 2))
+```
+
+```error
+`T` is bounded by `Ord`, which does not give arithmetic; add `Num` to its bounds: `[T: Ord + Num]`
+```
+
+```rig reject
+obj Point
+  x: Int
+  y: Int
+
+fun max[T: Ord](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  print(max(Point(x: 1, y: 2), Point(x: 2, y: 1)).x)
+```
+
+```error
+`max[Point]` cannot use `T = Point`: `Point` cannot be ordered; name `Ord` on its header: `obj Point: Ord`
 ```
 
 ### Type aliases
@@ -4024,7 +4122,7 @@ sub main()
 
 ```error
 `==` is not defined for `Link`: field `to` is a handle `*Node`, which could compare by identity or by content
-operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `Link`
+operator `<` orders values of one type that provides `Ord`, and `Link` cannot be ordered; name `Ord` on its header: `obj Link: Ord`
 ```
 
 ```rig

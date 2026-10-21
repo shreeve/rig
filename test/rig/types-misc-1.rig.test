@@ -6496,8 +6496,9 @@ test "numeric conversions", '''
   print(U8(255), I16(-32768), Float(2))
   print(F32(1e300), F32(2.5e-3))
 
-fail "ordering enum bool", "8:7: operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value", "9:7: operator `>=` orders numbers, plain enums, Strings, and `[]U8` slices; got `Bool`"
-  # An enum with a payload variant and Bools have no ordering.
+fail "ordering enum bool", "9:7: operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value; name `Ord` on its header to order it by variant, then payload: `enum Shape: Ord`"
+  # An enum with a payload variant has no order of its own; `false`
+  # comes before `true`.
 
   enum Shape
     dot
@@ -6507,15 +6508,15 @@ fail "ordering enum bool", "8:7: operator `<` orders a plain enum's values; `Sha
   print(c < Shape.dot)
   print(true >= false)
 
-fail "ordering int slice", "5:7: operator `<=` orders numbers, plain enums, Strings, and `[]U8` slices; got `[]Int`"
-  # Only byte slices are ordered; a slice of other elements is not.
+test "ordering int slice", "true"
+  # A slice orders element by element, a shorter prefix first.
 
   xs = [1, 2, 3]
   ys = [1, 2, 4]
   print(?xs[0..3] <= ?ys[0..3])
 
-fail "ordering struct", "9:7: operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `Point`"
-  # Structs have no ordering, whatever their fields.
+fail "ordering struct", "9:7: operator `<` orders values of one type that provides `Ord`, and `Point` cannot be ordered; name `Ord` on its header: `obj Point: Ord`"
+  # An object has no order unless its header names `Ord`.
 
   obj Point
     x: Int

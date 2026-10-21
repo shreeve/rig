@@ -757,7 +757,9 @@ write `sub main()`: a function's parameter list is always written, even when emp
 
 An `obj` lists its fields, then its methods and at most one `drop`
 body. A field is `name: Type`, with an optional default value
-(`y: Int = 0`).
+(`y: Int = 0`). Its header may name, after a colon, the built-in APIs
+it gives a meaning of its own: `obj Version: Ord`, `enum Suit: Ord`,
+`obj Name: Eq + Hash` ([SPEC, Bounds](SPEC.md#bounds)).
 
 ```rig
 obj Point
@@ -952,13 +954,17 @@ sub main()
 After a name, square brackets give compile-time arguments and
 parentheses give run-time ones. Indexing is the one familiar exception.
 In a bracket list after a declared
-name, a bare name is a type parameter and `name: Type` a compile-time
-value. There is no `<T>` and no `comptime` keyword.
+name, a bare name is a type parameter, `Name: Ord` or `Name: Hash +
+Print` one with bounds, and `name: Type` a compile-time value. A type
+parameter starts with a capital letter and a value with a lowercase
+one ([SPEC, Bounds](SPEC.md#bounds)). There is no `<T>` and no
+`comptime` keyword.
 
 | | Declared | Used |
 |---|---|---|
 | generic type | `obj Pair[T, U]`, `enum Option[T]` | `Pair[Int, ?String]`, `Pair(first: 1, second: "x")`, `Option[Int].some(7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
+| with bounds | `fun max[T: Ord](a: T, b: T) -> T`, `obj Index[K: Hash + Print]` | `max(3, 7)` |
 | generic method | `fun map[U](?@, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
 | both | `sub rep[T, n: Int](x: T)` | `rep[?String, 3]("hi")` |

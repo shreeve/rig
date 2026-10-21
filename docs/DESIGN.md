@@ -428,7 +428,11 @@ need a `type` alias there.
 A generic body is checked once, with `T` unknown, and records what it
 does with a `T`: arithmetic, ordering, `==`, a literal beside a `T`, a
 copy, a method it calls. Each instance the program makes is then
-checked against that record. There are no traits or bounds for now.
+checked against that record. A parameter with bounds, `[T: Ord]`, is
+checked against its bounds instead, so the signature states the
+contract and the error is at the user's line; the bounds are the
+built-in APIs, and APIs of a program's own come later
+([design/apis.md](design/apis.md)).
 
 A method call on a `T` is typed where it stands: its result takes the
 type the context expects, or the other operand's, and the instance's

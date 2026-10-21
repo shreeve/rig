@@ -8733,8 +8733,15 @@ pub const Emitter = struct {
             const ty = self.typeOf(o) orelse continue;
             const t = self.peelViews(ty);
             switch (self.facts.types.get(t)) {
-                .string_view, .static, .slice => bytes = true,
-                .type_var, .nominal, .imported_nominal => values = true,
+                .string_view, .static => bytes = true,
+                // A byte slice orders by its bytes; any other ordered
+                // slice element by element (`rig.compare`).
+                .slice => |sl| if (self.facts.types.get(sl.elem) == .int and self.facts.types.get(sl.elem).int.bits == 8 and !self.facts.types.get(sl.elem).int.signed) {
+                    bytes = true;
+                } else {
+                    values = true;
+                },
+                .type_var, .nominal, .imported_nominal, .parameterized_nominal, .bool, .string, .optional, .array => values = true,
                 else => {},
             }
         }

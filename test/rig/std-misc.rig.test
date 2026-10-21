@@ -280,7 +280,7 @@ bomb "bigint base one panics", "bigint.parse: the base is not 0 or between 2 and
 
   print((bigint.parse("0", 1) catch bigint.from_int(0)).text())
 
-fail "bigint misuse", "6:7: `==` is not defined for `bigint.BigInt`: field `limbs` is a `List[U64]`, which has no `==`", "7:7: operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `bigint.BigInt`", "8:12: only the standard library's module `std.bigint` can construct `std.bigint.BigInt`: its fields `neg`, `limbs` are private; make one with its `pub` functions", "9:9: field `neg` of `std.bigint.BigInt` is private to the standard library's module `std.bigint`", errors: 4
+fail "bigint misuse", "6:7: `==` is not defined for `bigint.BigInt`: field `limbs` is a `List[U64]`, which has no `==`", "7:7: operator `<` orders values of one type that provides `Ord`, and `bigint.BigInt` cannot be ordered", "8:12: only the standard library's module `std.bigint` can construct `std.bigint.BigInt`: its fields `neg`, `limbs` are private; make one with its `pub` functions", "9:9: field `neg` of `std.bigint.BigInt` is private to the standard library's module `std.bigint`", errors: 4
   # A BigInt is compared by its methods and made by `parse` and
   # `from_int`: it has no `==` or `<`, and no fields to read or set.
 

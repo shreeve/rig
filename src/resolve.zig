@@ -383,11 +383,14 @@ const SymbolResolver = struct {
                 try self.checkShadowsDeclaration(name_node, "parameter");
             }
             // A bare name among compile-time parameters is a type
-            // parameter.
+            // parameter, its bounds recorded apart (`Parser.bounds`).
             if (ct and p == .src) {
-                _ = try self.declare(name_node, .generic_param, .{});
+                try self.checkParamCase(name_node, null);
+                const apis = try self.boundsOf(name_node);
+                if (try self.declare(name_node, .generic_param, .{})) |id| self.ctx.symbols.items[id].apis = apis;
                 continue;
             }
+            if (ct) try self.checkParamCase(name_node, ir.get(p, .type));
             _ = try self.declare(name_node, .param, .{ .comptime_known = ct });
         }
     }
@@ -476,6 +479,7 @@ const SymbolResolver = struct {
             // name is a type parameter; `n: Int` a compile-time value,
             // whose type `resolveNominal` resolves.
             const value = p.isKind(.@":");
+            try self.checkParamCase(pnode, if (value) ir.get(p, .type) else null);
             const pid = try self.ctx.addSymbol(.{
                 .name = pname,
                 .kind = if (value) .param else .generic_param,
@@ -483,11 +487,13 @@ const SymbolResolver = struct {
                 .decl_pos = srcPos(pnode, 0),
                 .scope = if (value) sema.scope_invalid else self.scope,
                 .flags = .{ .comptime_known = value },
+                .apis = if (value) .empty else try self.boundsOf(pnode),
             });
             try self.ctx.recordName(pnode, pid);
             try ids.append(self.ctx.allocator, pid);
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
+        self.ctx.symbols.items[id].apis = try self.headerApis(node);
         self.type_params = self.ctx.symbols.items[id].type_params.?;
         defer self.type_params = &.{};
         try self.walkMembers(ir.rest(node, .members));
@@ -495,8 +501,81 @@ const SymbolResolver = struct {
 
     /// A `struct`, `enum`, or `errors`.
     fn walkNominalType(self: *SymbolResolver, node: Sexp, flags: sema.SymbolFlags) Error!void {
-        _ = try self.declare(ir.get(node, .name), .nominal_type, flags);
+        const apis = try self.headerApis(node);
+        if (try self.declare(ir.get(node, .name), .nominal_type, flags)) |id| self.ctx.symbols.items[id].apis = apis;
         try self.walkMembers(ir.rest(node, .members));
+    }
+
+    /// The bounds written on the type parameter named at `name_node`
+    /// (`Parser.bounds`), as written; `sema.implied` adds what they
+    /// imply. Each is a built-in API; another name is reported.
+    fn boundsOf(self: *SymbolResolver, name_node: Sexp) Error!sema.Apis {
+        const p = self.ctx.parser orelse return .empty;
+        if (name_node != .src) return .empty;
+        var out: sema.Apis = .empty;
+        for (p.boundsAt(name_node.src.pos)) |leaf| {
+            const text = identAt(self.ctx.source, leaf) orelse diag.textOf(self.ctx.source, self.ctx.span(leaf));
+            const api = rig.Api.named(text) orelse {
+                try self.ctx.errAt(leaf, "`{s}` names no built-in API; a bound is `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, or `Signed`", .{text});
+                continue;
+            };
+            if (out.contains(api)) try self.ctx.errAt(leaf, "`{s}` is named twice in the bounds of `{s}`", .{ text, identAt(self.ctx.source, name_node).? });
+            out.insert(api);
+        }
+        return out;
+    }
+
+    /// The APIs a type's header names (`obj Name: Eq + Hash`), each one
+    /// whose meaning a type may give its own: `Eq`, `Hash`, `Ord`, or
+    /// `Print`. Another name is reported.
+    fn headerApis(self: *SymbolResolver, node: Sexp) Error!sema.Apis {
+        var out: sema.Apis = .empty;
+        if (!ir.has(node.kind() orelse return out, .apis)) return out;
+        const group = ir.get(node, .apis);
+        if (group == .nil) return out;
+        const tname = identAt(self.ctx.source, ir.get(node, .name)) orelse "";
+        for (group.items()) |leaf| {
+            const text = if (leaf == .src) identAt(self.ctx.source, leaf) orelse "" else diag.textOf(self.ctx.source, self.ctx.span(leaf));
+            const api = rig.Api.named(text) orelse {
+                try self.ctx.errAt(leaf, "`{s}` names no built-in API; a type's header names `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", .{text});
+                continue;
+            };
+            switch (api) {
+                .Copy, .Clone, .Owned, .Moves, .Shares => {
+                    try self.ctx.errAt(leaf, "`{s}` is a fact the compiler derives from a type's parts, and a type never names it; `{s}` provides it where its parts do", .{ text, tname });
+                    continue;
+                },
+                .Num, .Integer, .Signed => {
+                    try self.ctx.errAt(leaf, "`{s}` is provided by the built-in numbers alone", .{text});
+                    continue;
+                },
+                .Eq, .Hash, .Ord, .Print => {},
+            }
+            if (out.contains(api)) try self.ctx.errAt(leaf, "`{s}` is named twice on the header of `{s}`", .{ text, tname });
+            out.insert(api);
+        }
+        return out;
+    }
+
+    /// A compile-time parameter's name starts with a capital letter for a
+    /// type parameter and a lowercase one for a value (`type`, its type),
+    /// so `[T: Ord]` and `[n: Int]` read apart. `_` is either.
+    fn checkParamCase(self: *SymbolResolver, name_node: Sexp, value_type: ?Sexp) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        if (name.len == 0 or name[0] == '_') return;
+        const upper = std.ascii.isUpper(name[0]);
+        const a = self.ctx.arena.allocator();
+        if (value_type) |ty| {
+            if (!upper) return;
+            const lower = try a.dupe(u8, name);
+            lower[0] = std.ascii.toLower(lower[0]);
+            try self.ctx.errAt(name_node, "a compile-time value parameter starts with a lowercase letter: `[{s}: {s}]`; a type parameter has no type, and is written alone or with its bounds: `[{s}]`, `[{s}: Ord]`", .{ lower, diag.textOf(self.ctx.source, self.ctx.span(ty)), name, name });
+            return;
+        }
+        if (upper) return;
+        const cap = try a.dupe(u8, name);
+        cap[0] = std.ascii.toUpper(cap[0]);
+        try self.ctx.errAt(name_node, "a type parameter starts with a capital letter: `[{s}]`; a compile-time value parameter has a type: `[{s}: Int]`", .{ cap, name });
     }
 
     fn walkMembers(self: *SymbolResolver, members: []const Sexp) Error!void {
@@ -2846,7 +2925,9 @@ pub const TypeResolver = struct {
             if (!gop.found_existing) gop.value_ptr.* = pos;
         } else {
             // Spelled inside a generic declaration: each instantiation of
-            // that generic instantiates this too.
+            // that generic instantiates this too, and meets its bounds by
+            // the declaration's.
+            if (sym.type_params) |tps| _ = try sema.checkBounds(self.ctx, tps, inst.args, pos, .{ .type = ty });
             try self.ctx.addGeneric(.uses, ty);
         }
         return ty;

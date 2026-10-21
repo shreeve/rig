@@ -388,10 +388,11 @@ tokens
     fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
     sub                         name:leaf tparams:group? params:group? fails:tag(fails)? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
     lambda                      captures:captures? params:group? body:block
-    struct                      name:leaf unique:tag(unique)? ...members
-    enum, errors                name:leaf ...members
-    generic_struct              name:leaf tparams:group unique:tag(unique)? ...members
-    generic_enum                name:leaf tparams:group ...members
+    struct                      name:leaf unique:tag(unique)? apis:group? ...members
+    enum                        name:leaf apis:group? ...members
+    errors                      name:leaf ...members
+    generic_struct              name:leaf tparams:group unique:tag(unique)? apis:group? ...members
+    generic_enum                name:leaf tparams:group apis:group? ...members
     type                        name:leaf type
     test                        name:leaf body:block
     pub                         decl
@@ -407,6 +408,7 @@ tokens
 
     # Parameters, fields, and enum members
     ":"                         name:leaf type
+    bound                       name:leaf apis:group   # `[K: Hash + Print]`, two or more APIs; one is a `:`
     once                        name:leaf type   # `f: once ?fun() -> T`; the Parser wrapper makes it a `:`
     default                     name:leaf type value
     valued                      name:leaf value
@@ -753,6 +755,15 @@ tfields  = tfield                                   → (1)
 
 tfield   = name
          | name:name ":" type:type                  → (:)
+         | name:name ":" apis:apis2                 → (bound)     # `[K: Hash + Print]`
+
+# The built-in APIs a bound or a type's header names, joined with `+`:
+# `Eq + Hash`.
+apis     = tname                                    → (1)
+         | apis2
+
+apis2    = tname "+" tname                          → (1 3)
+         | apis2 "+" tname                          → (...1 3)
 
 # Written out rather than `L(field)`, which conflicts with a trailing
 # comma.
@@ -772,15 +783,25 @@ field    = fname
 fname    = name | KWARG_NAME
 
 enum     = ENUM name:name INDENT members:members OUTDENT     → (enum)
+         | ENUM name:name ":" apis:apis INDENT members:members OUTDENT     → (enum)
          | ENUM name:name tparams:tparams INDENT members:members OUTDENT
+                                                    → (generic_enum)
+         | ENUM name:name tparams:tparams ":" apis:apis INDENT members:members OUTDENT
                                                     → (generic_enum)
 errors   = ERROR name:name INDENT members:members OUTDENT    → (errors)
 struct   = OBJ name:name INDENT members:members OUTDENT   → (struct)
+         | OBJ name:name ":" apis:apis INDENT members:members OUTDENT   → (struct)
          | OBJ name:name UNIQUE INDENT members:members OUTDENT
+                                                    → (struct unique:unique)
+         | OBJ name:name UNIQUE ":" apis:apis INDENT members:members OUTDENT
                                                     → (struct unique:unique)
          | OBJ name:name tparams:tparams INDENT members:members OUTDENT
                                                     → (generic_struct)
+         | OBJ name:name tparams:tparams ":" apis:apis INDENT members:members OUTDENT
+                                                    → (generic_struct)
          | OBJ name:name tparams:tparams UNIQUE INDENT members:members OUTDENT
+                                                    → (generic_struct unique:unique)
+         | OBJ name:name tparams:tparams UNIQUE ":" apis:apis INDENT members:members OUTDENT
                                                     → (generic_struct unique:unique)
 
 typedef  = TYPE name:name "=" type:type             → (type)

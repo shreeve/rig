@@ -192,7 +192,7 @@ fail "enum order different", "15:7: operator `<` operands have different types `
   print(.red < .green)
   print(c < .small)
 
-fail "enum order error set", "9:7: operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `NetworkError`", "10:7: operator `>=` orders numbers, plain enums, Strings, and `[]U8` slices; got `NetworkError`", errors: 2
+fail "enum order error set", "9:7: operator `<` orders values of one type that provides `Ord`, and `NetworkError` cannot be ordered", "10:7: operator `>=` orders values of one type that provides `Ord`, and `NetworkError` cannot be ordered", errors: 2
   # An error set has no order, though its members are written like a
   # plain enum's variants.
 

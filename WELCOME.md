@@ -213,7 +213,7 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 |---|---|---|---|
 | generic function | `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
-| what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
+| what `T` may do | what its bounds say | what each instance compiles | what its bounds say (`[T: Ord]`), or with none what each instance supports, checked per call |
 | generic type | `obj Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `obj Wrap[T]` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `List[Int]()` |
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?@, f: fun(T) -> U) -> Wrap[U]` |
@@ -235,10 +235,13 @@ construction: `Wrap(v: 3)` builds a `Wrap`, and `Wrap[Int](v: 3)`
 cannot be misread as a call. Go (`Max[float64](1, 2)`), Mojo, and
 Python's type hints (`list[int]`) write them the same way.
 
-There are no traits or bounds. A generic body is checked once, and each
-instance a program makes is checked against what the body does with
-`T`, the methods it calls on one included, like a Zig `comptime T: type` function but with the error at the
-call ([SPEC §3](SPEC.md#generic-bodies)).
+A generic body is checked once. A type parameter with bounds,
+`[T: Ord]`, is checked against them, and each instance must provide
+them ([SPEC, Bounds](SPEC.md#bounds)). One with no bound is checked at
+each instance a program makes against what the body does with `T`, the
+methods it calls on one included, like a Zig `comptime T: type`
+function but with the error at the call
+([SPEC §3](SPEC.md#generic-bodies)).
 
 ### What a program becomes
 
@@ -665,7 +668,8 @@ compiler frees them.
 
 You will reach for these and not find them:
 
-- **traits and bounds**: a generic body may do with `T` only what each
+- **APIs of your own** (`api Shape`): a bound names a built-in API,
+  `[T: Ord]`, and a generic body with none may do with `T` what each
   instance supports;
 - **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;

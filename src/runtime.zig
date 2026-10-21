@@ -706,10 +706,77 @@ fn isScalar(comptime T: type) bool {
 /// variants' values, and `?String`s by their bytes, where the first byte
 /// that differs decides and a prefix sorts first.
 pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    // Text orders by its bytes, a String, a view of one, or a `?String`;
+    // a view held as a pointer orders as the value it reaches.
+    if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
+    if (comptime isValuePointer(A)) return compare(a.*, op, b);
+    if (comptime isValuePointer(B)) return compare(a, op, b.*);
     const T = @TypeOf(a, b);
-    if (comptime isStringView(T)) return std.mem.order(u8, a, b).compare(op);
-    if (@typeInfo(T) == .@"enum") return std.math.compare(@intFromEnum(@as(T, a)), op, @intFromEnum(@as(T, b)));
-    return std.math.compare(a, op, b);
+    switch (@typeInfo(T)) {
+        // A float compares as `<` does, NaN beside anything false.
+        .int, .float, .comptime_int, .comptime_float => return std.math.compare(a, op, b),
+        else => return order(@as(T, a), @as(T, b)).compare(op),
+    }
+}
+
+/// How `a` and `b` of one type that provides `Ord` order
+/// (docs/design/apis.md): numbers by value, `false` before `true`, text
+/// by its bytes, a plain enum by its variants' values, `none` before any
+/// value, arrays and slices element by element, a shorter prefix first,
+/// an object by its fields in declared order, and an enum by its variant,
+/// then its payload's fields.
+pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
+    const T = @TypeOf(a);
+    if (comptime isStringView(T)) return std.mem.order(u8, a, b);
+    if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
+    if (comptime isOptStruct(T)) {
+        const x = some(a) orelse return if (some(b) == null) .eq else .lt;
+        const y = some(b) orelse return .gt;
+        return order(x, y);
+    }
+    switch (@typeInfo(T)) {
+        .int, .float, .comptime_int, .comptime_float => return std.math.order(a, b),
+        .bool => return std.math.order(@intFromBool(a), @intFromBool(b)),
+        .@"enum" => return std.math.order(@intFromEnum(a), @intFromEnum(b)),
+        .optional => {
+            const x = a orelse return if (b == null) .eq else .lt;
+            const y = b orelse return .gt;
+            return order(x, y);
+        },
+        .pointer => |p| {
+            if (p.size == .one) return order(a.*, b.*);
+            return orderElements(a, b);
+        },
+        .array => return orderElements(&a, &b),
+        .@"struct" => |st| {
+            inline for (st.field_names) |name| {
+                const o = order(@field(a, name), @field(b, name));
+                if (o != .eq) return o;
+            }
+            return .eq;
+        },
+        .@"union" => |u| {
+            const Tag = u.tag_type orelse @compileError("rig.order: no order of " ++ @typeName(T));
+            const o = std.math.order(@intFromEnum(@as(Tag, a)), @intFromEnum(@as(Tag, b)));
+            if (o != .eq) return o;
+            switch (a) {
+                inline else => |x, tag| return order(x, @field(b, @tagName(tag))),
+            }
+        },
+        .void => return .eq,
+        else => @compileError("rig.order: no order of " ++ @typeName(T)),
+    }
+}
+
+fn orderElements(a: anytype, b: @TypeOf(a)) std.math.Order {
+    const n = @min(a.len, b.len);
+    for (a[0..n], b[0..n]) |x, y| {
+        const o = order(x, y);
+        if (o != .eq) return o;
+    }
+    return std.math.order(a.len, b.len);
 }
 
 // -----------------------------------------------------------------------------
