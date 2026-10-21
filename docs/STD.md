@@ -35,7 +35,7 @@ never read as the library's.
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | copying bytes between files and sockets: `copy` |
 | [`std.time`](#stdtime) | clocks and sleeping |
-| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
+| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
@@ -484,7 +484,7 @@ it cannot be mixed up with the wall clock's nanoseconds.
 | `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
 | `sleep(ns: Int)!` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
-| `within[R](ns: Int, f: ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. Inside another deadline, the earlier one holds. It calls `f` exactly once, so a closure written in the call may move what it captures: `time.within(d, \|<t\| >t!)` waits for a task with a deadline ([SPEC §18](../SPEC.md#deadlines)) |
+| `within[R](ns: Int, f: once ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(d, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
 ```rig

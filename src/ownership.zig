@@ -309,6 +309,9 @@ const Var = struct {
     /// Resource captured into a closure environment (`|+x|`, `|~x|`,
     /// `|<x|`): the body sees a view of the env slot.
     capture_resource: bool = false,
+    /// A parameter written `f: once ?fun() -> T`: a call of it, or a
+    /// pass to another `once` parameter, uses it up (`walkCall`).
+    once: bool = false,
     /// A match payload binding that does not own what it binds
     /// (`bindPayload`): the match reads or writes its subject rather
     /// than taking it, and the binding is no copy. It views the var
@@ -673,6 +676,9 @@ pub const Checker = struct {
     /// storage of their own (`holdForCall`): each ends when its call
     /// returns (`endCallHeld`).
     call_held: std.ArrayList(VarId) = .empty,
+    /// The positions where a `once` parameter is used as it may be: the
+    /// callee of a call, or an argument to another `once` parameter.
+    once_uses: std.ArrayList(u32) = .empty,
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
@@ -761,6 +767,7 @@ pub const Checker = struct {
         self.part_temps.deinit(self.gpa);
         self.kept_lends.deinit(self.gpa);
         self.call_held.deinit(self.gpa);
+        self.once_uses.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
         self.trail.deinit(self.gpa);
@@ -1978,6 +1985,7 @@ pub const Checker = struct {
             .kind = .param,
             .ref = ref,
             .param_index = if (self.func.binding_params and index < @bitSizeOf(sema.ParamMask)) @intCast(index) else null,
+            .once = if (self.sema) |ctx| if (ctx.parser) |prs| prs.isOnceParam(p) else false else false,
         }, .{});
         // Views handed in by the caller: an external loan on the param
         // itself marks them as returnable and conflict-free. It is a
@@ -2406,6 +2414,10 @@ pub const Checker = struct {
             try self.errClosureValue(pos, name);
             return .{};
         }
+        if (v.once and std.mem.findScalar(u32, self.once_uses.items, pos) == null) {
+            try self.errOnceUse(node);
+            return .{};
+        }
         try self.checkReadable(id, self.takePlaceRead(node), pos);
         return self.varValue(id);
     }
@@ -2469,8 +2481,17 @@ pub const Checker = struct {
     fn checkLive(self: *Checker, id: VarId, pos: u32) Error!bool {
         if (self.defer_floor) |floor| try self.checkDeferredReach(id, floor, pos);
         if (self.flowLive(id)) return true;
+        const v = self.vars.items[id];
+        if (v.once) {
+            try self.err(pos, "`{s}` is called at most once (`once`), and it is used up already", .{v.name});
+            const f = self.flows.items[id];
+            if (self.loop != null and f.at >= (self.step_at orelse pos) and !self.in_defer) {
+                try self.note(f.at, "`{s}` was used here, in a previous iteration of the loop", .{v.name});
+            } else try self.note(f.at, "`{s}` was used here", .{v.name});
+            return false;
+        }
         const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
-        try self.err(pos, "use of `{s}` after {s}", .{ self.vars.items[id].name, what });
+        try self.err(pos, "use of `{s}` after {s}", .{ v.name, what });
         try self.noteInvalidated(id, pos);
         return false;
     }
@@ -4252,7 +4273,12 @@ pub const Checker = struct {
     /// runs (`holdForCall`), so a view of that ends with it.
     fn walkCall(self: *Checker, node: Sexp) Error!Value {
         const mark = self.call_held.items.len;
+        const once_mark = self.once_uses.items.len;
+        const used = try self.onceUses(node);
         const v = try self.walkCallBody(node);
+        self.once_uses.shrinkRetainingCapacity(once_mark);
+        // A `once` parameter called, or passed to another, is used up.
+        for (used) |u| if (self.flowLive(u.id)) try self.markInvalid(u.id, .moved, u.pos);
         const out = try self.endCallHeld(node, mark, v);
         // Each result keeps only what the call's value still carries.
         if (self.results_of) |r| if (sameNode(r.node, node) and out.loans.len != v.loans.len) {
@@ -4265,6 +4291,46 @@ pub const Checker = struct {
             self.results_of = .{ .node = node, .parts = parts };
         };
         return out;
+    }
+
+    const OnceUse = struct { id: VarId, pos: u32 };
+
+    /// The `once` parameters call `node` uses up: its callee, and each
+    /// argument that fills a parameter its own callee calls at most once.
+    /// Any other argument that is one is reported: the callee could call
+    /// it again.
+    fn onceUses(self: *Checker, node: Sexp) Error![]const OnceUse {
+        var out: std.ArrayList(OnceUse) = .empty;
+        const callee = ir.Call.callee(node);
+        if (callee == .src) if (self.onceVar(callee)) |id| {
+            try out.append(self.arena(), .{ .id = id, .pos = callee.src.pos });
+            try self.once_uses.append(self.gpa, callee.src.pos);
+        };
+        const params = if (self.sema) |ctx| ctx.callParamsOf(node) else null;
+        for (ir.Call.args(node), 0..) |a, ai| {
+            const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (value != .src) continue;
+            const id = self.onceVar(value) orelse continue;
+            if (params) |p| if (p.fillsOnce(ai)) {
+                try out.append(self.arena(), .{ .id = id, .pos = value.src.pos });
+                try self.once_uses.append(self.gpa, value.src.pos);
+                continue;
+            };
+            try self.errOnceUse(value);
+            try self.once_uses.append(self.gpa, value.src.pos);
+        }
+        return out.items;
+    }
+
+    /// The `once` parameter `e` names, if it is one.
+    fn onceVar(self: *const Checker, e: Sexp) ?VarId {
+        const id = self.find(self.text(e)) orelse return null;
+        return if (self.vars.items[id].once) id else null;
+    }
+
+    fn errOnceUse(self: *Checker, e: Sexp) Error!void {
+        const name = self.text(e);
+        try self.err(e.src.pos, "`{s}` is called at most once (`once`), so it is only called, `{s}()`, or passed to another `once` parameter", .{ name, name });
     }
 
     /// Hold `v`, the value of `node`, which the emitted call keeps in
@@ -5316,8 +5382,9 @@ pub const Checker = struct {
                 .cap_clone => !self.copies(ty),
                 .cap_weak, .cap_move, .cap_read, .cap_write => true,
             };
-            // A closure called exactly once takes what it owns of its
-            // captures, as a function takes a parameter given by value.
+            // A closure its callee calls at most once (`f: once ?fun()`)
+            // takes what it owns of its captures, as a function takes a
+            // parameter given by value.
             const once = if (self.sema) |ctx| if (ctx.symbolOf(name)) |sym| ctx.isOnceCapture(sym) else false else false;
             _ = try self.addVar(.{
                 .name = self.text(name),

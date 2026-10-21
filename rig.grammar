@@ -408,6 +408,7 @@ tokens
 
     # Parameters, fields, and enum members
     ":"                         name:leaf type
+    once                        name:leaf type   # `f: once ?fun() -> T`; the Parser wrapper makes it a `:`
     default                     name:leaf type value
     valued                      name:leaf value
     variant                     name:leaf params:group
@@ -495,7 +496,7 @@ tokens
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
-    OF: "`of`", OBJ: "`obj`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`"
+    OF: "`of`", OBJ: "`obj`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`", ONCE: "`once`"
     DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", TASK_AMP: "`&`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL: "`$`", LABEL_COLON: "`:`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
@@ -552,6 +553,7 @@ tokens
     keyword             "of" before ' ' after ' '
     keyword             "from" [ \t]+ "static" not after [A-Za-z0-9_]
     keyword             ("from" | "keeps") before ' ' after ' ' [A-Za-z_@]
+    keyword             "once" before ': ' after ' ' [?*A-Za-z_(]
     keyword             "unique" before [A-Za-z0-9_\]] ' ' not after [ \t]* [^ \t#]
     keyword.control     ("break" | "continue") [ \t]+ label:('$' [A-Za-z_] [A-Za-z0-9_]*)
     label               '$' [A-Za-z_] [A-Za-z0-9_]* ':'
@@ -593,9 +595,10 @@ tokens
 # an obj header's name or type parameters (`obj Random unique`), `from`
 # after a function's result type (`-> ?Item from a`), `static` right after
 # that `from`, and `keeps` at the end of a function's header (`sub
-# watch(!@, s: ?String) keeps s`). Everywhere else each is a name.
+# watch(!@, s: ?String) keeps s`), and `once` before a parameter's type
+# (`f: once ?fun() -> Int`). Everywhere else each is a name.
 @keywords
-    ctx  unique from static keeps
+    ctx  unique from static keeps once
 
 @as IDENT = [ctx!]
 
@@ -760,6 +763,7 @@ fields   = field                                    → (1)
 # Parameters, struct fields, and enum variants share one shape.
 field    = fname
          | name:fname ":" type:type                 → (:)
+         | name:fname ":" ONCE type:type            → (once)       # a parameter called at most once
          | name:fname ":" type:type "=" value:expr  → (default)
          | "?" operand:fname                        → (read)       # `?@`
          | "!" operand:fname                        → (write)      # `!@`

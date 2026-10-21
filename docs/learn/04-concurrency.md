@@ -554,6 +554,32 @@ check by hand. Inside another deadline, the earlier one holds. A loop
 that reaches no waiting point is not stopped, so a long computation
 calls `task.check()!` where stopping is safe.
 
+A task started before the deadline gets one too. `time.within` calls
+its closure once, so the closure may move the task in, `|<t|`, and
+wait for it:
+
+```rig
+use std.time
+
+fun fetch(ms: Int) -> Int!
+  time.sleep(ms * time.MS)!
+  ms
+
+sub main()
+  t = fetch(60_000)&
+  print(time.within(20 * time.MS, |<t| >t!) catch -1)
+```
+
+```output
+-1
+```
+
+Past the deadline the wait cancels `t` and fails. A closure is
+otherwise kept for every call, so it cannot give up what it holds;
+`within` declares that it calls its closure once, `f: once ?fun() ->
+R!`, and only a closure passed to such a parameter may move a capture
+out.
+
 ## Each element on several tasks
 
 `par.map` and `par.each` of `std.par` spread a loop over the cores:
@@ -665,15 +691,13 @@ keep tasks from racing, and a task's owner is where it ends.
 
 ## What is not there yet
 
-The scheduler runs on macOS and Linux, on arm64 and x86-64. A task
-holds at least one page of stack, so it costs about 17 KiB on the Mac
-and 5.2 KiB on Linux, against about 300 bytes in Tokio. A deadline
-applies to the tasks started inside `time.within`, not yet to a task
-started before it. A cycle through a channel, or through a full
-mailbox, is not yet reported. Networking is TCP and an HTTP/1.1 server,
-with no TLS or HTTP client yet. Proofs in Lean cover models of the
-wait protocol and of task ownership, but not yet data-race freedom for
-the full model.
+The scheduler runs on macOS and Linux, on arm64 and x86-64. A task holds
+at least one page of stack, so it costs about 17 KiB on the Mac and 5.2
+KiB on Linux, against about 300 bytes in Tokio. A cycle through a
+channel, or through a full mailbox, is not yet reported. Networking is
+TCP and an HTTP/1.1 server, with no TLS or HTTP client yet. Proofs in
+Lean cover models of the wait protocol and of task ownership, but not
+yet data-race freedom for the full model.
 
 ## Where to go next
 

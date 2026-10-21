@@ -231,6 +231,24 @@
       ^ variable.special
             ^ operator
 > 
+> fun run(f: once ?fun() -> Int) -> Int
+  ^^^^ keyword
+      ^^^ function
+         ^ punctuation
+          ^ variable.parameter
+           ^ punctuation
+             ^^^^ keyword
+                  ^ storage.modifier
+                   ^^^ keyword
+                      ^^ punctuation
+                         ^^ operator
+                            ^^^ type
+                               ^ punctuation
+                                 ^^ operator
+                                    ^^^ type
+>   f()
+     ^^ punctuation
+> 
 > fun table() -> String from static
   ^^^^ keyword
       ^^^^^ function

@@ -707,7 +707,9 @@ sign -1
 - A `sub` that may fail ends its header with `!`:
   `sub save(p: Page)!`. A `fun` that may fail returns `T!`.
 - A parameter is `name: Type`, and may have a default:
-  `by: Int = 10`. A parameter the body ignores may be named `_`.
+  `by: Int = 10`. A parameter the body ignores may be named `_`. A
+  closure the body calls at most once is written `f: once ?fun() -> T`
+  ([SPEC](SPEC.md#closures-called-once)).
 - A function always writes its parameter list, even when empty, as
   its calls (`f()`) and its type (`sub()`) do: `sub main()`,
   `fun answer() -> Int`.

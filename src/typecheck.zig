@@ -9383,6 +9383,12 @@ const Checker = struct {
         }
         const recorded: sema.CallParams = .{ .fills = fills, .origins = origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
+        // A closure literal passed to a parameter the callee calls at most
+        // once owns what it moves in, as its own parameters would.
+        if (origins.once != 0) for (args, 0..) |a, ai| {
+            const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (value.isKind(.lambda) and recorded.fillsOnce(ai)) try self.ctx.recordOnceClosure(value);
+        };
         // What the call may store outlives its statement. A place lent to
         // a parameter the call may keep is lent with `?` written (Core
         // sentence 4): one its callee's `keeps` names, and, where nothing
@@ -10844,7 +10850,6 @@ const Checker = struct {
             if (ct == null) if (try self.httpServe(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.ioCopy(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.taskSelect(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
-            if (ct == null) try self.onceClosure(id, method, args);
             return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         }
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
@@ -11551,16 +11556,6 @@ const Checker = struct {
         try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
         if (self.current_call) |call| try self.ctx.recordTaskJoin(call);
         return result;
-    }
-
-    /// `time.within(ns, |<t| ...)` of `std.time` calls its closure
-    /// exactly once, so a closure literal written there may move what it
-    /// owns of its captures (`SemContext.recordOnceClosure`).
-    fn onceClosure(self: *Checker, module_sym: SymbolId, name: []const u8, args: []const Sexp) Error!void {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return;
-        if (!std.mem.eql(u8, foreign.name, "std.time") or !std.mem.eql(u8, name, "within")) return;
-        if (args.len == 2 and args[1].isKind(.lambda)) try self.ctx.recordOnceClosure(args[1]);
     }
 
     /// `par.map(?xs, f, limit: n)` and `par.each(!xs, f, limit: n)` of

@@ -170,8 +170,8 @@ fail "within moves a capture once", "use of `r` after move", errors: 1
   print(n)
 
 fail "within a closure called more than once", "cannot move captured `r`: the closure keeps what it captures for every call", errors: 1
-  # Only `time.within`'s closure is called once: one lent elsewhere
-  # keeps its captures for every call.
+  # Only a closure passed to a `once` parameter is called once: one
+  # lent elsewhere keeps its captures for every call.
   obj Res
     id: Int
 
