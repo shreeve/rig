@@ -89,6 +89,11 @@ changed the language since it:
   a proven one (destination-passing, in [docs/internals/backlog.md](docs/internals/backlog.md), will make it one), and a
   large frame is never inlined; a fill a box or a local takes is built
   in place (docs/internals/INTERNALS.md, "The program's stack").
+- **Release builds:** a conversion to an unsigned integer type from a
+  signed one keeps its high bit (`U8(200) >= 128` is true), as do shift
+  amounts and `$fromBackingInt`: they cast through the unsigned type of
+  the source's width, since Zig 0.17 lowers a direct cast as LLVM
+  `trunc nsw`, which made such values poison.
 - **Compiler and tools:** a synthetic span outside its source reads as
   empty; the package cache and the build store have size caps;
   `src/parser.zig` is generated at build time from `rig.grammar`

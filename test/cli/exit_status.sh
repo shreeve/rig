@@ -1,6 +1,7 @@
 # `fun main() -> Int` sets the process's exit status, after main's drops,
 # its output, and the leak check; `sub main()` exits 0, or 1 when it
 # propagates an error.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >status.rig <<'EOF2'

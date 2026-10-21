@@ -2,6 +2,7 @@
 # reports each: `ok    test "name"`, or `FAIL  test "name": why`
 # for a test that returns an error, gives `false`, leaks, or panics (a
 # panic ends the run). The exit status is 1 when any test failed.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >util.rig <<'EOF'

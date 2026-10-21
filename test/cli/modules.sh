@@ -1,6 +1,7 @@
 # A program lives in its root file's directory: every `use` names a file
 # there, by its exact name. The root is emitted under a name no module
 # can have, and a deep import chain loads without recursion.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 # A module reached through a symlink into another directory still imports

@@ -4,6 +4,7 @@
 # run; the rest use `rig run`, which builds in the same mode and caches
 # its build for the next run.
 # timeout: 600
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 # Indexing and slicing stay checked under --release=fast.

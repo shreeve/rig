@@ -4,6 +4,7 @@
 # which made Zig's aarch64 build fail with `fixup value out of range`.
 # The program is written here, not kept as a case of test/rig, since the
 # reference checker takes memory quadratic in an arm's exits (docs/internals/backlog.md).
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 python3 - >build.rig <<'PY'

@@ -649,7 +649,7 @@ fn hashInt(x: anytype) u64 {
         return hashWord(w);
     }
     const v: if (info.signedness == .signed) i128 else u128 = x;
-    if (v >= 0 and v <= std.math.maxInt(u64)) return hashWord(@intCast(v));
+    if (v >= 0 and v <= std.math.maxInt(u64)) return hashWord(@intCast(unsigned(v)));
     if (v < 0 and v >= std.math.minInt(i64)) return hashWord(@bitCast(@as(i64, @intCast(v))));
     const bits: u128 = @bitCast(v);
     return hashMix(hashWord(@truncate(bits)), hashWord(@truncate(bits >> 64)));
@@ -2653,7 +2653,22 @@ inline fn laneShiftWhole(comptime op: Shift, v: anytype, amount: anytype) @TypeO
 
 /// A shift amount for every lane of `V`, in the width Zig shifts by.
 inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vector.len, std.math.Log2Int(@typeInfo(V).vector.child)) {
-    return @splat(@intCast(amount));
+    const A = @TypeOf(amount);
+    if (A == comptime_int) return @splat(amount);
+    // Through the unsigned type of its width (`unsigned`).
+    const u: @Int(.unsigned, @bitSizeOf(A)) = @intCast(amount);
+    return @splat(@intCast(u));
+}
+
+/// `x`, an integer, as the unsigned type of its width, for a cast to a
+/// narrower unsigned type: `@intCast(unsigned(x))`. Zig lowers a cast
+/// from a signed type to a narrower unsigned one as LLVM `trunc nsw`, a
+/// promise that the value fits the narrower *signed* type, so in a
+/// release build any value at or above the target's sign bit would be
+/// poison; from the unsigned type the narrowing is `trunc nuw`. A
+/// negative `x` fails this cast as it would the direct one.
+pub inline fn unsigned(x: anytype) @Int(.unsigned, @bitSizeOf(@TypeOf(x))) {
+    return @intCast(x);
 }
 
 /// `cur.lag[k](prev)`: lane `i` is `cur[i - k]` for `i >= k`, and

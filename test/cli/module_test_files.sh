@@ -2,6 +2,7 @@
 # only when it is the root of `rig test` (or `rig check --tests`): they
 # see its private names, and `rig run`, `rig check`, and an import of
 # the module leave them out.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 mkdir -p p/m

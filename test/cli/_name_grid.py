@@ -4,7 +4,7 @@ Zig: a name Zig reserves (`var`, `fn`, `u8`, `null`), a name the
 emitter or Zig's standard library uses (`std`, `rig`, `panic`, `debug`,
 `os`, `std_options`, `__rig_x`), and `_`, at every place a name stands.
 
-  test/cli/_name_grid.py <rig> [--jobs N] [--keep DIR] [SITE...]
+  test/cli/_name_grid.py <rig> [--jobs N] [--keep DIR] [--out DIR] [SITE...]
   test/cli/_name_grid.py --cases FILE
 
 Each site is a block for every name, and the sites are built as a few
@@ -580,6 +580,11 @@ def check_group(rig_bin, work, sites):
     return bad, count
 
 
+# Where each program builds: `--out DIR`, kept between runs so Zig
+# builds only what changed, else beside the program.
+OUT = None
+
+
 def check_names(rig_bin, d, sites, names):
     files, want, spans = program(sites, names)
     label = "+".join(sites)
@@ -587,7 +592,7 @@ def check_names(rig_bin, d, sites, names):
     bad = []
     # `rig run` checks the program first; a rejection names the blocks
     # its diagnostics point into.
-    r = rig(rig_bin, "run", path, os.path.join(d, "out"))
+    r = rig(rig_bin, "run", path, os.path.join(OUT, os.path.basename(d)) if OUT else os.path.join(d, "out"))
     got = r.stdout.rstrip("\n")
     blamed = blame(r.stderr, spans)
     if r.returncode and blamed:
@@ -626,6 +631,7 @@ def main():
     ap.add_argument("rig", nargs="?")
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--keep", help="write the programs here and keep them")
+    ap.add_argument("--out", help="build each program in a directory of its own here, kept between runs")
     ap.add_argument("--cases", help="write the rejected names' cases to this file")
     ap.add_argument("sites", nargs="*")
     a = ap.parse_args()
@@ -635,6 +641,8 @@ def main():
         return
     if not a.rig:
         ap.error("the rig to check is missing")
+    global OUT
+    OUT = a.out
     groups = [[s for s in g if not a.sites or s in a.sites] for g in GROUPS]
     groups = [g for g in groups if g]
     work = a.keep or tempfile.mkdtemp(prefix="name_grid_")

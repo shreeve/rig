@@ -6,6 +6,7 @@
 # is local and stays on its maker's worker, so it takes about 1x. The
 # best of three runs counts.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >spread.rig <<'EOF2'

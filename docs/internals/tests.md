@@ -104,38 +104,54 @@ crashes on fails too.
    of its own.
 2. **`code` and `fail`** cases are checked one by one: each is compiled
    alone, so one the compiler rejects affects no other.
-3. **`test` and `bomb`** cases are built into the area's **pack**: one
-   executable holding every such case, compiled once with one copy of
-   the runtime (`rig batch build`). Cases with `release: true` are also
-   built into a second pack, in Zig's safe mode.
+3. **`test` and `bomb`** cases are built into **packs**: one executable
+   holding the cases of several files of one family (the area's part
+   before `-`: `types-misc-1` is of `types`), up to 400 cases and never
+   part of a file, compiled once with one copy of the runtime (`rig
+   batch build`). Cases with `release: true` are also built into packs
+   of their own, up to 200 a pack, in Zig's safe mode.
 4. **Each case runs alone**, as its own process: `rig batch run PACK N`
    starts case `N`, so a panic, a leak, or a crash ends only that case.
    On macOS a case's panic files no crash report.
 5. **A case left out of a pack** (rig rejects it, or its Zig breaks the
    pack's build) runs alone, with `rig run`, and reports its own error.
-6. **Nothing unchanged is redone.** The runner first hashes each test
-   file with the compiler and itself; when that matches the last run's,
-   it reads nothing and queues the jobs it saved then. Otherwise it reads
-   the file, and keys each pack by the compiler and its cases' programs:
-   a pack whose key is unchanged is not built again, so editing only a
-   case's expected result rebuilds nothing, and when the key matches it
-   runs neither rig nor Zig. `rig batch build` keeps a key of its own, of every
-   file it writes, how Zig builds them, and which Zig, and skips Zig when it matches.
-   Changing a case rebuilds its file's packs alone; a new compiler
-   rebuilds them all.
+   A pack Zig will not build is built again without the programs Zig's
+   errors name, so only those run alone; when its errors name none, all
+   its cases do.
+6. **Nothing unchanged is redone.** The runner reads every file on each
+   run (well under a second for all of them), and keys each pack by the
+   compiler and its cases' programs: a pack whose key is unchanged is
+   not built again, so editing only a case's expected result rebuilds
+   nothing, and when the key matches it runs neither rig nor Zig. `rig
+   batch build` keeps a key of its own, of every file it writes, how Zig
+   builds them, and which Zig, and skips Zig when it matches. Changing a
+   case rebuilds its pack alone. A new compiler runs rig over every pack
+   again, but Zig only over the packs whose Zig it changed: a change to
+   the checkers alone compiles none, and a change to the runtime every
+   one.
+7. **Packs are shared.** Each builds in the build store,
+   `rig-build-store` in the repository's git directory (or
+   `$RIG_BUILD_STORE`; empty, in the pack's own directory), under a hash
+   of what Zig compiles, so a pack that any worktree has built, with the
+   same Zig, is never compiled again: a new worktree's first run
+   compiles only what its changes changed. Within a pack, a file that
+   several cases' programs share (a module of the standard library, for
+   one) is one file that Zig compiles once, not once a case. The runner
+   removes the store's entries that no build has used for five days.
 
 `test/rig.rip` does this with Rip's Swarm. Its setup builds the compiler
 with its own checks on (`-Dself-check=true`), the reference ownership
 checker, and the unit tests, in one `zig build` that compiles them at
 once, then reads the files. A pack that needs building is a job of its
-own, `build.zig.<file>.debug` or `.release`, which Swarm starts before
-every other job but `build.unit`: the jobs that need no pack (the
-scripts of `test/cli`, the oracle, `fail` and `code` cases) run while
-the packs compile, and a `test` or `bomb` case waits only for its own
-pack. Each job checks one case and lands in `done/` or, with its reason
-in `errors.log`, in `died/`. Swarm runs a job per CPU at once (`-w N`
-chooses another number; more than the CPUs is slower, as each job waits
-on a process of its own), and each job's time goes to `.swarm/times`.
+own, `build.zig.<rank>.<pack>.debug` or `.release`, which Swarm starts
+before every other job but `build.unit`, the largest first: the jobs
+that need no pack (the scripts of `test/cli`, the oracle, `fail` and
+`code` cases) run while the packs compile, and a `test` or `bomb` case
+waits only for its own pack. Each job checks one case and lands in
+`done/` or, with its reason in `errors.log`, in `died/`. Swarm runs a
+job per CPU at once (`-w N` chooses another number; more than the CPUs
+is slower, as each job waits on a process of its own), and each job's
+time goes to `.swarm/times`.
 
 Beside the test files, the runner reads the docs' examples, each
 ```` ```rig ```` block of a Markdown file a case (below), and two
@@ -196,7 +212,7 @@ opening fence, and the block that follows, give the contract:
 | ```` ```rig pending ```` | a rule decided but not built (below) |
 
 A block's program is named `main.rig`. Its `test` cases go into the
-doc's pack like any file's.
+docs' packs like any file's.
 
 A ```` ```rig pending ```` block shows a decided rule's behavior: with an
 `output` block a program that prints it, with an `error` block one the
@@ -211,7 +227,7 @@ opening fence (`SPEC.md:160`). `doc` names every doc's area.
 
 ## The pack
 
-A pack is the `test` and `bomb` cases of one file as one program. Given a
+A pack is the `test` and `bomb` cases of a few files as one program. Given a
 case's number, `PACK N` runs that case and nothing else, handing it the
 arguments after the number. Planned, so that each pack is a test suite of
 its own, runnable anywhere without a runner: its listing, numbered and
@@ -339,9 +355,10 @@ tests, and the oracle, the core is about 4,100 jobs and takes about 15
 seconds when nothing changed; `all`, with the 65 scripts of `test/cli`
 and the probes, about 8,200 jobs and a minute. A script keeps only what
 needs the command line and builds nothing it built before, so none takes
-more than about 20 seconds. After a change to the compiler, every pack
-compiles again, once: a run takes about four minutes on 5 cores,
-and the first jobs are done within a minute.
+more than about 20 seconds. After a change to the checkers alone, no
+pack compiles again; after a change to the runtime, every pack does,
+once, and the 31 packs of `all` take about 250 CPU seconds, where the
+167 packs of one file each took about 700.
 
 The verdicts are the same. A case runs in a few milliseconds; a warm
 run's time is the cases themselves, a few of which are deliberate

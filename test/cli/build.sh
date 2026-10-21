@@ -3,6 +3,7 @@
 # overflow checks. Its fast mode, with --release=fast, is built and run
 # by release_checks.sh.
 # timeout: 120
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >sum.rig <<'EOF'

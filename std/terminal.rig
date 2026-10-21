@@ -311,6 +311,13 @@ EXTRA: U64 = 0x20000000
 # so a selective erase, or any erase after SPA, leaves it.
 PROT: U64 = 0x10000000
 
+# A cell printed without a rune (a wide rune on a screen of one column):
+# empty, as Ghostty counts it, whatever its background.
+BARE: U64 = 0x08000000
+
+# The most rows of history a terminal makes room for before it needs them.
+HIST_ROOM = 65536
+
 # The kinds of protection a screen had last (SPA is ISO, DECSCA DEC).
 PROT_OFF = 0
 PROT_ISO = 1
@@ -332,13 +339,44 @@ fun rune(c: U64) -> Int
 fun mark(c: U64) -> Int
   Int(c >> 32)
 
+# The row of `cols` cells at `start` of `cells` as text onto `out`: its
+# chars, with `extras` their runes after the first, an empty cell a space
+# and the spacer of a wide rune left out, without the blanks at its end.
+sub row_text(out: !String, cells: ?List[U64], extras: ?hash.Map[Int, List[U32]], start: Int, cols: Int)
+  end = start + cols
+  while end > start and cells[end - 1] & EXTRA == 0 and (rune(cells[end - 1]) == 0 or rune(cells[end - 1]) == 0x20)
+    end -= 1
+  for i in start..end
+    continue if cells[i] & KIND == TAIL
+    r = rune(cells[i])
+    utf8.push_rune(!out, 0x20 if r == 0 else r)
+    if cells[i] & EXTRA != 0
+      if extras.get(i) as runes
+        for e in runes
+          utf8.push_rune(!out, Int(e))
+
+# A line `~Y FIRST-LAST STYLE` onto `out` per run of cells with the same
+# style, other than the plain one, in the row of `cols` cells at `base`.
+sub row_styles(out: !String, cells: ?List[U64], styles: ?List[Style], base: Int, cols: Int, y: Int)
+  first = 0
+  for x in 0..cols + 1
+    m = mark(cells[base + x]) if x < cols else -1
+    if x == cols or m != mark(cells[base + first])
+      k = mark(cells[base + first])
+      if k != 0 and not styles[k].is_plain()
+        !out.add("~", y, " ", first, "-", x - 1, " ")
+        line = String()
+        styles[k].text(!line)
+        !out.add(line, "\n")
+      first = x
+
 # A terminal of `cols` columns and `rows` rows. A cell is a U64: its rune in
-# the low 21 bits (0 for empty), PROT in bit 28, EXTRA in bit 29, its kind
-# (WIDE, TAIL, HEAD, or 0) in the next 2, and its style, an index into
-# `styles`, in the high 32. The screen's rows are kept in any order: row `y`
-# is cells `map[rot + y] * cols` to `map[rot + y] * cols + cols - 1`, and
-# its flags are `flags[map[rot + y]]`, so a scroll moves entries of `map`,
-# not cells.
+# the low 21 bits (0 for empty), BARE in bit 27, PROT in bit 28, EXTRA in
+# bit 29, its kind (WIDE, TAIL, HEAD, or 0) in the next 2, and its style,
+# an index into `styles`, in the high 32. The screen's rows are kept in
+# any order: row `y` is cells `map[rot + y] * cols` to
+# `map[rot + y] * cols + cols - 1`, and its flags are
+# `flags[map[rot + y]]`, so a scroll moves entries of `map`, not cells.
 pub obj Terminal
   # The bytes the terminal answers with (DA, DSR, DECRQM, XTVERSION, ...),
   # in order, for the caller to send to the program and then clear.
@@ -358,6 +396,15 @@ pub obj Terminal
   # The runes after the first of each cell with EXTRA, by its index in
   # `cells`.
   extras: hash.Map[Int, List[U32]]
+  # The history (scrollback) of the primary screen: the rows that scrolled
+  # off its top, at most `scrollback` of them, kept as rows of its `cells`
+  # (`other_cells` while the alternate screen is shown). `hist` holds them
+  # as a ring, the oldest at `hist_at`; `spare` holds rows the history let
+  # go, for reuse.
+  scrollback: Int
+  hist: List[Int]
+  hist_at: Int
+  spare: List[Int]
   # The styles cells use, the first the plain one.
   styles: List[Style]
   # Each style's index in `styles`, by its `style_key`.
@@ -451,8 +498,8 @@ pub obj Terminal
   decoder: utf8.Decoder
 
   # An empty terminal of `cols` by `rows`, the cursor at the top left and a
-  # tab stop every 8 columns.
-  pub fun new(cols: Int, rows: Int) -> Terminal
+  # tab stop every 8 columns, keeping up to `scrollback` rows of history.
+  pub fun new(cols: Int, rows: Int, scrollback: Int = 10000) -> Terminal
     tabs = List[Bool].filled(cols, false)
     for x in 0..cols
       tabs[x] = x % 8 == 0
@@ -460,6 +507,7 @@ pub obj Terminal
     for y in 0..rows
       map[y] = y
     Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
+      scrollback: scrollback if scrollback > 0 else 0, hist: List(), hist_at: 0, spare: List(),
       styles: List([Style.plain()]), style_ids: plain_ids(), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, protect: false, prot_mode: PROT_OFF, other_prot_mode: PROT_OFF, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
@@ -474,12 +522,12 @@ pub obj Terminal
     for _ in 0..(n if n > 1 else 1)
       (!@).print(U32(@last))
 
-  # RIS: everything as a new terminal of the same size has it, but the
-  # replies already made, which are sent.
+  # RIS: everything as a new terminal of the same size and scrollback has
+  # it, the history gone, but the replies already made, which are sent.
   sub full_reset(!@)
     sent = String()
     swap(!sent, !@replies)
-    @ = Terminal.new(@cols, @rows)
+    @ = Terminal.new(@cols, @rows, @scrollback)
     swap(!sent, !@replies)
 
   # The pen changed: find its index, and the index of an erased cell.
@@ -524,6 +572,7 @@ pub obj Terminal
       (!@).put(r, 0)
     else if @cols == 1
       (!@).put(0, 0)
+      @cells[@at(@row, 0)] |= BARE
     else
       if @col == @cols - 1
         return if not @autowrap
@@ -836,11 +885,12 @@ pub obj Terminal
     @pending_wrap = false
 
   # Down one row; at the bottom margin the scroll region scrolls up, its
-  # rows keeping their flags.
+  # rows keeping their flags, and a region at the top of the primary screen
+  # scrolls its top row into the history.
   sub index(!@)
     @pending_wrap = false
     if @row == @bottom
-      (!@).shift_up(@top, @bottom, 1)
+      (!@).shift_up(@top, @bottom, 1, @top == 0 and @keeps())
     else if @row < @rows - 1
       @row += 1
 
@@ -901,7 +951,8 @@ pub obj Terminal
   # Ghostty's splitCellBoundary: no wide rune is cut at column `x` of the
   # cursor's row; one that would be is emptied. At the row's end that is
   # the spacer of a wide rune that wrapped; at its start, the spacer a wide
-  # rune that wrapped into it left in the row before.
+  # rune that wrapped into it left in the row before, which may be in the
+  # history.
   sub split_at(!@, x: Int)
     p = @map[@rot + @row]
     base = p * @cols
@@ -909,9 +960,14 @@ pub obj Terminal
       if @flags[p] & ROW_WRAP != 0 and @cells[base + x - 1] & KIND == HEAD
         @cells[base + x - 1] = @blank_cell
       return
-    if x <= 1 and @row > 0 and @flags[p] & ROW_CONT != 0 and @cells[base] & KIND == WIDE
-      j = @map[@rot + @row - 1] * @cols + @cols - 1
-      @cells[j] = @blank_cell if @cells[j] & KIND == HEAD
+    if x <= 1 and @flags[p] & ROW_CONT != 0 and @cells[base] & KIND == WIDE
+      # The row before the screen's first is the newest in the history.
+      j = -1
+      if @row > 0
+        j = @map[@rot + @row - 1] * @cols + @cols - 1
+      else if not @alt and @hist.len > 0
+        j = @history_at(@hist.len - 1) + @cols - 1
+      @cells[j] = @blank_cell if j >= 0 and @cells[j] & KIND == HEAD
     if x > 0 and @cells[base + x - 1] & KIND == WIDE
       (!@).blank(base + x - 1, base + x + 1)
 
@@ -939,10 +995,46 @@ pub obj Terminal
       i += 1
       j -= 1
 
+  # Whether rows scrolled off the top of the screen go into the history:
+  # on the primary screen, with scrollback.
+  fun keeps(?@) -> Bool
+    not @alt and @scrollback > 0
+
+  # Row `p`, scrolled off the top of the primary screen, joins the history,
+  # and the row to take its place, to be erased, is the oldest in the
+  # history when it is full, else one it let go, else a new one.
+  fun keep_row(!@, p: Int) -> Int
+    if @hist.len == @scrollback
+      q = @hist[@hist_at]
+      @hist[@hist_at] = p
+      @hist_at = 0 if @hist_at == @scrollback - 1 else @hist_at + 1
+      return q
+    !@hist.push(p)
+    if (!@spare).pop() as q
+      return q
+    q = @flags.len
+    if q == @rows
+      # The first row past the screen's makes room for the history at once,
+      # up to HIST_ROOM rows, so the cells grow without being copied.
+      room = @scrollback if @scrollback < HIST_ROOM else HIST_ROOM
+      !@cells.reserve(room * @cols)
+      !@flags.reserve(room)
+      !@ends.reserve(room)
+      !@hist.reserve(room)
+    !@cells.resize(@cells.len + @cols, 0)
+    !@flags.push(0)
+    !@ends.push(0)
+    q
+
   # The rows `first` to `last` move up `n`; the `n` at the bottom are
   # blank. Rows move as entries of `map`: a rotation, by three reversals.
-  sub shift_up(!@, first: Int, last: Int, n: Int)
+  # With `keep` (`first` is 0) the rows that leave go into the history, and
+  # rows from `keep_row` come in for them.
+  sub shift_up(!@, first: Int, last: Int, n: Int, keep: Bool = false)
     k = n if n < last - first + 1 else last - first + 1
+    if keep
+      for y in first..first + k
+        @map[@rot + y] = (!@).keep_row(@map[@rot + y])
     if k == 1
       # The common scroll, by one row: the top row's entry moves to the
       # bottom. When the whole screen scrolls, the window of `map` moves
@@ -978,11 +1070,13 @@ pub obj Terminal
 
   # The scroll region moves up `n` rows (SU); the cursor stays. Ghostty
   # scrolls a region at the top of a screen with scrollback as an index
-  # does, and any other as DL at its top, which unwraps its rows.
+  # does, into the history, and any other as DL at its top, which unwraps
+  # its rows.
   sub scroll_up(!@, n: Int)
     return if n == 0
-    (!@).unwrap_rows(@top, @bottom) if @top > 0 or (@alt and @bottom < @rows - 1)
-    (!@).shift_up(@top, @bottom, n)
+    keep = @top == 0 and @keeps()
+    (!@).unwrap_rows(@top, @bottom) if @top > 0 or (not keep and @bottom < @rows - 1)
+    (!@).shift_up(@top, @bottom, n, keep)
 
   # The scroll region moves down `n` rows (SD, and RI at the top margin);
   # the cursor stays. As IL at its top in Ghostty, it unwraps its rows.
@@ -1111,9 +1205,10 @@ pub obj Terminal
     @pending_wrap = false
 
   # ED: 0 from the cursor to the end of the screen, 1 from its start to the
-  # cursor, 2 the whole screen; 3 the scrollback, which holds nothing yet.
-  # Protected cells stay after SPA, and in a `selective` erase (DECSED);
-  # rows erased so keep their flags, as in Ghostty.
+  # cursor, 2 the whole screen; 3 the history, of the screen in use; 22
+  # the screen into the history (`scroll_clear`). Protected cells stay
+  # after SPA, and in a `selective` erase (DECSED); rows erased so keep
+  # their flags, as in Ghostty.
   sub erase_display(!@, how: Int, selective: Bool = false)
     keep = selective or @prot_mode == PROT_ISO
     match how
@@ -1126,7 +1221,50 @@ pub obj Terminal
       2
         (!@).erase_rows(0, @rows, keep)
         @pending_wrap = false
+      3
+        (!@).erase_history() if not @alt
+      22
+        (!@).scroll_clear()
       _ => pass
+
+  # ED 3: the history is empty, its rows spare, to be erased as they are
+  # used again.
+  sub erase_history(!@)
+    for p in @hist
+      !@spare.push(p)
+    !@hist.keep(0)
+    @hist_at = 0
+
+  # Whether the cell at `i` is empty, as Ghostty's isEmpty has it: no rune,
+  # no spacer, and no background but on a cell printed BARE.
+  fun is_empty(?@, i: Int) -> Bool
+    c = @cells[i]
+    rune(c) == 0 and c & KIND == 0 and (c & BARE != 0 or @styles[mark(c)].bg == NONE)
+
+  # ED 22, Ghostty's scrollClear: the screen up to its last row with a cell
+  # not empty scrolls up out of it, into the history on the primary
+  # screen, and as many plain rows come in at the bottom. The cursor moves
+  # up with its row, or home when its row has gone.
+  sub scroll_clear(!@)
+    n = @rows
+    while n > 0
+      base = @map[@rot + n - 1] * @cols
+      x = 0
+      while x < @cols and @is_empty(base + x)
+        x += 1
+      break if x < @cols
+      n -= 1
+    @pending_wrap = false
+    return if n == 0
+    kept = @blank_cell
+    @blank_cell = 0
+    (!@).shift_up(0, @rows - 1, n, @keeps())
+    @blank_cell = kept
+    if @row < n
+      @row = 0
+      @col = 0
+    else
+      @row -= n
 
   # Rows `first` to `last` (not included) erased as `blank_rows` erases
   # them, but with `keep` those cells protected stay, and the rows' flags.
@@ -1160,10 +1298,17 @@ pub obj Terminal
     @bottom = @rows - 1
     (!@).set_origin(false)
     (!@).cursor_to(1, 1)
-    !@cells[..].fill(U64(0x45) | (@pen_bits ^ (@pen_bits & PROT)))
-    !@flags[..].fill(0)
-    !@ends[..].fill(@cols)
-    !@extras.clear()
+    e = U64(0x45) | (@pen_bits ^ (@pen_bits & PROT))
+    for y in 0..@rows
+      p = @map[@rot + y]
+      base = p * @cols
+      if @flags[p] & ROW_MORE != 0
+        for i in base..base + @cols
+          if @cells[i] & EXTRA != 0
+            _ = (!@extras).take(i)
+      !@cells[base..base + @cols].fill(e)
+      @flags[p] = 0
+      @ends[p] = @cols
 
   sub backspace(!@)
     @pending_wrap = false
@@ -1412,44 +1557,58 @@ pub obj Terminal
           (!@).restore_cursor()
       _ => pass
 
-  # The screen and cursor as text: a line per row, `|` and the row's runes
-  # with its trailing blanks dropped (an empty cell is a space, a cell
-  # shows its whole char, and the spacer of a wide rune is left out); a line
-  # `~ROW FIRST-LAST STYLE` per run of cells in a row with the same style
-  # other than the plain one (Style.text); a line `reply BYTES` when there
-  # are replies, each byte below 0x20 or above 0x7E written `\xNN`, ESC
-  # `\e`, and `\` doubled; then `cursor ROW COL`, with ` wrap` when a wrap
-  # is pending.
-  pub fun dump(?@) -> String
+  # The rows in the history, at most the `scrollback` given to `new`.
+  pub fun history_len(?@) -> Int
+    @hist.len
+
+  # Row `i` of the history, from 0, the oldest, to `history_len() - 1`, as
+  # `dump` shows a row's text (without the `|`); empty for any other `i`.
+  pub fun history_row(?@, i: Int) -> String
     out = String()
-    for y in 0..@rows
-      start = @map[@rot + y] * @cols
-      end = start + @cols
-      while end > start and @cells[end - 1] & EXTRA == 0 and (rune(@cells[end - 1]) == 0 or rune(@cells[end - 1]) == 0x20)
-        end -= 1
-      !out.push('|')
-      for i in start..end
-        continue if @cells[i] & KIND == TAIL
-        r = rune(@cells[i])
-        utf8.push_rune(!out, 0x20 if r == 0 else r)
-        if @cells[i] & EXTRA != 0
-          if @extras.get(i) as runes
-            for e in runes
-              utf8.push_rune(!out, Int(e))
+    if i >= 0 and i < @hist.len
+      (?@).history_text(!out, i)
+    out
+
+  # The cells of row `i` of the history.
+  fun history_at(?@, i: Int) -> Int
+    j = @hist_at + i
+    @hist[j - @hist.len if j >= @hist.len else j] * @cols
+
+  # Row `i` of the history as `dump` shows its text, onto `out`.
+  sub history_text(?@, out: !String, i: Int)
+    if @alt
+      row_text(!out, ?@other_cells, ?@other_extras, @history_at(i), @cols)
+    else
+      row_text(!out, ?@cells, ?@extras, @history_at(i), @cols)
+
+  # The screen and cursor as text: the history, a line per row oldest
+  # first, `^` and the row's text; a line per row of the screen, `|` and
+  # the row's text, its runes with its trailing blanks dropped (an empty
+  # cell is a space, a cell shows its whole char, and the spacer of a wide
+  # rune is left out); a line `~ROW FIRST-LAST STYLE` per run of cells in a
+  # row with the same style other than the plain one (Style.text), the
+  # history's rows numbered from -1, the newest, up; a line `reply BYTES`
+  # when there are replies, each byte below 0x20 or above 0x7E written
+  # `\xNN`, ESC `\e`, and `\` doubled; then `cursor ROW COL`, with ` wrap`
+  # when a wrap is pending. Without `history`, the screen alone.
+  pub fun dump(?@, history: Bool = true) -> String
+    out = String()
+    n = @hist.len if history else 0
+    for i in 0..n
+      !out.push('^')
+      (?@).history_text(!out, i)
       !out.push("\n")
     for y in 0..@rows
-      base = @map[@rot + y] * @cols
-      first = 0
-      for x in 0..@cols + 1
-        m = mark(@cells[base + x]) if x < @cols else -1
-        if x == @cols or m != mark(@cells[base + first])
-          k = mark(@cells[base + first])
-          if k != 0 and not @styles[k].is_plain()
-            !out.add("~", y, " ", first, "-", x - 1, " ")
-            line = String()
-            @styles[k].text(!line)
-            !out.add(line, "\n")
-          first = x
+      !out.push('|')
+      row_text(!out, ?@cells, ?@extras, @map[@rot + y] * @cols, @cols)
+      !out.push("\n")
+    for i in 0..n
+      if @alt
+        row_styles(!out, ?@other_cells, ?@styles, @history_at(i), @cols, i - n)
+      else
+        row_styles(!out, ?@cells, ?@styles, @history_at(i), @cols, i - n)
+    for y in 0..@rows
+      row_styles(!out, ?@cells, ?@styles, @map[@rot + y] * @cols, @cols, y)
     if @replies.len > 0
       !out.add("reply ")
       for b in @replies

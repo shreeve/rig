@@ -6,6 +6,7 @@
 # timer or the socket, and must be done long before the spin is.
 # Built with --release=fast, as the timings mean nothing otherwise.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >timers.rig <<'EOF'
