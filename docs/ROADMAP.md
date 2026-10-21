@@ -20,7 +20,7 @@ items, with their probe cases, are in
 - **A labeled value loop on the right of a binding** (`x = $l: for ...`), which needs a grammar change without conflicts.
 - **APIs** (`api Shape`), in the five stages of [design/apis.md](design/apis.md), whose first two, method calls on a type parameter and built-in bounds (`[K: Hash]`), are built: APIs of a program's own, with `add Int: Shape` for a type declared elsewhere, and API objects (`?{Shape}`, `^{Shape}`, `*{Shape}`), each when a program needs it.
 - **Conditional compilation** on the target's operating system and CPU features and the build mode, as `std.target` gives the architecture (`target.arch`).
-- **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes computed from a compile-time parameter (`[n * 2]Int`, `[cap(n)]Int`), so a failure is a Rig diagnostic rather than a Zig error.
+- **More compile-time functions** (the first form is built, SPEC "Compile-time functions"): a call over an enclosing generic's parameter and arithmetic on one in a type (`[cap[n]]Int`, `[n * 2]Int`), by hidden compile-time arguments the checker computes per instance; then text parameters (`hash[s: Static]`), plain objects, and reading module array constants in a body.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Drop bodies for enums and generic types.**
 

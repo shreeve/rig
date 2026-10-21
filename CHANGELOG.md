@@ -192,6 +192,21 @@ changed the language since it:
   works in a generic body on a `[]T` through the APIs a type gives, and
   a closure written at the call is inlined in a release build, as fast
   as the loop written out (docs/STD.md, "reduce").
+- **Compile-time functions:** a `fun` with only a bracket parameter
+  list, `fun cap[n: Int] -> Int`, runs in the checker, and its call
+  `cap[8]` is a constant wherever one may stand: an expression, a module
+  constant, an array length (`[cap[4] * 2]Int`), a type argument
+  (`Ring[Int, cap[1]]`), an enum value, and from another module. Its
+  parameters are integers, `Bool`, and plain enums, its result one of
+  those or a fixed array of them, and its body a fixed list of forms
+  (locals, arithmetic, `if`, `match`, loops, arrays, and calls of other
+  compile-time functions, recursion included). Overflow, a bad index,
+  a `panic`, and more than 10,000,000 steps or 256 nested calls are Rig
+  diagnostics at the call. Emit writes the value as a literal and never
+  the function (SPEC, "Compile-time functions").
+- **A closure stored into an existing slot:** a closure literal assigned
+  to a `fun` local or through a write view is rejected as escaping its
+  scope; it was accepted and failed in emit.
 - **Optionals:** an object's `T?` of at most 8 bytes, such as one of
   a single `U32` field, is written in one store of its full width, the
   payload and its flag byte together, so a later read of the whole value
@@ -292,9 +307,14 @@ first step is on `main` (SPEC §18):
   `task.select` commits exactly one of its arms (`tasks.Chan`,
   `selectArms`). `task.supervise(f, restarts:, per:)` runs a
   function isolated again after it fails or panics.
+- **Function values cross:** a `fun` or `sub` value is a named
+  function's address and holds nothing, so a task given or lent one,
+  alone or inside an object, a List, or a channel, runs on any core. A
+  callable view `?fun` and an owned closure `*fun` or `~fun` go to no
+  task.
 - **Local tasks:** a task given or lent what stays on one thread (a
   `*T` whose count is not atomic, a `Cell` of more than one word, a
-  `Signal`, a function) is local: it and the task making it are
+  `Signal`) is local: it and the task making it are
   pinned to one worker, whose pinned queue no other worker steals
   from (`sema.localBlocker`, `Task.spawnLocal`, `sched.pinHere`).
 - **The scheduler's cost:** `bench/tasks` times it against Tokio and Go, and
