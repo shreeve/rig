@@ -3,6 +3,7 @@
 # (`__rig_names`) and into each type it emits (`__rig_name`). The
 # runtime's code that names a type (`rig.typeName`) spells none itself,
 # so renaming a type is a change to the printer alone.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >main.rig <<'EOF2'

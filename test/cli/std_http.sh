@@ -6,6 +6,7 @@
 # small through the environment (RIG_HTTP_IDLE_MS, RIG_HTTP_HEAD_MS,
 # RIG_HTTP_MAX_BODY); in debug and --release.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >srv.rig <<'EOF2'

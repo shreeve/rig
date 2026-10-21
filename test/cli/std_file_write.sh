@@ -3,6 +3,7 @@
 # one an error without, and each failure a FileError; in
 # debug (sanitized) and --release, and from tasks.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >write.rig <<'EOF2'

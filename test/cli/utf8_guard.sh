@@ -13,6 +13,7 @@
 # capacity is its length. `RIG_STD` adds `std.guard`, the Zig that maps
 # the pages. One program does each, chosen by its argument.
 # timeout: 120
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 mkdir lib

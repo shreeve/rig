@@ -41,7 +41,7 @@ cmp -s facts.txt again.txt || fail "two dumps of one program differ"
 "$RIG" emit main.rig >main.zig 2>err.txt || fail "rig emit: $(cat err.txt)"
 expect_has "$(cat main.zig)" '__rig_recv_' "the receiver's storage"
 expect_has "$(cat main.zig)" '__rig_ix_' "the index's storage"
-"$RIG" run main.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
+rig run main.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
 expect_has "$(cat run.txt)" '4' "the program's output"
 
 # A value emit reaches by address where Zig holds it, in no slot, is a
@@ -75,7 +75,7 @@ EOF2
 out=$(cat zt.txt)
 expect_has "$out" 'zig_temp call 18:22-18:28 "mkr(5)" owned statement' "a made leaf no slot keeps"
 expect_has "$out" 'zig_temp array 18:41-18:50 "[1, 2, 3]" owned statement' "a temporary array lent to a call"
-"$RIG" run zig_temp.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
+rig run zig_temp.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
 expect_has "$(cat run.txt)" '5 6' "the program's output"
 
 cat >bad.rig <<'EOF2'

@@ -36,15 +36,21 @@ expect_has() { grep -qF -- "$2" <<<"$1" || fail "$3: lacks [$2] in: $1"; }
 expect_rc() { [[ "$1" -eq "$2" ]] || fail "$3: exit status $1, expected $2"; }
 
 # rig <command> [options] <file.rig>: "$RIG" with an output directory of
-# its own for each root file, under $RIG_OUT_DIR/programs/. Zig keeps one
+# its own for each root file and each setting of the variables that
+# change what rig emits, under $RIG_OUT_DIR/programs/. Zig keeps one
 # cached build per root path and flags, and every program's root is
 # `__rig_main.zig` in its output directory, so programs built in one
-# directory evict each other and rebuild cold on every run. The harness
-# keeps each program's Zig cache between runs.
+# directory, or one program built with and without RIG_LEAK_TRACE,
+# evict each other and rebuild cold on every run. The harness keeps each
+# program's Zig cache between runs.
 rig() {
-    local a root=""
+    local a v root="" dir
     for a in "$@"; do [[ $a == *.rig ]] && root=${a%.rig}; done
-    RIG_OUT_DIR="$RIG_OUT_DIR/programs/${root//\//_}" "$RIG" "$@"
+    dir=${root//\//_}
+    for v in RIG_LEAK_TRACE RIG_NO_PROOFS RIG_SANITIZE RIG_STRICT_OPTIONALS RIG_VERIFY_PROOFS RIG_STD; do
+        [[ -n ${!v:-} ]] && dir+="+$v=${!v//\//_}"
+    done
+    RIG_OUT_DIR="$RIG_OUT_DIR/programs/$dir" "$RIG" "$@"
 }
 
 # zig_once <output>... -- <input>... -- <zig> <args>...: a Zig command

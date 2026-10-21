@@ -4,6 +4,7 @@
 # FileError; and every call a fallible waiting point, failing in a
 # task past its deadline or canceled. In debug (sanitized) and --release.
 # timeout: 300
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >ops.rig <<'EOF2'

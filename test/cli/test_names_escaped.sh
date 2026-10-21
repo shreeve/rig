@@ -1,5 +1,6 @@
 # `rig test` writes a test's name the way it is spelled in the source,
 # with any quote inside it escaped.
+# builds: shared
 source "$ROOT/test/cli/_lib.sh"
 
 cat >main.rig <<'EOF'
