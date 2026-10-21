@@ -38,6 +38,44 @@ pub fn returnType(fun_or_sub: Sexp) Sexp {
     return if (fun_or_sub.isKind(.fun)) ir.Fun.returns(fun_or_sub) else .nil;
 }
 
+/// Whether the function body `body` ends in a panic on every path: its
+/// last statement panics, or is an `if` with an `else` or a `match`
+/// each of whose branches does, and nothing in it returns or passes a
+/// failure or a `none` on first.
+pub fn alwaysPanics(body: Sexp) bool {
+    if (holdsExit(body)) return false;
+    return endsInPanic(body);
+}
+
+fn endsInPanic(s: Sexp) bool {
+    const h = s.kind() orelse return false;
+    return switch (h) {
+        .panic => true,
+        .block => blk: {
+            const items = ir.Block.stmts(s);
+            break :blk items.len > 0 and endsInPanic(items[items.len - 1]);
+        },
+        .@"if" => ir.If.@"else"(s) != .nil and endsInPanic(ir.If.then(s)) and endsInPanic(ir.If.@"else"(s)),
+        .match => for (ir.Match.arms(s)) |arm| {
+            if (!endsInPanic(ir.Arm.body(arm))) break false;
+        } else ir.Match.arms(s).len > 0,
+        else => false,
+    };
+}
+
+/// Whether `e` holds a `return`, or a `!` or `?` that passes a failure
+/// or a `none` on, outside the closures in it.
+fn holdsExit(e: Sexp) bool {
+    if (e != .list) return false;
+    if (e.kind()) |h| switch (h) {
+        .lambda => return false,
+        .@"return", .propagate, .propagate_none => return true,
+        else => {},
+    };
+    for (e.items()) |c| if (holdsExit(c)) return true;
+    return false;
+}
+
 /// A fallible `sub`: `sub save(p: Page)!`.
 pub fn subFails(fun_or_sub: Sexp) bool {
     return fun_or_sub.isKind(.sub) and ir.Sub.fails(fun_or_sub) != .nil;
