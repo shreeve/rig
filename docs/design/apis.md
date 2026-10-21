@@ -1,17 +1,18 @@
-# Traits: the design
+# APIs: the design
 
-This is the record of how Rig gains traits, bounds, and trait objects,
+This is the record of how Rig gains APIs, bounds, and API objects,
 in five stages. The owner approved it as the direction. Each stage is
 built when a program needs it, and each section says whether its stage
 is built. Two panels of three experts wrote the reports behind it, kept
-as written in [traits-panel/](traits-panel/README.md); where a report
-and this page differ, this page holds.
+as written in [traits-panel/](traits-panel/README.md), and a third
+panel chose the words, in [naming-panel/](naming-panel/README.md); where
+a report and this page differ, this page holds.
 
 ## Why, and why in stages
 
 **Generics** let one piece of code work for many types: `List[T]`,
 `Map[K, V]`, `Task[T]`, `fun max[T](a: T, b: T)`. Rig has them and uses
-them everywhere. **Traits and bounds** say what those types must be
+them everywhere. **APIs and bounds** say what those types must be
 able to do. Rig has none: a generic body is checked against every
 instance the program makes, with the error at the call and a note at
 the body line ([SPEC, Generic bodies](../../SPEC.md#generic-bodies)).
@@ -40,20 +41,60 @@ it.
 |---|---|---|---|
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]` | *(planned)* |
-| 3 | user traits, dispatched at compile time | `trait`, `obj X: T`, `impl X: T` | *(planned)* |
-| 4 | trait objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
-| 5 | shared trait objects, and trait objects crossing tasks | `*{Shape}`, `^{Job + Moves}` | *(planned)* |
+| 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `extend X: A` | *(planned)* |
+| 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
+| 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Moves}` | *(planned)* |
 
 Two principles hold across every stage:
 
-- **Ownership stays visible.** A trait method declares how it takes
+- **Ownership stays visible.** An API's method declares how it takes
   self, `?@`, `!@`, or `<@`, and what its result views and its call
-  keeps, `from` and `keeps`, exactly as a method does. Nothing a trait
+  keeps, `from` and `keeps`, exactly as a method does. Nothing an API
   adds hides a move, a lend, or a store.
 - **Dispatch stays visible, and its cost with it.** A call through a
-  bound is a direct call at no cost. A call through a trait object is
+  bound is a direct call at no cost. A call through an API object is
   an indirect call, and only a type written in braces makes one, so
   the braces mark the cost.
+
+## The words
+
+```text
+api Shape                              # what a Shape can do: methods only, no fields
+  fun area(?@) -> Float                # required: no body
+  sub describe(?@)                     # default, built only on the API; a type may override it
+    print("area", @area())
+
+obj Square: Shape + Print              # Square provides Shape and Print
+extend Int: Shape                      # Int provides Shape, written in Shape's module
+api Widget: Shape + Named + Print      # a named combination
+fun total[T: Shape](xs: ?List[T])      # any T that provides Shape
+?{Shape}   ^{Job + Moves}              # any value that provides Shape
+```
+
+- **`api`** declares a named set of methods a type provides: required
+  ones, with no body, and defaults, written only in terms of the API's
+  own methods. It holds no fields and no state. It is the API, not the
+  implementation, which lives in the types that provide it.
+- **A type provides an API on its header,** `obj Square: Shape`, read
+  "`Square` provides `Shape`". **`extend Int: Shape`** provides one for
+  a type one does not own.
+- **`+` joins APIs,** in a header, a bound, and braces alike.
+- **Every default may be overridden** by a method of the same
+  signature; a method with a default's name and another signature is an
+  error.
+- **The built-in APIs keep short names,** `Eq`, `Hash`, `Ord`, `Print`,
+  `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Num`, `Iter`, and an
+  error about one says what cannot be done: "`Label` cannot be hashed".
+- **`api` and `extend` are keywords only at the start of a
+  declaration,** so `user.api` and an `extend` method keep working.
+  `trait` and `impl` stay reserved only to say "write `api`" and "write
+  `extend`".
+- **`{Iter[Item: Int]}`** is kept free to name an API object's
+  associated type, and a bare API name in a type is an error, so a
+  later form has its spelling.
+- **"Contract" is kept for another idea.** A later feature of
+  preconditions and postconditions would be spelled `requires` and
+  `ensures`, never with the word contract.
 
 ## Stage 1: methods on a type parameter *(built)*
 
@@ -214,11 +255,11 @@ fun max[T: Ord](a: T, b: T) -> T
 hash.Map[K: Hash, V]
 ```
 
-**The built-in traits.** Two kinds, split along the mantra: facts the
+**The built-in APIs.** Two kinds, split along the mantra: facts the
 compiler derives from a type's parts, which no type ever declares, and
 capabilities a type may give its own meaning.
 
-| Trait | Means | A type writes |
+| API | Means | A type writes |
 |---|---|---|
 | `Copy` | a bare use copies | never: plain data and read views |
 | `Clone` | `+x` makes a new owner | never; implied by `Copy` |
@@ -236,7 +277,7 @@ capabilities a type may give its own meaning.
 loan. A Cell's elements need both.
 
 **Giving a capability a meaning of one's own.** A type changes `==`,
-hashing, ordering, or printing only by naming the trait on its header,
+hashing, ordering, or printing only by naming the API on its header,
 `obj Name: Eq + Hash`, and writing the method. A method that is merely
 named `eq` or `hash` stays an ordinary method, as it is today, which
 removes SPEC §5's trap. Naming `Ord` without an `order` method orders
@@ -271,10 +312,10 @@ implied wherever the type is named; `sort`, `search`, `lower_bound`,
 written into the signature, and the runtime's `rig.eql`, `rig.hash`,
 and `rig.compare` call a type's own methods where it declares them.
 
-## Stage 3: traits of your own *(planned)*
+## Stage 3: APIs of your own *(planned)*
 
 ```text
-pub trait Shape
+pub api Shape
   fun area(?@) -> Float
 
   fun describe(?@) -> String          # a default method
@@ -293,53 +334,56 @@ fun total[T: Shape](xs: ?List[T]) -> Float
   t
 ```
 
-**A trait** is a named set of methods: a member without a body is
+**An API** is a named set of methods: a member without a body is
 required, one with a body is a default. `Self` is the conforming type
-and `@` its value, as in an `obj`. A trait may build on others,
-`trait Named: Print`, and name a type its conformers choose, an
+and `@` its value, as in an `obj`. An API may build on others,
+`api Named: Print`, and name a type each provider chooses, an
 associated type, `type Item`, read as `I.Item`. A subtrait inherits its
 supertraits' methods exactly: it may not redeclare or re-default them,
 and two defaults for one method are an error until the type writes the
 method. A default's `from` and `keeps` are as written, never inferred
-from its body. Associated constants, and traits with parameters of
-their own (`trait Into[T]`), wait for a later decision.
+from its body. Associated constants, and APIs with parameters of
+their own (`api Into[T]`), wait for a later decision.
 
-**Conformance is written on the type's header,** `obj Square: Shape`,
+**A type provides an API on its header,** `obj Square: Shape`,
 beside `unique` (`obj Ticket unique: Print`). The type's methods are
 ordinary methods, in its body or beside it. A method that meets a `pub`
-trait on a `pub` type says `pub`; leaving it off is an error with the
+API on a `pub` type says `pub`; leaving it off is an error with the
 fix.
 
-**`impl Type: Trait`** is for the two cases the header cannot say:
+**`extend Type: API`** is for the two cases the header cannot say:
 
-- a type of another module, or a built-in type, written in the trait's
-  module: `impl Int: Shape`;
-- a conformance that holds only under a bound: `impl Wrap[T: Shape]: Shape`.
+- a type of another module, or a built-in type, written in the API's
+  module: `extend Int: Shape`;
+- a conformance that holds only under a bound: `extend Wrap[T: Shape]: Shape`.
 
-An `impl` in the type's own module with no bound is rejected toward the
-header form, so each case has one spelling. Rust's `impl Trait for
-Type` is not used: `for` is Rig's loop word.
+An `extend` in the type's own module with no bound is rejected toward
+the header form, so each case has one spelling. An extension's
+methods stay inside it and need no `pub`: they belong to the API, and
+never become methods of the type for every importer. `extend` names
+the act, as Swift's `extension` does; Rust's `impl Trait for Type` is
+not used, and `for` is Rig's loop word.
 
-**Coherence.** A type meets a trait at most once in the whole program,
-in its own module or the trait's. There are no impls for a bare type
-parameter, at most one impl per trait and type constructor, and none
-whose conditions overlap. A bound is met if an impl exists anywhere in
-the program; only the `c.area()` shorthand depends on what a module
-imports. A retroactive impl may not define a method the type already
+**Coherence.** A type provides an API at most once in the whole program,
+in its own module or the API's. There are no extensions of a bare
+type parameter, at most one per API and type constructor, and none
+whose conditions overlap. A bound is met if the type provides the API
+anywhere in the program; only the `c.area()` shorthand depends on what a module
+imports. An extension may not define a method the type already
 has, and never adopts an existing method as an implementation. When two
-imported traits give one type a method of one name, `c.area()` is an
-error that says to name the trait: `Shape.area(c)`, with self's sigil
+imported APIs give one type a method of one name, `c.area()` is an
+error that says to name the API: `Shape.area(c)`, with self's sigil
 written as at any call.
 
-**How an implementation must match its trait.** Exactly, in how it
+**How an implementation must match its API.** Exactly, in how it
 takes self (`?@`, `!@`, `<@`), in each parameter's type and mode, views
 included, in `once`, and in its result. Only `from` and `keeps` may
-narrow: an implementation may name fewer than the trait, compared by
-parameter position, never more. A call through a bound uses the trait's
-clauses, which every implementation is within. In a trait, a method
+narrow: an implementation may name fewer than the API, compared by
+parameter position, never more. A call through a bound uses the API's
+clauses, which every implementation is within. In an API, a method
 whose result could hold a view must write its `from`; there is no
-default. An implementation that keeps what its trait does not would let
-a call through the trait end a loan the implementation still holds, so
+default. An implementation that keeps what its API does not would let
+a call through the API end a loan the implementation still holds, so
 it is rejected where it is declared.
 
 **Bounds.** In the brackets, always, since brackets mean compile time:
@@ -356,8 +400,8 @@ parameter with a lowercase one, so `[T: Ord]` and `[n: Int]` read
 apart; each mistake has its own error.
 
 **What a bounded body may do.** Call what its bounds declare, and use
-what the built-in bounds name, and no more. Actors never meet a user
-trait: `*Actor[A]` meets none, and nothing lends a view of an actor's
+what the built-in bounds name, and no more. Actors never provide a
+user API: `*Actor[A]` meets none, and nothing lends a view of an actor's
 value, so no bound reaches an actor's state around its mailbox.
 
 **Public generics state their bounds.** In this stage a `pub` generic
@@ -372,7 +416,7 @@ type (`x * 300` with `T = U8`).
 one compile-time parameter after the type it bounds, its witness, and
 the call is written `W_T_Shape.area(x)`: the type itself for a
 conformance on its header, or a module-level `__rig_impl_Shape_Int` for
-an `impl`. Instances stay one per type, so code size does not change.
+an extension. Instances stay one per type, so code size does not change.
 A generic type's witnesses are compile-time parameters of its methods,
 never of the type, so one Rig type stays one Zig type. Every method
 call records how it dispatches, `direct`, `static`, or `dynamic`, and
@@ -382,19 +426,19 @@ call records how it dispatches, `direct`, `static`, or `dynamic`, and
 **The errors a reader meets first**, each with its fix:
 
 ```text
-`Shape` is a trait, not a type: write `[T: Shape]` for one type known when compiling, or `?{Shape}` for any type at run time
+`Shape` is an API, not a type: write `[T: Shape]` for one type known when compiling, or `?{Shape}` for any type at run time
 `T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`
-`total[Label]` cannot use `T = Label`: `total` needs `T: Shape`, and `Label` is not `Shape`; declare `obj Label: Shape`
-`Square` is declared `Shape` but has no method `area`; declare `fun area(?@) -> Float` in `Square`
-`Counter.next` takes `self` as `?@`, but `Source` declares `next(!@)`; a method meets its trait with the same self: write `fun next(!@) -> Item?`
+`total[Label]` cannot use `T = Label`: `total` needs `T: Shape`, and `Label` does not provide `Shape`; declare `obj Label: Shape`
+`Square` provides `Shape` but has no method `area`; declare `fun area(?@) -> Float` in `Square`
+`Counter.next` takes `self` as `?@`, but `Source` declares `next(!@)`; a method meets its API with the same self: write `fun next(!@) -> Item?`
 `Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
-`c.area()` could call `Shape.area` or `Region.area`, which both apply to `geo.Circle`; name the trait: `Shape.area(c)`
+`c.area()` could call `Shape.area` or `Region.area`, which both apply to `geo.Circle`; name the API: `Shape.area(c)`
 ```
 
-## Stage 4: trait objects *(planned)*
+## Stage 4: API objects *(planned)*
 
-A **trait object** is a value of some type that meets a trait, chosen
-when the program runs. It is written as the trait in braces, behind a
+An **API object** is a value of some type that provides an API, chosen
+when the program runs. It is written as the API in braces, behind a
 view or a box:
 
 ```text
@@ -412,7 +456,7 @@ sub main()
 ```
 
 **The braces.** `{Shape}` reads as set notation: some member of the set
-of types that are `Shape`. Braces hold only traits, so `{T}` of a type
+of types that are `Shape`. Braces hold only APIs, so `{T}` of a type
 parameter and `{Square}` of a type are errors. A bare `{Shape}` has no
 size of its own and is rejected toward `?{Shape}` or `^{Shape}`. The
 holding sigils keep their meanings, so no new rule is needed for them:
@@ -421,7 +465,7 @@ holding sigils keep their meanings, so no new rule is needed for them:
 |---|---|---|---|
 | `?{Shape}` | a read view | `?@` | yes, as a read view does |
 | `!{Shape}` | a write view | `?@`, `!@` | never |
-| `^{Shape}` | a box, an owner | `?@`, `!@` (through `!b`), `<@` (`<b.m()` frees the box) | `+b` only when the trait requires `Clone` |
+| `^{Shape}` | a box, an owner | `?@`, `!@` (through `!b`), `<@` (`<b.m()` frees the box) | `+b` only when the API requires `Clone` |
 
 Braces mean nothing else in Rig, outside string escapes, so they cannot
 be misread. A map or set literal, if Rig ever has one, sits in an
@@ -446,8 +490,8 @@ numeric code, prefer a bound.
   box.
 - A method with compile-time parameters of its own, with `Self` outside
   `@`, or with no self, is not callable through an object; the rest of
-  the trait is, and the error says why for that method.
-- A call through an object uses the trait method's `from` and `keeps`,
+  the API is, and the error says why for that method.
+- A call through an object uses the API method's `from` and `keeps`,
   which every implementation is within. An owned closure is the case of
   one method with no clauses, so today's closure rules are unchanged.
 - A `^{Shape}` carries the loans of what it was made from, as a `^T`
@@ -458,11 +502,11 @@ numeric code, prefer a bound.
   from one object type to another, and a marker supertrait never makes
   an object form `Copy` or crossing: each form takes its facts from its
   own kind.
-- A trait object does not cross to another task in this stage; a task
+- A API object does not cross to another task in this stage; a task
   that takes one is local.
 
-**Lowering.** A trait object is a fat pointer, `{ptr, vt}`, sixteen
-bytes, with one static table per trait and type, made only where a
+**Lowering.** A API object is a fat pointer, `{ptr, vt}`, sixteen
+bytes, with one static table per API and type, made only where a
 conversion to that object is written. Each table entry calls the method
 through a small function, since Zig takes no address of an inline
 function, so the method stays inlinable everywhere else. A pointer to
@@ -471,7 +515,7 @@ is not used.
 
 ## Stage 5: shared objects, and crossing tasks *(planned)*
 
-- **`*{Shape}`**, a counted handle to a trait object, calls only `?@`
+- **`*{Shape}`**, a counted handle to an API object, calls only `?@`
   methods, as any handle does; `+s` counts. Its table also holds the
   count operations, since a `Shared`'s layout and whether its counts
   are atomic depend on the hidden type. **`~{Shape}`** is its weak
@@ -489,7 +533,7 @@ is not used.
 |---|---|---|---|
 | 1 | per-instance typing of the call; the function-value ownership rule | the same rule, read from the call's facts | nothing |
 | 2 | bounded parameters held to their bounds; marker facts | computes the marker facts itself; a copy of a bounded `T` needs `Copy` | `Copy` only of plain kinds |
-| 3 | conformance, coherence, clauses within the trait's by position | conformance clauses checked on its own | a subsumption lemma: a call checked against wider clauses is sound for any callee within them |
+| 3 | conformance, coherence, clauses within the API's by position | conformance clauses checked on its own | a subsumption lemma: a call checked against wider clauses is sound for any callee within them |
 | 4 | object facts; no assignment through `!{...}` | object facts computed itself; abstains on a dynamic call until then | erasing a type keeps its loans |
 | 5 | count operations in the table; crossing bounds at erasure | crossing facts of objects | crossing obligations |
 
@@ -498,17 +542,17 @@ is not used.
 - **Extending duck typing to every operation** (Zig, C++): kept, for a
   parameter with no bound, in Stage 1. Alone it leaves signatures
   silent and lets two methods of one name meet by accident.
-- **Structural traits** (Go): any type with the methods meets the trait.
-  Rejected for user traits: accidental conformance, and no home for
+- **Structural APIs** (Go): any type with the methods provides the API.
+  Rejected for a program's own APIs: accidental conformance, and no home for
   defaults or associated types. Built-in capabilities are structural,
   as derived facts.
 - **Conformance in `impl` blocks only** (Rust): a type's methods split
-  across blocks. The header says what a type is; `impl` stays for the
+  across blocks. The header says what a type is; `extend` is for the
   two cases it cannot.
 - **A `where` clause**: every bound fits in the brackets.
-- **Trait objects spelled bare** (`?Shape`): reads as a concrete type and
+- **API objects spelled bare** (`?Shape`): reads as a concrete type and
   hides the cost. **`dyn`**: jargon. **`Dyn[Shape]`**: brackets would
-  hand a trait to a type with no values of its own. **`any`**: a word
+  hand an API to a type with no values of its own. **`any`**: a word
   where the mantra wants a mark, since dispatch is a mechanic. Braces
   won.
 - **`Move` and `Share`, or `Sends`**: every owner moves, so the task
@@ -516,4 +560,4 @@ is not used.
 - **Requiring bounds on every generic**: 300 to 500 of the suite's
   generics would change, for no reader a private generic has. Only
   `pub` generics must state their bounds.
-- **Trait objects now**: enums and closures cover today's programs.
+- **API objects now**: enums and closures cover today's programs.

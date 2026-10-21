@@ -70,8 +70,8 @@ changed the language since it:
   instance as the built-in operations are: the instance's type declares
   the method, taking self as the sigil says, the arguments the body
   passes, and giving the result the body takes from where the call
-  stands (SPEC "Generic bodies", traits Stage 1 in
-  [docs/design/traits.md](docs/design/traits.md)).
+  stands (SPEC "Generic bodies", Stage 1 of
+  [docs/design/apis.md](docs/design/apis.md)).
 - **Evaluation order:** every assignment evaluates its value first,
   then its target's steps, then stores; the order is one recorded fact
   (`storage.SetOrder`, `storage.eachSetStep`) that emit and the
