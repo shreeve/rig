@@ -25,12 +25,12 @@ fn class(r: i64) u8 {
 }
 
 pub fn is_id_start(r: i64) bool {
-    if (0 <= r and r < 128) return (ascii_start >> @intCast(r)) & 1 != 0;
+    if (0 <= r and r < 128) return (ascii_start >> @truncate(@as(u64, @bitCast(r)))) & 1 != 0;
     return class(r) & 2 != 0;
 }
 
 pub fn is_id_continue(r: i64) bool {
-    if (0 <= r and r < 128) return (ascii_continue >> @intCast(r)) & 1 != 0;
+    if (0 <= r and r < 128) return (ascii_continue >> @truncate(@as(u64, @bitCast(r)))) & 1 != 0;
     return class(r) & 1 != 0;
 }
 
