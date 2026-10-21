@@ -208,9 +208,11 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
-        // `>t`, rewritten to a call before any pass reads a statement.
-        .wait => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        // `>t`, rewritten to a call; `f: once T`, rewritten to a
+        // parameter; and `a..=b`, rewritten to an inclusive `..`: each
+        // before any pass reads a statement.
+        .wait, .once, .@"..=" => .none,
     };
 }
 
@@ -401,6 +403,12 @@ pub fn isBracketList(e: Sexp) bool {
 pub fn isMethodCallee(callee: Sexp) bool {
     if (callee.isKind(.member)) return true;
     return isBracketList(callee) and ir.get(callee, .object).isKind(.member);
+}
+
+/// Whether range `r`, a `..` or a range pattern, includes its end:
+/// `a..=b`.
+pub fn isInclusive(r: Sexp) bool {
+    return ir.get(r, .inclusive) != .nil;
 }
 
 /// A slice, `xs[a..b]`: an index node whose index is a range.
@@ -1356,7 +1364,7 @@ pub const Lexer = struct {
             // A member may start a line inside brackets, continuing a
             // chain from the line before.
             .dot => if (after_value) (if ((before and !self.startsLine(tok)) or after) .member else null) else if (after) .enum_dot else null,
-            .dotdot => if (!after_value) (if (after) .range_end else null) else if (before != after) (if (before) .infix_before else .infix_after) else null,
+            .dotdot, .dotdot_eq => if (!after_value) (if (after) .range_end else null) else if (before != after) (if (before) .infix_before else .infix_after) else null,
             .dotdot_open => if (after_value and before) .range_end else null,
             .lparen, .lbracket => if (after_value and before and !self.startsLine(tok)) .call_bracket else null,
             else => if (after_value and isInfix(cat) and before != after) (if (before) .infix_before else .infix_after) else null,
@@ -1812,7 +1820,7 @@ fn isValue(cat: TokenCat) bool {
 /// not touch a jump's label (`break $outer-1`, `break $outer.red`).
 fn startsOperand(cat: TokenCat) bool {
     return isSigil(cat) or switch (cat) {
-        .lparen, .lbracket, .dot, .dotdot, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq => true,
+        .lparen, .lbracket, .dot, .dotdot, .dotdot_eq, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq => true,
         else => false,
     };
 }
@@ -2136,6 +2144,9 @@ pub const Parser = struct {
     /// `(move place)` receivers written in front of the call
     /// (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The node ids of the parameters written `f: once ?fun() -> T`,
+    /// each made a `(: f type)` (`isOnceParam`).
+    once_params: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// For each `for` whose `?` before its source reaches the receiver
     /// of a method call by the receiver-sigil rule
     /// (`for x in ?b.each()`), the source with the sigil there,
@@ -2193,12 +2204,27 @@ pub const Parser = struct {
         if (self.failure == null) {
             const lexer = &self.base.lexer;
             for (lexer.layouts[0..lexer.layout_count]) |sp| {
+                if (self.afterOnce(sp)) continue;
                 const d: diag.Diagnostic = .{ .severity = .@"error", .pos = sp.pos, .end = sp.pos + sp.len, .message = self.layoutMessage(sp) };
                 if (self.failure == null) self.failure = d else try self.more_failures.append(self.allocator(), d);
             }
         }
         if (self.failure != null) return error.ParseError;
         return tree;
+    }
+
+    /// Whether spacing record `sp` is the sigil that starts the type after
+    /// `once` in a parameter (`f: once ?fun() -> T`), where `once` is a
+    /// keyword, not a value the sigil would follow.
+    fn afterOnce(self: *Parser, sp: Lexer.Layout) bool {
+        const src = self.base.source;
+        var i = sp.pos;
+        while (i > 0 and isSpace(src[i - 1])) i -= 1;
+        if (i < 4 or !std.mem.eql(u8, src[i - 4 .. i], "once")) return false;
+        var j = i - 4;
+        if (j > 0 and (std.ascii.isAlphanumeric(src[j - 1]) or src[j - 1] == '_')) return false;
+        while (j > 0 and isSpace(src[j - 1])) j -= 1;
+        return j > 0 and src[j - 1] == ':';
     }
 
     /// Why an operator's spacing is wrong, with the text to write.
@@ -2212,11 +2238,11 @@ pub const Parser = struct {
         return switch (sp.kind) {
             .infix_before => if (prefixMeaning(op)) |m|
                 self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s} {s} {s}` to {s}, or `{s}, {s}{s}` to {s} `{s}` as a value of its own", .{ left, op, right, left, op, right, m.infix, left, op, right, m.prefix, right })
-            else if (std.mem.eql(u8, op, ".."))
+            else if (std.mem.eql(u8, op, "..") or std.mem.eql(u8, op, "..="))
                 self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s}{s}{s}` or `{s} {s} {s}`", .{ left, op, right, left, op, right, left, op, right })
             else
                 self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s} {s} {s}`", .{ left, op, right, left, op, right }),
-            .infix_after => if (std.mem.eql(u8, op, ".."))
+            .infix_after => if (std.mem.eql(u8, op, "..") or std.mem.eql(u8, op, "..="))
                 self.format("`{s}{s} {s}`: an operator has the same spacing on both sides; write `{s}{s}{s}` or `{s} {s} {s}`", .{ left, op, right, left, op, right, left, op, right })
             else
                 self.format("`{s}{s} {s}`: an operator has the same spacing on both sides; write `{s} {s} {s}`", .{ left, op, right, left, op, right }),
@@ -2233,7 +2259,7 @@ pub const Parser = struct {
             .range_end => if (sp.pos + sp.len < src.len and src[sp.pos + sp.len] == ']')
                 self.format("a range's `..` touches its only bound; write `{s}..`", .{left})
             else
-                self.format("a range's `..` touches its only bound; write `..{s}`", .{right}),
+                self.format("a range's `{s}` touches its only bound; write `{s}{s}`", .{ op, op, right }),
             .closure_hanging => self.format("a closure body below its bar list ends with `{s}` on a line of its own: end this line before the `{s}`, and write `{s}` on the next line at the indentation of the line that opened it (column {d}); a one-line body may instead follow the bar list on its line", .{ op, op, op, sp.column + 1 }),
             .closure_close => self.format("a closure body below its bar list ends where the `{c}` around it stands alone at the start of a line, at the indentation of the line that opened it (column {d})", .{ closerOf(src, sp), sp.column + 1 }),
             .closure_indent => self.format("write this `{s}`, which ends a closure body below its bar list, at the indentation of the line that opened it (column {d})", .{ op, sp.column + 1 }),
@@ -2488,14 +2514,20 @@ pub const Parser = struct {
     fn openRange(self: *Parser, tok: Token) ?diag.Diagnostic {
         const lexer = &self.base.lexer;
         const at: Token, const side: []const u8 = switch (tok.cat) {
-            .dotdot => .{ tok, "a start" },
+            .dotdot, .dotdot_eq => .{ tok, "a start" },
             .dotdot_open => .{ tok, if (lexer.before_cat == .lbracket) "both ends" else "an end" },
             else => blk: {
                 // The real token before this one; a layout token is not
                 // one, so the last real token is.
                 const cat, const pos = if (tok.len > 0) .{ lexer.before_cat, lexer.before_pos } else .{ lexer.prev_cat, lexer.prev_pos };
-                if (cat != .dotdot or tok.cat == .err) return null;
-                if (tok.cat == .assign and tok.pos == pos + 2) return self.inclusiveRange(pos);
+                if ((cat != .dotdot and cat != .dotdot_eq) or tok.cat == .err) return null;
+                if (cat == .dotdot_eq) {
+                    // The `..=` ends where the space before this token
+                    // starts.
+                    var end = if (tok.len > 0) tok.pos else pos + 3;
+                    while (end > 3 and isSpaceBefore(self.base.source[end - 1])) end -= 1;
+                    return .{ .severity = .@"error", .pos = end - 3, .end = end, .message = "`a..=` needs the end it includes; only `..` leaves a slice's end open: `xs[a..]`" };
+                }
                 break :blk .{ .{ .cat = .dotdot, .pre = 0, .pos = pos, .len = 2 }, "an end" };
             },
         };
@@ -2624,22 +2656,6 @@ pub const Parser = struct {
         if (!comma) return null;
         const first = start + @as(u32, @intCast(std.mem.find(u8, src[start..end], line).?));
         return .{ .severity = .@"error", .pos = first, .end = first + @as(u32, @intCast(line.len)), .message = self.format("results are written `return {s}`", .{line}) };
-    }
-
-    /// `0..=3`: Rig's ranges exclude their end. Reported at the `..=`.
-    fn inclusiveRange(self: *Parser, at: u32) diag.Diagnostic {
-        var probe = BaseLexer.init(self.base.source);
-        probe.pos = at + 3;
-        const end = probe.next();
-        const text = probe.text(end);
-        const n = if (end.cat == .integer) std.fmt.parseInt(i64, text, 0) catch null else null;
-        const fix = if (n) |v|
-            self.format("`..={s}` is written `..{d}`", .{ text, v + 1 })
-        else if (isWord(end.cat))
-            self.format("`..={s}` is written `..{s} + 1`", .{ text, text })
-        else
-            "`..=b` is written `..b + 1`";
-        return .{ .severity = .@"error", .pos = at, .end = at + 3, .message = self.format("a range excludes its end: {s}", .{fix}) };
     }
 
     /// A note for a parse error inside a bracket opened on an earlier
@@ -3047,6 +3063,12 @@ pub const Parser = struct {
                 self.touchesOperand(out);
                 return self.waitCall(out);
             },
+            .once => {
+                const param = try self.base.newNode(.@":", &.{ ir.get(out, .name), ir.get(out, .type) }, self.span(out));
+                try self.once_params.put(self.allocator(), param.list.id, {});
+                return param;
+            },
+            .@"..=" => return self.base.newNode(.@"..", &.{ ir.get(out, .left), ir.get(out, .right), .{ .tag = .inclusive } }, self.span(out)),
             .member, .index, .inst => self.waitTakesName(out, ir.get(out, .object)),
             .call => self.waitTakesName(out, ir.Call.callee(out)),
             .share, .box => try self.noteParenSuffix(out),
@@ -3499,6 +3521,12 @@ pub const Parser = struct {
     /// receiver: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
     pub fn isReceiverSigil(self: *const Parser, node: Sexp) bool {
         return node == .list and self.receiver_sigils.contains(node.list.id);
+    }
+
+    /// Whether `node`, a `(: name type)`, was written `name: once type`:
+    /// a parameter the function calls at most once.
+    pub fn isOnceParam(self: *const Parser, node: Sexp) bool {
+        return node == .list and self.once_params.contains(node.list.id);
     }
 
     /// Where the token after the sigil that starts `node` starts, past

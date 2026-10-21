@@ -523,6 +523,106 @@ Unicode's tables did. UTF-16 is history: systems built when 16 bits
 were thought enough kept it, so Rig gives it a module for code that must
 agree and no more.
 
+## Names that are values
+
+Not every word in a program is text. A shape's kind, an option's key,
+or a header's name is a name the program compares and passes around,
+and never slices or prints by the byte. Rig writes one as a symbol, a
+`:` touching the name:
+
+```rig
+fun area(shape: Symbol, w: Int, h: Int) -> Int
+  match shape
+    :rect => w * h
+    :triangle => w * h / 2
+    _ => 0
+
+sub main()
+  print(area(:rect, 3, 4), area(:triangle, 3, 4), area(:circle, 3, 4))
+  s = :content-type
+  print(s, s.text, s.text.len)
+  print(Symbol.from_text("rect") == :rect, Symbol.from_text("hexagon"))
+```
+
+```output
+12 6 0
+:content-type content-type 12
+true none
+```
+
+`:rect` is a value of type `Symbol`. It costs what an `Int` costs: it is
+copied, holds no bytes of its own, and is compared in one step, not byte
+by byte. `==` and `!=` are its only comparisons, and `s.text` gives its
+name as a `Static`. A symbol is never declared first: every symbol the
+program writes, in any module, is one of its values.
+`Symbol.from_text` turns text read at run time into the symbol with
+that name, or `none` when the program writes no such symbol.
+
+Because any name is a symbol, a `match` on one cannot list them all,
+and must say what happens to the rest:
+
+```rig reject
+fun area(shape: Symbol, w: Int, h: Int) -> Int
+  match shape
+    :rect => w * h
+    :triangle => w * h / 2
+
+sub main()
+  print(area(:rect, 3, 4))
+```
+
+```error
+`match` on a `Symbol` is not exhaustive without `_ =>`: a symbol's values are every symbol the program writes
+```
+
+The same openness makes a misspelled symbol just another symbol:
+`:rcet` would fall to `_ =>`. When the names form a closed set and a
+typo should stop the build, declare an enum instead. Its variants are
+written with `.`, and only those it lists exist:
+
+```rig reject
+enum Shape
+  rect
+  triangle
+
+fun area(shape: Shape, w: Int, h: Int) -> Int
+  match shape
+    .rect => w * h
+    .triangle => w * h / 2
+
+sub main()
+  print(area(.rect, 3, 4), area(.rcet, 3, 4))
+```
+
+```error
+no variant `rcet` on enum `Shape`
+```
+
+A symbol is a plain value, so it is a good key. A `hash.Map[Symbol,
+Int]` holds options by name with no strings to allocate or compare:
+
+```rig
+use std.hash
+
+sub main()
+  opts: hash.Map[Symbol, Int] = hash.Map()
+  !opts.put(:width, 80)
+  !opts.put(:height, 24)
+  print(opts.get(:width) ?? 0, opts.get(:depth) ?? 0, opts.len)
+```
+
+```output
+80 0 2
+```
+
+| A name that | Write |
+|---|---|
+| is text to read, print, slice, or build | a `String`, or a `Static` literal |
+| belongs to an open set: tags, keys, header names | a symbol, `:width` |
+| belongs to a closed set, where a typo is a bug | an enum variant, `.width` |
+
+**Text is bytes; a symbol is a name; an enum is a list you declare.**
+
 ## What is not there yet
 
 - No Unicode case mapping. `to_upper` and `to_lower` change ASCII only,

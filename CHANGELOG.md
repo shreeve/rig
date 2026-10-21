@@ -24,6 +24,11 @@ changed the language since it:
   statement above (not after a line that opens a block); a closure may
   omit trailing parameters; a bare `for X` loops over `X`; an iterator
   in a place is written `for x in !it`.
+- **Inclusive ranges:** `a..=b` runs through `b`, beside `a..b`, which
+  stops before it: a `for` source (`for b in 0..=U8.max` reaches the
+  type's largest value without stepping past it), a slice
+  (`xs[a..=b]`, `xs[..=b]`), and a range pattern (`1..=5 =>`,
+  `200..=255 =>`).
 - **Weak handles:** `*w` upgrades a weak handle to a `*T?` (`*<w`
   upgrades and takes it); the method `w.upgrade()` is rejected with a
   hint, and so is `*~T`, as every holding sigil over a held value is.
@@ -134,8 +139,18 @@ first step is on `main` (SPEC §18):
   the suite's concurrency cases run again under 20 seeds.
 - **Deadlines and parallel loops:** `time.within(ns, || ...)`, a
   deadline every fallible waiting point honors, kept by the tasks it
-  starts; `par.map` and `par.each` (`std.par`), typed by the checker
-  as `task.all` is, with chunks taken in turn by a task per worker.
+  starts; it calls its closure once, so `time.within(d, |<t| >t!)`
+  gives a deadline to a task, or a set, started before it. `par.map`
+  and `par.each` (`std.par`), typed by the checker as `task.all` is,
+  with chunks taken in turn by a task per worker.
+- **Closures called once:** a parameter written `f: once ?fun() -> T`
+  is called at most once, and a closure literal passed to one owns
+  what it moves in, so its call may move it out
+  (`resolve.recordOnce`, `Origins.once`).
+- **Removed:** `within:` on a set's wait, `wait_all`, and `task.both`.
+  A deadline is `time.within`'s, a set is waited for with `>ts`, and
+  `task.all` takes two tasks; each removed form is rejected with the
+  form to write.
 - **Where tasks run:** on Rig's own scheduler (`src/sched.zig`,
   `src/tasks.zig`): fibers on a worker per core, `RIG_WORKERS` of
   them when set, with yield checks in long loops and recursion

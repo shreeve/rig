@@ -3473,11 +3473,101 @@ fail "pub variant", "5:3: an enum's variants are always public; remove the `pub`
 
   print(Color.red)
 
-fail "range inclusive", "3:11: a range excludes its end: `..=3` is written `..4`"
-  # A range excludes its end; `..=` is not Rig.
+test "range inclusive for", '''
+  6 256 32640
+  2 done
+  0 empty
+'''
+  # `a..=b` includes its end, which may be its type's largest value: the
+  # counter never steps past it, so `continue` and `else` work as in any
+  # range.
 
+  n = 0
   for i in 0..=3
-    print(i)
+    n += i
+  count = 0
+  total = 0
+  for b in 0..=U8.max
+    count += 1
+    continue if b == 0
+    total += Int(b)
+  print(n, count, total)
+  top = 0
+  for Int.max - 1..=Int.max
+    top += 1
+  else
+    print(top, "done")
+  none_run = 0
+  for 5..=4
+    none_run += 1
+  else
+    print(none_run, "empty")
+
+test "range inclusive slice", '''
+  [2, 3] [1, 2, 3] [4]
+  hello
+'''
+  # A slice `xs[a..=b]` ends at `b`, its last element.
+
+  a = [1, 2, 3, 4]
+  last = 3
+  print(?a[1..=2], ?a[..=2], ?a[3..=last])
+  s = "hello, world"
+  print(s[0..=4])
+
+test "range inclusive match", '''
+  digit small top
+  top
+'''
+  # A range pattern `lo..=hi` matches through `hi`, which is a value of
+  # the subject's type: `0..=255` covers a `U8`.
+
+  fun kind(c: U8) -> ?String
+    match c
+      48..=57 => "digit"
+      0..=47 => "small"
+      58..=255 => "top"
+
+  print(kind(53), kind(10), kind(255))
+  print(kind(58))
+
+fail "range inclusive pattern end", "5:7: integer value `256` does not fit in `U8` (0..255)"
+  # An inclusive range pattern's end is a value: it fits the subject.
+
+  c: U8 = 7
+  match c
+    0..=256 => print("all")
+
+fail "range inclusive empty pattern", "5:3: empty range `5..=4`: a range pattern `lo..=hi` matches from its start through its end"
+  # An inclusive range pattern needs its start at or below its end.
+
+  c = 7
+  match c
+    5..=4 => print("none")
+    _ => print("other")
+
+fail "range inclusive slice end", "4:14: slice end `4` is past the last index of an array of length 4"
+  # A constant inclusive end is an index of the array.
+
+  a = [1, 2, 3, 4]
+  print(?a[0..=4])
+
+bomb "range inclusive slice past", "slice bounds out of range", prints: "3"
+  # An inclusive end past the last index panics when the slice is taken.
+
+  fun upto(a: ?[4]Int, n: Int) -> Int
+    s = ?a[1..=n]
+    s.len
+
+  a = [1, 2, 3, 4]
+  print(upto(?a, 3))
+  print(upto(?a, 4))
+
+fail "range inclusive open end", "4:11: `a..=` needs the end it includes; only `..` leaves a slice's end open: `xs[a..]`"
+  # An inclusive range names its end; only `..` leaves a slice's end open.
+
+  a = [1, 2]
+  print(?a[0..=])
 
 fail "range open for", "4:11: a range needs an end; only a slice leaves a side open"
   # Only a slice leaves a side of its range open: a `for` range needs both

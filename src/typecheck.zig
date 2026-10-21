@@ -1082,8 +1082,7 @@ const Checker = struct {
         if (self.body.is_sub and ret == self.t().void_id) {
             const ty = try self.synthExpr(value);
             if (sema.isErrorSet(self.ctx, ty)) {
-                const name = if (self.body.name != .nil) self.text(self.body.name) else "f";
-                try self.errAt(value, "a `sub` that cannot fail returns no error; declare it fallible to fail: `sub {s}(...)!`", .{name});
+                try self.errAt(value, "a `sub` that cannot fail returns no error; declare it fallible to fail: `sub {s}!`", .{self.headerText(self.body.name)});
             } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
             return;
         }
@@ -1152,7 +1151,7 @@ const Checker = struct {
         var ok = try self.checkResultTargets(targets);
         const call = resultCall(value) orelse Sexp.nil;
         if (ok and !self.isResultsValue(value)) {
-            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, `f() ?? return`, or `f() catch return`", .{try self.targetNames(targets)});
+            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, or a fallback that jumps (`f() ?? return`, `f() catch return`, `catch break`, `catch continue`); a value cannot stand for several results", .{try self.targetNames(targets)});
             _ = try self.synthQuiet(value);
             for (targets) |tg| if (tg.isKind(.set)) try self.poisonTarget(tg);
             return;
@@ -2750,7 +2749,7 @@ const Checker = struct {
         var elem_poisoned = false;
         if (source.isKind(.@"..")) {
             // Both bounds are integers of one type, the element's.
-            elem_ty = try self.checkIntDefaultOperands(source, "..", .integer, null);
+            elem_ty = try self.checkIntDefaultOperands(source, if (rig.isInclusive(source)) "..=" else "..", .integer, null);
             try self.ctx.recordType(source, try self.ctx.intern(.{ .range = elem_ty }));
         } else {
             const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
@@ -4047,7 +4046,10 @@ const Checker = struct {
         const pos = self.startOf(lo_node);
         try self.checkExpr(lo_node, scrutinee);
         const hi_node = ir.RangePattern.hi(pattern);
-        const hi_literal = isIntLiteralNode(self.ctx.source, hi_node);
+        // A half-open range's end may be one past the largest value; an
+        // inclusive one's is a value.
+        const inclusive = rig.isInclusive(pattern);
+        const hi_literal = !inclusive and isIntLiteralNode(self.ctx.source, hi_node);
         const st = self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee));
         if (hi_literal and (st == .int or st == .int_literal)) {
             // Record the bound's type without the fit check a value gets.
@@ -4062,6 +4064,13 @@ const Checker = struct {
             if (try self.perTarget(pattern, "the bounds of a range pattern")) return;
             try self.err(pos, "the bounds of a range pattern must be constant integers", .{});
             return;
+        }
+        if (inclusive) {
+            if (lo.? > hi.?) {
+                try self.err(pos, "empty range `{d}..={d}`: a range pattern `lo..=hi` matches from its start through its end", .{ lo.?, hi.? });
+                return;
+            }
+            return self.coverInts(cov, lo.?, hi.?, pos);
         }
         if (st == .int) {
             const b = intBounds(st.int);
@@ -5338,8 +5347,26 @@ const Checker = struct {
             }
             break :result self.fallbackType(value, expected);
         } else view_result;
+        if (try self.errorAsFallback(right, result, "??")) return result;
         try self.checkExpr(right, result);
         return result;
+    }
+
+    /// A fallback, after `??` or `catch`, that names an error where a
+    /// value is wanted: an error is returned, not given, so the hint
+    /// writes the jump (`?? return Config.missing`). True when it
+    /// reported.
+    fn errorAsFallback(self: *Checker, fallback: Sexp, wanted: TypeId, op: []const u8) Error!bool {
+        if (isJumpNode(fallback) or self.isPoison(wanted) or sema.isErrorSet(self.ctx, wanted)) return false;
+        const ty = ty: {
+            self.tentative += 1;
+            defer self.tentative -= 1;
+            break :ty try self.synthQuiet(fallback);
+        };
+        if (!sema.isErrorSet(self.ctx, ty)) return false;
+        const shown = self.sourceText(fallback);
+        try self.errAt(fallback, "`{s}` is an error, and `{s}` needs a fallback of type `{s}`; to fail with it, return it: `{s} return {s}`", .{ shown, op, try self.tyName(wanted), op, shown });
+        return true;
     }
 
     /// The `T` that `a ?? b` or `a catch b` (`e`) gives when the payload
@@ -5491,6 +5518,7 @@ const Checker = struct {
             }
             break :result self.fallbackType(copied, expected);
         } else view_result;
+        if (try self.errorAsFallback(handler, result, "catch")) return result;
         try self.checkExpr(handler, result);
         return result;
     }
@@ -5505,7 +5533,7 @@ const Checker = struct {
             .drop => try self.errAt(operand, "a `drop` body cannot propagate failure; handle it with `catch`", .{}),
             .infallible => |name| {
                 if (self.body.is_sub) {
-                    try self.errAt(operand, "use of `!` propagation requires the enclosing `{s}` to be fallible: `sub {s}(...)!`", .{ self.text(name), self.text(name) });
+                    try self.errAt(operand, "use of `!` propagation requires the enclosing `{s}` to be fallible: `sub {s}!`", .{ self.text(name), self.headerText(name) });
                 } else try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.text(name)});
                 try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
             },
@@ -7097,6 +7125,30 @@ const Checker = struct {
     }
 
     /// The source text of a node, for messages.
+    /// The name and parameters of the `fun` or `sub` named `name`, as
+    /// written (`main()`, `load(path: ?String)`), for a hint that shows
+    /// its header; `f(...)` when there is no name.
+    fn headerText(self: *Checker, name: Sexp) []const u8 {
+        if (name == .nil) return "f(...)";
+        const sp = self.ctx.span(name);
+        const src = self.ctx.source;
+        var i = sp.end;
+        var depth: usize = 0;
+        while (i < src.len) : (i += 1) {
+            switch (src[i]) {
+                '(', '[' => depth += 1,
+                ')', ']' => {
+                    if (depth == 0) break;
+                    depth -= 1;
+                    if (depth == 0 and src[i] == ')') return src[sp.start .. i + 1];
+                },
+                '\n' => break,
+                else => {},
+            }
+        }
+        return self.ctx.arena.allocator().print("{s}(...)", .{self.text(name)}) catch "f(...)";
+    }
+
     fn sourceText(self: *Checker, node: Sexp) []const u8 {
         const sp = self.ctx.span(node);
         return diag.textOf(self.ctx.source, sp);
@@ -7554,7 +7606,7 @@ const Checker = struct {
         const lo = ir.@"..".left(range);
         const hi = ir.@"..".right(range);
         if (lo != .nil and hi != .nil) {
-            _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
+            _ = try self.checkIntDefaultOperands(range, if (rig.isInclusive(range)) "..=" else "..", .integer, null);
             return;
         }
         const bound = if (lo != .nil) lo else hi;
@@ -7566,8 +7618,9 @@ const Checker = struct {
     }
 
     /// Constant bounds are checked now: `0 <= a <= b`, and `b <= len` for
-    /// an array, whose length is part of its type. Others are checked
-    /// when the slice is taken. An open end is the length.
+    /// an array, whose length is part of its type; `a..=b` ends at
+    /// `b + 1`. Others are checked when the slice is taken. An open end
+    /// is the length.
     fn checkSliceBounds(self: *Checker, range: Sexp, len: ?u64) Error!void {
         const lo_node = ir.@"..".left(range);
         const hi_node = ir.@"..".right(range);
@@ -7579,6 +7632,11 @@ const Checker = struct {
         }
         if (self.constInt(hi_node)) |b| {
             if (b < 0) return self.errAt(hi_node, "a slice bound cannot be negative; got `{d}`", .{b});
+            if (rig.isInclusive(range)) {
+                if (len) |n| if (b >= n) return self.errAt(hi_node, "slice end `{d}` is past the last index of an array of length {d}", .{ b, n });
+                if (lo_node != .nil) if (lo) |a| if (a > b + 1) return self.errAt(range, "slice `{d}..={d}` starts after it ends", .{ a, b });
+                return;
+            }
             if (len) |n| if (b > n) return self.errAt(hi_node, "slice end `{d}` is past the end of an array of length {d}", .{ b, n });
             if (lo_node != .nil) if (lo) |a| if (a > b) return self.errAt(range, "slice `{d}..{d}` starts after it ends", .{ a, b });
         }
@@ -9341,6 +9399,12 @@ const Checker = struct {
         }
         const recorded: sema.CallParams = .{ .fills = fills, .origins = origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
+        // A closure literal passed to a parameter the callee calls at most
+        // once owns what it moves in, as its own parameters would.
+        if (origins.once != 0) for (args, 0..) |a, ai| {
+            const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (value.isKind(.lambda) and recorded.fillsOnce(ai)) try self.ctx.recordOnceClosure(value);
+        };
         // What the call may store outlives its statement. A place lent to
         // a parameter the call may keep is lent with `?` written (Core
         // sentence 4): one its callee's `keeps` names, and, where nothing
@@ -10802,7 +10866,6 @@ const Checker = struct {
             if (ct == null) if (try self.httpServe(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.ioCopy(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
             if (ct == null) if (try self.taskSelect(id, method, pos, args)) |ty| return self.misreachedWrite(misreached, obj, method, ty);
-            if (ct == null) try self.onceClosure(id, method, args);
             return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         }
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
@@ -11509,16 +11572,6 @@ const Checker = struct {
         try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
         if (self.current_call) |call| try self.ctx.recordTaskJoin(call);
         return result;
-    }
-
-    /// `time.within(ns, |<t| ...)` of `std.time` calls its closure
-    /// exactly once, so a closure literal written there may move what it
-    /// owns of its captures (`SemContext.recordOnceClosure`).
-    fn onceClosure(self: *Checker, module_sym: SymbolId, name: []const u8, args: []const Sexp) Error!void {
-        const origin = self.ctx.module_refs.get(module_sym) orelse return;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return;
-        if (!std.mem.eql(u8, foreign.name, "std.time") or !std.mem.eql(u8, name, "within")) return;
-        if (args.len == 2 and args[1].isKind(.lambda)) try self.ctx.recordOnceClosure(args[1]);
     }
 
     /// `par.map(?xs, f, limit: n)` and `par.each(!xs, f, limit: n)` of
@@ -15097,6 +15150,15 @@ const Checker = struct {
         }
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
+        // A closure whose value is a write view it captured, of a value
+        // that copies (`|!n| ... n`), gives that value, as a `-> Int`
+        // function gives a `!Int` parameter's: a write view has one
+        // holder and never leaves the closure.
+        const tail = sema.tailOf(body);
+        if (tail == .src and self.ctx.types.get(ret) == .write_view) if (sema.copiedThrough(self.ctx, ret)) |inner| {
+            try self.readOf(tail, ret, .{ .value = inner });
+            ret = inner;
+        };
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
         if (fails and !self.isPoison(ret) and self.ctx.types.get(ret) != .fallible) ret = try self.ctx.intern(.{ .fallible = ret });
 
