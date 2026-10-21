@@ -2,13 +2,12 @@
 # and one route that panics. Run it with `rig run rooms.rig`, then
 # `curl localhost:8080/hit`, `/join?room=rig`, `/boom`.
 
-use std.hash
 use std.http
 use std.net
 use std.os
 
 obj Rooms
-  members: hash.Map[String, Int]
+  members: Map[String, Int]
 
   fun join(!@, room: String) -> Int
     n = (@members.get(?room) ?? 0) + 1
@@ -22,7 +21,7 @@ sub main()!
   args = os.args()
   addr = String(args[1]) if args.len > 1 else String("127.0.0.1:8080")
   hits = *Cell(0)
-  rooms = *Actor(Rooms(members: hash.Map[String, Int]()))
+  rooms = *Actor(Rooms(members: Map[String, Int]()))
   l = net.listen(?addr)!
   print("listening on", l.port())
   http.serve(<l, |+hits, +rooms, req|

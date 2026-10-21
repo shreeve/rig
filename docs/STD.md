@@ -43,7 +43,6 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
-| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order; Symbols, dense ids for strings |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -923,10 +922,10 @@ sub main()
 ["bob", "ann", "cy"] 1 false
 ```
 
-## std.hash
+## Map, Set, and Symbols
 
-`hash.Map[K: Hash, V]` and `hash.Set[K: Hash]`, hash tables written in Rig over
-Lists. Iteration is in the order keys were first put in, as in Python,
+`Map[K: Hash, V]` and `Set[K: Hash]` are built in, named with no
+import: hash tables written in Rig over Lists. Iteration is in the order keys were first put in, as in Python,
 Ruby, and JavaScript: `put` on a key already there keeps its place, and
 `take` keeps the rest in order. A key is any value `x.hash()` takes
 ([SPEC §5](../SPEC.md#operators)): what `==` compares, less a `Float`
@@ -937,9 +936,9 @@ type, as any generic is.
 
 | Member | Signature | Ownership |
 |---|---|---|
-| `hash.Map[K, V]()`, `hash.Map[K, V].new(capacity: n)` | `fun new(capacity: Int = 0) -> Map[K, V]` | an empty Map, which allocates nothing until the first `put`, or with room for `n` entries |
+| `Map[K, V]()`, `Map[K, V].new(capacity: n)` | `fun new(capacity: Int = 0) -> Map[K, V]` | an empty Map, which allocates nothing until the first `put`, or with room for `n` entries |
 | `!m.reserve(n)` | `sub reserve(!@, n: Int)` | makes room for `n` more entries at once, sizing the entries and the table for them rather than growing as they are put |
-| `m.len` | `pub ?len: Int` | the number of entries: a field other modules read and only `std.hash` writes |
+| `m.len` | `pub ?len: Int` | the number of entries: a field any code reads and only the Map's own methods write |
 | `m.has(k)` | `fun has(?@, k: ?K) -> Bool` | reads |
 | `m.get(k)` | `fun get(?@, k: ?K) -> (?V)? from @` | the view keeps `m` lent to read, not `k` |
 | `(!m).edit(k)` | `fun edit(!@, k: ?K) -> (!V)? from @` | keeps `m` lent to write |
@@ -957,7 +956,7 @@ type, as any generic is.
 | `!m.update(f)` | `sub update(!@, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 | `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
 
-`hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
+`Set[K]` has `Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
 is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`,
 `!s.retain(f)` with `f: ?fun(?K) -> Bool`, `clear()`, and
@@ -969,23 +968,22 @@ it then. To make an expensive value only for a new key, use
 it finds nothing does the same:
 
 ```rig
-use std.hash
 
 fun twice(k: ?String) -> String
   String(k, k)
 
 sub main()
-  made = hash.Map[String, String].new()
+  made = Map[String, String].new()
   for w in ["ab", "cd", "ab"]
     s = (!made).ensure_with(String(w), twice)
     !s.add("+")
-  again = hash.Map[String, String].new()
+  again = Map[String, String].new()
   for w in ["ab", "cd", "ab"]
     if (!again).edit(w) as s
       !s.add("+")
     else
       !again.put(String(w), String(w, w, "+"))
-  counts = hash.Map[String, Int].new()
+  counts = Map[String, Int].new()
   for w in ["to", "be", "to"]
     (!counts).ensure(String(w), 0) += 1
   print(made.get("ab"), made.get("cd"), again.get("ab"), counts.get("to"), counts.get("be"))
@@ -999,10 +997,9 @@ abab++ cdcd+ abab++ 2 1
 and `at` reads the entries by index, in the order they were put in:
 
 ```rig
-use std.hash
 
 sub main()
-  counts = hash.Map[String, Int].new()
+  counts = Map[String, Int].new()
   for w in ["to", "be", "to"]
     c, added = (!counts).ensure_added(String(w), 0)
     c += 1
@@ -1034,10 +1031,9 @@ e.value` in the loop is rejected). To keep a value, clone it (`+e.value`),
 or look it up again with `get`.
 
 ```rig
-use std.hash
 
 sub main()
-  ages = hash.Map[String, Int].new()
+  ages = Map[String, Int].new()
   !ages.put(String("ada"), 36)
   !ages.put(String("bob"), 41)
   !ages.put(String("ada"), 37)
@@ -1049,7 +1045,7 @@ sub main()
   !ages.put(<name, 5)
   for e in ?ages.items()
     print(e.key, e.value)
-  seen = hash.Set[?String].new()
+  seen = Set[?String].new()
   for w in ["b", "a", "b"]
     if (!seen).add(w)
       print("new", w)
@@ -1070,10 +1066,9 @@ The view `get` returns keeps the Map lent to read, so the Map is not
 changed while it lives:
 
 ```rig reject
-use std.hash
 
 sub main()
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   !m.put(String("a"), 1)
   r = ?m.get("a")
   !m.put(String("b"), 2)
@@ -1089,10 +1084,9 @@ instead of the view ([SPEC §12](../SPEC.md#the-fallback-of-)), which
 keeps no loan:
 
 ```rig
-use std.hash
 
 sub main()
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   for w in ["a", "b", "a"]
     n = m.get(w) ?? 0
     !m.put(String(w), n + 1)
@@ -1106,24 +1100,23 @@ sub main()
 A key needs `.hash()`, which a `Float` does not have:
 
 ```rig reject
-use std.hash
 
 sub main()
-  m = hash.Map[Float, Int].new()
+  m = Map[Float, Int].new()
   print(m.len)
 ```
 
 ```error
-`hash.Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
+`Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
 ```
 
-`hash.Symbols` holds a set of strings, each with a dense `U32` id from
+`Symbols` holds a set of strings, each with a dense `U32` id from
 0 in the order it was first interned. Their text lives in one String,
 end to end, so an id costs four bytes and a new string is copied once.
 
 | Member | Signature | Ownership |
 |---|---|---|
-| `hash.Symbols()` | | an empty one |
+| `Symbols()` | | an empty one |
 | `(!names).intern(s)` | `fun intern(!@, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
 | `names.id(s)` | `fun id(?@, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
 | `names.text(id)` | `fun text(?@, id: U32) -> ?String from @` | the text of `id`, viewed where the table holds it |
@@ -1131,10 +1124,9 @@ end to end, so an id costs four bytes and a new string is copied once.
 | `!names.reserve(n, bytes: b)` | `sub reserve(!@, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
 
 ```rig
-use std.hash
 
 sub main()
-  names = hash.Symbols()
+  names = Symbols()
   a = (!names).intern("width")
   b = (!names).intern("height")
   w = String("wid", "th")
@@ -1363,8 +1355,8 @@ A plain enum's names are built in ([SPEC, Enums](../SPEC.md#enums)):
 `E.from_text(word)` is the variant named `word`, or `none`. Neither
 allocates, so a word read from input becomes a value as `text.parse_int`
 makes a number, and a value prints back as text. For names that are
-not an enum's, known only when the program runs, `hash.Symbols` gives
-each one a dense id ([std.hash](#stdhash)).
+not an enum's, known only when the program runs, `Symbols` gives
+each one a dense id ([Symbols](#map-set-and-symbols)).
 
 ```rig
 use std.text
@@ -1398,16 +1390,15 @@ symbol spelled `word`, or `none`; neither allocates. The symbols are
 exactly the names the program writes, so `from_text` finds a name
 written anywhere in the program, std included: a word read from input
 is checked by a `match` whose `_ =>` arm rejects it. A symbol is a key
-of a `hash.Map` or a `hash.Set` ([std.hash](#stdhash)). A name known
-only when the program runs is no symbol; `hash.Symbols` gives it a
+of a `Map` or a `Set` ([Symbols](#map-set-and-symbols)). A name known
+only when the program runs is no symbol; `Symbols` gives it a
 dense id.
 
 ```rig
-use std.hash
 use std.text
 
 sub main()
-  counts = hash.Map[Symbol, Int]()
+  counts = Map[Symbol, Int]()
   for w in text.words("get put get drop")
     s = Symbol.from_text(w) ?? :other
     k = :other

@@ -93,7 +93,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   uses them in 3 places). Trig's version passes all 32,076 of its test
   cases; the std one must pass the same cases and be as fast before Trig
   swaps.
-- `std.hash` with 4-byte stored hashes (an entry's hash takes 8 bytes
+- Map and Set with 4-byte stored hashes (an entry's hash takes 8 bytes
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
@@ -104,7 +104,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
 - Generic inference looks through a box as a method call does: with
   `bx: ^List[P]`, `first(?bx)` (`first[T](xs: ?List[T])`) is a type
   mismatch, though `first[P](?bx)` is accepted.
-- An unwrap of an optional that traps when it is `none`. `std.hash`'s
+- An unwrap of an optional that traps when it is `none`. The built-in Map's
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.
 - A deep clone of a type parameter's value in a generic body (`+k` of a
@@ -212,6 +212,6 @@ fixing.
   its exact stderr; there is no way to turn the frames off.
 - **`rig check --tasks`,** to list each local task and what pins it, was
   decided by the concurrency panel and is not built.
-- **`hash.Symbols` reads as related to `Symbol`,** the type of `:width`,
+- **`Symbols` reads as related to `Symbol`,** the type of `:width`,
   and is not: it interns strings. Renaming it `hash.Interner`, with an
   error that points from the old name, waits on the owner.

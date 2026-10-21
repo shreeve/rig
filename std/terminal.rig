@@ -10,7 +10,6 @@
 # how a dump writes them); the screen and the operations on it; and the
 # parser, the DEC state machine that turns bytes into those operations.
 
-use std.hash
 use std.text
 use std.unicode
 use std.utf8
@@ -209,7 +208,7 @@ VS_BASE = 8
 # looked at one by one; past SMALL_STYLES, as truecolor output makes
 # thousands, `s` is found by its key in `ids`, which holds every style's
 # (and in the rare case another style has that key, by looking at each).
-fun intern(styles: !List[Style], ids: !hash.Map[Int, Int], s: ?Style) -> Int
+fun intern(styles: !List[Style], ids: !Map[Int, Int], s: ?Style) -> Int
   if styles.len <= SMALL_STYLES
     for t, k in styles
       return k if t.same(s)
@@ -225,8 +224,8 @@ fun intern(styles: !List[Style], ids: !hash.Map[Int, Int], s: ?Style) -> Int
 SMALL_STYLES = 32
 
 # `style_ids` of a terminal's first style, the plain one.
-fun plain_ids() -> hash.Map[Int, Int]
-  ids = hash.Map[Int, Int].new()
+fun plain_ids() -> Map[Int, Int]
+  ids = Map[Int, Int].new()
   !ids.put(style_key(?(Style.plain())), 0)
   ids
 
@@ -342,7 +341,7 @@ fun mark(c: U64) -> Int
 # The row of `cols` cells at `start` of `cells` as text onto `out`: its
 # chars, with `extras` their runes after the first, an empty cell a space
 # and the spacer of a wide rune left out, without the blanks at its end.
-sub row_text(out: !String, cells: ?List[U64], extras: ?hash.Map[Int, List[U32]], start: Int, cols: Int)
+sub row_text(out: !String, cells: ?List[U64], extras: ?Map[Int, List[U32]], start: Int, cols: Int)
   end = start + cols
   while end > start and cells[end - 1] & EXTRA == 0 and (rune(cells[end - 1]) == 0 or rune(cells[end - 1]) == 0x20)
     end -= 1
@@ -395,7 +394,7 @@ pub obj Terminal
   ends: List[Int]
   # The runes after the first of each cell with EXTRA, by its index in
   # `cells`.
-  extras: hash.Map[Int, List[U32]]
+  extras: Map[Int, List[U32]]
   # The history (scrollback) of the primary screen: the rows that scrolled
   # off its top, at most `scrollback` of them, kept as rows of its `cells`
   # (`other_cells` while the alternate screen is shown). `hist` holds them
@@ -408,7 +407,7 @@ pub obj Terminal
   # The styles cells use, the first the plain one.
   styles: List[Style]
   # Each style's index in `styles`, by its `style_key`.
-  style_ids: hash.Map[Int, Int]
+  style_ids: Map[Int, Int]
   # The style the next rune is printed in (SGR), and its index; the index
   # of an erased cell, which keeps only the pen's background; and both as
   # the high bits of a cell.
@@ -475,7 +474,7 @@ pub obj Terminal
   other_rot: Int
   other_flags: List[U8]
   other_ends: List[Int]
-  other_extras: hash.Map[Int, List[U32]]
+  other_extras: Map[Int, List[U32]]
   other_saved: Saved
   # The background of the other screen's cursor when it was left, which a
   # screen is erased with as 1049 enters it, before the cursor comes over.
@@ -506,14 +505,14 @@ pub obj Terminal
     map = List[Int].filled(2 * rows, 0)
     for y in 0..rows
       map[y] = y
-    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: hash.Map[Int, List[U32]].new(),
+    Terminal(cols: cols, rows: rows, cells: List[U64].filled(cols * rows, 0), map: <map, rot: 0, flags: List[U8].filled(rows, 0), ends: List[Int].filled(rows, 0), extras: Map[Int, List[U32]].new(),
       scrollback: scrollback if scrollback > 0 else 0, hist: List(), hist_at: 0, spare: List(),
       styles: List([Style.plain()]), style_ids: plain_ids(), pen: Style.plain(), pen_id: 0, blank_id: 0, pen_bits: 0, blank_cell: 0,
       row: 0, col: 0, pending_wrap: false, last: -1, g: [4 of UTF8], gl: 0, single: -1, top: 0, bottom: rows - 1,
       autowrap: true, protect: false, prot_mode: PROT_OFF, other_prot_mode: PROT_OFF, graphemes: false, origin: false, insert: false, newline: false, cursor_visible: true,
       modes: List(MODE_DEFAULTS), saved_modes: List(MODE_DEFAULTS),
       kitty: [8 of 0], kitty_idx: 0, other_kitty: [8 of 0], other_kitty_idx: 0, replies: String(),
-      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_rot: 0, other_flags: List(), other_ends: List(), other_extras: hash.Map[Int, List[U32]].new(), other_saved: Saved.none(), other_bg: NONE,
+      tabs: <tabs, saved: Saved.none(), alt: false, alt_made: false, other_cells: List(), other_map: List(), other_rot: 0, other_flags: List(), other_ends: List(), other_extras: Map[Int, List[U32]].new(), other_saved: Saved.none(), other_bg: NONE,
       state: .ground, params: [24 of 0], count: 0, acc: 0, digits: false, colon: false, inter: 0, inter_count: 0, seps: 0, decoder: utf8.Decoder.new())
 
   # REP: the last rune printed, `n` more times (at least once).
@@ -1420,7 +1419,7 @@ pub obj Terminal
       @other_rot = 0
       @other_flags = List[U8].filled(@rows, 0)
       @other_ends = List[Int].filled(@rows, 0)
-      @other_extras = hash.Map[Int, List[U32]].new()
+      @other_extras = Map[Int, List[U32]].new()
       @alt_made = true
     swap(!@cells, !@other_cells)
     swap(!@map, !@other_map)

@@ -25,7 +25,7 @@ Three things it cannot do alone:
    operations to a `T` (arithmetic, ordering, `==`, `.hash()`,
    printing, copying, moving) and, with Stage 1, calls its methods,
    and only the instances check them.
-2. A type with its own `hash` cannot be a `hash.Map` key by that hash
+2. A type with its own `hash` cannot be a `Map` key by that hash
    ([SPEC §5](../../SPEC.md#5-expressions)): the generic body calls the
    built-in one.
 3. One list cannot hold values of different types behind one interface.
@@ -252,13 +252,12 @@ moves to the user's line and the signature becomes the contract. Stage
 ones it gives a meaning of its own; `api` and `add` come with Stage 3.
 
 ```rig
-use std.hash
 use std.text
 
 fun max[T: Ord](a: T, b: T) -> T               # a bound, in the brackets
   a if a > b else b
 
-fun count[K: Hash + Print, V](m: ?hash.Map[K, V]) -> Int   # several, joined with +
+fun count[K: Hash + Print, V](m: ?Map[K, V]) -> Int   # several, joined with +
   m.len
 
 obj Name: Eq + Hash                            # Name gives Eq and Hash its own meaning
@@ -288,7 +287,7 @@ sub main()
   print(max(Version(major: 1, minor: 2), Version(major: 1, minor: 10)).minor, max(Suit.clubs, Suit.spades))
   a = Name(text: String("Ada"))
   b = Name(text: String("ADA"))
-  m: hash.Map[Name, Int] = hash.Map()
+  m: Map[Name, Int] = Map()
   !m.put(<a, 1)
   print(m.get(?b), count(?m))
 ```
@@ -382,7 +381,7 @@ a task that takes one is local, as SPEC §18 makes any task whose
 arguments do not cross; a channel send, an actor's argument, and
 `par.each` reject it.
 
-**std.** `hash.Map[K: Hash, V]` and `hash.Set[K: Hash]`, with the bound
+**std.** `Map[K: Hash, V]` and `Set[K: Hash]`, with the bound
 implied wherever the type is named; `sort`, `search`, `lower_bound`,
 `min`, `max`, `clamp` take `T: Ord`; `contains` and `index_of` take
 `T: Eq`; `abs` takes `T: Signed + Ord`. `sort_by` stays unbounded, and
@@ -393,18 +392,17 @@ implied wherever the type is named; `sort`, `search`, `lower_bound`,
 the user's line:
 
 ```rig reject
-use std.hash
 
 obj Reading
   value: Float
 
 sub main()
-  m: hash.Map[Reading, Int] = hash.Map()
+  m: Map[Reading, Int] = Map()
   print(m.len)
 ```
 
 ```error
-`hash.Map[Reading, Int]` cannot use `K = Reading`: `Reading` cannot be hashed; its field `value` is a `Float`
+`Map[Reading, Int]` cannot use `K = Reading`: `Reading` cannot be hashed; its field `value` is a `Float`
 ```
 
 ```rig reject

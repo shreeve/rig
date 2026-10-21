@@ -1,20 +1,19 @@
-# Sets: `hash.Set` holds each key once, in the order it was first added.
+# Sets: `Set` holds each key once, in the order it was first added.
 # `add` says whether the key was new, `has` tests membership, and plain
 # loops build the union and the difference of two sets.
 
-use std.hash
 
 sub main()
-  mine = hash.Set[?String].new()
+  mine = Set[?String].new()
   for name in ["ada", "bob", "cy", "bob"]
     if not (!mine).add(name)
       print("again", name)
 
-  yours = hash.Set[?String].new()
+  yours = Set[?String].new()
   for name in ["cy", "dee", "ada"]
     !yours.add(name)
 
-  both = hash.Set[?String].new()
+  both = Set[?String].new()
   for k in ?mine.items()
     !both.add(k)
   for k in ?yours.items()

@@ -192,17 +192,16 @@ out=$(emit "$ROOT/test/cli/fixtures/inline_generic_member_overflow.rig")
 expect_has "$out" 'pub inline fn bump(__rig_in_self: rig.ReadView(__rig_Self), __rig_in_n: i64) i64 {' "a member of a generic type with a literal argument"
 expect_has "$out" 'const n = rig.rt(__rig_in_n);' "a member's parameter bound through rig.rt"
 
-# std.hash's `ensure` and `ensure_with` are inlined into the code that
+# Map's `ensure` and `ensure_with` are inlined into the code that
 # calls them, so a lookup that finds its key costs no call, as `edit`'s
 # does (bench/hash).
 cat >ensure.rig <<'RIG'
-use std.hash
 
 fun zero(k: ?Int) -> Int
   0
 
 sub main()
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   a = (!m).ensure(1, 5)
   a += 1
   b = (!m).ensure_with(2, zero)
@@ -223,15 +222,14 @@ expect_eq "$out" "9 2" "ensure.rig"
 # loop, through any inline function it calls: the path that adds a new
 # key is a call (`add_entry`, `add_new`), so a hot loop of hits keeps its
 # layout. `ensure`'s `while (true)`, which stands where an unwrap that
-# traps would (std/hash.rig), returns on its first pass.
+# traps would (std/__rig_builtin.rig), returns on its first pass.
 cat >writes.rig <<'RIG'
-use std.hash
 
 fun one(k: ?Int) -> Int
   1
 
 sub main()
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   !m.put(1, 2)
   old = (!m).replace(1, 3)
   added = (!m).put_new(2, 4)
@@ -242,7 +240,7 @@ sub main()
   if (!m).edit(1) as c
     c += 1
   gone = (!m).take(2)
-  s = hash.Set[Int].new()
+  s = Set[Int].new()
   fresh = (!s).add(7)
   out = (!s).take(7)
   print(old, added, gone, fresh, out, m.len, s.len)

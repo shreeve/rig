@@ -4,7 +4,6 @@
 # a list and ordered with std.sort; `sort_by` keeps equal counts in that
 # order.
 
-use std.hash
 use std.sort
 use std.text
 
@@ -14,7 +13,7 @@ obj Count
 
 sub main()
   line = "the cat and the dog and the bird"
-  seen = hash.Map[?String, Int].new()
+  seen = Map[?String, Int].new()
   for w in text.words(line)
     c = (!seen).ensure(w, 0)
     c += 1

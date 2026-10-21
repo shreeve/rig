@@ -2502,8 +2502,8 @@ these, and no others:
   allocates nothing: it hashes `word` once and looks it up in a table
   of every literal, which the compiler builds.
 - `print(:width)` prints `:width`, as an enum prints `.dot`.
-- `s.hash()`, and a symbol as a key of a `hash.Map` or `hash.Set`
-  ([std.hash](docs/STD.md#stdhash)).
+- `s.hash()`, and a symbol as a key of a `Map` or `Set`
+  ([Map and Set](docs/STD.md#map-set-and-symbols)).
 - `match s`, with arms such as `:a =>` and `:a, :b =>`, guards, and a
   required `_ =>`. The values belong to the whole program, so no set of
   arms covers them; two arms for one symbol are rejected.
@@ -2541,7 +2541,6 @@ content-type 12 [:if, :utf-8, :a.b]
 ```
 
 ```rig
-use std.hash
 
 fun command(word: ?String) -> Symbol
   s = Symbol.from_text(word) ?? :unknown
@@ -2552,7 +2551,7 @@ fun command(word: ?String) -> Symbol
 sub main()
   shape = :rect
   print(command("add"), command("rect"), command("drop"), shape)
-  seen = hash.Map[Symbol, Int]()
+  seen = Map[Symbol, Int]()
   for w in ["add", "remove", "add"]
     c = command(w)
     !seen.put(c, (seen.get(c) ?? 0) + 1)
@@ -4270,7 +4269,7 @@ ordinary method, which `x.hash()` calls on that type; the built-in
 parts. A type gives `==` or hashing a meaning of its own by naming the
 API on its header ([Own meanings](#own-meanings)). In a generic body,
 `k.hash()` on a type parameter's value is checked at each instance, as
-`==` is. `std.hash`'s Map and Set ([docs/STD.md](docs/STD.md#stdhash))
+`==` is. Map and Set ([docs/STD.md](docs/STD.md#map-set-and-symbols))
 key on it.
 
 ```rig
@@ -7269,6 +7268,14 @@ leak-free, with no use of freed memory, under the sanitizing allocator.
 These built-in types are part of the language's substrate. Their names
 are reserved, as `Actor` is, which [§18](#actors) describes.
 
+Other built-in types are named with no import, as these are, and are
+written in Rig: `Map[K: Hash, V]`, `Set[K: Hash]`, and `Symbols`, with
+the types their members give (`Item`, `Items`, `Keys`, `Values`,
+`Members`) ([docs/STD.md](docs/STD.md#map-set-and-symbols)), and
+`Order`, `Hasher`, and `Printer` ([Own meanings](#own-meanings)). Their
+names are not reserved: a module that declares a type of its own of one
+of these names hides the built-in one.
+
 ### Cell
 
 `Cell[T]` holds one value that can be replaced through any handle to it,
@@ -8942,24 +8949,23 @@ parameter `T` in a generic body, which may not copy in every instance,
 as a view read where its `T` is expected is not.
 
 ```rig
-use std.hash
 
 obj Point
   x: Int
   y: Int
 
 sub main()
-  counts = hash.Map[String, Int]()
+  counts = Map[String, Int]()
   for w in ["a", "b", "a"]
     n = counts.get(w) ?? 0
     !counts.put(String(w), n + 1)
   print(counts.get("a") ?? 0, counts.get("z") ?? 0)
-  at = hash.Map[String, Point]()
+  at = Map[String, Point]()
   !at.put(String("home"), Point(x: 1, y: 2))
   p = at.get("home") ?? Point(x: 0, y: 0)
   !at.put(String("home"), Point(x: 5, y: 5))
   print(p.x, (at.get("away") ?? Point(x: 0, y: 0)).y)
-  names = hash.Map[String, String]()
+  names = Map[String, String]()
   !names.put(String("a"), String("ada"))
   s = +(names.get("b") ?? ?String("nobody"))
   print(s)
@@ -8972,10 +8978,9 @@ nobody
 ```
 
 ```rig reject
-use std.hash
 
 sub main()
-  names = hash.Map[String, String]()
+  names = Map[String, String]()
   s = names.get("a") ?? String("nobody")
   print(s)
 ```

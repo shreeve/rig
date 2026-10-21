@@ -195,7 +195,6 @@ test "apis own meanings", '''
   # ordering, or printing its own meaning, for itself and as a part of
   # another value; a Map keys it by its own hash and `==`.
 
-  use std.hash
 
   obj Name: Eq + Hash + Print
     text: String
@@ -227,7 +226,7 @@ test "apis own meanings", '''
     print(a == b, a.hash() == b.hash(), a)
     print(Pair(n: Name(text: String("xy")), k: 1))
     print(Version(major: 1, minor: 9) < Version(major: 2, minor: 0), Version(major: 3, minor: 0) <= Version(major: 2, minor: 9))
-    m: hash.Map[Name, Int] = hash.Map()
+    m: Map[Name, Int] = Map()
     !m.put(<a, 1)
     print(m.get(?b))
 
@@ -253,7 +252,6 @@ test "apis method named hash", "2 7"
   # A method merely named `hash` is an ordinary method: a Map keys the
   # type by its parts.
 
-  use std.hash
 
   obj K
     n: Int
@@ -262,7 +260,7 @@ test "apis method named hash", "2 7"
       U64(7)
 
   sub main()
-    m: hash.Map[K, Int] = hash.Map()
+    m: Map[K, Int] = Map()
     !m.put(K(n: 1), 2)
     print(m.get(K(n: 1)), K(n: 3).hash())
 

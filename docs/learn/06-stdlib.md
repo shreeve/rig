@@ -195,11 +195,10 @@ three can be changed or dropped while the orders live.
 
 ## Counting with a Map and a Set
 
-From here the four orders are a list in the program. `hash.Map` counts
-units for each customer, and `hash.Set` remembers each item once:
+From here the four orders are a list in the program. `Map` counts
+units for each customer, and `Set` remembers each item once:
 
 ```rig
-use std.hash
 
 obj Order
   who: ?String
@@ -211,8 +210,8 @@ sub main()
     Order(who: "ada", item: "pen", qty: 3), Order(who: "bob", item: "ink", qty: 1),
     Order(who: "ada", item: "ink", qty: 2), Order(who: "cy", item: "pen", qty: 5),
   ]
-  units = hash.Map[?String, Int].new()
-  items = hash.Set[?String].new()
+  units = Map[?String, Int].new()
+  items = Set[?String].new()
   for o in orders
     (!units).ensure(o.who, 0) += o.qty
     if (!items).add(o.item)
@@ -242,10 +241,9 @@ each a pair `e.key`, `e.value` for one step of the loop.
 cannot change while the view lives:
 
 ```rig reject
-use std.hash
 
 sub main()
-  units = hash.Map[?String, Int].new()
+  units = Map[?String, Int].new()
   !units.put("ada", 5)
   top = ?units.get("ada")
   !units.put("bob", 5)
@@ -265,7 +263,6 @@ The report lists customers by units. `std.sort` orders a slice in place,
 and works on arrays and Lists alike:
 
 ```rig
-use std.hash
 use std.sort
 
 obj Order
@@ -282,7 +279,7 @@ sub main()
     Order(who: "ada", item: "pen", qty: 3), Order(who: "bob", item: "ink", qty: 1),
     Order(who: "ada", item: "ink", qty: 2), Order(who: "cy", item: "pen", qty: 5),
   ]
-  units = hash.Map[?String, Int].new()
+  units = Map[?String, Int].new()
   for o in orders
     (!units).ensure(o.who, 0) += o.qty
   totals = List[Total]()
@@ -338,11 +335,10 @@ A tool that is slow should say so. `time.now()` reads the monotonic
 clock, and `elapsed()` is the time since a reading:
 
 ```rig
-use std.hash
 use std.time
 
 fun tally(qtys: ?List[Int]) -> Int
-  counts = hash.Map[Int, Int].new()
+  counts = Map[Int, Int].new()
   for q in qtys
     (!counts).ensure(q, 0) += 1
   counts.len
@@ -520,7 +516,6 @@ The last step shows the report over HTTP. It is checked and not run, since
 a test cannot wait for a request:
 
 ```rig
-use std.hash
 use std.http
 use std.net
 use std.os
@@ -530,7 +525,7 @@ obj Order
   qty: Int
 
 fun report(orders: []Order) -> String
-  units = hash.Map[?String, Int].new()
+  units = Map[?String, Int].new()
   for o in orders
     (!units).ensure(o.who, 0) += o.qty
   out = String()
@@ -590,10 +585,9 @@ gave it. A library never invents a mark. What it adds is words. This
 program writes one map four ways:
 
 ```rig
-use std.hash
 
 sub main()
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   !m.put(String("ada"), 1)
   print((!m).put_new(String("ada"), 2), m.get("ada"))
   print((!m).replace(String("ada"), 3), m.get("ada"))
@@ -616,16 +610,15 @@ says the policy, which is what happens when the key is there already.
 put. `replace` hands back the old value, and `take` removes the key and
 hands back its value. `ensure` is one more answer.
 
-The mechanics come from the signature in `std/hash.rig`: `sub put(!@, k:
+The mechanics come from the signature in `std/__rig_builtin.rig`, where Map is written: `sub put(!@, k:
 K, v: V)`. The `!@` is why the call is `!m.put(...)`, and `k: K` takes
 its argument, which is why a named `name` is written `<name`. Leave out
 the mark and the error says what to write:
 
 ```rig reject
-use std.hash
 
 sub main()
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   m.put(String("ada"), 1)
 ```
 
@@ -671,6 +664,6 @@ client. `BigInt` has no division.
 - [Tests that fail the same way twice](08-tests.md) tests a tool like
   this one, concurrent parts included.
 - [STD](../STD.md) documents every module in this chapter, and the rest:
-  `std.math`, `std.slices`, `std.par`, and `hash.Symbols`.
+  `std.math`, `std.slices`, `std.par`, and `Symbols`.
 - [SPEC §14](../../SPEC.md#14-modules) states how `use std.NAME` names a
   module.

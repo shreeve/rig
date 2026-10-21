@@ -1,4 +1,4 @@
-# std.hash: Map and Set, hash tables written in Rig over Lists, that
+# The built-in Map and Set, hash tables written in Rig over Lists, that
 # keep their entries in the order they were first put in, and Symbols,
 # which gives strings dense ids. A key is any value `.hash()` takes:
 # what `==` compares, less a float and what holds one. Text keys hash

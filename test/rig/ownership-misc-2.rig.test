@@ -1,6 +1,5 @@
 # ownership: the rest of its tests, part 2.
 
-use std.hash
 use std.text
 
 test "take places", '''
@@ -1731,7 +1730,7 @@ test "variant literal lent to view", '''
   print(size(.Table(m: three())) + size(v: .Table(m: three()), k: 10))
   b = Bag(n: 0)
   b.look(.Table(m: three()))
-  m = hash.Map[Key, Int].new()
+  m = Map[Key, Int].new()
   !m.put(Key.S(s: String("a")), 10)
   print(m.get(.S(s: String("a"))) ?? 0, m.has(.K(n: 2)))
   for _ in 0..2

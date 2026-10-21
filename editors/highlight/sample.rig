@@ -1,7 +1,6 @@
 # Every token and context of Rig's highlighting, for the editor grammars'
 # goldens. It is read, not run: the last section holds what Rig rejects.
 
-use std.hash
 use std.text
 
 extern zig "math.zig"
@@ -115,7 +114,7 @@ fun ownership(p: ^Point, h: *Point, w: ~Point, xs: !List[Int], v: ?Point) -> Int
   <r
   n
 
-fun fallible(m: ?hash.Map[String, Int], k: ?String) -> Int!
+fun fallible(m: ?Map[String, Int], k: ?String) -> Int!
   n = m.get(k) ?? 0
   x = text.parse_int("12")!
   y = m.get(k)?
@@ -147,7 +146,7 @@ fun closures(xs: !List[Int]) -> Int
   bump = |!count, n| count += n
   quiet = || print(1)
   sort.sort_by(!xs, |a, b| a < b)
-  m = hash.Map[Int, Int].new(capacity: 16)
+  m = Map[Int, Int].new(capacity: 16)
   grid = [3 of 0]
   tail = xs[1..]
   all = xs[..]

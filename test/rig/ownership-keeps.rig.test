@@ -1,6 +1,5 @@
 # ownership: tests whose names start `keeps`.
 
-use std.hash
 
 test "keeps argument through result", "x"
   # Rule: a lend is written wherever its view may outlast its statement,
@@ -593,7 +592,7 @@ test "keeps receiver holds map", "1"
   obj Checker
     program: ?Program
     total: Int
-    m: hash.Map[U32, U32]
+    m: Map[U32, U32]
 
   fun Checker.sum(!@, xs: ?List[Int], i: Int) -> Int
     @total += 1
@@ -605,7 +604,7 @@ test "keeps receiver holds map", "1"
     (!@).sum(?xs, 0)
 
   p = Program(xs: List())
-  c = Checker(program: ?p, total: 0, m: hash.Map[U32, U32]())
+  c = Checker(program: ?p, total: 0, m: Map[U32, U32]())
   print((!c).run())
 
 test "keeps receiver into write argument", '''

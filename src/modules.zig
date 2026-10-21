@@ -258,15 +258,20 @@ pub const ModuleGraph = struct {
         while (node.isKind(.member)) : (node = ir.Member.object(node)) try names.append(a, rig.leafText(importer.source, ir.Member.name(node).src));
         try names.append(a, rig.leafText(importer.source, node.src));
         std.mem.reverse([]const u8, names.items);
-        const in_std = names.items.len > 1 and std.mem.eql(u8, names.items[0], "std");
-        const comps = if (in_std) names.items[1..] else names.items;
+        // The module of the built-in types written in Rig, which the
+        // Parser wrapper has a module that names one use
+        // (`Parser.builtinRefs`): of the standard library, and named by no
+        // program.
+        const builtin = rig.isBuiltinModuleLeaf(path);
+        const in_std = builtin or (names.items.len > 1 and std.mem.eql(u8, names.items[0], "std"));
+        const comps = if (builtin) names.items else if (in_std) names.items[1..] else names.items;
         const name = comps[comps.len - 1];
         const alias = ir.Use.alias(decl);
         const local_name = if (alias == .nil) name else rig.leafText(importer.source, alias.src);
         const at = importer.parser.span(decl);
         const file = sema.fileIndex(importer.parts, at.start);
 
-        for (comps) |c| if (std.mem.startsWith(u8, c, reserved_prefix)) {
+        if (!builtin) for (comps) |c| if (std.mem.startsWith(u8, c, reserved_prefix)) {
             try self.errorAt(id, at, "module names starting with `{s}` are reserved for the compiler", .{reserved_prefix});
             return .failed;
         };

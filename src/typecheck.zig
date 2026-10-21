@@ -2063,7 +2063,7 @@ const Checker = struct {
                 .symbol_text => try self.err(b.pos, "cannot {s} `.text`{s}; a symbol's name is read-only", .{ verb.head, verb.tail }),
                 .read_only => {
                     const f = place.read_only.?;
-                    try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only outside module `{s}`, which declares it `pub ?{s}`", .{ verb.head, try self.plainText(place.node), verb.tail, f.field, f.owner, f.module, f.field });
+                    try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only {s}", .{ verb.head, try self.plainText(place.node), verb.tail, f.field, f.owner, try readOnlyWhere(self.ctx, f, true) });
                 },
             }
             return false;
@@ -3610,7 +3610,7 @@ const Checker = struct {
         if (self.read_subjects.get(id)) |from| if (from.kind == .as) {
             const shown = try self.plainText(from.place);
             // No `!` writes a field another module keeps read-only.
-            if (self.placeOf(from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`, and field `{s}` of `{s}` is read-only outside module `{s}`, so nothing here writes through it", .{ s.name, shown, f.field, f.owner, f.module });
+            if (self.placeOf(from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`, and field `{s}` of `{s}` is read-only {s}, so nothing here writes through it", .{ s.name, shown, f.field, f.owner, try readOnlyWhere(self.ctx, f, false) });
             // A parameter taken by value is written once it is taken to
             // write (`o: !T`).
             if (self.placeOf(from.place).root == .param) return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, take the parameter to write (`{s}: !…`), then bind it with `if !{s} as {s}`", .{ s.name, shown, shown, shown, s.name });
@@ -3620,7 +3620,7 @@ const Checker = struct {
         if (from.kind != .match_copy and from.kind != .match_read) return "";
         const what = if (from.whole) "" else "a field of ";
         const shown = try self.plainText(from.place);
-        if (self.placeOf(from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, and field `{s}` of `{s}` is read-only outside module `{s}`, so nothing here writes through it", .{ s.name, what, shown, f.field, f.owner, f.module });
+        if (self.placeOf(from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, and field `{s}` of `{s}` is read-only {s}, so nothing here writes through it", .{ s.name, what, shown, f.field, f.owner, try readOnlyWhere(self.ctx, f, false) });
         // A subject reached through a read view or a shared handle is never
         // written through, however it is matched.
         if (self.readOnlyStep(from.place)) |why| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, which is reached through {s}, so nothing writes through it", .{ s.name, what, shown, why });
@@ -17509,6 +17509,16 @@ fn checkHeaders(ctx: *SemContext) Error!void {
             }
         }
     }
+}
+
+/// Where field `f`, declared `pub ?name`, may be written, as an error
+/// says it: in its module, or, for a built-in type written in Rig, in the
+/// type's own methods. `declares` adds what declares it so.
+fn readOnlyWhere(ctx: *SemContext, f: sema.ReadOnlyField, declares: bool) Error![]const u8 {
+    const a = ctx.arena.allocator();
+    if (std.mem.eql(u8, f.module, "std." ++ rig.builtin_module_name)) return a.print("outside the methods of `{s}`", .{f.owner});
+    if (declares) return a.print("outside module `{s}`, which declares it `pub ?{s}`", .{ f.module, f.field });
+    return a.print("outside module `{s}`", .{f.module});
 }
 
 /// The signature `api` fixes for the method by which a type gives it its

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Time std.hash's Map against Zig's std.HashMap.
+"""Time the built-in Map against Zig's std.HashMap.
 
 usage: bench/hash/bench-hash [options]
    or, to time on a quiet machine:

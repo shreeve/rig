@@ -1,6 +1,5 @@
 # types: the rest of its tests, part 2.
 
-use std.hash
 use std.math
 use std.os
 use std.text
@@ -1878,12 +1877,12 @@ test "symbol plain", '''
   print(o ?? :other)
   o = :some
   print(o, o ?? :other)
-  m = hash.Map[Symbol, Int]()
+  m = Map[Symbol, Int]()
   !m.put(:width, 3)
   !m.put(:height, 4)
   !m.put(:width, 5)
   print(m.get(:width) ?? 0, m.get(:height) ?? 0, m.get(:depth) ?? 0, m.len)
-  set = hash.Set[Symbol]()
+  set = Set[Symbol]()
   !set.add(:a)
   !set.add(:a)
   print(set.len, set.has(:a), set.has(:b))
