@@ -25,7 +25,8 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | How fast is it, and how was that measured? | [launch/benchmarks.md](launch/benchmarks.md), and each benchmark's README under [bench/](../bench/) |
 | What changed since the last release? | [CHANGELOG.md](../CHANGELOG.md) |
 | What is planned? | [ROADMAP.md](ROADMAP.md), and the engineering detail in [internals/backlog.md](internals/backlog.md) |
-| What has been proved? | [formal/README.md](../formal/README.md) |
+| What does Rig guarantee, and how is it checked? | [learn/09-safety.md](learn/09-safety.md), then [formal/README.md](../formal/README.md) |
+| What does a program become, and what does it cost? | [learn/10-performance.md](learn/10-performance.md), then [DESIGN's cost model](DESIGN.md#cost-model) |
 | Where do things stand right now? | [HANDOFF.md](../HANDOFF.md) |
 | How do I work on the compiler? | [AGENTS.md](../AGENTS.md), then [internals/](internals/) and its [weak spots](internals/weak-spots.md) |
 | How do I test Rig code? | [learn/08-tests.md](learn/08-tests.md), then [SPEC, Tests](../SPEC.md#tests) |
