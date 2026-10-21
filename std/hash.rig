@@ -430,8 +430,9 @@ pub obj Map[K, V, ordered: Bool = true]
   # The slot of the key `k`, whose hash is `h`, in an unordered Map, or
   # `none`: a probe of its tags from the slot `h` names to the end, then
   # from the start, each pass a loop whose test is the bounds test, and
-  # the slot beside a tag that matches.
-  fun u_find(?@, k: ?K, h: U64) -> Int?
+  # the slot beside a tag that matches. Out of line, as the ordered
+  # `find` is, so a write inlined into its caller holds no loop.
+  called fun u_find(?@, k: ?K, h: U64) -> Int?
     ts = ?@table.tags[..]
     return none if ts.len == 0
     tag = tag_of(h)
@@ -464,8 +465,9 @@ pub obj Map[K, V, ordered: Bool = true]
 
   # Free slot `i` of an unordered Map, whose key and value are taken or
   # to be dropped here, and shift back each slot after it that would
-  # otherwise no longer be found from where its key hashes to.
-  sub u_take_at(!@, i: Int)
+  # otherwise no longer be found from where its key hashes to; out of
+  # line, as `u_find` is.
+  called sub u_take_at(!@, i: Int)
     @slots[i].key = none
     @slots[i].value = none
     @len -= 1
