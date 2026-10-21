@@ -443,9 +443,10 @@ instance as Rig checked it. The body's ownership check treats the call
 as a call of a function value with no `from` or `keeps`, which bounds
 every method, so ownership is still checked once.
 
-What this buys: generics without a trait system, whose design space
-(method dispatch, coherence, trait objects) Rig has not settled; any type that
-supports what a body does works with it, with nothing to declare; and
+What this buys: generics with nothing to declare: any type that
+supports what a body does works with it, a bound states the contract
+where a body wants one, and APIs of a program's own and API objects
+wait for a program that needs them ([design/apis.md](design/apis.md)); and
 the model is Zig's, which Rig lowers to. Everything that does not depend
 on `T` is still checked once, in the body, and so is ownership: the body
 is checked as if `T` owns a resource, so moves, drops, and lends are

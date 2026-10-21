@@ -18,7 +18,7 @@ items, with their probe cases, are in
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `?String`).
 - **A labeled value loop on the right of a binding** (`x = $l: for ...`), which needs a grammar change without conflicts.
-- **APIs** (`api Shape`), in the five stages of [design/apis.md](design/apis.md), whose first, method calls on a type parameter, is built: built-in bounds (`[K: Hash]`), APIs of a program's own, with `add Int: Shape` for a type declared elsewhere, and API objects (`?{Shape}`, `^{Shape}`, `*{Shape}`), each when a program needs it.
+- **APIs** (`api Shape`), in the five stages of [design/apis.md](design/apis.md), whose first two, method calls on a type parameter and built-in bounds (`[K: Hash]`), are built: APIs of a program's own, with `add Int: Shape` for a type declared elsewhere, and API objects (`?{Shape}`, `^{Shape}`, `*{Shape}`), each when a program needs it.
 - **Conditional compilation** on the target's operating system and CPU features and the build mode, as `std.target` gives the architecture (`target.arch`).
 - **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes computed from a compile-time parameter (`[n * 2]Int`, `[cap(n)]Int`), so a failure is a Rig diagnostic rather than a Zig error.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
@@ -36,7 +36,7 @@ items, with their probe cases, are in
 - **Zig 0.18**: LLVM's loop vectorizer, which Zig 0.17 turns off
   (docs/internals/zig-0.17.md §16), is back; measure plain loops again,
   and move std/terminal.zig's `widen` back into std/terminal.rig.
-- **Checker-proved check elimination**: bounds and overflow checks the checker proves redundant, redesigned around units.
+- **Checker-proved check elimination** through handles into stores (`@store.lists[Int(list.start) + k]`), which no local fact bounds; locals, Lists, field paths, `for` ranges, and flags are built ([internals/INTERNALS](internals/INTERNALS.md), "Proven checks").
 - **A frame-size guard** for every function.
 
 ## Concurrency
@@ -44,7 +44,7 @@ items, with their probe cases, are in
 The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.md#18-tasks)): tasks (`f(x)&`, `>t`) owned by their scope, cancellation and deadlines, sets of tasks, `par`, channels and `select`, actors with their idle path, deadlock detection, failure and supervision, `task.isolate`, seeded deterministic tests, and `std.net` and `std.http` on a poller per worker. What comes next is the concurrency panel's ([concurrency/panel](design/concurrency-panel/README.md)):
 
 - **Files and I/O**: a file layer with one `read`/`write` shape for files, sockets, and HTTP bodies; DNS; then TLS and an HTTP client.
-- **Checking the runtime**: the next slices of the model's proofs ([design/concurrency](design/concurrency.md), "Proof obligations"), model checking (TLA+, GenMC) before more hand proofs, and `no_orphans` restated over whoever holds a task.
+- **Checking the runtime**: the next slices of the model's proofs ([design/concurrency](design/concurrency.md), "Proof obligations"), and model checking (TLA+, GenMC) before more hand proofs.
 - **Later**: thread-sanitizer annotations for fibers, freeing a long-sleeping task's stack, and io_uring.
 
 ## Kernels and freestanding code
