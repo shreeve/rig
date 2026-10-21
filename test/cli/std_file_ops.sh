@@ -61,7 +61,10 @@ sub main()!
       print(" ", e.name, e.kind)
 EOF2
 
-# Past a deadline, or canceled, a call fails before it reaches the pool.
+# Past a deadline, or canceled, a call fails before it reaches the pool;
+# and a call already waiting on the pool, here opening a FIFO no one
+# writes, ends its wait at the deadline or the cancel. Writing the FIFO
+# at the end lets those calls finish, and their results are dropped.
 cat >stop.rig <<'EOF2'
 use std.file
 use std.task
@@ -78,12 +81,37 @@ fun waits() -> Int!
   file.write("never.txt", "x")!
   0
 
+fun slow() -> Int!
+  (file.read("fifo")! ?? String()).len
+
+# A File read a few bytes at a time on the pool, from a task.
+fun reads() -> String!
+  got = String()
+  if file.open("h.txt")! as f
+    while (!f).read(!got, 4)! > 0
+      pass
+  got
+
+fun slow_within() -> Int!
+  time.within(50 * time.MS, slow)!
+
 sub main()!
   file.write("f.txt", "x")!
+  file.write("h.txt", "hello world")!
+  h = reads()&
+  print(>h!)
   print(time.within(time.MS, late) catch |e| -1)
   t = waits()&
   print(<t.cancel() catch |e| -2)
   print(file.read("never.txt")! == none)
+  t0 = time.now()
+  print(slow_within() catch |e| -3)
+  r = slow()&
+  time.sleep(50 * time.MS)!
+  print(<r.cancel() catch |e| -4)
+  print(t0.elapsed() < 5 * time.SECOND)
+  file.append("fifo", "x")!
+  time.sleep(300 * time.MS)!
 EOF2
 
 # In a directory the program may not write; root may, so it is left out
@@ -131,14 +159,14 @@ read a directory FileError.is_directory
   x .directory'
 for mode in debug release; do
     flag=; [[ $mode == release ]] && flag=--release
-    rm -rf d f.txt never.txt
+    rm -rf d f.txt h.txt never.txt fifo; mkfifo fifo
     # A link that names nothing, made before `ops.rig` makes `d`: `mkdir`
     # of a directory there already is fine.
     mkdir d; ln -s nowhere d/link
     out=$(RIG_SANITIZE=1 rig run $flag ops.rig 2>&1); expect_rc $? 0 "$mode ops: $out"
     expect_eq "$out" "$want_ops" "$mode: append, mkdir, rename, remove, open, create"
     out=$(RIG_SANITIZE=1 rig run $flag stop.rig 2>&1); expect_rc $? 0 "$mode stop: $out"
-    expect_eq "$out" $'sleep Stop.timeout\n-1\n-2\ntrue' "$mode: past a deadline, and canceled"
+    expect_eq "$out" $'hello world\nsleep Stop.timeout\n-1\n-2\ntrue\n-3\n-4\ntrue' "$mode: past a deadline, and canceled, before and on the pool"
     if [[ $(id -u) -ne 0 ]]; then
         rm -rf ro shut; mkdir ro shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?

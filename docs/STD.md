@@ -334,7 +334,11 @@ while its task waits, so other tasks go on; to do several at once, make
 them tasks and wait with `>`, as for any call. Like a socket's calls
 ([std.net](#stdnet)), it fails with `task.Stop.canceled` in a canceled
 task and with `task.Stop.timeout` past the task's deadline
-(`time.within`), checked when the call is made.
+(`time.within`): before it starts, and while it waits, so a cancel or a
+deadline ends the wait for a call that blocks (a read of a pipe no one
+writes). The call itself runs on to its end on the pool, and what it
+gives is dropped: a write may still happen, and a file it opened is
+closed.
 
 A `File` reads and writes from where its last read or write ended, with
 the methods a `net.Stream` has, and closes when it is dropped:
