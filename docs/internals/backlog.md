@@ -97,6 +97,30 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
+- Faulting memory in ahead, measured and not taken; one form waits on
+  the owner. Trig's ts-pattern takes about 115,000 page faults on pup.
+  Asking for huge pages (`MADV_HUGEPAGE`) made it 13% slower, as pup's
+  fragmented memory made each advised fault try a compaction that
+  failed. Faulting in with one `MADV_POPULATE_WRITE` per stretch rather
+  than a trap per page was measured on pup (Trig: core 3, fastest of 10,
+  interleaved; Rig's benches: 3 or 4 rounds):
+  - each 1 MiB of a segment as the heap reaches it: Trig 1.4 to 1.9%
+    faster, RSS about 2% higher;
+  - that, and each large block whole, and its growth: 2.6 to 4.5%
+    faster, RSS 16 to 26% higher;
+  - that, but a new large block's first three quarters and half of a
+    growth, at most 8 MiB: 2.8 to 5.8% faster, RSS 6 to 9% higher. It
+    made `bench/actors`' spread about three times as slow (each of 22
+    workers faults in its first MiB at start), `spawn` 5% slower, and
+    `bench/http` answer up to 20% fewer requests (buffers written
+    sparsely);
+  - only the half of a growth by `mremap`: no regression, and 0.9% on
+    ts-pattern, which does not pay for its lines.
+
+  The third, applied only while a program runs one heap (no task
+  started yet), would likely keep Trig's gain and leave the benches as
+  they are, but the allocator would then behave one way or the other
+  by whether a task has started: the owner's call.
 - The Map's entries in its table slots, measured and not taken. A hit
   waits on memory twice: for `tags[i]` and `at[i]`, which load
   together, then for `es[j]`. Putting each key and value in its slot,
