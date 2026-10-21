@@ -394,12 +394,8 @@ const Settings = struct {
         return if (n > 0 and n < 1 << 53) n else null;
     }
 
-    /// The limits of a connection's waits: none in a deterministic run,
-    /// whose virtual clock jumps to the next deadline once no socket is
-    /// ready within a short real wait, which bytes on their way can
-    /// outlast on a loaded machine.
+    /// The limits of a connection's waits.
     fn limit(s: Settings, head: bool) Limit {
-        if (rig.sched.deterministic) return .{};
         return .{ .at = if (head) rig.sched.nowNs() + s.head_ns else null, .idle = s.idle_ns };
     }
 };

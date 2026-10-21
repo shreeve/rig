@@ -152,6 +152,37 @@ def descriptors():
 {'limits': limits, 'descriptors': descriptors}[sys.argv[1]]()
 EOF2
 
+# The default timeouts on a deterministic run's virtual clock: an idle
+# connection closes after 60 s, one kept alive after a request 60 s
+# after it, and a head that stops partway 10 s after its first byte.
+cat >virtual.rig <<'EOF2'
+use std.http
+use std.net
+use std.time
+
+fun run(l: net.Listener) -> Int!
+  http.serve(<l, |req| http.text(req.path))!
+  0
+
+# Seconds until the server closes `c`, after it sends `first`.
+fun closes(port: Int, first: ?String) -> Int!
+  c = net.connect(String("127.0.0.1:", port))!
+  t0 = time.now()
+  if first.len > 0
+    (!c).write(first)!
+  got = String()
+  while (!c).read(!got, 4096)! > 0
+    pass
+  t0.elapsed() / time.SECOND
+
+sub main()!
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  print(closes(port, "")!, closes(port, "GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!, closes(port, "GET / HTTP/1.1\r\nHo")!)
+  _ = <t.cancel() catch -1
+EOF2
+
 want_limits='idle True
 kept 200 True
 head True
@@ -170,5 +201,14 @@ for mode in debug release; do
     expect_eq "$out" "$want_limits" "$mode: timeouts and the body limit"
     out=$(python3 client.py descriptors 2>&1); expect_rc $? 0 "$mode descriptors: $out"
     expect_eq "$out" $'held True\n200 /again 0\nalive True' "$mode: out of descriptors, it accepts again"
+    # 20 seeds at once, so the machine is loaded while each clock jumps.
+    out=$(rig build $flag virtual.rig 2>&1); expect_rc $? 0 "$mode build virtual: $out"
+    for seed in $(seq 1 20); do
+        (RIG_SEED=$seed "$TIMEOUT_CMD" 120 ./virtual >"virtual-$seed.out" 2>&1; echo "rc $?" >>"virtual-$seed.out") &
+    done
+    wait
+    for seed in $(seq 1 20); do
+        expect_eq "$(cat virtual-$seed.out)" $'60 60 10\nrc 0' "$mode: the default timeouts, seed $seed"
+    done
 done
 exit 0
