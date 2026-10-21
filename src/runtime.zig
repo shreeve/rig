@@ -48,7 +48,8 @@ pub const restoreDeadline = tasks.restoreDeadline;
 
 /// `f(args...)`, a call that may block its thread, as `std`'s shims make
 /// one (reading a file): on the scheduler, on its blocking pool, while the
-/// task waits; otherwise here.
+/// task waits until it is done; otherwise here. `args` are passed as they
+/// are, so a call may read into a buffer its caller lends.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (scheduled) return sched.blocking(f, args);
     return @call(.auto, f, args);
@@ -59,9 +60,12 @@ pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".
 /// waiting, or its deadline, ends the wait with `Stop.canceled` or
 /// `Stop.timeout` while the call runs on to its end and its result is
 /// dropped (`sched.blockingStop`). `args` are copied into the call's own
-/// state, a `[]const u8` or `[]u8` among them with what it points to;
-/// anything else they point to must outlive the call. Without the
-/// scheduler it runs here, after a look at the deadline.
+/// state, a `[]const u8` among them with what it points to; anything else
+/// they point to must outlive the call. An argument the call could write
+/// through (`[]u8`, `*T`) does not compile: a canceled waiter goes on
+/// while the call may still write, so the call reads into memory it owns
+/// and returns it. Without the scheduler it runs here, after a look at
+/// the deadline.
 pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (scheduled) return switch (sched.blockingStop(f, args)) {
         .done => |r| r,

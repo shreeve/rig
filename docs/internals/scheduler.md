@@ -25,7 +25,11 @@ a program that makes none starts no workers.
   such a call a fallible waiting point: a cancel or the task's deadline
   ends the wait, and the call runs on to its end on its thread, which
   drops its result; its arguments live in the call's own state, a byte
-  slice among them copied, so nothing it reads is freed under it. Sockets are registered
+  slice among them copied, so nothing it reads is freed under it; an
+  argument it could write through (`[]u8`, `*T`) does not compile, since
+  the waiter may leave while it still writes, so it reads into memory it
+  owns and returns it. `rig.blocking`'s waiter waits for the call, which
+  takes its arguments as they are, a buffer to read into among them. Sockets are registered
   with the workers' pollers and wait there (`net.zig`, increment 8).
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
