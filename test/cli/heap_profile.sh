@@ -36,4 +36,23 @@ done
 
 out=$(rig run owners.rig 2>&1); expect_rc $? 0 "rig run owners.rig"
 grep -q "heap profile" <<<"$out" && fail "no report without RIG_HEAP_PROFILE: $out"
+grep -q "sites that held" <<<"$(RIG_HEAP_PROFILE=1 rig run --release owners.rig 2>&1)" && fail "sites are only with RIG_HEAP_PROFILE=sites"
+
+# RIG_HEAP_PROFILE=sites adds the calls that held the most at the peak,
+# each a short stack of the program's own functions.
+cat >sites.rig <<'RIG'
+called fun build(n: Int) -> List[Int]
+  xs: List[Int] = List()
+  for i in 0..n
+    !xs.push(i)
+  xs
+
+sub main()
+  big = build(200000)
+  print(big.len)
+RIG
+out=$(RIG_HEAP_PROFILE=sites rig run --release sites.rig 2>&1); expect_rc $? 0 "rig run sites.rig: $out"
+expect_has "$out" "sites that held the most at the peak" "the site report"
+expect_has "$out" "blocks of i64, made in" "the largest site is the Int List"
+expect_has "$out" "(__rig_main.zig:" "its site names a call in the program's own code: $out"
 exit 0

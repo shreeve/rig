@@ -137,7 +137,9 @@ const usage =
     \\                   allocation with its stack trace (slower)
     \\  RIG_HEAP_PROFILE Set to 1 when building to report, at exit, what
     \\                   owned the program's memory at its peak: live
-    \\                   bytes by the type allocated (slower)
+    \\                   bytes by the type allocated (slower); set to
+    \\                   `sites` to add the calls that held the most,
+    \\                   as short stacks (much slower)
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
     \\                   any use of freed memory crash where it happens
     \\                   (much slower; the test suite sets it)
@@ -225,6 +227,11 @@ const Env = struct {
         return env.flag("RIG_HEAP_PROFILE");
     }
 
+    fn heapSites(env: Env) bool {
+        const value = env.get("RIG_HEAP_PROFILE") orelse return false;
+        return std.mem.eql(u8, value, "sites");
+    }
+
     fn sanitize(env: Env) bool {
         return env.flag("RIG_SANITIZE");
     }
@@ -252,6 +259,7 @@ const Env = struct {
         if (actors) try w.writeAll("pub const __rig_actors = true;\n");
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.heapProfile()) try w.writeAll("pub const __rig_heap_profile = true;\n");
+        if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
