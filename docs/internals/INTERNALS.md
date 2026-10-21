@@ -3780,8 +3780,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   values, a field's own niche). Its optional is the size of the object
   and `== none` is one load and one compare
   (`test/cli/niche_optional.sh`). An optional of it takes the next value
-  while one is free (a `Bool` or an enum has hundreds, an address only
-  0), else Zig's flag. Only the objects emit writes (`__rig_name`) take
+  while one is free (a `Bool` has 254, a plain enum what its tag leaves, an
+  address only 0), else Zig's flag. Only the objects emit writes (`__rig_name`) take
   a niche: a `String?`, `List[T]?`, `^T?`, `~T?`, `Bool?`, or enum's
   optional is written `?T` outside generic code, so `rig.Opt` of it
   stays `?T` everywhere.
