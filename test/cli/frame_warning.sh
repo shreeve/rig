@@ -2,7 +2,7 @@
 # executable reserves it, is larger than a page though its own values fit
 # in one: what is inlined into it makes the rest. The warning names the
 # functions it calls that no marker keeps out of line, to mark `called`.
-# Marking the callee `called`, or the function `rarely` (cold, so its
+# Marking the callee `called`, or opening the function with `rarely` (cold, so its
 # frame costs little), leaves nothing to warn about, and so does a debug
 # build, which reads no frames. The build succeeds either way.
 source "$ROOT/test/cli/_lib.sh"
@@ -18,8 +18,8 @@ $2fun report(n: Int) -> Int
     s += x
   s
 
-$3 fun step(n: Int) -> Int
-  if n > 1000000
+${3:+$3 }fun step(n: Int) -> Int
+${4-}  if n > 1000000
     return report(n)
   n + 1
 
@@ -42,7 +42,8 @@ program called.rig "called " called
 rig build --release -o called called.rig >out.txt 2>err.txt || fail "rig build --release of called.rig: $(cat err.txt)"
 [[ ! -s err.txt ]] || fail "a callee marked \`called\` leaves a warning: $(cat err.txt)"
 
-program rarely.rig "" rarely
+program rarely.rig "" "" "  rarely
+"
 rig build --release -o rarely rarely.rig >out.txt 2>err.txt || fail "rig build --release of rarely.rig: $(cat err.txt)"
 [[ ! -s err.txt ]] || fail "a \`rarely\` function is warned about: $(cat err.txt)"
 
