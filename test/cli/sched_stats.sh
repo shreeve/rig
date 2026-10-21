@@ -40,4 +40,20 @@ pinned=$(sed -n 's/^rig: worker [0-9]*: ran [0-9]*, pinned \([0-9]*\),.*/\1/p' e
 # The free tasks ran on more than one worker.
 busy=$(awk '/^rig: worker/ { gsub(",", ""); if ($5 > 0) n++ } END { print n }' err.txt)
 (( busy >= 2 )) || fail "free tasks ran on $busy worker(s): $(cat err.txt)"
+# task.workers(n), before the first task, sets how many workers run, in
+# place of RIG_WORKERS.
+cat >asked.rig <<'EOF'
+use std.task
+
+fun one() -> Int
+  1
+
+sub main()
+  _ = task.workers(3)
+  t = one()&
+  print(>t)
+EOF
+rig build -o asked asked.rig >build.log 2>&1 || fail "build asked: $(cat build.log)"
+RIG_SCHED_STATS=1 RIG_WORKERS=8 ./asked >out.txt 2>err.txt || fail "asked: exit $?"
+expect_eq "$(grep -c '^rig: worker' err.txt)" 3 "workers after task.workers(3)"
 exit 0

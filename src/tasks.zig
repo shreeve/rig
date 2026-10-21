@@ -2031,6 +2031,15 @@ fn markCanceled() void {
     if (task().control) |control| control.canceled.store(true, .seq_cst);
 }
 
+/// `task.workers(n)`: run tasks on `n` workers (1 to 64), in place of
+/// one per core or `RIG_WORKERS`; whether it took effect, which it does
+/// only before the program's first task starts the workers, and in a
+/// program that makes tasks.
+pub fn setWorkers(n: Int) bool {
+    if (!rt.scheduled or n < 1) return false;
+    return rt.sched.askWorkers(@intCast(n));
+}
+
 /// `task.check()`: a waiting point that waits for nothing. It fails
 /// when the running task is canceled or its deadline has passed, and
 /// otherwise lets other tasks run; in a program that makes none, it
