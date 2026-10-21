@@ -212,6 +212,3 @@ fixing.
   its exact stderr; there is no way to turn the frames off.
 - **`rig check --tasks`,** to list each local task and what pins it, was
   decided by the concurrency panel and is not built.
-- **`Symbols` reads as related to `Symbol`,** the type of `:width`,
-  and is not: it interns strings. Renaming it `hash.Interner`, with an
-  error that points from the old name, waits on the owner.

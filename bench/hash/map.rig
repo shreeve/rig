@@ -9,6 +9,7 @@
 # inlines into `main` around it.
 
 use std.time
+use std.text
 
 N = 1000000
 
@@ -86,7 +87,7 @@ called sub intern(n: Int)
   words: List[String] = List()
   for i in 0..n
     !words.push(String("w", (i * 7919) % 50000))
-  names = Symbols()
+  names = text.Interner()
   sum: U64 = 0
   t = time.now()
   for w in ?words

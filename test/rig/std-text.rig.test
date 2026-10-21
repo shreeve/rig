@@ -950,3 +950,39 @@ fail "a byte function takes a U8", "does not fit in `U8`"
 
 code "a call into std.text calls the module's function", /__rig_m\d+_std_text\.is_digit\(55\)/
   text.is_digit(55)
+
+test "text interner", '''
+  0 1 0 none height 2
+  1011 1010 n0
+  true
+  0 1 0 2
+'''
+  # An Interner: a string gets a dense id from 0 the first time
+  # it is interned, the same id after, from any text type; `id` finds one
+  # without adding it, and `text` views an id's text. Over many strings
+  # it crosses from scanning its few stored hashes to a table, and every
+  # id still names its own text.
+
+
+  names = text.Interner()
+  a = (!names).intern("width")
+  b = (!names).intern("height")
+  w = String("wid", "th")
+  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
+  for i in 0..3000
+    t = String("n", i % 1009)
+    id = (!names).intern(?t)
+    if names.text(id) != t
+      print("wrong text", id)
+  print(names.len, names.id("n1008"), names.text(names.id("n0") ?? 0))
+  ok = true
+  for i in 0..1009
+    t = String("n", i)
+    if names.id(?t) as id
+      ok = ok and id == U32(i + 2) and names.text(id) == t
+    else
+      ok = false
+  print(ok)
+  more = text.Interner()
+  !more.reserve(4, bytes: 16)
+  print((!more).intern(""), (!more).intern("x"), (!more).intern(""), more.len)

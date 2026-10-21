@@ -1974,8 +1974,8 @@ const HiddenName = enum(u16) {
     /// The method a wait calls: `>t` is `<t.wait()`, on a task or a set
     /// of tasks (`isWaitCall`).
     wait = 4,
-    /// The module of the built-in types written in Rig (`Map`, `Set`,
-    /// `Symbols`), which a module that names one uses
+    /// The module of the built-in types written in Rig (`Map`, `Set`),
+    /// which a module that names one uses
     /// (`Parser.builtinRefs`).
     builtin_module = 5,
 
@@ -2012,7 +2012,7 @@ pub const builtin_module_name = "__rig_builtin";
 /// The built-in types written in Rig, in `std/__rig_builtin.rig`: a
 /// program names them with no import, and its own declaration of one
 /// hides it.
-pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Symbols", "Item", "Items", "Keys", "Values", "Members" };
+pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Item", "Items", "Keys", "Values", "Members" };
 
 /// Whether `leaf` is the hidden name of the module of the built-in types
 /// written in Rig (`Parser.builtinRefs`).

@@ -664,6 +664,6 @@ client. `BigInt` has no division.
 - [Tests that fail the same way twice](08-tests.md) tests a tool like
   this one, concurrent parts included.
 - [STD](../STD.md) documents every module in this chapter, and the rest:
-  `std.math`, `std.slices`, `std.par`, and `Symbols`.
+  `std.math`, `std.slices`, `std.par`, and `text.Interner`.
 - [SPEC §14](../../SPEC.md#14-modules) states how `use std.NAME` names a
   module.
