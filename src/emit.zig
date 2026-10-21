@@ -836,21 +836,9 @@ pub const Emitter = struct {
             try self.writeIndent(depth);
             try self.w.writeAll("pub fn __rig_own_print(a: *const @This(), out: *rig.Printer) void { @This().print(rig.viewOf(@This(), a), out); }\n");
         }
-        if (facts.syntax.ownApiMethod(sym, .Hash)) |m| {
-            // The hasher is the type `hash_into` takes, `hash.Hasher`.
-            const f = switch (self.facts.types.get(m.ty)) {
-                .function => |f| f,
-                else => return self.unsupported(.nil, "a `hash_into` that is no function"),
-            };
-            if (f.params.len != 2) return self.unsupported(.nil, "a `hash_into` of another signature");
-            const hasher = switch (self.facts.types.get(f.params[1])) {
-                .write_view => |inner| inner,
-                else => return self.unsupported(.nil, "a `hash_into` of another signature"),
-            };
+        if (facts.syntax.ownApiMethod(sym, .Hash) != null) {
             try self.writeIndent(depth);
-            try self.w.writeAll("pub fn __rig_own_hash(a: *const @This()) u64 { var h: ");
-            try self.emitTypeTy(hasher);
-            try self.w.writeAll(" = .{}; @This().hash_into(rig.viewOf(@This(), a), &h); return h.finish(); }\n");
+            try self.w.writeAll("pub fn __rig_own_hash(a: *const @This()) u64 { var h: rig.Hasher = .{}; @This().hash_into(rig.viewOf(@This(), a), &h); return h.state; }\n");
         }
     }
 
@@ -6295,7 +6283,7 @@ pub const Emitter = struct {
             try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
-        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.order_sym_id, ctx.printer_sym_id }) |sym| {
+        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.order_sym_id, ctx.printer_sym_id, ctx.hasher_sym_id }) |sym| {
             try self.w.writeAll("        .{ ");
             try self.writeNominalName(sym);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, .{ .nominal = sym })});
@@ -6609,10 +6597,10 @@ pub const Emitter = struct {
             .new => try self.w.writeAll("rig.String.of("),
             // `out.value(x)`, which the runtime writes as `print` writes a
             // part of another value (`rig.Printer.value`).
-            .printer_value => {
+            .printer_value, .hasher_add => {
                 const recv = ir.Member.object(self.facts.calleeOf(call));
                 try self.emitMemberBase(recv, self.typeOf(recv));
-                try self.w.writeAll(".value(");
+                try self.w.writeAll(if (op == .hasher_add) ".add(" else ".value(");
                 try self.emitExpr(args[0]);
                 return self.w.writeAll(")");
             },
@@ -8528,7 +8516,7 @@ pub const Emitter = struct {
     /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.facts.symbols.items[sym];
-        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or sym == self.facts.printer_sym_id) {
+        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym) or sym == self.facts.printer_sym_id or sym == self.facts.hasher_sym_id) {
             // The runtime's `Box(T)` is `^T`.
             return self.w.print("rig.{s}", .{if (sym == self.facts.box_sym_id) "Box" else s.name});
         }

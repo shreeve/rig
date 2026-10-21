@@ -312,8 +312,9 @@ says whether `a` belongs before `b`. The sort is stable, so `ada` and
 uses `<`. On a sorted slice, `search` finds an index by binary search, or
 `none`, and `lower_bound` gives the index where a value belongs.
 
-`sort` orders with `<`, so it refuses an element that has none. The word
-`sort_by` is how you give the order yourself:
+`sort` takes `T: Ord`, so it refuses an element that has no order; the
+error says how to give one, `obj Total: Ord`. The word `sort_by` is how
+you give the order yourself:
 
 ```rig reject
 use std.sort
@@ -328,7 +329,7 @@ sub main()
 ```
 
 ```error
-`sort.sort[Total]` cannot use `T = Total`: the generic body applies `<` to `T`
+`sort.sort[Total]` cannot use `T = Total`: `Total` cannot be ordered; name `Ord` on its header: `obj Total: Ord`
 ```
 
 ## How long it took

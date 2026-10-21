@@ -3757,6 +3757,7 @@ test/reject/types/fallback_not_fresh.rig main
 test/reject/types/generic_fn_double_move.rig twice
 test/reject/types/generic_fn_escaping_view.rig local
 test/reject/types/module_level_binding_ownership.rig main
+test/reject/types/apis_bounded_copy.rig twice
 text.arg_then_write.catch run
 text.arg_then_write.destructure run
 text.arg_then_write.destructure_branch run

@@ -2421,9 +2421,9 @@ test "sort", '''
       ok = ok and v[i] == k and (i == 0 or v[i - 1] < k) and sort.search(?v[..], k) == i
   print(ok)
 
-fail "sort needs order", "8:6: `sort.sort[P]` cannot use `T = P`: the generic body applies `<` to `T`", "`<` used on `T` here"
-  # `sort` orders with `<`, which a struct does not have: sort it with
-  # `sort_by` and a comparator instead.
+fail "sort needs order", "8:6: `sort.sort[P]` cannot use `T = P`: `P` cannot be ordered; name `Ord` on its header: `obj P: Ord`"
+  # `sort` takes `T: Ord`, which an object provides only where its
+  # header names it: sort it with `sort_by` and a comparator instead.
 
   obj P
     x: Int

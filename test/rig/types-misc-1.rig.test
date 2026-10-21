@@ -4328,7 +4328,7 @@ fail "handle to optional", "10:15: `none` needs an optional type; `*(Node?)` is 
   h = Cell[*~(Node?)](none)
   i = Cell[*Node!](none)
 
-fail "hash float", "`.hash()` does not take a `Float`", "`.hash()` does not take a `P`: field `w` is a `Float`", "cannot use `K = Float`: the generic body hashes a `K` with `.hash()`, which `Float` does not support"
+fail "hash float", "`.hash()` does not take a `Float`", "`.hash()` does not take a `P`: field `w` is a `Float`", "`hash.Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed"
   # `.hash()` takes what `==` compares less a float, whose `==` calls
   # `0.0` and `-0.0` equal and NaN equal to nothing, and so a Map takes no
   # Float key.

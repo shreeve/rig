@@ -3686,6 +3686,7 @@ const Lowerer = struct {
     /// a generic body, a call at its own type parameters is that body's
     /// to answer for its instances (`t_calls`).
     fn genericCall(self: *Lowerer, e: Sexp, type_args: []const TypeId) Error!void {
+        try self.boundFacts(e, type_args);
         var owners = false;
         var own_params = false;
         for (type_args) |t| {
@@ -3703,6 +3704,28 @@ const Lowerer = struct {
         const callee = self.calleeDecl(e) orelse return abstain("a generic instance at an owner of an unusual callee");
         if (own_params) try self.t_calls.append(self.a, callee);
         if (owners and !try copiesNoT(self.a, callee)) return abstain("a generic instance at an owner whose body copies a `T`");
+    }
+
+    /// The marker facts a call's bounds name, computed here from each
+    /// concrete type argument (docs/design/apis.md, Stage 2): `Copy`
+    /// copies, and `Owned` carries no loan.
+    fn boundFacts(self: *Lowerer, e: Sexp, type_args: []const TypeId) Error!void {
+        const callee = self.ctx.calleeOf(e);
+        const sym_id = (if (callee.isKind(.member)) self.ctx.symbolOf(ir.Member.name(callee)) else self.ctx.symbolOf(callee)) orelse return;
+        const f = switch (self.ctx.types.get(self.ctx.symbols.items[sym_id].ty)) {
+            .function => |f| f,
+            else => return,
+        };
+        for (type_args, 0..) |t, i| {
+            if (i >= f.ct_syms.len or f.ct_syms[i] == sema.symbol_invalid) continue;
+            if (t == sema.type_invalid or self.ctx.typeInfo(t).has_type_var) continue;
+            const bounds = sema.implied(self.ctx.symbols.items[f.ct_syms[i]].apis);
+            if (bounds.count() == 0) continue;
+            const info = try self.kinds.of(t);
+            if (info.unsupported != null) return abstain("a bound at an unusual type");
+            if (bounds.contains(.Copy) and !info.kind.copies()) return self.found(.C2, self.posOf(e), "a type argument that does not copy, for a parameter bounded `Copy`", .{});
+            if (bounds.contains(.Owned) and info.holds_views) return self.found(.C8, self.posOf(e), "a type argument that may carry a loan, for a parameter bounded `Owned`", .{});
+        }
     }
 
     /// The declaration a call's callee names: a function of this module,

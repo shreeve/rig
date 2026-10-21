@@ -205,9 +205,10 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         var dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
-        // A module's own `Order` or `Printer` hides the built-in one, which
-        // a type's own `order` and `print` take (docs/design/apis.md).
-        if (dup) |prev| if (prev == self.ctx.order_sym_id or prev == self.ctx.printer_sym_id) {
+        // A module's own `Order`, `Printer`, or `Hasher` hides the
+        // built-in one, which a type's own `order`, `print`, and
+        // `hash_into` take (docs/design/apis.md).
+        if (dup) |prev| if (prev == self.ctx.order_sym_id or prev == self.ctx.printer_sym_id or prev == self.ctx.hasher_sym_id) {
             dup = null;
         };
         // `String`, `Static`, and `Symbol` are built-in types, like `List`,
@@ -3267,6 +3268,22 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         try setFields(ctx, sym, &.{
             try method(ctx, "text", .write, &.{ try ctx.intern(.{ .write_view = self_ty }), ctx.types.string_view_id }, ctx.types.void_id, null),
         });
+    }
+
+    // Hasher: what a type's own `hash_into` makes its hash of.
+    // `!h.add(x)`, which typing knows (`Checker.hasherAdd`), mixes in the
+    // hash of `x`, any value that provides `Hash`.
+    {
+        const sym = try ctx.addSymbol(.{
+            .name = "Hasher",
+            .kind = .nominal_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_pos,
+            .scope = module_scope,
+        });
+        try ctx.addToScope(module_scope, sym);
+        ctx.hasher_sym_id = sym;
+        try setFields(ctx, sym, &.{});
     }
 
     // Arch: the target's processor architecture, which `std.target`'s

@@ -2623,6 +2623,17 @@ fn fromMath(o: std.math.Order) Order {
     };
 }
 
+/// `Hasher`: what a type's own `hash_into` makes its hash of. `add`
+/// mixes in the hash of each part, in order, as `rig.hash` mixes the
+/// parts of a value it hashes by its fields.
+pub const Hasher = struct {
+    state: u64 = hash_seed,
+
+    pub fn add(self: *Hasher, x: anytype) void {
+        self.state = hashMix(self.state, hash(x));
+    }
+};
+
 /// `Printer`: where a type's own `print` writes its printed form.
 /// `text` writes text as it is, and `value` a value as `print` shows a
 /// part of another, text in quotes. A failed write is kept and reported

@@ -18,23 +18,6 @@
 # a key only when its tag matches, and `at[i]` is its entry's index. Taking an entry shifts the slots after it back, so the
 # table keeps no tombstones; growing it drops the entries taken.
 
-# What a type's own `hash_into` makes its hash of: `!h.add(x)` takes
-# each part, any value that provides `Hash`, and the hasher mixes them,
-# so a type never combines numbers by hand. A type gives hashing its own
-# meaning by naming `Hash` on its header and writing
-# `sub hash_into(?@, h: !hash.Hasher)` (docs/design/apis.md, Stage 2).
-pub obj Hasher
-  state: U64 = 0x2d358dccaa6c78a5
-
-  # Mix in `x`'s hash, as the built-in `.hash()` makes it.
-  pub sub add[T: Hash](!@, x: ?T)
-    p = (@state ^ x.hash()) *% 0x4b33a62ed433d4a3
-    @state = p ^ (p >> 29)
-
-  # The hash of what was added, in order.
-  pub fun finish(?@) -> U64
-    @state
-
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
   pub key: K
@@ -107,7 +90,7 @@ obj Table
 
 # `hash.Map[K, V]()` is an empty Map, which allocates nothing until the
 # first `put`.
-pub obj Map[K, V]
+pub obj Map[K: Hash, V]
   # How many entries the Map holds.
   pub ?len: Int = 0
   es: List[Entry[K, V]] = List()
@@ -414,7 +397,7 @@ pub obj Map[K, V]
 #
 # `hash.Set[K]()` is an empty Set, which allocates nothing until the
 # first `add`.
-pub obj Set[K]
+pub obj Set[K: Hash]
   # How many keys the Set holds.
   pub ?len: Int = 0
   ks: List[K?] = List()

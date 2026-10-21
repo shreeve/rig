@@ -6,7 +6,7 @@
 
 # Sort `xs` in place, in the order of `<`, keeping equal elements in the
 # order they had. Allocates nothing.
-pub sub sort[T](xs: ![]T)
+pub sub sort[T: Ord](xs: ![]T)
   sort_by(!xs, |a, b| a < b)
 
 # Sort `xs` in place in the order `less` gives: `less(a, b)` says
@@ -24,6 +24,12 @@ pub sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
     a = 0
     while a + width < n : a += 2 * width
       sym_merge(!xs, less, a, a + width, min(a + 2 * width, n))
+
+# Sort `xs` in place in the order of the key `key` gives each element,
+# by `<`, keeping elements of equal keys in the order they had. Allocates
+# nothing; `key` is called twice for each comparison.
+pub sub sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)
+  sort_by(!xs, |?key, a, b| key(a) < key(b))
 
 fun min(a: Int, b: Int) -> Int
   a if a < b else b
@@ -105,7 +111,7 @@ sub swap_range[T](xs: ![]T, a: Int, b: Int, n: Int)
 # The index where `x` belongs in `xs`, which is sorted in the order of
 # `<`: the first element not less than `x`, or `xs.len` when there is
 # none. Inserting `x` there keeps `xs` sorted.
-pub fun lower_bound[T](xs: []T, x: T) -> Int
+pub fun lower_bound[T: Ord](xs: []T, x: T) -> Int
   lo = 0
   hi = xs.len
   while lo < hi
@@ -119,8 +125,15 @@ pub fun lower_bound[T](xs: []T, x: T) -> Int
 # The index of an element equal to `x` in `xs`, which is sorted in the
 # order of `<`, found by binary search: the first such element; `none`
 # when there is none.
-pub fun search[T](xs: []T, x: T) -> Int?
-  i = lower_bound(xs, x)
-  if i < xs.len and xs[i] == x
-    return i
+pub fun search[T: Ord](xs: []T, x: T) -> Int?
+  lo = 0
+  hi = xs.len
+  while lo < hi
+    mid = lo + (hi - lo) / 2
+    if xs[mid] < x
+      lo = mid + 1
+    else
+      hi = mid
+  if lo < xs.len and xs[lo] == x
+    return lo
   none

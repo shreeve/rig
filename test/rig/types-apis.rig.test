@@ -203,7 +203,7 @@ test "apis own meanings", '''
     fun eq(?@, other: ?Name) -> Bool
       @text.len == other.text.len
 
-    sub hash_into(?@, h: !hash.Hasher)
+    sub hash_into(?@, h: !Hasher)
       !h.add(@text.len)
 
     sub print(?@, out: !Printer)
@@ -284,7 +284,7 @@ test "apis own enum eq", "true false"
 
   print(Level.low == Level.mid, Level.mid == Level.high)
 
-fail "apis own eq unhashed", "`key[Name]` cannot use `K = Name`: `Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`"
+fail "apis own eq unhashed", "`key[Name]` cannot use `K = Name`: `Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !Hasher)`"
   # A type with its own `==` and no hash of its own has no hash.
 
   obj Name: Eq
@@ -316,3 +316,42 @@ fail "apis fixed signatures", "`Version.eq` takes `self` as `!@`, but `Eq` fixes
       1
 
   print(1)
+
+test "apis std bounds", '''
+  [1, 2, 3] 1 true 4
+  ann 2.5
+  a
+'''
+  # std takes bounds: `sort` and `math.max` take `T: Ord`,
+  # `slices.contains` takes `T: Eq`, `math.abs` takes
+  # `T: Signed + Ord`, and `sort_by_key` sorts by a key that provides
+  # `Ord`.
+
+  use std.sort
+  use std.slices
+  use std.math
+
+  obj Player
+    name: ?String
+    score: Int
+
+  obj Version: Ord
+    major: Int
+
+  sub main()
+    xs = [3, 1, 2]
+    sort.sort(!xs)
+    print(xs, sort.search(?xs, 2), slices.contains(?xs, 3), math.abs(-4))
+    ps = [Player(name: "bob", score: 9), Player(name: "ann", score: 7)]
+    sort.sort_by_key(!ps, |p| p.score)
+    print(ps[0].name, math.max(1.5, 2.5))
+    names = [String("b"), String("a")]
+    sort.sort(!names)
+    print(names[0])
+
+fail "apis std unsigned abs", "`math.abs[U8]` cannot use `T = U8`: `U8` is no signed number"
+  # `math.abs` takes `T: Signed + Ord`.
+
+  use std.math
+
+  print(math.abs(U8(3)))

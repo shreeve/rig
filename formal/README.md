@@ -256,6 +256,12 @@ and the yield checks, `stopping`, and the blocking pool.
   semantics; the test suite and the sanitizer stand in for it.
 - **Anything outside the slice:** objects, optionals, `List`,
   functions, `*T`, `~T`, `Cell`, loops.
+- **Bounds (docs/design/apis.md, Stage 2).** A body may copy a type
+  parameter bounded `Copy`, so a proof that generic bodies keep the
+  Core needs `Copy` to hold only of the kinds that copy: plain data and
+  read views (Core §1), never an owner or a write view. The obligation
+  is recorded here and not yet proved; it joins λRig once type
+  parameters do.
 
 ## Next
 

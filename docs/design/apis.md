@@ -40,7 +40,7 @@ it.
 | Stage | What it adds | New syntax | Status |
 |---|---|---|---|
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
-| 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]`, `obj X: Eq` | *(planned, next)* |
+| 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
 | 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(planned)* |
 | 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
 | 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Moves}` | *(planned)* |
@@ -244,27 +244,36 @@ includes and a call through a `T` would not.
 **Where it is described.** SPEC's "Generic bodies" gives the rule, and
 DESIGN's "Per-instance checking" its reasons.
 
-## Stage 2: built-in bounds *(planned, next)*
+## Stage 2: built-in bounds *(built)*
 
 A bound names, in the signature, a capability a body uses, so the error
 moves to the user's line and the signature becomes the contract. Stage
 2 adds bounds over the built-in APIs, and a type's header naming the
 ones it gives a meaning of its own; `api` and `add` come with Stage 3.
 
-```text
+```rig
+use std.hash
+use std.text
+
 fun max[T: Ord](a: T, b: T) -> T               # a bound, in the brackets
   a if a > b else b
 
-fun keys[K: Hash + Print, V](m: ?hash.Map[K, V])   # several, joined with +
+fun count[K: Hash + Print, V](m: ?hash.Map[K, V]) -> Int   # several, joined with +
+  m.len
 
 obj Name: Eq + Hash                            # Name gives Eq and Hash its own meaning
   text: String
 
   fun eq(?@, other: ?Name) -> Bool
-    text.same_fold(?@text, ?other.text)
+    a = ?@text[..]
+    b = ?other.text[..]
+    return false if a.len != b.len
+    for i in 0..a.len
+      return false if text.to_lower(a[i]) != text.to_lower(b[i])
+    true
 
-  sub hash_into(?@, h: !hash.Hasher)
-    for b in ?@text
+  sub hash_into(?@, h: !Hasher)
+    for b in ?@text[..]
       !h.add(text.to_lower(b))
 
 obj Version: Ord                               # Ord named, no `order`: ordered by its fields
@@ -272,6 +281,21 @@ obj Version: Ord                               # Ord named, no `order`: ordered 
   minor: Int
 
 enum Suit: Ord                                 # an enum takes the list too
+  clubs
+  spades
+
+sub main()
+  print(max(Version(major: 1, minor: 2), Version(major: 1, minor: 10)).minor, max(Suit.clubs, Suit.spades))
+  a = Name(text: String("Ada"))
+  b = Name(text: String("ADA"))
+  m: hash.Map[Name, Int] = hash.Map()
+  !m.put(<a, 1)
+  print(m.get(?b), count(?m))
+```
+
+```output
+10 .spades
+1 1
 ```
 
 **Bounds.** A bound is written in the brackets, `[T: Ord]`, and several
@@ -292,7 +316,7 @@ capabilities a type may give its own meaning.
 | `Moves` | may move to another task | never: SPEC §18's "moves" column |
 | `Shares` | may be read by several tasks | never: SPEC §18's "shares" column |
 | `Eq` | `==`, `!=` | `fun eq(?@, other: ?Self) -> Bool` |
-| `Hash: Eq` | `.hash()` | `sub hash_into(?@, h: !hash.Hasher)` |
+| `Hash: Eq` | `.hash()` | `sub hash_into(?@, h: !Hasher)` |
 | `Ord: Eq` | `<` and its kin | `fun order(?@, other: ?Self) -> Order` |
 | `Print` | `print` and text building | `sub print(?@, out: !Printer)` |
 | `Num`, `Integer: Num`, `Signed: Num` | arithmetic; `%`, bits, shifts; negation | never: built-in numbers only |
@@ -330,12 +354,13 @@ that names the API, is an error, not a quiet opt-out. A type's own
 `print` comes with this stage: `print` and text building already run
 through the path it joins.
 
-**`Order`, `Hasher`, and `Printer`.** Three small types in std:
+**`Order`, `Hasher`, and `Printer`.** Three small built-in types, named
+with no import:
 
 - `Order` is a built-in enum, `.less`, `.equal`, `.greater`, and
   `a.then(b)` gives `a` unless it is `.equal`, then `b`, for ties:
   `@major.order(?o.major).then(@minor.order(?o.minor))`.
-- `hash.Hasher` takes what a type's hash is made of, `!h.add(x)`, where
+- `Hasher` takes what a type's hash is made of, `!h.add(x)`, where
   `x` is any value that provides `Hash`; the hasher mixes them, so a
   type never combines numbers by hand.
 - `Printer` writes a type's printed form: `!out.text(...)` writes text
@@ -367,10 +392,63 @@ implied wherever the type is named; `sort`, `search`, `lower_bound`,
 **Errors.** An error about a built-in API says what cannot be done, at
 the user's line:
 
-```text
+```rig reject
+use std.hash
+
+obj Reading
+  value: Float
+
+sub main()
+  m: hash.Map[Reading, Int] = hash.Map()
+  print(m.len)
+```
+
+```error
 `hash.Map[Reading, Int]` cannot use `K = Reading`: `Reading` cannot be hashed; its field `value` is a `Float`
+```
+
+```rig reject
+obj Point
+  x: Int
+
+fun max[T: Ord](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  print(max(Point(x: 1), Point(x: 2)).x)
+```
+
+```error
 `max[Point]` cannot use `T = Point`: `Point` cannot be ordered; name `Ord` on its header: `obj Point: Ord`
-`Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !hash.Hasher)`
+```
+
+```rig reject
+obj Name: Eq
+  text: String
+
+  fun eq(?@, other: ?Name) -> Bool
+    @text.len == other.text.len
+
+sub main()
+  print(Name(text: String("a")).hash())
+```
+
+```error
+`Name` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !Hasher)`
+```
+
+```rig reject
+obj Version: Ord
+  major: Int
+
+  fun order(?@, other: Version) -> Order
+    @major.order(?other.major)
+
+sub main()
+  print(Version(major: 1) < Version(major: 2))
+```
+
+```error
 `Version.order` takes `other` as `Version`, but `Ord` fixes `fun order(?@, other: ?Self) -> Order`
 ```
 

@@ -2030,7 +2030,7 @@ fail "generic ordering", "11:7: `max[Point]` cannot use `T = Point`: the generic
   print(max("a", "b"))
   print(max(Point(x: 1), Point(x: 2)))
 
-fail "generic ordering payload enum", "8:12: max[Shape]` cannot use `T = Shape`: the generic body applies `<` to `T`, which `Shape` does not support"
+fail "generic ordering payload enum", "8:12: `math.max[Shape]` cannot use `T = Shape`: `Shape` cannot be ordered; name `Ord` on its header: `enum Shape: Ord`"
   # A generic body's `<` takes a plain enum but not one with a payload
   # variant.
 
