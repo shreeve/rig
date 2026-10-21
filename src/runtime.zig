@@ -337,7 +337,51 @@ fn PayloadPtr(comptime P: type) type {
 /// `T`, `none`, or an optional-valued `??` is where a `T?` goes.
 pub inline fn pack(comptime O: type, x: ?Payload(O)) O {
     if (comptime isOptStruct(O)) return O.wrap(x);
+    if (comptime OneStore(O) != void) return packOneStore(O, x);
     return x;
+}
+
+// A flag optional in one store. Zig's `?T`, for a `T` with no spare
+// value, is the payload's bytes followed by a flag byte. Written field by
+// field, as Zig writes it, the payload store and the flag store cannot be
+// forwarded to a later load of the whole word, which on x86 then waits
+// for both to reach the cache. So `pack` writes such a `?T` as one
+// integer store of its full width when that width is 2, 4, or 8 bytes:
+// the payload's bytes, then the flag byte 1 (none is all zero), on a
+// little-endian target. The type and its layout stay Zig's `?T`.
+
+/// The unsigned integer as wide as `O` when `pack` writes `O` in one
+/// store, else `void`.
+fn OneStore(comptime O: type) type {
+    if (@typeInfo(O) != .optional) return void;
+    const T = @typeInfo(O).optional.child;
+    switch (@typeInfo(T)) {
+        .int, .float, .bool, .@"enum", .array, .@"struct", .@"union", .vector => {},
+        else => return void,
+    }
+    // A pointer's optional has no flag: none is address 0.
+    if (@sizeOf(T) == 0 or @sizeOf(O) == @sizeOf(T)) return void;
+    if (builtin.cpu.arch.endian() != .little) return void;
+    return switch (@sizeOf(O)) {
+        2 => u16,
+        4 => u32,
+        8 => u64,
+        else => void,
+    };
+}
+
+inline fn packOneStore(comptime O: type, x: ?Payload(O)) O {
+    if (@inComptime()) return x;
+    const W = OneStore(O);
+    const T = Payload(O);
+    var word: W = 0;
+    if (x) |v| {
+        @as(*align(1) T, @ptrCast(&word)).* = v;
+        word |= @as(W, 1) << (8 * @sizeOf(T));
+    }
+    var o: O = undefined;
+    @as(*align(@alignOf(O)) W, @ptrCast(&o)).* = word;
+    return o;
 }
 
 // -----------------------------------------------------------------------------
@@ -5975,6 +6019,27 @@ test "aggregates drop their parts" {
     drop(&arr);
     try testing.expectEqual(5, drops);
     try expectNoLeaks(before);
+}
+
+test "pack writes a flag optional in one store, as Zig's own ?T" {
+    const Node = struct { id: u32 };
+    const Kind = enum(u8) { a, b, c };
+    try testing.expect(OneStore(?Node) == u64 and OneStore(?u16) == u32 and OneStore(?bool) == u16);
+    try testing.expect(OneStore(?*u8) == void and OneStore(?i64) == void and OneStore(?[3]u32) == void);
+    inline for (.{ Node{ .id = 7 }, @as(u32, 0), @as(u16, 9), @as(u8, 255), true, Kind.c, [3]u8{ 1, 2, 3 }, @as(f32, -1.5) }) |value| {
+        const T = @TypeOf(value);
+        var v: T = value;
+        _ = &v;
+        // Zig's `?T`: the payload, then the flag byte 1.
+        const zig: ?T = v;
+        try testing.expectEqual(1, std.mem.asBytes(&zig)[@sizeOf(T)]);
+        const o = pack(?T, v);
+        try testing.expect(o != null and std.meta.eql(o.?, v));
+        try testing.expectEqualSlices(u8, std.mem.asBytes(&zig)[0 .. @sizeOf(T) + 1], std.mem.asBytes(&o)[0 .. @sizeOf(T) + 1]);
+        var n: ?T = v;
+        n = pack(?T, null);
+        try testing.expect(n == null);
+    }
 }
 
 test "an object's optional holds none in its niche, the size of the object" {

@@ -177,6 +177,12 @@ changed the language since it:
   works in a generic body on a `[]T` through the APIs a type gives, and
   a closure written at the call is inlined in a release build, as fast
   as the loop written out (docs/STD.md, "reduce").
+- **Optionals:** an object's `T?` of at most 8 bytes, such as one of
+  a single `U32` field, is written in one store of its full width, the
+  payload and its flag byte together, so a later read of the whole value
+  is forwarded from that store; on x86, writing them apart stalled such
+  reads (Trig's binder binds 7% faster on an x86 core). Its type and
+  layout are Zig's `?T`, as before.
 - **BOLT:** `rig build --release --bolt -- WORKLOAD` lays the
   executable out again with LLVM's BOLT, by a `perf` profile of the
   workload (Linux), and `--bolt-profile=FILE` keeps that profile or

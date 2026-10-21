@@ -3773,6 +3773,18 @@ symbols); a query that decides more than that belongs in `Pending`.
   identity on a `?T`, so a `T?` that is Zig's `?T` in an instance
   inlines to nothing.
 
+  `pack` writes a flag optional in one store. Zig's `?T`, for a `T`
+  with no spare value, is the payload's bytes and then a flag byte;
+  written field by field, a later load of the whole word spans two
+  stores and cannot be forwarded from them, which on x86 waits for both
+  to reach the cache (in Trig's binder, a `Node?` of one `U32` built
+  from the tree's words and read back whole lost about 7% of the bind
+  this way on an x86 core). So where `?T` is 2, 4, or 8 bytes on a
+  little-endian target, `pack` (`OneStore`, `packOneStore`) builds the
+  payload's bytes and the flag byte 1 after them (none is all zero) in
+  one integer and stores that. The type and its layout stay Zig's `?T`;
+  a runtime test checks that Zig's own `?T` has that layout.
+
   An object with a niche holds `none` in it ([The runtime](#the-runtime),
   `Niche`): a word of its bytes that no value of it holds, chosen at
   compile time from its fields by `rig.nicheOf` (a String's, List's,

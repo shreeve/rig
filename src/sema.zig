@@ -5466,8 +5466,9 @@ pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
 /// `somePtr`, `pack`): where its representation may differ from Zig's
 /// `?T`. A type parameter's may, since its instance decides; so may an
 /// object's, which holds `none` in a niche where it has one, and an
-/// optional of such an optional (`rig.Opt`). `strict`
-/// (`RIG_STRICT_OPTIONALS`) holds each of them as a tagged struct.
+/// optional of such an optional (`rig.Opt`). `pack` writes an object's flag optional in one store
+/// where it fits (runtime `OneStore`). `strict` (`RIG_STRICT_OPTIONALS`)
+/// holds each of them as a tagged struct.
 pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
     return switch (ctx.types.get(inner)) {
         .type_var => true,
