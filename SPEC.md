@@ -8625,7 +8625,11 @@ closure literal, not to a function name or a closure binding: write
 ## 12. Optionals
 
 `T?` holds a `T` or `none`. A plain `T` is accepted where a `T?` is
-expected, and `none` needs a known optional type.
+expected, and `none` needs a known optional type. An object's `T?` is
+the size of a `T` when a field of it has a value no `T` holds (address
+0 for a `String`, `List`, box, or handle, a spare value for a `Bool` or
+plain enum, directly or in a field's own object), and a `T` beside a
+flag otherwise, as any other type's is.
 
 | Form | Meaning |
 |---|---|

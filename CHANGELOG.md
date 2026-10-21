@@ -24,6 +24,13 @@ changed the language since it:
   statement above (not after a line that opens a block); a closure may
   omit trailing parameters; a bare `for X` loops over `X`; an iterator
   in a place is written `for x in !it`.
+- **Optionals cost nothing where an object has a niche:** an object
+  holding a `String`, `List`, box, handle, `Bool`, plain enum, or an
+  object that does holds `none` in bytes no value of it holds, so its
+  `T?` is the size of the object (`Cheese?` with a `String` is 32
+  bytes, not 40) and `== none` is one compare. An optional of it,
+  `(T?)?`, takes the next spare value where one is left. An object of
+  numbers alone keeps its flag.
 - **Inclusive ranges:** `a..=b` runs through `b`, beside `a..b`, which
   stops before it: a `for` source (`for b in 0..=U8.max` reaches the
   type's largest value without stepping past it), a slice

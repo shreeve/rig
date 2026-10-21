@@ -123,20 +123,122 @@ test {
 
 // Rig's `T?` is `Opt(T)`: Zig's `?T`, or a struct that declares
 // `__rig_optional`, its payload type, and holds the payload its own way.
-// Every operation on a `T?` whose representation may differ from `?T` goes
-// through `some`, `somePtr`, and `pack`, which are the identity on a `?T`:
-// Zig rejects `orelse`, `null`, and a payload where a struct optional
-// goes, so an operation that skips them fails to compile. Under
-// `RIG_STRICT_OPTIONALS`, every object declares `__rig_strict_optional`,
-// and its optional is a `Strict` wrapper, so the whole suite checks that
-// emit and this file route every such operation.
+// An object with a niche, bytes that no value of it holds (`nicheOf`),
+// holds `none` there (`Niche`), so its optional is the size of the
+// object and its test one compare; so does an optional of such an
+// optional while a value is left free. Every operation on a `T?` whose
+// representation may differ from `?T` goes through `some`, `somePtr`,
+// and `pack`, which are the identity on a `?T`: Zig rejects `orelse`,
+// `null`, and a payload where a struct optional goes, so an operation
+// that skips them fails to compile. Under `RIG_STRICT_OPTIONALS`, every
+// object declares `__rig_strict_optional`, and its optional (and an
+// optional of that) is a `Strict` wrapper, so the whole suite checks
+// that emit and this file route every such operation, niche or not.
 
 /// The Zig type of Rig's `T?`.
 pub fn Opt(comptime T: type) type {
     if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_strict_optional")) return Strict(T);
-    // A type that names its none (a compact optional) gets its own
-    // struct here.
+    // An object with a niche (`nicheOf`) holds `none` there, and so does
+    // an optional of one, with the next value. Only an object the emitter
+    // writes (`__rig_name`) and its optionals: every optional of one goes
+    // through the helpers (`sema.optionalRouted`), so no `?T` of it is
+    // written anywhere else. A `String?`, `Bool?`, or enum's is Zig's.
+    if (comptime @typeInfo(T) == .@"struct" and (@hasDecl(T, "__rig_name") or @hasDecl(T, "__rig_niche"))) {
+        if (comptime nicheOf(T)) |n| return Niche(T, n);
+    }
     return ?T;
+}
+
+/// Where a value of some type has bytes that no value of it holds: a
+/// `Word` at `offset` that never holds `value` (nor the `spare - 1`
+/// values after it), so `none` can be written there.
+pub const NicheAt = struct {
+    offset: usize,
+    Word: type,
+    value: comptime_int,
+    spare: comptime_int,
+
+    fn at(comptime n: NicheAt, comptime offset: usize) NicheAt {
+        return .{ .offset = n.offset + offset, .Word = n.Word, .value = n.value, .spare = n.spare };
+    }
+};
+
+/// `T`'s niche, or null: a non-null pointer (a handle, a box, a String's
+/// or List's buffer, a slice, a function), a `Bool`'s byte, a plain
+/// enum's spare tag values, or a field's or element's niche. Of a
+/// struct's fields, the one with the most spare values, then the first.
+pub fn nicheOf(comptime T: type) ?NicheAt {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| if (p.attrs.@"allowzero" or p.size == .c) null else .{ .offset = 0, .Word = usize, .value = 0, .spare = 1 },
+        .bool => .{ .offset = 0, .Word = u8, .value = 2, .spare = 254 },
+        .@"enum" => |e| enumNiche(T, e),
+        .array => |a| if (a.len == 0) null else nicheOf(a.child),
+        .@"struct" => |s| blk: {
+            if (s.layout == .@"packed") break :blk null;
+            // A niche optional's own niche is the next value free in its
+            // payload's (`T??`, or a `T?` field).
+            if (@hasDecl(T, "__rig_niche")) {
+                const n: NicheAt = T.__rig_niche;
+                break :blk if (n.spare > 1) .{ .offset = n.offset, .Word = n.Word, .value = n.value + 1, .spare = n.spare - 1 } else null;
+            }
+            var best: ?NicheAt = null;
+            for (s.field_names, s.field_types, s.field_attrs) |name, F, attrs| {
+                if (attrs.@"comptime" or @sizeOf(F) == 0) continue;
+                const n = nicheOf(F) orelse continue;
+                if (best == null or n.spare > best.?.spare) best = n.at(@offsetOf(T, name));
+            }
+            break :blk best;
+        },
+        else => null,
+    };
+}
+
+/// A plain enum's niche: the tag values above its largest, up to the
+/// top of the bytes that hold it (an enum is stored zero-extended).
+fn enumNiche(comptime T: type, comptime e: std.lang.Type.Enum) ?NicheAt {
+    if (e.mode != .exhaustive or @sizeOf(T) == 0) return null;
+    if (@typeInfo(e.tag_type).int.signedness == .signed) return null;
+    const Word = @Int(.unsigned, @sizeOf(T) * 8);
+    var top: comptime_int = 0;
+    for (e.field_values) |v| top = @max(top, v + 1);
+    const room = std.math.maxInt(Word) + 1 - top;
+    return if (room > 0) .{ .offset = 0, .Word = Word, .value = top, .spare = @min(room, 1 << 16) } else null;
+}
+
+/// `T?` for a `T` with a niche `n`: a `T`'s bytes, holding `n.value` in
+/// the niche for `none`, so the optional is the size of a `T` and its
+/// test is one compare. The bytes are no `T` while they hold `none`, so
+/// they are held as bytes, and read as a `T` only past that test.
+fn Niche(comptime T: type, comptime n: NicheAt) type {
+    return struct {
+        bytes: [@sizeOf(T)]u8 align(@alignOf(T)),
+
+        const Self = @This();
+        pub const __rig_optional = T;
+        pub const __rig_niche = n;
+
+        inline fn word(bytes: *const [@sizeOf(T)]u8) n.Word {
+            return @as(*const n.Word, @ptrCast(@alignCast(bytes[n.offset..][0..@sizeOf(n.Word)]))).*;
+        }
+
+        pub inline fn unwrap(o: Self) ?T {
+            return if (word(&o.bytes) == n.value) null else @as(*const T, @ptrCast(&o.bytes)).*;
+        }
+
+        pub inline fn unwrapPtr(p: anytype) ?(if (@typeInfo(@TypeOf(p)).pointer.attrs.@"const") *const T else *T) {
+            return if (word(&p.bytes) == n.value) null else @ptrCast(&p.bytes);
+        }
+
+        pub inline fn wrap(x: ?T) Self {
+            var o: Self = undefined;
+            if (x) |v| {
+                @as(*T, @ptrCast(&o.bytes)).* = v;
+            } else {
+                @as(*n.Word, @ptrCast(@alignCast(o.bytes[n.offset..][0..@sizeOf(n.Word)]))).* = n.value;
+            }
+            return o;
+        }
+    };
 }
 
 /// `T?` held beside a flag, for an object under `RIG_STRICT_OPTIONALS`:
@@ -147,6 +249,8 @@ fn Strict(comptime T: type) type {
         payload: T,
 
         pub const __rig_optional = T;
+        // An optional of it is held this way too (`(T?)?`).
+        pub const __rig_strict_optional = {};
 
         pub inline fn unwrap(o: @This()) ?T {
             return if (o.has) o.payload else null;
@@ -5841,6 +5945,99 @@ test "aggregates drop their parts" {
     try expectNoLeaks(before);
 }
 
+test "an object's optional holds none in its niche, the size of the object" {
+    const Leaf = struct {
+        n: i64,
+        pub const __rig_name = .{ .module = "", .name = .{"Leaf"} };
+    };
+    const Color = enum { red, green, blue };
+    const Text = struct {
+        name: []const u8,
+        n: i64,
+        pub const __rig_name = .{ .module = "", .name = .{"Text"} };
+    };
+    const Flagged = struct {
+        n: i64,
+        on: bool,
+        pub const __rig_name = .{ .module = "", .name = .{"Flagged"} };
+    };
+    const Colored = struct {
+        n: u32,
+        c: Color,
+        pub const __rig_name = .{ .module = "", .name = .{"Colored"} };
+    };
+    const Outer = struct {
+        f: Opt(Flagged),
+        n: i64,
+        pub const __rig_name = .{ .module = "", .name = .{"Outer"} };
+    };
+    const Wrap = struct {
+        t: Opt(Text),
+        n: i64,
+        pub const __rig_name = .{ .module = "", .name = .{"Wrap"} };
+    };
+    // A niche: a pointer's 0, a Bool's 2, an enum's first spare tag, the
+    // next value of a field's own niche optional.
+    inline for (.{ Text, Flagged, Colored, Outer, [3]Flagged }) |T| try testing.expectEqual(@sizeOf(T), @sizeOf(if (@typeInfo(T) == .array) T else Opt(T)));
+    try testing.expectEqual(0, nicheOf(Text).?.value);
+    try testing.expectEqual(2, nicheOf(Flagged).?.value);
+    try testing.expectEqual(3, nicheOf(Colored).?.value);
+    try testing.expectEqual(3, nicheOf(Outer).?.value);
+    // None left: numbers only, or a pointer's one value used by a field.
+    try testing.expect(Opt(Leaf) == ?Leaf and Opt(Wrap) == ?Wrap and nicheOf(Opt(Text)) == null);
+    // `T??`: the next value while one is free, else a flag.
+    try testing.expectEqual(@sizeOf(Flagged), @sizeOf(Opt(Opt(Flagged))));
+    try testing.expect(Opt(Opt(Text)) == ?Opt(Text));
+    // A type not written by the emitter keeps Zig's `?T`.
+    try testing.expect(Opt(String) == ?String and Opt(bool) == ?bool and Opt(Color) == ?Color);
+
+    const F = Opt(Flagged);
+    const FF = Opt(F);
+    const nested = [_]FF{ pack(FF, null), pack(FF, pack(F, null)), pack(FF, pack(F, Flagged{ .n = 7, .on = false })) };
+    try testing.expect(some(nested[0]) == null);
+    try testing.expect(some(some(nested[1]).?) == null);
+    try testing.expectEqual(7, some(some(nested[2]).?).?.n);
+    var o = pack(Opt(Outer), Outer{ .f = pack(F, null), .n = 4 });
+    try testing.expect(some(some(o).?.f) == null);
+    somePtr(&o).?.f = pack(F, Flagged{ .n = 1, .on = true });
+    try testing.expect(some(some(o).?.f).?.on);
+    try testing.expect(eql(pack(F, Flagged{ .n = 1, .on = true }), Flagged{ .n = 1, .on = true }) and isNone(pack(F, null)));
+}
+
+test "a niche optional is decided by its niche alone, whatever its other bytes hold" {
+    const Flagged = struct {
+        n: i64,
+        on: bool,
+        pub const __rig_name = .{ .module = "", .name = .{"Flagged"} };
+    };
+    const Text = struct {
+        name: []const u8,
+        pub const __rig_name = .{ .module = "", .name = .{"Text"} };
+    };
+    const F = Opt(Flagged);
+    const n = F.__rig_niche;
+    // `none` writes the niche and leaves the rest undefined, which a
+    // debug build fills with 0xAA; it is `none` all the same.
+    var none_f = pack(F, null);
+    @memset(&none_f.bytes, 0xAA);
+    none_f.bytes[n.offset] = n.value;
+    try testing.expect(some(none_f) == null and somePtr(&none_f) == null);
+    // A value's padding, undefined (0xAA), is no niche: it is a value.
+    var held = pack(F, Flagged{ .n = 5, .on = false });
+    const at_n = @offsetOf(Flagged, "n");
+    for (&held.bytes, 0..) |*b, i| {
+        if (i != n.offset and (i < at_n or i >= at_n + 8)) b.* = 0xAA;
+    }
+    try testing.expectEqual(5, some(held).?.n);
+    // A Bool's niche value is 2, never a Bool's 0 or 1; a pointer's 0
+    // is never an address, not even an empty slice's (Zig's is its
+    // alignment).
+    try testing.expect(n.value == 2 and @intFromPtr(@as([]const u8, &.{}).ptr) != 0);
+    const T = Opt(Text);
+    try testing.expectEqualStrings("", some(pack(T, Text{ .name = &.{} })).?.name);
+    try testing.expect(some(pack(T, null)) == null);
+}
+
 test "an optional held as a struct drops, clones, compares, hashes, and prints as ?T does" {
     const before = usage();
     var drops: usize = 0;
@@ -5855,7 +6052,7 @@ test "an optional held as a struct drops, clones, compares, hashes, and prints a
     };
     const O = Opt(Obj);
     try testing.expect(isOptStruct(O) and needsDrop(O) and !needsDrop(Opt(Plain)));
-    try testing.expect(Opt(i64) == ?i64 and Opt(O) == ?O);
+    try testing.expect(Opt(i64) == ?i64 and Opt(O) == Strict(O));
 
     var held = pack(O, Obj{ .h = shared(Counter{ .drops = &drops }) });
     var none = pack(O, null);
