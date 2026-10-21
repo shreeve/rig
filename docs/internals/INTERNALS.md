@@ -414,8 +414,8 @@ things, and a hint when the token starts a reserved form such as a
 a form Rig spells differently (`def`, `let`, `class`, `elif`, `import`,
 `loop`, `then`, ...; the table `foreign_words`) is reported at the word
 with Rig's spelling, when it starts the statement the parser failed on
-or is itself the token it failed on; so are a `:` ending a block's
-header and an inclusive range `a..=b`. A definition without its
+or is itself the token it failed on; so is a `:` ending a block's
+header. A definition without its
 parameter list (`sub main`), which the grammar parses for this, is
 rejected at its name with the header to write (`sub main()`). The
 wrapper also makes the only rewrites that need to inspect the tree:
@@ -453,6 +453,10 @@ wrapper also makes the only rewrites that need to inspect the tree:
   checker calls `Parser.dropTail` on its body, which turns the last line
   and that of each branch ending it into `(drop ...)` again, before any
   pass reads it;
+- an inclusive range `(..= a b)` becomes `(.. a b inclusive)`, so
+  every pass that reads a range reads one node, and the few that care
+  ask `rig.isInclusive`; a range pattern `lo..=hi` carries the same
+  tag;
 - a jump fallback moves to the nearest `??` of the chain before it:
   `(?? (?? a b) (return v))` becomes `(?? a (?? b (return v)))`, since
   the grammar reads the jump after the whole chain;

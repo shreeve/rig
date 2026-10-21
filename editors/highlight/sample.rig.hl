@@ -740,6 +740,11 @@
 >   all = xs[..]
         ^ operator
             ^^^^ punctuation
+>   head = xs[..=1]
+         ^ operator
+             ^^^^ punctuation
+                 ^ constant.numeric
+                  ^ punctuation
 >   count
 > 
 > fun holds(u: ?*Point, v: ^?Point, cells: [2]*Point, xs: ![]Int, q: Point) -> Int?!

@@ -186,6 +186,7 @@ tokens
     fat_arrow       # =>
     dot             # .
     dotdot          # ..
+    dotdot_eq       # ..=
 
     # Layout (produced by the rewriter)
     indent
@@ -282,6 +283,7 @@ tokens
 "->"                                        → arrow
 "=>"                                        → fat_arrow
 "??"                                        → nullish
+"..="                                       → dotdot_eq
 ".."                                        → dotdot
 "<<%"                                       → lshift_wrap
 "<<"                                        → lshift
@@ -435,7 +437,7 @@ tokens
     match                       subject ...arms:arm
     arm                         pattern guard? body
     alt_pattern                 ...alts
-    range_pattern               lo hi
+    range_pattern               lo hi inclusive:tag(inclusive)?
     variant_pattern             name:leaf ...bindings
     enum_lit                    name:leaf
     symbol                      name:leaf
@@ -473,7 +475,8 @@ tokens
     "==", "!=", "<", ">", "<=", ">="  left right
     "&", "|", "^", "<<", "<<%", ">>"   left right
     "??", and, or               left right
-    ".."                        left? right?
+    ".."                        left? right? inclusive:tag(inclusive)?
+    "..="                       left right       # `a..=b`: rewritten by the Parser wrapper to `(.. a b inclusive)`; no pass sees it
     neg, not                    operand
 
     # Ownership sigils (`~T`, `?T`, `!T`, `*T`, `^T` in type position are
@@ -511,7 +514,7 @@ tokens
     "+%=": "`+%=`", "-%=": "`-%=`", "*%=": "`*%=`", "+%": "`+%`", "-%": "`-%`", "*%": "`*%`"
     "+|=": "`+|=`", "-|=": "`-|=`", "+|": "`+|`", "-|": "`-|`"
     ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
-    "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
+    "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "..=": "`..=`", "=>": "`=>`", "~": "`~`"
     "$": "`$`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`", "<<%": "`<<%`"
     ">>": "`>>`", "+": "`+`", "-": "`-`", "*": "`*`", "/": "`/`", "%": "`%`"
@@ -588,7 +591,7 @@ tokens
     operator            "+" "-" "*" "/" "%" "+%" "-%" "*%" "+|" "-|" "==" "!=" "<" ">" "<=" ">="
                         "!" "?" "??" "|" "&" "^" "~" "<<" "<<%" ">>" "=" "=!" "+=" "-=" "*=" "/=" "%="
                         "&=" "|=" "^=" "<<=" "<<%=" ">>=" "+%=" "-%=" "*%=" "+|=" "-|=" "->" "=>"
-    punctuation         "(" ")" "[" "]" "," ":" "." ".."
+    punctuation         "(" ")" "[" "]" "," ":" "." ".." "..="
 
 # `unique`, `from`, `static` and `keeps` lex as names, and the parser
 # reads one as a keyword where its state takes the keyword: `unique` after
@@ -1054,8 +1057,10 @@ palts    = pattern "," pattern                      → (1 3)
          | palts "," pattern                        → (...1 3)
 
 # A string matches text with the same bytes; it is no range's bound.
+# `lo..hi` excludes its end, `lo..=hi` includes it.
 pattern  = patatom
          | lo:patatom ".." hi:patatom               → (range_pattern)
+         | lo:patatom "..=" hi:patatom              → (range_pattern inclusive:inclusive)
          | STRING_DQ
          | STRING_SQ
 
@@ -1148,12 +1153,13 @@ postfix  = object:postfix "." name:name             → (member)
          | value:postfix "?"                        → (propagate_none)
          | atom
 
-# A slice's open range: `xs[a..]`, `xs[..b]`, `xs[..]`. The rewriter
-# marks a `..` whose next token is `]` as DOTDOT_OPEN, so `xs[a == b..]`
-# ends the expression before it; a `..` that starts an operand needs no
-# mark, since no expression starts with one.
+# A slice's open range: `xs[a..]`, `xs[..b]`, `xs[..=b]`, `xs[..]`. The
+# rewriter marks a `..` whose next token is `]` as DOTDOT_OPEN, so
+# `xs[a == b..]` ends the expression before it; a `..` that starts an
+# operand needs no mark, since no expression starts with one.
 open     = left:expr DOTDOT_OPEN                    → (..)
          | ".." right:expr                          → (..)
+         | "..=" right:expr                         → (.. inclusive:inclusive)
          | DOTDOT_OPEN                              → (..)
 
 args     = callargs                                 → 1
@@ -1203,7 +1209,7 @@ atom     = name
 @infix unary
     "==" none, "!=" none, "<" none, ">" none, "<=" none, ">=" none
     "??" right
-    ".." none
+    ".." none, "..=" none
     "|"  left
     "^"  left
     "&"  left
