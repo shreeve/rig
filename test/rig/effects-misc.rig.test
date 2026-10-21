@@ -21,7 +21,7 @@ test "bare literal is success variant", '''
     .red
 
   print(pick(1) catch .red, pick(0) catch .red, pick(-1) catch .red)
-  e = pick(-1) catch |err| .red if err == E.missing else .missing
+  e = pick(-1) catch |err| (.red if err == E.missing else .missing)
   print(e)
 
 test "closure propagation", '''
@@ -394,7 +394,7 @@ test "error identity by set", '''
   d: Disk = .timeout
   n: Net = .timeout
   print(d, n, d == Disk.timeout, n == .timeout)
-  y = fetch(4) catch |e| 1 if e == .refused else 2
+  y = fetch(4) catch |e| (1 if e == .refused else 2)
   print(x, y)
 
 fail "extern fun argument", "an extern function can only be called, inside `raw`"
@@ -535,9 +535,9 @@ test "fallible errors", '''
 
   print(parse_len("abc") catch -1)
   print(parse_len("") catch -1)
-  print(parse_len("abcdefg") catch |err| 100 if err == .too_long else 200)
+  print(parse_len("abcdefg") catch |err| (100 if err == .too_long else 200))
   print(describe(""), describe("abcdefgh"), describe("abcd"), describe("a"))
-  print(fetch(3) catch 0, fetch(-1) catch |e| -9 if e == .timeout else -8)
+  print(fetch(3) catch 0, fetch(-1) catch |e| (-9 if e == .timeout else -8))
   print(retry(1) catch 7, retry(-1) catch 7)
   x = parse_len("") catch |err|
     print("failed with", err)

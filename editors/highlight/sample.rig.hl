@@ -291,16 +291,17 @@
       ^ operator
         ^ constant.numeric
 > 
-> rarely sub report(msg: ?String)
-  ^^^^^^ keyword
-         ^^^^ keyword
-             ^^^^^^ function
-                   ^ punctuation
-                    ^^^ variable.parameter
-                       ^ punctuation
-                         ^ storage.modifier
-                          ^^^^^^ type
-                                ^ punctuation
+> sub report(msg: ?String)
+  ^^^^ keyword
+      ^^^^^^ function
+            ^ punctuation
+             ^^^ variable.parameter
+                ^ punctuation
+                  ^ storage.modifier
+                   ^^^^^^ type
+                         ^ punctuation
+>   rarely
+  ^^^^^^^^ keyword
 >   print("error:", msg)
          ^ punctuation
           ^^^^^^^^ string

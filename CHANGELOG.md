@@ -35,6 +35,12 @@ changed the language since it:
   (`HOME: [3]U8 = "\x1b[H"`). `b'…'` and `b"…"` are gone: `b'A'` is the
   name `b` and a string. Quotes decide only escapes, so a byte that
   needs one is written in double quotes (`"\n"`, `"\x1b"`).
+- **`catch` binds as `??`:** the two share a level and read left to
+  right, as Zig's `catch` and `orelse` do: `f() catch none ?? -1` is
+  `(f() catch none) ?? -1`. A jump handler still takes the rest of the
+  expression, and a block below `catch |e|` is unchanged; a handler that
+  compares, joins with `and` or `or`, or chooses with `if` is
+  parenthesized, `f() catch |e| (1 if e == E.bad else 2)`.
 - **Weak handles:** `*w` upgrades a weak handle to a `*T?` (`*<w`
   upgrades and takes it); the method `w.upgrade()` is rejected with a
   hint, and so is `*~T`, as every holding sigil over a held value is.
@@ -84,8 +90,11 @@ changed the language since it:
   only-called functions are emitted `inline` by a size rule the
   compiler decides (`src/inlining.zig`); a function marked `inline fun`
   is inlined at every call, one marked `called fun` is always a call
-  (`noinline fn`), and one marked `rarely fun` is kept out of line with
-  Zig's cold hint (the three words are contextual); a
+  (`noinline fn`), and a block whose first line is `rarely` (a
+  function's body, a branch, a `catch` handler, a loop's body) is laid
+  out as the unlikely path with Zig's cold hint, and such a function is
+  kept out of line (the three words are contextual; `rarely fun` is
+  gone); a
   `for` index counter needs no per-iteration cast; a List index makes
   one bounds test, not two; the proven checks cover Lists, Lists in
   fields, `for` ranges, `s[i + c]`, a bound through a bound, and flags:

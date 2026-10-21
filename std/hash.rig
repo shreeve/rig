@@ -212,14 +212,16 @@ pub obj Map[K, V]
 
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
   # value `make(k)`, and give its index; out of line, as `add_new`.
-  rarely fun add_made(!@, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
+  fun add_made(!@, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
+    rarely
     v = make(?k)
     !@insert(<k, <v, h)
     @es.len - 1
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`, and give
   # its index; out of line, so a lookup that finds its key stays short.
-  rarely fun add_new(!@, k: K, v: V, h: U64) -> Int
+  fun add_new(!@, k: K, v: V, h: U64) -> Int
+    rarely
     !@insert(<k, <v, h)
     @es.len - 1
 
@@ -361,7 +363,8 @@ pub obj Map[K, V]
   # table, or double it, when the entries left would fill more than two
   # fifths of it. A Map that has not held more than `SMALL` entries
   # keeps no table.
-  rarely sub grow(!@)
+  sub grow(!@)
+    rarely
     !@compact() if @len < @es.len
     return if @table.tags.len == 0 and @len < SMALL
     !@rebuild(table_size(@len + 1, @table.tags.len))
@@ -508,7 +511,8 @@ pub obj Set[K]
     @len += 1
     !@table.place(@ks.len - 1, h) if @table.tags.len > 0
 
-  rarely sub grow(!@)
+  sub grow(!@)
+    rarely
     !@compact() if @len < @ks.len
     return if @table.tags.len == 0 and @len < SMALL
     !@rebuild(table_size(@len + 1, @table.tags.len))

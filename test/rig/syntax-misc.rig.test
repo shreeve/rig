@@ -1189,22 +1189,25 @@ test "function markers", release: true, '''
   7 7 7
   9 b 12 20 5 6
 '''
-  # `inline`, `called`, and `rarely` mark a function before its `fun` or
-  # `sub`: a module's function, a public one, a method in its type's body or
-  # outside it, and a function with compile-time parameters. They ask for a
-  # speed and change no meaning, and anywhere else each word is a name. A
-  # `called` function, always a real call, may be passed as a value.
+  # `inline` and `called` mark a function before its `fun` or `sub`, and
+  # `rarely` is the first line of its body: a module's function, a public
+  # one, a method in its type's body or outside it, and a function with
+  # compile-time parameters. They ask for a speed and change no meaning,
+  # and anywhere else each word is a name. A `called` function, always a
+  # real call, may be passed as a value.
 
   inline fun add(a: Int, b: Int) -> Int
     a + b
 
-  rarely sub report(what: ?String, n: Int)
+  sub report(what: ?String, n: Int)
+    rarely
     print(what, n)
 
   pub inline fun double(x: Int) -> Int
     x * 2
 
-  pub rarely fun fallback(x: Int) -> Int
+  pub fun fallback(x: Int) -> Int
+    rarely
     x - 1
 
   called fun triple(x: Int) -> Int
@@ -1223,7 +1226,8 @@ test "function markers", release: true, '''
     inline fun get(?@) -> Int
       @n + @inline
 
-    rarely sub reset(!@)
+    sub reset(!@)
+      rarely
       @n = 0
 
     called fun total(?@) -> Int
@@ -1235,7 +1239,8 @@ test "function markers", release: true, '''
   inline fun Counter.bumped(?@, by: Int) -> Int
     @n + by
 
-  rarely sub Counter.clear(!@)
+  sub Counter.clear(!@)
+    rarely
     @inline = 0
 
   called fun Counter.half(?@) -> Int
@@ -1247,7 +1252,8 @@ test "function markers", release: true, '''
     inline fun get(?@) -> T
       @value
 
-  rarely fun Wrap[T].peek(?@) -> T
+  fun Wrap[T].peek(?@) -> T
+    rarely
     @value
 
   called fun Wrap[T].same(?@) -> T
@@ -1256,7 +1262,8 @@ test "function markers", release: true, '''
   inline fun larger[T](a: T, b: T) -> T
     a if a > b else b
 
-  rarely fun scaled[k: Int](x: Int) -> Int
+  fun scaled[k: Int](x: Int) -> Int
+    rarely
     x * k
 
   called fun shifted[k: Int](x: Int) -> Int
@@ -2506,9 +2513,9 @@ fail "marker before pub", "3:1: `pub` comes before a function's marker: write `p
     print(f())
 
 fail "marker both", "3:8: a function takes one marker", errors: 1
-  # A function takes one marker: `inline` and `rarely` contradict each other.
+  # A function takes one marker: `inline` and `called` contradict each other.
 
-  inline rarely fun f(x: Int) -> Int
+  inline called fun f(x: Int) -> Int
     x
 
   sub main()
@@ -2517,7 +2524,7 @@ fail "marker both", "3:8: a function takes one marker", errors: 1
 fail "marker both reversed", "3:12: a function takes one marker", errors: 1
   # A function takes one marker, in either order.
 
-  pub rarely inline sub f()
+  pub called inline sub f()
     print(1)
 
   sub main()
@@ -2533,15 +2540,117 @@ fail "marker called inline", "4:8: a function takes one marker", errors: 1
   sub main()
     print(f(1))
 
-fail "marker called rarely", "4:8: a function takes one marker", errors: 1
-  # A function takes one marker: `rarely` already keeps every call a call,
-  # so `called` beside it says nothing more, and is an error for clarity.
+test "rarely blocks", '''
+  1 -1
+  big small
+  other
+  -1
+  3 6
+  15 7
+  9
+'''
+  # A block whose first line is `rarely` rarely runs: a function's body,
+  # a branch of `if` or `match`, a `catch` handler, and a loop's body. It
+  # changes no meaning.
+  error E
+    bad
 
-  rarely called sub f()
-    print(1)
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  fun report(n: Int) -> Int
+    rarely
+    0 - n
+
+  fun size(n: Int) -> ?String
+    if n > 5
+      rarely
+      "big"
+    else
+      "small"
+
+  fun kind(c: Int) -> ?String
+    match c
+      0 => "zero"
+      _
+        rarely
+        "other"
 
   sub main()
-    f()
+    x = check(1) catch |e|
+      rarely
+      -2
+    print(x, report(1))
+    print(size(9), size(1))
+    print(kind(4))
+    y = check(-1) catch |e|
+      rarely
+      -1
+    print(y)
+    total = 0
+    for i in 0..3
+      rarely
+      total += i
+    n = 0
+    while n < 6
+      rarely
+      n += 2
+    print(total, n)
+    s = 0
+    for v in [1, 2, 3, 4, 5]
+      rarely
+      s += v
+    v = if s > 100
+      rarely
+      0
+    else
+      7
+    print(s, v)
+    if s > 0 and v > 0
+      rarely
+      print(s - 6)
+
+code "rarely emits the cold hint", /fn report\([^\n]*\n *@branchHint\(\.cold\);/, "rig.cold();"
+  # A function whose body starts with `rarely` starts with Zig's cold hint;
+  # a branch's `rarely` calls `rig.cold`, which puts the hint in the branch.
+  fun report(n: Int) -> Int
+    rarely
+    0 - n
+
+  fun size(n: Int) -> Int
+    if n > 5
+      rarely
+      return 1
+    2
+
+  sub main()
+    print(report(1), size(3))
+
+fail "rarely after the first line", "4:3: `rarely` is the first line of the block it marks"
+  # `rarely` marks the block it starts.
+  fun f(n: Int) -> Int
+    m = n + 1
+    rarely
+    m
+
+  print(f(1))
+
+fail "rarely in a closure", "3:3: `rarely` marks the body of a function, a branch of `if` or `match`, a `catch` handler, or a loop"
+  # A closure, a `defer`, and a `test` block take no `rarely`.
+  f = |n: Int|
+    rarely
+    n + 1
+  print(f(1))
+
+fail "rarely before fun", "3:8: unexpected keyword `fun`"
+  # `rarely` is the first line of a body, not a word before `fun`.
+
+  rarely fun f() -> Int
+    1
+
+  sub main()
+    print(f())
 
 fail "marker in test block", "5:3: declarations are only allowed at module level"
   # A function is declared at module level, marked or not; a test block
@@ -3568,6 +3677,94 @@ fail "range inclusive open end", "4:11: `a..=` needs the end it includes; only `
 
   a = [1, 2]
   print(?a[0..=])
+
+test "catch on the level of ??", '''
+  -1 4 -1
+  5 7 2
+'''
+  # `catch` and `??` share a level and read left to right, as Zig's
+  # `catch` and `orelse` do: `size(n) catch none ?? return -1` is
+  # `(size(n) catch none) ?? return -1`.
+  error E
+    bad
+
+  fun size(n: Int) -> Int?!
+    return E.bad if n < 0
+    return none if n == 0
+    n
+
+  fun probe(n: Int) -> Int
+    s = size(n) catch none ?? return -1
+    s
+
+  fun maybe(n: Int) -> Int?
+    none if n == 0 else n
+
+  print(probe(-3), probe(4), probe(0))
+  print(size(5) catch none ?? 0, size(-2) catch none ?? 7, maybe(0) ?? maybe(0) ?? 2)
+
+test "catch jump handler takes the rest", "true false"
+  # A jump handler takes the rest of the expression, comparisons and all.
+  error E
+    bad
+
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  fun ok(n: Int) -> Bool
+    v = check(n) catch return n == -1
+    v > 0
+
+  print(ok(-1), ok(0))
+
+test "catch block handler", "-1"
+  # A handler below `catch |e|` is a block, as before.
+  error E
+    bad
+
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  v = check(-5) catch |e|
+    -1 if e == E.bad else -2
+  print(v)
+
+test "catch handler parenthesized", "1 2 true true"
+  # A handler that compares, joins, or chooses is parenthesized; it is an
+  # operand of the operators tighter than `catch`.
+  error E
+    bad
+    worse
+
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    return E.worse if n == 0
+    n
+
+  fun valid(n: Int) -> Bool!
+    check(n)!
+    true
+
+  a = check(-1) catch |e| (1 if e == E.bad else 2)
+  b = check(0) catch |e| (1 if e == E.bad else 2)
+  c = valid(-1) catch |e| (e == E.bad)
+  d = valid(0) catch |e| (e == E.bad or e == E.worse)
+  print(a, b, c, d)
+
+fail "catch handler ternary unparenthesized", "10:30: use of unbound name `e`"
+  # `catch |e| 1 if e == E.bad else 2` is `(... catch |e| 1) if e == ...`:
+  # its condition is outside the handler, where `e` is not bound.
+  error E
+    bad
+
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  a = check(-1) catch |e| 1 if e == E.bad else 2
+  print(a)
 
 fail "range open for", "4:11: a range needs an end; only a slice leaves a side open"
   # Only a slice leaves a side of its range open: a `for` range needs both

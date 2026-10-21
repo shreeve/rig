@@ -1115,7 +1115,7 @@ test "syntax-review-ux-rs1", '''
   !toks.push(.num(4))
   print(eval(?toks)!)
   !toks.push(.minus)
-  print(eval(?toks) catch |e| -1 if e == EvalError.trailing_op else -2)
+  print(eval(?toks) catch |e| (-1 if e == EvalError.trailing_op else -2))
 
 test "syntax-review-ux-rs2", '''
   [1, 4, 9, 16, 25, 36, 49, 64, 81, 100] [4, 16, 36, 64, 100] 220

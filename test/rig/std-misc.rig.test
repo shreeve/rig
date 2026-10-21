@@ -2544,7 +2544,8 @@ test "target markers", "true false", release: true
   called fun bytes[a: Arch]() -> Int
     64 if a == .x86_64 else 32
 
-  rarely fun unknown(a: Arch) -> Bool
+  fun unknown(a: Arch) -> Bool
+    rarely
     a != .x86_64 and a != .aarch64
 
   sub main()
