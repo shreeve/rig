@@ -7510,6 +7510,30 @@ owns one), and read views.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
 
+**Inline room.** `List[T, inline: n]` keeps its first `n` elements
+inside the List value itself, and allocates only once it holds more,
+when they all move to the heap: a short-lived List of a few elements
+then makes no allocation at all. `n` is a constant from 1 to 1024. It
+has every member a `List[T]` has, and is a type of its own:
+`List[Int, inline: 4]` is not `List[Int]`, nor `List[Int, inline: 8]`,
+so a function that takes one names it (or a slice, `?[T]`). A move of
+such a List copies its inline elements; a view of one points into the
+List, which its loan keeps in place.
+
+```rig
+sub main()
+  xs = List[Int, inline: 4]()
+  for i in 0..3
+    !xs.push(i)
+  !xs.push(10)
+  !xs.push(11)
+  print(xs, xs.len)
+```
+
+```output
+[0, 1, 2, 10, 11] 5
+```
+
 An array literal is an array, not a List: `xs: List[Int] = [1, 2, 3]` is
 a type mismatch, since a List allocates and the allocation is shown at the
 place it happens. `List([1, 2, 3])` makes the List.

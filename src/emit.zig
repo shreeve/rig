@@ -6261,6 +6261,11 @@ pub const Emitter = struct {
                 try self.w.print("\"{s}\"", .{piece});
                 continue;
             }
+            // `List[T, inline: n]`'s length: `InlineList`'s second argument.
+            if (std.mem.eql(u8, piece, "n")) {
+                try self.w.writeAll("1");
+                continue;
+            }
             if (piece[0] == 't') {
                 const ty = std.fmt.parseInt(TypeId, piece[1..], 10) catch unreachable;
                 if (how == .concat) try self.w.writeAll("rig.typeName(");
@@ -6322,6 +6327,11 @@ pub const Emitter = struct {
             try self.w.writeAll(", ");
             try self.writeSpelling(try ctx.formatGenericSelfMarked(a, sym), .parts, sym);
             try self.w.writeAll(" },\n");
+            if (sym == ctx.list_sym_id) {
+                try self.w.writeAll("        .{ rig.InlineList, ");
+                try self.writeSpelling(try ctx.formatInlineListMarked(a), .parts, sym);
+                try self.w.writeAll(" },\n");
+            }
         }
         try self.w.writeAll("    },\n};\n");
     }
@@ -8494,6 +8504,12 @@ pub const Emitter = struct {
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
+                if (pn.inline_len > 0) {
+                    // `List[T, inline: n]`.
+                    try self.w.writeAll("rig.InlineList(");
+                    try self.emitTypeList(pn.args);
+                    return self.w.print(", {d})", .{pn.inline_len});
+                }
                 try self.writeNominalName(pn.sym);
                 try self.w.writeAll("(");
                 try self.emitTypeList(pn.args);
