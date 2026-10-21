@@ -55,6 +55,14 @@ owner's call: whether it is `inline`, so a closure written at the call
 is inlined; whether `sum` is added as its own plain loop; and one
 benchmark of the two against a hand-written loop.
 
+`std.terminal`, a terminal emulator library, matches Ghostty (pinned
+at `31bdcd5a7963`) on 416 recorded cases and its fuzzer, scrollback
+included, and beats it on every corpus of bench/terminal. Its
+decisions, model, checks, and what is left are in
+[docs/design/terminal.md](docs/design/terminal.md). Nothing is in
+flight; the next piece (a reading API for renderers, OSC, resize, or
+`std.tty` last) is the owner's choice.
+
 Learn Rig ([docs/learn/](docs/learn/README.md)) has journeys 01 to 06
 and 08 to 10. Journey 07 is written next, on Stage 1 (and `reduce`
 once it lands), and journey 11 last; how a journey is written, and the

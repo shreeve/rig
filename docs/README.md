@@ -62,7 +62,7 @@ your language, then the journeys in order: [sigils](learn/01-sigils.md),
 | Folder | Holds |
 |---|---|
 | [learn/](learn/README.md) | the journeys: one chapter for each of Rig's big ideas |
-| [design/](design/) | the records of decisions that hold today: concurrency and its panel, APIs and their panels, `as` patterns, the formal plan, the mantras, JSON, SIMD |
+| [design/](design/) | the records of decisions that hold today: concurrency and its panel, APIs and their panels, `as` patterns, the formal plan, the mantras, JSON, SIMD, the terminal |
 | [internals/](internals/) | for contributors: the compiler, Zig 0.17, the scheduler, SIMD lowering, the tests, the weak spots, and the backlog |
 | [launch/](launch/) | the launch post on concurrency, its FAQ, its benchmarks, and one server in three languages |
 | [history/](history/) | superseded and dated documents, each opening with what replaced it |
