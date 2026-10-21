@@ -8,17 +8,20 @@
 //! FILE's bytes to N new terminals of COLS by ROWS, with SCROLLBACK bytes
 //! of scrollback (`none` for no limit), and prints `<ns> <check>`: the
 //! nanoseconds the N feeds took, and the 64-bit FNV-1a hash of the last
-//! one's dump without its final newline, which std.terminal's dump of the
-//! same bytes must equal (bench/terminal).
+//! one's dump of its screen, without the history and the final newline,
+//! which std.terminal's dump of the same bytes must equal (bench/terminal).
 //!
 //! Input, a file named by the first argument: cases one after another,
 //! each a line `case COLS ROWS LEN`, then LEN bytes, then a newline.
-//! Output: each case's dump, then a line `end`. A dump is a line per row,
-//! `|` and the row's text with its trailing blanks dropped (an empty cell
-//! is a space, a cell shows its whole char, its grapheme's runes after
-//! its own, and the second cell of a wide character is left out); then
-//! a line `~Y FIRST-LAST ATTRS` for each run of cells in row Y with the same
-//! style other than the default, in order; a line `reply BYTES` when the
+//! Output: each case's dump, then a line `end`; the terminal keeps all its
+//! scrollback. A dump is a line per row of the primary screen's history,
+//! oldest first, `^` and the row's text; a line per row of the screen,
+//! `|` and the row's text (its trailing blanks dropped, an empty cell a
+//! space, a cell its whole char, its grapheme's runes after its own, and
+//! the second cell of a wide character left out); then a line
+//! `~Y FIRST-LAST ATTRS` for each run of cells in row Y with the same
+//! style other than the default, in order, the history's rows numbered
+//! from -1, the newest, up; a line `reply BYTES` when the
 //! terminal answered (each byte below 0x20 or above 0x7E written `\xNN`,
 //! ESC `\e`, and `\` doubled); then `cursor Y X`, with ` wrap` when a wrap
 //! is pending. The terminal answers through its write_pty effect, with
@@ -113,7 +116,7 @@ fn bench(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
         if (i == n - 1) {
             var aw: std.Io.Writer.Allocating = .init(gpa);
             defer aw.deinit();
-            try dumpScreen(gpa, &aw.writer, &t, cols, rows);
+            try dumpScreen(gpa, &aw.writer, &t, cols, rows, false);
             const text = aw.written();
             check = std.hash.Fnv1a_64.hash(text[0 .. text.len - 1]);
         }
@@ -125,59 +128,35 @@ fn bench(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
 }
 
 fn dumpCase(io: std.Io, gpa: std.mem.Allocator, out: *std.Io.Writer, cols: u16, rows: u16, bytes: []const u8) !void {
-    var t: vt.Terminal = try .init(io, gpa, .{ .cols = cols, .rows = rows });
+    var t: vt.Terminal = try .init(io, gpa, .{ .cols = cols, .rows = rows, .max_scrollback_bytes = null });
     defer t.deinit(gpa);
     replies.clearRetainingCapacity();
     var stream = answering(&t);
     stream.nextSlice(bytes);
-    try dumpScreen(gpa, out, &t, cols, rows);
+    try dumpScreen(gpa, out, &t, cols, rows, true);
     try out.writeAll("end\n");
 }
 
-/// The dump of `t`, ending with a newline.
-fn dumpScreen(gpa: std.mem.Allocator, out: *std.Io.Writer, t: *vt.Terminal, cols: u16, rows: u16) !void {
+/// The dump of `t`, ending with a newline; with `history`, the primary
+/// screen's history comes first, a line `^TEXT` per row, oldest first, and
+/// its style runs before the screen's, its rows numbered from -1, the
+/// newest, up.
+fn dumpScreen(gpa: std.mem.Allocator, out: *std.Io.Writer, t: *vt.Terminal, cols: u16, rows: u16, history: bool) !void {
     const screen = t.screens.active;
+    const primary = t.screens.get(.primary).?;
+    const kept: usize = if (history) primary.pages.total_rows - primary.pages.rows else 0;
     var line: std.ArrayList(u8) = .empty;
     defer line.deinit(gpa);
-    for (0..rows) |y| {
-        line.clearRetainingCapacity();
-        for (0..cols) |x| {
-            const got = screen.pages.getCell(.{ .active = .{ .x = @intCast(x), .y = @intCast(y) } }) orelse continue;
-            if (got.cell.wide == .spacer_tail) continue;
-            const cp = got.cell.codepoint();
-            var enc: [4]u8 = undefined;
-            const n = try std.unicode.utf8Encode(if (cp == 0) ' ' else cp, &enc);
-            try line.appendSlice(gpa, enc[0..n]);
-            if (got.cell.hasGrapheme()) {
-                for (got.node.page().lookupGrapheme(got.cell) orelse &.{}) |g| {
-                    const m = try std.unicode.utf8Encode(g, &enc);
-                    try line.appendSlice(gpa, enc[0..m]);
-                }
-            }
-        }
-        const text = std.mem.trimEnd(u8, line.items, " ");
-        try out.print("|{s}\n", .{text});
+    for (0..kept) |y| {
+        try rowText(gpa, &line, primary, cols, true, y);
+        try out.print("^{s}\n", .{line.items});
     }
-    var run: std.ArrayList(u8) = .empty;
-    defer run.deinit(gpa);
-    var attr: std.ArrayList(u8) = .empty;
-    defer attr.deinit(gpa);
     for (0..rows) |y| {
-        run.clearRetainingCapacity();
-        var first: usize = 0;
-        for (0..cols + 1) |x| {
-            attr.clearRetainingCapacity();
-            if (x < cols) {
-                const got = screen.pages.getCell(.{ .active = .{ .x = @intCast(x), .y = @intCast(y) } }).?;
-                try attrs(gpa, &attr, got.cell.*, got.style());
-            }
-            if (std.mem.eql(u8, attr.items, run.items) and x < cols) continue;
-            if (run.items.len > 0) try out.print("~{d} {d}-{d} {s}\n", .{ y, first, x - 1, run.items });
-            run.clearRetainingCapacity();
-            try run.appendSlice(gpa, attr.items);
-            first = x;
-        }
+        try rowText(gpa, &line, screen, cols, false, y);
+        try out.print("|{s}\n", .{line.items});
     }
+    for (0..kept) |y| try rowStyles(gpa, out, primary, cols, true, y, @as(isize, @intCast(y)) - @as(isize, @intCast(kept)));
+    for (0..rows) |y| try rowStyles(gpa, out, screen, cols, false, y, @intCast(y));
     if (replies.items.len > 0) {
         try out.writeAll("reply ");
         for (replies.items) |b| switch (b) {
@@ -190,6 +169,55 @@ fn dumpScreen(gpa: std.mem.Allocator, out: *std.Io.Writer, t: *vt.Terminal, cols
     }
     const cursor = screen.cursor;
     try out.print("cursor {d} {d}{s}\n", .{ cursor.y, cursor.x, if (cursor.pending_wrap) " wrap" else "" });
+}
+
+/// Row `y` of `screen`'s history (`hist`) or of its screen, as text into
+/// `line`.
+fn rowText(gpa: std.mem.Allocator, line: *std.ArrayList(u8), screen: *vt.Screen, cols: u16, hist: bool, y: usize) !void {
+    line.clearRetainingCapacity();
+    for (0..cols) |x| {
+        const got = screen.pages.getCell(pointAt(hist, x, y)) orelse continue;
+        if (got.cell.wide == .spacer_tail) continue;
+        const cp = got.cell.codepoint();
+        var enc: [4]u8 = undefined;
+        const n = try std.unicode.utf8Encode(if (cp == 0) ' ' else cp, &enc);
+        try line.appendSlice(gpa, enc[0..n]);
+        if (got.cell.hasGrapheme()) {
+            for (got.node.page().lookupGrapheme(got.cell) orelse &.{}) |g| {
+                const m = try std.unicode.utf8Encode(g, &enc);
+                try line.appendSlice(gpa, enc[0..m]);
+            }
+        }
+    }
+    line.shrinkRetainingCapacity(std.mem.trimEnd(u8, line.items, " ").len);
+}
+
+/// The style runs of row `y` of `screen`'s history (`hist`) or of its
+/// screen, numbered `shown`.
+fn rowStyles(gpa: std.mem.Allocator, out: *std.Io.Writer, screen: *vt.Screen, cols: u16, hist: bool, y: usize, shown: isize) !void {
+    var run: std.ArrayList(u8) = .empty;
+    defer run.deinit(gpa);
+    var attr: std.ArrayList(u8) = .empty;
+    defer attr.deinit(gpa);
+    var first: usize = 0;
+    for (0..cols + 1) |x| {
+        attr.clearRetainingCapacity();
+        if (x < cols) {
+            const got = screen.pages.getCell(pointAt(hist, x, y)).?;
+            try attrs(gpa, &attr, got.cell.*, got.style());
+        }
+        if (std.mem.eql(u8, attr.items, run.items) and x < cols) continue;
+        if (run.items.len > 0) try out.print("~{d} {d}-{d} {s}\n", .{ shown, first, x - 1, run.items });
+        run.clearRetainingCapacity();
+        try run.appendSlice(gpa, attr.items);
+        first = x;
+    }
+}
+
+/// The point of column `x`, row `y`, of the history (`hist`) or the screen.
+fn pointAt(hist: bool, x: usize, y: usize) vt.point.Point {
+    const c: vt.point.Coordinate = .{ .x = @intCast(x), .y = @intCast(y) };
+    return if (hist) .{ .history = c } else .{ .active = c };
 }
 
 /// A cell's style as ATTRS (see the top of this file); empty for the default.

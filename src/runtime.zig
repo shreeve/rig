@@ -26,6 +26,7 @@ pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
 pub const taskCheck = tasks.check;
+pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
 pub const Actor = tasks.Actor;
@@ -650,7 +651,7 @@ fn hashInt(x: anytype) u64 {
         return hashWord(w);
     }
     const v: if (info.signedness == .signed) i128 else u128 = x;
-    if (v >= 0 and v <= std.math.maxInt(u64)) return hashWord(@intCast(v));
+    if (v >= 0 and v <= std.math.maxInt(u64)) return hashWord(@intCast(unsigned(v)));
     if (v < 0 and v >= std.math.minInt(i64)) return hashWord(@bitCast(@as(i64, @intCast(v))));
     const bits: u128 = @bitCast(v);
     return hashMix(hashWord(@truncate(bits)), hashWord(@truncate(bits >> 64)));
@@ -1767,6 +1768,7 @@ pub const String = struct {
     }
 
     noinline fn keepPanic(count: Int, n: usize) noreturn {
+        @branchHint(.cold);
         std.debug.panic("`keep: {d}` is outside 0..{d}, the bytes pushed", .{ count, n });
     }
 
@@ -2193,6 +2195,7 @@ pub const Proven = enum { lower, upper, both };
 const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
 
 fn proofPanic() noreturn {
+    @branchHint(.cold);
     @panic("rig: a proven check failed (compiler bug)");
 }
 
@@ -2654,7 +2657,22 @@ inline fn laneShiftWhole(comptime op: Shift, v: anytype, amount: anytype) @TypeO
 
 /// A shift amount for every lane of `V`, in the width Zig shifts by.
 inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vector.len, std.math.Log2Int(@typeInfo(V).vector.child)) {
-    return @splat(@intCast(amount));
+    const A = @TypeOf(amount);
+    if (A == comptime_int) return @splat(amount);
+    // Through the unsigned type of its width (`unsigned`).
+    const u: @Int(.unsigned, @bitSizeOf(A)) = @intCast(amount);
+    return @splat(@intCast(u));
+}
+
+/// `x`, an integer, as the unsigned type of its width, for a cast to a
+/// narrower unsigned type: `@intCast(unsigned(x))`. Zig lowers a cast
+/// from a signed type to a narrower unsigned one as LLVM `trunc nsw`, a
+/// promise that the value fits the narrower *signed* type, so in a
+/// release build any value at or above the target's sign bit would be
+/// poison; from the unsigned type the narrowing is `trunc nuw`. A
+/// negative `x` fails this cast as it would the direct one.
+pub inline fn unsigned(x: anytype) @Int(.unsigned, @bitSizeOf(@TypeOf(x))) {
+    return @intCast(x);
 }
 
 /// `cur.lag[k](prev)`: lane `i` is `cur[i - k]` for `i >= k`, and
@@ -3205,6 +3223,7 @@ fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
 }
 
 fn slicePanic() noreturn {
+    @branchHint(.cold);
     @panic("slice bounds out of range");
 }
 
@@ -3248,10 +3267,12 @@ noinline fn lenPanic() noreturn {
 }
 
 fn indexPanic() noreturn {
+    @branchHint(.cold);
     @panic("index out of bounds");
 }
 
 pub fn oom() noreturn {
+    @branchHint(.cold);
     @panic("out of memory");
 }
 
@@ -3820,12 +3841,15 @@ fn reportLeaks(before: Usage) bool {
     if (!leak_checked) return false;
     const now = usage();
     if (now.count <= before.count) return false;
-    const n = now.count - before.count;
-    std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{
-        n, if (n == 1) "" else "s", now.bytes -| before.bytes,
-    });
-    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
+    leakReport(now.count - before.count, now.bytes -| before.bytes);
     return true;
+}
+
+/// The leak checker's report of `n` allocations of `bytes` bytes.
+noinline fn leakReport(n: usize, bytes: usize) void {
+    @branchHint(.cold);
+    std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{ n, if (n == 1) "" else "s", bytes });
+    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
 }
 
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
@@ -4216,6 +4240,7 @@ pub fn finish() void {
 /// A failure that left `main`, after its drops and `finish`: report the
 /// error as a Rig program shows it and exit 1.
 pub fn failMain(err: anyerror) noreturn {
+    @branchHint(.cold);
     lockOutput();
     flushQuietly();
     std.debug.print("error: {s}\n", .{errorShown(err)});
@@ -4482,6 +4507,7 @@ fn beginPanic() void {
 /// Wait, in a task that panicked while another task's panic is reported,
 /// for that report to end the program.
 fn awaitOtherPanic() noreturn {
+    @branchHint(.cold);
     while (true) io().sleep(.fromSeconds(1), .awake) catch {};
 }
 
@@ -4506,6 +4532,7 @@ fn flushForPanic() void {
 /// A panic that an isolate stops: its report, with the stack trace in a
 /// debug build, then the isolate (`tasks.panicked`).
 fn isolatedPanic(iso: *tasks.Isolate, msg: []const u8, first_trace_addr: usize) noreturn {
+    @branchHint(.cold);
     reportPanic(msg, first_trace_addr);
     tasks.panicked(iso);
 }
@@ -4527,6 +4554,7 @@ fn reportPanic(msg: []const u8, first_trace_addr: usize) void {
 /// A task this one waited for, or dropped, panicked: the panic passes to
 /// this task's nearest isolate, or, with none, ends the program.
 pub fn passPanic() noreturn {
+    @branchHint(.cold);
     passPanicFrom("a task this one waited for panicked");
 }
 

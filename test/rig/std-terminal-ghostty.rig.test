@@ -83,6 +83,8 @@ test "vertical tab and form feed are line feeds", '''
   print(t.dump())
 
 test "line feed at the bottom scrolls", '''
+  ^1
+  ^2
   |3
   |4
   |5
@@ -93,6 +95,7 @@ test "line feed at the bottom scrolls", '''
   print(t.dump())
 
 test "wrapping at the bottom scrolls", '''
+  ^abcd
   |efgh
   |ijkl
   cursor 1 3 wrap
@@ -592,6 +595,7 @@ test "IND moves down", '''
   print(t.dump())
 
 test "IND at the bottom scrolls", '''
+  ^1
   |2
   | X
   cursor 1 2
@@ -1366,6 +1370,7 @@ test "CUP ignores the region", '''
   print(t.dump())
 
 test "a region of one row is ignored", '''
+  ^1
   |2
   |3
   |
@@ -1378,6 +1383,7 @@ test "a region of one row is ignored", '''
   print(t.dump())
 
 test "DECSTBM with no parameters resets", '''
+  ^1
   |2
   |3
   |4
@@ -1436,6 +1442,7 @@ test "SU of many clears the region", '''
   print(t.dump())
 
 test "SU keeps a pending wrap", '''
+  ^1
   |abcd
   |
   |X
@@ -1466,6 +1473,7 @@ test "SD of zero", '''
   print(t.dump())
 
 test "wrapping at the bottom margin scrolls the region", '''
+  ^1
   |2
   |abcd
   |ef
@@ -1743,6 +1751,7 @@ test "ECH keeps the background", '''
   print(t.dump())
 
 test "a scrolled-in row keeps the background", '''
+  ^1
   |2
   |
   ~1 0-9 bg=5
@@ -3134,6 +3143,7 @@ test "a wide rune in a single column", '''
   print(t.dump())
 
 test "a wide rune at the bottom right scrolls", '''
+  ^abcd
   |efg
   |中
   cursor 1 2
@@ -3343,6 +3353,7 @@ test "after IL a row no longer wraps", '''
   print(t.dump())
 
 test "after SU at the top a row still wraps", '''
+  ^
   | bcd
   |中
   |
@@ -3366,8 +3377,10 @@ test "after SU in a region a row no longer wraps", '''
   print(t.dump())
 
 test "a row scrolled by a line feed still wraps", '''
+  ^abcd
   |
   |
+  ~-1 0-3 bg=1
   cursor 0 0
 '''
   t = terminal.Terminal.new(5, 2)
@@ -3498,6 +3511,7 @@ test "ECH and EL drop a char's runes", '''
   print(t.dump())
 
 test "a char's runes scroll with its row", '''
+  ^é
   |
   |
   cursor 1 0
@@ -3800,4 +3814,822 @@ test "1049 erases the alternate screen as its protection says", '''
 '''
   t = terminal.Terminal.new(8, 2)
   !t.feed("\x1b[?1049h\x1bVab\x1bW\x1b[?1049l\x1b[?1049h")
+  print(t.dump())
+
+test "LF at the bottom scrolls the top row into the history", '''
+  ^1
+  ^2
+  |3
+  |4
+  |5
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5")
+  print(t.dump())
+
+test "IND and NEL at the bottom keep the rows they scroll", '''
+  ^1
+  ^2
+  |3
+  |
+  |X
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1bD\x1bEX")
+  print(t.dump())
+
+test "wrapping at the bottom keeps the row", '''
+  ^abcd
+  |efgh
+  |ijkl
+  cursor 1 3 wrap
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("abcdefghijkl")
+  print(t.dump())
+
+test "a region at the top keeps the rows it scrolls", '''
+  ^1
+  ^2
+  |3
+  |
+  |X
+  |4
+  |5
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[1;3r\x1b[3;1H\x0a\x0aX")
+  print(t.dump())
+
+test "a region below the top keeps nothing", '''
+  |1
+  |4
+  |
+  |X
+  |5
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;4r\x1b[4;1H\x0a\x0aX")
+  print(t.dump())
+
+test "SU keeps the rows it scrolls", '''
+  ^1
+  ^2
+  |3
+  |4
+  |
+  |
+  cursor 3 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2S")
+  print(t.dump())
+
+test "SU in a region at the top keeps the rows", '''
+  ^1
+  ^2
+  |X
+  |
+  |
+  |4
+  |5
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[1;3r\x1b[2SX")
+  print(t.dump())
+
+test "SU of more than the screen keeps the screen", '''
+  ^1
+  ^2
+  ^3
+  |
+  |
+  |
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[9S")
+  print(t.dump())
+
+test "SU of more than a region at the top", '''
+  ^1
+  ^2
+  |
+  |
+  |3
+  |4
+  |5
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[1;2r\x1b[9S")
+  print(t.dump())
+
+test "SU below the top keeps nothing", '''
+  |1
+  |4
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2;4r\x1b[2S")
+  print(t.dump())
+
+test "DL at the top keeps nothing", '''
+  |3
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[H\x1b[2M")
+  print(t.dump())
+
+test "RI and SD bring nothing back", '''
+  ^1
+  |X
+  |
+  |2
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[H\x1bM\x1b[TX")
+  print(t.dump())
+
+test "rows keep their styles", '''
+  ^red ul
+  |2
+  |3
+  ~-1 0-2 bold fg=1
+  ~-1 4-5 ul=single
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[1;31mred\x1b[m \x1b[4mul\x1b[m\x0d\x0a2\x0d\x0a3")
+  print(t.dump())
+
+test "an erased row keeps its background", '''
+  ^
+  |2
+  |3
+  ~-1 0-9 bg=4
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("\x1b[44m\x1b[2K\x1b[m\x0d\x0a2\x0d\x0a3")
+  print(t.dump())
+
+test "a row scrolled in with a background", '''
+  ^1
+  |
+  |3
+  ~1 1-9 bg=4
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 2)
+  !t.feed("1\x1b[44m\x0d\x0a\x0d\x0a\x1b[m3")
+  print(t.dump())
+
+test "wide runes go with their rows", '''
+  ^一一
+  ^一x
+  |2
+  |3
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(5, 2)
+  !t.feed("\xe4\xb8\x80\xe4\xb8\x80\xe4\xb8\x80x\x0d\x0a2\x0d\x0a3")
+  print(t.dump())
+
+test "a wide rune wrapped leaves its spacer in the history", '''
+  ^ab
+  ^一
+  |3
+  |4
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(3, 2)
+  !t.feed("ab\xe4\xb8\x80\x0d\x0a3\x0d\x0a4")
+  print(t.dump())
+
+test "joined runes go with their cells", '''
+  ^éx
+  |2
+  |3
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("e\xcc\x81x\x0d\x0a2\x0d\x0a3")
+  print(t.dump())
+
+test "chars of mode 2027 go with their cells", '''
+  ^👨‍👩x
+  |2
+  |3
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("\x1b[?2027h\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9x\x0d\x0a2\x0d\x0a3")
+  print(t.dump())
+
+test "protected cells go with their rows", '''
+  ^ab
+  |2
+  |3
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(6, 2)
+  !t.feed("\x1b[1\"qab\x1b[0\"q\x0d\x0a2\x0d\x0a3\x1b[?1049h\x1b[?1049l")
+  print(t.dump())
+
+test "the alternate screen keeps nothing", '''
+  |2
+  |3
+  |4
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[?1049h1\x0d\x0a2\x0d\x0a3\x0d\x0a4")
+  print(t.dump())
+
+test "the primary screen's history shows on the alternate", '''
+  ^1
+  |
+  |
+  | X
+  cursor 2 2
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[?1049hX")
+  print(t.dump())
+
+test "the history outlasts the alternate screen", '''
+  ^1
+  |2
+  |3
+  |49
+  cursor 2 2
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[?1049h5\x0d\x0a6\x0d\x0a7\x0d\x0a8\x1b[?1049l9")
+  print(t.dump())
+
+test "ED 3 erases the history", '''
+  |3
+  |4
+  |5
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[3J")
+  print(t.dump())
+
+test "ED 3 keeps the screen and cursor", '''
+  |3
+  |4X
+  |5
+  cursor 1 2
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[2;2H\x1b[3JX")
+  print(t.dump())
+
+test "rows after ED 3 fill the history again", '''
+  ^3
+  ^4
+  ^5
+  ^6
+  |7
+  |8
+  |9
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[3J\x0d\x0a6\x0d\x0a7\x0d\x0a8\x0d\x0a9")
+  print(t.dump())
+
+test "rows erased by ED 3 come back blank", '''
+  ^3
+  ^4
+  ^5
+  ^6
+  |
+  |
+  |
+  cursor 2 0
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[44m1\x1b[K\x0d\x0a\x1b[m\xe4\xb8\x80e\xcc\x81\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[3J\x0d\x0a6\x0d\x0a\x0d\x0a\x0d\x0a")
+  print(t.dump())
+
+test "ED 3 on the alternate screen keeps the primary's history", '''
+  ^1
+  |2
+  |3
+  |4
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[?1049h\x1b[3J\x1b[?1049l")
+  print(t.dump())
+
+test "DECALN fills the screen, not the history", '''
+  ^1
+  |EEEE
+  |EEEE
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(4, 2)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b#8")
+  print(t.dump())
+
+test "ED 2 keeps the history", '''
+  ^1
+  |
+  |
+  |
+  cursor 2 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1b[2J")
+  print(t.dump())
+
+test "RIS erases the history", '''
+  |X
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x1bcX")
+  print(t.dump())
+
+test "ED 22 moves the screen into the history", '''
+  ^1
+  ^2
+  ^3
+  |
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[22J")
+  print(t.dump())
+
+test "ED 22 moves rows down to the last with text", '''
+  ^1
+  ^2
+  ^3
+  |X
+  |
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[1;5H\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 keeps the cursor below the rows it moves", '''
+  ^1
+  ^2
+  |
+  |  X
+  |
+  |
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x1b[4;3H\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 keeps the empty rows above the cursor", '''
+  ^
+  ^1
+  |
+  |
+  |  X
+  |
+  |
+  cursor 2 3
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("\x1b[2;1H1\x1b[5;3H\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 of an empty screen", '''
+  |
+  |  X
+  |
+  cursor 1 3
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("\x1b[2;3H\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 counts a row with a background", '''
+  ^1
+  ^
+  ^
+  | X
+  |
+  |
+  |
+  ~-1 0-9 bg=4
+  cursor 0 2
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x1b[3;1H\x1b[44m\x1b[K\x1b[m\x1b[4;2H\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 counts a row with a spacer", '''
+  ^ab
+  ^一
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(3, 4)
+  !t.feed("ab\xe4\xb8\x80\x1b[3;1H\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 counts a wide rune on one column as empty", '''
+  |
+  |
+  ~0 0-0 bg=2
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(1, 2)
+  !t.feed("\x1b[42m\xea\xb0\x9f\x1b[22J")
+  print(t.dump())
+
+test "ED 22 brings in rows without the pen's background", '''
+  ^1
+  ^2
+  |
+  |
+  |
+  cursor 0 0
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("1\x0d\x0a2\x1b[44m\x1b[22J\x1b[m")
+  print(t.dump())
+
+test "ED 22 clears a pending wrap", '''
+  ^
+  ^
+  ^abcd
+  |X
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(4, 3)
+  !t.feed("\x1b[3;1Habcd\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 ignores the margins", '''
+  ^1
+  ^2
+  ^3
+  |
+  |X
+  |
+  |
+  |
+  cursor 1 1
+'''
+  t = terminal.Terminal.new(10, 5)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x1b[2;4r\x1b[5;1H\x1b[22JX")
+  print(t.dump())
+
+test "ED 22 on the alternate screen keeps nothing", '''
+  ^1
+  |X
+  |
+  |
+  |
+  cursor 0 1
+'''
+  t = terminal.Terminal.new(10, 4)
+  !t.feed("1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x1b[?1049ha\x0d\x0ab\x1b[4;1H\x1b[22JX")
+  print(t.dump())
+
+test "a long scroll keeps every row", '''
+  ^0
+  ^1
+  ^2
+  ^3
+  ^4
+  ^5
+  ^6
+  ^7
+  ^8
+  ^9
+  ^10
+  ^11
+  ^12
+  ^13
+  ^14
+  ^15
+  ^16
+  ^17
+  ^18
+  ^19
+  ^20
+  ^21
+  ^22
+  ^23
+  ^24
+  ^25
+  ^26
+  ^27
+  ^28
+  ^29
+  ^30
+  ^31
+  ^32
+  ^33
+  ^34
+  ^35
+  ^36
+  ^37
+  ^38
+  ^39
+  ^40
+  ^41
+  ^42
+  ^43
+  ^44
+  ^45
+  ^46
+  ^47
+  ^48
+  ^49
+  ^50
+  ^51
+  ^52
+  ^53
+  ^54
+  ^55
+  ^56
+  ^57
+  ^58
+  ^59
+  ^60
+  ^61
+  ^62
+  ^63
+  ^64
+  ^65
+  ^66
+  ^67
+  ^68
+  ^69
+  ^70
+  ^71
+  ^72
+  ^73
+  ^74
+  ^75
+  ^76
+  ^77
+  ^78
+  ^79
+  ^80
+  ^81
+  ^82
+  ^83
+  ^84
+  ^85
+  ^86
+  ^87
+  ^88
+  ^89
+  ^90
+  ^91
+  ^92
+  ^93
+  ^94
+  ^95
+  ^96
+  ^97
+  ^98
+  ^99
+  ^100
+  ^101
+  ^102
+  ^103
+  ^104
+  ^105
+  ^106
+  ^107
+  ^108
+  ^109
+  ^110
+  ^111
+  ^112
+  ^113
+  ^114
+  ^115
+  ^116
+  ^117
+  ^118
+  ^119
+  ^120
+  ^121
+  ^122
+  ^123
+  ^124
+  ^125
+  ^126
+  ^127
+  ^128
+  ^129
+  ^130
+  ^131
+  ^132
+  ^133
+  ^134
+  ^135
+  ^136
+  ^137
+  ^138
+  ^139
+  ^140
+  ^141
+  ^142
+  ^143
+  ^144
+  ^145
+  ^146
+  ^147
+  ^148
+  ^149
+  ^150
+  ^151
+  ^152
+  ^153
+  ^154
+  ^155
+  ^156
+  ^157
+  ^158
+  ^159
+  ^160
+  ^161
+  ^162
+  ^163
+  ^164
+  ^165
+  ^166
+  ^167
+  ^168
+  ^169
+  ^170
+  ^171
+  ^172
+  ^173
+  ^174
+  ^175
+  ^176
+  ^177
+  ^178
+  ^179
+  ^180
+  ^181
+  ^182
+  ^183
+  ^184
+  ^185
+  ^186
+  ^187
+  ^188
+  ^189
+  ^190
+  ^191
+  ^192
+  ^193
+  ^194
+  ^195
+  ^196
+  ^197
+  ^198
+  ^199
+  ^200
+  ^201
+  ^202
+  ^203
+  ^204
+  ^205
+  ^206
+  ^207
+  ^208
+  ^209
+  ^210
+  ^211
+  ^212
+  ^213
+  ^214
+  ^215
+  ^216
+  ^217
+  ^218
+  ^219
+  ^220
+  ^221
+  ^222
+  ^223
+  ^224
+  ^225
+  ^226
+  ^227
+  ^228
+  ^229
+  ^230
+  ^231
+  ^232
+  ^233
+  ^234
+  ^235
+  ^236
+  ^237
+  ^238
+  ^239
+  ^240
+  ^241
+  ^242
+  ^243
+  ^244
+  ^245
+  ^246
+  ^247
+  ^248
+  ^249
+  ^250
+  ^251
+  ^252
+  ^253
+  ^254
+  ^255
+  ^256
+  ^257
+  ^258
+  ^259
+  ^260
+  ^261
+  ^262
+  ^263
+  ^264
+  ^265
+  ^266
+  ^267
+  ^268
+  ^269
+  ^270
+  ^271
+  ^272
+  ^273
+  ^274
+  ^275
+  ^276
+  ^277
+  ^278
+  ^279
+  ^280
+  ^281
+  ^282
+  ^283
+  ^284
+  ^285
+  ^286
+  ^287
+  ^288
+  ^289
+  ^290
+  ^291
+  ^292
+  ^293
+  ^294
+  ^295
+  ^296
+  ^297
+  |298
+  |299
+  |
+  cursor 2 0
+'''
+  t = terminal.Terminal.new(10, 3)
+  !t.feed("0\x0d\x0a1\x0d\x0a2\x0d\x0a3\x0d\x0a4\x0d\x0a5\x0d\x0a6\x0d\x0a7\x0d\x0a8\x0d\x0a9\x0d\x0a10\x0d\x0a11\x0d\x0a12\x0d\x0a13\x0d\x0a14\x0d\x0a15\x0d\x0a16\x0d\x0a17\x0d\x0a18\x0d\x0a19\x0d\x0a20\x0d\x0a21\x0d\x0a22\x0d\x0a23\x0d\x0a24\x0d\x0a25\x0d\x0a26\x0d\x0a27\x0d\x0a28\x0d\x0a29\x0d\x0a30\x0d\x0a31\x0d\x0a32\x0d\x0a33\x0d\x0a34\x0d\x0a35\x0d\x0a36\x0d\x0a37\x0d\x0a38\x0d\x0a39\x0d\x0a40\x0d\x0a41\x0d\x0a42\x0d\x0a43\x0d\x0a44\x0d\x0a45\x0d\x0a46\x0d\x0a47\x0d\x0a48\x0d\x0a49\x0d\x0a50\x0d\x0a51\x0d\x0a52\x0d\x0a53\x0d\x0a54\x0d\x0a55\x0d\x0a56\x0d\x0a57\x0d\x0a58\x0d\x0a59\x0d\x0a60\x0d\x0a61\x0d\x0a62\x0d\x0a63\x0d\x0a64\x0d\x0a65\x0d\x0a66\x0d\x0a67\x0d\x0a68\x0d\x0a69\x0d\x0a70\x0d\x0a71\x0d\x0a72\x0d\x0a73\x0d\x0a74\x0d\x0a75\x0d\x0a76\x0d\x0a77\x0d\x0a78\x0d\x0a79\x0d\x0a80\x0d\x0a81\x0d\x0a82\x0d\x0a83\x0d\x0a84\x0d\x0a85\x0d\x0a86\x0d\x0a87\x0d\x0a88\x0d\x0a89\x0d\x0a90\x0d\x0a91\x0d\x0a92\x0d\x0a93\x0d\x0a94\x0d\x0a95\x0d\x0a96\x0d\x0a97\x0d\x0a98\x0d\x0a99\x0d\x0a100\x0d\x0a101\x0d\x0a102\x0d\x0a103\x0d\x0a104\x0d\x0a105\x0d\x0a106\x0d\x0a107\x0d\x0a108\x0d\x0a109\x0d\x0a110\x0d\x0a111\x0d\x0a112\x0d\x0a113\x0d\x0a114\x0d\x0a115\x0d\x0a116\x0d\x0a117\x0d\x0a118\x0d\x0a119\x0d\x0a120\x0d\x0a121\x0d\x0a122\x0d\x0a123\x0d\x0a124\x0d\x0a125\x0d\x0a126\x0d\x0a127\x0d\x0a128\x0d\x0a129\x0d\x0a130\x0d\x0a131\x0d\x0a132\x0d\x0a133\x0d\x0a134\x0d\x0a135\x0d\x0a136\x0d\x0a137\x0d\x0a138\x0d\x0a139\x0d\x0a140\x0d\x0a141\x0d\x0a142\x0d\x0a143\x0d\x0a144\x0d\x0a145\x0d\x0a146\x0d\x0a147\x0d\x0a148\x0d\x0a149\x0d\x0a150\x0d\x0a151\x0d\x0a152\x0d\x0a153\x0d\x0a154\x0d\x0a155\x0d\x0a156\x0d\x0a157\x0d\x0a158\x0d\x0a159\x0d\x0a160\x0d\x0a161\x0d\x0a162\x0d\x0a163\x0d\x0a164\x0d\x0a165\x0d\x0a166\x0d\x0a167\x0d\x0a168\x0d\x0a169\x0d\x0a170\x0d\x0a171\x0d\x0a172\x0d\x0a173\x0d\x0a174\x0d\x0a175\x0d\x0a176\x0d\x0a177\x0d\x0a178\x0d\x0a179\x0d\x0a180\x0d\x0a181\x0d\x0a182\x0d\x0a183\x0d\x0a184\x0d\x0a185\x0d\x0a186\x0d\x0a187\x0d\x0a188\x0d\x0a189\x0d\x0a190\x0d\x0a191\x0d\x0a192\x0d\x0a193\x0d\x0a194\x0d\x0a195\x0d\x0a196\x0d\x0a197\x0d\x0a198\x0d\x0a199\x0d\x0a200\x0d\x0a201\x0d\x0a202\x0d\x0a203\x0d\x0a204\x0d\x0a205\x0d\x0a206\x0d\x0a207\x0d\x0a208\x0d\x0a209\x0d\x0a210\x0d\x0a211\x0d\x0a212\x0d\x0a213\x0d\x0a214\x0d\x0a215\x0d\x0a216\x0d\x0a217\x0d\x0a218\x0d\x0a219\x0d\x0a220\x0d\x0a221\x0d\x0a222\x0d\x0a223\x0d\x0a224\x0d\x0a225\x0d\x0a226\x0d\x0a227\x0d\x0a228\x0d\x0a229\x0d\x0a230\x0d\x0a231\x0d\x0a232\x0d\x0a233\x0d\x0a234\x0d\x0a235\x0d\x0a236\x0d\x0a237\x0d\x0a238\x0d\x0a239\x0d\x0a240\x0d\x0a241\x0d\x0a242\x0d\x0a243\x0d\x0a244\x0d\x0a245\x0d\x0a246\x0d\x0a247\x0d\x0a248\x0d\x0a249\x0d\x0a250\x0d\x0a251\x0d\x0a252\x0d\x0a253\x0d\x0a254\x0d\x0a255\x0d\x0a256\x0d\x0a257\x0d\x0a258\x0d\x0a259\x0d\x0a260\x0d\x0a261\x0d\x0a262\x0d\x0a263\x0d\x0a264\x0d\x0a265\x0d\x0a266\x0d\x0a267\x0d\x0a268\x0d\x0a269\x0d\x0a270\x0d\x0a271\x0d\x0a272\x0d\x0a273\x0d\x0a274\x0d\x0a275\x0d\x0a276\x0d\x0a277\x0d\x0a278\x0d\x0a279\x0d\x0a280\x0d\x0a281\x0d\x0a282\x0d\x0a283\x0d\x0a284\x0d\x0a285\x0d\x0a286\x0d\x0a287\x0d\x0a288\x0d\x0a289\x0d\x0a290\x0d\x0a291\x0d\x0a292\x0d\x0a293\x0d\x0a294\x0d\x0a295\x0d\x0a296\x0d\x0a297\x0d\x0a298\x0d\x0a299\x0d\x0a")
   print(t.dump())

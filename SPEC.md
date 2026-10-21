@@ -1691,7 +1691,10 @@ words that ask for a speed and never change what the program means:
   out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
-([INTERNALS](docs/internals/INTERNALS.md), "Inlining"). A marker applies to every
+([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and a function
+whose every path ends in a `panic` is taken as `rarely`: the branch to
+a panic, and to the runtime's own failure reports, is laid out as the
+path that is not taken. A marker applies to every
 instance of a function with compile-time parameters, and a method
 takes one as any function does, in its type's body or outside it.
 
@@ -10360,7 +10363,8 @@ be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs them on Rig's scheduler:
 each is a fiber on a stack of its own as large as `main`'s, run by a
-worker thread per core (`RIG_WORKERS` sets how many), with a guard
+worker thread per core (`task.workers(n)` before the first task, or
+`RIG_WORKERS`, sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).

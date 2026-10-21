@@ -3811,7 +3811,17 @@ symbols); a query that decides more than that belongs in `Pending`.
   `@branchHint(.cold);`, before the evaluation budget, the one place Zig
   takes the hint for a whole function: Zig 0.17 then gives the function
   LLVM's `cold` attribute, so its callers lay out the call as the
-  unlikely path and LLVM does not inline it. No marker changes what the
+  unlikely path and LLVM does not inline it. A function with no marker
+  whose every path ends in a `panic` (`rig.alwaysPanics`: its last
+  statement panics, or is an `if` with an `else` or a `match` whose
+  branches all do, and nothing in it returns or passes a failure or a
+  `none` on) is treated as `rarely`: the rule does not inline it, and
+  emit starts it with the cold hint. The runtime's failure paths (a
+  bounds, length, or overflow report, `oom`, a panic passed on from a
+  task, the leak checker's report) start with the hint too, and a
+  safety check's panic goes through Zig's `FullPanic`, whose members
+  are cold, so every branch to one is laid out as the unlikely path
+  with nothing written in the program. No marker changes what the
   checker walks: a marked function is the same function, called, and an
   inlined one's calls are read through `rig.rt` as any inlined
   function's. The program's `main` and an `extern zig` function take no
