@@ -112,8 +112,11 @@ pub const Heap = struct {
     large_bytes: usize = 0,
     /// The next heap given back by a thread that ended (`threadExit`).
     next_free: ?*Heap = null,
+    /// In a safe build, the thread that owns it (`threadToken`).
+    owner: usize = 0,
 
     fn alloc(h: *Heap, c: usize) ?[*]u8 {
+        mustOwn(h);
         if (h.free[c]) |b| {
             h.free[c] = b.next;
             return @ptrCast(b);
@@ -151,6 +154,7 @@ pub const Heap = struct {
         const seg: *Segment = @ptrFromInt(@intFromPtr(p) & ~(segment_size - 1));
         const b: *Block = @ptrCast(@alignCast(p));
         if (seg.heap == h) {
+            mustOwn(h);
             b.next = h.free[c];
             h.free[c] = b;
             return;
@@ -203,6 +207,7 @@ const keep_large: usize = 16 << 20;
 const move_large: usize = 1 << 20;
 
 fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
+    mustOwn(h);
     const size = largeSize(len);
     const k = largeBucket(size);
     var at = &h.large[k];
@@ -218,6 +223,7 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
 }
 
 fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
+    mustOwn(h);
     const size = largeSize(len);
     if (h.large_bytes + size > keep_large) {
         std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @alignCast(p))[0..size]);
@@ -281,11 +287,60 @@ fn mapOwnSegment() ?*Segment {
 
 threadlocal var my_heap: ?*Heap = null;
 
+/// Whether each heap checks that the thread using it owns it: in safe
+/// builds.
+const check_owner = std.debug.runtime_safety;
+
+/// One byte per thread, whose address names the thread (`threadToken`).
+threadlocal var my_token: u8 = 0;
+
+/// The running thread, as the address of its own `my_token`. A fiber
+/// may resume on another thread after any switch, and a compiler may
+/// reuse a thread-local's address within a function, so every read goes
+/// through a call that is never inlined, as `sched.me` does.
+noinline fn threadToken() usize {
+    return @intFromPtr(&my_token);
+}
+
+/// In a safe build, panic unless the running thread owns `h`: a heap
+/// has no lock, so only its own thread may take from it or give to it.
+inline fn mustOwn(h: *const Heap) void {
+    if (check_owner and h.owner != threadToken()) owner_lost();
+}
+
+/// What `mustOwn` does with a heap another thread owns; a test sets it
+/// to count instead.
+pub var owner_lost: *const fn () void = ownerLost;
+
+fn ownerLost() void {
+    @branchHint(.cold);
+    @panic("rig: a thread used another thread's heap");
+}
+
+/// Test only: the running thread's heap, to use as a caller that kept it
+/// across a switch would.
+pub fn heapForTest() *Heap {
+    return heap().?;
+}
+
+/// Test only: the check a heap's fast paths make first (`mustOwn`).
+pub fn checkOwnForTest(h: *const Heap) void {
+    mustOwn(h);
+}
+
+/// What `owner_lost` is but in a test.
+pub const owner_lost_default: *const fn () void = ownerLost;
+
 /// Heaps given back by threads that ended, for the next to start.
 var spare_heaps: std.atomic.Value(?*Heap) = .init(null);
 var spare_lock: std.atomic.Value(bool) = .init(false);
 
-fn heap() ?*Heap {
+/// The running thread's heap, made as it first allocates. Never
+/// inlined: a fiber may resume on another thread after any switch, and
+/// a compiler may reuse a thread-local's address within a function, so
+/// a caller that allocated before a switch would go on with the heap of
+/// the thread it left (`sched.me`).
+noinline fn heap() ?*Heap {
     if (my_heap) |h| return h;
     return newHeap();
 }
@@ -299,12 +354,14 @@ fn newHeap() ?*Heap {
     spare_lock.store(false, .release);
     if (spare) |s| {
         s.next_free = null;
+        if (check_owner) s.owner = threadToken();
         my_heap = s;
         return s;
     }
     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
     h.* = .{};
+    if (check_owner) h.owner = threadToken();
     my_heap = h;
     return h;
 }
@@ -312,7 +369,7 @@ fn newHeap() ?*Heap {
 /// The running thread ends: give its heap back for the next thread, so
 /// what it holds, and the blocks other threads free into it, are used
 /// again.
-pub fn threadExit() void {
+pub noinline fn threadExit() void {
     const h = my_heap orelse return;
     my_heap = null;
     while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
