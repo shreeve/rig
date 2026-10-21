@@ -302,8 +302,13 @@ const Checker = struct {
     /// The call whose value goes where a `ty` is expected (`checkExpr`),
     /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
     /// inference binds the type parameters its arguments leave open from
-    /// `ty`.
-    result_expected: struct { call: Sexp = .nil, ty: TypeId = sema.type_invalid } = .{},
+    /// `ty`. `value` is the expression checked, the call or what wraps
+    /// it.
+    result_expected: struct { call: Sexp = .nil, ty: TypeId = sema.type_invalid, value: Sexp = .nil } = .{},
+    /// The operand of an arithmetic or comparison operator being
+    /// synthesized, beside `other`, whose type is `ty` once known: where
+    /// a call on a type parameter takes its type (`typeParamResult`).
+    beside: struct { node: Sexp = .nil, other: Sexp = .nil, ty: ?TypeId = null } = .{},
     /// Inside `argType`, whose argument the call checks again with the
     /// type it is expected to have: the generic instances found there
     /// are not recorded.
@@ -792,6 +797,7 @@ const Checker = struct {
                         },
                         .drop => "drop",
                         .pass => "`pass`",
+                        .rarely => "`rarely`",
                         .@"defer", .@"errdefer" => "deferred statement",
                         else => "jump",
                     };
@@ -891,7 +897,7 @@ const Checker = struct {
             .@"break" => try self.checkBreak(stmt),
             .@"continue" => _ = try self.resolveJump(stmt),
             .panic => _ = try self.checkPanic(stmt),
-            .pass => {},
+            .pass, .rarely => {},
             .@"defer", .@"errdefer" => {
                 if (head == .@"errdefer") try self.checkErrdeferCanRun(stmt);
                 const saved = self.body;
@@ -3053,7 +3059,7 @@ const Checker = struct {
     fn yieldsNoValue(self: *Checker, e: Sexp) bool {
         const h = e.kind() orelse return false;
         return switch (h) {
-            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .panic, .labeled => !self.isValueLoop(e),
+            .set, .@"while", .@"for", .drop, .pass, .rarely, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .panic, .labeled => !self.isValueLoop(e),
             else => false,
         };
     }
@@ -4732,6 +4738,10 @@ const Checker = struct {
                 try self.errAt(e, "`pass` does nothing and has no value, and a value is needed here", .{});
                 break :blk self.t().invalid_id;
             },
+            .rarely => blk: {
+                try self.errAt(e, "`rarely` marks the block it starts and has no value, and a value is needed here", .{});
+                break :blk self.t().invalid_id;
+            },
             .@"return" => blk: {
                 try self.checkReturn(e);
                 break :blk self.t().noreturn_id;
@@ -4825,8 +4835,12 @@ const Checker = struct {
             if (self.ctx.diagnostics.items.len == mark) try self.checkOrderedEnum(l, ty, op);
             return self.t().bool_id;
         }
+        const saved = self.beside;
+        self.beside = .{ .node = l, .other = r };
         const a = try self.synthReached(l);
+        self.beside = .{ .node = r, .other = l, .ty = a };
         const b = try self.synthReached(r);
+        self.beside = saved;
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
         if (sema.unwrapViews(self.ctx, a) == self.t().symbol_id or sema.unwrapViews(self.ctx, b) == self.t().symbol_id) {
@@ -5011,8 +5025,12 @@ const Checker = struct {
 
     fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
         const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
+        const saved = self.beside;
+        self.beside = .{ .node = operands[0], .other = operands[1] };
         const a = if (synthesized) |ts| ts[0] else try self.synthOperandValue(operands[0]);
+        self.beside = .{ .node = operands[1], .other = operands[0], .ty = a };
         const b = if (synthesized) |ts| ts[1] else try self.synthOperandValue(operands[1]);
+        self.beside = saved;
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
         if (try self.byteBeside(operands, a, b)) |ty| return ty;
@@ -5171,7 +5189,11 @@ const Checker = struct {
             const lit_ty = try self.synthReached(lit);
             a, b = if (l_array) .{ lit_ty, other_ty } else .{ other_ty, lit_ty };
         } else {
+            const saved = self.beside;
+            defer self.beside = saved;
+            self.beside = .{ .node = l, .other = r };
             a = try self.synthEqOperand(l);
+            self.beside = .{ .node = r, .other = l, .ty = a };
             b = try self.synthEqOperand(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
@@ -11002,7 +11024,7 @@ const Checker = struct {
         const peeled = sema.unwrapAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .optional => return self.badCall(args, pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) }),
-            .type_var => return self.badCall(args, pos, "a generic parameter `{s}` has no methods; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) }),
+            .type_var => |param| return self.typeParamCall(callee, obj, obj_ty, peeled, param, method, pos, args, ct),
             else => {},
         }
 
@@ -11151,6 +11173,143 @@ const Checker = struct {
             if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
         }
         return f.returns;
+    }
+
+    /// `x.m(args)` on a value of a type parameter `T` (`tv`), or a view
+    /// of one: checked here as the call of a function value with no
+    /// `from` or `keeps`, and at each instance against the method its
+    /// type declares (`sema.GenericMethodCall`). The call's sigil says
+    /// how it takes self; its arguments are what the body passes; and
+    /// its result is what the body takes (`typeParamResult`).
+    fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv: TypeId, param: SymbolId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const tname = try self.tyName(tv);
+        if (ct) |b| return self.badCall(args, b, "a method called on a `{s}` takes no compile-time arguments", .{tname});
+        // Emit writes the call as Zig resolves it on the value, so the
+        // value is the `T` or a view of one, not a box or a handle of it.
+        if (sema.unwrapViews(self.ctx, obj_ty) != tv) return self.badCall(args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, self.sourceText(stripSigil(obj)), try self.tyName(obj_ty) });
+        const call = self.current_call orelse return self.skipCall(args);
+        const mode: MethodReceiver = if (obj.isKind(.write)) .write else if (obj.isKind(.move)) .value else .read;
+        const result = (try self.typeParamResult(call, tv, method)) orelse return self.skipCall(args);
+        const returns = switch (result) {
+            .ty => |ty| ty,
+            .nothing, .dropped => self.t().void_id,
+        };
+        if (self.isPoison(returns)) return self.skipCall(args);
+        const mark = self.ctx.diagnostics.items.len;
+        _ = try self.noteMethod(callee, mode, returns);
+        const misplaced_sigil = try self.checkReceiverSigil(obj, mode, returns, method);
+        switch (mode) {
+            .value => try self.recordUse(obj, .take),
+            .write => try self.recordUse(stripSigil(obj), .lend),
+            .read, .none => {},
+        }
+        if (mode == .read and !misplaced_sigil and !self.hands(obj).hasStorage()) {
+            try self.readLeaf(obj);
+        } else if (mode != .value and !misplaced_sigil and !(mode == .write and self.hands(obj).kind == .made)) try self.rejectResourceTemporary(obj, obj_ty);
+        if (!misplaced_sigil) {
+            const saved_of = self.receiver_of;
+            defer self.receiver_of = saved_of;
+            self.receiver_of = callee;
+            const kind: ReceiverTypeKind = switch (self.ctx.types.get(obj_ty)) {
+                .read_view => .read_view,
+                .write_view => .write_view,
+                else => .owned_nominal,
+            };
+            try self.checkReceiverMode(obj, mode, kind, method, pos, returns);
+        }
+        // The arguments as the body passes them: a literal as the type
+        // a binding of it would have.
+        const a = self.ctx.arena.allocator();
+        const params = try a.alloc(TypeId, args.len + 1);
+        params[0] = switch (mode) {
+            .read => try self.ctx.intern(.{ .read_view = tv }),
+            .write => try self.ctx.intern(.{ .write_view = tv }),
+            .value, .none => tv,
+        };
+        for (args, params[1..]) |arg, *p| {
+            const e = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+            const ty = try self.argType(e);
+            p.* = if (ty == self.t().int_literal_id) self.t().int_id else if (ty == self.t().float_literal_id) self.t().float_id else ty;
+        }
+        const f: FunctionType = .{ .params = params, .returns = returns, .is_sub = result != .ty };
+        try self.noteCallee(f);
+        const rest: FunctionType = .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub };
+        // A temporary self the result or an argument may keep a view of
+        // is kept in its statement's slot, as for any method.
+        if ((mode == .read or mode == .write) and !misplaced_sigil and !obj.isKind(.read)) {
+            const lent = stripSigil(obj);
+            const base = if (self.hands(lent).kind == .part_of_made) self.placeOf(lent).base else lent;
+            const copied = switch (self.hands(base).kind) {
+                .made => true,
+                .branches => if (self.ctx.typeOf(base)) |ty| !sema.readByAddress(self.ctx, ty) else false,
+                else => false,
+            };
+            if (copied and self.isTemporary(lent) and (sema.mayHoldView(self.ctx, f.returns) or self.callRetains(rest, f.params[0]))) try self.lendTemp(lent);
+        }
+        var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
+        defer scratch.deinit();
+        const origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f);
+        self.lend_call = true;
+        self.lend_recv = f.params[0];
+        try self.checkArgs(args, rest, .{}, method, pos, .{ .receiver = true, .origins = origins, .declared = rest.params });
+        if (self.ctx.diagnostics.items.len != mark or self.ctx.quiet != 0) return returns;
+        try self.ctx.recordTypeParamCall(call);
+        for (self.ctx.generic_methods.items) |c| if (c.pos == self.startOf(call) and c.module_id == 0) return returns;
+        try self.ctx.generic_methods.append(self.ctx.allocator, .{
+            .param = param,
+            .method = method,
+            .self_mode = mode,
+            .args = try self.ctx.dupeIds(f.params[1..]),
+            .result = result,
+            .pos = self.startOf(call),
+            .recv = try a.dupe(u8, self.sourceText(stripSigil(obj))),
+            .call = try a.dupe(u8, self.sourceText(call)),
+        });
+        return returns;
+    }
+
+    /// The result a call `x.m(...)` on a value of type parameter `tv`
+    /// takes in the body, from where it stands: nothing as a statement,
+    /// any result `_ =` drops, the type its context expects (through
+    /// `!`, `?`, `catch`, and `??`, which wrap it), or the type of the
+    /// other operand of an arithmetic or comparison operator, a literal
+    /// as a binding of it would be. Null after a diagnostic: with none
+    /// of these, the body cannot know the result's type.
+    fn typeParamResult(self: *Checker, call: Sexp, tv: TypeId, method: []const u8) Error!?sema.GenericMethodCall.Result {
+        if (sameNode(self.discarded, call)) return if (self.discard_named) .dropped else .nothing;
+        // A statement `x.m()!` gives nothing, or fails.
+        if (!self.discard_named and self.discarded != .nil and !sameNode(self.discarded, call)) if (resultCall(self.discarded)) |c| if (sameNode(c, call)) {
+            if (try self.wrapResult(self.discarded, call, self.t().void_id)) |ty| return .{ .ty = ty };
+        };
+        if (sameNode(self.result_expected.call, call)) {
+            const ty = self.result_expected.ty;
+            if (self.isPoison(ty)) return .{ .ty = ty };
+            if (try self.wrapResult(self.result_expected.value, call, ty)) |wrapped| return .{ .ty = wrapped };
+        }
+        if (resultCall(self.beside.node)) |c| if (sameNode(c, call)) {
+            const other = self.beside.ty orelse try self.synthQuiet(self.beside.other);
+            const ty = if (other == self.t().int_literal_id) self.t().int_id else if (other == self.t().float_literal_id) self.t().float_id else other;
+            if (!self.isPoison(ty) and self.ctx.types.get(ty) != .void) if (try self.wrapResult(self.beside.node, call, ty)) |wrapped| return .{ .ty = wrapped };
+        };
+        const shown = self.sourceText(call);
+        try self.errAt(call, "`{s}` calls a method on a `{s}`, whose result type the body cannot know; give it one: `a: Float = {s}`, then `print(a)`", .{ shown, try self.tyName(tv), shown });
+        _ = method;
+        return null;
+    }
+
+    /// `ty`, what `value` gives, as the type of the call `call` that
+    /// `value` is or wraps: through `!` and `catch` a fallible `ty!`,
+    /// through `?` and `??` an optional `ty?`. Null for any other form.
+    fn wrapResult(self: *Checker, value: Sexp, call: Sexp, ty: TypeId) Error!?TypeId {
+        if (sameNode(value, call)) return ty;
+        const kind = value.kind() orelse return null;
+        return switch (kind) {
+            .propagate => try self.wrapResult(ir.Propagate.value(value), call, try self.ctx.intern(.{ .fallible = ty })),
+            .@"catch" => try self.wrapResult(ir.Catch.value(value), call, try self.ctx.intern(.{ .fallible = ty })),
+            .propagate_none => try self.wrapResult(ir.PropagateNone.value(value), call, try self.ctx.intern(.{ .optional = ty })),
+            .@"??" => try self.wrapResult(ir.@"??".left(value), call, try self.ctx.intern(.{ .optional = ty })),
+            else => null,
+        };
     }
 
     /// `*Actor(x)` and `*Actor(x, mailbox: n)`: an actor of `x`, which
@@ -12704,7 +12863,7 @@ const Checker = struct {
         if (e.isKind(.write) and self.ctx.types.get(expected) == .write_view) self.lent_write = e;
         const saved_result = self.result_expected;
         defer self.result_expected = saved_result;
-        if (resultCall(e)) |call| self.result_expected = .{ .call = call, .ty = expected };
+        if (resultCall(e)) |call| self.result_expected = .{ .call = call, .ty = expected, .value = e };
         // A poisoned expected type still reaches a generic call's
         // inference, which then reports nothing more.
         if (self.isPoison(expected)) {
@@ -16248,7 +16407,9 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
         if (try misplacedArgs(ctx, pn.args, entry.value_ptr.*)) continue;
         const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
-        if (try checkRequirements(ctx, &reqs, params, pn.args, entry.value_ptr.*, of)) try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
+        if (!try checkRequirements(ctx, &reqs, params, pn.args, entry.value_ptr.*, of)) continue;
+        if (!try checkMethodCalls(ctx, .{ .params = params, .args = pn.args }, params, entry.value_ptr.*, of)) continue;
+        try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with the receiver's instance.
@@ -16257,7 +16418,9 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         const f = ctx.fn_instances.items[i];
         if (try misplacedArgs(ctx, f.inst.ownArgs(), f.site)) continue;
         const of: sema.InstanceRoot = .{ .func = f.inst };
-        if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) {
+        if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
+            try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))
+        {
             try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
         } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
     }
@@ -16961,6 +17124,148 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
         }
     }
     return ok;
+}
+
+/// A method an instance's type declares, as a call on a type parameter
+/// reaches it: its signature at the type's arguments, and the module
+/// that declares it (null for this one or a proxy's).
+const InstanceMethod = struct { field: Field, fn_ty: FunctionType, owner: sema.Symbol, module: ?u32 };
+
+fn instanceMethod(ctx: *SemContext, ty: TypeId, name: []const u8) Error!?InstanceMethod {
+    if (try sema.lookupMethod(ctx, ty, name)) |m| return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = ctx.symbols.items[m.nominal_sym], .module = null };
+    const decl = sema.nominalDecl(ctx, ty) orelse return null;
+    const module_id = decl.module_id orelse return null;
+    const foreign = ctx.foreign_semas.get(module_id) orelse return null;
+    const fields = decl.symbol().fields orelse &.{};
+    const f = fields[(try sema.findMember(ctx, fields, name, .method)) orelse return null];
+    const fty = ctx.types.get(try sema.importType(ctx, foreign, f.ty, module_id));
+    if (fty != .function) return null;
+    return .{ .field = f, .fn_ty = fty.function, .owner = decl.symbol(), .module = module_id };
+}
+
+/// Whether `ty` is an `obj` or an `enum` a module declares, whose
+/// methods a call on a type parameter reaches as Zig resolves it in each
+/// instance; a built-in type's methods are lowered by emit at a call of
+/// a known type, so none is reached through a type parameter.
+fn declaredType(ctx: *const SemContext, ty: TypeId) bool {
+    switch (ctx.types.get(ty)) {
+        .nominal, .imported_nominal, .parameterized_nominal => {},
+        else => return false,
+    }
+    const decl = sema.nominalDecl(ctx, ty) orelse return false;
+    return decl.symbol().decl_pos != sema.builtin_decl_pos and !(decl.module_id == null and sema.isBuiltinGeneric(ctx, decl.sym));
+}
+
+/// The method calls generic bodies make on the parameters `own`
+/// (`sema.GenericMethodCall`), checked at the instance `subst` made at
+/// `at`: a call whose types this instance leaves open is checked where
+/// they are bound. A type's instance leaves open what its methods' own
+/// parameters bind; a method's instance checks only the calls on its own
+/// parameters or whose types name one. False after a diagnostic.
+fn checkMethodCalls(ctx: *SemContext, subst: TypeSubst, own: []const SymbolId, at: u32, of: sema.InstanceRoot) Error!bool {
+    const outer: TypeSubst = .{ .params = subst.params[0 .. subst.params.len - own.len], .args = subst.args[0 .. subst.args.len - own.len] };
+    var i: usize = 0;
+    while (i < ctx.generic_methods.items.len) : (i += 1) {
+        const c = ctx.generic_methods.items[i];
+        if (subst.lookup(c.param) == null) continue;
+        if (std.mem.findScalar(SymbolId, own, c.param) == null) {
+            // On a type's parameter: checked with a method's instance only
+            // where it names one of the method's own.
+            if (of == .func and !try namesOwn(ctx, c, outer)) continue;
+        }
+        const arg = subst.lookup(c.param).?;
+        if (sema.containsPoison(ctx, arg)) continue;
+        if (!try checkMethodCall(ctx, c, subst, arg, at, of)) return false;
+    }
+    return true;
+}
+
+/// Whether the types of call `c` name a parameter `outer` leaves open.
+fn namesOwn(ctx: *SemContext, c: sema.GenericMethodCall, outer: TypeSubst) Error!bool {
+    for (c.args) |t| if (sema.containsTypeVar(ctx, try sema.substituteType(ctx, t, outer))) return true;
+    return switch (c.result) {
+        .ty => |t| sema.containsTypeVar(ctx, try sema.substituteType(ctx, t, outer)),
+        .nothing, .dropped => false,
+    };
+}
+
+/// Call `c` at an instance whose type for its parameter is `arg`. True
+/// when the instance meets it, or when the instance leaves a type of it
+/// open.
+fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst, arg: TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+    const a = ctx.arena.allocator();
+    const args = try a.alloc(TypeId, c.args.len);
+    for (c.args, args) |t, *out| out.* = try sema.substituteType(ctx, t, subst);
+    const result: ?TypeId = switch (c.result) {
+        .ty => |t| try sema.substituteType(ctx, t, subst),
+        .nothing, .dropped => null,
+    };
+    if (sema.containsTypeVar(ctx, arg)) return true;
+    for (args) |t| if (sema.containsTypeVar(ctx, t)) return true;
+    if (result) |t| if (sema.containsTypeVar(ctx, t)) return true;
+    for (args) |t| if (sema.containsPoison(ctx, t)) return true;
+    if (result) |t| if (sema.containsPoison(ctx, t)) return true;
+
+    const inst = try sema.rootName(ctx, of);
+    const pname = ctx.symbols.items[c.param].name;
+    const aname = try sema.formatType(ctx, arg);
+    const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
+    const viewed = ctx.types.get(arg) == .read_view;
+    const base = if (viewed) ctx.types.get(arg).read_view else arg;
+    const bname = try sema.formatType(ctx, base);
+    const verb: []const u8 = switch (c.self_mode) {
+        .write => "writes",
+        .value => "consumes",
+        .read, .none => "reads",
+    };
+    if (!declaredType(ctx, base)) {
+        try ctx.err(at, cannot ++ "calls `{s}` on a `{s}`, and a call on a `{s}` reaches only the methods of an `obj` or an `enum` a module declares, not those of `{s}`", .{ inst, pname, aname, c.method, pname, pname, bname });
+        try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
+        return false;
+    }
+    if (viewed and c.self_mode != .read) {
+        try ctx.err(at, cannot ++ "calls `{s}`, which {s} `{s}`, and `{s}` is a read view, through which nothing is written or consumed", .{ inst, pname, aname, c.call, verb, c.recv, aname });
+        try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
+        return false;
+    }
+    const m = (try instanceMethod(ctx, base, c.method)) orelse {
+        try ctx.err(at, cannot ++ "calls `{s}` on a `{s}`, and `{s}` has no method `{s}`", .{ inst, pname, aname, c.method, pname, bname, c.method });
+        try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
+        return false;
+    };
+    const owner = try a.print("{s}.{s}", .{ bname, c.method });
+    const why: ?[]const u8 = blk: {
+        const declared = m.module orelse if (sema.isProxy(m.owner)) m.owner.from.module_id else ctx.module_id;
+        const body = if (c.module_id == 0) ctx.module_id else c.module_id;
+        if (!m.field.is_pub and declared != body) {
+            const mname = if (declared == ctx.module_id) ctx.name else if (ctx.foreign_semas.get(declared)) |f| f.name else "?";
+            break :blk try a.print("and `{s}` is private to module `{s}`; declare it `pub` there", .{ owner, mname });
+        }
+        if (m.field.receiver == .none) break :blk try a.print("and `{s}` takes no `self`", .{owner});
+        if (m.field.receiver != c.self_mode) break :blk try a.print("which {s} `{s}`, but `{s}` takes `self` as `{s}`", .{ verb, c.recv, owner, switch (m.field.receiver) {
+            .read => "?@",
+            .write => "!@",
+            .value => "<@",
+            .none => "",
+        } });
+        if (m.field.inline_marked) break :blk try a.print("and `{s}` is marked `inline`, and a call on a `{s}` is not inlined", .{ owner, pname });
+        if (sema.isGenericFn(ctx, m.fn_ty)) break :blk try a.print("and `{s}` takes compile-time parameters of its own, which a call on a `{s}` does not give", .{ owner, pname });
+        const params = m.fn_ty.params[1..];
+        if (params.len != args.len) break :blk try a.print("with {d} argument{s}, and `{s}` takes {d}", .{ args.len, if (args.len == 1) "" else "s", owner, params.len });
+        for (args, params, 1..) |got, want, n| if (got != want)
+            break :blk try a.print("passing argument {d} as `{s}`, and `{s}` takes `{s}` there", .{ n, try sema.formatType(ctx, got), owner, try sema.formatType(ctx, want) });
+        const gives = m.fn_ty.returns;
+        switch (c.result) {
+            .ty => if (result.? != gives) break :blk try a.print("taking its result as `{s}`, and `{s}` gives `{s}`", .{ try sema.formatType(ctx, result.?), owner, try sema.formatType(ctx, gives) }),
+            .nothing => if (ctx.types.get(gives) != .void) break :blk try a.print("as a statement, and `{s}` gives `{s}`; discard it with `_ = {s}`", .{ owner, try sema.formatType(ctx, gives), c.call }),
+            .dropped => if (ctx.types.get(gives) == .fallible) break :blk try a.print("under `_ =`, and `{s}` gives `{s}`, whose failure `_ =` would not handle", .{ owner, try sema.formatType(ctx, gives) }),
+        }
+        break :blk null;
+    };
+    const reason = why orelse return true;
+    try ctx.err(at, cannot ++ "calls `{s}`, {s}", .{ inst, pname, aname, c.call, reason });
+    try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
+    return false;
 }
 
 /// Whether `ty` is a type that declares a method `hash`, which a call

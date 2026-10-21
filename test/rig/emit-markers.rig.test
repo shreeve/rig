@@ -1,6 +1,7 @@
 # The function markers, written by tools/markers.py (edit it, not this
 # file): `inline fun` is emitted `inline fn` at any size, `called fun`
-# `noinline fn`, and `rarely fun` starts with Zig's cold hint; the last
+# `noinline fn`, and a body that starts with `rarely` starts with Zig's
+# cold hint; the last
 # two are never inlined by the compiler's own rule, and no marker changes
 # what a program does (test/cli/markers.sh reads the symbols of an
 # optimized build, and the limits `rig check` holds).
@@ -34,7 +35,8 @@ code "markers each shape", "pub inline fn big(__rig_in_a: i64) i64 {", "pub inli
     x = x * 3 + 1
     x
 
-  rarely fun small(a: Int) -> Int
+  fun small(a: Int) -> Int
+    rarely
     a + 1
 
   called fun tiny(a: Int) -> Int
@@ -46,7 +48,8 @@ code "markers each shape", "pub inline fn big(__rig_in_a: i64) i64 {", "pub inli
     inline fun get(?@) -> T
       @value
 
-    rarely fun peek(?@) -> T
+    fun peek(?@) -> T
+      rarely
       @value
 
     called fun same(?@) -> T
@@ -140,7 +143,8 @@ test "markers change no meaning", "5230176601 3 2 2 2 2 4", release: true
     x = x * 3 + 1
     x
 
-  rarely fun small(a: Int) -> Int
+  fun small(a: Int) -> Int
+    rarely
     a + 1
 
   called fun tiny(a: Int) -> Int
@@ -152,7 +156,8 @@ test "markers change no meaning", "5230176601 3 2 2 2 2 4", release: true
     inline fun get(?@) -> T
       @value
 
-    rarely fun peek(?@) -> T
+    fun peek(?@) -> T
+      rarely
       @value
 
     called fun same(?@) -> T
@@ -334,7 +339,8 @@ code "markers json shape marked", "pub inline fn number(__rig_in_s: []const u8, 
     n * 100 + (j - i)
 
   # A byte past ASCII, which a document rarely holds.
-  rarely fun utf8_text(s: ?String, i: Int) -> Int
+  fun utf8_text(s: ?String, i: Int) -> Int
+    rarely
     Int(s[i])
 
   # The parser: `dense` documents keep only the numbers' values.
@@ -413,7 +419,8 @@ code "markers json shape called", "pub noinline fn doc(comptime dense: bool, s: 
     n * 100 + (j - i)
 
   # A byte past ASCII, which a document rarely holds.
-  rarely fun utf8_text(s: ?String, i: Int) -> Int
+  fun utf8_text(s: ?String, i: Int) -> Int
+    rarely
     Int(s[i])
 
   # The parser: `dense` documents keep only the numbers' values.
@@ -569,7 +576,8 @@ test "markers json shape marked runs", "583 40022273", release: true
     n * 100 + (j - i)
 
   # A byte past ASCII, which a document rarely holds.
-  rarely fun utf8_text(s: ?String, i: Int) -> Int
+  fun utf8_text(s: ?String, i: Int) -> Int
+    rarely
     Int(s[i])
 
   # The parser: `dense` documents keep only the numbers' values.
@@ -647,7 +655,8 @@ test "markers json shape called runs", "583 40022273", release: true
     n * 100 + (j - i)
 
   # A byte past ASCII, which a document rarely holds.
-  rarely fun utf8_text(s: ?String, i: Int) -> Int
+  fun utf8_text(s: ?String, i: Int) -> Int
+    rarely
     Int(s[i])
 
   # The parser: `dense` documents keep only the numbers' values.

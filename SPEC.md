@@ -1675,8 +1675,9 @@ sub main()
 
 ### Function markers
 
-A function may be marked, before its `fun` or `sub`, with one of three
-words that ask for a speed and never change what the program means:
+A function may be marked, before its `fun` or `sub`, with one of two
+words that say how its calls compile and never change what the program
+means:
 
 - `inline fun` inlines the function at every call: its body is compiled
   into each caller, whatever its size. A call means what it means
@@ -1687,9 +1688,11 @@ words that ask for a speed and never change what the program means:
   never inlined, and stays as hot as any function. Each instance of one
   with compile-time parameters is a function of its own, so two
   specialized copies of a large function stay apart, each called.
-- `rarely fun` says the function is rarely called, so the code that
-  calls it is laid out for the case that does not: the function stays
-  out of line, as `called` keeps it, and is also cold.
+
+How often code runs is said where the code is: a function whose body
+starts with `rarely` ([Rarely](#rarely)) is rarely called, so the code
+that calls it is laid out for the case that does not: the function
+stays out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
 ([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and LLVM may
@@ -1713,7 +1716,8 @@ takes one as any function does, in its type's body or outside it.
 inline fun clamp(x: Int, lo: Int, hi: Int) -> Int
   lo if x < lo else hi if x > hi else x
 
-rarely fun report(n: Int) -> Int
+fun report(n: Int) -> Int
+  rarely
   print("out of range:", n)
   0
 
@@ -1769,14 +1773,13 @@ sub main()
 ```
 
 A function takes one marker: `inline` and `called` contradict each
-other, and `rarely` already keeps every call a call, so any two are an
-error (`inline rarely fun`, `rarely called fun`). A `called` or `rarely`
-function is a function value as any other. The
+other (`inline called fun`). A `called` function, and one whose body
+starts with `rarely`, is a function value as any other. The
 program's `main`, which the program calls once, takes none, and neither
 does an `extern zig` function, whose body is Zig's.
 
 ```rig reject
-inline rarely fun f() -> Int
+inline called fun f() -> Int
   1
 
 sub main()
@@ -1785,6 +1788,65 @@ sub main()
 
 ```error
 a function takes one marker
+```
+
+### Rarely
+
+A block whose first line is `rarely` rarely runs: the body of a
+function or `sub`, a branch of `if` or `else`, a `match` arm, a `catch`
+handler, or a loop's body. The code around it is laid out for the case
+that does not run it (the branch starts with Zig's cold hint), and
+nothing else changes: `rarely` asks for a speed, as a marker does, and
+never changes what the program means. A function whose body starts with
+`rarely` is rarely called, so it stays out of line and is cold.
+`rarely` is a word only alone on its line; anywhere else it is a name.
+
+```rig
+error Parse
+  bad
+
+fun parse(s: ?String) -> Int!
+  return Parse.bad if s.len == 0
+  s.len
+
+fun warn(what: ?String) -> Int
+  rarely
+  print("warning:", what)
+  -1
+
+sub main()
+  total = 0
+  for w in ["ab", "", "cde"]
+    n = parse(w) catch |_|
+      rarely
+      warn("empty")
+    if n > 100
+      rarely
+      print("long")
+    total += n
+  print(total)
+```
+
+```output
+warning: empty
+4
+```
+
+`rarely` starts the block it marks, and marks only the blocks above: a
+closure, a `defer`, and a `test` take none.
+
+```rig reject
+fun f(n: Int) -> Int
+  m = n + 1
+  rarely
+  m
+
+sub main()
+  print(f(1))
+```
+
+```error
+`rarely` is the first line of the block it marks
 ```
 
 ### Objects
@@ -2816,8 +2878,75 @@ checked against it. On a `T`, `==` compares whatever `==` compares
 outside a generic body, and ordering compares numbers, plain enums, and
 `?String` values. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
-declares the body. A body cannot call a method on a `T`, read a field
-of one, or call `T` itself.
+declares the body. A body cannot read a field of a `T` or call `T`
+itself.
+
+A body may call a method on a `T`, or on a view of one (`?T`, `!T`):
+`x.m(args)` reads self, `!x.m(args)` writes it, and `<x.m(args)`
+consumes it, as the sigil says at any call. The call's result takes its
+type from where the call stands: the type its context expects (a typed
+binding, an argument, a return, an assignment), through `!`, `?`,
+`catch`, and `??`, which make it fallible or optional; the other operand
+of an arithmetic or comparison operator, a literal there as a binding of
+it would be; nothing, as a statement; and any result that cannot fail,
+dropped at once, under `_ =`. Anywhere else the body cannot know the
+result's type, and the call is rejected. Each instance's type must be an
+`obj` or an `enum` that declares the method, visible from the body's
+module, taking self as the sigil does, and the arguments with the types
+the body passes (a literal as `Int` or `Float`), and giving exactly the
+result the body takes. The method of a built-in type, one marked
+`inline`, and one with compile-time parameters of its own are not
+reached through a `T`. The body's ownership check treats the call as a
+call of a function value with no `from` or `keeps`: its result may
+carry the loans of self and of every view argument, and a call that
+writes self may store in it what any argument views. Every method is
+within that, so an instance needs no second check.
+
+```rig
+obj Square
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+obj Circle
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+fun total[T](xs: []T) -> Float
+  t = 0.0
+  for x in xs
+    t += x.area()
+  t
+
+sub main()
+  print(total([Square(side: 2.0), Square(side: 3.0)]), total([Circle(r: 1.0)]))
+```
+
+```output
+13.0 3.0
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  sub bump(!@)
+    @n += 1
+
+fun touch[T](x: ?T)
+  x.bump()
+
+sub main()
+  c = Counter(n: 0)
+  touch(?c)
+```
+
+```error
+`touch[Counter]` cannot use `T = Counter`: the generic body calls `x.bump()`, which reads `x`, but `Counter.bump` takes `self` as `!@`
+```
 
 A literal becomes a `T` only as an operand beside one (`x * 3`), and
 must fit every instance's `T`; a binding annotated `T` takes a `T`,
@@ -8562,8 +8691,10 @@ step, even after a jump (`while a ?? break : i += 1`), and a jump there
 may name a label (`while a ?? break $outer : i += 1`). The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
-chain of `??`, where the jump belongs to the nearest one, as `??` is
-right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
+chain of `??`, where the jump belongs to the nearest one:
+`a ?? b ?? return v` is `a ?? (b ?? return v)`. A chain of `??` reads
+left to right, and gives what `a ?? (b ?? c)` gives, so each fallback is
+the value inside, not another optional.
 Where `a ?? b` is only read, it reads the value inside `a`, or `b`,
 where it is ([§7](#temporaries)). Where it is taken, it takes from each
 side: the optional may hold an owning value when it is made there
@@ -8681,6 +8812,14 @@ must say what happens to the failure, visibly:
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
+- `catch` binds as `??` does, and the two read left to right, as Zig's
+  `catch` and `orelse` do ([SYNTAX §6](SYNTAX.md#6-operators-and-precedence)):
+  `f() catch none ?? -1` is `(f() catch none) ?? -1`, and a handler is
+  an operand of the operators that bind tighter, so one that compares,
+  joins with `and` or `or`, or chooses with `if` is parenthesized:
+  `f() catch |e| (1 if e == E.bad else 2)`. A jump handler takes the rest
+  of the expression, and the whole expression before it, as a jump
+  after `??` does; a handler below `catch |e|` is a block.
 - A `catch` whose value goes nowhere, a statement or the value of
   `_ =`, may have a handler that gives nothing: `f() catch |e| print(e)`
   handles the failure and goes on. A handler that gives a value gives
@@ -8997,7 +9136,7 @@ fun fetch() -> Int!
   return Disk.timeout
 
 sub main()
-  n = fetch() catch |err| 1 if err == .timeout else 2
+  n = fetch() catch |err| (1 if err == .timeout else 2)
   print(n)
 ```
 

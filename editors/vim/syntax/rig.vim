@@ -65,7 +65,8 @@ syn match rigKeyword "\v%( )@<=%(from|keeps)%( [@-Z_a-z])@="
 syn match rigKeyword "\vfrom[\x09 ]+static%([0-9A-Z_a-z])@!"
 syn match rigKeyword "\v%( )@<=\w@<!of\w@!%( )@="
 syn match rigKeyword "\v^[\x09 ]*new%([\x09 ]+[A-Z_a-z])@="
-syn match rigKeyword "\v%(called|rarely|inline)%([\x09 ]+%(fun|sub))@="
+syn match rigKeyword "\v^[\x09 ]*rarely%([\x09 ]*[^\x09\x0a #])@!"
+syn match rigKeyword "\v%(called|inline)%([\x09 ]+%(fun|sub))@="
 syn match rigKeyword "\v%(obj|enum|type)[\x09 ]+\ze[A-Z_a-z][0-9A-Z_a-z]*" nextgroup=rigSeq2Part2
 syn match rigSeq2Part2 "\v[A-Z_a-z][0-9A-Z_a-z]*" contained
 syn match rigKeyword "\v%(fun|sub)[\x09 ]+\ze[A-Z_a-z][0-9A-Z_a-z]*" nextgroup=rigSeq1Part2

@@ -1496,9 +1496,13 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return out;
         }
 
-        /// The live elements. Invalidated by `push`.
+        /// The live elements. Invalidated by `push`. Inside the buffer by
+        /// `len <= buf.len`, so the slice needs no test of its own.
         pub fn items(self: anytype) Items(@TypeOf(self)) {
-            if (comptime inline_len == 0) return self.buf[0..self.len];
+            if (comptime inline_len == 0) {
+                invariant(self.len <= self.buf.len);
+                return self.buf.ptr[0..self.len];
+            }
             return if (comptime @typeInfo(@TypeOf(self)).pointer.attrs.@"const") self.memConst()[0..self.len] else self.mem()[0..self.len];
         }
 
@@ -1551,20 +1555,59 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
         }
 
-        /// `v[i]`: the element at `i`; panics when out of range.
+        /// `v[i]`: the element at `i`; panics when out of range. One test,
+        /// against `len`: the slot is inside the buffer by `len <=
+        /// buf.len`, so it is read through the buffer's pointer, which
+        /// makes no second test.
         pub fn at(self: *const Self, i: anytype) T {
-            return self.memConst()[index(i, self.len)];
+            return self.memConst().ptr[self.indexOf(i)];
         }
 
         /// `v[i] = x`: the slot at `i`; panics when out of range.
         pub fn slot(self: *Self, i: anytype) *T {
-            return &self.mem()[index(i, self.len)];
+            return &self.mem().ptr[self.indexOf(i)];
         }
 
         /// The slot at `i`, read-only, for an element reached through a
         /// read view; panics when out of range.
         pub fn constSlot(self: *const Self, i: anytype) *const T {
-            return &self.memConst()[index(i, self.len)];
+            return &self.memConst().ptr[self.indexOf(i)];
+        }
+
+        /// `i` as a slot of the live elements, panicking unless `0 <= i <
+        /// len`; inside the buffer by `len <= buf.len`.
+        inline fn indexOf(self: *const Self, i: anytype) usize {
+            const idx = index(i, self.len);
+            invariant(idx < self.memConst().len);
+            return idx;
+        }
+
+        /// `at`, `slot`, and `constSlot` with the tests `p` proves omitted
+        /// (`Proven`), and, with `If`, the tests `q` too while `ok`, a flag
+        /// the compiler made before the statement (`offsetIf`).
+        pub inline fn atProven(self: *const Self, i: Int, comptime p: Proven) T {
+            return self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn slotProven(self: *Self, i: Int, comptime p: Proven) *T {
+            return &self.mem().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn constSlotProven(self: *const Self, i: Int, comptime p: Proven) *const T {
+            return &self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
+        }
+        pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
+            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+        pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
+            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+        pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
+            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+        }
+
+        inline fn provenSlot(self: *const Self, idx: ?usize) usize {
+            const slot_ = idx orelse indexPanic();
+            invariant(slot_ < self.memConst().len);
+            return slot_;
         }
 
         /// Remove and return the last element; the caller owns it.
@@ -2296,6 +2339,51 @@ pub inline fn elemPtrProven(items: anytype, i: Int, comptime p: Proven) @TypeOf(
     return &items.ptr[provenOffset(i, items.len, 1, p) orelse indexPanic()];
 }
 
+// Flags (docs/internals/INTERNALS.md, "Flags"). The compiler tests some
+// facts once, as a statement starts, into a flag (`okNonneg`, `okBelow`),
+// and a test those facts prove is omitted while the flag is true. While
+// it is false, the test is made where it is written, as it always is, so
+// a test that fails fails there, with its own message.
+
+/// The flag test `0 <= i`.
+pub inline fn okNonneg(i: Int) bool {
+    return i >= 0;
+}
+
+/// The flag test `i + k <= n`, exactly, of a length `n`.
+pub inline fn okBelow(i: Int, comptime k: u64, n: usize) bool {
+    return @as(i128, i) + k <= n;
+}
+
+/// `i` as the start of `width` elements within `count`: the tests `p`
+/// proves (or none) are omitted, and while `ok`, those `q` proves too; a
+/// test that is made fails as `index` fails.
+inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comptime q: Proven, ok: bool) ?usize {
+    const both: Proven = comptime if (p) |pp| (if (pp == q) q else .both) else q;
+    if (ok) return provenOffset(i, count, width, both);
+    if (p) |pp| return provenOffset(i, count, width, pp);
+    const u = std.math.cast(usize, i) orelse return null;
+    if (u > count or count - u < width) return null;
+    return u;
+}
+
+/// `atProven` and `elemPtrProven` with the tests `q` omitted too while
+/// `ok` (`offsetIf`).
+pub inline fn atIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) std.meta.Elem(@TypeOf(items)) {
+    return items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+}
+
+pub inline fn elemPtrIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) @TypeOf(&items[0]) {
+    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+}
+
+/// `a + b`, which cannot overflow while `ok`; else the add tests it, and
+/// an overflow panics as any add's does.
+pub inline fn addIf(a: Int, b: Int, ok: bool) Int {
+    if (ok) return addProven(a, b);
+    return a + b;
+}
+
 /// `a + b` that the compiler proved cannot overflow: an add LLVM may
 /// assume does not wrap.
 pub inline fn addProven(a: Int, b: Int) Int {
@@ -2414,6 +2502,13 @@ pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@Ty
 pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeOf(items)) {
     const b = bounds(items.len, lo, hi);
     return items[b[0]..b[1]];
+}
+
+/// `rarely`, the first line of a block: Zig's cold hint for the branch
+/// or function the block is. Inline, so the hint lands where it is
+/// called, as the hint written first in that branch would.
+pub inline fn cold() void {
+    @branchHint(.cold);
 }
 
 /// The end of a slice `s[lo..=hi]`: one past `hi`. A bound no index
@@ -4178,6 +4273,40 @@ fn faultAddress(info: *const std.posix.siginfo_t) usize {
     };
 }
 
+/// The counters of a build `rig build --pgo` instruments (src/pgo.zig):
+/// its root declares how many sites emit counts, each counted by
+/// `pgoHit`, and the counts go to the file `RIG_PGO_OUT` names when the
+/// program ends (`finish`, `failMain`), `SITE COUNT` a line for each site
+/// that ran. A program that panics or exits otherwise writes none.
+const pgo_sites: usize = if (@hasDecl(root, "__rig_pgo_sites")) root.__rig_pgo_sites else 0;
+var pgo_counts: [pgo_sites]u64 = @splat(0);
+var pgo_out: ?[]const u8 = null;
+
+/// Count a run of site `site`; nothing at compile time.
+pub inline fn pgoHit(comptime site: usize) void {
+    if (@inComptime()) return;
+    _ = @atomicRmw(u64, &pgo_counts[site], .Add, 1, .monotonic);
+}
+
+fn pgoWrite() void {
+    if (pgo_sites == 0) return;
+    const path = pgo_out orelse return;
+    pgo_out = null;
+    const file = std.Io.Dir.cwd().createFile(io(), path, .{}) catch |err| {
+        std.debug.print("rig: cannot write the profile counts to `{s}`: {s}\n", .{ path, @errorName(err) });
+        return;
+    };
+    defer file.close(io());
+    var buffer: [4096]u8 = undefined;
+    var w = file.writerStreaming(io(), &buffer);
+    w.interface.writeAll("# rig counts 1\n") catch return;
+    for (&pgo_counts, 0..) |*n, i| {
+        const v = @atomicLoad(u64, n, .monotonic);
+        if (v > 0) w.interface.print("{d} {d}\n", .{ i, v }) catch return;
+    }
+    w.interface.flush() catch {};
+}
+
 /// What the process started with, which Zig hands only to `main`:
 /// the arguments and environment, for the standard library.
 pub var process: ?std.process.Init.Minimal = null;
@@ -4236,6 +4365,7 @@ pub fn start(init: std.process.Init.Minimal) void {
         sanitizer.configure(init.environ);
         Sanitizer.installHandler();
     }
+    if (pgo_sites > 0) pgo_out = init.environ.getPosix("RIG_PGO_OUT");
     if (@TypeOf(init.args.vector) != []const [*:0]const u8) return;
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
@@ -4286,6 +4416,7 @@ pub fn exitStatus(n: Int) u8 {
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    pgoWrite();
     if (makes_tasks) threaded.deinit();
     releaseProcess();
     lockOutput();
@@ -4304,6 +4435,7 @@ pub fn finish() void {
 /// error as a Rig program shows it and exit 1.
 pub fn failMain(err: anyerror) noreturn {
     @branchHint(.cold);
+    pgoWrite();
     lockOutput();
     flushQuietly();
     std.debug.print("error: {s}\n", .{errorShown(err)});

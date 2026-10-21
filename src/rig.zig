@@ -83,19 +83,35 @@ pub fn subFails(fun_or_sub: Sexp) bool {
 
 /// A function's marker, which asks for a speed and never changes what
 /// the program means: `inline fun` (inline it at every call), `called
-/// fun` (every call stays a call), `rarely fun` (it is rarely called), or
-/// none (`inlining.decide` decides).
+/// fun` (every call stays a call), a body whose first line is `rarely`
+/// (it is rarely called), or none (`inlining.decide` decides). The header
+/// says how calls compile and wins over the body's `rarely`.
 pub const Marker = enum { none, @"inline", called, rarely };
 
 pub fn markerOf(fun_or_sub: Sexp) Marker {
     const m = ir.get(fun_or_sub, .mark);
-    if (m == .nil) return .none;
+    if (m == .nil) return if (startsRarely(ir.get(fun_or_sub, .body))) .rarely else .none;
     return switch (m.kind().?) {
         .@"inline" => .@"inline",
         .called => .called,
-        .rarely => .rarely,
         else => unreachable,
     };
+}
+
+/// Where the marker of a `fun` or `sub` is written: its header's word,
+/// or the `rarely` that starts its body.
+pub fn markNode(fun_or_sub: Sexp) Sexp {
+    const m = ir.get(fun_or_sub, .mark);
+    if (m != .nil) return m;
+    const body = ir.get(fun_or_sub, .body);
+    return if (startsRarely(body)) ir.Block.stmts(body)[0] else fun_or_sub;
+}
+
+/// Whether `body`, a block, starts with `rarely`: it rarely runs.
+pub fn startsRarely(body: Sexp) bool {
+    if (!body.isKind(.block)) return false;
+    const stmts = ir.Block.stmts(body);
+    return stmts.len > 0 and stmts[0].isKind(.rarely);
 }
 
 /// A module-level constant (`name = value`, or a `pub` one). Passes take
@@ -245,8 +261,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each
         // before any pass reads a statement.
@@ -985,9 +1001,9 @@ pub const Lexer = struct {
                 .symbol_detached => "a prefix `:` touches its operand: a symbol is written `:width`",
                 .symbol_name => "a symbol is `:` and a name: `:width`, `:content-type`",
                 .symbol_long => "a symbol's name is too long",
-                .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun`, `pub called fun`, or `pub rarely fun`",
+                .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun` or `pub called fun`",
                 .repeated_marker => "a function's marker is written once",
-                .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
+                .two_markers => "a function takes one marker: `inline` (inline it at every call) or `called` (keep every call a call), which contradict each other",
             };
         }
     };
@@ -1428,9 +1444,31 @@ pub const Lexer = struct {
         return true;
     }
 
+    /// `catch` before a jump, after any `|e|` (`f() catch return -1`),
+    /// is CATCH_JUMP, whose handler takes the rest of the expression;
+    /// before `|e|` and the end of the line, CATCH_BLOCK, whose handler
+    /// is the block below; any other is CATCH, an operator on `??`'s
+    /// level.
+    fn catchCat(self: *const Lexer) TokenCat {
+        var probe = self.base;
+        var t = probe.next();
+        var bars = false;
+        if (t.cat == .bar) {
+            _ = probe.next();
+            if (probe.next().cat != .bar) return .@"catch";
+            t = probe.next();
+            bars = true;
+        }
+        return switch (t.cat) {
+            .@"return", .@"break", .@"continue" => .catch_jump,
+            .newline, .comment, .eof => if (bars) .catch_block else .@"catch",
+            else => .@"catch",
+        };
+    }
+
     fn classifyKeyword(self: *const Lexer, tok: Token) TokenCat {
         const kw = tok.cat;
-        if (kw != .@"if") return self.memberName(tok) orelse kw;
+        if (kw != .@"if") return self.memberName(tok) orelse if (kw == .@"catch") self.catchCat() else kw;
         switch (self.last_cat) {
             .@"return", .@"break", .@"continue", .pass => return .post_if,
             else => {},
@@ -1450,17 +1488,24 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, word, "obj")) return if ((self.stmtStart() or self.last_cat == .@"pub") and self.nextIsName()) .obj else .ident;
         if (isMarker(word)) {
             if (!(self.stmtStart() or self.last_cat == .@"pub") or !self.nextIsFunOrSub()) return .ident;
-            return switch (word[0]) {
-                'i' => .@"inline",
-                'c' => .called,
-                else => .rarely,
-            };
+            return if (word[0] == 'i') .@"inline" else .called;
         }
+        // `rarely` alone on its line starts the block it marks.
+        if (std.mem.eql(u8, word, "rarely")) return if (self.stmtStart() and self.nextEndsLine()) .rarely else .ident;
         return .ident;
     }
 
+    /// The next token ends the line: a newline, a comment, or the end.
+    fn nextEndsLine(self: *const Lexer) bool {
+        var probe = self.base;
+        return switch (probe.next().cat) {
+            .newline, .comment, .eof => true,
+            else => false,
+        };
+    }
+
     /// The next token is `fun` or `sub`: a function's marker (`inline`,
-    /// `called`, `rarely`) stands right before it.
+    /// `called`) stands right before it.
     fn nextIsFunOrSub(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.next();
@@ -1468,7 +1513,7 @@ pub const Lexer = struct {
     }
 
     /// A marker `tok` puts where a declaration cannot take it: a second
-    /// one (`inline rarely fun f()`), since a function takes one, the same
+    /// one (`inline called fun f()`), since a function takes one, the same
     /// one again (`inline inline fun f()`), or one before `pub`
     /// (`inline pub fun f()`), which comes first.
     fn misplacedMarker(self: *const Lexer, tok: Token) ?struct { err: LexError, pos: u32 } {
@@ -1485,7 +1530,7 @@ pub const Lexer = struct {
     }
 
     fn isMarker(word: []const u8) bool {
-        return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "called") or std.mem.eql(u8, word, "rarely");
+        return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "called");
     }
 
     /// `of` after a value directly inside [ ] separates a fill literal's
@@ -2122,6 +2167,8 @@ pub const Parser = struct {
     /// The node ids of the parameters written `f: once ?fun() -> T`,
     /// each made a `(: f type)` (`isOnceParam`).
     once_params: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// Each `rarely` that starts a body it may mark (`placeRarely`).
+    placed_rarely: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// For each `for` whose `?` before its source reaches the receiver
     /// of a method call by the receiver-sigil rule
     /// (`for x in ?b.each()`), the source with the sigil there,
@@ -2990,8 +3037,10 @@ pub const Parser = struct {
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
+        try self.placeRarely(out);
         switch (out.kind() orelse return out) {
             .module => {
+                self.strayRarely(out, false);
                 self.moduleConsts(out);
                 return self.attachMethods(out);
             },
@@ -3005,7 +3054,7 @@ pub const Parser = struct {
             .@"defer", .@"errdefer" => try self.dropStatement(&walked[ir.slot(.@"defer", .body)]),
             .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
-            .@"??" => return self.nearestFallback(out),
+            .@"??" => return self.nearestFallback(try self.rightNested(out)),
             .destructure => try self.destructureTargets(walked),
             .as_results => try self.resultNames(walked),
             .as_pattern => return self.asMatch(out),
@@ -3042,6 +3091,36 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// A `rarely` that starts the body of a function, a branch of `if` or
+    /// `match`, a `catch` handler, or a loop marks it: the block rarely
+    /// runs, and emit starts its branch with Zig's cold hint.
+    fn placeRarely(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
+        const bodies: [2]Sexp = switch (node.kind() orelse return) {
+            .fun, .sub => .{ ir.get(node, .body), .nil },
+            .@"if" => .{ ir.If.then(node), ir.If.@"else"(node) },
+            .arm => .{ ir.Arm.body(node), .nil },
+            .@"while" => .{ ir.While.body(node), .nil },
+            .@"for" => .{ ir.For.body(node), .nil },
+            .@"catch" => .{ ir.Catch.handler(node), .nil },
+            else => return,
+        };
+        for (bodies) |b| if (startsRarely(b)) try self.placed_rarely.put(self.allocator(), ir.Block.stmts(b)[0].list.id, {});
+    }
+
+    /// A `rarely` anywhere else is rejected: after a block's first line,
+    /// or starting a block it may not mark.
+    fn strayRarely(self: *Parser, node: Sexp, first: bool) void {
+        if (node != .list) return;
+        if (node.isKind(.rarely) and !self.placed_rarely.contains(node.list.id)) return self.reject(node, if (first)
+            "`rarely` marks the body of a function, a branch of `if` or `match`, a `catch` handler, or a loop"
+        else
+            "`rarely` is the first line of the block it marks");
+        const block = node.isKind(.block);
+        // A group (a parameter list) has no kind in front.
+        const kids = if (node.kind() != null) node.items()[1..] else node.items();
+        for (kids, 0..) |child, i| self.strayRarely(child, block and i == 0);
     }
 
     /// `q, r = f()`: each target but `_` takes the result in its position,
@@ -3325,6 +3404,31 @@ pub const Parser = struct {
         if (!m.isKind(.read)) return null;
         const field = ir.Read.operand(m);
         return if (field.isKind(.@":") or field.isKind(.default)) field else null;
+    }
+
+    /// `a ?? b ?? c`: the grammar reads a chain left to right, `(a ?? b)
+    /// ?? c`, and every pass reads it nested to the right, `a ?? (b ??
+    /// c)`, which gives the same value and lets each fallback have the
+    /// payload's type. A parenthesized left side keeps its grouping: it
+    /// starts after the node that holds it. A jump fallback is
+    /// `nearestFallback`'s.
+    fn rightNested(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const right = ir.@"??".right(node);
+        if (right.kind()) |k| switch (k) {
+            .@"return", .@"break", .@"continue" => return node,
+            else => {},
+        };
+        const left = ir.@"??".left(node);
+        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        const middle = ir.@"??".right(left);
+        // The new right side starts where `middle` is written, with any
+        // parentheses around it, so a grouped `middle` stays grouped.
+        const src = self.base.source;
+        var start = self.span(middle).start;
+        while (start > 0 and (src[start - 1] == '(' or isSpaceBefore(src[start - 1]))) start -= 1;
+        while (start < self.span(middle).start and isSpaceBefore(src[start])) start += 1;
+        const inner = try self.rightNested(try self.base.newNode(.@"??", &.{ middle, right }, .{ .start = start, .end = self.span(node).end }));
+        return self.base.newNode(.@"??", &.{ ir.@"??".left(left), inner }, self.span(node));
     }
 
     /// `a ?? b ?? return v`: the grammar reads a jump fallback after the
@@ -3918,19 +4022,24 @@ test "`obj` is a keyword only where a declaration starts; `struct` is a name" {
     try parses("obj P\n  obj: Int\n  struct: Int\n");
 }
 
-test "`inline`, `called`, and `rarely` are keywords only before a declaration's `fun` or `sub`" {
+test "`inline` and `called` are keywords only before a declaration's `fun` or `sub`, and `rarely` only alone on its line" {
     try testing.expect(keyword("inline") == null and keyword("called") == null and keyword("rarely") == null);
     try expectCats("inline fun f()", &.{ .@"inline", .fun, .ident, .lparen, .rparen });
     try expectCats("called fun f()", &.{ .called, .fun, .ident, .lparen, .rparen });
     try expectCats("called = 1", &.{ .ident, .assign, .integer });
-    try expectCats("pub rarely sub s()", &.{ .@"pub", .rarely, .sub, .ident, .lparen, .rparen });
+    try expectCats("pub called sub s()", &.{ .@"pub", .called, .sub, .ident, .lparen, .rparen });
+    try expectCats("rarely", &.{.rarely});
+    try expectCats("rarely  # cold", &.{.rarely});
+    try expectCats("rarely fun f()", &.{ .ident, .fun, .ident, .lparen, .rparen });
+    try expectCats("rarely = 2", &.{ .ident, .assign, .integer });
     try expectCats("inline = 5", &.{ .ident, .assign, .integer });
     try expectCats("x = rarely", &.{ .ident, .assign, .ident });
     try expectCats("f(inline: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
     try expectCats("p.inline(rarely)", &.{ .ident, .dot, .ident, .lparen, .ident, .rparen });
     try parses("inline fun f() -> Int\n  1\n");
-    try parses("obj P\n  inline: Int\n  rarely sub m(?@)\n    pass\n  fun inline(?@) -> Int\n    @inline\n");
+    try parses("obj P\n  inline: Int\n  rarely: Int\n  called sub m(?@)\n    pass\n  fun inline(?@) -> Int\n    @inline\n");
     try parses("fun f(inline: Int, rarely: Int) -> Int\n  inline + rarely\n");
+    try parses("fun f(n: Int) -> Int\n  rarely\n  n\n");
 }
 
 test "a deeper line starting with `.` continues a complete statement" {

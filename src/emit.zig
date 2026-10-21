@@ -32,6 +32,7 @@ const Facts = facts.Facts;
 const Wide = facts.Wide;
 const diag = @import("diag.zig");
 const nametable = @import("nametable.zig");
+const pgo = facts.pgo;
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -185,6 +186,9 @@ const Labeled = struct { label: *ZigLabel, saved: *Writer, buf: *Writer.Allocati
 
 const Scope = struct {
     locals: std.ArrayList(Local) = .empty,
+    /// The statements whose flags were written in the scope
+    /// (`Emitter.flag_names`), out of reach once it ends.
+    flags: std.ArrayList(facts.NodeKey) = .empty,
 };
 
 /// State for the function whose body is being emitted.
@@ -200,8 +204,9 @@ const FunState = struct {
     /// The function is emitted `inline`: its parameters are bound as
     /// run-time values (`emitFunPrologue`).
     inlined: bool = false,
-    /// The function is marked `rarely`: its body starts with
-    /// `@branchHint(.cold)`, which Zig takes only as the first statement.
+    /// The function is cold (its body starts with `rarely`, or it always
+    /// panics): its body starts with `@branchHint(.cold)`, which Zig
+    /// takes only as the first statement.
     cold: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
@@ -271,6 +276,21 @@ pub const Emitter = struct {
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{ .quota = false },
+    /// `rig build --pgo` (`pgo.zig`): the sites an instrumented build
+    /// counts, or the profile a build reads; null otherwise.
+    pgo: ?*pgo.State = null,
+    /// The function whose sites are being emitted (`pgo.funKey`), and the
+    /// ordinal of its next site: its entry is 0, and each block of its
+    /// body that `emitBlock` writes is the next.
+    pgo_fun: []const u8 = "",
+    pgo_ordinal: u32 = 0,
+    /// With a profile: what it records of the function being emitted.
+    pgo_counts: ?*const pgo.Fun = null,
+    /// With a profile: the count of each site open around the point being
+    /// emitted, innermost last, which a branch's count is weighed against.
+    pgo_open: std.ArrayList(u64) = .empty,
+    /// The next block `emitBlock` writes is a branch's arm (`emitBranchStmt`).
+    pgo_branch: bool = false,
     /// The result the `result_part` being emitted takes: `__rig_res_N[j]`,
     /// of the destructure whose target it is (`emitDestructure`).
     part_name: []const u8 = "",
@@ -368,6 +388,10 @@ pub const Emitter = struct {
     /// Write every test, ignoring which are known to pass (`provenOf`):
     /// `RIG_NO_PROOFS`, for the differential run of the proofs.
     no_proofs: bool = false,
+    /// The Zig name of each flag written (`emitFlag`), by the statement
+    /// it is made before; a test proven while a flag holds is written so
+    /// only once its flag is (`provenIf`).
+    flag_names: std.AutoHashMapUnmanaged(facts.NodeKey, []const u8) = .empty,
     /// Hold every object's optional as a tagged struct, so the program
     /// compiles only if every operation on one goes through the optional
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
@@ -410,6 +434,7 @@ pub const Emitter = struct {
         self.temp_slots.deinit(self.allocator);
         self.targets.deinit(self.allocator);
         self.units.deinit(self.allocator);
+        self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -908,9 +933,26 @@ pub const Emitter = struct {
         const inlined = self.facts.isInlined(name_node);
         const marker = self.facts.markerOf(node);
         const recursive = self.yield_checks and self.facts.isRecursive(name_node);
+        // With a profile, a function its run never entered is cold, as
+        // `rarely` makes it (and `inlining.decide` never inlines it).
+        const saved_fun = self.pgo_fun;
+        const saved_ordinal = self.pgo_ordinal;
+        const saved_counts = self.pgo_counts;
+        defer {
+            self.pgo_fun = saved_fun;
+            self.pgo_ordinal = saved_ordinal;
+            self.pgo_counts = saved_counts;
+        }
+        var never_ran = false;
+        if (self.pgo) |state| {
+            self.pgo_fun = try pgo.funKey(state.allocator, self.facts.zig_file, name, self.facts.textOf(node));
+            self.pgo_ordinal = 0;
+            self.pgo_counts = if (state.instrument) null else state.lookup(self.pgo_fun);
+            never_ran = !state.instrument and !is_main and state.neverRan(self.pgo_fun);
+        }
         // A function that always panics is cold, as a `rarely` one is,
         // so a call of it is laid out off the path that does not.
-        const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
+        const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body)) or never_ran;
         self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .recursive = recursive };
 
         // The runtime's panic handler flushes buffered `print` output first.
@@ -926,7 +968,7 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    {s}{s};\n}}\n\n", .{ run, catches });
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
+        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or never_ran or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
@@ -1110,6 +1152,8 @@ pub const Emitter = struct {
             if (uses.* == 0) _ = self.local_names.remove(l.zig_name);
         }
         top.locals.deinit(self.allocator);
+        for (top.flags.items) |k| _ = self.flag_names.remove(k);
+        top.flags.deinit(self.allocator);
     }
 
     /// Declare `local` in the innermost scope, choosing its Zig name from
@@ -1363,10 +1407,56 @@ pub const Emitter = struct {
 
     /// `{ stmts }` for a statement-position block.
     fn emitBlock(self: *Emitter, body: Sexp) Error!void {
+        const branch = self.pgo_branch;
+        self.pgo_branch = false;
         try self.openBrace();
+        // A branch's hint is its first statement, as Zig requires; a
+        // function's body starts with its prologue.
+        var open = false;
+        if (branch) open = try self.emitSite(true);
         try self.emitFunPrologue();
+        if (!branch) open = try self.emitSite(false);
         try self.emitStmts(try self.stmtsOf(body));
         try self.closeBrace();
+        if (open) _ = self.pgo_open.pop();
+    }
+
+    /// The next site of the function being emitted (`pgo.zig`). In an
+    /// instrumented build, its counter: the runtime adds one to it each
+    /// time the block runs. Every build numbers the sites alike, so a
+    /// build with a profile finds each one's count by its ordinal; there,
+    /// a branch's arm that ran on 1 in 20 runs of the code around it, or
+    /// fewer, is `unlikely`, one that never ran is `cold` (when the code
+    /// around it ran 100 times or more), and one that ran on 19 in 20 or
+    /// more is `likely`. Whether a site is open, with its count, for the
+    /// sites inside it to be weighed against (`pgo_open`).
+    fn emitSite(self: *Emitter, branch: bool) Error!bool {
+        const state = self.pgo orelse return false;
+        if (self.pgo_fun.len == 0) return false;
+        const ordinal = self.pgo_ordinal;
+        self.pgo_ordinal += 1;
+        if (state.instrument) {
+            try self.line("rig.pgoHit({d});", .{try state.site(self.pgo_fun, ordinal)});
+            return false;
+        }
+        const counts = self.pgo_counts orelse return false;
+        const n = if (ordinal == 0) counts.entries else counts.blocks.get(ordinal) orelse 0;
+        if (branch and self.pgo_open.items.len > 0) {
+            const around = self.pgo_open.items[self.pgo_open.items.len - 1];
+            const hint: ?[]const u8 = if (around == 0)
+                null
+            else if (n == 0 and around >= 100)
+                "cold"
+            else if (n * 20 <= around)
+                "unlikely"
+            else if (n * 20 >= around * 19)
+                "likely"
+            else
+                null;
+            if (hint) |h| try self.line("@branchHint(.{s});", .{h});
+        }
+        try self.pgo_open.append(self.allocator, n);
+        return true;
     }
 
     fn emitStmts(self: *Emitter, stmts: []const Sexp) Error!void {
@@ -1381,6 +1471,10 @@ pub const Emitter = struct {
     fn emitValueBody(self: *Emitter, body: Sexp) Error!void {
         try self.openBrace();
         try self.emitFunPrologue();
+        const open = try self.emitSite(false);
+        defer if (open) {
+            _ = self.pgo_open.pop();
+        };
         const stmts = try self.stmtsOf(body);
         const last = stmts.len - 1;
         try self.emitStmts(stmts[0..last]);
@@ -1388,6 +1482,7 @@ pub const Emitter = struct {
         if (self.yieldsValue(stmts[last])) {
             const first = self.temp_slots.items.len;
             defer self.temp_slots.shrinkRetainingCapacity(first);
+            try self.emitFlag(stmts[last]);
             try self.emitTempSlots(stmts[last]);
             try self.w.writeAll("return ");
             try self.emitReturnValue(stmts[last]);
@@ -1403,6 +1498,7 @@ pub const Emitter = struct {
     /// its end: declared before it, each with a `defer` for an exit from
     /// inside it (a failure, a jump), and dropped right after it.
     fn emitStmt(self: *Emitter, sexp: Sexp) Error!void {
+        try self.emitFlag(sexp);
         const entered = try self.enterUnit(sexp);
         defer self.leaveUnit(entered);
         const first = self.temp_slots.items.len;
@@ -1547,6 +1643,8 @@ pub const Emitter = struct {
             .drop => try self.emitDrop(sexp),
             // An empty block: a statement wherever Zig wants one.
             .pass => try self.w.writeAll("{}"),
+            // `rarely`: the branch it starts is cold (`rig.cold`).
+            .rarely => try self.w.writeAll("rig.cold();"),
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),
@@ -1612,12 +1710,14 @@ pub const Emitter = struct {
         if (kind.operator()) |op| {
             // `i += c` known not to overflow (`provenOf`): `i` read once,
             // as `+=` reads it.
-            if (op == .@"+" and target == .src and self.provenOf(sexp).no_overflow) {
+            const cond = if (op == .@"+" and target == .src) self.provenIf(sexp) else null;
+            if (op == .@"+" and target == .src and (self.provenOf(sexp).no_overflow or (cond != null and cond.?.tests.no_overflow))) {
                 try self.emitPlace(target);
-                try self.w.writeAll(" = rig.addProven(");
+                try self.w.writeAll(if (self.provenOf(sexp).no_overflow) " = rig.addProven(" else " = rig.addIf(");
                 try self.emitPlace(target);
                 try self.w.writeAll(", ");
                 try self.emitBare(expr);
+                if (!self.provenOf(sexp).no_overflow) try self.w.print(", {s}", .{cond.?.flag});
                 return self.w.writeAll(");");
             }
             return self.emitCompound(sexp, op);
@@ -1639,6 +1739,7 @@ pub const Emitter = struct {
             try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
+            if (in_place and self.provenOf(expr).written) return self.w.writeAll("{}");
             if (in_place) {
                 try self.w.writeAll("@memset(&");
                 try self.writeLocalPlace(local);
@@ -1699,7 +1800,14 @@ pub const Emitter = struct {
     /// `_ = expr`, and a statement `<e` of anything but a name, which
     /// drops what it takes.
     fn emitDiscard(self: *Emitter, expr: Sexp) Error!void {
-        // A discarded resource is dropped at once.
+        // A discarded resource is dropped at once, and so is what a
+        // method gives through a type parameter, whose type each
+        // instance decides.
+        if (self.facts.isTypeParamCall(expr)) {
+            try self.w.writeAll("rig.discard(");
+            try self.emitBare(expr);
+            return self.w.writeAll(");");
+        }
         if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
             try self.w.writeAll("rig.discard(");
             try self.emitBare(expr);
@@ -1738,6 +1846,9 @@ pub const Emitter = struct {
         const stored = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(name_node));
         try self.w.print("var {s}: ", .{stored.zig_name});
         try self.emitTypeTy(ty);
+        // A fill whose every element is written before any is read is not
+        // made (`provenOf`): a debug build fills it with 0xAA bytes.
+        if (self.provenOf(fill).written) return self.w.writeAll(" = undefined;");
         try self.w.print(" = undefined; @memset(&{s}, {s});", .{ stored.zig_name, value_buf.written() });
     }
 
@@ -2703,7 +2814,10 @@ pub const Emitter = struct {
     }
 
     fn emitBranchStmt(self: *Emitter, branch: Sexp) Error!void {
-        if (branch.isKind(.block)) return self.emitBlock(branch);
+        if (branch.isKind(.block)) {
+            self.pgo_branch = true;
+            return self.emitBlock(branch);
+        }
         try self.w.writeAll("{ ");
         try self.emitStmt(branch);
         try self.w.writeAll(" }");
@@ -5363,6 +5477,8 @@ pub const Emitter = struct {
         };
         // An add known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        // An add known not to overflow while a flag holds (`provenIf`).
+        if (kind == .@"+") if (self.provenIf(sexp)) |c| if (c.tests.no_overflow) return self.emitCall2("rig.addIf(", operands, try self.fmt(", {s})", .{c.flag}));
         if (self.laneHelper(sexp, kind)) |helper| {
             try self.w.print("{s}(", .{helper});
             try self.emitBare(operands[0]);
@@ -5423,6 +5539,7 @@ pub const Emitter = struct {
         const ty = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped array literal");
         try self.w.writeAll("@as(");
         try self.emitTypeTy(self.peelViews(ty));
+        if (self.provenOf(sexp).written) return self.w.writeAll(", undefined)");
         try self.w.writeAll(", @splat(");
         try self.emitBare(ir.ArrayFill.value(sexp));
         try self.w.writeAll("))");
@@ -5466,10 +5583,18 @@ pub const Emitter = struct {
         const in_place = as_place or self.elemInPlace(sexp);
         if (held_ty != null and self.isListTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
-            try self.w.writeAll(if (!in_place) ".at(" else if (self.read_place or !as_place or self.throughReadView(base)) ".constSlot(" else ".slot(");
+            const method = if (!in_place) "at" else if (self.read_place or !as_place or self.throughReadView(base)) "constSlot" else "slot";
+            // The tests known to pass are omitted (`provenOf`), and those
+            // known while a flag holds, while it does (`provenIf`).
+            const proven = provenTests(self.provenOf(sexp));
+            const cond = self.provenIf(sexp);
+            try self.w.print(".{s}{s}(", .{ method, if (cond != null) "If" else if (proven != null) "Proven" else "" });
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
+            if (cond) |c| {
+                try self.w.print(", {s}{s}, .{s}, {s}", .{ if (proven != null) "." else "", proven orelse "null", provenTests(c.tests).?, c.flag });
+            } else if (proven) |p| try self.w.print(", .{s}", .{p});
             try self.w.writeAll(if (in_place) ").*" else ")");
             return;
         }
@@ -5484,16 +5609,18 @@ pub const Emitter = struct {
             // A string or slice: its length is only known when it runs,
             // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
             // is assigned through.
-            // A test known to pass is omitted (`provenOf`).
+            // A test known to pass is omitted (`provenOf`), and one known
+            // while a flag holds, while it does (`provenIf`).
             const proven = provenTests(self.provenOf(sexp));
-            try self.w.writeAll(if (in_place)
-                (if (proven != null) "rig.elemPtrProven(" else "rig.elemPtr(")
-            else if (proven != null) "rig.atProven(" else "rig.at(");
+            const cond = self.provenIf(sexp);
+            try self.w.print("rig.{s}{s}(", .{ if (in_place) "elemPtr" else "at", if (cond != null) "If" else if (proven != null) "Proven" else "" });
             try self.emitIndexBase(base, base_ty, .bare);
             try self.w.writeAll(", ");
             self.place_chain = false;
             try self.emitBare(index);
-            if (proven) |p| try self.w.print(", .{s}", .{p});
+            if (cond) |c| {
+                try self.w.print(", {s}{s}, .{s}, {s}", .{ if (proven != null) "." else "", proven orelse "null", provenTests(c.tests).?, c.flag });
+            } else if (proven) |p| try self.w.print(", .{s}", .{p});
             try self.w.writeAll(if (in_place) ").*" else ")");
             if (fixed) try self.w.writeAll(")");
             return;
@@ -8810,6 +8937,69 @@ pub const Emitter = struct {
     fn provenOf(self: *Emitter, node: Sexp) facts.Proven {
         if (self.no_proofs) return .{};
         return self.facts.provenOf(node);
+    }
+
+    /// The tests of `node` known to pass while a flag holds, and the
+    /// flag's Zig name: null unless the flag is written (`emitFlag`).
+    fn provenIf(self: *Emitter, node: Sexp) ?struct { tests: facts.Proven, flag: []const u8 } {
+        if (self.no_proofs) return null;
+        const p = self.facts.provenIfOf(node) orelse return null;
+        return .{ .tests = p.tests, .flag = self.flag_names.get(p.flag) orelse return null };
+    }
+
+    /// The flag made before statement `stmt` (docs/internals/INTERNALS.md,
+    /// "Flags"), when the proof pass made one: its tests, each of a
+    /// binding or a length as the statement starts, and together.
+    ///
+    ///     const __rig_ok_7 = rig.okNonneg(i) and rig.okBelow(i, 5, self.words.len); _ = &__rig_ok_7;
+    ///
+    /// A flag whose bindings emit does not hold by name is not written,
+    /// and the tests it would prove are made.
+    fn emitFlag(self: *Emitter, stmt: Sexp) Error!void {
+        if (self.no_proofs or stmt != .list) return;
+        const tests = self.facts.flagOf(stmt) orelse return;
+        for (tests) |t| switch (t) {
+            .nonneg => |i| if (!self.flagReads(i)) return,
+            .below => |b| if (!self.flagReads(b.i) or !self.flagReads(b.s.root)) return,
+        };
+        const name = try self.fmt("__rig_ok_{d}", .{self.nextId()});
+        try self.w.print("const {s} = ", .{name});
+        for (tests, 0..) |t, n| {
+            if (n > 0) try self.w.writeAll(" and ");
+            switch (t) {
+                .nonneg => |i| {
+                    try self.w.writeAll("rig.okNonneg(");
+                    try self.writeFlagRead(i);
+                    try self.w.writeAll(")");
+                },
+                .below => |b| {
+                    try self.w.writeAll("rig.okBelow(");
+                    try self.writeFlagRead(b.i);
+                    try self.w.print(", {d}, ", .{b.k});
+                    try self.writeFlagRead(b.s.root);
+                    for (b.s.fields) |f| try self.w.print(".{f}", .{ident(f)});
+                    try self.w.writeAll(".len)");
+                },
+            }
+        }
+        try self.w.print("; _ = &{s}; ", .{name});
+        if (self.scopes.items.len == 0) try self.pushScope();
+        try self.scopes.items[self.scopes.items.len - 1].flags.append(self.allocator, stmt.list.id);
+        try self.flag_names.put(self.allocator, stmt.list.id, name);
+    }
+
+    /// Whether a flag can read binding `sym` by its Zig name: a local
+    /// emit holds, not as a closure's capture.
+    fn flagReads(self: *Emitter, sym: SymbolId) bool {
+        const local = self.localBySym(sym) orelse return false;
+        return isPlainIdent(local.zig_name);
+    }
+
+    /// Binding `sym` as a flag's test reads it.
+    fn writeFlagRead(self: *Emitter, sym: SymbolId) Error!void {
+        const local = self.localBySym(sym).?;
+        try self.w.writeAll(local.zig_name);
+        if (local.is_ptr and self.facts.symbols.items[sym].ty == self.facts.types.int_id) try self.w.writeAll(".*");
     }
 
     fn unsupported(self: *Emitter, node: Sexp, what: []const u8) Error {

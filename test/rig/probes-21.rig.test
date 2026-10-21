@@ -2009,7 +2009,7 @@ fail "review-errors-m3-main5", "`y` is assigned but never read; use it, or disca
         b.Mid.timeout => 1
         _ => 2
     print(x)
-    y = b.h(0) catch |e| 1 if e == .timeout else 2
+    y = b.h(0) catch |e| (1 if e == .timeout else 2)
 
   file "a.rig"
     error Hidden

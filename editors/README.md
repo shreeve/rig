@@ -16,7 +16,8 @@ or array type, `[]?T`), the wait sigil `>t` and `>ts`, a suffix `?` or `!`
 (`f()!`, `T?`), and the dispatch sigil `&` that makes a call a task, `f(x)&`. So
 `a > b`, `a >= b`, `a >> b`, `a & b` and `f()&b` stay operators. A
 contextual word (`new`, `obj`, `of`, `unique`, `from`, `static`,
-`keeps`, and `inline`, `called` and `rarely` before `fun` or `sub`) is
+`keeps`, `inline` and `called` before `fun` or `sub`, and `rarely`
+alone on a line) is
 a keyword where its line shows the parser reads one, and a name
 elsewhere; the language server's semantic tokens, below, give each
 word the kind the compiler gives it.

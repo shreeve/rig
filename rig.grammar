@@ -24,7 +24,8 @@
 #   * classifies three contextual words: `new` is a keyword only at the
 #     start of a statement before a name, `obj` only at the
 #     start of a declaration (after any `pub`) before a name, `inline`,
-#     `called`, and `rarely` only there before `fun` or `sub`, and `of` only after
+#     and `called` only there before `fun` or `sub`, `rarely` only at the
+#     start of a statement alone on its line, and `of` only after
 #     a value directly inside [ ] (`[n of x]`); each is a name everywhere
 #     else (the other contextual words are the parser's: see @keywords);
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
@@ -98,7 +99,7 @@ tokens
     new             # a keyword only at statement start (`new x = ...`)
     obj             # a keyword only at the start of a type declaration (`obj Point`)
     inline          # a keyword only before the `fun` or `sub` of a declaration
-    rarely          # a keyword only before the `fun` or `sub` of a declaration
+    rarely          # a keyword only alone on a line: the block it starts rarely runs
     called          # a keyword only before the `fun` or `sub` of a declaration
     not
     or
@@ -201,6 +202,8 @@ tokens
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
+    catch_jump      # catch  before a jump, after any `|e|`: `f() catch return -1`
+    catch_block     # catch  before `|e|` and the end of the line: a block handler
     task_amp        # &   touching a `)`, with no operand touching it: a task, `f(x)&`
     step_colon      # :   the first `:` of a `while` header: its step
     symbol_colon    # :   where an operand starts, touching a name: a symbol, `:width`
@@ -382,8 +385,8 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called|rarely?
-    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? keeps:group? body:block? owner? owner_params:group? mark:inline|called|rarely?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
+    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? ...members
     enum, errors                name:leaf ...members
@@ -398,7 +401,8 @@ tokens
     zig_extern                  file:leaf ...decls
     zig_const                   name:leaf type
     drop_decl                   params:group body:block
-    inline, called, rarely                          # a function's marker
+    inline, called                                  # a function's marker
+    rarely                                          # a block's first line: the block rarely runs
     labeled                     label:leaf stmt
 
     # Parameters, fields, and enum members
@@ -494,7 +498,7 @@ tokens
     KWARG_NAME: "a keyword argument"
     OF: "`of`", OBJ: "`obj`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`", ONCE: "`once`"
     DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", TASK_AMP: "`&`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL: "`$`", LABEL_COLON: "`:`"
-    TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
+    TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`", CATCH_JUMP: "`catch`", CATCH_BLOCK: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
     MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PANIC: "`panic`", PASS: "`pass`", PUB: "`pub`"
@@ -539,12 +543,13 @@ tokens
     scope-name          source.rig
     extensions          rig
     line-comment        "#"
-    indent              line-start [ \t]* ('$' [A-Za-z_] [A-Za-z0-9_]* ':' ([ \t]+ ("pub" [ \t]+)? ("called" | "rarely" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?)? | ("pub" [ \t]+)? ("called" | "rarely" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?) [ \t]* line-end
+    indent              line-start [ \t]* ('$' [A-Za-z_] [A-Za-z0-9_]* ':' ([ \t]+ ("pub" [ \t]+)? ("called" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?)? | ("pub" [ \t]+)? ("called" | "inline" | "fun" | "sub" | "obj" | "enum" | "if" | "else" | "while" | "for" | "match" | "test" | "raw" | "extern" | "defer" | "errdefer") ([ \t(] [^\n]*)?) [ \t]* line-end
     dedent              line-start [ \t]* "else"
 
     keyword             ("fun" | "sub") [ \t]+ function:([A-Za-z_] [A-Za-z0-9_]*)
     keyword             ("obj" | "enum" | "type") [ \t]+ type:([A-Za-z_] [A-Za-z0-9_]*)
-    keyword             ("called" | "rarely" | "inline") after [ \t]+ ("fun" | "sub")
+    keyword             ("called" | "inline") after [ \t]+ ("fun" | "sub")
+    keyword             line-start [ \t]* "rarely" not after [ \t]* [^ \t#]
     keyword             line-start [ \t]* "new" after [ \t]+ [A-Za-z_]
     keyword             "of" before ' ' after ' '
     keyword             "from" [ \t]+ "static" not after [A-Za-z0-9_]
@@ -636,6 +641,7 @@ simple   = tail
          | NEW target:name "=!" value:tail          → (set op:shadow_fixed)
          | NEW target:name ":" type:type "=!" value:tail → (set op:shadow_fixed)
          | PASS                                     → (pass)
+         | RARELY                                   → (rarely)  # a block's first line (the Parser wrapper)
          | RETURN [value:tail]                      → (return)
          | RETURN rvals                             → (return value:(results ...2))
          | targets:dtargets "=" value:tail          → (destructure)
@@ -695,12 +701,10 @@ mpath    = name
 # Parser wrapper can reject it with the header to write.
 #
 # A marker before `fun` or `sub` asks for a speed, never a meaning:
-# `inline` inlines the function at every call, `called` keeps every call
-# a call, and `rarely` says it is rarely called, so it stays out of the
-# code that calls it.
+# `inline` inlines the function at every call, and `called` keeps every
+# call a call. How often code runs is a block's first line, `rarely`.
 mark     = INLINE                                   → (inline)
          | CALLED                                   → (called)
-         | RARELY                                   → (rarely)
 
 fun      = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] body:block → (fun)
 sub      = [mark:mark] SUB name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)
@@ -950,12 +954,15 @@ expr     = value
          | while
          | for
          | match
-         | value:logic CATCH BAR_CAPTURE name:name BAR_CAPTURE handler:block → (catch)
+         | value:logic CATCH_BLOCK BAR_CAPTURE name:name BAR_CAPTURE handler:block → (catch)
          | closure
 
+# `catch` with a jump or a block for its handler takes the whole
+# expression before it, as `??` before a jump does; the rewriter marks
+# each (CATCH_JUMP, CATCH_BLOCK, NULLISH_JUMP). Any other `catch` is an
+# operator on `??`'s level (`fall`).
 value    = then:logic TERNARY_IF cond:logic ELSE else:value → (if)
-         | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:value → (catch)
-         | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:jump → (catch)
+         | value:logic CATCH_JUMP [BAR_CAPTURE name:name BAR_CAPTURE] handler:jump → (catch)
          | left:logic NULLISH_JUMP right:jump        → (??)
          | logic
 
@@ -974,9 +981,28 @@ logic    = left:logic OR right:conj                 → (or)
 conj     = left:conj AND right:neg                  → (and)
          | neg
 neg      = NOT operand:neg                          → (not)
-         | value:@infix AS name:name                → (as)
-         | value:@infix AS names:anames             → (as_results)
-         | value:@infix AS pattern:aspat            → (as_pattern)
+         | value:cmp AS name:name                   → (as)
+         | value:cmp AS names:anames                → (as_results)
+         | value:cmp AS pattern:aspat               → (as_pattern)
+         | cmp
+
+# Comparisons, which do not chain, over the fallbacks.
+cmp      = left:fall "==" right:fall                → (==)
+         | left:fall "!=" right:fall                → (!=)
+         | left:fall "<" right:fall                 → (<)
+         | left:fall ">" right:fall                 → (>)
+         | left:fall "<=" right:fall                → (<=)
+         | left:fall ">=" right:fall                → (>=)
+         | fall
+
+# `??` and `catch` share a level, read left to right, as Zig's `orelse`
+# and `catch` do: `f() catch none ?? 0` is `(f() catch none) ?? 0`. A
+# handler is an operand of the operators above (`catch -1`,
+# `catch |e| e.code()`); one that compares, joins with `and` or `or`, or
+# chooses with `if` is parenthesized. The Parser wrapper nests a chain of
+# `??` to the right, `a ?? (b ?? c)`, which gives the same value.
+fall     = left:fall "??" right:@infix              → (??)
+         | value:fall CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:@infix → (catch)
          | @infix
 
 # A pattern after `as` starts with a dot: a variant, alone or with the
@@ -1204,8 +1230,6 @@ atom     = name
 # ==============================================================================
 
 @infix unary
-    "==" none, "!=" none, "<" none, ">" none, "<=" none, ">=" none
-    "??" right
     ".." none, "..=" none
     "|"  left
     "^"  left

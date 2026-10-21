@@ -112,7 +112,7 @@ sub main()
   print(r.sym, pair, zs, c[0])
   e1: Node? = mkn(1) catch none
   e2: Node? = mkn(-3) catch mko(3)
-  e3: Node? = mkn(-1) catch |e| Node(id: 9) if e == E.bad else none
+  e3: Node? = mkn(-1) catch |e| (Node(id: 9) if e == E.bad else none)
   print(e1, e2, e3, tried(?mkn, 4), tried(?mkn, -4))
 EOF2
 

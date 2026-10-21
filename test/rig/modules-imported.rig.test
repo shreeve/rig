@@ -433,7 +433,7 @@ test "imported errors", '''
   sub main()
     print(name(""), name("x"), name("?"), name("abc"))
     e: parsing.ParseError = .bad_digit
-    print(e, parsing.parse("x") catch |err| 1 if err == e else 2)
+    print(e, parsing.parse("x") catch |err| (1 if err == e else 2))
 
   file "parsing.rig"
     pub error ParseError

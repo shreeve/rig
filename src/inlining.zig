@@ -2,14 +2,15 @@
 //! program, after every module is checked (docs/internals/INTERNALS.md, "Inlining").
 //!
 //! A function marked `inline fun` is emitted `inline fn`, whatever its
-//! size, and one marked `called fun` or `rarely fun` never is; the rule
-//! below decides the rest. A cycle of calls of marked `inline` functions
-//! is an error (`forcedCycles`). What a marked function's values land in
-//! each frame owner that calls it is typecheck's to count (the account's
-//! `marked` part, `typecheck.checkFrames`); what the rule inlines into it
-//! lands in that owner too, so this pass counts it there (`added`). The
-//! sizes below never undo a marker, they only choose among the functions
-//! the compiler picked.
+//! size, and one marked `called fun`, or whose body starts with `rarely`,
+//! never is; the rule below decides the rest. A cycle of calls of marked
+//! `inline` functions is an error (`forcedCycles`). What a marked
+//! function's values land in each frame owner that calls it is
+//! typecheck's to count (the account's `marked` part,
+//! `typecheck.checkFrames`); what the rule inlines into it lands in that
+//! owner too, so this pass counts it there (`added`). The sizes below
+//! never undo a marker, they only choose among the functions the
+//! compiler picked.
 //!
 //! Zig inlines a small function only when asked, and LLVM leaves a
 //! small hot helper as a call when its body grows. A `fun` or `sub` with
@@ -56,6 +57,7 @@ const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const modules = @import("modules.zig");
 const rig = @import("rig.zig");
+const pgo = @import("pgo.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -66,6 +68,12 @@ const Error = std.mem.Allocator.Error;
 /// The most nodes (each form of the tree: a call, an operator, a
 /// statement) a body may have and be inlined.
 pub const max_size = 60;
+
+/// The most nodes a function a profile finds hot may have and be inlined
+/// (`Pass.profile`): one entered at least 1 in `hot_share` times as often
+/// as the program's hottest function.
+pub const hot_size = 240;
+const hot_share = 100;
 
 /// The most reach (`typecheck.checkFrames`) the functions the rule
 /// inlines may add to one frame owner, and an inlined function may have,
@@ -98,9 +106,11 @@ const Fn = struct {
     size: u32 = 0,
     /// Whether the declaration alone allows the rule to inline it.
     eligible: bool,
-    /// Its marker: `inline` inlines it at every call, `called` and
-    /// `rarely` never.
+    /// Its marker: `inline` inlines it at every call, `called` and a
+    /// body that starts with `rarely` never.
     marker: rig.Marker,
+    /// Its profile says it is hot (`Pass.profile`).
+    hot: bool = false,
     /// Mentioned other than as a callee.
     used_as_value: bool = false,
     /// The functions with a call of it, once for each such call.
@@ -216,6 +226,12 @@ const Instances = struct { own: FrameCount, total: FrameCount, params: u128 = 0 
 const Pass = struct {
     a: std.mem.Allocator,
     mods: []const *modules.Module,
+    /// The profile of a `rig build --pgo` build (`pgo.zig`): a function
+    /// its run never entered is never inlined, and a hot one (`hot_share`)
+    /// is inlined up to `hot_size` nodes, within every other limit.
+    profile: ?*const pgo.State = null,
+    /// The most entries the profile records of any one function.
+    hottest: u64 = 0,
     fns: std.ArrayList(Fn) = .empty,
     owners: std.ArrayList(Owner) = .empty,
     /// Per module: the index in `owners` of its first owner.
@@ -335,6 +351,14 @@ const Pass = struct {
         // as a `rarely` one does.
         var eligible = body != .nil and !is_main and onlyValueParams(node) and marker == .none and !rig.alwaysPanics(body);
         if (body != .nil and holdsClosure(body)) eligible = false;
+        var hot = false;
+        if (self.profile) |p| if (eligible) {
+            const at = c.span(node);
+            if (p.lookup(try pgo.funKey(self.a, c.zig_file, name, c.source[at.start..at.end]))) |counts| {
+                if (counts.entries == 0) eligible = false;
+                hot = counts.entries > 0 and counts.entries * hot_share >= self.hottest;
+            }
+        };
         // A frame that depends on a compile-time value is unknown.
         if (o.per_instance and sema.tparamsOf(node) != .nil) eligible = false;
         const idx: u32 = @intCast(self.fns.items.len);
@@ -354,6 +378,7 @@ const Pass = struct {
             .marker = marker,
             .size = if (body != .nil) size(body) else 0,
             .group = gop.value_ptr.*,
+            .hot = hot,
         });
         try self.by_pos[module].put(self.a, o.pos, idx);
         return idx;
@@ -974,7 +999,12 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         .owner_base = try a.alloc(u32, mods.len),
         .max = max,
         .with_tests = graph.with_tests,
+        .profile = graph.profile,
     };
+    if (graph.profile) |p| {
+        var it = p.funs.valueIterator();
+        while (it.next()) |f| pass.hottest = @max(pass.hottest, f.entries);
+    }
     for (pass.by_pos) |*m| m.* = .empty;
     // Each generic owner's frame at its instances, wherever they are made:
     // the largest, and the parameters some instance binds.
@@ -1013,7 +1043,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
             f.inlined = true;
             continue;
         }
-        if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
+        if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > (if (f.hot) @max(max, hot_size) else max)) continue;
         const own = pass.owners.items[f.owner].own orelse continue;
         if (own.reach + pass.owners.items[f.owner].params + pass.owners.items[f.owner].marked.reach > max_inlined_frame_bytes or mods[f.module].sema.large_frames.contains(f.pos)) continue;
         f.inlined = true;

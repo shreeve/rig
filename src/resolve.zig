@@ -126,7 +126,7 @@ const SymbolResolver = struct {
                     const f = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
                     // A Zig-backed constant takes no marker, and has no role for one.
                     const m: rig.Marker = if (f.isKind(.fun) or f.isKind(.sub)) rig.markerOf(f) else .none;
-                    if (m != .none) try self.ctx.errAt(ir.get(f, .mark), "`{s}` is an `extern zig` function, whose body is Zig code: it takes no `{s}`", .{ identAt(self.ctx.source, ir.get(f, .name)) orelse "", @tagName(m) });
+                    if (m != .none) try self.ctx.errAt(rig.markNode(f), "`{s}` is an `extern zig` function, whose body is Zig code: it takes no `{s}`", .{ identAt(self.ctx.source, ir.get(f, .name)) orelse "", @tagName(m) });
                     try self.walk(d);
                 }
             },
@@ -162,7 +162,7 @@ const SymbolResolver = struct {
         const m = rig.markerOf(node);
         if (m == .none) return;
         if (self.ctx.is_root and sym.scope == sema.module_scope and std.mem.eql(u8, sym.name, "main")) {
-            try self.ctx.errAt(ir.get(node, .mark), "`main` is the program's entry point, which the program calls once: it takes no `{s}`", .{@tagName(m)});
+            try self.ctx.errAt(rig.markNode(node), "`main` is the program's entry point, which the program calls once: it takes no `{s}`", .{@tagName(m)});
         }
     }
 
