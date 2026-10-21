@@ -110,7 +110,7 @@ fn nonblocking(fd: i32) void {
 /// deadline has passed.
 fn stopped() rig.Stop!void {
     const t = rig.task();
-    if (t.control) |c| if (c.canceled.load(.acquire)) return canceled;
+    if (t.control) |c| if (c.canceled.load(.seq_cst)) return canceled;
     if (t.deadline) |d| if (rig.sched.nowNs() >= d) return timeout;
 }
 
@@ -309,32 +309,71 @@ const copy_block = 64 << 10;
 fn copyRead(from: anytype, dest: []u8) anyerror!usize {
     if (@hasField(@TypeOf(from.*), "reg")) return readSome(@intCast(@field(from, "fd")), @field(from, "reg"), dest, .{});
     try stopped();
-    return rig.blocking(fileRead, .{ @as(i32, @intCast(@field(from, "fd"))), dest });
+    var got = try (try rig.blockingStop(fileRead, .{ try dupFile(@field(from, "fd")), dest.len }));
+    defer rig.dropElement(rig.String, &got);
+    @memcpy(dest[0..got.list.items.len], got.list.items);
+    return got.list.items.len;
 }
 
 fn copyWrite(to: anytype, bytes: []const u8) anyerror!void {
     if (@hasField(@TypeOf(to.*), "reg")) return writeAll(@intCast(@field(to, "fd")), @field(to, "reg"), bytes, .{});
     try stopped();
-    return rig.blocking(fileWrite, .{ @as(i32, @intCast(@field(to, "fd"))), bytes });
+    return try (try rig.blockingStop(fileWrite, .{ try dupFile(@field(to, "fd")), bytes }));
 }
 
-/// A file's read and write, on the blocking pool, failing as
-/// `std.file`'s do.
-fn fileRead(fd: i32, dest: []u8) FileError!usize {
+/// A file's descriptor, duplicated for a call on the blocking pool to own
+/// and close: the call is a fallible waiting point (`rig.blockingStop`),
+/// so it may run on after its task has stopped waiting and closed its
+/// own. Dropped with a result no one takes, it closes.
+const OwnedFd = struct {
+    fd: i32,
+
+    pub fn __rig_drop(self: *OwnedFd) void {
+        _ = sys.close(self.fd);
+    }
+};
+
+fn dupFile(fd: i64) FileError!OwnedFd {
     while (true) {
-        const rc = sys.read(fd, dest.ptr, dest.len);
+        const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
         switch (posix.errno(rc)) {
-            .SUCCESS => return @intCast(rc),
+            .SUCCESS => return .{ .fd = @intCast(rc) },
             .INTR => {},
             else => |e| return fileFailure(e),
         }
     }
 }
 
-fn fileWrite(fd: i32, bytes: []const u8) FileError!void {
+/// A file's read and write, on the blocking pool, failing as
+/// `std.file`'s do: up to `want` bytes in a String of the call's own,
+/// since the pool copies a buffer it is given.
+fn fileRead(fd: OwnedFd, want: usize) FileError!rig.String {
+    var own = fd;
+    defer own.__rig_drop();
+    var s: rig.String = .empty;
+    s.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), want) catch rig.oom();
+    while (true) {
+        const rc = sys.read(own.fd, s.list.items.ptr, want);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                s.list.items.len = @intCast(rc);
+                return s;
+            },
+            .INTR => {},
+            else => |e| {
+                rig.dropElement(rig.String, &s);
+                return fileFailure(e);
+            },
+        }
+    }
+}
+
+fn fileWrite(fd: OwnedFd, bytes: []const u8) FileError!void {
+    var own = fd;
+    defer own.__rig_drop();
     var at: usize = 0;
     while (at < bytes.len) {
-        const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
+        const rc = sys.write(own.fd, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
             .INTR => {},
@@ -394,11 +433,8 @@ const Settings = struct {
         return if (n > 0 and n < 1 << 53) n else null;
     }
 
-    /// The limits of a connection's waits: none in a deterministic run,
-    /// whose virtual clock jumps to the next deadline while bytes on
-    /// their way through the system have yet to be seen.
+    /// The limits of a connection's waits.
     fn limit(s: Settings, head: bool) Limit {
-        if (rig.sched.deterministic) return .{};
         return .{ .at = if (head) rig.sched.nowNs() + s.head_ns else null, .idle = s.idle_ns };
     }
 };
