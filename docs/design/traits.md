@@ -18,11 +18,12 @@ the body line ([SPEC, Generic bodies](../../SPEC.md#generic-bodies)).
 That is the model of C++ templates and of Zig's `comptime`, and it
 carries Rig a long way.
 
-Three things it cannot do:
+Three things it cannot do alone:
 
-1. A generic body cannot call a method on a `T`. Only the built-in
-   operations reach a `T`: arithmetic, ordering, `==`, `.hash()`,
-   printing, copying, moving.
+1. Say in a signature what a `T` must do. A body applies the built-in
+   operations to a `T` (arithmetic, ordering, `==`, `.hash()`,
+   printing, copying, moving) and, with Stage 1, calls its methods,
+   and only the instances check them.
 2. A type with its own `hash` cannot be a `hash.Map` key by that hash
    ([SPEC §5](../../SPEC.md#5-expressions)): the generic body calls the
    built-in one.
@@ -37,7 +38,7 @@ it.
 
 | Stage | What it adds | New syntax | Status |
 |---|---|---|---|
-| 1 | method calls on a type parameter, checked per instance | none | *(planned, next)* |
+| 1 | method calls on a type parameter, checked per instance | none | *(built)* |
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]` | *(planned)* |
 | 3 | user traits, dispatched at compile time | `trait`, `obj X: T`, `impl X: T` | *(planned)* |
 | 4 | trait objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
@@ -54,14 +55,14 @@ Two principles hold across every stage:
   an indirect call, and only a type written in braces makes one, so
   the braces mark the cost.
 
-## Stage 1: methods on a type parameter *(planned, next)*
+## Stage 1: methods on a type parameter *(built)*
 
 A generic body may call a method on a `T`, checked against each
 instance as the built-in operations are today. There is no new syntax.
 This closes the first gap with the least machinery, and every later
 stage keeps it for a parameter with no bound.
 
-```rig pending
+```rig
 obj Square
   side: Float
 
@@ -89,12 +90,29 @@ sub main()
 ```
 
 **Typing.** A call `x.m(args)` on a value whose type is a type
-parameter, or a view of one (`?T`, `!T`), is typed at each instance,
+parameter, or a view of one (`?T`, `!T`), is checked at each instance,
 as the rest of a generic body is: the instance's type must declare a
 method `m`, visible where the body is (`pub` when the type's module is
-another), that takes the arguments as written, and its result type is
-the call's type in that instance. A method with compile-time
-parameters of its own is called as it would be outside a generic body.
+another), that takes the arguments with the types the body passes
+them (a literal as `Int` or `Float`), and gives the result the body
+takes. The body is typed once, so the call's result takes its type
+from where the call stands:
+
+- the type its context expects: a typed binding, an argument, a
+  return, an assignment (`t += x.area()` with `t` a `Float`), with `-> T`
+  substituted in each instance, so `x.dup()` gives a `T`;
+- through `!` or `catch` a fallible one, and through `?` or `??` an
+  optional one: `a: Float = x.parse()!` needs a `Float!`;
+- the other operand of an arithmetic or comparison operator, a literal
+  there as a binding of it would be: `x.area() + 1.0` is a `Float`, and
+  `x.size() > 3` needs an `Int`;
+- as a statement, nothing: the method must be a `sub`, and the message
+  for one that gives a value says to write `_ = x.m()`;
+- under `_ =`, any result that cannot fail, dropped there in each
+  instance.
+
+Anywhere else the body cannot know the result's type, and the call is
+rejected with the fix.
 
 **Self.** The sigil at the call says how the body takes self, as at any
 call: `x.m()` reads, `!x.m()` writes, `<x.m()` consumes. An instance
@@ -113,9 +131,9 @@ ownership check.
 **What a failure reads.** As for the built-in operations: at the call
 or type that makes the instance, with a note at the body line.
 
-```rig pending
+```rig reject
 obj Label
-  text: String
+  id: Int
 
 fun total[T](xs: []T) -> Float
   t = 0.0
@@ -124,14 +142,14 @@ fun total[T](xs: []T) -> Float
   t
 
 sub main()
-  print(total([Label(text: String("a"))]))
+  print(total([Label(id: 1)]))
 ```
 
 ```error
 `total[Label]` cannot use `T = Label`: the generic body calls `area` on a `T`, and `Label` has no method `area`
 ```
 
-```rig pending
+```rig reject
 obj Counter
   n: Int
 
@@ -150,20 +168,39 @@ sub main()
 `touch[Counter]` cannot use `T = Counter`: the generic body calls `x.bump()`, which reads `x`, but `Counter.bump` takes `self` as `!@`
 ```
 
-**What Stage 1 leaves out.** Reading a field of a `T` and calling `T`
-itself stay rejected. A method of a built-in type (`List`, `String`,
-`Cell`, a number) is reached through a `T` only where emit already
-lowers that method by its resolved type; otherwise the instance is
-rejected with a message that says so. Emit writes the call as Zig
-resolves it per instance, `x.area()`, so a method of an `obj` or an
-`enum`, in any module, std included, lowers with no new machinery.
+```rig reject
+obj Square
+  side: Float
 
-**What changes with it.** SPEC's "Generic bodies" (the sentence that a
-body cannot call a method on a `T`), DESIGN's "Per-instance checking",
-the FAQ's answer on traits, and journey 07, which teaches generics as
-they are once Stage 1 lands. The examples above are ```` ```rig
-pending ````: the suite fails them the day they work, and they become
-ordinary examples then.
+  fun area(?@) -> Float
+    @side * @side
+
+sub show[T](x: ?T)
+  print(x.area())
+
+sub main()
+  s = Square(side: 2.0)
+  show(?s)
+```
+
+```error
+`x.area()` calls a method on a `T`, whose result type the body cannot know; give it one: `a: Float = x.area()`, then `print(a)`
+```
+
+**What Stage 1 leaves out.** Reading a field of a `T` and calling `T`
+itself stay rejected. Emit writes the call as Zig resolves it per
+instance, `x.area()`, so a method of an `obj` or an `enum`, in any
+module, std included, lowers with no new machinery. Emit lowers a
+built-in type's methods (`List`, `String`, `Cell`, a number) by the
+type it resolves at the call, which a `T` does not give, so an instance
+whose type is a built-in one is rejected with a message that says so.
+So is an instance whose method has compile-time parameters of its own,
+which emit passes at each call and a body written once cannot, and
+one whose method is marked `inline`, whose frame each caller's count
+includes and a call through a `T` would not.
+
+**Where it is described.** SPEC's "Generic bodies" gives the rule, and
+DESIGN's "Per-instance checking" its reasons.
 
 ## Stage 2: built-in bounds *(planned)*
 

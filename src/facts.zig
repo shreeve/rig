@@ -341,6 +341,9 @@ pub const Facts = struct {
     pub fn isActorCall(f: Facts, call: Sexp) bool {
         return f.c().isActorCall(call);
     }
+    pub fn isTypeParamCall(f: Facts, call: Sexp) bool {
+        return f.c().isTypeParamCall(call);
+    }
     pub fn isChanMake(f: Facts, call: Sexp) bool {
         return f.c().isChanMake(call);
     }

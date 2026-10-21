@@ -18,7 +18,7 @@ items, with their probe cases, are in
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `?String`).
 - **A labeled value loop on the right of a binding** (`x = $l: for ...`), which needs a grammar change without conflicts.
-- **Traits**, in the five stages of [design/traits.md](design/traits.md): method calls on a type parameter first, then built-in bounds (`[K: Hash]`), traits of a program's own, and trait objects (`?{Shape}`, `^{Shape}`, `*{Shape}`), each when a program needs it.
+- **Traits**, in the five stages of [design/traits.md](design/traits.md), whose first, method calls on a type parameter, is built: built-in bounds (`[K: Hash]`), traits of a program's own, and trait objects (`?{Shape}`, `^{Shape}`, `*{Shape}`), each when a program needs it.
 - **Conditional compilation** on the target's operating system and CPU features and the build mode, as `std.target` gives the architecture (`target.arch`).
 - **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes computed from a compile-time parameter (`[n * 2]Int`, `[cap(n)]Int`), so a failure is a Rig diagnostic rather than a Zig error.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.

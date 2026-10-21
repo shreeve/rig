@@ -65,6 +65,13 @@ changed the language since it:
   and one that depends on itself is rejected. A directory's
   `_test.rig` files belong to its module only as the root of `rig test`
   (docs/internals/INTERNALS.md, "Directory modules").
+- **Methods on a type parameter:** a generic body calls a method on a
+  `T`, `x.m(args)`, `!x.m(args)`, or `<x.m(args)`, checked at each
+  instance as the built-in operations are: the instance's type declares
+  the method, taking self as the sigil says, the arguments the body
+  passes, and giving the result the body takes from where the call
+  stands (SPEC "Generic bodies", traits Stage 1 in
+  [docs/design/traits.md](docs/design/traits.md)).
 - **Evaluation order:** every assignment evaluates its value first,
   then its target's steps, then stores; the order is one recorded fact
   (`storage.SetOrder`, `storage.eachSetStep`) that emit and the

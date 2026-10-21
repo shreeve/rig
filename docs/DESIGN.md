@@ -427,8 +427,17 @@ need a `type` alias there.
 
 A generic body is checked once, with `T` unknown, and records what it
 does with a `T`: arithmetic, ordering, `==`, a literal beside a `T`, a
-copy. Each instance the program makes is then checked against that
-record. There are no traits or bounds for now.
+copy, a method it calls. Each instance the program makes is then
+checked against that record. There are no traits or bounds for now.
+
+A method call on a `T` is typed where it stands: its result takes the
+type the context expects, or the other operand's, and the instance's
+method must give exactly that, take the arguments the body passes, and
+take self as the call's sigil says. The body is not adjusted to fit an
+instance, and its Zig is written once, so Zig resolves the call in each
+instance as Rig checked it. The body's ownership check treats the call
+as a call of a function value with no `from` or `keeps`, which bounds
+every method, so ownership is still checked once.
 
 What this buys: generics without a trait system, whose design space
 (method dispatch, coherence, trait objects) Rig has not settled; any type that

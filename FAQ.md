@@ -113,8 +113,9 @@ one small reactive type in the runtime
 
 Not yet, and on purpose: closures, enums with payloads, and generics
 checked per instance cover today's programs. A generic body may do with
-`T` whatever each instance supports, and each instance a program makes
-is checked, with an error at the call and a note at the body line
+`T` whatever each instance supports, calling its methods included
+(`x.area()`), and each instance a program makes is checked, with an
+error at the call and a note at the body line
 ([more](docs/DESIGN.md#per-instance-checking-instead-of-traits)). The
 design that keeps method dispatch and ownership visible is decided and
 built in stages, each when a program needs it:

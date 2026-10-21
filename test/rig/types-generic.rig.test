@@ -103,8 +103,10 @@ fail "generic body copies resource ownership", "`Wrap[*B]` cannot use `T = *B`: 
   b: Wrap[*B] = Wrap(v: *B(n: 1))
   h: Holder[*B] = Holder(v: *B(n: 3))
 
-fail "generic body method on param", "a generic parameter `T` has no methods"
-  # A generic body cannot call methods on a type parameter.
+fail "generic body method on param", "`Wrap[Int]` cannot use `T = Int`: the generic body calls `len` on a `T`, and a call on a `T` reaches only the methods of an `obj` or an `enum` a module declares, not those of `Int`"
+  # A call on a `T` reaches a method an `obj` or an `enum` declares;
+  # emit lowers a built-in type's methods by the type it knows at the
+  # call, which a `T` does not give.
 
   obj Wrap[T]
     value: T
@@ -112,8 +114,14 @@ fail "generic body method on param", "a generic parameter `T` has no methods"
     fun show(?@) -> Int
       @value.len()
 
-  print(1)
+  obj Has
+    n: Int
 
+    fun len(?@) -> Int
+      @n
+
+  print(Wrap(value: Has(n: 2)).show())
+  print(Wrap(value: 3).show())
 fail "generic catch all copy of cell holder", "19:5: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`", "16:13: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`", errors: 2
   # A generic `match` never matches a copy of a value that holds a Cell:
   # such a value is never a generic type argument (`Opt[C]`, `W[C]`), since
@@ -1106,10 +1114,10 @@ test "generic fn max", '''
   print(max(3, 7), max(2.5, -1.0), max(small, -9), max(2, f))
   print(max(max(1, 5), 4))
 
-fail "generic fn method on param", "12:5: a generic parameter `T` has no methods", "15:5: a generic parameter `T` has no fields"
-  # A generic function's body cannot call a method, or read a field, of a
-  # value whose type is a type parameter: there are no traits to say what
-  # every instance has.
+fail "generic fn field of param", "15:5: a generic parameter `T` has no fields"
+  # A generic function's body may call a method on a value whose type is
+  # a type parameter, checked at each instance, but reads no field of
+  # one.
 
   obj P
     n: Int
@@ -1125,7 +1133,6 @@ fail "generic fn method on param", "12:5: a generic parameter `T` has no methods
 
   p = P(n: 1)
   print(call_get(?p), read_n(?p))
-
 test "generic fn methods", '''
   tag 3
   tag x
@@ -2878,3 +2885,316 @@ test "generic fallible closure", '''
     print("ran")
   ) catch print("failed")
   run(|| print("Void"))
+
+test "type param method", "13.0 3.0"
+  # A generic body calls a method on a `T`: each instance's type declares
+  # it, and the call's result takes the type its context expects.
+
+  obj Square
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+  fun total[T](xs: []T) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  print(total([Square(side: 2.0), Square(side: 3.0)]), total([Circle(r: 1.0)]))
+
+test "type param method modes", '''
+  2 7
+  ab
+  5 true 3.5
+  dup 5
+  closed 9
+  drop 9
+  9
+  drop 4
+'''
+  # The call's sigil says how it takes self: bare reads, `!` writes, `<`
+  # consumes. A result takes the type the context expects (a `T`
+  # substituted per instance), or the other operand's beside an
+  # operator; a statement call gives nothing, and `_ =` drops any result.
+
+  obj Counter
+    n: Int
+    name: String
+
+    sub bump(!@, by: Int)
+      @n += by
+
+    fun get(?@) -> Int
+      @n
+
+    fun label(?@) -> String
+      String(@name, "b")
+
+    fun half(?@) -> Float
+      Float(@n) / 2.0
+
+    fun dup(?@) -> Counter
+      print("dup", @n)
+      Counter(n: @n, name: String(@name))
+
+    fun close(<@) -> Int
+      print("closed", @n)
+      @n
+
+    drop(!@)
+      print("drop", @n)
+
+  sub twice[T](x: !T)
+    !x.bump(1)
+    !x.bump(1)
+
+  fun copy_of[T](x: ?T) -> T
+    x.dup()
+
+  fun finish[T](x: T) -> Int
+    <x.close()
+
+  fun probe[T](x: ?T) -> Bool
+    _ = x.label()
+    h: Float = x.half()
+    n: Int = x.get()
+    print(n, x.get() > 3, x.half() + 1.0)
+    h > 2.0
+
+  sub main()
+    c = Counter(n: 0, name: String("a"))
+    twice(!c)
+    !c.bump(5)
+    print(c.get() - 5, c.get())
+    t: String = c.label()
+    print(t)
+    !c.bump(-2)
+    _ = probe(?c)
+    d = copy_of(?c)
+    !d.bump(-1)
+    !c.bump(4)
+    print(finish(<c))
+
+fail "type param method missing", "`total[Label]` cannot use `T = Label`: the generic body calls `area` on a `T`, and `Label` has no method `area`"
+  # An instance whose type declares no method the body calls is rejected
+  # at the call that makes it, with a note at the body line.
+
+  obj Label
+    id: Int
+
+  fun total[T](xs: []T) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  print(total([Label(id: 1)]))
+
+fail "type param method self", "`touch[Counter]` cannot use `T = Counter`: the generic body calls `x.bump()`, which reads `x`, but `Counter.bump` takes `self` as `!@`"
+  # The call's sigil says how the body takes self; an instance whose
+  # method takes it another way is rejected, not fitted.
+
+  obj Counter
+    n: Int
+
+    sub bump(!@)
+      @n += 1
+
+  sub touch[T](x: ?T)
+    x.bump()
+
+  c = Counter(n: 0)
+  touch(?c)
+
+fail "type param method no type", "`x.area()` calls a method on a `T`, whose result type the body cannot know; give it one: `a: Float = x.area()`, then `print(a)`"
+  # The body is typed once, so a call on a `T` takes its result's type
+  # from where it stands; `print` gives none.
+
+  obj Square
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  sub show[T](x: ?T)
+    print(x.area())
+
+  s = Square(side: 2.0)
+  show(?s)
+
+fail "type param method statement", "`use_it[C]` cannot use `T = C`: the generic body calls `x.get()`, as a statement, and `C.get` gives `Int`; discard it with `_ = x.get()`"
+  # A statement call gives nothing: the instance's method is a `sub`.
+
+  obj C
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+  sub use_it[T](x: ?T)
+    x.get()
+
+  c = C(n: 1)
+  use_it(?c)
+
+fail "type param method argument", "`twice[C]` cannot use `T = C`: the generic body calls `x.scale(2)`, passing argument 1 as `Int`, and `C.scale` takes `Float` there"
+  # The arguments go as the body passes them, a literal as a binding of
+  # it would: emit writes the body once.
+
+  obj C
+    n: Float
+
+    fun scale(?@, by: Float) -> Float
+      @n * by
+
+  fun twice[T](x: ?T) -> Float
+    x.scale(2)
+
+  c = C(n: 1.0)
+  print(twice(?c))
+
+fail "type param method result", "`whole[C]` cannot use `T = C`: the generic body calls `x.area()`, taking its result as `Int`, and `C.area` gives `Float`"
+  # The method gives exactly the type the body takes.
+
+  obj C
+    n: Float
+
+    fun area(?@) -> Float
+      @n
+
+  fun whole[T](x: ?T) -> Int
+    x.area()
+
+  c = C(n: 1.0)
+  print(whole(?c))
+
+fail "type param method through view", "`finish[?C]` cannot use `T = ?C`: the generic body calls `x.close()`, which consumes `x`, and `?C` is a read view, through which nothing is written or consumed"
+  # A `T` that is a read view reaches only methods that read self.
+
+  obj C
+    n: Int
+
+    fun close(<@) -> Int
+      @n
+
+  fun finish[T](x: T) -> Int
+    <x.close()
+
+  c = C(n: 1)
+  print(finish(?c))
+
+fail "type param method dropped failure", "`run[C]` cannot use `T = C`: the generic body calls `x.parse()`, under `_ =`, and `C.parse` gives `Int!`, whose failure `_ =` would not handle"
+  # `_ =` drops any result but one that may fail, whose failure would go
+  # unseen.
+
+  obj C
+    n: Int
+
+    fun parse(?@) -> Int!
+      @n
+
+  sub run[T](x: ?T)
+    _ = x.parse()
+
+  c = C(n: 1)
+  run(?c)
+
+fail "type param method private", "`lib.size_of[geo.Sq]` cannot use `T = geo.Sq`: the generic body calls `x.size()`, and `geo.Sq.size` is private to module `geo`; declare it `pub` there"
+  # The method is visible from the body's module, as a call written
+  # there would need.
+
+  use geo
+  use lib
+
+  sub main()
+    s = geo.Sq(n: 2)
+    print(lib.size_of(?s))
+
+  file "geo.rig"
+    pub obj Sq
+      pub n: Int
+
+      fun size(?@) -> Int
+        @n
+
+  file "lib.rig"
+    pub fun size_of[T](x: ?T) -> Int
+      x.size()
+
+test "type param method across modules", "2 3"
+  # A generic body in one module calls the `pub` method of a type
+  # another declares, and of one its own module declares.
+
+  use geo
+  use lib
+
+  sub main()
+    s = geo.Sq(n: 2)
+    o = lib.Own(n: 3)
+    print(lib.size_of(?s), lib.size_of(?o))
+
+  file "geo.rig"
+    pub obj Sq
+      pub n: Int
+
+      pub fun size(?@) -> Int
+        @n
+
+  file "lib.rig"
+    pub obj Own
+      pub n: Int
+
+      fun size(?@) -> Int
+        @n
+
+    pub fun size_of[T](x: ?T) -> Int
+      x.size()
+
+test "type param method wrapped results", "3 -1 4 -5 2.5"
+  # Through `??` the call gives an optional, through `!` and `catch` a
+  # fallible, and beside an operator the other operand's type.
+
+  error Bad
+    no
+
+  obj C
+    n: Int
+
+    fun find(?@, k: Int) -> Int?
+      if k == @n
+        return @n
+      none
+
+    fun parse(?@) -> Int!
+      @n
+
+    fun fail(?@) -> Int!
+      return Bad.no
+
+    fun half(?@) -> Float
+      Float(@n) / 2.0
+
+  fun look[T](x: ?T, k: Int) -> Int
+    x.find(k) ?? -1
+
+  fun get[T](x: ?T) -> Int!
+    x.parse()! + 1
+
+  fun safe[T](x: ?T) -> Int
+    x.fail() catch -5
+
+  fun halfish[T](x: ?T) -> Float
+    1.0 * x.half()
+
+  sub main()!
+    c = C(n: 3)
+    d = C(n: 5)
+    print(look(?c, 3), look(?c, 2), get(?c)!, safe(?c), halfish(?d))

@@ -561,3 +561,55 @@ test "generic view field escape", release: true, '''
   yp = getg(?wp, ?dd)
   print(clobber(9))
   print(xp, yp)
+
+fail "type param method result view", "`pick` returns a view of `x`, but its signature says it views only `y`"
+  # A call on a `T` is checked as a call of a function value with no
+  # `from`: its result may carry the loans of self, whatever method an
+  # instance gives.
+
+  obj Named
+    s: String
+
+    fun name(?@) -> ?String
+      ?@s
+
+  fun pick[T](x: ?T, y: ?T) -> ?String from y
+    n: ?String = x.name()
+    n
+
+  a = Named(s: String("a"))
+  b = Named(s: String("b"))
+  print(pick(?a, ?b))
+
+fail "type param method stores argument", "`put` stores a view of `t` in `x`, which its caller reaches, but its signature does not keep `t`; say so: `keeps t`"
+  # A call that writes self may store in it what any argument views, as
+  # a call of a function value with no `keeps` may.
+
+  obj Holder
+    s: ?String
+
+    sub set(!@, t: ?String) keeps t
+      @s = t
+
+  sub put[T](x: !T, t: ?String)
+    !x.set(t)
+
+  h = Holder(s: "x")
+  put(!h, "y")
+  print(h.s)
+
+test "type param method keeps", "y"
+  # With `keeps t` the body says what every instance's method may do.
+
+  obj Holder
+    s: ?String
+
+    sub set(!@, t: ?String) keeps t
+      @s = t
+
+  sub put[T](x: !T, t: ?String) keeps t
+    !x.set(t)
+
+  h = Holder(s: "x")
+  put(!h, "y")
+  print(h.s)

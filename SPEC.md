@@ -2816,8 +2816,75 @@ checked against it. On a `T`, `==` compares whatever `==` compares
 outside a generic body, and ordering compares numbers, plain enums, and
 `?String` values. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
-declares the body. A body cannot call a method on a `T`, read a field
-of one, or call `T` itself.
+declares the body. A body cannot read a field of a `T` or call `T`
+itself.
+
+A body may call a method on a `T`, or on a view of one (`?T`, `!T`):
+`x.m(args)` reads self, `!x.m(args)` writes it, and `<x.m(args)`
+consumes it, as the sigil says at any call. The call's result takes its
+type from where the call stands: the type its context expects (a typed
+binding, an argument, a return, an assignment), through `!`, `?`,
+`catch`, and `??`, which make it fallible or optional; the other operand
+of an arithmetic or comparison operator, a literal there as a binding of
+it would be; nothing, as a statement; and any result that cannot fail,
+dropped at once, under `_ =`. Anywhere else the body cannot know the
+result's type, and the call is rejected. Each instance's type must be an
+`obj` or an `enum` that declares the method, visible from the body's
+module, taking self as the sigil does, and the arguments with the types
+the body passes (a literal as `Int` or `Float`), and giving exactly the
+result the body takes. The method of a built-in type, one marked
+`inline`, and one with compile-time parameters of its own are not
+reached through a `T`. The body's ownership check treats the call as a
+call of a function value with no `from` or `keeps`: its result may
+carry the loans of self and of every view argument, and a call that
+writes self may store in it what any argument views. Every method is
+within that, so an instance needs no second check.
+
+```rig
+obj Square
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+obj Circle
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+fun total[T](xs: []T) -> Float
+  t = 0.0
+  for x in xs
+    t += x.area()
+  t
+
+sub main()
+  print(total([Square(side: 2.0), Square(side: 3.0)]), total([Circle(r: 1.0)]))
+```
+
+```output
+13.0 3.0
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  sub bump(!@)
+    @n += 1
+
+fun touch[T](x: ?T)
+  x.bump()
+
+sub main()
+  c = Counter(n: 0)
+  touch(?c)
+```
+
+```error
+`touch[Counter]` cannot use `T = Counter`: the generic body calls `x.bump()`, which reads `x`, but `Counter.bump` takes `self` as `!@`
+```
 
 A literal becomes a `T` only as an operand beside one (`x * 3`), and
 must fit every instance's `T`; a binding annotated `T` takes a `T`,
