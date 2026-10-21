@@ -1609,7 +1609,7 @@ test "rev236-sym", '''
   503 0
   9 8 0 q8
 '''
-  n = Symbols()
+  n = text.Interner()
   print((!n).intern("a"), (!n).intern("b"), (!n).intern("c"))
   !n.reserve(100, bytes: 400)
   bad = 0
@@ -1627,7 +1627,7 @@ test "rev236-sym", '''
     t = String("s", i)
     bad += 1 if (!n).intern(?t) != U32(i + 3)
   print(n.len, bad)
-  e = Symbols()
+  e = text.Interner()
   for i in 0..9
     _ = (!e).intern(String("q", i))
   print(e.len, e.id("q8"), e.id("q0"), e.text(8))

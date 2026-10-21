@@ -515,42 +515,6 @@ fail "hash retain no map", "cannot lend `m` to write while a read loan is live"
   !m.retain(|?m, k, v| m.len > 1)
   print(m.len)
 
-test "hash symbols", '''
-  0 1 0 none height 2
-  1011 1010 n0
-  true
-  0 1 0 2
-'''
-  # Symbols: a string gets a dense id from 0 the first time
-  # it is interned, the same id after, from any text type; `id` finds one
-  # without adding it, and `text` views an id's text. Over many strings
-  # it crosses from scanning its few stored hashes to a table, and every
-  # id still names its own text.
-
-
-  names = Symbols()
-  a = (!names).intern("width")
-  b = (!names).intern("height")
-  w = String("wid", "th")
-  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
-  for i in 0..3000
-    t = String("n", i % 1009)
-    id = (!names).intern(?t)
-    if names.text(id) != t
-      print("wrong text", id)
-  print(names.len, names.id("n1008"), names.text(names.id("n0") ?? 0))
-  ok = true
-  for i in 0..1009
-    t = String("n", i)
-    if names.id(?t) as id
-      ok = ok and id == U32(i + 2) and names.text(id) == t
-    else
-      ok = false
-  print(ok)
-  more = Symbols()
-  !more.reserve(4, bytes: 16)
-  print((!more).intern(""), (!more).intern("x"), (!more).intern(""), more.len)
-
 test "hash write drops", '''
   0 true
   drop 2
@@ -707,18 +671,17 @@ test "hash writes", '''
     k % 4 != 3 and k < 10
 
 test "hash built in", '''
-  1 true 0
+  1 true
   Map[String, Int]
 '''
-  # Map, Set, and Symbols are part of the language, named with no import,
-  # and their types print with no module.
+  # Map and Set are part of the language, named with no import, and
+  # their types print with no module.
 
   m: Map[String, Int] = Map()
   !m.put(String("a"), 1)
   s = Set[Int].new()
   _ = (!s).add(2)
-  y = Symbols()
-  print(m.get("a"), s.has(2), y.len)
+  print(m.get("a"), s.has(2))
   print($name(Map[String, Int]))
 
 test "hash own map", "2 0"
@@ -733,7 +696,7 @@ test "hash own map", "2 0"
     print(m.n, s.len)
 
 fail "hash no module", "3:1: the standard library has no module `hash`"
-  # Map, Set, and Symbols need no import, and no module holds them.
+  # Map and Set need no import, and no module holds them.
 
   use std.hash
 

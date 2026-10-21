@@ -95,13 +95,18 @@ changed the language since it:
   `Printer`, and `Hasher` serve them, and `x.order(?y)` orders any two
   values that provide `Ord`. A method merely named `hash` is an ordinary method: a
   Map keys such a type by its parts, where it rejected it.
-- **Map, Set, and Symbols are built in:** they and the types their
-  members give (`Item`, `Items`, `Keys`, `Values`, `Members`) are named
-  with no import, as `List` is, and print with no module; there is no
+- **Map and Set are built in:** they and the types their members give
+  (`Item`, `Items`, `Keys`, `Values`, `Members`) are named with no
+  import, as `List` is, and print with no module; there is no
   `std.hash`. A module's own type of one of these names hides the
   built-in one. `tools/migrate-builtin-map.py` rewrites a tree's
   programs, tests, and Markdown: it removes `use std.hash` and the
   `hash.` before these names.
+- **`text.Interner`:** the run-time string interner, which gives each
+  string a dense `U32` id, is std.text's `Interner` (`use std.text`,
+  then `text.Interner()`), apart from the built-in `Symbol`, a name the
+  program writes. `tools/rename-interner.py` rewrites a tree's uses of
+  its earlier name.
 - **std takes bounds:** `Map[K: Hash, V]` and `Set[K: Hash]`;
   `sort`, `search`, `lower_bound`, and `math.min`, `max`, and `clamp`
   take `T: Ord`; `slices.contains` and `index_of` take `T: Eq`;

@@ -2503,7 +2503,7 @@ these, and no others:
   of every literal, which the compiler builds.
 - `print(:width)` prints `:width`, as an enum prints `.dot`.
 - `s.hash()`, and a symbol as a key of a `Map` or `Set`
-  ([Map and Set](docs/STD.md#map-set-and-symbols)).
+  ([Map and Set](docs/STD.md#map-and-set)).
 - `match s`, with arms such as `:a =>` and `:a, :b =>`, guards, and a
   required `_ =>`. The values belong to the whole program, so no set of
   arms covers them; two arms for one symbol are rejected.
@@ -4269,7 +4269,7 @@ ordinary method, which `x.hash()` calls on that type; the built-in
 parts. A type gives `==` or hashing a meaning of its own by naming the
 API on its header ([Own meanings](#own-meanings)). In a generic body,
 `k.hash()` on a type parameter's value is checked at each instance, as
-`==` is. Map and Set ([docs/STD.md](docs/STD.md#map-set-and-symbols))
+`==` is. Map and Set ([docs/STD.md](docs/STD.md#map-and-set))
 key on it.
 
 ```rig
@@ -7269,9 +7269,9 @@ These built-in types are part of the language's substrate. Their names
 are reserved, as `Actor` is, which [§18](#actors) describes.
 
 Other built-in types are named with no import, as these are, and are
-written in Rig: `Map[K: Hash, V]`, `Set[K: Hash]`, and `Symbols`, with
-the types their members give (`Item`, `Items`, `Keys`, `Values`,
-`Members`) ([docs/STD.md](docs/STD.md#map-set-and-symbols)), and
+written in Rig: `Map[K: Hash, V]` and `Set[K: Hash]`, with the types
+their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
+([docs/STD.md](docs/STD.md#map-and-set)), and
 `Order`, `Hasher`, and `Printer` ([Own meanings](#own-meanings)). Their
 names are not reserved: a module that declares a type of its own of one
 of these names hides the built-in one.

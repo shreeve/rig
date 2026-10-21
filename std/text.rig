@@ -484,3 +484,144 @@ extern zig "char.zig"
   fun first_chars_end(s: ?String, n: Int) -> Int
   # The byte where the last `n` chars of `s` start.
   fun last_chars_start(s: ?String, n: Int) -> Int
+
+# ---- Interning ---------------------------------------------------------
+
+# A set of strings, each with a dense `U32` id from 0, in the order it
+# was first interned: names known only when the program runs, where a
+# `Symbol` (`:width`) is a name the program writes. Their text lives in
+# one String, end to end, so interning a new string copies it once and
+# an id costs four bytes; `intern`, `id`, and `text` never copy.
+# `text.Interner()` is an empty one. It finds a string as a Map finds a
+# key, by an open-addressed table of its own (`IdTable`).
+pub obj Interner
+  # How many distinct strings it holds.
+  pub ?len: Int = 0
+  bytes: String = String()
+  ends: List[U32] = List()
+  hs: List[U64] = List()
+  table: IdTable = IdTable()
+
+  # The id of `s`: the one it was given, or a new one, the next after the
+  # last, when `s` is new, whose text is then copied in.
+  pub fun intern(!@, s: ?String) -> U32
+    h = s.hash()
+    if @find(s, h) as id
+      return id
+    id = U32(@len)
+    !@bytes.add(s)
+    !@ends.push(U32(@bytes.len))
+    !@hs.push(h)
+    @len += 1
+    # A rebuilt table places every id, the new one too.
+    if @table.tags.len > 0 and @len * 5 <= @table.tags.len * 4
+      !@table.place(Int(id), h)
+    else if @table.tags.len > 0 or @len > ID_SMALL
+      !@rebuild(id_table_size(@len, @table.tags.len))
+    id
+
+  # The id of `s`, or `none` when it was never interned.
+  pub fun id(?@, s: ?String) -> U32?
+    @find(s, s.hash())
+
+  # The text of the id `id`, viewed where the table holds it.
+  pub fun text(?@, id: U32) -> ?String from @
+    i = Int(id)
+    start = 0 if i == 0 else Int(@ends[i - 1])
+    ?@bytes[start..Int(@ends[i])]
+
+  # Make room for `n` more strings whose text takes `bytes` bytes in all.
+  pub sub reserve(!@, n: Int, bytes: Int = 0)
+    !@ends.reserve(n)
+    !@hs.reserve(n)
+    !@bytes.reserve(bytes) if bytes > 0
+    want = @len + n
+    if want > ID_SMALL
+      size = id_table_size(want, @table.tags.len)
+      !@rebuild(size) if size > @table.tags.len
+
+  fun find(?@, s: ?String, h: U64) -> U32?
+    if @table.tags.len == 0
+      hs = ?@hs[..]
+      j = 0
+      while 0 <= j and j < hs.len
+        if hs[j] == h
+          return U32(j) if @text(U32(j)) == s
+        j += 1
+      return none
+    ts = ?@table.tags[..]
+    tag = id_tag_of(h)
+    i = Int(h & U64(ts.len - 1))
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          id = @table.at[i]
+          return id if @text(id) == s
+        i += 1
+      i = 0
+    none
+
+  sub rebuild(!@, n: Int)
+    !@table.reset(n)
+    for j in 0..@hs.len
+      !@table.place(j, @hs[j])
+
+# Strings an Interner holds before it builds a table: up to this many,
+# a lookup compares the stored hashes of the strings in turn.
+ID_SMALL = 8
+
+# The slots that find the strings of an Interner once it holds more
+# than `ID_SMALL` of them: none before that, as a Map's table.
+obj IdTable
+  tags: List[U8] = List()
+  at: List[U32] = List()
+
+  # Point a free slot at entry `j`, whose key hashes to `h`. The table
+  # is never full, so the probe always finds one.
+  sub place(!@, j: Int, h: U64)
+    i = @free_slot(h)
+    @tags[i] = id_tag_of(h)
+    @at[i] = U32(j)
+
+  # The first free slot from the one `h` names. Each pass is a loop
+  # whose test is the bounds test, so a step reads a tag with no other
+  # check; past both, -1 would fail the caller's bounds check.
+  fun free_slot(?@, h: U64) -> Int
+    ts = ?@tags[..]
+    i = Int(h & U64(ts.len - 1))
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        return i if ts[i] == 0
+        i += 1
+      i = 0
+    -1
+
+  # Empty the table, as `n` free slots.
+  sub reset(!@, n: Int)
+    !@tags.clear()
+    !@at.clear()
+    !@tags.reserve(n)
+    !@at.reserve(n)
+    for _ in 0..n
+      !@tags.push(0)
+      !@at.push(0)
+
+# The slots a table needs to hold `want` entries at most two fifths
+# full: a power of two, at least 16, and at least `now`.
+fun id_table_size(want: Int, now: Int) -> Int
+  n = 16 if now < 16 else now
+  while want * 5 > n * 2
+    n *= 2
+  n
+
+# A used slot's tag: the top seven bits of the key's hash, with the high
+# bit set (a free slot's tag is 0). The bits that pick a slot are the
+# hash's low bits under the table's mask, fewer than 57 in any table
+# memory can hold, so they never reach the tag's: keys whose slots are
+# near one another still differ in their tags. Were the two to overlap,
+# the keys probed from one slot would share a tag, and every probe would
+# compare keys.
+fun id_tag_of(h: U64) -> U8
+  U8(h >> 57) | 0x80

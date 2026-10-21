@@ -922,7 +922,7 @@ sub main()
 ["bob", "ann", "cy"] 1 false
 ```
 
-## Map, Set, and Symbols
+## Map and Set
 
 `Map[K: Hash, V]` and `Set[K: Hash]` are built in, named with no
 import: hash tables written in Rig over Lists. Iteration is in the order keys were first put in, as in Python,
@@ -1108,33 +1108,6 @@ sub main()
 
 ```error
 `Map[Float, Int]` cannot use `K = Float`: `Float` cannot be hashed
-```
-
-`Symbols` holds a set of strings, each with a dense `U32` id from
-0 in the order it was first interned. Their text lives in one String,
-end to end, so an id costs four bytes and a new string is copied once.
-
-| Member | Signature | Ownership |
-|---|---|---|
-| `Symbols()` | | an empty one |
-| `(!names).intern(s)` | `fun intern(!@, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
-| `names.id(s)` | `fun id(?@, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
-| `names.text(id)` | `fun text(?@, id: U32) -> ?String from @` | the text of `id`, viewed where the table holds it |
-| `names.len` | `pub ?len: Int` | how many strings it holds |
-| `!names.reserve(n, bytes: b)` | `sub reserve(!@, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
-
-```rig
-
-sub main()
-  names = Symbols()
-  a = (!names).intern("width")
-  b = (!names).intern("height")
-  w = String("wid", "th")
-  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
-```
-
-```output
-0 1 0 none height 2
 ```
 
 The entries are kept in one List, in order, each with its key's hash
@@ -1355,8 +1328,8 @@ A plain enum's names are built in ([SPEC, Enums](../SPEC.md#enums)):
 `E.from_text(word)` is the variant named `word`, or `none`. Neither
 allocates, so a word read from input becomes a value as `text.parse_int`
 makes a number, and a value prints back as text. For names that are
-not an enum's, known only when the program runs, `Symbols` gives
-each one a dense id ([Symbols](#map-set-and-symbols)).
+not an enum's, known only when the program runs, `text.Interner` gives
+each one a dense id ([Interner](#interner)).
 
 ```rig
 use std.text
@@ -1390,8 +1363,8 @@ symbol spelled `word`, or `none`; neither allocates. The symbols are
 exactly the names the program writes, so `from_text` finds a name
 written anywhere in the program, std included: a word read from input
 is checked by a `match` whose `_ =>` arm rejects it. A symbol is a key
-of a `Map` or a `Set` ([Symbols](#map-set-and-symbols)). A name known
-only when the program runs is no symbol; `Symbols` gives it a
+of a `Map` or a `Set` ([Map and Set](#map-and-set)). A name known
+only when the program runs is no symbol; `text.Interner` gives it a
 dense id.
 
 ```rig
@@ -1699,6 +1672,40 @@ sub main()
 ```output
 1 2
 1 1
+```
+
+### Interner
+
+`text.Interner` holds a set of strings, each with a dense `U32` id from
+0 in the order it was first interned: names known only when the program
+runs. A `Symbol` (`:width`, [SPEC, Symbols](../SPEC.md#symbols)) is a
+name the program writes, numbered when it is compiled; an Interner
+numbers the names it meets while it runs. Their text lives in one
+String, end to end, so an id costs four bytes and a new string is
+copied once. It finds a string as a Map finds a key.
+
+| Member | Signature | Ownership |
+|---|---|---|
+| `text.Interner()` | | an empty one |
+| `(!names).intern(s)` | `fun intern(!@, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
+| `names.id(s)` | `fun id(?@, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
+| `names.text(id)` | `fun text(?@, id: U32) -> ?String from @` | the text of `id`, viewed where the table holds it |
+| `names.len` | `pub ?len: Int` | how many strings it holds |
+| `!names.reserve(n, bytes: b)` | `sub reserve(!@, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
+
+```rig
+use std.text
+
+sub main()
+  names = text.Interner()
+  a = (!names).intern("width")
+  b = (!names).intern("height")
+  w = String("wid", "th")
+  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
+```
+
+```output
+0 1 0 none height 2
 ```
 
 ## std.utf8
