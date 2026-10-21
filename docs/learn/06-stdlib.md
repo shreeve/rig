@@ -79,7 +79,7 @@ sub main()!
   title = os.env("ORDERS_TITLE") ?? "Orders"
   path = String(dir, "/orders.json")
   src = orders_json()
-  file.write(?path, ?src)!
+  file.write(?path, ?src, parents: true)!
   if file.stat(?path)! as s
     print(title, "file is", s.kind, s.size, "bytes")
   back = file.read(?path)! ?? String()
@@ -100,7 +100,8 @@ true
 ```
 
 Single quotes make a raw string, so the JSON needs no escapes.
-`file.write` makes the missing directory, then the file. Every call that
+With `parents: true`, `file.write` makes the missing directory, then the
+file; without it, a missing directory is an error. Every call that
 reaches the disk can fail, so `main` ends in `!` and each call does too:
 the errors of [chapter three](03-errors.md).
 
@@ -153,7 +154,7 @@ fun read_orders(doc: ?json.Doc) -> List[Order]
 
 sub main()!
   path = "tally-json/orders.json"
-  file.write(path, orders_json())!
+  file.write(path, orders_json(), parents: true)!
   src = file.read(path)! ?? String()
   doc = json.new_doc()
   if not (!doc).parse(?src)
