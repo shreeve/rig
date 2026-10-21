@@ -43,6 +43,26 @@ In landing order (each is a branch, not yet on `main`):
    `loopfacts` (where loop steps run and jumps go, recorded once; no
    emitted change), then `proofs2`.
 
+APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
+built in stages. Stage 1, method calls on a type parameter, is on
+`main`; Rig builds Stage 2, built-in bounds, from the record. Its design
+questions are answered from the record, and what the record does not
+settle goes to the owner as a decision with a default. Stages 3 to 5
+wait for a program that needs them.
+
+`reduce` is being added to std (`xs.reduce(start, f)`). Still the
+owner's call: whether it is `inline`, so a closure written at the call
+is inlined; whether `sum` is added as its own plain loop; and one
+benchmark of the two against a hand-written loop.
+
+Learn Rig ([docs/learn/](docs/learn/README.md)) has journeys 01 to 06
+and 08 to 10. Journey 07 is written next, on Stage 1 (and `reduce`
+once it lands), and journey 11 last; how a journey is written, and the
+outlines of both, are in
+[docs/internals/journeys.md](docs/internals/journeys.md). What the
+journeys found in the compiler and its docs is at the end of
+[docs/internals/backlog.md](docs/internals/backlog.md).
+
 Toward `v0.3.0` are the docs pass, a full run, and the tag with its
 migration guide. Everything after that is in
 [docs/ROADMAP.md](docs/ROADMAP.md); the decided engineering items, with
