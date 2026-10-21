@@ -26,6 +26,7 @@ pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
 pub const taskCheck = tasks.check;
+pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
 pub const Actor = tasks.Actor;

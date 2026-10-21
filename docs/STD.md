@@ -35,7 +35,7 @@ never read as the library's.
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | copying bytes between files and sockets: `copy` |
 | [`std.time`](#stdtime) | clocks and sleeping |
-| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `both`, `all`, `isolate` |
+| [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
@@ -518,6 +518,7 @@ same waiting points fail with `Stop.timeout`.
 |---|---|
 | `error Stop` | `canceled`, the request to stop, `timeout`, and `panicked` |
 | `check()!` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other threads a turn |
+| `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. It takes effect only before the program makes its first task, which starts the workers, and gives whether it did; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: ns)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `ns` nanoseconds; past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |

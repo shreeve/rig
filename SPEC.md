@@ -10308,7 +10308,8 @@ be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs them on Rig's scheduler:
 each is a fiber on a stack of its own as large as `main`'s, run by a
-worker thread per core (`RIG_WORKERS` sets how many), with a guard
+worker thread per core (`task.workers(n)` before the first task, or
+`RIG_WORKERS`, sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).

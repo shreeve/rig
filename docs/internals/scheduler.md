@@ -4,8 +4,9 @@ How Rig runs tasks fast: the engine under `f(x)&` (docs/design/concurrency.md,
 "The engine"), measured against Tokio and Go by `bench/tasks`, whose
 `PROGRESS.md` records each step. It is built in increments, each its own
 pull request. Every program that makes tasks runs on it, with one worker
-per core, or `RIG_WORKERS` of them when that is set as the program
-starts; a program that makes none starts no workers.
+per core, or as many as the program asks for with `task.workers(n)`
+before its first task, or else `RIG_WORKERS` of them when that is set;
+a program that makes none starts no workers.
 
 ## Shape
 
