@@ -280,6 +280,13 @@ pub const Emitter = struct {
     /// body that `emitBlock` writes is the next.
     pgo_fun: []const u8 = "",
     pgo_ordinal: u32 = 0,
+    /// With a profile: what it records of the function being emitted.
+    pgo_counts: ?*const pgo.Fun = null,
+    /// With a profile: the count of each site open around the point being
+    /// emitted, innermost last, which a branch's count is weighed against.
+    pgo_open: std.ArrayList(u64) = .empty,
+    /// The next block `emitBlock` writes is a branch's arm (`emitBranchStmt`).
+    pgo_branch: bool = false,
     /// The result the `result_part` being emitted takes: `__rig_res_N[j]`,
     /// of the destructure whose target it is (`emitDestructure`).
     part_name: []const u8 = "",
@@ -921,14 +928,17 @@ pub const Emitter = struct {
         // `rarely` makes it (and `inlining.decide` never inlines it).
         const saved_fun = self.pgo_fun;
         const saved_ordinal = self.pgo_ordinal;
+        const saved_counts = self.pgo_counts;
         defer {
             self.pgo_fun = saved_fun;
             self.pgo_ordinal = saved_ordinal;
+            self.pgo_counts = saved_counts;
         }
         var never_ran = false;
         if (self.pgo) |state| {
             self.pgo_fun = try pgo.funKey(state.allocator, self.facts.zig_file, name, self.facts.textOf(node));
             self.pgo_ordinal = 0;
+            self.pgo_counts = if (state.instrument) null else state.lookup(self.pgo_fun);
             never_ran = !state.instrument and !is_main and state.neverRan(self.pgo_fun);
         }
         // A function that always panics is cold, as a `rarely` one is,
@@ -1386,23 +1396,56 @@ pub const Emitter = struct {
 
     /// `{ stmts }` for a statement-position block.
     fn emitBlock(self: *Emitter, body: Sexp) Error!void {
+        const branch = self.pgo_branch;
+        self.pgo_branch = false;
         try self.openBrace();
+        // A branch's hint is its first statement, as Zig requires; a
+        // function's body starts with its prologue.
+        var open = false;
+        if (branch) open = try self.emitSite(true);
         try self.emitFunPrologue();
-        try self.emitSite();
+        if (!branch) open = try self.emitSite(false);
         try self.emitStmts(try self.stmtsOf(body));
         try self.closeBrace();
+        if (open) _ = self.pgo_open.pop();
     }
 
-    /// The counter of the next site of the function being emitted, in an
-    /// instrumented build (`pgo.zig`): the runtime adds one to it each
+    /// The next site of the function being emitted (`pgo.zig`). In an
+    /// instrumented build, its counter: the runtime adds one to it each
     /// time the block runs. Every build numbers the sites alike, so a
-    /// build with a profile finds each one's count by its ordinal.
-    fn emitSite(self: *Emitter) Error!void {
-        const state = self.pgo orelse return;
-        if (self.pgo_fun.len == 0) return;
+    /// build with a profile finds each one's count by its ordinal; there,
+    /// a branch's arm that ran on 1 in 20 runs of the code around it, or
+    /// fewer, is `unlikely`, one that never ran is `cold` (when the code
+    /// around it ran 100 times or more), and one that ran on 19 in 20 or
+    /// more is `likely`. Whether a site is open, with its count, for the
+    /// sites inside it to be weighed against (`pgo_open`).
+    fn emitSite(self: *Emitter, branch: bool) Error!bool {
+        const state = self.pgo orelse return false;
+        if (self.pgo_fun.len == 0) return false;
         const ordinal = self.pgo_ordinal;
         self.pgo_ordinal += 1;
-        if (state.instrument) try self.line("rig.pgoHit({d});", .{try state.site(self.pgo_fun, ordinal)});
+        if (state.instrument) {
+            try self.line("rig.pgoHit({d});", .{try state.site(self.pgo_fun, ordinal)});
+            return false;
+        }
+        const counts = self.pgo_counts orelse return false;
+        const n = if (ordinal == 0) counts.entries else counts.blocks.get(ordinal) orelse 0;
+        if (branch and self.pgo_open.items.len > 0) {
+            const around = self.pgo_open.items[self.pgo_open.items.len - 1];
+            const hint: ?[]const u8 = if (around == 0)
+                null
+            else if (n == 0 and around >= 100)
+                "cold"
+            else if (n * 20 <= around)
+                "unlikely"
+            else if (n * 20 >= around * 19)
+                "likely"
+            else
+                null;
+            if (hint) |h| try self.line("@branchHint(.{s});", .{h});
+        }
+        try self.pgo_open.append(self.allocator, n);
+        return true;
     }
 
     fn emitStmts(self: *Emitter, stmts: []const Sexp) Error!void {
@@ -1417,7 +1460,10 @@ pub const Emitter = struct {
     fn emitValueBody(self: *Emitter, body: Sexp) Error!void {
         try self.openBrace();
         try self.emitFunPrologue();
-        try self.emitSite();
+        const open = try self.emitSite(false);
+        defer if (open) {
+            _ = self.pgo_open.pop();
+        };
         const stmts = try self.stmtsOf(body);
         const last = stmts.len - 1;
         try self.emitStmts(stmts[0..last]);
@@ -2740,7 +2786,10 @@ pub const Emitter = struct {
     }
 
     fn emitBranchStmt(self: *Emitter, branch: Sexp) Error!void {
-        if (branch.isKind(.block)) return self.emitBlock(branch);
+        if (branch.isKind(.block)) {
+            self.pgo_branch = true;
+            return self.emitBlock(branch);
+        }
         try self.w.writeAll("{ ");
         try self.emitStmt(branch);
         try self.w.writeAll(" }");

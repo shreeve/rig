@@ -21,7 +21,10 @@
 //! that never ran is listed with 0 entries; one it lacks is unknown.
 //!
 //! What a build with a profile does with it: a function that the run
-//! never entered is cold, as `rarely` makes it, and never inlined.
+//! never entered is cold, as `rarely` makes it, and never inlined; a hot
+//! one is inlined up to a larger size (`inlining.hot_size`); and a
+//! branch's arm that rarely or never ran, or nearly always, is hinted so
+//! (`Emitter.emitSite`).
 
 const std = @import("std");
 

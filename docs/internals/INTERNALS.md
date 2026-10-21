@@ -4211,8 +4211,12 @@ program builds the same everywhere.
   the function's source text: an edited function loses its counts, and a
   profile never steers a function it was not recorded from.
 - **What a build does with it.** A function the run never entered is
-  cold (`@branchHint(.cold)`, `noinline`) and never inlined
-  (`inlining.decide`).
+  cold (`@branchHint(.cold)`, `noinline`) and never inlined. One entered
+  at least 1 in 100 times as often as the hottest is inlined up to 240
+  nodes, not 60, within every frame limit (`inlining.decide`). A branch's
+  arm that ran on 1 in 20 runs of the block around it, or fewer, is
+  `unlikely`; one that never ran is `cold` once the block around it ran
+  100 times; one that ran on 19 in 20 or more is `likely`.
 
 ### Symbols
 
