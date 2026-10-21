@@ -419,6 +419,9 @@ pub const Type = union(enum) {
 pub const ParamNominal = struct {
     sym: SymbolId,
     args: []const TypeId,
+    /// `List[T, inline: n]`: how many of its first elements live inside
+    /// the List; 0 for every other instance.
+    inline_len: u32 = 0,
 };
 
 pub const ImportedNominal = struct {
@@ -585,6 +588,7 @@ pub const TypeStore = struct {
                 std.mem.eql(SymbolId, af.ct_syms, b.function.ct_syms) and
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
+                x.inline_len == b.parameterized_nominal.inline_len and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
             .results => |x| std.mem.eql(TypeId, x, b.results),
             // The rest hold ids and numbers only.
@@ -6243,7 +6247,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             defer args.deinit(ctx.allocator);
             for (pn.args) |a| try args.append(ctx.allocator, try substituteType(ctx, a, subst));
             if (std.mem.eql(TypeId, args.items, pn.args)) return ty_id;
-            return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
+            return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items, .inline_len = pn.inline_len } });
         },
         .results => |parts| {
             var out: std.ArrayList(TypeId) = .empty;
@@ -8269,6 +8273,17 @@ pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: Typ
 
 /// The marked spelling (`formatTypeMarked`) of generic type `sym`
 /// applied to its own parameters: `Pair[A, B]`, with `A` and `B` marked.
+/// `List[T, inline: n]` as `formatGenericSelfMarked` spells a generic: its
+/// element type marked as the List's parameter, and its length marked as
+/// `n`, the runtime's second argument (`InlineList(T, n)`).
+pub fn formatInlineListMarked(ctx: *const SemContext, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
+    const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
+    const list = ctx.list_sym_id;
+    const elem = try p.param(ctx.symbols.items[list].type_params.?[0]);
+    const len = try a.print("{c}n{c}", .{ type_param_mark, type_param_mark });
+    return p.instance(ctx.symbols.items[list].name, try p.withInline(elem, len));
+}
+
 pub fn formatGenericSelfMarked(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
     const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
     var args: std.ArrayList(u8) = .empty;
@@ -8284,6 +8299,11 @@ const TypePrinter = struct {
     a: std.mem.Allocator,
     /// Type parameters are marked (`formatTypeMarked`).
     marked: bool = false,
+
+    /// A List's arguments, `args`, with its inline length `len`.
+    fn withInline(p: TypePrinter, args: []const u8, len: []const u8) std.mem.Allocator.Error![]const u8 {
+        return p.a.print("{s}, inline: {s}", .{ args, len });
+    }
 
     fn id(p: TypePrinter, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
         // Marked whole, as `t` and its id, for the instance to spell.
@@ -8331,6 +8351,8 @@ const TypePrinter = struct {
             // module spells it (`importSymbol`).
             .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
+            else if (pn.inline_len > 0)
+                try p.instance(ctx.symbols.items[pn.sym].name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
             else
                 try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),
