@@ -76,9 +76,21 @@ pub const max_len: u64 = (1 << 62) - 1;
 /// reasons about fits in an `Int`.
 pub const max_k: u64 = 1 << 62;
 
+/// What a length bound is the length of: an own binding, or a List in a
+/// field of one, reached through fields of objects held by value.
+const Place = struct {
+    root: SymbolId,
+    /// The field path from the root (`Pass.paths`), 0 for the binding
+    /// itself.
+    path: u32 = 0,
+    /// A List, whose length a write view of it may change; else a slice
+    /// view, whose length only an assignment of the binding changes.
+    list: bool = false,
+};
+
 const Bound = union(enum) {
-    /// The length of the slice view a binding holds.
-    len: SymbolId,
+    /// The length of a place.
+    len: Place,
     /// The value of an `Int` binding.
     int: SymbolId,
 };
@@ -89,19 +101,40 @@ const Below = struct { i: SymbolId, k: u64, b: Bound };
 const Upto = struct { d: SymbolId, name: []const u8, hi: u64 };
 
 /// `n == s.len`.
-const Eq = struct { n: SymbolId, s: SymbolId };
+const Eq = struct { n: SymbolId, s: Place };
 
 const Fact = union(enum) {
     nonneg: SymbolId,
     below: Below,
-    fits: SymbolId,
+    fits: Place,
     eq: Eq,
     upto: Upto,
 };
 
+/// A fact, and the flag it holds under: 0 for a fact of every path, or
+/// the statement whose flag tested it (docs/internals/INTERNALS.md,
+/// "Flags").
+const Entry = struct { fact: Fact, flag: NodeKey = 0 };
+
+/// The flag a fact made from facts under flags `x` and `y` holds under,
+/// or null when they are two different flags.
+fn joinFlags(x: NodeKey, y: NodeKey) ?NodeKey {
+    if (x == 0) return y;
+    if (y == 0 or y == x) return x;
+    return null;
+}
+
+fn sameBelow(x: Below, i: SymbolId, b: Bound) bool {
+    return x.i == i and std.meta.eql(x.b, b);
+}
+
+fn sameUpto(x: Upto, d: SymbolId, name: []const u8) bool {
+    return x.d == d and std.mem.eql(u8, x.name, name);
+}
+
 /// The facts that hold at a point of the walk.
 const State = struct {
-    facts: std.ArrayList(Fact) = .empty,
+    facts: std.ArrayList(Entry) = .empty,
     /// No path reaches the point: the identity of `meet`.
     dead: bool = false,
 
@@ -109,84 +142,151 @@ const State = struct {
         return .{ .facts = try st.facts.clone(a), .dead = st.dead };
     }
 
-    fn has(st: *const State, fact: Fact) bool {
-        for (st.facts.items) |f| if (std.meta.eql(f, fact)) return true;
+    /// Whether `fact` holds on every path, or (`flag` not 0) while flag
+    /// `flag` holds.
+    fn holds(st: *const State, fact: Fact, flag: NodeKey) bool {
+        for (st.facts.items) |e| if ((e.flag == 0 or e.flag == flag) and std.meta.eql(e.fact, fact)) return true;
         return false;
     }
 
-    fn hasNonneg(st: *const State, i: SymbolId) bool {
-        return st.has(.{ .nonneg = i });
+    fn has(st: *const State, fact: Fact) bool {
+        return st.holds(fact, 0);
     }
 
-    fn hasFits(st: *const State, s: SymbolId) bool {
-        return st.has(.{ .fits = s });
+    fn hasNonneg(st: *const State, i: SymbolId, flag: NodeKey) bool {
+        return st.holds(.{ .nonneg = i }, flag);
     }
 
-    /// The largest `k` with `below(i, k, b)`, or null.
-    fn belowK(st: *const State, i: SymbolId, b: Bound) ?u64 {
-        for (st.facts.items) |f| if (f == .below and f.below.i == i and std.meta.eql(f.below.b, b)) return f.below.k;
-        return null;
+    /// The flag `0 <= i` holds under: 0 on every path, else the first
+    /// flag it holds under; null when it does not hold.
+    fn nonnegFlag(st: *const State, i: SymbolId) ?NodeKey {
+        var found: ?NodeKey = null;
+        for (st.facts.items) |e| if (e.fact == .nonneg and e.fact.nonneg == i) {
+            if (e.flag == 0) return 0;
+            if (found == null) found = e.flag;
+        };
+        return found;
     }
 
-    /// The `hi` of `upto(d, name, hi)`, or null.
+    /// The largest `k` with `below(i, k, b)`, on every path or while flag
+    /// `flag` holds, or null.
+    fn belowK(st: *const State, i: SymbolId, b: Bound, flag: NodeKey) ?u64 {
+        var best: ?u64 = null;
+        for (st.facts.items) |e| if ((e.flag == 0 or e.flag == flag) and e.fact == .below and sameBelow(e.fact.below, i, b)) {
+            best = @max(best orelse 0, e.fact.below.k);
+        };
+        return best;
+    }
+
+    /// The smallest `hi` of `upto(d, name, hi)` on every path, or null.
     fn uptoHi(st: *const State, d: SymbolId, name: []const u8) ?u64 {
-        for (st.facts.items) |f| if (f == .upto and f.upto.d == d and std.mem.eql(u8, f.upto.name, name)) return f.upto.hi;
-        return null;
+        var best: ?u64 = null;
+        for (st.facts.items) |e| if (e.flag == 0 and e.fact == .upto and sameUpto(e.fact.upto, d, name)) {
+            best = @min(best orelse std.math.maxInt(u64), e.fact.upto.hi);
+        };
+        return best;
     }
 
-    /// Add `fact`, and what it gives with an `eq` held: `below(i, k,
-    /// int(n))` with `eq(n, s)` is `below(i, k, len(s))`.
-    fn add(st: *State, a: std.mem.Allocator, fact: Fact) std.mem.Allocator.Error!void {
+    /// Add `fact` under `flag`, and what it gives with the facts held:
+    /// `below(i, k, int(n))` with `eq(n, s)` is `below(i, k, len(s))`, and
+    /// with `below(n, j, b)` it is `below(i, k + j, b)`.
+    fn add(st: *State, a: std.mem.Allocator, fact: Fact, flag: NodeKey) std.mem.Allocator.Error!void {
+        if (!try st.put(a, fact, flag)) return;
         switch (fact) {
-            .nonneg, .fits, .eq => if (st.has(fact)) return,
-            // One `upto` per binding and field: the smallest `hi`.
-            .upto => |nu| for (st.facts.items) |*f| if (f.* == .upto and f.upto.d == nu.d and std.mem.eql(u8, f.upto.name, nu.name)) {
-                f.upto.hi = @min(f.upto.hi, nu.hi);
-                return;
-            },
-            // One `below` per binding and bound: the largest `k`.
-            .below => |nb| for (st.facts.items) |*f| if (f.* == .below and f.below.i == nb.i and std.meta.eql(f.below.b, nb.b)) {
-                if (nb.k <= f.below.k) return;
-                f.below.k = nb.k;
-                return st.derive(a, nb);
-            },
-        }
-        try st.facts.append(a, fact);
-        switch (fact) {
-            .below => |nb| try st.derive(a, nb),
+            .below => |nb| try st.derive(a, nb, flag),
             .eq => |e| {
                 var i: usize = 0;
                 while (i < st.facts.items.len) : (i += 1) {
                     const f = st.facts.items[i];
-                    if (f == .below and f.below.b == .int and f.below.b.int == e.n)
-                        try st.add(a, .{ .below = .{ .i = f.below.i, .k = f.below.k, .b = .{ .len = e.s } } });
+                    if (f.fact == .below and f.fact.below.b == .int and f.fact.below.b.int == e.n) {
+                        const tag = joinFlags(f.flag, flag) orelse continue;
+                        try st.add(a, .{ .below = .{ .i = f.fact.below.i, .k = f.fact.below.k, .b = .{ .len = e.s } } }, tag);
+                    }
                 }
             },
             else => {},
         }
     }
 
-    fn derive(st: *State, a: std.mem.Allocator, nb: Below) std.mem.Allocator.Error!void {
-        if (nb.b != .int) return;
+    /// Record `fact` under `flag` unless what is held already gives it:
+    /// one `below` per binding, bound, and flag (the largest `k`), and one
+    /// `upto` per binding, field, and flag (the smallest `hi`). Whether
+    /// it added anything.
+    fn put(st: *State, a: std.mem.Allocator, fact: Fact, flag: NodeKey) std.mem.Allocator.Error!bool {
+        switch (fact) {
+            .nonneg, .fits, .eq => if (st.holds(fact, flag)) return false,
+            .upto => |nu| for (st.facts.items) |*e| if (e.flag == flag and e.fact == .upto and sameUpto(e.fact.upto, nu.d, nu.name)) {
+                if (nu.hi >= e.fact.upto.hi) return false;
+                e.fact.upto.hi = nu.hi;
+                return true;
+            },
+            .below => |nb| {
+                if (st.belowK(nb.i, nb.b, flag)) |k| if (nb.k <= k) return false;
+                for (st.facts.items) |*e| if (e.flag == flag and e.fact == .below and sameBelow(e.fact.below, nb.i, nb.b)) {
+                    e.fact.below.k = nb.k;
+                    return true;
+                };
+            },
+        }
+        try st.facts.append(a, .{ .fact = fact, .flag = flag });
+        return true;
+    }
+
+    /// What `below(i, k, b)` gives with the facts held, one step: with
+    /// `eq(n, s)` for `b = int(n)`, `below(i, k, len(s))`; with `below(n,
+    /// j, c)` for `b = int(n)`, `below(i, k + j, c)`; and with `below(h, j,
+    /// int(i))`, `below(h, j + k, b)`.
+    fn derive(st: *State, a: std.mem.Allocator, nb: Below, flag: NodeKey) std.mem.Allocator.Error!void {
         var i: usize = 0;
         while (i < st.facts.items.len) : (i += 1) {
             const f = st.facts.items[i];
-            if (f == .eq and f.eq.n == nb.b.int) try st.add(a, .{ .below = .{ .i = nb.i, .k = nb.k, .b = .{ .len = f.eq.s } } });
+            const tag = joinFlags(f.flag, flag) orelse continue;
+            switch (f.fact) {
+                .eq => |e| if (nb.b == .int and e.n == nb.b.int)
+                    try st.add(a, .{ .below = .{ .i = nb.i, .k = nb.k, .b = .{ .len = e.s } } }, tag),
+                .below => |fb| {
+                    if (nb.b == .int and fb.i == nb.b.int and fb.i != nb.i and nb.k + fb.k <= max_k)
+                        _ = try st.put(a, .{ .below = .{ .i = nb.i, .k = nb.k + fb.k, .b = fb.b } }, tag);
+                    if (fb.b == .int and fb.b.int == nb.i and fb.i != nb.i and nb.k + fb.k <= max_k)
+                        _ = try st.put(a, .{ .below = .{ .i = fb.i, .k = fb.k + nb.k, .b = nb.b } }, tag);
+                },
+                else => {},
+            }
         }
     }
 
-    /// The facts both `x` and `y` hold, `below` with the smaller `k`, and
-    /// `upto` with the larger `hi`.
+    /// The facts both `x` and `y` hold: of each pair of entries about the
+    /// same binding and bound, under one flag or none, the fact with the
+    /// smaller `k` (`below`) or the larger `hi` (`upto`).
     fn meet(a: std.mem.Allocator, x: *const State, y: *const State) !State {
         if (x.dead) return y.clone(a);
         if (y.dead) return x.clone(a);
         var out: State = .{};
-        for (x.facts.items) |f| switch (f) {
-            .below => |b| if (y.belowK(b.i, b.b)) |k| try out.facts.append(a, .{ .below = .{ .i = b.i, .k = @min(k, b.k), .b = b.b } }),
-            .upto => |u| if (y.uptoHi(u.d, u.name)) |hi| try out.facts.append(a, .{ .upto = .{ .d = u.d, .name = u.name, .hi = @max(hi, u.hi) } }),
-            else => if (y.has(f)) try out.facts.append(a, f),
+        for (x.facts.items) |ex| for (y.facts.items) |ey| {
+            const tag = joinFlags(ex.flag, ey.flag) orelse continue;
+            switch (ex.fact) {
+                .below => |b| if (ey.fact == .below and sameBelow(ey.fact.below, b.i, b.b)) {
+                    _ = try out.put(a, .{ .below = .{ .i = b.i, .k = @min(b.k, ey.fact.below.k), .b = b.b } }, tag);
+                },
+                .upto => |u| if (ey.fact == .upto and sameUpto(ey.fact.upto, u.d, u.name)) {
+                    _ = try out.put(a, .{ .upto = .{ .d = u.d, .name = u.name, .hi = @max(u.hi, ey.fact.upto.hi) } }, tag);
+                },
+                else => if (std.meta.eql(ex.fact, ey.fact)) {
+                    _ = try out.put(a, ex.fact, tag);
+                },
+            }
         };
         return out;
+    }
+
+    /// Drop every fact under a flag `keep` refuses.
+    fn dropFlags(st: *State, ctx: anytype, comptime keep: fn (@TypeOf(ctx), NodeKey) bool) void {
+        var n: usize = 0;
+        for (st.facts.items) |e| if (e.flag == 0 or keep(ctx, e.flag)) {
+            st.facts.items[n] = e;
+            n += 1;
+        };
+        st.facts.shrinkRetainingCapacity(n);
     }
 };
 
@@ -199,6 +299,9 @@ const Effect = struct {
     /// A write through a slice view (`!s`, `s[j] = x`) changes elements,
     /// never the view's length.
     keeps_len: bool,
+    /// A store into an element of a List binding (`v[j] = x`, `v[j].f =
+    /// x`) changes elements, never the List's length.
+    keeps_list_len: bool,
 };
 
 /// The writes inside a construct, merged by binding; `all` for a `raw`
@@ -211,6 +314,7 @@ const Kills = struct {
         for (k.effects.items) |*x| if (x.sym == e.sym) {
             x.keeps_nonneg = x.keeps_nonneg and e.keeps_nonneg;
             x.keeps_len = x.keeps_len and e.keeps_len;
+            x.keeps_list_len = x.keeps_list_len and e.keeps_list_len;
             return;
         };
         try k.effects.append(a, e);
@@ -241,16 +345,21 @@ const Kills = struct {
         };
     }
 
-    fn movesLen(k: *const Kills, s: SymbolId) bool {
-        return if (k.effectOn(s)) |e| !e.keeps_len else false;
+    /// Whether a write in `k` may change the length of `s`: any write of
+    /// the binding a field path starts from, and of a binding itself, one
+    /// that does not keep its length.
+    fn movesLen(k: *const Kills, s: Place) bool {
+        const e = k.effectOn(s.root) orelse return false;
+        if (s.path != 0) return true;
+        return !(if (s.list) e.keeps_list_len else e.keeps_len);
     }
 };
 
 /// End every fact a write in `k` may have made false.
 fn applyKills(st: *State, k: *const Kills) void {
     var keep: usize = 0;
-    for (st.facts.items) |f| if (!k.ends(f)) {
-        st.facts.items[keep] = f;
+    for (st.facts.items) |e| if (!k.ends(e.fact)) {
+        st.facts.items[keep] = e;
         keep += 1;
     };
     st.facts.shrinkRetainingCapacity(keep);
@@ -263,7 +372,20 @@ const LoopFrame = struct {
     node: NodeKey,
     /// The facts every `continue` to the step carries, met.
     step_in: State = .{ .dead = true },
+    /// The blocks open around the loop (`Pass.depth`): a flag made inside
+    /// it is out of the step's scope.
+    depth: u32 = 0,
 };
+
+/// A use's tests: an index or byte access at `i + c` of `width` elements
+/// into `s`, or an add of `c` to `i`.
+const Use = union(enum) {
+    range: struct { i: SymbolId, c: u64, s: Place, width: u64 },
+    add: struct { i: SymbolId, c: u64 },
+};
+
+/// A test of a flag: `nonneg(i)`, or `below(i, k, len(s))`.
+const FlagFact = Fact;
 
 const Pass = struct {
     ctx: *SemContext,
@@ -284,6 +406,23 @@ const Pass = struct {
     /// When set, the units in the order the walk visits them, and where
     /// each jump goes (`checkUnitOrder`).
     trace: ?*std.ArrayList(UnitEvent) = null,
+    /// Each field path a place names (`Place.path`, from 1), by its
+    /// dotted text, and its field names.
+    paths: std.StringHashMapUnmanaged(u32) = .empty,
+    path_fields: std.ArrayList([]const []const u8) = .empty,
+    /// What the walk proved of each node while a flag holds
+    /// (`sema.ProvenIf`), before it is recorded; a node reached twice
+    /// keeps only what both visits proved under the same flag.
+    proven_if: std.AutoHashMapUnmanaged(NodeKey, sema.ProvenIf) = .empty,
+    /// Each flag's tests, by its statement, and the blocks open where it
+    /// is made (`depth`).
+    flag_tests: std.AutoHashMapUnmanaged(NodeKey, []const FlagFact) = .empty,
+    flag_depth: std.AutoHashMapUnmanaged(NodeKey, u32) = .empty,
+    /// The blocks of the body open at the current point.
+    depth: u32 = 0,
+    /// Whether the body being walked may make flags: a function's, not a
+    /// closure's.
+    flags_on: bool = false,
 
     // ------------------------------------------------------------------
     // Subjects and bounds (positive lists)
@@ -312,21 +451,89 @@ const Pass = struct {
         return sym;
     }
 
-    /// `s` of a bound `len(s)`: an own binding that is a slice view, a
-    /// `?String`, `[]T`, or `![]T`, whose length changes only when the
-    /// binding is assigned.
-    fn sliceView(p: *const Pass, e: Sexp) ?SymbolId {
-        if (e != .src) return null;
-        const sym = p.ctx.symbolOf(e) orelse return null;
-        if (!p.ownBinding(sym)) return null;
-        const ty = p.ctx.symbols.items[sym].ty;
+    /// A slice view: a `?String`, `[]T`, or `![]T`.
+    fn isSliceView(p: *const Pass, ty: sema.TypeId) bool {
         const types = &p.ctx.types;
-        switch (types.get(ty)) {
-            .string_view, .slice => {},
-            .write_view => |inner| if (types.get(inner) != .slice) return null,
-            else => return null,
+        return switch (types.get(ty)) {
+            .string_view, .slice => true,
+            .write_view => |inner| types.get(inner) == .slice,
+            else => false,
+        };
+    }
+
+    /// A `List[T]`, held by value.
+    fn isList(p: *const Pass, ty: sema.TypeId) bool {
+        return switch (p.ctx.types.get(ty)) {
+            .parameterized_nominal => |pn| pn.sym == p.ctx.list_sym_id,
+            else => false,
+        };
+    }
+
+    /// An object held by value, whose fields change only where a write of
+    /// what holds it says so.
+    fn isObject(p: *const Pass, ty: sema.TypeId) bool {
+        return switch (p.ctx.types.get(ty)) {
+            .nominal, .imported_nominal => true,
+            else => false,
+        };
+    }
+
+    /// `ty` without the read or write view around it.
+    fn peelView(p: *const Pass, ty: sema.TypeId) sema.TypeId {
+        return switch (p.ctx.types.get(ty)) {
+            .read_view, .write_view => |inner| inner,
+            else => ty,
+        };
+    }
+
+    /// `s` of a bound `len(s)` (a positive list): an own binding that is
+    /// a slice view, whose length changes only when the binding is
+    /// assigned; an own binding that is a List or a view of one; or a
+    /// field path `d.f.g` from an own binding `d`, an object or a view of
+    /// one, through fields that hold objects by value, to a List, whose
+    /// length changes only where a write of `d` says so.
+    fn lenPlace(p: *Pass, e: Sexp) Error!?Place {
+        if (e == .src) {
+            const sym = p.ctx.symbolOf(e) orelse return null;
+            if (!p.ownBinding(sym)) return null;
+            const ty = p.ctx.symbols.items[sym].ty;
+            if (p.isSliceView(ty)) return .{ .root = sym };
+            if (p.isList(p.peelView(ty))) return .{ .root = sym, .list = true };
+            return null;
         }
-        return sym;
+        if (!e.isKind(.member)) return null;
+        if (!p.isList(p.ctx.typeOf(e) orelse return null)) return null;
+        var names: [8][]const u8 = undefined;
+        var n: usize = 0;
+        var cur = e;
+        while (cur.isKind(.member)) {
+            if (n == names.len) return null;
+            names[n] = sema.identAt(p.source(), ir.Member.name(cur)) orelse return null;
+            n += 1;
+            cur = ir.Member.object(cur);
+            if (cur.isKind(.member) and !p.isObject(p.ctx.typeOf(cur) orelse return null)) return null;
+        }
+        if (cur != .src) return null;
+        const sym = p.ctx.symbolOf(cur) orelse return null;
+        if (!p.ownBinding(sym)) return null;
+        if (!p.isObject(p.peelView(p.ctx.symbols.items[sym].ty))) return null;
+        std.mem.reverse([]const u8, names[0..n]);
+        const text = try std.mem.join(p.a, ".", names[0..n]);
+        const gop = try p.paths.getOrPut(p.a, text);
+        if (!gop.found_existing) {
+            try p.path_fields.append(p.a, try p.a.dupe([]const u8, names[0..n]));
+            gop.value_ptr.* = @intCast(p.path_fields.items.len);
+        }
+        return .{ .root = sym, .path = gop.value_ptr.*, .list = true };
+    }
+
+    /// An index as a use names it: `i`, `i + c`, or `c + i`, of an own
+    /// `Int` `i` and a literal `c`.
+    fn indexOf(p: *const Pass, e: Sexp) ?struct { i: SymbolId, c: u64 } {
+        if (p.intLocal(e)) |i| return .{ .i = i, .c = 0 };
+        const pc = p.plusConst(e, true) orelse return null;
+        if (pc.c > max_k) return null;
+        return .{ .i = pc.i, .c = pc.c };
     }
 
     /// An integer literal written in decimal, hex, octal, or binary.
@@ -363,17 +570,17 @@ const Pass = struct {
         return null;
     }
 
-    /// `s.len` of a slice view.
-    fn lenOf(p: *const Pass, e: Sexp) ?SymbolId {
+    /// `s.len` of a place (`lenPlace`).
+    fn lenOf(p: *Pass, e: Sexp) Error!?Place {
         if (!e.isKind(.member)) return null;
         const name = sema.identAt(p.source(), ir.Member.name(e)) orelse return null;
         if (!std.mem.eql(u8, name, "len")) return null;
-        return p.sliceView(ir.Member.object(e));
+        return p.lenPlace(ir.Member.object(e));
     }
 
     /// A bound as a guard writes it: `s.len`, or a bare `n`.
-    fn boundOf(p: *const Pass, e: Sexp) ?Bound {
-        if (p.lenOf(e)) |s| return .{ .len = s };
+    fn boundOf(p: *Pass, e: Sexp) Error!?Bound {
+        if (try p.lenOf(e)) |s| return .{ .len = s };
         if (p.intLocal(e)) |n| return .{ .int = n };
         return null;
     }
@@ -408,7 +615,7 @@ const Pass = struct {
     /// `s.read[T, e](i)` or `!s.write[T, e](i, v)` of a slice view `s`, an
     /// own `Int` `i`, and a concrete `T`: the callee, `i`, `s`, and the
     /// width.
-    fn byteAccess(p: *const Pass, call: Sexp) ?struct { callee: Sexp, i: SymbolId, s: SymbolId, width: u64 } {
+    fn byteAccess(p: *Pass, call: Sexp) Error!?struct { callee: Sexp, i: SymbolId, s: Place, width: u64 } {
         if (!call.isKind(.call)) return null;
         const callee = p.ctx.calleeOf(call);
         const ec = p.ctx.elemCallOf(callee) orelse return null;
@@ -418,7 +625,10 @@ const Pass = struct {
         if (ec.op == .write and obj.isKind(.write)) obj = ir.Write.operand(obj);
         const args = ir.Call.args(call);
         if (args.len == 0) return null;
-        return .{ .callee = callee, .i = p.intLocal(args[0]) orelse return null, .s = p.sliceView(obj) orelse return null, .width = width };
+        const i = p.intLocal(args[0]) orelse return null;
+        const s = (try p.lenPlace(obj)) orelse return null;
+        if (s.list) return null;
+        return .{ .callee = callee, .i = i, .s = s, .width = width };
     }
 
     // ------------------------------------------------------------------
@@ -431,6 +641,7 @@ const Pass = struct {
             .sym = w.sym,
             .keeps_nonneg = p.isAdditive(node, w),
             .keeps_len = w.kind == .lend_write or w.kind == .elem_store,
+            .keeps_list_len = w.kind == .elem_store and storesElement(node, w.sym, p.ctx),
         };
     }
 
@@ -503,33 +714,91 @@ const Pass = struct {
     // Uses
     // ------------------------------------------------------------------
 
-    fn record(p: *Pass, node: Sexp, proven: Proven) Error!void {
+    /// Record what `node` proves on every path (`proven`), and what it
+    /// proves besides while a flag holds (`cond`). A node reached twice
+    /// keeps only what both visits proved, and a test under a flag only
+    /// when both proved it under the same flag.
+    fn record(p: *Pass, node: Sexp, proven: Proven, cond: ?sema.ProvenIf) Error!void {
         const key: NodeKey = if (node == .list and node.list.id != 0) node.list.id else return;
         const gop = try p.proven.getOrPut(p.a, key);
         if (gop.found_existing) {
             gop.value_ptr.lower = gop.value_ptr.lower and proven.lower;
             gop.value_ptr.upper = gop.value_ptr.upper and proven.upper;
             gop.value_ptr.no_overflow = gop.value_ptr.no_overflow and proven.no_overflow;
-        } else gop.value_ptr.* = proven;
+            const old = p.proven_if.getPtr(key) orelse return;
+            const new = cond orelse return p.dropProvenIf(key);
+            if (old.flag != new.flag) return p.dropProvenIf(key);
+            old.tests.lower = old.tests.lower and new.tests.lower;
+            old.tests.upper = old.tests.upper and new.tests.upper;
+            old.tests.no_overflow = old.tests.no_overflow and new.tests.no_overflow;
+            if (!old.tests.any()) p.dropProvenIf(key);
+        } else {
+            gop.value_ptr.* = proven;
+            if (cond) |c| try p.proven_if.put(p.a, key, c);
+        }
     }
 
-    /// The bounds test of an index or byte access at `i` of `width`
-    /// elements into `s`.
-    fn rangeProven(st: *const State, i: SymbolId, s: SymbolId, width: u64) Proven {
-        return .{
-            .lower = st.hasNonneg(i),
-            .upper = if (st.belowK(i, .{ .len = s })) |k| k >= width else false,
+    fn dropProvenIf(p: *Pass, key: NodeKey) void {
+        _ = p.proven_if.remove(key);
+    }
+
+    /// The tests of `u` that hold on every path (`flag` 0) or while flag
+    /// `flag` holds: for a range, `0 <= i + c` under `nonneg(i)` (the add
+    /// itself is tested, or proven), and room for `c + width` elements
+    /// past `i`; for an add, room for `c` (`addFits`).
+    fn proveUse(st: *const State, u: Use, flag: NodeKey) Proven {
+        return switch (u) {
+            .range => |r| .{
+                .lower = st.hasNonneg(r.i, flag),
+                .upper = if (st.belowK(r.i, .{ .len = r.s }, flag)) |k| k >= r.c + r.width else false,
+            },
+            .add => |x| .{ .no_overflow = addFits(st, x.i, x.c, flag) },
         };
+    }
+
+    fn complete(u: Use, t: Proven) bool {
+        return switch (u) {
+            .range => t.lower and t.upper,
+            .add => t.no_overflow,
+        };
+    }
+
+    fn minus(x: Proven, y: Proven) Proven {
+        return .{ .lower = x.lower and !y.lower, .upper = x.upper and !y.upper, .no_overflow = x.no_overflow and !y.no_overflow };
+    }
+
+    fn count(t: Proven) u8 {
+        return @as(u8, @intFromBool(t.lower)) + @intFromBool(t.upper) + @intFromBool(t.no_overflow);
+    }
+
+    /// Record the tests of use `u` at `node`: those of every path, and,
+    /// with `flags`, the most the flag of any fact held adds to them.
+    fn recordProof(p: *Pass, node: Sexp, st: *const State, u: Use, flags: bool) Error!void {
+        const base = proveUse(st, u, 0);
+        var best: ?sema.ProvenIf = null;
+        if (flags and !complete(u, base)) for (st.facts.items, 0..) |e, n| {
+            if (e.flag == 0) continue;
+            // Each flag once.
+            const seen = for (st.facts.items[0..n]) |x| {
+                if (x.flag == e.flag) break true;
+            } else false;
+            if (seen) continue;
+            const extra = minus(proveUse(st, u, e.flag), base);
+            if (count(extra) > (if (best) |b| count(b.tests) else 0)) best = .{ .tests = extra, .flag = e.flag };
+        };
+        try p.record(node, base, best);
     }
 
     /// Whether `i + c` fits: `i + c <= i + k <= b <= Int.max` under
     /// `below(i, k, b)` with `k >= c`, or, for a length bound,
-    /// `i + c <= max_len + c <= Int.max` under `fits(s)`.
-    fn addFits(st: *const State, i: SymbolId, c: u64) bool {
+    /// `i + c <= max_len + c <= Int.max` under `fits(s)`; on every path,
+    /// or (`flag` not 0) while flag `flag` holds.
+    fn addFits(st: *const State, i: SymbolId, c: u64, flag: NodeKey) bool {
         if (c == 0 or c > max_k) return false;
-        for (st.facts.items) |f| if (f == .below and f.below.i == i) {
-            if (f.below.k >= c) return true;
-            if (f.below.b == .len and st.hasFits(f.below.b.len)) return true;
+        for (st.facts.items) |e| if ((e.flag == 0 or e.flag == flag) and e.fact == .below and e.fact.below.i == i) {
+            const f = e.fact.below;
+            if (f.k >= c) return true;
+            if (f.b == .len and st.holds(.{ .fits = f.b.len }, flag)) return true;
         };
         return false;
     }
@@ -538,28 +807,28 @@ const Pass = struct {
     fn recordUse(p: *Pass, node: Sexp, st: *const State) Error!void {
         switch (node.kind() orelse return) {
             .index => {
-                const s = p.sliceView(ir.Index.object(node)) orelse return;
-                const i = p.intLocal(ir.Index.index(node)) orelse return;
-                try p.record(node, rangeProven(st, i, s, 1));
+                const s = (try p.lenPlace(ir.Index.object(node))) orelse return;
+                const ix = p.indexOf(ir.Index.index(node)) orelse return;
+                try p.recordProof(node, st, .{ .range = .{ .i = ix.i, .c = ix.c, .s = s, .width = 1 } }, true);
             },
             .call => {
-                const b = p.byteAccess(node) orelse return;
-                try p.record(b.callee, rangeProven(st, b.i, b.s, b.width));
+                const b = (try p.byteAccess(node)) orelse return;
+                try p.recordProof(b.callee, st, .{ .range = .{ .i = b.i, .c = 0, .s = b.s, .width = b.width } }, false);
             },
             .@"+" => {
-                if (p.plusConst(node, false)) |pc| return p.record(node, .{ .no_overflow = addFits(st, pc.i, pc.c) });
+                if (p.plusConst(node, false)) |pc| return p.recordProof(node, st, .{ .add = .{ .i = pc.i, .c = pc.c } }, true);
                 // `i + x` with `0 <= x <= hi`: as `i + max(hi, 1)`.
                 if (p.ctx.typeOf(node) != p.ctx.types.int_id) return;
                 const i = p.intLocal(ir.get(node, .left)) orelse return;
                 const hi = p.addendBound(ir.get(node, .right), st) orelse return;
-                try p.record(node, .{ .no_overflow = addFits(st, i, @max(hi, 1)) });
+                try p.recordProof(node, st, .{ .add = .{ .i = i, .c = @max(hi, 1) } }, true);
             },
             // `i += c`, and `i += x` with `0 <= x <= hi`: the add's own test.
             .set => if (rig.bindingKindOf(ir.Set.op(node)) == .@"+=") {
                 const i = p.intLocal(ir.Set.target(node)) orelse return;
                 const value = ir.Set.value(node);
                 const c = p.intLiteral(value) orelse @max(p.addendBound(value, st) orelse return, 1);
-                try p.record(node, .{ .no_overflow = addFits(st, i, c) });
+                try p.recordProof(node, st, .{ .add = .{ .i = i, .c = c } }, true);
             },
             else => {},
         }
@@ -585,9 +854,9 @@ const Pass = struct {
         var hi = ir.get(e, .right);
         if (swap) std.mem.swap(Sexp, &lo, &hi);
         // `0 <= i`, `0 < i`.
-        if (p.intLiteral(lo)) |z| if (z == 0) if (p.intLocal(hi)) |i| return out.add(p.a, .{ .nonneg = i });
-        const b = p.boundOf(hi) orelse return;
-        if (b == .len) try out.add(p.a, .{ .fits = b.len });
+        if (p.intLiteral(lo)) |z| if (z == 0) if (p.intLocal(hi)) |i| return out.add(p.a, .{ .nonneg = i }, 0);
+        const b = (try p.boundOf(hi)) orelse return;
+        if (b == .len) try out.add(p.a, .{ .fits = b.len }, 0);
         const i: SymbolId, const k: u64 = if (p.intLocal(lo)) |i|
             .{ i, 0 }
         else if (p.plusConst(lo, true)) |pc|
@@ -595,27 +864,27 @@ const Pass = struct {
         else
             return;
         if (k > max_k) return;
-        try out.add(p.a, .{ .below = .{ .i = i, .k = @min(k + @intFromBool(strict), max_k), .b = b } });
+        try out.add(p.a, .{ .below = .{ .i = i, .k = @min(k + @intFromBool(strict), max_k), .b = b } }, 0);
     }
 
-    /// G2: a check that ran. After `x = s[i]` or `x = s.read[T, e](i)`
-    /// (`value`), or the statement `!s.write[T, e](i, v)`, the test passed
-    /// (or the program stopped): `0 <= i` and `i + width <= s.len`.
+    /// G2: a check that ran. After `x = s[i]`, `x = s[i + c]`, or `x =
+    /// s.read[T, e](i)` (`value`), or the statement `!s.write[T, e](i,
+    /// v)`, the test passed (or the program stopped): `i + c + width <=
+    /// s.len`, and, with no `c`, `0 <= i`.
     fn genCheck(p: *Pass, value: Sexp, out: *State) Error!void {
-        const i: SymbolId, const s: SymbolId, const width: u64 = switch (value.kind() orelse return) {
-            .index => .{
-                p.intLocal(ir.Index.index(value)) orelse return,
-                p.sliceView(ir.Index.object(value)) orelse return,
-                1,
+        const i: SymbolId, const c: u64, const s: Place, const width: u64 = switch (value.kind() orelse return) {
+            .index => blk: {
+                const ix = p.indexOf(ir.Index.index(value)) orelse return;
+                break :blk .{ ix.i, ix.c, (try p.lenPlace(ir.Index.object(value))) orelse return, 1 };
             },
             .call => blk: {
-                const b = p.byteAccess(value) orelse return;
-                break :blk .{ b.i, b.s, b.width };
+                const b = (try p.byteAccess(value)) orelse return;
+                break :blk .{ b.i, 0, b.s, b.width };
             },
             else => return,
         };
-        try out.add(p.a, .{ .nonneg = i });
-        try out.add(p.a, .{ .below = .{ .i = i, .k = width, .b = .{ .len = s } } });
+        if (c == 0) try out.add(p.a, .{ .nonneg = i }, 0);
+        try out.add(p.a, .{ .below = .{ .i = i, .k = c + width, .b = .{ .len = s } } }, 0);
     }
 
     /// G3, E1, and E2, after an assignment's store: `i = c` (a literal),
@@ -630,24 +899,39 @@ const Pass = struct {
             const value = ir.Set.value(set);
             if (p.ctx.typeOf(value) != p.ctx.symbols.items[d].ty) return;
             const b = resultBoundOf(p.ctx, value) orelse return;
-            for (b.fields) |f| try out.add(p.a, .{ .upto = .{ .d = d, .name = f.name, .hi = f.hi } });
+            for (b.fields) |f| try out.add(p.a, .{ .upto = .{ .d = d, .name = f.name, .hi = f.hi } }, 0);
             return;
         }
         const i = p.intLocal(ir.Set.target(set)) orelse return;
         const value = ir.Set.value(set);
-        if (p.intLiteral(value) != null) return out.add(p.a, .{ .nonneg = i });
-        if (p.lenOf(value)) |s| {
-            try out.add(p.a, .{ .nonneg = i });
-            try out.add(p.a, .{ .fits = s });
-            return out.add(p.a, .{ .eq = .{ .n = i, .s = s } });
+        if (p.intLiteral(value) != null or p.fromUnsigned(value)) return out.add(p.a, .{ .nonneg = i }, 0);
+        if (try p.lenOf(value)) |s| {
+            try out.add(p.a, .{ .nonneg = i }, 0);
+            try out.add(p.a, .{ .fits = s }, 0);
+            return out.add(p.a, .{ .eq = .{ .n = i, .s = s } }, 0);
         }
-        if (p.intLocal(value)) |j| if (j != i and before.hasNonneg(j)) try out.add(p.a, .{ .nonneg = i });
+        if (p.intLocal(value)) |j| if (j != i) if (before.nonnegFlag(j)) |flag| try out.add(p.a, .{ .nonneg = i }, flag);
+    }
+
+    /// `Int(u)` of an unsigned integer `u`: a value that fits, which the
+    /// conversion tests, is not negative.
+    fn fromUnsigned(p: *const Pass, e: Sexp) bool {
+        if (!e.isKind(.call) or p.ctx.typeOf(e) != p.ctx.types.int_id) return false;
+        const callee = ir.Call.callee(e);
+        if (callee != .src or p.ctx.symbolOf(callee) != null) return false;
+        if (!std.mem.eql(u8, sema.identAt(p.source(), callee) orelse return false, "Int")) return false;
+        const args = ir.Call.args(e);
+        if (args.len != 1 or args[0].isKind(.kwarg)) return false;
+        return switch (p.ctx.types.get(p.ctx.typeOf(args[0]) orelse return false)) {
+            .int => |info| !info.signed,
+            else => false,
+        };
     }
 
     /// Add to `st` each fact of `made` that no write in `k` ends.
     fn addMade(p: *Pass, st: *State, made: *State, k: *const Kills) Error!void {
         applyKills(made, k);
-        for (made.facts.items) |f| try st.add(p.a, f);
+        for (made.facts.items) |e| try st.add(p.a, e.fact, e.flag);
     }
 
     // ------------------------------------------------------------------
@@ -664,14 +948,22 @@ const Pass = struct {
         const saved_root = p.body_root;
         const saved_defers = p.defers;
         const saved_loops = p.loops;
+        const saved_flags = p.flags_on;
+        const saved_depth = p.depth;
         defer {
             p.body_root = saved_root;
             p.defers = saved_defers;
             p.loops = saved_loops;
+            p.flags_on = saved_flags;
+            p.depth = saved_depth;
         }
         p.body_root = p.ctx.scopeOf(owner);
         p.defers = .empty;
         p.loops = .empty;
+        // A closure's body makes no flags: emit writes its statements
+        // inside the closure's own declaration.
+        p.flags_on = !owner.isKind(.lambda);
+        p.depth = 0;
         var fresh: State = .{};
         try p.walkBranch(body, &fresh);
     }
@@ -679,22 +971,44 @@ const Pass = struct {
     /// A branch: a block, or one statement.
     fn walkBranch(p: *Pass, b: Sexp, st: *State) Error!void {
         if (b == .nil) return;
-        if (b.isKind(.block)) return p.walkBlock(b, st);
+        if (b.isKind(.block)) return p.walkBlock(b, st, true);
         try p.walkStmt(b, st);
     }
 
-    /// The statements in order; at the end, the block's `defer`s run.
-    fn walkBlock(p: *Pass, block: Sexp, st: *State) Error!void {
+    /// The statements in order; at the end, the block's `defer`s run. A
+    /// block of statements (`stmts`, not a block inside a unit's
+    /// expression) may make a flag before each of its statements
+    /// (`proposeFlag`), whose facts end with the block, as its Zig scope
+    /// does.
+    fn walkBlock(p: *Pass, block: Sexp, st: *State, stmts: bool) Error!void {
         const mark = p.defers.items.len;
-        const stmts = ir.Block.stmts(block);
-        for (stmts, 0..) |stmt, n| {
+        p.depth += 1;
+        const depth = p.depth;
+        const list = ir.Block.stmts(block);
+        for (list, 0..) |stmt, i| {
             // What no path reaches proves nothing.
             if (st.dead) st.* = .{};
-            if (n + 1 < stmts.len) try p.fillWritten(stmt, stmts[n + 1]);
+            if (i + 1 < list.len) try p.fillWritten(stmt, list[i + 1]);
+            if (stmts) try p.proposeFlag(stmt, st);
             try p.walkStmt(stmt, st);
         }
         for (p.defers.items[mark..]) |d| applyKills(st, &(try p.killsOf(d)));
         p.defers.shrinkRetainingCapacity(mark);
+        p.dropFlagsFrom(st, depth);
+        p.depth -= 1;
+    }
+
+    /// Drop the facts under the flags made in the blocks open at `depth`
+    /// or deeper.
+    fn dropFlagsFrom(p: *Pass, st: *State, depth: u32) void {
+        const Keep = struct {
+            p: *Pass,
+            depth: u32,
+            fn keep(k: @This(), flag: NodeKey) bool {
+                return (k.p.flag_depth.get(flag) orelse 0) < k.depth;
+            }
+        };
+        st.dropFlags(Keep{ .p = p, .depth = depth }, Keep.keep);
     }
 
     /// A statement, by its skeleton (`rig.skeletonOf`), the one `eachUnit`
@@ -705,7 +1019,7 @@ const Pass = struct {
                 .raw => try p.walkRaw(stmt, st),
                 else => try p.walkUnit(stmt, kind, st),
             },
-            .block => |b| try p.walkBlock(b, st),
+            .block => |b| try p.walkBlock(b, st, true),
             .@"if" => |x| try p.walkIf(stmt, x.cond, x.then, x.@"else", st),
             .@"while" => |x| try p.walkWhile(stmt, x.cond, x.body, x.step, x.@"else", st),
             .@"for" => |x| try p.walkFor(stmt, x.source, x.body, x.@"else", st),
@@ -766,7 +1080,7 @@ const Pass = struct {
         switch (kind) {
             .block => {
                 var b = try a_state.clone(p.a);
-                try p.walkBlock(e, &b);
+                try p.walkBlock(e, &b, false);
                 return;
             },
             .lambda => return p.walkBody(e, ir.Lambda.body(e)),
@@ -790,6 +1104,8 @@ const Pass = struct {
         for (p.loops.items) |*frame| if (frame.node == target) {
             var carried = try st.clone(p.a);
             for (p.defers.items) |d| applyKills(&carried, &(try p.killsOf(d)));
+            // A flag made inside the loop is out of the step's scope.
+            p.dropFlagsFrom(&carried, frame.depth + 1);
             frame.step_in = try State.meet(p.a, &frame.step_in, &carried);
             return;
         };
@@ -800,7 +1116,7 @@ const Pass = struct {
     /// it those facts less every write in it, as after a `match`.
     fn walkLabeledBlock(p: *Pass, block: Sexp, st: *State) Error!void {
         var b = try st.clone(p.a);
-        try p.walkBlock(block, &b);
+        try p.walkBlock(block, &b, true);
         applyKills(st, &(try p.killsOf(block)));
         st.dead = false;
     }
@@ -867,7 +1183,7 @@ const Pass = struct {
         if (namesSym(p.ctx, ir.Set.value(first), t)) return;
         for (stmts[1..]) |s| if (namesSym(p.ctx, s, t)) return;
         if (jumps(body)) return;
-        try p.record(fill, .{ .written = true });
+        try p.record(fill, .{ .written = true }, null);
     }
 
     /// `raw` is opaque: nothing in it is proven, and no fact outlives it.
@@ -959,7 +1275,7 @@ const Pass = struct {
         const kills = try p.killsOf(node);
         var head = try st.clone(p.a);
         applyKills(&head, &kills);
-        try p.loops.append(p.a, .{ .node = node.list.id });
+        try p.loops.append(p.a, .{ .node = node.list.id, .depth = p.depth });
         const frame = p.loops.items.len - 1;
         var t = try head.clone(p.a);
         try p.walkCond(cond, &t);
@@ -986,6 +1302,7 @@ const Pass = struct {
         try p.walkUnit(source_node, .source, &head);
         applyKills(&head, &kills);
         var b = try head.clone(p.a);
+        try p.rangeFacts(node, source_node, &head, &kills, &b);
         try p.walkBranch(body, &b);
         if (else_b != .nil) {
             var e = try head.clone(p.a);
@@ -993,6 +1310,182 @@ const Pass = struct {
         }
         applyKills(st, &kills);
         st.dead = false;
+    }
+
+    /// What `for k in lo..hi` gives its body, for every iteration: `0 <=
+    /// k` when `0 <= lo` (a literal, or a binding known not negative), and
+    /// `k + 1 <= hi` when `hi` is a bound (`s.len`, or an `Int` binding)
+    /// that nothing in the loop writes (`k <= hi` for `lo..=hi`). Emit
+    /// reads both ends once, before the first iteration, and counts `k`
+    /// up from `lo` while it is below `hi` (or, inclusive, up to it).
+    fn rangeFacts(p: *Pass, loop: Sexp, source_node: Sexp, head: *const State, kills: *const Kills, body: *State) Error!void {
+        if (!source_node.isKind(.@"..")) return;
+        const k = p.intLocal(ir.For.@"var"(loop)) orelse return;
+        const lo = ir.get(source_node, .left);
+        const hi = ir.get(source_node, .right);
+        if (p.intLiteral(lo) != null) {
+            try body.add(p.a, .{ .nonneg = k }, 0);
+        } else if (p.intLocal(lo)) |j| if (head.nonnegFlag(j)) |flag| try body.add(p.a, .{ .nonneg = k }, flag);
+        const b = (try p.boundOf(hi)) orelse return;
+        const fact: Fact = .{ .below = .{ .i = k, .k = @intFromBool(!rig.isInclusive(source_node)), .b = b } };
+        if (kills.ends(fact)) return;
+        if (b == .len) try body.add(p.a, .{ .fits = b.len }, 0);
+        try body.add(p.a, fact, 0);
+    }
+
+    // ------------------------------------------------------------------
+    // Flags (docs/internals/INTERNALS.md, "Flags")
+    // ------------------------------------------------------------------
+
+    /// Make a flag before statement `stmt` of a block when it would prove
+    /// tests the facts held do not: its tests are facts of the bindings
+    /// and lengths as `stmt` starts, which emit tests once there into a
+    /// flag; the walk then holds them under the flag, and a use they prove
+    /// makes the tests they prove only when the flag is false, so a
+    /// failing test still fails where it is written, with its own
+    /// message. Three shapes (a positive list):
+    ///
+    /// - a statement unit with two or more indexes `s[i + c]` of one place
+    ///   and one binding (a record read from consecutive slots): `0 <= i`
+    ///   and `i + cmax + 1 <= s.len`;
+    /// - a `while` whose guard bounds `i` by an `Int` binding `n` (`i <
+    ///   n`, `i + k <= n`) or by `s.len`, with indexes `s[i + c]` in its
+    ///   body: `n + j <= s.len`, for room for every `c`, and `0 <= i`;
+    /// - a `for k in lo..n` (not `lo..=n`) with indexes `s[k + c]` in its
+    ///   body: `n + cmax <= s.len`, and `0 <= lo`.
+    ///
+    /// Each test is one no write in the statement (or the loop) ends,
+    /// and none the facts held already give.
+    fn proposeFlag(p: *Pass, stmt: Sexp, st: *State) Error!void {
+        if (!p.flags_on or st.dead or stmt != .list or stmt.list.id == 0) return;
+        var tests: std.ArrayList(FlagFact) = .empty;
+        switch (rig.skeletonOf(stmt)) {
+            .unit => |kind| if (kind == .stmt) try p.recordReadTests(stmt, st, &tests),
+            .@"while" => |x| try p.whileTests(stmt, x.cond, x.body, st, &tests),
+            .@"for" => |x| try p.rangeTests(stmt, x.source, x.body, st, &tests),
+            else => {},
+        }
+        if (tests.items.len == 0) return;
+        const id = stmt.list.id;
+        try p.flag_tests.put(p.a, id, tests.items);
+        try p.flag_depth.put(p.a, id, p.depth);
+        for (tests.items) |f| try st.add(p.a, f, id);
+    }
+
+    /// The indexes `s[i + c]` under `e` (not in a closure's body), grouped
+    /// by place and binding, with the largest `c` of each.
+    const IndexGroup = struct { s: Place, i: SymbolId, uses: u32, cmax: u64 };
+
+    fn collectIndexes(p: *Pass, e: Sexp, out: *std.ArrayList(IndexGroup)) Error!void {
+        if (e != .list) return;
+        if (e.isKind(.lambda)) return;
+        if (e.isKind(.index)) if (try p.lenPlace(ir.Index.object(e))) |s| if (p.indexOf(ir.Index.index(e))) |ix| {
+            for (out.items) |*g| {
+                if (g.i != ix.i or !std.meta.eql(g.s, s)) continue;
+                g.uses += 1;
+                g.cmax = @max(g.cmax, ix.c);
+                break;
+            } else try out.append(p.a, .{ .s = s, .i = ix.i, .uses = 1, .cmax = ix.c });
+        };
+        for (e.items()) |c| try p.collectIndexes(c, out);
+    }
+
+    fn addTest(p: *Pass, tests: *std.ArrayList(FlagFact), f: FlagFact) Error!void {
+        for (tests.items) |t| if (std.meta.eql(t, f)) return;
+        try tests.append(p.a, f);
+    }
+
+    /// The tests for a record read: two or more indexes of one place at
+    /// one binding in the unit `stmt`.
+    fn recordReadTests(p: *Pass, stmt: Sexp, st: *const State, tests: *std.ArrayList(FlagFact)) Error!void {
+        var groups: std.ArrayList(IndexGroup) = .empty;
+        try p.collectIndexes(stmt, &groups);
+        const k = try p.unitKills(stmt);
+        for (groups.items) |g| {
+            if (g.uses < 2) continue;
+            const room = g.cmax + 1;
+            const upper: Fact = .{ .below = .{ .i = g.i, .k = room, .b = .{ .len = g.s } } };
+            if (k.ends(upper)) continue;
+            if ((st.belowK(g.i, .{ .len = g.s }, 0) orelse 0) < room) try p.addTest(tests, upper);
+            if (!st.hasNonneg(g.i, 0)) try p.addTest(tests, .{ .nonneg = g.i });
+        }
+    }
+
+    /// The tests for a `while` loop: room in a length for the indexes of
+    /// the binding its guard bounds, and that binding not negative.
+    fn whileTests(p: *Pass, loop: Sexp, cond: Sexp, body: Sexp, st: *const State, tests: *std.ArrayList(FlagFact)) Error!void {
+        const kills = try p.killsOf(loop);
+        // What the guard's operands bound, on their true edges.
+        var guard: State = .{};
+        const Ops = struct {
+            p: *Pass,
+            out: *State,
+            pub fn part(self: @This(), part_node: Sexp) Error!void {
+                if (part_node.isKind(.as_match)) return;
+                try rig.eachGuardOperand(part_node, self, @This().operand);
+            }
+            fn operand(self: @This(), g: Sexp) Error!void {
+                try self.p.genGuard(g, self.out);
+            }
+        };
+        try rig.eachGuardPart(cond, Ops{ .p = p, .out = &guard });
+        var groups: std.ArrayList(IndexGroup) = .empty;
+        try p.collectIndexes(body, &groups);
+        for (groups.items) |g| {
+            if (kills.movesLen(g.s)) continue;
+            const room = g.cmax + 1;
+            var bounded = false;
+            for (guard.facts.items) |e| if (e.fact == .below and e.fact.below.i == g.i) {
+                const gb = e.fact.below;
+                switch (gb.b) {
+                    .len => |s| if (std.meta.eql(s, g.s) and gb.k >= room) {
+                        bounded = true;
+                    },
+                    .int => |n| {
+                        // `i + gk <= n` and `n + j <= s.len`: `i + gk + j <= s.len`.
+                        const j = room -| gb.k;
+                        const t: Fact = .{ .below = .{ .i = n, .k = j, .b = .{ .len = g.s } } };
+                        if (kills.ends(t)) continue;
+                        bounded = true;
+                        const have = st.belowK(n, .{ .len = g.s }, 0);
+                        if (have == null or have.? < j) try p.addTest(tests, t);
+                    },
+                }
+            };
+            if (!bounded) continue;
+            // `0 <= i` as the loop starts, kept by writes that add.
+            if (!st.hasNonneg(g.i, 0) and !kills.ends(.{ .nonneg = g.i })) try p.addTest(tests, .{ .nonneg = g.i });
+        }
+    }
+
+    /// The tests for `for k in lo..n`: room in a length for the indexes of
+    /// `k`, and `lo` not negative.
+    fn rangeTests(p: *Pass, loop: Sexp, source_node: Sexp, body: Sexp, st: *const State, tests: *std.ArrayList(FlagFact)) Error!void {
+        if (!source_node.isKind(.@"..") or rig.isInclusive(source_node)) return;
+        const k = p.intLocal(ir.For.@"var"(loop)) orelse return;
+        const kills = try p.killsOf(loop);
+        const lo = ir.get(source_node, .left);
+        const n = p.intLocal(ir.get(source_node, .right));
+        var groups: std.ArrayList(IndexGroup) = .empty;
+        try p.collectIndexes(body, &groups);
+        for (groups.items) |g| {
+            if (g.i != k) continue;
+            var any = false;
+            // `k + 1 <= n` and `n + cmax <= s.len`.
+            if (n) |nn| {
+                const t: Fact = .{ .below = .{ .i = nn, .k = g.cmax, .b = .{ .len = g.s } } };
+                if (!kills.ends(t) and !kills.ends(.{ .below = .{ .i = k, .k = 1, .b = .{ .int = nn } } })) {
+                    any = true;
+                    const have = st.belowK(nn, .{ .len = g.s }, 0);
+                    if (have == null or have.? < g.cmax) try p.addTest(tests, t);
+                }
+            } else if (try p.lenOf(ir.get(source_node, .right))) |s| {
+                // `k + 1 <= s.len` already: room for `c = 0` only.
+                any = std.meta.eql(s, g.s);
+            }
+            if (!any) continue;
+            if (p.intLocal(lo)) |j| if (!st.hasNonneg(j, 0) and !kills.ends(.{ .nonneg = j })) try p.addTest(tests, .{ .nonneg = j });
+        }
     }
 
     /// A statement `match`: the selection unit (its subject, patterns, and
@@ -1027,6 +1520,26 @@ fn jumps(e: Sexp) bool {
     return false;
 }
 
+/// Whether the store `set` writes into an element of the binding `sym`
+/// (`v[j] = x`, `v[j].f = x`): the step of its target next to the binding
+/// is an index, so the store changes no length the binding holds.
+fn storesElement(set: Sexp, sym: SymbolId, ctx: *const SemContext) bool {
+    if (!set.isKind(.set)) return false;
+    var t = ir.Set.target(set);
+    var element = false;
+    while (true) {
+        if (t.isKind(.index)) {
+            if (ir.Index.index(t).isKind(.@"..")) return false;
+            element = true;
+            t = ir.Index.object(t);
+        } else if (t.isKind(.member)) {
+            element = false;
+            t = ir.Member.object(t);
+        } else break;
+    }
+    return element and t == .src and ctx.symbolOf(t) == sym;
+}
+
 /// Record what each function of a module the ownership checker accepted
 /// bounds of its result (`SemContext.result_bounds`), and the tests each
 /// node is known to pass (`SemContext.provenOf`).
@@ -1039,6 +1552,26 @@ pub fn check(ctx: *SemContext, root: Sexp) Error!void {
     try rig.eachBody(root, &p, walkDeclBody);
     var it = p.proven.iterator();
     while (it.next()) |e| if (e.value_ptr.any()) try ctx.proven.put(ctx.allocator, e.key_ptr.*, e.value_ptr.*);
+    // Each flag a test rests on, with its tests as emit writes them.
+    const keep = ctx.arena.allocator();
+    var cond = p.proven_if.iterator();
+    while (cond.next()) |e| {
+        if (!e.value_ptr.tests.any()) continue;
+        try ctx.proven_if.put(ctx.allocator, e.key_ptr.*, e.value_ptr.*);
+        const flag = e.value_ptr.flag;
+        if (ctx.flags.contains(flag)) continue;
+        const facts = p.flag_tests.get(flag).?;
+        const out = try keep.alloc(sema.FlagTest, facts.len);
+        for (facts, out) |f, *t| t.* = switch (f) {
+            .nonneg => |i| .{ .nonneg = i },
+            .below => |b| .{ .below = .{ .i = b.i, .k = b.k, .s = .{
+                .root = b.b.len.root,
+                .fields = if (b.b.len.path == 0) &.{} else try keep.dupe([]const u8, p.path_fields.items[b.b.len.path - 1]),
+            } } },
+            else => unreachable,
+        };
+        try ctx.flags.put(ctx.allocator, flag, out);
+    }
 }
 
 fn walkDeclBody(p: *Pass, owner: Sexp, body: Sexp) Error!void {
@@ -1485,8 +2018,9 @@ pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *s
     while (stack.pop()) |n| {
         if (n != .list) continue;
         try stack.appendSlice(a, n.list.items());
-        const p = ctx.provenOf(n);
-        if (!p.any()) continue;
+        const always = ctx.provenOf(n);
+        const cond: ?sema.ProvenIf = ctx.provenIfOf(n);
+        if (!always.any() and cond == null) continue;
         const kind: []const u8 = switch (n.kind() orelse continue) {
             .index => "index",
             .@"+" => "+",
@@ -1496,15 +2030,19 @@ pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *s
             else => @tagName(n.kind().?),
         };
         const span = if (ctx.parser) |pr| pr.base.span(n) else rig.leafSpan(ctx.source, n);
-        var text: std.Io.Writer.Allocating = .init(a);
-        const t = &text.writer;
         const lc = lines.at(span.start);
-        try t.print("{d}:{d} {s}", .{ lc.line, lc.col, kind });
-        if (p.lower) try t.writeAll(" lower");
-        if (p.upper) try t.writeAll(" upper");
-        if (p.no_overflow) try t.writeAll(" no_overflow");
-        if (p.written) try t.writeAll(" written");
-        try out.append(a, .{ .start = span.start, .text = text.written() });
+        // The tests of every path, then (`ok`) those a flag proves.
+        for ([2]?Proven{ if (always.any()) always else null, if (cond) |c| c.tests else null }, [2][]const u8{ "", " ok" }) |tests, how| {
+            const p = tests orelse continue;
+            var text: std.Io.Writer.Allocating = .init(a);
+            const t = &text.writer;
+            try t.print("{d}:{d}{s} {s}", .{ lc.line, lc.col, how, kind });
+            if (p.lower) try t.writeAll(" lower");
+            if (p.upper) try t.writeAll(" upper");
+            if (p.no_overflow) try t.writeAll(" no_overflow");
+            if (p.written) try t.writeAll(" written");
+            try out.append(a, .{ .start = span.start, .text = text.written() });
+        }
     }
     std.mem.sort(Line, out.items, {}, Line.lessThan);
     for (out.items) |l| try w.print("{s}\n", .{l.text});
@@ -1700,7 +2238,8 @@ test "G2 and G3: a check that ran, and a non-negative assignment" {
         \\5:9 index lower
         \\
     );
-    // A check whose value assigns its own index keeps none of its facts.
+    // A check whose value assigns its own index keeps none of its facts;
+    // the store makes its own: an `Int` of a byte is not negative.
     try expectDump(
         \\fun f(s: ?String, at: Int) -> U8
         \\  i: Int = at
@@ -1708,6 +2247,7 @@ test "G2 and G3: a check that ran, and a non-negative assignment" {
         \\  s[i]
         \\
     ,
+        \\4:3 index lower
         \\
     );
 }
@@ -1787,9 +2327,11 @@ test "joins: a fact made in a branch ends with it; a loop keeps only what it doe
         \\
     ,
         \\8:11 index lower
+        \\8:11 ok index upper
         \\9:5 += no_overflow
         \\11:17 += no_overflow
         \\12:11 index lower
+        \\12:11 ok index upper
         \\
     );
 }
@@ -2226,6 +2768,66 @@ test "fills written before they are read" {
         \\
     ,
         \\2:7 fill written
+        \\
+    );
+}
+
+test "Lists: a binding, a field path, a `for` range, and a bound through a bound" {
+    try expectDump(
+        \\obj Ast
+        \\  words: List[Int]
+        \\
+        \\fun Ast.total(?@) -> Int
+        \\  t = 0
+        \\  for k in 0..@words.len
+        \\    t += @words[k]
+        \\  t
+        \\
+        \\fun total(xs: ?List[Int], n: Int) -> Int
+        \\  t = 0
+        \\  if n <= xs.len
+        \\    for k in 0..n
+        \\      t += xs[k]
+        \\  t
+        \\
+        \\sub grow(xs: !List[Int])
+        \\  for k in 0..xs.len
+        \\    xs[k] = 0
+        \\    !xs.push(k)
+        \\    xs[k] = 1
+        \\
+    ,
+        \\7:10 index lower upper
+        \\14:12 index lower upper
+        \\19:5 index lower
+        \\21:5 index lower
+        \\
+    );
+}
+
+test "flags: a record read, and a range a flag bounds" {
+    try expectDump(
+        \\obj Ast
+        \\  words: List[Int]
+        \\
+        \\fun Ast.pair(?@, d: Int) -> Int
+        \\  @words[d] + @words[d + 1]
+        \\
+        \\fun sum(xs: ?List[Int], n: Int) -> Int
+        \\  t = 0
+        \\  for k in 0..n
+        \\    t += xs[k]
+        \\  t
+        \\
+        \\fun once(xs: ?List[Int], d: Int) -> Int
+        \\  xs[d]
+        \\
+    ,
+        \\5:3 ok index lower upper
+        \\5:15 ok index lower upper
+        \\5:22 ok + no_overflow
+        \\10:10 index lower
+        \\10:10 ok index upper
         \\
     );
 }

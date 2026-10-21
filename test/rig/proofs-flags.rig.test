@@ -1,0 +1,301 @@
+# proofs: Lists, field paths, `for` ranges, and flags
+# (docs/internals/INTERNALS.md, "Proven checks" and "Flags").
+
+test "list range", "10", release: true
+  # `for k in 0..xs.len` gives `0 <= k` and `k + 1 <= xs.len`.
+
+  fun total(xs: ?List[Int]) -> Int
+    t = 0
+    for k in 0..xs.len
+      t += xs[k] # proves: index lower upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3, 4]
+    !xs.push(v)
+  print(total(xs))
+
+test "list range store", "[0, 0, 0]", release: true
+  # A store into an element keeps the List's length.
+
+  sub zero(xs: !List[Int])
+    for k in 0..xs.len
+      xs[k] = 0 # proves: index lower upper
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  zero(!xs)
+  print(xs)
+
+bomb "list range push", "index out of bounds", release: true
+  # A push changes the length the range read: `xs[k + 3]` keeps its test.
+
+  sub grow(xs: !List[Int])
+    for k in 0..xs.len
+      print(xs[k + 3]) # keeps: index upper
+      !xs.keep(xs.len - 1)
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3, 4, 5]
+    !xs.push(v)
+  grow(!xs)
+
+bomb "inclusive range", "index out of bounds", release: true
+  # `for k in 0..=xs.len` reaches `xs.len`: `k <= xs.len` leaves no room.
+
+  fun total(xs: ?List[Int]) -> Int
+    t = 0
+    for k in 0..=xs.len
+      t += xs[k] # keeps: index upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs))
+
+test "inclusive range below", "6", release: true
+  # `for k in 0..=n` with `n < xs.len`: `k <= n` and `n + 1 <= xs.len`.
+
+  fun total(xs: ?List[Int], n: Int) -> Int
+    t = 0
+    if n < xs.len
+      for k in 0..=n
+        t += xs[k] # proves: index lower upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs, 2))
+
+test "field range", "6", release: true
+  # A List in a field of a view of an object: `@words.len` is a bound.
+
+  obj Ast
+    words: List[Int]
+
+  fun Ast.total(?@) -> Int
+    t = 0
+    for k in 0..@words.len
+      t += @words[k] # proves: index lower upper
+    t
+
+  a = Ast(words: List())
+  for v in [1, 2, 3]
+    !a.words.push(v)
+  print(a.total())
+
+bomb "field range written", "index out of bounds", release: true
+  # A write of the object ends what a field path's length showed.
+
+  obj Ast
+    words: List[Int]
+
+  sub Ast.shrink(!@)
+    for k in 0..@words.len
+      @words = List()
+      print(@words[k]) # keeps: index upper
+
+  a = Ast(words: List())
+  for v in [1, 2, 3]
+    !a.words.push(v)
+  !a.shrink()
+
+test "guarded range", "3", release: true
+  # `n <= xs.len` and the range's `k + 1 <= n` give `k + 1 <= xs.len`.
+
+  fun total(xs: ?List[Int], n: Int) -> Int
+    t = 0
+    if n <= xs.len
+      for k in 0..n
+        t += xs[k] # proves: index lower upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs, 2))
+
+test "record read", "6", release: true
+  # Three slots of one List from `d` in one statement: a flag tests
+  # `0 <= d` and `d + 3 <= @words.len` once, before it.
+
+  obj Ast
+    words: List[Int]
+
+  fun Ast.sum3(?@, d: Int) -> Int
+    @words[d] + @words[d + 1] + @words[d + 2] # proves: ok index lower upper
+
+  a = Ast(words: List())
+  for v in [1, 2, 3]
+    !a.words.push(v)
+  print(a.sum3(0))
+
+test "record read add", "5", release: true
+  # The flag also shows that `d + 1` fits.
+
+  obj Ast
+    words: List[Int]
+
+  fun Ast.sum2(?@, d: Int) -> Int
+    @words[d] + @words[d + 1] # proves: ok + no_overflow
+
+  a = Ast(words: List())
+  for v in [1, 2, 3]
+    !a.words.push(v)
+  print(a.sum2(1))
+
+code "record read flag", "rig.okBelow(d, 3, self.words.len)"
+  obj Ast
+    words: List[Int]
+
+  fun Ast.sum3(?@, d: Int) -> Int
+    @words[d] + @words[d + 1] + @words[d + 2]
+
+  a = Ast(words: List())
+  !a.words.push(1)
+  print(a.sum3(0))
+
+bomb "record read past the end", "index out of bounds", release: true
+  # The flag is false: each test is made where it is written, and the
+  # third fails, after the calls before it ran.
+
+  fun show(v: Int) -> Int
+    print(v)
+    v
+
+  obj Ast
+    words: List[Int]
+
+  fun Ast.sum3(?@, d: Int) -> Int
+    show(@words[d]) + show(@words[d + 1]) + show(@words[d + 2]) # proves: ok index lower upper
+
+  a = Ast(words: List())
+  for v in [1, 2, 3]
+    !a.words.push(v)
+  print(a.sum3(1))
+
+bomb "record read negative", "index out of bounds", release: true
+  # `d < 0`: the flag is false, and the first test fails.
+
+  obj Ast
+    words: List[Int]
+
+  fun Ast.sum2(?@, d: Int) -> Int
+    @words[d] + @words[d + 1] # proves: ok index lower upper
+
+  a = Ast(words: List())
+  !a.words.push(1)
+  print(a.sum2(-1))
+
+bomb "record read moved", "index out of bounds", release: true
+  # A write of `d` in the statement: no flag, and every test is made.
+
+  fun next(n: !Int) -> Int
+    n += 5
+    0
+
+  obj Ast
+    words: List[Int]
+
+  fun Ast.sum2(?@, at: Int) -> Int
+    d = at
+    @words[d] + next(!d) + @words[d + 1] # keeps: ok index lower upper
+
+  a = Ast(words: List())
+  for v in [1, 2, 3]
+    !a.words.push(v)
+  print(a.sum2(0))
+
+test "range flag", "6", release: true
+  # `for k in 0..n` over a List `n` may pass: the flag tests `n <= xs.len`
+  # once, before the loop.
+
+  fun total(xs: ?List[Int], n: Int) -> Int
+    t = 0
+    for k in 0..n
+      t += xs[k] # proves: ok index upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs, 3))
+
+bomb "range flag false", "index out of bounds", release: true
+  # `n > xs.len`: the loop makes each test where it is written, and the
+  # fourth iteration fails after the three before it printed.
+
+  fun total(xs: ?List[Int], n: Int) -> Int
+    t = 0
+    for k in 0..n
+      print(xs[k]) # proves: ok index upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs, 5))
+
+test "range flag pairs", "9", release: true
+  # `xs[k]` and `xs[k + 1]` for `k` below `n`: the flag tests `n + 1 <=
+  # xs.len`.
+
+  fun pairs(xs: ?List[Int], n: Int) -> Int
+    t = 0
+    for k in 0..n
+      t += xs[k] * xs[k + 1] # proves: ok index upper
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(pairs(xs, 2) + 1)
+
+test "while flag", "4", release: true
+  # `while i < s.len` from a parameter: the flag tests `0 <= i` before
+  # the loop, which the loop's `i += 1` keeps.
+
+  fun count(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i < s.len
+      if s[i] == 32 # proves: ok index lower
+        n += 1
+      i += 1
+    n
+
+  print(count("a b c d e", 1))
+
+bomb "while flag false", "index out of bounds", release: true
+  # `at < 0`: the flag is false, and `s[i]` fails where it is written.
+
+  fun count(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i < s.len
+      if s[i] == 32 # proves: ok index lower
+        n += 1
+      i += 1
+    n
+
+  print(count("a b", -1))
+
+test "while bound flag", "6", release: true
+  # `while i < n` with `n` not known against `xs.len`: the flag tests `n
+  # <= xs.len` and `0 <= i`.
+
+  fun total(xs: ?List[Int], n: Int) -> Int
+    i = 0
+    t = 0
+    while i < n
+      t += xs[i] # proves: ok index upper
+      i += 1
+    t
+
+  xs: List[Int] = List()
+  for v in [1, 2, 3]
+    !xs.push(v)
+  print(total(xs, 3))
