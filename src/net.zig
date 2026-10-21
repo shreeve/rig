@@ -110,7 +110,7 @@ fn nonblocking(fd: i32) void {
 /// deadline has passed.
 fn stopped() rig.Stop!void {
     const t = rig.task();
-    if (t.control) |c| if (c.canceled.load(.acquire)) return canceled;
+    if (t.control) |c| if (c.canceled.load(.seq_cst)) return canceled;
     if (t.deadline) |d| if (rig.sched.nowNs() >= d) return timeout;
 }
 
@@ -395,8 +395,9 @@ const Settings = struct {
     }
 
     /// The limits of a connection's waits: none in a deterministic run,
-    /// whose virtual clock jumps to the next deadline while bytes on
-    /// their way through the system have yet to be seen.
+    /// whose virtual clock jumps to the next deadline once no socket is
+    /// ready within a short real wait, which bytes on their way can
+    /// outlast on a loaded machine.
     fn limit(s: Settings, head: bool) Limit {
         if (rig.sched.deterministic) return .{};
         return .{ .at = if (head) rig.sched.nowNs() + s.head_ns else null, .idle = s.idle_ns };
