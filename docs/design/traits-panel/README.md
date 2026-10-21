@@ -6,7 +6,7 @@ as written. The owner approved the decisions below, which
 [apis.md](../apis.md) records in full; where a report differs from
 them, the decisions hold. A later panel renamed traits to APIs
 ([naming-panel/](../naming-panel/README.md)): `trait Shape` is `api
-Shape`, and `impl Int: Shape` is `extend Int: Shape`.
+Shape`, and `impl Int: Shape` is `add Int: Shape`.
 
 | Report | Expert |
 |---|---|
