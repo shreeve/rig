@@ -20,7 +20,11 @@ starts; a program that makes none starts no workers.
   `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
   sleep, and yield. A call that blocks its thread runs on the blocking
   pool (`rig.blocking`) while the task waiting on it parks, so a worker
-  never blocks; every `std.file` call does so. Sockets are registered
+  never blocks; every `std.file` call does so. `rig.blockingStop` makes
+  such a call a fallible waiting point: a cancel or the task's deadline
+  ends the wait, and the call runs on to its end on its thread, which
+  drops its result; its arguments live in the call's own state, a byte
+  slice among them copied, so nothing it reads is freed under it. Sockets are registered
   with the workers' pollers and wait there (`net.zig`, increment 8).
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
@@ -33,6 +37,16 @@ starts; a program that makes none starts no workers.
 - **Queues.** Each worker owns a ring of 256 ready tasks, pushed with
   one store; other workers steal half with one compare-and-swap. A "run
   next" slot keeps a just-woken task in cache, at most 3 in a row. A
+  worker with nothing else to steal takes a task left in another's slot
+  3 µs (`sched.stealNext`), as Go takes a `runnext`: long enough that a
+  task made and waited for at once still runs by handoff on its maker's
+  worker, and a task made while its maker computes runs beside it.
+  Filling the slot wakes a sleeping worker when none is looking, until
+  a worker so woken finds the slot emptied by its owner first, as when
+  each task made is waited for at once: from then, until a worker takes
+  one, filling the slot sets `sched.waiting` instead, and the maker's
+  next yield check hands the task on (`sched.next_quiet`), so a chain of
+  tasks pays no system call to wake a worker that finds nothing. A
   global queue takes overflow and work from outside the workers.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
@@ -94,6 +108,19 @@ later number and does nothing. A cancel ends only a wait a cancel may
 end, and a task waiting on another passes its cancel on itself, hand
 over hand, so no cancel reaches a task through a chain another may free.
 
+A cancel is a handshake of two steps on each side: the canceler sets the
+task's flag and then looks at its wait, and the waiting fiber begins its
+wait and then looks at the flag. All four are sequentially consistent,
+so at least one side sees the other: a cancel that lands after the
+fiber last looked, but before its wait began, finds no wait to end, and
+the fiber, looking once more, sees the flag and goes on. Every waiting
+point a cancel ends looks so after it begins its wait: a wait on a
+task's end, on a set, a select, an actor's answer, a sleep, a
+descriptor (`sched.waitReady`), and a handoff to the task waited on.
+A poller that wakes a fiber waiting on a descriptor holds that waiter
+until it is done (`Registration.Waiter`), so the fiber, which takes
+itself back only after, never goes on and ends under it.
+
 ## Yield checks
 
 A fiber yields only at a waiting point, so a task that computes without
@@ -102,13 +129,13 @@ until it ends. In a program that makes tasks, the compiler adds yield
 checks where a computation can run long without waiting. A check never
 fails, and yields only when other work waits.
 
-- **Loops.** Each outermost loop keeps a count of its turns, a local of
-  its own, and every 1,024 turns calls the scheduler (`rig.turn`,
-  `sched.tick`). The task yields when work waits for its worker (in its
-  "run next" slot, its ring, or the global queue) or for another busy
-  one (the flag below). A loop inside another
-  is not counted, so the inner loops that do the most work stay as
-  tight as they were.
+- **Loops.** Each outermost loop keeps a count of turns, a local of its
+  own, which it and every loop inside it count down, and every 1,024
+  turns of any of them calls the scheduler (`rig.turn`, `sched.tick`).
+  So an inner loop that runs long between its outer loop's turns still
+  yields. The task yields when work waits for its worker (in its "run
+  next" slot, its ring, or the global queue) or for another busy one
+  (the flag below).
 - **Recursion.** A function on a cycle of calls (`inlining.decide`)
   starts by reading one flag, `sched.waiting`, on a cache line of its
   own. Work woken or made while every worker is busy sets it. The first
@@ -118,8 +145,19 @@ fails, and yields only when other work waits.
   back in line, so it never sets the flag, and busy tasks do not keep
   yielding to each other.
 
-The loop check costs a decrement and a branch per turn of an outermost
-loop: within noise on `bench/tasks`. The recursion check is a load and
+A loop's check also keeps its worker's timers and descriptors going
+while it computes (`sched.serviceBusy`): it wakes the fibers whose
+timers are due on its worker, and looks at its worker's poller at most
+every 250 µs, a system call. It reads the clock only when its worker
+holds a timer or a descriptor. A 10 ms sleep of a task whose worker
+spins in `main` takes 10 ms, with one worker or eight, where it waited
+for the whole spin; a round trip on a socket registered with that
+worker takes about 1 ms, where it took 1.5 s. A recursive call's check
+reads only its flag, so a worker deep in recursion leaves its timers to
+the workers that sleep.
+
+The loop check costs a decrement and a branch per turn of any loop:
+within noise on `bench/tasks`. The recursion check is a load and
 a branch per call: free in any function that does work, but a
 function as small as `fib` runs about 1.5x slower with it.
 
@@ -144,6 +182,13 @@ deterministically (`sched.deterministic`, SPEC §3 "Tests"):
   to the earliest timer. Each yield check and `task.check()` moves it
   1 µs, so a fiber that computes without waiting still reaches its
   deadline, and fibers waiting on a timer behind it still wake.
+- **Descriptors.** A fiber waiting on a file descriptor wakes once it
+  is ready, at whatever virtual time. With no fiber ready, the poller is
+  looked at first; with descriptors registered, it is waited on for up
+  to 1 ms of real time before the clock jumps to a timer, since bytes
+  written to a socket may still be on their way (macOS delivers them on
+  loopback a moment later), and a jump past a wait's deadline would end
+  it spuriously.
 - **Deadlock.** With no fiber ready and no timer set, every task waits
   on another, and the program panics.
 
@@ -199,6 +244,52 @@ every time; the suite runs each concurrency case again under seeds 1 to
    fibers and its ring by turns. A wake from elsewhere queues it at
    home, and kicks the home's poller while that worker sleeps
    (`Worker.idle`).
+
+10. **Busy workers keep their timers and pollers going**: a loop's yield
+    check wakes its worker's due timers and looks at its poller (above,
+    "Yield checks"). A timer set earlier than any sleeping worker wakes
+    kicks one (`sched.kickForTimer`): the timer's worker publishes the
+    deadline, then reads when each sleeper wakes, and a worker about to
+    sleep notes that it may sleep for good, then reads the deadlines,
+    all sequentially consistent, so one of the two sees the other.
+
+11. **Fork-join in parallel**: every loop's turns count toward a yield
+    check, and a task left in a busy worker's run-next slot is taken by
+    an idle worker, so `t = f()&; g(); >t` runs `f` and `g` at once
+    (`test/cli/sched_forkjoin.sh`).
+
+12. **Every poller watched, and the pool's threads counted**: while a
+    worker that does not sleep holds descriptors, one sleeping worker at
+    a time watches every poller (`sched.sleepIn`): it sleeps at most
+    1 ms, and as it wakes looks at every worker's poller, so a busy
+    worker's sockets wait no longer than that even when its own yield
+    checks do not come (in recursion, say), and it passes the watch on
+    as it goes back to work. A look at another worker's poller leaves the
+    kick it finds there, which that worker, about to sleep, needs. The
+    blocking pool counts a thread busy as it hands it a call, starts
+    threads outside its lock, up to `RIG_BLOCKING_THREADS` (64 by
+    default), and ends a thread idle 10 s; a cancel or a deadline ends a
+    wait on it (`rig.blockingStop`).
+
+13. **Checks of where work runs**: with `RIG_SCHED_STATS=1` set, a
+    program prints, as `main` ends, what each worker did, to stderr:
+
+    ```
+    rig: worker 0: ran 1203, pinned 1, stole 0, slept 4
+    ```
+
+    the fibers it ran (by handoff too), of them pinned ones, the fibers
+    it stole, and the times it slept, so a test can check where work ran
+    without timing it (`test/cli/sched_stats.sh`). A safe or debug build
+    panics when a pinned fiber resumes on a worker other than its home
+    (`sched.checkHome`), a load and a branch per switch.
+
+14. **A wait for a mailbox slot counts in deadlock detection**: it
+    blocks on the actor as a call does (`tasks.actorSpawn`), so a
+    deadlock's walk finds a method waiting for a slot in its own actor's
+    mailbox. A wait on channels alone that nothing can end is reported
+    in deterministic runs only (above, "Deadlock"): elsewhere an
+    interrupt may still end it.
 
 Each increment is held to the gate in `bench/tasks/README.md`
 (`bench-tasks --gate`), which fails a benchmark more than 1.5 times

@@ -1164,7 +1164,7 @@ const Sel = struct {
     const gave_up = std.math.maxInt(u32);
 
     fn claim(sel: *Sel, arm: u32) bool {
-        return sel.state.cmpxchgStrong(open, arm + 1, .acq_rel, .acquire) == null;
+        return sel.state.cmpxchgStrong(open, arm + 1, .seq_cst, .seq_cst) == null;
     }
 
     fn wake(sel: *Sel) void {
@@ -1302,13 +1302,13 @@ fn selectArms(arms: anytype) anyerror!u32 {
     inline for (0..n) |k| arms[k].wait(&sel, k);
     unlockAll(arms);
     while (true) {
-        if (sel.state.load(.acquire) != Sel.open) break;
+        if (sel.state.load(.seq_cst) != Sel.open) break;
         if (canceledHere() or pastDeadline()) {
-            if (sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .acq_rel, .acquire) == null) break;
+            if (sel.state.cmpxchgStrong(Sel.open, Sel.gave_up, .seq_cst, .seq_cst) == null) break;
             break;
         }
         rt.sched.commitWait(e, task().deadline);
-        if (sel.state.load(.acquire) != Sel.open) break;
+        if (sel.state.load(.seq_cst) != Sel.open) break;
         e = rt.sched.beginWait(true);
         sel.epoch.store(e, .seq_cst);
     }
@@ -1484,6 +1484,17 @@ pub fn Actor(comptime T: type) type {
             return &struct {
                 const l: rt.sched.Label = .{ .actor = actorName(T), .method = name };
             }.l;
+        }
+
+        /// A free slot in its mailbox, as a deadlock names a wait for one
+        /// (`actorSpawn`).
+        const slot_label: rt.sched.Label = .{ .actor = actorName(T), .method = "", .slot = true };
+
+        /// Whether a call made with `&` could take a slot now: what a
+        /// wait for one waits on, for a deadlock's walk.
+        fn slotFree(p: *const anyopaque) bool {
+            const self: *const Self = @ptrCast(@alignCast(p));
+            return self.pending.load(.seq_cst) < self.capacity;
         }
         /// Marks the type for `rt.Shared`'s atomic counts.
         pub const __rig_actor = {};
@@ -1974,14 +1985,26 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Tas
     const R = ActorResult(@TypeOf(handle), name);
     const box = boxOf(handle);
     const self = &box.value;
+    // Waiting for a slot, the fiber blocks on the actor, as a call to it
+    // does: a slot frees only once the actor answers a call made with
+    // `&`, so a wait the actor's own method makes, or one through calls
+    // that come back to the waiter, is a deadlock (`rt.sched.block`).
+    const A = @TypeOf(self.*);
+    const slot_wait: rt.sched.Blocked = .{ .call = .{ .label = &A.slot_label, .held_by = &self.held_by, .msg = self, .answered = A.slotFree } };
+    var blocked = false;
     while (true) {
         const n = self.pending.load(.seq_cst);
         if (n < self.capacity) {
             if (self.pending.cmpxchgWeak(n, n + 1, .seq_cst, .seq_cst) == null) break;
             continue;
         }
+        if (!blocked) {
+            blocked = true;
+            rt.sched.block(&slot_wait);
+        }
         rt.sched.yield();
     }
+    if (blocked) rt.sched.unblock();
     const Run = struct {
         fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
             defer {
@@ -2002,15 +2025,18 @@ pub const Stop = error{ @"std.task.Stop.canceled", @"std.task.Stop.timeout", @"s
 /// with.
 const canceled_error = error.@"std.task.Stop.canceled";
 
-/// Whether the running task is canceled. `main` never is.
+/// Whether the running task is canceled. `main` never is. Sequentially
+/// consistent: a waiting point begins its wait and then looks here, and
+/// a canceler sets the flag and then looks at the wait
+/// (`Control.cancel`), so at least one of the two sees the other.
 fn canceledHere() bool {
     const control = task().control orelse return false;
-    return control.canceled.load(.acquire);
+    return control.canceled.load(.seq_cst);
 }
 
 /// Record that the running task is canceled.
 fn markCanceled() void {
-    if (task().control) |control| control.canceled.store(true, .release);
+    if (task().control) |control| control.canceled.store(true, .seq_cst);
 }
 
 /// `task.check()`: a waiting point that waits for nothing. It fails

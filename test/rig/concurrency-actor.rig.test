@@ -491,7 +491,9 @@ test "actor supervised on its own task", seeds: 20, '''
 '''
   # A call queued while the actor dies waits for the new value. Restarts
   # count within `per:` nanoseconds: one after the window is allowed
-  # again, a second within it is not.
+  # again, a second within it is not. The window is wide enough for the
+  # panic reports between the deaths it counts, which a worker that has
+  # written none before takes tens of milliseconds to write.
   use std.task
   use std.time
 
@@ -517,13 +519,13 @@ test "actor supervised on its own task", seeds: 20, '''
     a.get()
 
   made = *Cell(0)
-  a = *Actor.supervised(*|+made| Slow(n: 100 * (!made).add(1)), restarts: 1, per: 10 * time.MS)
+  a = *Actor.supervised(*|+made| Slow(n: 100 * (!made).add(1)), restarts: 1, per: 100 * time.MS)
   t = holder(+a)&
   time.sleep(5 * time.MS)!
   u = behind(+a)&
   n = task.isolate(|+a| a.boom(9)) catch -1
   print(n, >t!, >u!)
-  time.sleep(20 * time.MS)!
+  time.sleep(150 * time.MS)!
   _ = task.isolate(|+a| a.boom(9)) catch -1
   print(a.get(), made.get())
   _ = task.isolate(|+a| a.boom(9)) catch -1

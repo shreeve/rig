@@ -1901,8 +1901,8 @@ const HiddenName = enum(u16) {
     discard = 2,
     /// The type of each byte of a byte string, `[U8(65), U8(66)]`.
     u8 = 3,
-    /// The method a wait calls: `>t` is `<t.wait()`, and on a set of
-    /// tasks, `<ts.wait_all()` (`isWaitCall`).
+    /// The method a wait calls: `>t` is `<t.wait()`, on a task or a set
+    /// of tasks (`isWaitCall`).
     wait = 4,
 
     fn text(self: HiddenName) []const u8 {
@@ -3483,7 +3483,7 @@ pub const Parser = struct {
             .severity = .@"error",
             .pos = self.span(head).end,
             .end = whole.end,
-            .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}`", .{ written, rest, written, rest }) catch "a wait takes a name alone: write `(>t).x`",
+            .message = std.fmt.allocPrint(self.allocator(), "`{s}` waits for a task, and `{s}` applies to what it gives: write `({s}){s}`; to wait for a task that `{s}{s}` holds, take it out to a name first, then wait for that, `>t`", .{ written, rest, written, rest, written[1..], rest }) catch "a wait takes a name alone: write `(>t).x`",
         };
     }
 

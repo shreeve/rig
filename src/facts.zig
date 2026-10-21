@@ -351,6 +351,15 @@ pub const Facts = struct {
     pub fn isHttpServe(f: Facts, call: Sexp) bool {
         return f.c().isHttpServe(call);
     }
+    pub fn isIoCopy(f: Facts, call: Sexp) bool {
+        return f.c().isIoCopy(call);
+    }
+    pub fn isOnceClosure(f: Facts, lambda: Sexp) bool {
+        return f.c().isOnceClosure(lambda);
+    }
+    pub fn isOnceCapture(f: Facts, sym: SymbolId) bool {
+        return f.c().isOnceCapture(sym);
+    }
     pub fn isLocalTask(f: Facts, call: Sexp) bool {
         return f.c().isLocalTask(call);
     }

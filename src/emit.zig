@@ -205,6 +205,10 @@ const FunState = struct {
     cold: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
+    /// The captures a closure called exactly once takes from its
+    /// environment, bound at the top of its body as parameters are
+    /// (`SemContext.recordOnceClosure`).
+    once_caps: []const SymbolId = &.{},
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
@@ -213,6 +217,10 @@ const FunState = struct {
     recursive: bool = false,
     /// How many loops the code being emitted is inside.
     loops: u32 = 0,
+    /// The count of turns of the outermost loop the code being emitted is
+    /// inside (`Emitter.yield_checks`), which every loop in it counts
+    /// down too.
+    turns: ?[]const u8 = null,
 };
 
 const Nominal = struct {
@@ -361,8 +369,8 @@ pub const Emitter = struct {
     /// compiles only if every operation on one goes through the optional
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
     strict_optionals: bool = false,
-    /// The program makes tasks: its outermost loops count their turns
-    /// toward a yield check (`rig.turn`), and its recursive functions
+    /// The program makes tasks: its loops count their turns toward a
+    /// yield check (`rig.turn`), and its recursive functions
     /// check for work left waiting (`rig.tickCall`), so no task keeps
     /// the others waiting for long.
     yield_checks: bool = false,
@@ -1030,29 +1038,39 @@ pub const Emitter = struct {
         self.fun.params = null;
         for ([_]Sexp{ tparams, params }) |group| for (group.items()) |p| {
             const local = self.localOf(facts.syntax.paramNameNode(p) orelse continue) orelse continue;
-            if (local.param_name.len > 0) {
-                // Zig analyzes an inlined body at each call, so an argument
-                // known at compile time would be known inside; `rig.rt`
-                // keeps the arithmetic and the indexing on it checked when
-                // the program runs, as in a function that is called.
-                if (local.launder) {
-                    try self.line("const {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
-                } else if (self.fun.inlined) {
-                    try self.line("var {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
-                } else try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
-            }
-            if (local.guard != .none) {
-                try self.writeIndent(self.indent);
-                try self.emitGuard(local);
-                try self.w.writeAll("\n");
-            } else if (!self.usage.used.contains(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
-                // Zig discards no error by value, so an error, or a value
-                // whose type an instance gives (which may be one), is
-                // discarded by address.
-                const by_address = if (local.ty) |ty| self.isErrorSetTy(ty) or self.facts.containsTypeVar(ty) else false;
-                try self.line("_ = {s}{s};", .{ if (by_address) "&" else "", local.zig_name });
-            }
+            try self.bindParamLocal(local);
         };
+        const once_caps = self.fun.once_caps;
+        self.fun.once_caps = &.{};
+        for (once_caps) |sym| try self.bindParamLocal(self.localBySym(sym) orelse continue);
+    }
+
+    /// A parameter's local, or a capture a closure called once takes,
+    /// copied into its binding at the top of the body, and its drop
+    /// armed (`emitFunPrologue`).
+    fn bindParamLocal(self: *Emitter, local: *Local) Error!void {
+        if (local.param_name.len > 0) {
+            // Zig analyzes an inlined body at each call, so an argument
+            // known at compile time would be known inside; `rig.rt`
+            // keeps the arithmetic and the indexing on it checked when
+            // the program runs, as in a function that is called.
+            if (local.launder) {
+                try self.line("const {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
+            } else if (self.fun.inlined) {
+                try self.line("var {s} = rig.rt({s});", .{ local.zig_name, local.param_name });
+            } else try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
+        }
+        if (local.guard != .none) {
+            try self.writeIndent(self.indent);
+            try self.emitGuard(local);
+            try self.w.writeAll("\n");
+        } else if (!self.usage.used.contains(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
+            // Zig discards no error by value, so an error, or a value
+            // whose type an instance gives (which may be one), is
+            // discarded by address.
+            const by_address = if (local.ty) |ty| self.isErrorSetTy(ty) or self.facts.containsTypeVar(ty) else false;
+            try self.line("_ = {s}{s};", .{ if (by_address) "&" else "", local.zig_name });
+        }
     }
 
     // =========================================================================
@@ -2711,8 +2729,9 @@ pub const Emitter = struct {
         /// A `for` whose source's unit is being written (`enterUnit`),
         /// until the loop is entered.
         source_unit: bool = false,
-        /// An outermost loop's count of turns (`Emitter.yield_checks`),
-        /// which each turn's body starts by counting down.
+        /// The count of turns of the outermost loop it is in, or its own
+        /// (`Emitter.yield_checks`), which each turn's body starts by
+        /// counting down.
         turns: ?[]const u8 = null,
     };
 
@@ -2742,11 +2761,19 @@ pub const Emitter = struct {
         const has_res = else_ != .nil or value != null;
         lp.target = .{ .node = loop, .rig_label = rig_label, .brk = if (has_res) lp.res else lp.loop, .loop = lp.loop, .body = lp.body, .value_ty = value };
         if (has_res) try self.openLoopBlock(&lp);
-        // An outermost loop counts its turns, in the block around it.
-        if (self.yield_checks and self.fun.loops == 0) {
-            try self.openLoopBlock(&lp);
-            lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
-            try self.line("var {s}: u32 = rig.tick_turns;", .{lp.turns.?});
+        // Every loop counts its turns: an outermost loop keeps the count,
+        // in the block around it, and the loops in it count it down too,
+        // so an inner loop that runs long between the outer loop's turns
+        // still reaches a yield check.
+        const outer_turns = self.fun.turns;
+        defer self.fun.turns = outer_turns;
+        if (self.yield_checks) {
+            if (self.fun.loops == 0 or outer_turns == null) {
+                try self.openLoopBlock(&lp);
+                lp.turns = try self.fmt("__rig_turns_{d}", .{self.nextId()});
+                try self.line("var {s}: u32 = rig.tick_turns;", .{lp.turns.?});
+                self.fun.turns = lp.turns;
+            } else lp.turns = outer_turns;
         }
         self.fun.loops += 1;
         defer self.fun.loops -= 1;
@@ -6977,8 +7004,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
-        // `task.both(a, b)`, `task.all(a, b, ...)`: the tasks, waited for
-        // together.
+        // `task.all(a, b, ...)`: the tasks, waited for together.
         if (self.facts.isTaskJoin(sexp)) {
             try self.w.writeAll("rig.waitTasks(.{ ");
             try self.emitArgs(sexp);
@@ -7023,6 +7049,12 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         }
+        // `io.copy(!from, !to)`: the runtime's, for files and sockets.
+        if (self.facts.isIoCopy(sexp)) {
+            try self.w.writeAll("rig.net.copy(");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(")");
+        }
         // `task.supervise(f, restarts: n, per: ns)`: isolated again and
         // again by the runtime, with each option or its default.
         if (self.facts.isSuperviseCall(sexp)) {
@@ -7049,19 +7081,17 @@ pub const Emitter = struct {
             if (args.len == 2) try self.w.writeAll(", 0");
             return self.w.writeAll(")");
         }
-        // A set's wait, `<ts.wait_all(within: d)`: its deadline, or none;
-        // `>ts` waits for them all, with none.
+        // A set's waits, `>ts` and `<ts.wait_first()`, with no deadline
+        // of their own: a deadline is the task's (`time.within`).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.tasks_sym_id)) {
             if (rig.isWaitMember(callee)) {
                 try self.emitMemberNamed(callee, "wait_all");
                 return self.w.writeAll("(null)");
             }
             const m = self.srcText(ir.Member.name(callee));
-            if (std.mem.eql(u8, m, "wait_all") or std.mem.eql(u8, m, "wait_first")) {
+            if (std.mem.eql(u8, m, "wait_first")) {
                 try self.emitExpr(callee);
-                try self.w.writeAll("(");
-                if (args.len == 1) try self.emitExpr(ir.Kwarg.value(args[0])) else try self.w.writeAll("null");
-                return self.w.writeAll(")");
+                return self.w.writeAll("(null)");
             }
         };
         try self.checkCallTarget(sexp);
@@ -7908,14 +7938,26 @@ pub const Emitter = struct {
         try self.openBrace();
         const env = if (self.closure_depth == 0) "__rig_self" else try self.fmt("__rig_self{d}", .{self.closure_depth});
         var uses_env = false;
+        var once_caps: std.ArrayList(SymbolId) = .empty;
         for (caps) |c| {
             try self.writeIndent(self.indent);
             try self.w.print("{s}: ", .{try self.capField(c.name)});
             try self.emitTypeTy(c.ty);
             try self.w.writeAll(",\n");
+            const field = try self.fmt("{s}.{s}", .{ env, try self.capField(c.name) });
+            const kind = if (self.isPtrViewTy(c.ty)) null else self.kindOf(c.ty);
+            if (kind != null and self.facts.isOnceCapture(c.sym)) {
+                // A closure called once takes a capture it owns from its
+                // environment into a binding of its body, which drops it
+                // unless the body moves it out.
+                _ = try self.declare(.{ .sym = c.sym, .ty = c.ty, .param_name = field, .kind = kind, .guard = self.resourceGuard(c.sym) }, c.name);
+                try once_caps.append(self.arena.allocator(), c.sym);
+                uses_env = true;
+                continue;
+            }
             uses_env = uses_env or self.usage.used.contains(c.sym);
             // Inside the body, a capture is a field of the environment.
-            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("{s}.{s}", .{ env, try self.capField(c.name) }), .ty = c.ty }, c.name);
+            _ = try self.declare(.{ .sym = c.sym, .zig_name = field, .ty = c.ty }, c.name);
         }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
@@ -7925,7 +7967,7 @@ pub const Emitter = struct {
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
-        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env };
+        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env, .once_caps = once_caps.items };
         try self.bindParams(params, false);
         for (params.items()) |p| {
             try self.w.writeAll(", ");
@@ -8143,7 +8185,9 @@ pub const Emitter = struct {
         const owns = try self.emitStackClosure(env, h.node);
         try self.w.writeAll("\n");
         try self.poisonAtExit(env);
-        if (owns) try self.line("defer rig.dropFields(&{s});", .{env});
+        // A closure called exactly once takes what it owns of its
+        // environment, and drops it there.
+        if (owns and !self.facts.isOnceClosure(h.node)) try self.line("defer rig.dropFields(&{s});", .{env});
         try self.writeIndent(self.indent);
         try self.w.print("const {s} = ", .{h.name});
         try self.emitCallableTy("FnRef", self.facts.types.get(fn_ty).function);

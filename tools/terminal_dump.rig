@@ -9,7 +9,7 @@ use std.terminal
 use std.text
 
 sub main()!
-  data = file.read(os.args()[1]) ?? String()
+  data = file.read(os.args()[1])! ?? String()
   at = 0
   while at < data.len
     rest = ?data[at..]

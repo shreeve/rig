@@ -84,7 +84,7 @@ aim to match it in the rest.
   Tokio task is a state machine: each pause returns up through every
   future it is nested in, and each resume calls back down through them.
 - **A long computation never holds up the rest.** The compiler puts a
-  yield check in every outermost loop and recursive function of a
+  yield check in every loop and recursive function of a
   program that makes tasks, so a task waiting behind one waits for a
   slice of it, not all of it. Tokio never stops a running task, and Go
   stops one after 10 ms.
@@ -134,7 +134,7 @@ fun fetch_all(urls: ?List[String]) -> List[Page]!
   ts = Tasks[Page!]()
   for u in urls
     !ts.add(http.get(?u)&)
-  <ts.wait_all(within: time.seconds(2))!
+  time.within(2 * time.SECOND, |<ts| >ts!)!
 ```
 
 The first error, or the deadline, cancels the rest and waits for them.
@@ -142,7 +142,7 @@ The first error, or the deadline, cancels the rest and waits for them.
 Two different calls at once:
 
 ```text
-u, o = task.both(user(id)&, orders(id)&)!
+u, o = task.all(user(id)&, orders(id)&)!
 ```
 
 A server whose handlers share a counter and a room list (built):
@@ -196,8 +196,10 @@ place a fallible type stands as a type argument.
   result is passed on with `>t!` or handled with `catch`.
 - `<t.cancel()` cancels a fallible task, waits for it, and gives what it
   returned, usually `error.Canceled`.
-- `task.both(a, b)` and `task.all(a, b, c)` wait for several tasks of
-  different types at once. The first error cancels the others.
+- `task.all(a, b, c)` waits for several tasks of different types at
+  once. The first error cancels the others.
+- `time.within(d, |<t| >t!)` waits with a deadline: `within` calls its
+  closure exactly once, so the closure may move the task in.
 - A function may return a task (`-> Task[T]`). The task keeps the loans
   its signature shows, as any result does.
 
@@ -232,8 +234,9 @@ no syntax:
   has finished is removed at once, so a long-running server loop never
   piles up finished work.
 - `>ts` waits for all and gives their results in the order
-  added. `<ts.wait_first()` gives the first success. Both take
-  `within:`.
+  added. `<ts.wait_first()` gives the first success. A deadline for
+  either is `time.within`'s, which takes the set into its closure:
+  `time.within(d, |<ts| >ts!)`.
 - The first error of a fallible set cancels the rest.
 - Dropping a set cancels every task first, then waits for them all, so
   the costs of cancelling do not add up.
@@ -365,7 +368,10 @@ there. The checker derives two facts for every type:
 A task's argument is given to it, moved (`<x`) or copied, when its type
 moves. Otherwise it is lent: to read (`?x`) when its type shares, and to
 write (`!x`) when its type moves. A closure called as a task follows the
-same rules for its captures.
+same rules for its captures. What a task gives goes back to the task
+that waits for it, so its type moves, as `par.map`'s values and an
+actor call's result do; a local task's result stays on its thread and
+need not.
 
 A function a library calls from many tasks at once needs no mark on its
 type. The checker reads the requirement from the library's body, as it
@@ -416,9 +422,12 @@ any tasks on one worker do. So a GUI program's `*T`, `Cell`, and
 - **Implicit.** The checker makes a task local when its arguments or
   self hold such a value (`sema.localBlocker`), and records it; nothing
   marks it in the source, as nothing marks how a `Cell` is kept safe.
+  `rig check --tasks` lists each local task and what pins it: the
+  argument, and the type in it that stays on one thread.
 - **What still stops it.** A set of tasks, a task or a write view lent
   to read, and a function lent to read, which may lend what it captures
-  to write, are not held by two tasks at once even on one thread. A
+  to write (a closure literal written in the task's call among them, as
+  `?f` is), are not held by two tasks at once even on one thread. A
   channel's elements go to any task that holds a handle of it, so they
   must cross whoever holds the channel.
 - **The scheduler.** A pinned fiber has a home worker. When it is ready
@@ -624,7 +633,7 @@ restarted by a small parent) remains, as defence in depth.
 ## The library
 
 **First wave, shipped with tasks:**
-- `Tasks[T]`, `task.both`, `task.all`, `par.map`, and `par.each`;
+- `Tasks[T]`, `task.all`, `par.map`, and `par.each`;
 - `time.sleep`, deadlines, and `time.within(d, || ...)`, a deadline over
   a block of calls;
 - `task.check()!` and `task.isolate`;
@@ -792,7 +801,7 @@ Each item gives the answer the model takes.
 15. **Order of work**, each step its own pull request:
     1. moving the runtime's global state into task context, then `&`,
        `Task`, `Tasks`, the loan and cancellation rules, and
-       `task.both`, on `Threaded`;
+       `task.all`, on `Threaded`;
     2. the crossing facts, a `*Cell` of one word across tasks, and `par`;
     3. actors, unwinding, `task.isolate`, and supervised actors;
     4. the scheduler core, benchmarked with no I/O;

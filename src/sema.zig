@@ -910,6 +910,11 @@ fn recordExprKey(node: Sexp) ?u64 {
     return exprKey(node);
 }
 
+/// A local task (`Facts.local_tasks`), for `rig check --tasks`: where
+/// its call starts, the call as written, and why it stays on one
+/// thread: the part that pins it and the type in it that does not cross.
+pub const LocalTask = struct { pos: u32, call: []const u8, why: []const u8 };
+
 pub const Facts = struct {
     /// Identifier leaf position -> the symbol it names.
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
@@ -972,8 +977,8 @@ pub const Facts = struct {
     /// The `Bool`s that decide a test, its last line and each `return`
     /// with a value in it -> what a failing one reports.
     test_checks: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
-    /// The calls of `task.both` and `task.all`, which wait for the tasks
-    /// they take (`Checker.taskJoin`).
+    /// The calls of `task.all`, which wait for the tasks they take
+    /// (`Checker.taskJoin`).
     task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `par.map` and `par.each`, which run a function on
     /// several tasks (`Checker.parCall`).
@@ -995,9 +1000,14 @@ pub const Facts = struct {
     supervise_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `http.serve` (`Checker.httpServe`).
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The calls of `io.copy` (`Checker.ioCopy`).
+    io_copies: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Closure literals called exactly once, by the call they are
+    /// written in (`SemContext.recordOnceClosure`).
+    once_closures: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
-    /// that makes them (`Checker.crossCheck`).
-    local_tasks: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// that makes them (`Checker.crossCheck`), with what pins each.
+    local_tasks: std.AutoHashMapUnmanaged(u64, LocalTask) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -1909,6 +1919,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
+        LocalTask => try w.print(" \"{f}\"", .{std.zig.fmtString(v.why)}),
         ReadOnlyField => try w.print(" {s}.{s}.{s}", .{ v.module, v.owner, v.field }),
         JumpDest => {
             const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
@@ -2229,6 +2240,11 @@ pub const SemContext = struct {
     /// recorded by `storage.plan`): emit arms such a binding's drop
     /// behind an alive flag, and the ownership checker moves no other.
     consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// The captures of a closure called exactly once that it owns
+    /// (`|<x|`, `|+x|`, `|~x|`; `recordOnceClosure`): its one call takes
+    /// them, as a function takes a parameter given by value, so its body
+    /// may move them out, and drops what it leaves.
+    once_captures: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The array types spelled or built in generic declarations, which
     /// each instance checks against `max_value_bytes`; `module_id` is
     /// the module whose source `pos` is in (0 for this one).
@@ -3201,7 +3217,7 @@ pub const SemContext = struct {
         try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, {});
     }
 
-    /// Whether `call` is a `task.both` or `task.all` (`recordTaskJoin`).
+    /// Whether `call` is a `task.all` (`recordTaskJoin`).
     pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
         return self.facts.task_joins.contains(exprKey(call) orelse return false);
     }
@@ -3279,8 +3295,45 @@ pub const SemContext = struct {
         return self.facts.http_serves.contains(exprKey(call) orelse return false);
     }
 
-    pub fn recordLocalTask(self: *SemContext, call: Sexp) !void {
-        try self.facts.local_tasks.put(self.allocator, recordExprKey(call) orelse return, {});
+    pub fn recordIoCopy(self: *SemContext, call: Sexp) !void {
+        try self.facts.io_copies.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `io.copy` (`recordIoCopy`).
+    pub fn isIoCopy(self: *const SemContext, call: Sexp) bool {
+        return self.facts.io_copies.contains(exprKey(call) orelse return false);
+    }
+    /// Records that closure literal `lambda` is called exactly once, by
+    /// the call it is written in (`time.within`'s): what it owns of its
+    /// captures, its one call takes (`once_captures`).
+    pub fn recordOnceClosure(self: *SemContext, lambda: Sexp) !void {
+        try self.facts.once_closures.put(self.allocator, recordExprKey(lambda) orelse return, {});
+        for (captureList(ir.Lambda.captures(lambda))) |cap| switch (captureModeOf(cap) orelse continue) {
+            .cap_move, .cap_clone, .cap_weak => {
+                const sym = self.symbolOf(captureNameNode(cap) orelse continue) orelse continue;
+                try self.once_captures.put(self.allocator, sym, {});
+            },
+            .cap_read, .cap_write => {},
+        };
+    }
+
+    /// Whether closure literal `lambda` is called exactly once
+    /// (`recordOnceClosure`).
+    pub fn isOnceClosure(self: *const SemContext, lambda: Sexp) bool {
+        return self.facts.once_closures.contains(exprKey(lambda) orelse return false);
+    }
+
+    /// Whether capture `sym` is taken by its closure's one call
+    /// (`recordOnceClosure`).
+    pub fn isOnceCapture(self: *const SemContext, sym: SymbolId) bool {
+        return self.once_captures.contains(sym);
+    }
+
+    /// Records that the task `call` makes is local, pinned by `local`;
+    /// the first part found to pin it is the one kept.
+    pub fn recordLocalTask(self: *SemContext, call: Sexp, local: LocalTask) !void {
+        const entry = try self.facts.local_tasks.getOrPut(self.allocator, recordExprKey(call) orelse return);
+        if (!entry.found_existing) entry.value_ptr.* = local;
     }
 
     /// Whether the task `call` makes is local (`recordLocalTask`).
@@ -5065,12 +5118,12 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     return false;
 }
 
-/// The hint for a name that earlier releases gave a built-in type: what
-/// it is written now. Null for any other name.
-pub fn retiredNameHint(name: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String` (0.3.0 renamed `Text` to `String`, and the view `String` to `?String`)";
-    if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]` (`Vec[T]` before 0.3.0)";
-    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression (`Box[T]` and `Box(value)` before 0.3.0)";
+/// The hint for a name that likely means a built-in type: how that type
+/// is written. Null for any other name.
+pub fn builtinNameHint(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String`";
+    if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]`";
+    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression";
     return null;
 }
 
@@ -8584,7 +8637,7 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
     }];
     switch (sym.kind) {
         .param, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
-        .capture => return if (e == .src) .capture else partSource(ctx, e),
+        .capture => return if (e != .src) partSource(ctx, e) else if (ctx.isOnceCapture(ctx.symbolOf(root).?)) .binding else .capture,
         .local => {
             if (sym.scope == module_scope) return .declared;
             return if (e == .src) .binding else partSource(ctx, e);

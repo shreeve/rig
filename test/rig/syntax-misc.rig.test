@@ -4345,7 +4345,7 @@ fail "struct declared as type", "4:3: an object is declared with `obj`: `obj Foo
 
   print("done")
 
-fail "struct retired", "3:1: write `obj Name`: `struct` is spelled `obj`", errors: 1
+fail "struct for obj", "3:1: write `obj Name`: `struct` is spelled `obj`", errors: 1
   # `struct` is spelled `obj`.
 
   struct Point
@@ -4354,7 +4354,7 @@ fail "struct retired", "3:1: write `obj Name`: `struct` is spelled `obj`", error
   sub main()
     print(1)
 
-fail "struct retired pub generic", "3:5: write `obj Name`: `struct` is spelled `obj`", errors: 1
+fail "struct for obj pub generic", "3:5: write `obj Name`: `struct` is spelled `obj`", errors: 1
   # The old spelling is named after `pub`, and with type parameters.
 
   pub struct Pair[T] unique
