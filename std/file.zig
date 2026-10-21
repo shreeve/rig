@@ -35,7 +35,7 @@ fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
 /// waiting points do, without yielding (`task.check` yields).
 fn stopped() rig.Stop!void {
     const t = rig.task();
-    if (t.control) |c| if (c.canceled.load(.acquire)) return error.@"std.task.Stop.canceled";
+    if (t.control) |c| if (c.canceled.load(.seq_cst)) return error.@"std.task.Stop.canceled";
     if (t.deadline) |d| if (rig.sched.nowNs() >= d) return error.@"std.task.Stop.timeout";
 }
 
@@ -115,20 +115,15 @@ fn readHere(path: []const u8) FileError!?rig.String {
     return .{ .list = list };
 }
 
-/// Write `data` as the whole file at `path`, creating it or truncating
-/// it, and making each missing directory on the way to it.
-pub fn write(path: []const u8, data: []const u8) Error!void {
-    return pool(void, writeHere, .{ path, data, false });
+/// Write `data` as the whole file at `path`, creating it or emptying it
+/// first, or at its end (`at_end`), and making each missing directory
+/// on the way to it when `parents`.
+pub fn write_file(path: []const u8, data: []const u8, at_end: bool, parents: bool) Error!void {
+    return pool(void, writeHere, .{ path, data, at_end, parents });
 }
 
-/// Write `data` at the end of the file at `path`, creating it, and each
-/// missing directory on the way to it, when it is not there.
-pub fn append(path: []const u8, data: []const u8) Error!void {
-    return pool(void, writeHere, .{ path, data, true });
-}
-
-fn writeHere(path: []const u8, data: []const u8, at_end: bool) FileError!void {
-    const fd = try openMaking(path, if (at_end) .append else .truncate);
+fn writeHere(path: []const u8, data: []const u8, at_end: bool, parents: bool) FileError!void {
+    const fd = try openMaking(path, if (at_end) .append else .truncate, parents);
     defer _ = sys.close(fd);
     try writeAll(fd, data);
 }
@@ -143,17 +138,39 @@ fn renameHere(from: []const u8, to: []const u8) FileError!void {
     std.Io.Dir.rename(cwd, from, cwd, to, rig.io()) catch |err| return failure(err);
 }
 
-/// Make the directory `path` and each missing one on the way to it.
-pub fn mkdir(path: []const u8) Error!void {
-    return pool(void, mkdirHere, .{path});
+/// Make the directory `path`, and each missing one on the way to it when
+/// `parents`. A directory there already is fine.
+pub fn make_dir(path: []const u8, parents: bool) Error!void {
+    return pool(void, mkdirHere, .{ path, parents });
 }
 
-fn mkdirHere(path: []const u8) FileError!void {
+fn mkdirHere(path: []const u8, parents: bool) FileError!void {
+    if (!parents) {
+        std.Io.Dir.cwd().createDir(rig.io(), path, .default_dir) catch |err| return switch (failure(err)) {
+            error.@"std.file.FileError.exists" => if (isFile(path)) error.@"std.file.FileError.exists" else {},
+            else => |e| e,
+        };
+        return;
+    }
     std.Io.Dir.cwd().createDirPath(rig.io(), path) catch |err| return switch (failure(err)) {
         // A file where a directory is wanted is something there already.
         error.@"std.file.FileError.not_directory" => if (isFile(path)) error.@"std.file.FileError.exists" else error.@"std.file.FileError.not_directory",
         else => |e| e,
     };
+}
+
+/// Whether anything is at `path`, links followed: a link that names
+/// nothing is not. Any failure but "nothing there" is an error.
+pub fn exists_at(path: []const u8) Error!bool {
+    return pool(bool, existsHere, .{path});
+}
+
+fn existsHere(path: []const u8) FileError!bool {
+    _ = std.Io.Dir.cwd().statFile(rig.io(), path, .{}) catch |err| {
+        try absent(err);
+        return false;
+    };
+    return true;
 }
 
 /// Whether a file, or anything but a directory, is at `path`.
@@ -313,24 +330,25 @@ fn openHere(path: []const u8) FileError!?i64 {
 }
 
 /// A descriptor of the file at `path`, created or emptied, open to
-/// write, each missing directory on the way to it made.
-pub fn create_fd(path: []const u8) Error!i64 {
-    return pool(i64, createHere, .{path});
+/// write, each missing directory on the way to it made when `parents`.
+pub fn create_fd(path: []const u8, parents: bool) Error!i64 {
+    return pool(i64, createHere, .{ path, parents });
 }
 
-fn createHere(path: []const u8) FileError!i64 {
-    return try openMaking(path, .truncate);
+fn createHere(path: []const u8, parents: bool) FileError!i64 {
+    return try openMaking(path, .truncate, parents);
 }
 
-/// Open `path` to write, creating it, and each missing directory on the
-/// way to it, when it is not there: emptied, or to write at its end.
-fn openMaking(path: []const u8, how: enum { truncate, append }) FileError!i32 {
+/// Open `path` to write, creating it when it is not there, and each
+/// missing directory on the way to it when `parents`: emptied, or to
+/// write at its end.
+fn openMaking(path: []const u8, how: enum { truncate, append }, parents: bool) FileError!i32 {
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
     const z = try terminated(path, &buf);
     var flags: posix.O = .{ .ACCMODE = .WRONLY, .CREAT = true, .CLOEXEC = true };
     if (how == .truncate) flags.TRUNC = true else flags.APPEND = true;
     return openAt(z, flags) catch |err| {
-        if (err != not_found) return err;
+        if (err != not_found or !parents) return err;
         // A directory on the way is missing: make them all, then try once
         // more.
         const parent = std.fs.path.dirname(path) orelse return err;
