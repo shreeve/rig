@@ -103,9 +103,15 @@ fail "chan only behind a handle", "a channel lives only behind a shared handle: 
 fail "chan holds no view", "a channel's values hold no loan, and a `?String` may hold a view"
   c = *Chan[?String](4)
 
-fail "chan arm outside select", "no method `on_recv`"
+fail "chan arm outside select", "`on_recv` makes an arm of `task.select`, and stands only as one of its arguments: `task.select((!c).on_recv(...), ...)`", errors: 1
   c = *Chan[Int](1)
   _ = (!c).on_recv(|v| v)
+
+fail "chan receive marked", "method `recv` needs `self` lent to write; write `(!c).recv()`: a channel changes as it sends and receives, and a change through a shared handle is marked with `!`", errors: 1
+  c = *Chan[Int](1)
+  !c.send(3) catch print("closed")
+  v = c.recv() catch none
+  print(v ?? 0)
 
 fail "chan select arm marked", "an arm receives or sends, which changes the channel: mark it, `(!c).on_recv(...)`"
   fun pick(c: *Chan[Int]) -> Int!

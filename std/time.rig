@@ -33,6 +33,11 @@ pub fun now() -> Instant
 # task or a set that can fail, whose tasks are canceled first. The tasks
 # `f` starts keep the deadline. Inside another deadline, the earlier
 # one holds, and the outer one is back once `f` returns.
+#
+# `within` calls `f` exactly once, and the checker relies on it: a
+# closure written in the call takes what it owns of its captures, so it
+# may move them out, `time.within(d, |<t| >t!)`, and drops the rest
+# (`SemContext.recordOnceClosure`).
 pub fun within[R](ns: Int, f: ?fun() -> R!) -> R!
   outer = enter_deadline(ns)
   defer restore_deadline(outer)
