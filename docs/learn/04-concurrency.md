@@ -638,9 +638,8 @@ channel, an actor, or a copy.
 `bin/rig run --seed=N FILE.rig`, and `rig test`, run concurrent code
 on one thread with a virtual clock. The seed picks which ready task
 runs next, so the same seed runs the same way again, and sleeps take
-no time. The suite runs every program in this chapter that way too,
-and each prints the same output. Journey 08, Tests that fail the same
-way twice, shows how to find a race with one seed and replay it.
+no time. [Tests that fail the same way twice](08-tests.md) shows how
+to find a race with one seed and replay it.
 
 ## Summary
 
@@ -678,6 +677,10 @@ the full model.
 
 ## Where to go next
 
+- [Text done right](05-text.md) is the next journey: what a character
+  is, and how Rig keeps text both fast and correct.
+- [Tests that fail the same way twice](08-tests.md) tests concurrent
+  code under a seed, so a failure replays.
 - [SPEC §18](../../SPEC.md#18-tasks) states every rule of tasks, sets,
   isolates, deadlines, actors, channels, and `par`.
 - [The launch post](../launch/post.md) measures what tasks and actors

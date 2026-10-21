@@ -4495,6 +4495,8 @@ doc/learn-02-ownership/ab206322570f main
 doc/learn-02-ownership/ae486b0562a3 longest
 doc/learn-02-ownership/da0926a793e5 main
 doc/learn-02-ownership/f760280c2daa main
+doc/learn-05-text/2ee81974a525 main
+doc/learn-06-stdlib/5909f4c068da main
 error.arg_then_write.destructure run
 error.arg_then_write.destructure_branch run
 error.arg_then_write.destructure_view run
