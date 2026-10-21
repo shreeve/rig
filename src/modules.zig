@@ -700,14 +700,18 @@ pub const ModuleGraph = struct {
         };
         m.sema.deinit();
         m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
-        // A `for` over an iterator is the `while` it means: typecheck found
-        // them, and no pass sees one once the tree is rewritten and the
-        // module checked again (docs/internals/INTERNALS.md, "Loops over an iterator").
-        if (m.sema.iter_loops.items.len > 0) {
-            try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
+        // A `for` over an iterator is the `while` it means, and a string
+        // literal where a `U8` or a `[N]U8` goes the byte or the bytes it
+        // holds: typecheck found them, and no pass sees one once the tree
+        // is rewritten and the module checked again
+        // (docs/internals/INTERNALS.md, "Loops over an iterator" and
+        // "Strings as bytes"). Each round rewrites what it found, so the
+        // rounds end.
+        while (m.sema.iter_loops.items.len > 0 or m.sema.byte_literals.items.len > 0) {
+            try m.parser.byteLiterals(m.ir, m.sema.byte_literals.items);
+            if (m.sema.iter_loops.items.len > 0) try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
             m.sema.deinit();
             m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
-            std.debug.assert(m.sema.iter_loops.items.len == 0);
         }
 
         // Ownership reads the types sema settled, so a module whose types
