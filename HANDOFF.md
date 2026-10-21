@@ -37,6 +37,32 @@ planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 Nothing is on a branch: `main` is the only one.
 
+## Next, in order
+
+Four areas, worked one at a time, each measured on Trig before it lands:
+
+1. **Bounds checks after an early return.** A guard proves an index
+   only on its true edge: `return 0 if i < 0 or i >= s.len` then `s[i]`
+   keeps the check, while the same test as `if ... ` around `s[i]` drops
+   it (docs/internals/backlog.md). Trig's code, ported from Go, guards
+   by early returns throughout. First count Trig's unproven checks that
+   follow one (`rig check --facts=proofs`), then teach `src/proofs.zig`
+   the false edge of a guard that leaves.
+2. **Memory.** Trig peaks at 459 MB on ts-pattern, tsrs at 215 MB.
+   Inline Lists (`List[T, inline: n]`) for Trig's short temporaries are
+   Trig's to adopt; on Rig's side, 4-byte stored hashes in Map and Set
+   (measured as fast, 4 bytes an entry fewer; backlog), then the waste
+   of the allocator's size classes, up to a fifth of a block.
+3. **Build speed.** `rig build` reuses no cached work (ROADMAP, "Cached
+   `rig build`"), and debug code pays round trips such as
+   `rig.lend(&rig.elemPtr(xs, j).*)` (ROADMAP, "Tighter generated code").
+4. **Two limits of the ownership checker** that make std code clumsy,
+   each a Core question for the owner first: a write view bound by
+   `if !@slots[j] as s` cannot be returned `from @`, though the read
+   form can; and an object's field cannot be moved out of it alone (no
+   partial moves). Together they keep a Map slot at 40 bytes rather
+   than 24 (backlog, "The Map's entries in its table slots").
+
 APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
 built in stages. Stage 1, method calls on a type parameter, and Stage 2,
 built-in bounds (`[T: Ord]`, `obj Version: Ord`, a type's own `eq`,
