@@ -241,6 +241,27 @@ So develop in Debug, and build a program you ship with `--release`
 unless a measurement says the checks cost too much. The terminal
 benchmark below times both release modes, and the gap is small.
 
+On Linux, a release build can also be laid out again by where it runs,
+with LLVM's BOLT. `--bolt` runs the workload after `--` under `perf`,
+which records the branches the program takes, and BOLT then puts the
+hot code together and the cold code apart. It changes no instruction's
+meaning, only where each one sits:
+
+```text
+$ bin/rig build --release --bolt -o prog prog.rig -- ./prog input.txt
+$ bin/rig build --release --bolt --bolt-profile=prog.fdata -o prog prog.rig -- ./prog input.txt
+$ bin/rig build --release --bolt --bolt-profile=prog.fdata -o prog prog.rig
+```
+
+The second keeps BOLT's profile, and the third lays a later build out by
+it with no workload, matching what has changed since. BOLT wants many
+samples: when the workload gives too few, `--bolt` says how many times
+more it would like, and a longer workload, or one that runs the program
+several times, gives them. It needs `perf`, and LLVM's `perf2bolt` and
+`llvm-bolt` (Ubuntu's `bolt-21`, for LLVM 21). On Trig, a TypeScript
+checker written in Rig, BOLT saved 7.6% to 7.9% of the cycles on
+projects its profile had not seen, with the same output.
+
 ## Sixteen bytes at a time
 
 `Simd[T, n]` is a vector of `n` lanes of one number type, held in one
