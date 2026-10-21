@@ -308,8 +308,7 @@ const copy_block = 64 << 10;
 
 fn copyRead(from: anytype, dest: []u8) anyerror!usize {
     if (@hasField(@TypeOf(from.*), "reg")) return readSome(@intCast(@field(from, "fd")), @field(from, "reg"), dest, .{});
-    try stopped();
-    var got = try (try rig.blockingStop(fileRead, .{ try dupFile(@field(from, "fd")), dest.len }));
+    var got = try fileRead(@field(from, "fd"), dest.len);
     defer rig.dropElement(rig.String, &got);
     @memcpy(dest[0..got.list.items.len], got.list.items);
     return got.list.items.len;
@@ -317,43 +316,85 @@ fn copyRead(from: anytype, dest: []u8) anyerror!usize {
 
 fn copyWrite(to: anytype, bytes: []const u8) anyerror!void {
     if (@hasField(@TypeOf(to.*), "reg")) return writeAll(@intCast(@field(to, "fd")), @field(to, "reg"), bytes, .{});
-    try stopped();
-    return try (try rig.blockingStop(fileWrite, .{ try dupFile(@field(to, "fd")), bytes }));
+    return fileWrite(@field(to, "fd"), bytes);
 }
 
-/// A file's descriptor, duplicated for a call on the blocking pool to own
-/// and close: the call is a fallible waiting point (`rig.blockingStop`),
-/// so it may run on after its task has stopped waiting and closed its
-/// own. Dropped with a result no one takes, it closes.
-const OwnedFd = struct {
-    fd: i32,
+// -----------------------------------------------------------------------------
+// A file's reads and writes on the blocking pool
+// -----------------------------------------------------------------------------
 
-    pub fn __rig_drop(self: *OwnedFd) void {
-        _ = sys.close(self.fd);
-    }
+/// Read up to `want` bytes of the file `fd` (a `file.File`'s, for it and
+/// `io.copy`) on the blocking pool, as a fallible waiting point: a fresh
+/// String of what it read, empty at the end of the file. The call works
+/// on a duplicate of `fd` (`lend`), so a task that stops waiting and
+/// closes its file leaves the call a descriptor of its own.
+pub fn fileRead(fd: i64, want: usize) (rig.Stop || FileError)!rig.String {
+    const token = try lend(fd);
+    defer takeBack(token);
+    return try (try rig.blockingStop(readLent, .{ token, want }));
+}
+
+/// Write all of `bytes` to the file `fd` on the blocking pool, as
+/// `fileRead` reads.
+pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
+    const token = try lend(fd);
+    defer takeBack(token);
+    return try (try rig.blockingStop(writeLent, .{ token, bytes }));
+}
+
+/// The descriptors lent to calls on the blocking pool, each a duplicate
+/// of a file's under a token. Whoever removes one owns it and closes it:
+/// the call, once it starts (`claim`), or else its caller, once the call
+/// has returned or the caller has stopped waiting (`takeBack`). So a
+/// call that never runs, because a cancel or a deadline came first, and
+/// one that starts after its caller stopped waiting, leave nothing open,
+/// and none uses a descriptor its task may have closed and the system
+/// given out again.
+const lent = struct {
+    var lock: rig.sched.SpinLock = .{};
+    var fds: std.AutoHashMapUnmanaged(u64, i32) = .empty;
+    var next: u64 = 1;
 };
 
-fn dupFile(fd: i64) FileError!OwnedFd {
-    while (true) {
+/// A token for a duplicate of `fd`, held in `lent`.
+fn lend(fd: i64) FileError!u64 {
+    const dup = while (true) {
         const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
         switch (posix.errno(rc)) {
-            .SUCCESS => return .{ .fd = @intCast(rc) },
+            .SUCCESS => break @as(i32, @intCast(rc)),
             .INTR => {},
             else => |e| return fileFailure(e),
         }
-    }
+    };
+    lent.lock.lock();
+    defer lent.lock.unlock();
+    const token = lent.next;
+    lent.next += 1;
+    lent.fds.put(std.heap.smp_allocator, token, dup) catch rig.oom();
+    return token;
 }
 
-/// A file's read and write, on the blocking pool, failing as
-/// `std.file`'s do: up to `want` bytes in a String of the call's own,
-/// since the pool copies a buffer it is given.
-fn fileRead(fd: OwnedFd, want: usize) FileError!rig.String {
-    var own = fd;
-    defer own.__rig_drop();
+/// The descriptor lent under `token`, now the caller's to close, or null
+/// when it was taken back already.
+fn claim(token: u64) ?i32 {
+    lent.lock.lock();
+    defer lent.lock.unlock();
+    const kv = lent.fds.fetchRemove(token) orelse return null;
+    return kv.value;
+}
+
+/// Close the descriptor lent under `token`, unless a call claimed it.
+fn takeBack(token: u64) void {
+    if (claim(token)) |fd| _ = sys.close(fd);
+}
+
+fn readLent(token: u64, want: usize) FileError!rig.String {
+    const fd = claim(token) orelse return error.@"std.file.FileError.failed";
+    defer _ = sys.close(fd);
     var s: rig.String = .empty;
     s.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), want) catch rig.oom();
     while (true) {
-        const rc = sys.read(own.fd, s.list.items.ptr, want);
+        const rc = sys.read(fd, s.list.items.ptr, want);
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 s.list.items.len = @intCast(rc);
@@ -368,12 +409,12 @@ fn fileRead(fd: OwnedFd, want: usize) FileError!rig.String {
     }
 }
 
-fn fileWrite(fd: OwnedFd, bytes: []const u8) FileError!void {
-    var own = fd;
-    defer own.__rig_drop();
+fn writeLent(token: u64, bytes: []const u8) FileError!void {
+    const fd = claim(token) orelse return error.@"std.file.FileError.failed";
+    defer _ = sys.close(fd);
     var at: usize = 0;
     while (at < bytes.len) {
-        const rc = sys.write(own.fd, bytes[at..].ptr, bytes.len - at);
+        const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
             .INTR => {},
@@ -382,7 +423,7 @@ fn fileWrite(fd: OwnedFd, bytes: []const u8) FileError!void {
     }
 }
 
-const FileError = error{
+pub const FileError = error{
     @"std.file.FileError.is_directory",
     @"std.file.FileError.denied",
     @"std.file.FileError.failed",
