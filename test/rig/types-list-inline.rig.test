@@ -80,3 +80,30 @@ fail "an inline list is a type of its own", "expected `?List[Int]`, got `?List[I
 
   xs = List[Int, inline: 4]()
   print(sum(?xs))
+
+test "list of its own enum", "3"
+  # A List with no inline room never asks its element's size, so an enum
+  # whose variant holds a List of itself lays out: inline room is a
+  # List's own choice, and costs a plain List nothing.
+
+  enum Value
+    num(n: Int)
+    items(xs: List[Value]?)
+
+  fun total(v: ?Value) -> Int
+    match v
+      .num(n) => n
+      .items(xs) => sum(xs)
+
+  fun sum(o: ?List[Value]?) -> Int
+    t = 0
+    if o as xs
+      for x in xs
+        t += total(x)
+    t
+
+  inner: List[Value] = List()
+  !inner.push(Value.num(n: 1))
+  !inner.push(Value.num(n: 2))
+  v = Value.items(xs: <inner)
+  print(total(?v))
