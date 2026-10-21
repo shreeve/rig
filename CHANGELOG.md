@@ -125,6 +125,10 @@ changed the language since it:
   works in a generic body on a `[]T` through the APIs a type gives, and
   a closure written at the call is inlined in a release build, as fast
   as the loop written out (docs/STD.md, "reduce").
+- **BOLT:** `rig build --release --bolt -- WORKLOAD` lays the
+  executable out again with LLVM's BOLT, by a `perf` profile of the
+  workload (Linux), and `--bolt-profile=FILE` keeps that profile or
+  lays a later build out by it.
 - **Compiler and tools:** a synthetic span outside its source reads as
   empty; the package cache and the build store have size caps;
   `src/parser.zig` is generated at build time from `rig.grammar`
