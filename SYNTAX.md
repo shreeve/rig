@@ -961,9 +961,13 @@ value. There is no `<T>` and no `comptime` keyword.
 | both | `sub rep[T, n: Int](x: T)` | `rep[?String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
 | a type with a value | `obj Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [4 of 0])` |
+| a type's value with a default | `obj Map[K, V, ordered: Bool = true]` | `Map[Int, Int]`, `Map[Int, Int, ordered: false]` |
 
 A method's own parameters sit beside its type's: inside `Wrap[T]`,
-`fun map[U]` has both `T` and `U`. A call gives every compile-time
+`fun map[U]` has both `T` and `U`. A type's value parameter may take a
+default, written `name: Type = value` after those without one; an
+instance may leave it out, and after the arguments in order may name
+it, `ordered: false`. A call gives every compile-time
 argument in brackets, or none and lets them be inferred
 ([SPEC §3](SPEC.md#generic-functions)). A function with no run-time
 parameters writes `()` after its brackets, in its declaration as in a
@@ -1837,7 +1841,7 @@ from      = "from" (name, ... | "static")
 keeps     = "keeps" name, ...
 sub       = "sub" [owner "."] name [tparams] params ["!"] [keeps] block
 owner     = name ["[" name, ... "]"] | name "." name   # the last parses only to be rejected
-tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
+tparams   = "[" (name | name ":" type | name ":" type "=" expr), ... "]"    # a type, a compile-time value, or one with a default
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "@"
 obj       = "obj" name [tparams] ["unique"] INDENT member* DEDENT

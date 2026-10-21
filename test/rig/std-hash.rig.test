@@ -172,6 +172,175 @@ test "hash churn", '''
   print(run(5, 40, 3000, 100), run(6, 9, 3000, 9))
   print(run_set(7, 6, 400, 0), run_set(8, 40, 4000, 0), run_set(9, 300, 6000, 50))
 
+test "hash unordered churn", "true true true true true true"
+  # A Map made `ordered: false` against the same reference as an ordered
+  # one, over the same run of puts, takes, gets, edits, `put_new`s,
+  # `ensure`s, `retain`s, `update`s, and clears: after every step they
+  # agree on the length and every key, and a walk of the Map, by `items`,
+  # `keys`, `values`, or `at`, meets each key it holds once, in an order
+  # of its own.
+  obj Pair
+    key: Int
+    value: Int
+    live: Bool
+
+  obj Model
+    pairs: List[Pair] = List()
+    len: Int = 0
+
+    fun find(?@, k: Int) -> Int?
+      for p, i in ?@pairs
+        return i if p.live and p.key == k
+      none
+
+    sub put(!@, k: Int, v: Int)
+      if @find(k) as i
+        @pairs[i].value = v
+      else
+        !@pairs.push(Pair(key: k, value: v, live: true))
+        @len += 1
+
+    fun take(!@, k: Int) -> Int?
+      if @find(k) as i
+        @pairs[i].live = false
+        @len -= 1
+        return @pairs[i].value
+      none
+
+    sub bump(!@, k: Int, by: Int)
+      if @find(k) as i
+        @pairs[i].value += by
+
+    sub bump_all(!@, by: Int)
+      for i in 0..@pairs.len
+        @pairs[i].value += by if @pairs[i].live
+
+    sub clear(!@)
+      !@pairs.clear()
+      @len = 0
+
+    sub retain(!@, raise: Int)
+      kept: List[Pair] = List()
+      for p in ?@pairs
+        if p.live and kept_after(p.key, p.value + raise)
+          !kept.push(Pair(key: p.key, value: p.value + raise, live: true))
+      @len = kept.len
+      @pairs = <kept
+
+  fun kept_after(k: Int, v: Int) -> Bool
+    (k / 1024 + v) % 3 != 0
+
+  fun raise_and_keep(k: ?Int, v: !Int) -> Bool
+    v += 2
+    kept_after(k, v)
+
+  sub add_three(k: ?Int, v: !Int)
+    v += 3
+
+  obj Rand
+    s: U64
+
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
+
+  fun agree(m: ?hash.Map[Int, Int, ordered: false], ref: ?Model, span: Int) -> Bool
+    return false if m.len != ref.len
+    for x in 0..span
+      k = x * 1024
+      want: Int? = none
+      if ref.find(k) as i
+        want = ref.pairs[i].value
+      got: Int? = none
+      if m.get(k) as v
+        got = v
+      return false if got != want or m.has(k) != (want != none)
+    # Each walk meets every key once, with its value.
+    seen = 0
+    for e in ?m.items()
+      if ref.find(e.key) as i
+        return false if ref.pairs[i].value != e.value
+      else
+        return false
+      seen += 1
+    keys = 0
+    for k in ?m.keys()
+      return false if ref.find(k) == none
+      keys += 1
+    values = 0
+    for _ in ?m.values()
+      values += 1
+    at = 0
+    while m.at(at) as k, v
+      if ref.find(k) as i
+        return false if ref.pairs[i].value != v
+      else
+        return false
+      at += 1
+    seen == ref.len and keys == ref.len and values == ref.len and at == ref.len
+
+  fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
+    r = Rand(s: seed)
+    m = hash.Map[Int, Int, ordered: false].new(capacity: reserve)
+    ref = Model()
+    for step in 0..steps
+      op = (!r).next(21)
+      k = (!r).next(span) * 1024
+      if op < 9
+        !m.put(k, step)
+        !ref.put(k, step)
+      else if op < 14
+        return false if (!m).take(k) != (!ref).take(k)
+      else if op < 15
+        if (!m).edit(k) as v
+          v += 1
+          !ref.bump(k, 1)
+      else if op < 16
+        return false if (!m).put_new(k, step) != (ref.find(k) == none)
+        !ref.put(k, step) if ref.find(k) == none
+      else if op < 18
+        c = (!m).ensure(k, step)
+        c += 1
+        !ref.put(k, step) if ref.find(k) == none
+        !ref.bump(k, 1)
+      else if op < 19
+        if (!r).next(10) == 0
+          !m.retain(|key, val| raise_and_keep(key, !val))
+          !ref.retain(2)
+      else if op < 20
+        if (!r).next(10) == 0
+          !m.update(add_three)
+          !ref.bump_all(3)
+      else if (!r).next(25) == 0
+        !m.clear()
+        !ref.clear()
+      return false if not agree(?m, ?ref, span)
+    true
+
+  print(run(1, 6, 400, 0), run(2, 12, 2000, 0), run(3, 40, 4000, 0), run(4, 300, 6000, 0), run(5, 40, 3000, 100), run(6, 9, 3000, 9))
+
+test "hash unordered owned", '''
+  3 v7
+  v7!
+  v0 3
+  gone vb
+'''
+  # An unordered Map of owned keys and values: a lookup by a view of the
+  # key, a value lent to write, a value taken out, and every key and
+  # value dropped with the Map, or as it grows.
+  m = hash.Map[String, String, ordered: false]()
+  for i in 0..3
+    !m.put(String("k", i * 7), String("v", i * 7))
+  print(m.len, m.get("k7") ?? "none")
+  if (!m).edit("k7") as v
+    !v.add("!")
+  print(m.get("k7") ?? "none")
+  !m.put(String("b"), String("vb"))
+  w = (!m).take("k0") ?? String("gone")
+  print(w, m.len)
+  x = (!m).take("k0") ?? String("gone")
+  print(x, m.get("b") ?? "none")
+
 test "hash compound keys", '''
   10 5 false
   10 5 false

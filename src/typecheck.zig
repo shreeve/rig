@@ -7187,17 +7187,20 @@ const Checker = struct {
     /// diagnostic.
     fn typeInstance(self: *Checker, e: Sexp, nt: NamedType) Error!TypeId {
         const params = nt.sym.type_params orelse &.{};
-        const given = sema.bracketArgs(e);
-        if (given.len != params.len) {
-            try self.errAt(e, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ nt.sym.name, params.len, resolve.argsNoun(self.ctx, params), plural(params.len), given.len });
-            return self.t().invalid_id;
-        }
-        const args = try self.ctx.arena.allocator().alloc(TypeId, given.len);
+        const placed = (try resolve.placeArgs(self.ctx, nt.sym.name, params, sema.bracketArgs(e), self.startOf(e))) orelse return self.t().invalid_id;
+        const args = try self.ctx.arena.allocator().alloc(TypeId, params.len);
         var bad = false;
         // What a task gives may fail: `Tasks[Int!]()`.
         const gives = nt.id == self.ctx.task_sym_id or nt.id == self.ctx.tasks_sym_id;
-        for (given, args, params, 0..) |g, *a, tp, i| {
-            a.* = if (self.ctx.symbols.items[tp].kind == .param)
+        for (placed, args, params, 0..) |given, *a, tp, i| {
+            const g = given orelse {
+                a.* = self.ctx.ct_defaults.get(tp) orelse self.t().invalid_id;
+                continue;
+            };
+            a.* = if (self.ctx.symbols.items[tp].kind == .param and self.ctx.types.get(self.ctx.symbols.items[tp].ty) == .bool) blk: {
+                var r = self.resolver();
+                break :blk try r.resolveCtBool(g, .{ .param = tp, .owner = nt.sym.name, .index = i });
+            } else if (self.ctx.symbols.items[tp].kind == .param)
                 (try self.ctIntArg(g, tp, i, nt.sym.name)) orelse self.t().invalid_id
             else if (gives and g.isKind(.propagate)) blk: {
                 const inner = try self.typeArg(ir.Propagate.value(g));
@@ -10168,7 +10171,7 @@ const Checker = struct {
         if (p.kind != .param or self.isPoison(p.ty)) return true;
         const from = if (b.expected) "the type expected of the result" else try self.ctx.arena.allocator().print("argument {d}", .{b.arg});
         switch (self.ctx.types.get(b.ty)) {
-            .ct_value => |v| if (!sema.intFits(self.ctx, p.ty, v.int)) {
+            .ct_value => |v| if (v == .int and !sema.intFits(self.ctx, p.ty, v.int)) {
                 const name = try self.tyName(p.ty);
                 try self.err(pos, "{s} gives `{s}` of `{s}` the value `{d}`, which {s} `{s}` cannot hold", .{ from, p.name, callee, v.int, resolve.an(name), name });
                 return false;
@@ -16870,12 +16873,12 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .copies => sema.copies(ctx, ty) != .no,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
         .lane_count => switch (ctx.types.get(ty)) {
-            .ct_value => |v| sema.lanesInRange(v.int),
+            .ct_value => |v| v == .int and sema.lanesInRange(v.int),
             else => false,
         },
         .sized => !sema.holdsVector(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {
-            .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
+            .ct_value => |v| v == .int and v.int >= 0 and v.int <= sema.max_array_len,
             else => false,
         },
         .equatable => sema.isEquatable(ctx, ty),

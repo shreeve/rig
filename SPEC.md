@@ -2515,17 +2515,25 @@ timed out
 `obj Name[T, ...]` declares a generic object and `enum Name[T, ...]`
 a generic enum; `error Name[T]` is rejected, and so is an object declared
 with `type`, which only names an [alias](#type-aliases). Their
-parameters are type parameters and compile-time integers
-([§16](#16-compile-time-parameters)): `obj Ring[T, n: Int]`. A value
-parameter is named in the type's fields and methods, as an array length
-(`items: [n]T`) or as a value in a method's body.
+parameters are type parameters and compile-time integers and `Bool`s
+([§16](#16-compile-time-parameters)): `obj Ring[T, n: Int]`,
+`obj Map[K, V, ordered: Bool = true]`. A value parameter is named in
+the type's fields and methods, as an array length (`items: [n]T`) or as
+a value in a method's body. A value parameter may take a default, a
+constant; those with one come last, and an instance that leaves one out
+takes its default (`Map[K, V]` is `Map[K, V, ordered: true]`).
 An instance names its compile-time arguments in brackets, in a type
 (`Pair[Int, ?String]`, `Ring[Int, LIMIT * 2]`) or in an expression:
 `Wrap[Int](value: 3)`, `List[Int]()`, `Option[Int].some(7)`,
 `Pair[Int, ?String].make(1, "x")`, `Ring[Int, 4].new(0)`. A value
 argument is a compile-time integer, as an array length is, that the
-parameter's type holds; the same value names the same type, so
-`Ring[Int, 2 + 2]` is `Ring[Int, 4]`. Without them, a constructor takes them
+parameter's type holds, or a compile-time `Bool`: `true`, `false`, a
+`Bool` constant, or a compile-time `Bool` parameter. After the arguments
+in order, an argument may name its value parameter, `Map[Int, Int,
+ordered: false]`, once. The same values name the same type, so
+`Ring[Int, 2 + 2]` is `Ring[Int, 4]` and `Map[Int, Int, ordered: true]`
+is `Map[Int, Int]`, and a type's name leaves out an argument its default
+gives and names any other of a parameter with a default. Without them, a constructor takes them
 from the expected type when there is one, and otherwise infers them
 from the values that fill it: a constructor's fields
 (`Pair(first: 1, second: "x")` is a `Pair[Int, ?String]`, and
@@ -2604,17 +2612,46 @@ sub main()
 [7, 0, 0] 3 4
 ```
 
+A `Bool` value parameter with a default chooses between two forms of
+a type, whose methods read it as a value:
+
+```rig
+obj Gauge[T, wide: Bool = false]
+  v: T
+
+  fun cells(?@) -> Int
+    8 if wide else 1
+
+sub main()
+  a: Gauge[Int] = Gauge[Int](v: 1)
+  b = Gauge[Int, wide: true](v: 2)
+  print(a.cells(), b.cells(), Gauge[Int, true](v: 3).cells())
+```
+
+```output
+1 8 8
+```
+
 ```rig reject
-obj Flag[on: Bool]
+enum Mode
+  fast
+  slow
+
+obj Flag[m: Mode]
   first: Int
+
+obj Gauge[T, wide: Bool = false]
+  v: T
 
 sub main()
   v = List[Int, Int]()
+  g: Gauge[Int, tall: true] = Gauge[Int](v: 1)
 ```
 
 ```error
-a compile-time value parameter of a type is an integer; `on` has the type `Bool`
+a compile-time value parameter of a type is an integer or a `Bool`; `m` has the type `Mode`
 generic type `List` expects 1 type argument, got 2
+`Gauge` has no compile-time parameter `tall`
 ```
 
 ### Generic functions
@@ -9756,7 +9793,8 @@ name, before any run-time parameters: a bare name is a **type
 parameter** and `name: Type` a **compile-time value**
 ([SYNTAX §8](SYNTAX.md#generics-and-compile-time-parameters)).
 Functions, `sub`s, methods, and associated functions take both kinds; generic types take type parameters and
-integer values ([generic types](#generic-types)); `main` takes none.
+integer and `Bool` values, which may take defaults
+([generic types](#generic-types)); `main` takes none.
 Each lowers to a Zig `comptime` parameter, a type parameter as
 `comptime T: type`.
 
@@ -9767,8 +9805,9 @@ the declaration may reuse it, and the same holds for a generic type's
 value parameters. A compile-time value's type is a number, `Bool`,
 `?String`, an enum whose variants carry nothing, or an optional of one
 of these, and it cannot mention a type parameter; on a generic type it
-is an integer. An integer compile-time value sizes arrays
-([arrays](#arrays)).
+is an integer or a `Bool`, and may take a default there, a constant
+(`ordered: Bool = true`), which a function's never does. An integer
+compile-time value sizes arrays ([arrays](#arrays)).
 
 A call gives the compile-time arguments in brackets after the callee,
 before its run-time arguments (`check[.strict](5)`, `s.times[5]()`,

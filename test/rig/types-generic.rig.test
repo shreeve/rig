@@ -2610,8 +2610,9 @@ fail "generic type param called", "5:3: `T` is a type parameter; it cannot be ca
 
   print(f(3), g[Int](1), h(3), Wrap(v: 1).make(3))
 
-fail "generic type value param", "7:14: a compile-time value parameter of a type is an integer; `m` has the type `Mode`"
-  # A generic type's compile-time value parameter is an integer.
+fail "generic type value param", "8:14: a compile-time value parameter of a type is an integer or a `Bool`; `m` has the type `Mode`"
+  # A generic type's compile-time value parameter is an integer or a
+  # `Bool`.
 
   enum Mode
     fast
@@ -2621,6 +2622,56 @@ fail "generic type value param", "7:14: a compile-time value parameter of a type
     first: Int
 
   print(1)
+
+test "generic type bool param", "100 1 1"
+  # A generic type's `Bool` value parameter may take a default; an
+  # instance that leaves it out takes the default, and one may name it.
+  obj Box2[T, big: Bool = true]
+    v: T
+
+    fun size(?@) -> Int
+      100 if big else 1
+
+  a: Box2[Int] = Box2[Int](v: 1)
+  b = Box2[Int, big: false](v: 2)
+  c: Box2[Int, false] = Box2[Int, big: false](v: 3)
+  print(a.size(), b.size(), c.size())
+
+fail "generic type bool param shown", "expected `Box2[Int, big: false]`, got `Box2[Int]`", errors: 1
+  # An instance's type leaves out an argument its default gives, and
+  # names one after it.
+  obj Box2[T, big: Bool = true]
+    v: T
+
+  b: Box2[Int, big: false] = Box2[Int, true](v: 2)
+  print(b.v)
+
+fail "generic type default args", "8:16: `Box2` has no compile-time parameter `small`", "9:27: `big` of `Box2` is given twice", "10:22: a compile-time argument in order comes before those that name their parameter", "11:6: generic type `Box2` expects 1 to 2 compile-time arguments, got 3", "12:16: compile-time argument 2 of `Box2` is `3`, which `big` takes as a `Bool` known at compile time", errors: 5
+  # A name gives a compile-time value of the type, once, after the
+  # arguments in order.
+  obj Box2[T, big: Bool = true]
+    v: T
+
+  sub main()
+    a = 1
+    b: Box2[Int, small: true] = Box2[Int](v: 1)
+    d: Box2[Int, big: true, big: false] = Box2[Int](v: 1)
+    e: Box2[big: true, Int] = Box2[Int](v: 1)
+    f: Box2[Int, true, false] = Box2[Int](v: 1)
+    g: Box2[Int, 3] = Box2[Int](v: 1)
+    print(a)
+
+fail "generic default placement", "1:21: `big` has no default and follows a parameter with one", errors: 1
+  obj Two[a: Int = 1, big: Bool]
+    v: Int
+
+  print(Two[2, true](v: 1).v)
+
+fail "generic function default", "1:19: a function's compile-time parameter takes no default", errors: 1
+  fun pick[n: Int = 3]() -> Int
+    n
+
+  print(pick[1]())
 
 test "generic unused type param", '''
   1

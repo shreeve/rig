@@ -924,6 +924,18 @@ and what holds one. Text hashes and compares by its bytes, so a
 `Map[?String, V]` holds views. Each instance is checked for its key
 type, as any generic is.
 
+`hash.Map[K, V, ordered: false]` keeps no order: its walks (`items`,
+`keys`, `values`, `at`) meet each entry once in an order of their own,
+which changes as the Map grows. It has the same members and the same
+ownership, and keeps each key and value in its table's slot, beside the
+slot's tag, so a lookup reads one tag and, when it matches, that slot,
+where an ordered Map reads a tag, the index beside it, then the entry.
+For lookups that do not follow the order keys were put in, it is about
+twice as fast with `Int` keys and a fifth faster with `String` keys; its
+`put` of a new key grows the table by hashing each key again, so filling
+one is slower, and its table, at most three quarters full, holds each
+key and value with its slot.
+
 | Member | Signature | Ownership |
 |---|---|---|
 | `hash.Map[K, V]()`, `hash.Map[K, V].new(capacity: n)` | `fun new(capacity: Int = 0) -> Map[K, V]` | an empty Map, which allocates nothing until the first `put`, or with room for `n` entries |

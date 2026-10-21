@@ -475,7 +475,7 @@ const SymbolResolver = struct {
             // Detached: reached through the type's `type_params`. A bare
             // name is a type parameter; `n: Int` a compile-time value,
             // whose type `resolveNominal` resolves.
-            const value = p.isKind(.@":");
+            const value = p.isKind(.@":") or p.isKind(.default);
             const pid = try self.ctx.addSymbol(.{
                 .name = pname,
                 .kind = if (value) .param else .generic_param,
@@ -1085,6 +1085,65 @@ pub const ConstNames = struct {
 
 /// "type" when a generic type's parameters are all types, and
 /// "compile-time" when some are values.
+/// Each compile-time argument `given` writes for a generic type `owner`
+/// of parameters `params`, in their order: the arguments in order, then
+/// those that name their parameter (`ordered: false`), and null for a
+/// parameter with a default that none gives (`SemContext.ct_defaults`).
+/// Null after a diagnostic at `pos` or at the argument.
+pub fn placeArgs(ctx: *SemContext, owner: []const u8, params: []const SymbolId, given: []const Sexp, pos: u32) std.mem.Allocator.Error!?[]?Sexp {
+    const out = try ctx.arena.allocator().alloc(?Sexp, params.len);
+    @memset(out, null);
+    var next: usize = 0;
+    var named = false;
+    for (given) |g| {
+        if (g.isKind(.kwarg)) {
+            named = true;
+            const name = identAt(ctx.source, ir.Kwarg.name(g)) orelse continue;
+            const at = for (params, 0..) |p, i| {
+                if (std.mem.eql(u8, ctx.symbols.items[p].name, name)) break i;
+            } else {
+                try ctx.errAt(ir.Kwarg.name(g), "`{s}` has no compile-time parameter `{s}`", .{ owner, name });
+                return null;
+            };
+            if (ctx.symbols.items[params[at]].kind != .param) {
+                try ctx.errAt(ir.Kwarg.name(g), "`{s}` of `{s}` is a type parameter, given in order; a name gives a compile-time value", .{ name, owner });
+                return null;
+            }
+            if (out[at] != null) {
+                try ctx.errAt(ir.Kwarg.name(g), "`{s}` of `{s}` is given twice", .{ name, owner });
+                return null;
+            }
+            out[at] = ir.Kwarg.value(g);
+            continue;
+        }
+        if (named) {
+            try ctx.errAt(g, "a compile-time argument in order comes before those that name their parameter", .{});
+            return null;
+        }
+        if (next >= params.len) break;
+        out[next] = g;
+        next += 1;
+    }
+    var required: usize = 0;
+    for (params) |p| {
+        if (!ctx.ct_defaults.contains(p)) required += 1;
+    }
+    const positional = for (given, 0..) |g, i| {
+        if (g.isKind(.kwarg)) break i;
+    } else given.len;
+    const missing = for (params, out) |p, o| {
+        if (o == null and !ctx.ct_defaults.contains(p)) break true;
+    } else false;
+    if (positional > params.len or missing) {
+        const noun = argsNoun(ctx, params);
+        if (required == params.len) {
+            try ctx.err(pos, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ owner, params.len, noun, if (params.len == 1) @as([]const u8, "") else "s", given.len });
+        } else try ctx.err(pos, "generic type `{s}` expects {d} to {d} {s} arguments, got {d}", .{ owner, required, params.len, noun, given.len });
+        return null;
+    }
+    return out;
+}
+
 pub fn argsNoun(ctx: *const SemContext, tparams: []const SymbolId) []const u8 {
     for (tparams) |tp| if (ctx.symbols.items[tp].kind == .param) return "compile-time";
     return "type";
@@ -1265,6 +1324,10 @@ pub const TypeResolver = struct {
     /// parameter (`n: Int`) is its type, which may not depend on a type
     /// parameter.
     fn resolveCtParam(self: *TypeResolver, p: Sexp) Error!TypeId {
+        if (p.isKind(.default)) {
+            try self.ctx.errAt(ir.get(p, .value), "a function's compile-time parameter takes no default: its compile-time arguments are all given, or all inferred; a default is a type's", .{});
+            return self.ctx.types.invalid_id;
+        }
         if (p != .src) {
             const ty = try self.resolveParamType(p);
             const type_node = ir.get(p, .type);
@@ -1736,7 +1799,7 @@ pub const TypeResolver = struct {
         var names: std.StringHashMapUnmanaged(u32) = .empty;
         defer names.deinit(self.ctx.allocator);
         const sym_name = self.ctx.symbols.items[sym_id].name;
-        if (generic) try self.resolveValueParams(ir.get(node, .tparams));
+        if (generic) try self.resolveValueParams(ir.get(node, .tparams), sym_name);
         // Only a plain enum, without payloads or generic parameters, has
         // values, which its variants' fields record (`Field.value`).
         const plain_enum = head == .@"enum" and for (members) |m| {
@@ -1846,19 +1909,63 @@ pub const TypeResolver = struct {
     }
 
     /// The types of a generic type's compile-time value parameters
-    /// (`n: Int`), which are integers.
-    fn resolveValueParams(self: *TypeResolver, tparams: Sexp) Error!void {
-        for (tparams.items()) |p| {
-            if (!p.isKind(.@":")) continue;
+    /// (`n: Int`, `ordered: Bool = true`), each an integer or a `Bool`,
+    /// and their defaults (`SemContext.ct_defaults`), which come last.
+    fn resolveValueParams(self: *TypeResolver, tparams: Sexp, owner: []const u8) Error!void {
+        var defaulted = false;
+        for (tparams.items(), 0..) |p, i| {
+            if (p.isKind(.default)) defaulted = true else if (defaulted) {
+                try self.ctx.errAt(sema.paramNameNode(p) orelse p, "`{s}` has no default and follows a parameter with one; a type's parameters with defaults come last, so the others are given in order", .{sema.paramName(self.ctx.source, p) orelse "_"});
+            }
+            if (!p.isKind(.@":") and !p.isKind(.default)) continue;
             const id = self.ctx.symbolOf(ir.get(p, .name)) orelse continue;
             const type_node = ir.get(p, .type);
             var ty = try self.resolveType(type_node);
-            if (!self.isPoison(ty) and self.ctx.types.get(ty) != .int) {
-                try self.ctx.errAt(type_node, "a compile-time value parameter of a type is an integer; `{s}` has the type `{s}`", .{ self.ctx.symbols.items[id].name, try sema.formatType(self.ctx, ty) });
+            const kind = self.ctx.types.get(ty);
+            if (!self.isPoison(ty) and kind != .int and kind != .bool) {
+                try self.ctx.errAt(type_node, "a compile-time value parameter of a type is an integer or a `Bool`; `{s}` has the type `{s}`", .{ self.ctx.symbols.items[id].name, try sema.formatType(self.ctx, ty) });
                 ty = self.ctx.types.invalid_id;
             }
             self.ctx.symbols.items[id].ty = ty;
+            if (!p.isKind(.default) or self.isPoison(ty)) continue;
+            const value = ir.get(p, .value);
+            const arg: CtArg = .{ .param = id, .owner = owner, .index = i };
+            const d = if (kind == .bool) try self.resolveCtBool(value, arg) else try self.resolveCtInt(value, .{ .arg = .{ .param = id, .owner = owner, .index = i } });
+            if (self.isPoison(d)) continue;
+            if (self.ctx.types.get(d) != .ct_value) {
+                try self.ctx.errAt(value, "the default of `{s}` is a constant: a literal or a module's constant", .{self.ctx.symbols.items[id].name});
+                continue;
+            }
+            try self.ctx.ct_defaults.put(self.ctx.allocator, id, d);
         }
+    }
+
+    /// A compile-time argument and the parameter it is given for.
+    pub const CtArg = struct { param: SymbolId, owner: []const u8, index: usize };
+
+    /// A compile-time `Bool` given for the parameter `a.param`: `true`
+    /// or `false`, a `Bool` constant of a module, or a compile-time
+    /// `Bool` parameter, whose `ct_param` it is. Poison after a
+    /// diagnostic.
+    pub fn resolveCtBool(self: *TypeResolver, node: Sexp, a: CtArg) Error!TypeId {
+        const t = &self.ctx.types;
+        if (node == .src) if (identAt(self.ctx.source, node)) |name| {
+            if (std.mem.eql(u8, name, "true")) return sema.ctBool(self.ctx, true);
+            if (std.mem.eql(u8, name, "false")) return sema.ctBool(self.ctx, false);
+            const own = for (self.nominal.type_params) |tp| {
+                if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) break tp;
+            } else null;
+            if (own orelse self.lookupCt(node)) |id| {
+                const sym = self.ctx.symbols.items[id];
+                try self.ctx.recordName(node, id);
+                if (sym.kind == .param and sym.flags.comptime_known) {
+                    if (self.isPoison(sym.ty)) return t.invalid_id;
+                    if (t.get(sym.ty) == .bool) return self.ctx.intern(.{ .ct_param = id });
+                } else if (sema.constScalar(.{ .ctx = self.ctx, .id = id })) |c| if (c == .boolean) return sema.ctBool(self.ctx, c.boolean);
+            }
+        };
+        try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, which `{s}` takes as a `Bool` known at compile time: `true`, `false`, a `Bool` constant, or a compile-time `Bool` parameter", .{ a.index + 1, a.owner, try self.sourceText(node), self.ctx.symbols.items[a.param].name });
+        return t.invalid_id;
     }
 
     /// Whether `ty`, written `node` inside another type, is or holds a
@@ -2431,7 +2538,7 @@ pub const TypeResolver = struct {
             }
         }
         switch (self.ctx.types.get(ct)) {
-            .ct_value => |v| switch (use) {
+            .ct_value => |v| if (v == .int) switch (use) {
                 .array_len => if (v.int < 0 or v.int > sema.max_array_len) {
                     try self.ctx.errAt(node, "array length {d} is out of range: an array length runs from 0 to {d}", .{ v.int, sema.max_array_len });
                     return t.invalid_id;
@@ -2788,20 +2895,23 @@ pub const TypeResolver = struct {
         const sym = self.ctx.symbols.items[sym_id];
         const name = sym.name;
         const tparams = sym.type_params orelse &.{};
-        const supplied = ir.GenericInst.args(sexp);
-        if (supplied.len != tparams.len) {
-            try self.ctx.err(pos, "generic type `{s}` expects {d} {s} argument{s}, got {d}", .{ name, tparams.len, argsNoun(self.ctx, tparams), if (tparams.len == 1) @as([]const u8, "") else "s", supplied.len });
-            return t.invalid_id;
-        }
+        const placed = (try placeArgs(self.ctx, name, tparams, ir.GenericInst.args(sexp), pos)) orelse return t.invalid_id;
         var args: std.ArrayList(TypeId) = .empty;
         defer args.deinit(self.ctx.allocator);
         var any_bad = false;
         // What a task gives may fail: `Task[Int!]`, `Tasks[Int!]` name a
         // call's result.
         const gives = sym_id == self.ctx.task_sym_id or sym_id == self.ctx.tasks_sym_id;
-        for (supplied, tparams, 0..) |a, tp, i| {
+        for (placed, tparams, 0..) |given, tp, i| {
+            const a = given orelse {
+                try args.append(self.ctx.allocator, self.ctx.ct_defaults.get(tp) orelse t.invalid_id);
+                continue;
+            };
             const arg = if (self.ctx.symbols.items[tp].kind == .param)
-                try self.resolveCtInt(a, .{ .arg = .{ .param = tp, .owner = name, .index = i } })
+                (if (self.ctx.types.get(self.ctx.symbols.items[tp].ty) == .bool)
+                    try self.resolveCtBool(a, .{ .param = tp, .owner = name, .index = i })
+                else
+                    try self.resolveCtInt(a, .{ .arg = .{ .param = tp, .owner = name, .index = i } }))
             else if (gives and a.isKind(.error_union)) blk: {
                 const inner = try self.resolveType(ir.ErrorUnion.type(a));
                 break :blk if (sema.containsPoison(self.ctx, inner)) inner else try self.ctx.intern(.{ .fallible = inner });
@@ -2868,8 +2978,8 @@ pub fn simdInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!Type
         return t.invalid_id;
     }
     switch (t.get(len)) {
-        .ct_value => |v| if (!sema.lanesInRange(v.int)) {
-            try ctx.err(pos, "a lane count is a power of two from 2 to 64; got {d}", .{v.int});
+        .ct_value => |v| if (v != .int or !sema.lanesInRange(v.int)) {
+            try ctx.err(pos, "a lane count is a power of two from 2 to 64; got {s}", .{try sema.formatType(ctx, len)});
             return t.invalid_id;
         },
         .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .lane_count, .pos = pos, .op = "a lane count" }),

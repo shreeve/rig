@@ -757,6 +757,7 @@ tfields  = tfield                                   → (1)
 
 tfield   = name
          | name:name ":" type:type                  → (:)
+         | name:name ":" type:type "=" value:expr   → (default)   # `ordered: Bool = true`, a type's
 
 # Written out rather than `L(field)`, which conflicts with a trailing
 # comma.
@@ -905,6 +906,15 @@ targ     = type
          | "-" operand:INTEGER                      → (neg)
          | "(" INTEGER ")"                          → 2
          | cexp
+         | TRUE
+         | FALSE
+         | name:name ":" value:tvalue               → (kwarg)     # `ordered: false`
+
+# A compile-time value named in a type's brackets.
+tvalue   = cexp
+         | TRUE
+         | FALSE
+         | "-" operand:INTEGER                      → (neg)
 
 # An array size: an integer, a name (a constant or a compile-time
 # parameter), a module's constant, or arithmetic on them, any of them
@@ -1171,9 +1181,14 @@ args     = callargs                                 → 1
 # Two or more compile-time arguments (`Pair[Int, String]`); sema reads
 # one (`Vec[Int]`, an `index`) as compile-time arguments or an index by
 # what the object names.
-targs    = expr ","                                 → (1)
-         | expr "," expr                            → (1 3)
-         | expr "," targs                           → (1 ...3)
+targs    = targe ","                                → (1)
+         | targe "," targe                          → (1 3)
+         | targe "," targs                          → (1 ...3)
+
+# A compile-time argument in an expression's brackets: a value or a type,
+# or a value its parameter names, `ordered: false`.
+targe    = expr
+         | name:name ":" value:expr                 → (kwarg)
 
 callargs = callarg                                  → (1)
          | callargs "," callarg                     → (...1 3)

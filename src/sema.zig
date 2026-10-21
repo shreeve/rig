@@ -133,7 +133,7 @@ pub const SimdType = struct { elem: TypeId, len: TypeId };
 /// on them.
 pub const Wide = i256;
 
-pub const CtValue = union(enum) { int: Wide };
+pub const CtValue = union(enum) { int: Wide, bool: bool };
 
 /// The largest array length: lengths run from 0 to 2^32 - 1.
 pub const max_array_len: Wide = std.math.maxInt(u32);
@@ -2281,6 +2281,10 @@ pub const SemContext = struct {
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
     ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
+    /// A generic type's compile-time value parameter with a default
+    /// (`ordered: Bool = true`) -> the default, a `ct_value`, which an
+    /// instance that does not name the parameter takes.
+    ct_defaults: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: std.AutoHashMapUnmanaged(ForeignRef, SymbolId) = .empty,
@@ -2449,6 +2453,7 @@ pub const SemContext = struct {
         self.const_ints.deinit(self.allocator);
         self.consumed.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
+        self.ct_defaults.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
         var index = self.generic_index.valueIterator();
@@ -4752,7 +4757,7 @@ pub fn typeChildren(ctx: *const SemContext, ty: TypeId) TypeChildren {
 /// range, which the instance that gives it is rejected for.
 pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
     return switch (ctx.types.get(a.len)) {
-        .ct_value => |v| if (v.int < 0 or v.int > max_array_len) null else @intCast(v.int),
+        .ct_value => |v| if (v != .int or v.int < 0 or v.int > max_array_len) null else @intCast(v.int),
         else => null,
     };
 }
@@ -4763,7 +4768,7 @@ pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
 /// reported where it is written.
 pub fn simdLen(ctx: *const SemContext, v: SimdType) ?u64 {
     return switch (ctx.types.get(v.len)) {
-        .ct_value => |c| if (lanesInRange(c.int)) @intCast(c.int) else null,
+        .ct_value => |c| if (c == .int and lanesInRange(c.int)) @intCast(c.int) else null,
         else => null,
     };
 }
@@ -5058,6 +5063,11 @@ fn checkTypeSizes(ctx: *SemContext, order: []const SymbolId) std.mem.Allocator.E
 /// The `ct_value` of the integer `v`.
 pub fn ctInt(ctx: *SemContext, v: Wide) std.mem.Allocator.Error!TypeId {
     return ctx.intern(.{ .ct_value = .{ .int = v } });
+}
+
+/// The `ct_value` of the `Bool` `v`.
+pub fn ctBool(ctx: *SemContext, v: bool) std.mem.Allocator.Error!TypeId {
+    return ctx.intern(.{ .ct_value = .{ .bool = v } });
 }
 
 /// Does a value of this type need its destructor run: a `*T` / `~T`
@@ -7544,6 +7554,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     for (foreign.generic_requirements.items) |r| if (r.param == origin.sym) {
         try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id });
     };
+    if (foreign.ct_defaults.get(origin.sym)) |d| try ctx.ct_defaults.put(ctx.allocator, proxy, try importType(ctx, foreign, d, m));
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
         try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .module_id = if (r.module_id == 0) m else r.module_id });
     };
@@ -7953,9 +7964,12 @@ const TypePrinter = struct {
             .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
             else
-                try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
+                try p.instance(ctx.symbols.items[pn.sym].name, try p.typeArgs(pn.sym, pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),
-            .ct_value => |v| try a.print("{d}", .{v.int}),
+            .ct_value => |v| switch (v) {
+                .int => |n| try a.print("{d}", .{n}),
+                .bool => |b| if (b) "true" else "false",
+            },
             .results => |parts| try a.print("({s})", .{try p.list(parts)}),
         };
     }
@@ -7982,6 +7996,26 @@ const TypePrinter = struct {
     /// Generic type `name` at arguments `args`: `Pair[Int, ?String]`.
     fn instance(p: TypePrinter, name: []const u8, args: []const u8) std.mem.Allocator.Error![]const u8 {
         return p.a.print("{s}[{s}]", .{ name, args });
+    }
+
+    /// The arguments of an instance of the generic type `sym`, as they
+    /// are written: an argument its parameter's default gives is left
+    /// out, and any other for a parameter with a default names it
+    /// (`Map[Int, Int, ordered: false]`).
+    fn typeArgs(p: TypePrinter, sym: SymbolId, args: []const TypeId) std.mem.Allocator.Error![]const u8 {
+        const params = p.ctx.symbols.items[sym].type_params orelse return p.list(args);
+        if (params.len != args.len) return p.list(args);
+        var buf: std.ArrayList(u8) = .empty;
+        var first = true;
+        for (params, args) |tp, arg| {
+            const default = p.ctx.ct_defaults.get(tp);
+            if (default == arg) continue;
+            if (!first) try buf.appendSlice(p.a, ", ");
+            first = false;
+            if (default != null) try buf.print(p.a, "{s}: ", .{p.ctx.symbols.items[tp].name});
+            try buf.appendSlice(p.a, try p.id(arg));
+        }
+        return buf.items;
     }
 
     /// Types separated by `, `.

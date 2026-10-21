@@ -1,6 +1,7 @@
 # std.hash: Map and Set, hash tables written in Rig over Lists, that
 # keep their entries in the order they were first put in, and Symbols,
-# which gives strings dense ids. A key is any value `.hash()` takes:
+# which gives strings dense ids. `Map[K, V, ordered: false]` keeps no
+# order, for a lookup of one probe and one load (below). A key is any value `.hash()` takes:
 # what `==` compares, less a float and what holds one. Text keys hash
 # and compare by their bytes, so a `Map[String, V]` finds a key from a
 # `Static` or a `?String` as well as from a String.
@@ -17,6 +18,14 @@
 # of its key's hash with the high bit set (`tag_of`), so a probe compares
 # a key only when its tag matches, and `at[i]` is its entry's index. Taking an entry shifts the slots after it back, so the
 # table keeps no tombstones; growing it drops the entries taken.
+#
+# A Map made `ordered: false` keeps no entries List: its `Slot`s are the
+# table's, one beside each tag, each holding its key and value inline, so
+# a lookup reads a tag and, when it matches, the slot beside it, and
+# stores no hash (growing hashes each key again), and its table is kept
+# at most three quarters full. Its iteration order is
+# the slots', which changes as it grows: no order is promised. Taking a
+# key shifts the slots after it back, as in the ordered table.
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
@@ -27,6 +36,12 @@ pub obj Item[K, V]
 # until the entries are next compacted.
 obj Entry[K, V]
   key: K
+  value: V?
+
+# One slot of an unordered Map's table: a key and its value, both
+# `none` while the slot is free.
+obj Slot[K, V]
+  key: K?
   value: V?
 
 # Entries a Map, Set, or Symbols holds before it builds a table: up to
@@ -89,23 +104,31 @@ obj Table
       !@at.push(0)
 
 # `hash.Map[K, V]()` is an empty Map, which allocates nothing until the
-# first `put`.
-pub obj Map[K, V]
+# first `put`. `ordered` keeps the entries in the order their keys were
+# first put in; `hash.Map[K, V, ordered: false]` keeps no order, and is
+# the faster to look up in.
+pub obj Map[K, V, ordered: Bool = true]
   # How many entries the Map holds.
   pub ?len: Int = 0
   es: List[Entry[K, V]] = List()
   hs: List[U64] = List()
   table: Table = Table()
+  # The unordered Map's slots, one beside each of `table.tags`.
+  slots: List[Slot[K, V]] = List()
 
   # An empty Map, as `Map[K, V]()` is, with room for `capacity` entries.
-  pub fun new(capacity: Int = 0) -> Map[K, V]
-    m = Map[K, V]()
+  pub fun new(capacity: Int = 0) -> Map[K, V, ordered]
+    m = Map[K, V, ordered]()
     !m.reserve(capacity) if capacity > 0
     m
 
   # Make room for `n` more entries at once: the entries and the table
   # are sized for them, so the next `n` puts of new keys grow neither.
   pub sub reserve(!@, n: Int)
+    if not ordered
+      size = slots_for(@len + n, @table.tags.len)
+      !@u_rebuild(size) if size > @table.tags.len
+      return
     !@es.reserve(n)
     !@hs.reserve(n)
     want = @es.len + n
@@ -115,10 +138,15 @@ pub obj Map[K, V]
 
   # Whether the Map holds the key `k`.
   pub fun has(?@, k: ?K) -> Bool
+    return @u_find(k, k.hash()) != none if not ordered
     @find(k, k.hash()) != none
 
   # The value of the key `k`, viewed where the Map holds it, or `none`.
   pub fun get(?@, k: ?K) -> (?V)? from @
+    if not ordered
+      if @u_find(k, k.hash()) as i
+        return ?@slots[i].value
+      return none
     if @find(k, k.hash()) as j
       return ?@es[j].value
     none
@@ -126,6 +154,11 @@ pub obj Map[K, V]
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
   pub fun edit(!@, k: ?K) -> (!V)? from @
+    if not ordered
+      if @u_find(k, k.hash()) as i
+        if !@slots[i].value as v
+          return v
+      return none
     if @find(k, k.hash()) as j
       if !@es[j].value as v
         return v
@@ -141,6 +174,12 @@ pub obj Map[K, V]
   # value, or `none` when `k` is new.
   pub fun replace(!@, k: K, v: V) -> V?
     h = k.hash()
+    if not ordered
+      if @u_find(?k, h) as i
+        <k
+        return swap(!@slots[i].value, <v)
+      !@u_add(<k, <v, h)
+      return none
     if @find(?k, h) as j
       <k
       return swap(!@es[j].value, <v)
@@ -151,7 +190,7 @@ pub obj Map[K, V]
   # `k` and `v` are dropped.
   pub fun put_new(!@, k: K, v: V) -> Bool
     h = k.hash()
-    if @find(?k, h) != none
+    if @at_hash(?k, h) != none
       <k
       <v
       return false
@@ -163,7 +202,7 @@ pub obj Map[K, V]
   pub fun ensure(!@, k: K, v: V) -> !V from @, k, v
     h = k.hash()
     j = 0
-    if @find(?k, h) as at
+    if @at_hash(?k, h) as at
       <k
       <v
       j = at
@@ -172,7 +211,7 @@ pub obj Map[K, V]
     # The entry at `j` holds a value, so the loop returns at once; it
     # stands where an unwrap that traps would (docs/internals/backlog.md).
     while true
-      if !@es[j].value as w
+      if (!@).value_at(j) as w
         return w
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
@@ -182,7 +221,7 @@ pub obj Map[K, V]
     h = k.hash()
     j = 0
     added = false
-    if @find(?k, h) as at
+    if @at_hash(?k, h) as at
       <k
       <v
       j = at
@@ -191,7 +230,7 @@ pub obj Map[K, V]
       added = true
     # As in `ensure`, the entry at `j` holds a value.
     while true
-      if !@es[j].value as w
+      if (!@).value_at(j) as w
         return w, added
 
   # Lend the value under `k` to write, putting `make(k)` there first
@@ -200,34 +239,55 @@ pub obj Map[K, V]
   pub fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k keeps make
     h = k.hash()
     j = 0
-    if @find(?k, h) as at
+    if @at_hash(?k, h) as at
       <k
       j = at
     else
       j = (!@).add_made(<k, make, h)
     # As in `ensure`, the entry at `j` holds a value.
     while true
-      if !@es[j].value as w
+      if (!@).value_at(j) as w
         return w
 
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
   # value `make(k)`, and give its index; out of line, as `add_new`.
   rarely fun add_made(!@, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
     v = make(?k)
+    return (!@).u_add(<k, <v, h) if not ordered
     !@insert(<k, <v, h)
     @es.len - 1
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`, and give
   # its index; out of line, so a lookup that finds its key stays short.
   rarely fun add_new(!@, k: K, v: V, h: U64) -> Int
+    return (!@).u_add(<k, <v, h) if not ordered
     !@insert(<k, <v, h)
     @es.len - 1
+
+  # The entry of the key `k`, whose hash is `h`, or `none`: its index in
+  # the entries, or for an unordered Map its slot.
+  fun at_hash(?@, k: ?K, h: U64) -> Int?
+    return @u_find(k, h) if not ordered
+    @find(k, h)
+
+  # The value of the entry at `j` (`at_hash`), lent to write.
+  fun value_at(!@, j: Int) -> (!V)? from @
+    if not ordered
+      if !@slots[j].value as v
+        return v
+      return none
+    if !@es[j].value as v
+      return v
+    none
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`: what
   # `put`, `replace` and `put_new` call when the key is new; out of
   # line, so a write inlined into its caller is the lookup and, on a hit,
   # the overwrite, and hot, as a loop that puts new keys calls it each time.
   called sub add_entry(!@, k: K, v: V, h: U64)
+    if not ordered
+      _ = (!@).u_add(<k, <v, h)
+      return
     !@insert(<k, <v, h)
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
@@ -235,6 +295,27 @@ pub obj Map[K, V]
   # dropped then, not left for compaction as `take` leaves a key. The
   # entries stay in the Lists the Map has, so they keep their room.
   pub sub retain(!@, f: ?fun(?K, !V) -> Bool)
+    if not ordered
+      # Each slot is decided first, and the table built anew after, so
+      # no entry moves while the walk is on.
+      dropped = false
+      for i in 0..@slots.len
+        held = <@slots[i].value
+        keep = true
+        k: (?K)? = ?@slots[i].key
+        if k as key
+          if !held as v
+            keep = f(key, !v)
+        if keep
+          @slots[i].value = <held
+        else
+          <held
+          @slots[i].key = none
+          @table.tags[i] = 0
+          @len -= 1
+          dropped = true
+      !@u_rebuild(@table.tags.len) if dropped
+      return
     back: List[Entry[K, V]] = List(capacity: @es.len)
     back_hs: List[U64] = List(capacity: @es.len)
     while (!@es).pop() as e
@@ -260,6 +341,12 @@ pub obj Map[K, V]
   # or with the Map. `none` when the Map has no such key.
   pub fun take(!@, k: ?K) -> V?
     h = k.hash()
+    if not ordered
+      if @u_find(k, h) as i
+        v = <@slots[i].value
+        !@u_take_at(i)
+        return <v
+      return none
     if @find(k, h) as j
       @len -= 1
       !@table.unlink(j, h, ?@hs) if @table.tags.len > 0
@@ -272,6 +359,7 @@ pub obj Map[K, V]
     !@hs.clear()
     !@table.tags.clear()
     !@table.at.clear()
+    !@slots.clear()
     @len = 0
 
   # The entry at index `i` in the order the keys were first put in: its
@@ -281,6 +369,17 @@ pub obj Map[K, V]
   # counts the entries before it.
   pub fun at(?@, i: Int) -> (?K, ?V)? from @
     return none if i < 0 or i >= @len
+    if not ordered
+      n = 0
+      for s in 0..@slots.len
+        k: (?K)? = ?@slots[s].key
+        if k as key
+          if n == i
+            v: (?V)? = ?@slots[s].value
+            if v as value
+              return key, value
+          n += 1
+      return none
     j = i
     if @len < @es.len
       j = 0
@@ -297,26 +396,113 @@ pub obj Map[K, V]
 
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.
-  pub fun items(?@) -> Items[K, V] from @
-    Items(map: ?@, next_at: 0)
+  pub fun items(?@) -> Items[K, V, ordered] from @
+    Items[K, V, ordered](map: ?@, next_at: 0)
 
   # The keys, in order, each viewed where the Map holds it.
-  pub fun keys(?@) -> Keys[K, V] from @
-    Keys(map: ?@, next_at: 0)
+  pub fun keys(?@) -> Keys[K, V, ordered] from @
+    Keys[K, V, ordered](map: ?@, next_at: 0)
 
   # The values, in order, each viewed where the Map holds it.
-  pub fun values(?@) -> Values[K, V] from @
-    Values(map: ?@, next_at: 0)
+  pub fun values(?@) -> Values[K, V, ordered] from @
+    Values[K, V, ordered](map: ?@, next_at: 0)
 
   # Call `f` with each key, in order, and its value lent to write. Each
   # value is out of its entry while `f` has it.
   pub sub update(!@, f: ?sub(?K, !V))
+    if not ordered
+      for s in 0..@slots.len
+        held = <@slots[s].value
+        if !held as v
+          k: (?K)? = ?@slots[s].key
+          if k as key
+            f(key, !v)
+        old = swap(!@slots[s].value, <held)
+        <old
+      return
     for j in 0..@es.len
       held = <@es[j].value
       if !held as v
         f(?@es[j].key, !v)
       old = swap(!@es[j].value, <held)
       <old
+
+  # The slot of the key `k`, whose hash is `h`, in an unordered Map, or
+  # `none`: a probe of its tags from the slot `h` names to the end, then
+  # from the start, each pass a loop whose test is the bounds test, and
+  # the slot beside a tag that matches.
+  fun u_find(?@, k: ?K, h: U64) -> Int?
+    ts = ?@table.tags[..]
+    return none if ts.len == 0
+    tag = tag_of(h)
+    i = Int(h & U64(ts.len - 1))
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          held: (?K)? = ?@slots[i].key
+          if held as key
+            return i if key == k
+        i += 1
+      i = 0
+    none
+
+  # Put the new key `k`, which hashes to `h`, and its value `v` in a free
+  # slot of an unordered Map, growing it first when it would be more
+  # than three quarters full; give the slot. Out of line and hot, as
+  # `add_entry` is.
+  called fun u_add(!@, k: K, v: V, h: U64) -> Int
+    if (@len + 1) * 4 > @table.tags.len * 3
+      !@u_rebuild(slots_for(@len + 1, @table.tags.len * 2))
+    i = @table.free_slot(h)
+    @table.tags[i] = tag_of(h)
+    @slots[i].key = <k
+    @slots[i].value = <v
+    @len += 1
+    i
+
+  # Free slot `i` of an unordered Map, whose key and value are taken or
+  # to be dropped here, and shift back each slot after it that would
+  # otherwise no longer be found from where its key hashes to.
+  sub u_take_at(!@, i: Int)
+    @slots[i].key = none
+    @slots[i].value = none
+    @len -= 1
+    mask = @table.tags.len - 1
+    hole = i
+    s = (hole + 1) & mask
+    while 0 <= s and s < @table.tags.len and @table.tags[s] != 0
+      home = 0
+      k: (?K)? = ?@slots[s].key
+      if k as key
+        home = Int(key.hash() & U64(mask))
+      if ((s - home) & mask) >= ((s - hole) & mask)
+        @table.tags[hole] = @table.tags[s]
+        @slots[hole].key = <@slots[s].key
+        @slots[hole].value = <@slots[s].value
+        hole = s
+      s = (s + 1) & mask
+    @table.tags[hole] = 0
+
+  # The unordered Map's table built anew with `n` slots, each key placed
+  # again from its hash.
+  rarely sub u_rebuild(!@, n: Int)
+    old = swap(!@slots, List[Slot[K, V]](capacity: n))
+    for _ in 0..n
+      !@slots.push(Slot[K, V](key: none, value: none))
+    @table.tags = List[U8].filled(n, 0)
+    while (!old).pop() as slot
+      new s = <slot
+      if <s.key as k
+        if <s.value as v
+          h = k.hash()
+          i = @table.free_slot(h)
+          @table.tags[i] = tag_of(h)
+          @slots[i].key = <k
+          @slots[i].value = <v
+        else
+          <k
 
   # The entry of the key `k`, whose hash is `h`, or `none`: in a small
   # Map, by the stored hashes in turn; in a larger one, by a probe of
@@ -623,6 +809,16 @@ fun table_size(want: Int, now: Int) -> Int
     n *= 2
   n
 
+# The slots an unordered Map's table needs to hold `want` entries at
+# most three quarters full: a power of two, at least 16, and at least
+# `now`. Its slots hold their keys and values, so it is kept fuller than
+# an ordered Map's table of tags and indexes.
+fun slots_for(want: Int, now: Int) -> Int
+  n = 16 if now < 16 else now
+  while want * 4 > n * 3
+    n *= 2
+  n
+
 # A used slot's tag: the top seven bits of the key's hash, with the high
 # bit set (a free slot's tag is 0). The bits that pick a slot are the
 # hash's low bits under the table's mask, fewer than 57 in any table
@@ -633,12 +829,23 @@ fun table_size(want: Int, now: Int) -> Int
 fun tag_of(h: U64) -> U8
   U8(h >> 57) | 0x80
 
-# The entries of a Map, in order (`Map.items`).
-pub obj Items[K, V]
-  map: ?Map[K, V]
+# The entries of a Map, in order (`Map.items`); an unordered Map's in
+# the order of its slots.
+pub obj Items[K, V, ordered: Bool = true]
+  map: ?Map[K, V, ordered]
   next_at: Int
 
   pub fun next(!@) -> Item[?K, ?V]?
+    if not ordered
+      while @next_at < @map.slots.len
+        s = @next_at
+        @next_at += 1
+        k: (?K)? = ?@map.slots[s].key
+        v: (?V)? = ?@map.slots[s].value
+        if k as key
+          if v as value
+            return Item(key: key, value: value)
+      return none
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -648,11 +855,19 @@ pub obj Items[K, V]
     none
 
 # The keys of a Map, in order (`Map.keys`).
-pub obj Keys[K, V]
-  map: ?Map[K, V]
+pub obj Keys[K, V, ordered: Bool = true]
+  map: ?Map[K, V, ordered]
   next_at: Int
 
   pub fun next(!@) -> (?K)?
+    if not ordered
+      while @next_at < @map.slots.len
+        s = @next_at
+        @next_at += 1
+        k: (?K)? = ?@map.slots[s].key
+        if k as key
+          return key
+      return none
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -660,11 +875,19 @@ pub obj Keys[K, V]
     none
 
 # The values of a Map, in order (`Map.values`).
-pub obj Values[K, V]
-  map: ?Map[K, V]
+pub obj Values[K, V, ordered: Bool = true]
+  map: ?Map[K, V, ordered]
   next_at: Int
 
   pub fun next(!@) -> (?V)?
+    if not ordered
+      while @next_at < @map.slots.len
+        s = @next_at
+        @next_at += 1
+        v: (?V)? = ?@map.slots[s].value
+        if v as value
+          return value
+      return none
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1

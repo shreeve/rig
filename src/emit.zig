@@ -5496,7 +5496,7 @@ pub const Emitter = struct {
             return;
         };
         const may_be_empty = switch (self.facts.types.get(n)) {
-            .ct_value => |v| v.int == 0,
+            .ct_value => |v| v == .int and v.int == 0,
             else => true,
         };
         if (may_be_empty) {
@@ -8344,7 +8344,10 @@ pub const Emitter = struct {
                 try self.w.writeAll(")");
             },
             // An array length or a generic type's value argument.
-            .ct_value => |v| try self.w.print("{d}", .{v.int}),
+            .ct_value => |v| switch (v) {
+                .int => |n| try self.w.print("{d}", .{n}),
+                .bool => |b| try self.w.writeAll(if (b) "true" else "false"),
+            },
             .ct_param => |sym_id| try self.writeTypeParam(sym_id),
             .nominal => |sym_id| try self.writeNominalName(sym_id),
             .imported_nominal => |in| {
