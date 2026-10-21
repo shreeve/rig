@@ -42,7 +42,7 @@ const usage =
     \\  emit      Check, then print the root module's Zig to stdout
     \\  batch     Build many programs into one executable, <dir>/bin, with
     \\            one copy of the runtime (build), and run program <n> of it
-    \\            as `run` runs a program (run): test/batch.rip's runner
+    \\            as `run` runs a program (run): test/rig.rip's packs
     \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
     \\  lsp       Serve the language server protocol on stdin and stdout, for
     \\            an editor (editors/README.md)
@@ -110,10 +110,11 @@ const usage =
     \\                   used directories go, checked every run and
     \\                   trimmed at most every 10 minutes
     \\  RIG_BUILD_STORE  A store shared by every program and checkout:
-    \\                   run, build, and test write the package to a
-    \\                   directory in it named by a hash of everything
-    \\                   the build reads, and build there, in place of
-    \\                   RIG_OUT_DIR
+    \\                   run, build, test, and batch build write the
+    \\                   package to a directory in it named by a hash
+    \\                   of everything the build reads, and build
+    \\                   there, in place of RIG_OUT_DIR (or batch
+    \\                   build's <dir>)
     \\  RIG_RUN_STARTED  A file run and test delete at once, and create
     \\                   only once the program has started, which proves
     \\                   it ran. Any failure before the program starts
@@ -744,17 +745,23 @@ fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.
 
 /// `rig batch build [--release[=safe|fast]] DIR FILE...` builds every
 /// program into one executable, `DIR/bin`, with one Zig compile and one
-/// copy of the runtime: each program's package goes to `DIR/pN` (`N` its
-/// place among the files), the runtime once to `DIR/rig/runtime.zig` as
-/// the Zig module `rig`, and `DIR/main.zig` starts program `N` when its
-/// first argument is `N`, handing the program the rest. A file the checkers reject, or with no `sub
-/// main()`, is left out, with its diagnostics on stderr. `DIR/programs`
-/// lists the programs built, `N<TAB>FILE` a line. The status is Zig's, or
-/// 1 when no program could be built. `DIR/inputs` holds a hash of every
-/// file of the batch, how Zig builds it, and which Zig (`zigIdentity`):
-/// when it matches and `DIR/bin` is there, the batch is built already,
-/// and Zig is not run (`zig build-exe` keeps no cache of its own for an
-/// output it is told to write).
+/// copy of the runtime: each program's root module goes to `DIR/pN` (`N`
+/// its place among the files), every other file of its package to
+/// `DIR/s/`, where programs that share a file share one copy
+/// (`placeBatchFiles`), the runtime once to `DIR/rig/runtime.zig` as the
+/// Zig module `rig`, and `DIR/main.zig` starts program `N` when its
+/// first argument is `N`, handing the program the rest. A file the
+/// checkers reject, or with no `sub main()`, is left out, with its
+/// diagnostics on stderr. `DIR/programs` lists the programs built,
+/// `N<TAB>FILE` a line. The status is Zig's, or 1 when no program could
+/// be built. `DIR/inputs` holds a hash of every file of the batch, how
+/// Zig builds it, and which Zig (`zigIdentity`): when it matches and
+/// `DIR/bin` is there, the batch is built already, and Zig is not run
+/// (`zig build-exe` keeps no cache of its own for an output it is told
+/// to write). With `RIG_BUILD_STORE` set, the batch builds instead in
+/// the store's entry named by that hash, and `DIR/bin` is a link to the
+/// entry's executable, so a batch any checkout has built is not built
+/// again.
 ///
 /// `rig batch run DIR N` runs program `N` of that executable as `rig run`
 /// runs a program: its status, and RIG_RUN_STARTED created only once it
@@ -796,15 +803,11 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     var largest_frame: u64 = 0;
     var built: usize = 0;
     var inputs = std.crypto.hash.sha2.Sha256.init(.{});
-    const Part = struct {
-        fn add(hash: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
-            var len: [8]u8 = undefined;
-            std.mem.writeInt(u64, &len, bytes.len, .little);
-            hash.update(&len);
-            hash.update(bytes);
-        }
-    };
-    Part.add(&inputs, "rig batch 1");
+    hashPart(&inputs, "rig batch 2");
+    // Every program's files, each at its place in the batch
+    // (`placeBatchFiles`).
+    var placed: std.ArrayList(PackageFile) = .empty;
+    var seen: std.StringHashMapUnmanaged(void) = .empty;
     for (files, 0..) |file, n| {
         var graph = (loadChecked(allocator, io, env, file, false, null) catch |err| {
             std.debug.print("error: cannot load `{s}`: {s}\n", .{ file, @errorName(err) });
@@ -821,12 +824,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         makes_actors = makes_actors or makesActors(&graph);
         largest_frame = @max(largest_frame, largestFrame(&graph));
         const sub = try allocator.print("p{d}", .{n});
-        try writePackage(allocator, io, try std.fs.path.join(allocator, &.{ dir, sub }), pkg.files.items);
-        for (pkg.files.items) |f| {
-            Part.add(&inputs, sub);
-            Part.add(&inputs, f.path);
-            Part.add(&inputs, f.contents);
-        }
+        try placeBatchFiles(allocator, sub, graph.root().out_basename, pkg.files.items, &placed, &seen);
         try list.writer.print("{d}\t{s}\n", .{ n, file });
         try root.writer.print("    .{{ {d}, @import(\"{s}/{s}\") }},\n", .{ n, sub, graph.root().out_basename });
         built += 1;
@@ -868,41 +866,92 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\}}
         \\
     , .{});
-    try writePackage(allocator, io, dir, &.{
+    const package = try std.mem.concat(allocator, PackageFile, &.{ placed.items, &.{
         .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
         .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
         .{ .path = emit.sched_filename, .contents = emit.sched_source },
         .{ .path = emit.net_filename, .contents = emit.net_source },
         .{ .path = "main.zig", .contents = root.written() },
-        .{ .path = "programs", .contents = list.written() },
-    });
+    } });
+    try writePackage(allocator, io, dir, &.{.{ .path = "programs", .contents = list.written() }});
 
     const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
     // A Zig that cannot say what it is (`zigIdentity`) builds every time.
     const zig_identity = zigIdentity(allocator, io, env);
-    for ([_][]const u8{ emit.runtime_source, emit.tasks_source, emit.sched_source, emit.net_source, root.written(), env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
+    for (package) |f| {
+        hashPart(&inputs, f.path);
+        hashPart(&inputs, f.contents);
+    }
+    for ([_][]const u8{ env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| hashPart(&inputs, part);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     inputs.final(&digest);
     const hex = std.fmt.bytesToHex(digest, .lower);
-    const inputs_path = try std.fs.path.join(allocator, &.{ dir, "inputs" });
-    const built_from = std.Io.Dir.cwd().readFileAlloc(io, inputs_path, allocator, .limited(hex.len + 1)) catch "";
-    if (zig_identity != null and std.mem.eql(u8, built_from, &hex) and exists(io, dir, "bin")) return 0;
-    std.Io.Dir.cwd().deleteFile(io, inputs_path) catch {};
+    // With a store, the batch builds in the store's entry for that hash,
+    // which holds the package (`package/`), Zig's cache, the executable,
+    // and `inputs`, written once it is built; `DIR/bin` links to its
+    // executable. Every checkout that builds the same batch shares the
+    // one build, and an exclusive lock on the entry's `lock` makes the
+    // others wait for it rather than build it again.
+    const store = env.get("RIG_BUILD_STORE");
+    const home = if (store) |path| try std.fs.path.join(allocator, &.{ try storeRoot(allocator, io, path), &hex }) else dir;
+    const package_dir = if (store != null) try std.fs.path.join(allocator, &.{ home, "package" }) else dir;
+    const entry_bin = try std.fs.path.join(allocator, &.{ home, "bin" });
+    const inputs_path = try std.fs.path.join(allocator, &.{ home, "inputs" });
     // A failed build leaves no executable, so `batch run` never runs an
     // older batch's.
+    if (store != null) removeBin(io, bin);
+    var lock: ?std.Io.File = null;
+    defer if (lock) |f| f.close(io);
+    if (store != null) {
+        std.Io.Dir.cwd().createDirPath(io, home) catch |err| fatal("error: cannot create `{s}`: {s}", .{ home, @errorName(err) });
+        lock = openLock(io, std.Io.Dir.cwd(), try std.fs.path.join(allocator, &.{ home, package_lock }));
+        if (lock) |f| f.lock(io, .exclusive) catch {};
+        try writeFile(io, try std.fs.path.join(allocator, &.{ home, "used" }), "");
+    }
+    const built_from = std.Io.Dir.cwd().readFileAlloc(io, inputs_path, allocator, .limited(hex.len + 1)) catch "";
+    const reused = zig_identity != null and std.mem.eql(u8, built_from, &hex) and exists(io, home, "bin");
+    if (!reused) {
+        std.Io.Dir.cwd().deleteFile(io, inputs_path) catch {};
+        removeBin(io, entry_bin);
+        try writePackage(allocator, io, package_dir, package);
+        pruneShared(allocator, io, package_dir, package);
+        const libc: []const []const u8 = if (links_libc) &.{"-lc"} else &.{};
+        const zig_cache = if (store != null) home else try std.fs.path.join(allocator, &.{ dir, ".zig-cache" });
+        const argv = try std.mem.concat(allocator, []const u8, &.{
+            &.{ env.zig(), "build-exe", mode.zigFlag(), "--cache-dir", zig_cache, try allocator.print("-femit-bin={s}", .{entry_bin}) },
+            libc,
+            &.{ "--dep", emit.runtime_module, try allocator.print("-Mroot={s}", .{try std.fs.path.join(allocator, &.{ package_dir, "main.zig" })}), try allocator.print("-M{s}={s}", .{ emit.runtime_module, try std.fs.path.join(allocator, &.{ package_dir, emit.runtime_filename }) }) },
+        });
+        const code = try runZig(io, argv);
+        if (code != 0) return code;
+        if (zig_identity != null) try writeFile(io, inputs_path, &hex);
+    }
+    if (store != null) std.Io.Dir.cwd().symLinkAtomic(io, entry_bin, bin, .{}) catch |err| fatal("error: cannot link `{s}` to `{s}`: {s}", .{ bin, entry_bin, @errorName(err) });
+    return 0;
+}
+
+fn removeBin(io: std.Io, bin: []const u8) void {
     std.Io.Dir.cwd().deleteFile(io, bin) catch |err| switch (err) {
         error.FileNotFound => {},
         else => fatal("error: cannot remove `{s}`: {s}", .{ bin, @errorName(err) }),
     };
-    const libc: []const []const u8 = if (links_libc) &.{"-lc"} else &.{};
-    const argv = try std.mem.concat(allocator, []const u8, &.{
-        &.{ env.zig(), "build-exe", mode.zigFlag(), "--cache-dir", try std.fs.path.join(allocator, &.{ dir, ".zig-cache" }), try allocator.print("-femit-bin={s}", .{bin}) },
-        libc,
-        &.{ "--dep", emit.runtime_module, try allocator.print("-Mroot={s}", .{try std.fs.path.join(allocator, &.{ dir, "main.zig" })}), try allocator.print("-M{s}={s}", .{ emit.runtime_module, try std.fs.path.join(allocator, &.{ dir, emit.runtime_filename }) }) },
-    });
-    const code = try runZig(io, argv);
-    if (code == 0 and zig_identity != null) try writeFile(io, inputs_path, &hex);
-    return code;
+}
+
+/// Remove what an older batch left in `dir/s/` that `package` no longer
+/// places there (`placeBatchFiles`); a failure leaves it, unused.
+fn pruneShared(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, package: []const PackageFile) void {
+    const shared = std.fs.path.join(allocator, &.{ dir, "s" }) catch return;
+    var d = std.Io.Dir.cwd().openDir(io, shared, .{ .iterate = true }) catch return;
+    defer d.close(io);
+    var old: std.ArrayList([]const u8) = .empty;
+    var it = d.iterate();
+    next: while (it.next(io) catch null) |e| {
+        for (package) |f| {
+            if (f.path.len > 2 + e.name.len and std.mem.startsWith(u8, f.path, "s/") and std.mem.startsWith(u8, f.path[2..], e.name) and f.path[2 + e.name.len] == '/') continue :next;
+        }
+        old.append(allocator, allocator.dupe(u8, e.name) catch return) catch return;
+    }
+    for (old.items) |name| d.deleteTree(io, name) catch {};
 }
 
 /// Where `rig build` keeps the executable it built, so that the same
@@ -1141,12 +1190,12 @@ const Ending = struct {
     fn started(pid: std.posix.pid_t) void {
         child.store(pid, .seq_cst);
         const sig = pending.swap(0, .seq_cst);
-        if (sig != 0) std.posix.kill(pid, @enumFromInt(sig)) catch {};
+        if (sig != 0) std.posix.kill(pid, @fromBackingInt(@intCast(sig))) catch {};
     }
 
     fn passOn(sig: std.posix.SIG) callconv(.c) void {
         if (child.load(.seq_cst) == 0) {
-            pending.store(@intCast(@intFromEnum(sig)), .seq_cst);
+            pending.store(@intCast(@backingInt(sig)), .seq_cst);
             // The child started meanwhile, and `started` may have missed
             // the signal: whichever of the two takes it passes it on.
             const pid = child.load(.seq_cst);
@@ -1444,13 +1493,156 @@ fn storeEntry(allocator: std.mem.Allocator, io: std.Io, store: []const u8, zig_a
     }
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     h.final(&digest);
-    // The store may be a link to a directory elsewhere: resolve it first,
-    // and create it only when it is not there.
-    const real = std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch real: {
+    return std.fs.path.join(allocator, &.{ try storeRoot(allocator, io, store), &std.fmt.bytesToHex(digest[0..16], .lower) });
+}
+
+/// The directory `RIG_BUILD_STORE` names, resolved: the store may be a
+/// link to a directory elsewhere. It is created only when it is not there.
+fn storeRoot(allocator: std.mem.Allocator, io: std.Io, store: []const u8) ![]const u8 {
+    return std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch {
         std.Io.Dir.cwd().createDirPath(io, store) catch |err| fatal("error: cannot create RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
-        break :real std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch |err| fatal("error: cannot find RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
+        return std.Io.Dir.cwd().realPathFileAlloc(io, store, allocator) catch |err| fatal("error: cannot find RIG_BUILD_STORE `{s}`: {s}", .{ store, @errorName(err) });
     };
-    return std.fs.path.join(allocator, &.{ real, &std.fmt.bytesToHex(digest[0..16], .lower) });
+}
+
+/// A hash's part, its length first, so no two lists of parts hash alike.
+fn hashPart(hash: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
+    var len: [8]u8 = undefined;
+    std.mem.writeInt(u64, &len, bytes.len, .little);
+    hash.update(&len);
+    hash.update(bytes);
+}
+
+/// The path `rel` names from a file at `from` (both relative to the
+/// package, `/` between their parts), normalized; null when it leaves
+/// the package or names a module (`std`, `rig`).
+fn importedPath(allocator: std.mem.Allocator, from: []const u8, rel: []const u8) !?[]const u8 {
+    if (!std.mem.endsWith(u8, rel, ".zig") or std.fs.path.isAbsolutePosix(rel)) return null;
+    var parts: std.ArrayList([]const u8) = .empty;
+    var dir = std.mem.tokenizeAny(u8, std.fs.path.dirnamePosix(from) orelse "", "/\\");
+    while (dir.next()) |p| try parts.append(allocator, p);
+    var it = std.mem.tokenizeScalar(u8, rel, '/');
+    while (it.next()) |p| {
+        if (std.mem.eql(u8, p, ".")) continue;
+        if (std.mem.eql(u8, p, "..")) {
+            if (parts.items.len == 0) return null;
+            _ = parts.pop();
+        } else try parts.append(allocator, p);
+    }
+    return try std.mem.join(allocator, "/", parts.items);
+}
+
+/// The path from a file in directory `from` to `to` (both relative to
+/// the package, `/` between their parts), as an `@import` names it.
+fn importPath(allocator: std.mem.Allocator, from: []const u8, to: []const u8) ![]const u8 {
+    var a: std.ArrayList([]const u8) = .empty;
+    var b: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.tokenizeScalar(u8, from, '/');
+    while (it.next()) |part| try a.append(allocator, part);
+    it = std.mem.tokenizeScalar(u8, to, '/');
+    while (it.next()) |part| try b.append(allocator, part);
+    var common: usize = 0;
+    while (common < a.items.len and common + 1 < b.items.len and std.mem.eql(u8, a.items[common], b.items[common])) common += 1;
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    for (common..a.items.len) |_| try out.writer.writeAll("../");
+    for (b.items[common..], common..) |part, k| {
+        if (k > common) try out.writer.writeAll("/");
+        try out.writer.writeAll(part);
+    }
+    return out.written();
+}
+
+/// Place the files of program `sub` (`pN`) of a batch, its root module
+/// `root` among them, in `placed`. Every file but the root goes to
+/// `s/ID/PATH`, ID a hash of its path, its contents, and the IDs of the
+/// files it imports, so a file is one file of the batch however many of
+/// its programs have it, as long as what it imports is the same too:
+/// Zig then compiles it once, where a copy in each program's directory
+/// is compiled once a program (a batch whose every program uses
+/// std.terminal would compile it hundreds of times). Each `@import` of
+/// another file of the package names that file's place. The root stays
+/// at `sub/PATH`. `seen` holds the places already in `placed`. Files
+/// that import each other in a cycle, which no Rig program makes, keep
+/// the package as it is, in `sub`.
+fn placeBatchFiles(allocator: std.mem.Allocator, sub: []const u8, root: []const u8, files: []const PackageFile, placed: *std.ArrayList(PackageFile), seen: *std.StringHashMapUnmanaged(void)) !void {
+    const Import = struct { start: usize, end: usize, target: usize };
+    var index: std.StringHashMapUnmanaged(usize) = .empty;
+    const paths = try allocator.alloc([]const u8, files.len);
+    for (files, paths, 0..) |f, *p, i| {
+        p.* = (try importedPath(allocator, "", f.path)) orelse f.path;
+        try index.put(allocator, p.*, i);
+    }
+    const imports = try allocator.alloc([]const Import, files.len);
+    for (files, paths, imports) |f, from, *list| {
+        var found: std.ArrayList(Import) = .empty;
+        const open = "@import(\"";
+        var at: usize = 0;
+        while (std.mem.indexOfPos(u8, f.contents, at, open)) |s| {
+            const start = s + open.len;
+            const end = std.mem.indexOfScalarPos(u8, f.contents, start, '"') orelse break;
+            at = end;
+            const target = (try importedPath(allocator, from, f.contents[start..end])) orelse continue;
+            if (index.get(target)) |j| try found.append(allocator, .{ .start = start, .end = end, .target = j });
+        }
+        list.* = found.items;
+    }
+    const Mark = enum { new, open, done };
+    const Ids = struct {
+        files: []const PackageFile,
+        paths: []const []const u8,
+        imports: []const []const Import,
+        state: []Mark,
+        ids: [][32]u8,
+        fn visit(self: *@This(), i: usize) bool {
+            switch (self.state[i]) {
+                .open => return false,
+                .done => return true,
+                .new => {},
+            }
+            self.state[i] = .open;
+            var h = std.crypto.hash.sha2.Sha256.init(.{});
+            hashPart(&h, "rig batch file 1");
+            hashPart(&h, self.paths[i]);
+            hashPart(&h, self.files[i].contents);
+            for (self.imports[i]) |imp| {
+                if (!self.visit(imp.target)) return false;
+                hashPart(&h, &self.ids[imp.target]);
+            }
+            var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+            h.final(&digest);
+            self.ids[i] = std.fmt.bytesToHex(digest[0..16], .lower);
+            self.state[i] = .done;
+            return true;
+        }
+    };
+    var ids: Ids = .{ .files = files, .paths = paths, .imports = imports, .state = try allocator.alloc(Mark, files.len), .ids = try allocator.alloc([32]u8, files.len) };
+    @memset(ids.state, .new);
+    var whole = true;
+    for (0..files.len) |i| whole = whole and ids.visit(i);
+    const places = try allocator.alloc([]const u8, files.len);
+    for (files, paths, places, 0..) |f, p, *place, i| {
+        place.* = if (!whole or std.mem.eql(u8, f.path, root))
+            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ sub, p })
+        else
+            try std.fmt.allocPrint(allocator, "s/{s}/{s}", .{ &ids.ids[i], p });
+    }
+    for (files, places, imports) |f, place, list| {
+        if (seen.contains(place)) continue;
+        try seen.put(allocator, place, {});
+        if (!whole) {
+            try placed.append(allocator, .{ .path = place, .contents = f.contents });
+            continue;
+        }
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        var from: usize = 0;
+        for (list) |imp| {
+            try out.writer.writeAll(f.contents[from..imp.start]);
+            try out.writer.writeAll(try importPath(allocator, std.fs.path.dirnamePosix(place) orelse "", places[imp.target]));
+            from = imp.end;
+        }
+        try out.writer.writeAll(f.contents[from..]);
+        try placed.append(allocator, .{ .path = place, .contents = out.written() });
+    }
 }
 
 /// Replace `path` with `contents` atomically, so a concurrent build of the
