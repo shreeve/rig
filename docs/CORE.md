@@ -1571,7 +1571,9 @@ rule in SYNTAX is syntax too.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
   propagates `none` from the function; `break` inside a `match` leaves
-  the loop; `e catch a if c else b` groups as `e catch (a if c else b)`.
+  the loop; `catch` binds as `??` does, as Zig's `catch` and `orelse`
+  share a level, so `e catch a if c else b` groups as
+  `(e catch a) if c else b`.
 
 ```rig reject
 fun count() -> Int

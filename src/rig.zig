@@ -1441,9 +1441,31 @@ pub const Lexer = struct {
         return true;
     }
 
+    /// `catch` before a jump, after any `|e|` (`f() catch return -1`),
+    /// is CATCH_JUMP, whose handler takes the rest of the expression;
+    /// before `|e|` and the end of the line, CATCH_BLOCK, whose handler
+    /// is the block below; any other is CATCH, an operator on `??`'s
+    /// level.
+    fn catchCat(self: *const Lexer) TokenCat {
+        var probe = self.base;
+        var t = probe.next();
+        var bars = false;
+        if (t.cat == .bar) {
+            _ = probe.next();
+            if (probe.next().cat != .bar) return .@"catch";
+            t = probe.next();
+            bars = true;
+        }
+        return switch (t.cat) {
+            .@"return", .@"break", .@"continue" => .catch_jump,
+            .newline, .comment, .eof => if (bars) .catch_block else .@"catch",
+            else => .@"catch",
+        };
+    }
+
     fn classifyKeyword(self: *const Lexer, tok: Token) TokenCat {
         const kw = tok.cat;
-        if (kw != .@"if") return self.memberName(tok) orelse kw;
+        if (kw != .@"if") return self.memberName(tok) orelse if (kw == .@"catch") self.catchCat() else kw;
         switch (self.last_cat) {
             .@"return", .@"break", .@"continue", .pass => return .post_if,
             else => {},
@@ -3092,7 +3114,7 @@ pub const Parser = struct {
             .@"defer", .@"errdefer" => try self.dropStatement(&walked[ir.slot(.@"defer", .body)]),
             .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
-            .@"??" => return self.nearestFallback(out),
+            .@"??" => return self.nearestFallback(try self.rightNested(out)),
             .destructure => try self.destructureTargets(walked),
             .as_results => try self.resultNames(walked),
             .as_pattern => return self.asMatch(out),
@@ -3412,6 +3434,31 @@ pub const Parser = struct {
         if (!m.isKind(.read)) return null;
         const field = ir.Read.operand(m);
         return if (field.isKind(.@":") or field.isKind(.default)) field else null;
+    }
+
+    /// `a ?? b ?? c`: the grammar reads a chain left to right, `(a ?? b)
+    /// ?? c`, and every pass reads it nested to the right, `a ?? (b ??
+    /// c)`, which gives the same value and lets each fallback have the
+    /// payload's type. A parenthesized left side keeps its grouping: it
+    /// starts after the node that holds it. A jump fallback is
+    /// `nearestFallback`'s.
+    fn rightNested(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const right = ir.@"??".right(node);
+        if (right.kind()) |k| switch (k) {
+            .@"return", .@"break", .@"continue" => return node,
+            else => {},
+        };
+        const left = ir.@"??".left(node);
+        if (!left.isKind(.@"??") or self.span(left).start != self.span(node).start) return node;
+        const middle = ir.@"??".right(left);
+        // The new right side starts where `middle` is written, with any
+        // parentheses around it, so a grouped `middle` stays grouped.
+        const src = self.base.source;
+        var start = self.span(middle).start;
+        while (start > 0 and (src[start - 1] == '(' or isSpaceBefore(src[start - 1]))) start -= 1;
+        while (start < self.span(middle).start and isSpaceBefore(src[start])) start += 1;
+        const inner = try self.rightNested(try self.base.newNode(.@"??", &.{ middle, right }, .{ .start = start, .end = self.span(node).end }));
+        return self.base.newNode(.@"??", &.{ ir.@"??".left(left), inner }, self.span(node));
     }
 
     /// `a ?? b ?? return v`: the grammar reads a jump fallback after the

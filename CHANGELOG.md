@@ -29,6 +29,12 @@ changed the language since it:
   type's largest value without stepping past it), a slice
   (`xs[a..=b]`, `xs[..=b]`), and a range pattern (`1..=5 =>`,
   `200..=255 =>`).
+- **`catch` binds as `??`:** the two share a level and read left to
+  right, as Zig's `catch` and `orelse` do: `f() catch none ?? -1` is
+  `(f() catch none) ?? -1`. A jump handler still takes the rest of the
+  expression, and a block below `catch |e|` is unchanged; a handler that
+  compares, joins with `and` or `or`, or chooses with `if` is
+  parenthesized, `f() catch |e| (1 if e == E.bad else 2)`.
 - **Weak handles:** `*w` upgrades a weak handle to a `*T?` (`*<w`
   upgrades and takes it); the method `w.upgrade()` is rejected with a
   hint, and so is `*~T`, as every holding sigil over a held value is.

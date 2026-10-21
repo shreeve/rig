@@ -30,7 +30,7 @@ test "building a string from parts", "ab"
 
 test "a parse of empty text fails, and the caller handles it", true
   use std.text
-  text.parse_bool("") catch |e| e == text.ParseError.invalid
+  text.parse_bool("") catch |e| (e == text.ParseError.invalid)
 
 test "splitting on a space", '''
   a

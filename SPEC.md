@@ -8527,8 +8527,10 @@ step, even after a jump (`while a ?? break : i += 1`), and a jump there
 may name a label (`while a ?? break $outer : i += 1`). The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
-chain of `??`, where the jump belongs to the nearest one, as `??` is
-right-associative: `a ?? b ?? return v` is `a ?? (b ?? return v)`.
+chain of `??`, where the jump belongs to the nearest one:
+`a ?? b ?? return v` is `a ?? (b ?? return v)`. A chain of `??` reads
+left to right, and gives what `a ?? (b ?? c)` gives, so each fallback is
+the value inside, not another optional.
 Where `a ?? b` is only read, it reads the value inside `a`, or `b`,
 where it is ([§7](#temporaries)). Where it is taken, it takes from each
 side: the optional may hold an owning value when it is made there
@@ -8646,6 +8648,14 @@ must say what happens to the failure, visibly:
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
+- `catch` binds as `??` does, and the two read left to right, as Zig's
+  `catch` and `orelse` do ([SYNTAX §6](SYNTAX.md#6-operators-and-precedence)):
+  `f() catch none ?? -1` is `(f() catch none) ?? -1`, and a handler is
+  an operand of the operators that bind tighter, so one that compares,
+  joins with `and` or `or`, or chooses with `if` is parenthesized:
+  `f() catch |e| (1 if e == E.bad else 2)`. A jump handler takes the rest
+  of the expression, and the whole expression before it, as a jump
+  after `??` does; a handler below `catch |e|` is a block.
 - A `catch` whose value goes nowhere, a statement or the value of
   `_ =`, may have a handler that gives nothing: `f() catch |e| print(e)`
   handles the failure and goes on. A handler that gives a value gives
@@ -8962,7 +8972,7 @@ fun fetch() -> Int!
   return Disk.timeout
 
 sub main()
-  n = fetch() catch |err| 1 if err == .timeout else 2
+  n = fetch() catch |err| (1 if err == .timeout else 2)
   print(n)
 ```
 

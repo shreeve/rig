@@ -1050,7 +1050,7 @@ test "error constants and aliases", '''
       return D.empty if n == 1
       n
 
-fail "error name hints", "9:11: `.timeout` is not a value of `Int`; to fail, name the error set: `Net.timeout`, `b.Mid.timeout`, or `a.Deep.timeout` (import `a` to name it)", "13:35: error sets `Net`, `b.Mid`, and `a.Deep` all have a member `timeout`; name the set: `Net.timeout`, `b.Mid.timeout`, or `a.Deep.timeout` (import `a` to name it)", errors: 2
+fail "error name hints", "9:11: `.timeout` is not a value of `Int`; to fail, name the error set: `Net.timeout`, `b.Mid.timeout`, or `a.Deep.timeout` (import `a` to name it)", "13:36: error sets `Net`, `b.Mid`, and `a.Deep` all have a member `timeout`; name the set: `Net.timeout`, `b.Mid.timeout`, or `a.Deep.timeout` (import `a` to name it)", errors: 2
   # A hint names every error set a bare name could mean, the way this
   # module writes it; a set of a module it does not import says so.
   use b
@@ -1063,7 +1063,7 @@ fail "error name hints", "9:11: `.timeout` is not a value of `Int`; to fail, nam
     n
 
   sub main()
-    x = b.h(0) catch |e| 1 if e == .timeout else 2
+    x = b.h(0) catch |e| (1 if e == .timeout else 2)
     print(x, g(1) catch 0)
 
   file "a.rig"
@@ -1092,7 +1092,7 @@ fail "error name in two modules", "9:8: error sets `io.IoError` and `lex.LexErro
       match e
         .eof => 1
         _ => 2
-    b = io.read(0) catch |e| 1 if e == io.IoError.eof else 2
+    b = io.read(0) catch |e| (1 if e == io.IoError.eof else 2)
     print(a, b)
 
   file "io.rig"
@@ -1124,7 +1124,7 @@ test "error name private sets", '''
     return Net.timeout
 
   sub main()
-    x = g() catch |e| 1 if e == .timeout else 2
+    x = g() catch |e| (1 if e == .timeout else 2)
     y = a.f(0) catch |e|
       print(e)
       match e

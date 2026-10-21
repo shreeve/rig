@@ -556,12 +556,12 @@ From lowest to highest precedence:
 
 | Operators | Notes |
 |---|---|
-| `a if c else b`, `e catch f` | ternary and error fallback, right-nested; `e catch return v` and `a ?? return v` take a jump at this level |
+| `a if c else b` | ternary, right-nested; `e catch return v` and `a ?? return v` take a jump here, and the whole expression before it, and `e catch \|err\|` takes a block below |
 | `or` | |
 | `and` | |
 | `not` | |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
-| `??` | optional fallback, right-associative |
+| `??` `catch` | optional and error fallback, read left to right, as Zig's `orelse` and `catch`: `f() catch none ?? -1` is `(f() catch none) ?? -1`; a handler that compares, joins, or chooses is parenthesized, `f() catch (a if c else b)`; a chain of `??` gives what `a ?? (b ?? c)` does |
 | `..` `..=` | a range, `a..b` up to and not including `b`, `a..=b` through `b`: a `for` source, a match pattern, or a slice's index, where a side may be open (`xs[a..]`, `xs[..=b]`) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |

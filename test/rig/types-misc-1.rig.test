@@ -2817,7 +2817,7 @@ test "error any type", '''
   print(log.len, log[1].at, log[1].err)
   if first(?log) as f
     print("first", f)
-    r = refail(<f) catch |e| 1 if e == Net.timeout else 2
+    r = refail(<f) catch |e| (1 if e == Net.timeout else 2)
     print(r)
   d = pick(2)
   print(d == Disk.full, describe(?d))
@@ -2890,7 +2890,7 @@ test "error match move", '''
         q => 200 if q == A.y else 300
     print(r, s, t)
 
-fail "error name needs its set", "28:6: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`", "29:9: no member `bogus` on type `Net`", "31:5: duplicate arm for variant `Net.refused`", "33:35: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`", "36:3: type mismatch: expected `Net`, got `Disk`", "41:3: a pattern names a variant without its enum: `.red`", "45:3: `s.err` is a value, which a pattern cannot name", "47:11: type mismatch: expected `Disk`, got `Net`", "48:13: cannot compare `Net` with `Disk`", errors: 9
+fail "error name needs its set", "28:6: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`", "29:9: no member `bogus` on type `Net`", "31:5: duplicate arm for variant `Net.refused`", "33:36: error sets `Net` and `Disk` both have a member `timeout`; name the set: `Net.timeout` or `Disk.timeout`", "36:3: type mismatch: expected `Net`, got `Disk`", "41:3: a pattern names a variant without its enum: `.red`", "45:3: `s.err` is a value, which a pattern cannot name", "47:11: type mismatch: expected `Disk`, got `Net`", "48:13: cannot compare `Net` with `Disk`", errors: 9
   # An error belongs to its set. Against any error (`catch |e|`), a bare
   # `.name` is the member of the one error set that has it; when two sets
   # have it, the match arm or comparison that one of them used to satisfy
@@ -2923,7 +2923,7 @@ fail "error name needs its set", "28:6: error sets `Net` and `Disk` both have a 
       Net.refused => 3
       Net.refused => 4
       _ => 5
-  b = fetch(0) catch |e| 1 if e == .timeout else 2
+  b = fetch(0) catch |e| (1 if e == .timeout else 2)
   n: Net = .refused
   match n
     Disk.timeout => print("disk")
@@ -3025,7 +3025,7 @@ fail "error values checked", "type mismatch: expected `Int`, got `ParseError`", 
 
   a = parse("") catch |err| err
   b = parse("") catch |err| err + 1
-  c = parse("") catch |err| 0 if err == 3 else 1
+  c = parse("") catch |err| (0 if err == 3 else 1)
   d = parse("") catch |err|
     match err
       .empty(n) => 1
@@ -3190,10 +3190,10 @@ test "fail through return", '''
       return err
     n + 1
 
-  print(named(2) catch -1, named(0) catch |e| 10 if e == E.worse else 20)
-  print(ternary(3) catch -1, ternary(0) catch |e| 10 if e == E.bad else 20)
-  print(arm(5) catch -1, arm(0) catch |e| 10 if e == E.bad else 20, arm(1) catch |e| 10 if e == E.worse else 20)
-  print(caught(1) catch -1, caught(0) catch |e| 10 if e == E.bad else 20)
+  print(named(2) catch -1, named(0) catch |e| (10 if e == E.worse else 20))
+  print(ternary(3) catch -1, ternary(0) catch |e| (10 if e == E.bad else 20))
+  print(arm(5) catch -1, arm(0) catch |e| (10 if e == E.bad else 20), arm(1) catch |e| (10 if e == E.worse else 20))
+  print(caught(1) catch -1, caught(0) catch |e| (10 if e == E.bad else 20))
 
 fail "fallback not fresh", "15:16: `e` owns a `String`, which can't be copied by `=`: write `<e` to move it, `+e` to clone it, or `?e` to view it", "15:28: `g` owns a `String`, which can't be copied by `=`: write `<g` to move it, `+g` to clone it, or `?g` to view it", errors: 2
   # A binding takes the value of `??`, and so each of its operands: a
