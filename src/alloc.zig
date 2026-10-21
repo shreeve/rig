@@ -9,7 +9,9 @@
 //! out. Large blocks come from the system, and a heap keeps those freed
 //! for the next, up to `keep_large` bytes, so a list that grows and a
 //! buffer used again do not map and unmap memory each time. Segments are
-//! never returned to the system: memory freed stays for reuse.
+//! never returned to the system: memory freed stays for reuse. On Linux,
+//! while a program has one heap, the heap faults in at once the memory it
+//! is about to fill (`prefault`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds. Debug builds keep the
@@ -24,6 +26,51 @@ const segment_size: usize = 4 << 20;
 /// Small blocks are carved from pages of this size, one class per page.
 const page_size: usize = 64 << 10;
 const pages_per_segment = segment_size / page_size;
+
+/// How much of a segment a heap faults in at once, as it reaches it.
+const prefault_size: usize = 1 << 20;
+const pages_per_prefault = prefault_size / page_size;
+
+/// Linux's `MADV_POPULATE_WRITE` (5.14 and later), which Zig's
+/// `std.os.linux.MADV` does not name.
+const madv_populate_write: u32 = 23;
+
+/// How many heaps the program has made: one until a second thread
+/// allocates, as a program that starts no task never does.
+var heaps_made: std.atomic.Value(u32) = .init(0);
+
+/// Of a large block's pages, how many bytes to fault in at once: a List
+/// that doubles into a block fills, on average, its old elements and
+/// half the room after them, so a new block faults in its first three
+/// quarters, and a block that grows by `mremap` half the bytes it gains;
+/// at most `prefault_large` bytes, so a huge block's untouched room still
+/// faults as it is reached. Rounded down to whole pages.
+fn likelyFilled(len: usize) usize {
+    return @min(len, prefault_large) & ~(std.heap.pageSize() - 1);
+}
+
+/// The most of a large block faulted in at once.
+const prefault_large: usize = 8 << 20;
+
+/// Faults in the `len` bytes at `p` in one call, on Linux, while the
+/// program has one heap (`heaps_made`), as writing them would, page by
+/// page, with one trap each: a stretch of a segment the heap is about to
+/// carve blocks from, or the part of a large block a List growing into
+/// it is likely to fill (`likelyFilled`). It saves a trap per page, and
+/// the cycles a program stalls after each, and commits little a program
+/// never writes. Elsewhere, or where the system cannot (an older kernel),
+/// the pages fault as they are touched.
+fn prefault(p: usize, len: usize) void {
+    if (len == 0) return;
+    // A program of many threads faults lazily: each would fault in its
+    // first stretch as it starts, and a server's buffers are written
+    // sparsely, so faulting in ahead slowed both.
+    if (heaps_made.load(.monotonic) > 1) return;
+    if (builtin.os.tag == .linux) {
+        const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+        std.posix.madvise(at, len, madv_populate_write) catch {};
+    }
+}
 
 /// The largest small block.
 pub const max_small: usize = 32 << 10;
@@ -141,10 +188,13 @@ pub const Heap = struct {
     fn newPage(h: *Heap) ?usize {
         if (h.segment) |s| if (s.used < pages_per_segment) {
             const p = @intFromPtr(s) + s.used * page_size;
+            if (s.used % pages_per_prefault == 0) prefault(p, prefault_size);
             s.used += 1;
             return p;
         };
         const s = mapSegment() orelse return null;
+        // The header's page, and the first stretch the heap carves from.
+        prefault(@intFromPtr(s), prefault_size);
         s.* = .{ .heap = h, .used = 2 };
         h.segment = s;
         return @intFromPtr(s) + page_size;
@@ -219,6 +269,7 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
         }
     }
     const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
+    prefault(@intFromPtr(got.ptr), likelyFilled(size - size / 4));
     return got.ptr;
 }
 
@@ -361,6 +412,7 @@ fn newHeap() ?*Heap {
     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
     h.* = .{};
+    _ = heaps_made.fetchAdd(1, .monotonic);
     if (check_owner) h.owner = threadToken();
     my_heap = h;
     return h;
@@ -411,6 +463,9 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     const linux = std.os.linux;
     const rc = linux.mremap(@alignCast(memory.ptr), old_size, new_size, .{ .MAYMOVE = true }, null);
     if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) return null;
+    // The pages moved stay; of the new ones, those a List is likely to
+    // fill are faulted in at once.
+    prefault(rc + old_size, likelyFilled((new_size - old_size) / 2));
     return @ptrFromInt(rc);
 }
 
