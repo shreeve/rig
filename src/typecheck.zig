@@ -1082,8 +1082,7 @@ const Checker = struct {
         if (self.body.is_sub and ret == self.t().void_id) {
             const ty = try self.synthExpr(value);
             if (sema.isErrorSet(self.ctx, ty)) {
-                const name = if (self.body.name != .nil) self.text(self.body.name) else "f";
-                try self.errAt(value, "a `sub` that cannot fail returns no error; declare it fallible to fail: `sub {s}(...)!`", .{name});
+                try self.errAt(value, "a `sub` that cannot fail returns no error; declare it fallible to fail: `sub {s}!`", .{self.headerText(self.body.name)});
             } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
             return;
         }
@@ -1152,7 +1151,7 @@ const Checker = struct {
         var ok = try self.checkResultTargets(targets);
         const call = resultCall(value) orelse Sexp.nil;
         if (ok and !self.isResultsValue(value)) {
-            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, `f() ?? return`, or `f() catch return`", .{try self.targetNames(targets)});
+            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, or a fallback that jumps (`f() ?? return`, `f() catch return`, `catch break`, `catch continue`); a value cannot stand for several results", .{try self.targetNames(targets)});
             _ = try self.synthQuiet(value);
             for (targets) |tg| if (tg.isKind(.set)) try self.poisonTarget(tg);
             return;
@@ -5338,8 +5337,26 @@ const Checker = struct {
             }
             break :result self.fallbackType(value, expected);
         } else view_result;
+        if (try self.errorAsFallback(right, result, "??")) return result;
         try self.checkExpr(right, result);
         return result;
+    }
+
+    /// A fallback, after `??` or `catch`, that names an error where a
+    /// value is wanted: an error is returned, not given, so the hint
+    /// writes the jump (`?? return Config.missing`). True when it
+    /// reported.
+    fn errorAsFallback(self: *Checker, fallback: Sexp, wanted: TypeId, op: []const u8) Error!bool {
+        if (isJumpNode(fallback) or self.isPoison(wanted) or sema.isErrorSet(self.ctx, wanted)) return false;
+        const ty = ty: {
+            self.tentative += 1;
+            defer self.tentative -= 1;
+            break :ty try self.synthQuiet(fallback);
+        };
+        if (!sema.isErrorSet(self.ctx, ty)) return false;
+        const shown = self.sourceText(fallback);
+        try self.errAt(fallback, "`{s}` is an error, and `{s}` needs a fallback of type `{s}`; to fail with it, return it: `{s} return {s}`", .{ shown, op, try self.tyName(wanted), op, shown });
+        return true;
     }
 
     /// The `T` that `a ?? b` or `a catch b` (`e`) gives when the payload
@@ -5491,6 +5508,7 @@ const Checker = struct {
             }
             break :result self.fallbackType(copied, expected);
         } else view_result;
+        if (try self.errorAsFallback(handler, result, "catch")) return result;
         try self.checkExpr(handler, result);
         return result;
     }
@@ -5505,7 +5523,7 @@ const Checker = struct {
             .drop => try self.errAt(operand, "a `drop` body cannot propagate failure; handle it with `catch`", .{}),
             .infallible => |name| {
                 if (self.body.is_sub) {
-                    try self.errAt(operand, "use of `!` propagation requires the enclosing `{s}` to be fallible: `sub {s}(...)!`", .{ self.text(name), self.text(name) });
+                    try self.errAt(operand, "use of `!` propagation requires the enclosing `{s}` to be fallible: `sub {s}!`", .{ self.text(name), self.headerText(name) });
                 } else try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.text(name)});
                 try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
             },
@@ -7097,6 +7115,30 @@ const Checker = struct {
     }
 
     /// The source text of a node, for messages.
+    /// The name and parameters of the `fun` or `sub` named `name`, as
+    /// written (`main()`, `load(path: ?String)`), for a hint that shows
+    /// its header; `f(...)` when there is no name.
+    fn headerText(self: *Checker, name: Sexp) []const u8 {
+        if (name == .nil) return "f(...)";
+        const sp = self.ctx.span(name);
+        const src = self.ctx.source;
+        var i = sp.end;
+        var depth: usize = 0;
+        while (i < src.len) : (i += 1) {
+            switch (src[i]) {
+                '(', '[' => depth += 1,
+                ')', ']' => {
+                    if (depth == 0) break;
+                    depth -= 1;
+                    if (depth == 0 and src[i] == ')') return src[sp.start .. i + 1];
+                },
+                '\n' => break,
+                else => {},
+            }
+        }
+        return self.ctx.arena.allocator().print("{s}(...)", .{self.text(name)}) catch "f(...)";
+    }
+
     fn sourceText(self: *Checker, node: Sexp) []const u8 {
         const sp = self.ctx.span(node);
         return diag.textOf(self.ctx.source, sp);
@@ -15092,6 +15134,15 @@ const Checker = struct {
         }
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
+        // A closure whose value is a write view it captured, of a value
+        // that copies (`|!n| ... n`), gives that value, as a `-> Int`
+        // function gives a `!Int` parameter's: a write view has one
+        // holder and never leaves the closure.
+        const tail = sema.tailOf(body);
+        if (tail == .src and self.ctx.types.get(ret) == .write_view) if (sema.copiedThrough(self.ctx, ret)) |inner| {
+            try self.readOf(tail, ret, .{ .value = inner });
+            ret = inner;
+        };
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
         if (fails and !self.isPoison(ret) and self.ctx.types.get(ret) != .fallible) ret = try self.ctx.intern(.{ .fallible = ret });
 
