@@ -2326,6 +2326,14 @@ pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeO
     return items[b[0]..b[1]];
 }
 
+/// The end of a slice `s[lo..=hi]`: one past `hi`. A bound no index
+/// can be panics, as `bounds` does.
+pub fn through(hi: anytype) usize {
+    const h = std.math.cast(usize, hi) orelse slicePanic();
+    if (h == std.math.maxInt(usize)) slicePanic();
+    return h + 1;
+}
+
 /// `!dst.copy(src)`: panics unless the lengths are equal. Safe code
 /// cannot pass overlapping slices (the write view excludes the read).
 pub fn copy(dst: anytype, src: []const std.meta.Elem(@TypeOf(dst))) void {

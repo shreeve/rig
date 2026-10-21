@@ -1184,6 +1184,7 @@ pub const Emitter = struct {
             .element => "__rig_elem",
             .range_start => "__rig_i",
             .range_end => "__rig_end",
+            .range_more => "__rig_more",
             .subject => "__rig_subject",
             .whole => "__rig_whole",
             .payload => "__rig_payload",
@@ -3105,7 +3106,9 @@ pub const Emitter = struct {
         try self.closeLabeled(l);
     }
 
-    /// `for i in a..b`: a half-open integer range.
+    /// `for i in a..b`: a half-open integer range. `a..=b` includes its
+    /// end, which may be the type's largest value, so its counter is
+    /// stepped only while it is below the end, and a flag ends the loop.
     fn emitRangeFor(self: *Emitter, sexp: Sexp, lp: *Loop) Error!void {
         const binding = ir.For.@"var"(sexp);
         const range = ir.For.source(sexp);
@@ -3124,10 +3127,15 @@ pub const Emitter = struct {
             try self.emitHeader(bound);
             try self.w.writeAll(";\n");
         }
+        const more = if (rig.isInclusive(range)) try self.hiddenStorage(sexp, .range_more, .owned, .{ .id = id }) else "";
+        if (more.len > 0) try self.line("var {s} = {s} <= {s};", .{ more, counter, end });
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
-        try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
+        if (more.len > 0)
+            try self.w.print("while ({s}) : ({{ {s} = {s} < {s}; {s} +%= 1; }}) ", .{ more, more, counter, end, counter })
+        else
+            try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
         const body = try self.openLoopBody(lp);
         if (sym) |s| if (self.usage.used.contains(s)) {
             const stored = try self.declare(.{ .sym = s, .ty = int_ty }, self.srcText(binding));
@@ -3498,7 +3506,8 @@ pub const Emitter = struct {
             return self.w.print(".{f}", .{ident(self.srcText(ir.get(pattern, .name)))});
         }
         if (pattern.isKind(.range_pattern)) {
-            // `lo..hi` is half-open; Zig's `lo...hi` is inclusive. Sema
+            // `lo..hi` is half-open, `lo..=hi` inclusive; Zig's
+            // `lo...hi` is inclusive. Sema
             // checked both bounds are constants.
             const b = try self.rangeBounds(pattern);
             return self.w.print("{d}...{d}", .{ b[0], b[1] });
@@ -3512,11 +3521,11 @@ pub const Emitter = struct {
         try self.emitExpr(pattern);
     }
 
-    /// The inclusive bounds of range pattern `lo..hi`.
+    /// The inclusive bounds of range pattern `lo..hi` or `lo..=hi`.
     fn rangeBounds(self: *Emitter, pattern: Sexp) Error![2]Wide {
         const lo = self.facts.constIntOf(ir.RangePattern.lo(pattern)) orelse return self.unsupported(pattern, "this range pattern");
         const hi = self.facts.constIntOf(ir.RangePattern.hi(pattern)) orelse return self.unsupported(pattern, "this range pattern");
-        return .{ lo, hi - 1 };
+        return .{ lo, if (rig.isInclusive(pattern)) hi else hi - 1 };
     }
 
     /// `storage.isCatchAll`.
@@ -5589,10 +5598,12 @@ pub const Emitter = struct {
             self.read_place = saved_read;
         } else try self.emitBare(base);
         self.rt_names = saved_rt;
-        // An open start is 0; an open end, `null`, is the length.
-        for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "0", "null" }) |bound, open| {
-            try self.w.writeAll(", ");
+        // An open start is 0; an open end, `null`, is the length. An
+        // inclusive end is one past its bound (`rig.through`).
+        for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "0", "null" }, [2]bool{ false, rig.isInclusive(range) }) |bound, open, through| {
+            try self.w.writeAll(if (through) ", rig.through(" else ", ");
             if (bound == .nil) try self.w.writeAll(open) else try self.emitBare(bound);
+            if (through) try self.w.writeAll(")");
         }
         try self.w.writeAll(")");
     }

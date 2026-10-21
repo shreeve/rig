@@ -278,7 +278,7 @@ fn colourOf(cat: TokenCat) Colour {
         .assign, .fixed_assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .amp_assign, .bar_assign, .caret_assign => .{ .class = operator },
         .lshift_assign, .lshift_wrap_assign, .rshift_assign, .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign, .plus_sat_assign, .minus_sat_assign => .{ .class = operator },
         .arrow, .fat_arrow => .{ .class = operator },
-        .at, .dollar, .lparen, .rparen, .lbracket, .rbracket, .comma, .as_comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
+        .at, .dollar, .lparen, .rparen, .lbracket, .rbracket, .comma, .as_comma, .colon, .dot, .dotdot, .dotdot_eq, .dotdot_open, .step_colon => .uncoloured,
         .label, .label_colon => .{ .class = .{ .kind = .label } },
         // A symbol is one constant: its `:` is coloured with its name.
         .symbol_colon => .{ .class = .{ .kind = .enumMember } },

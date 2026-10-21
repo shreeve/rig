@@ -660,8 +660,9 @@ cannot outlive it. A `[]T` has `.len` and `get(i)`, is indexed and
 iterated like an array, and is sliced again with `s[a..b]`, which views the same
 elements. The bounds must satisfy `0 <= a <= b <= len`; constant bounds
 are checked at compile time, others when the slice is taken, which
-panics when they do not. A side may be left open: `xs[a..]` runs to the
-end, `xs[..b]` starts at 0, and `xs[..]` is the whole. Only a slice
+panics when they do not. `xs[a..=b]` ends with `xs[b]`, so `b` is at
+most `len - 1`. A side may be left open: `xs[a..]` runs to the
+end, `xs[..b]` and `xs[..=b]` start at 0, and `xs[..]` is the whole. Only a slice
 leaves a side open; a `for` range or a range pattern needs both ends.
 
 ```rig
@@ -678,12 +679,14 @@ sub main()
   mid = ?a[1..3]
   print(mid, mid.len, mid[0], total(mid), total(?a[0..4]))
   print(s[7..], s[..5], a[2..], total(?a[..]))
+  print(s[0..=4], ?a[1..=2], ?a[..=0])
 ```
 
 ```output
 hello world
 [2, 3] 2 2 5 10
 world hello [3, 4] 10
+hello [2, 3] [1]
 ```
 
 ```rig reject
@@ -4284,8 +4287,10 @@ cannot lend `v` to write while a read loan is live
 ### for
 
 `for x in source` walks an array, a slice, a `?String` (bytes), a
-`List`, an iterator (below), or a range `a..b` (from `a` up to, not
-including, `b`; the bounds are evaluated once). `for x, i in xs` also binds the index (not for
+`List`, an iterator (below), or a range: `a..b` from `a` up to, not
+including, `b`, or `a..=b` from `a` through `b`, which may be its
+type's largest value (`for b in 0..=U8.max` runs 256 times); the
+bounds are evaluated once. `for x, i in xs` also binds the index (not for
 ranges); the element comes first, the reverse of Python's
 `enumerate`, and where a loop written index first gives a binding the
 other's type, the error says so. An `else` block runs when the loop ends without `break`. A
@@ -4709,16 +4714,18 @@ sub main()
 `.rect` binds its fields both in order and by name
 ```
 
-A range pattern is half-open like every range, so `0..10` matches 0
-through 9, and its end may be one past the type's largest value:
-`100..256` covers the rest of a `U8`.
+A range pattern `lo..hi` is half-open like the range it is written as,
+so `0..10` matches 0 through 9, and its end may be one past the type's
+largest value: `100..256` covers the rest of a `U8`. An inclusive
+pattern `lo..=hi` matches through `hi`, a value of the subject's type:
+`200..=255` covers the top of a `U8`.
 
 ```rig
 fun size(n: U8) -> ?String
   match n
     0..10 => "small"
-    10..100 => "medium"
-    100..256 => "large"
+    10..200 => "medium"
+    200..=255 => "large"
 
 sub main()
   print(size(5), size(42), size(200))

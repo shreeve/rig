@@ -147,6 +147,7 @@ fun closures(xs: !List[Int]) -> Int
   grid = [3 of 0]
   tail = xs[1..]
   all = xs[..]
+  head = xs[..=1]
   count
 
 fun holds(u: ?*Point, v: ^?Point, cells: [2]*Point, xs: ![]Int, q: Point) -> Int?!
