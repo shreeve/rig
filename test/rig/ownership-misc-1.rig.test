@@ -10599,7 +10599,7 @@ fail "string copies keep text", "13:1: cannot lend `t` to write while a read loa
     o = sl[0]
   print(o)
 
-fail "string of local text", "10:3: cannot return a view of `t`, which this function was not lent", "10:3: a `?String` views text it doesn't own; store a `String` to own it", "14:14: cannot return a view of `t`, which this function was not lent", "14:14: a `?String` views text it doesn't own; store a `String` to own it", "18:3: cannot store a view of `t` in `u.name`: `u` outlives it", "18:12: a `?String` views text it doesn't own; store a `String` to own it", "23:12: `t` does not live long enough", "23:12: a `?String` views text it doesn't own; store a `String` to own it", errors: 4
+fail "string of local text", "10:3: cannot return a view of `t`, which this function was not lent", "10:3: a `?String` views text it doesn't own; return a `String` to give text of its own", "14:14: cannot return a view of `t`, which this function was not lent", "14:14: a `?String` views text it doesn't own; return a `String` to give text of its own", "18:3: cannot store a view of `t` in `u.name`: `u` outlives it", "18:12: a `?String` views text it doesn't own; store a `String` to own it", "23:12: `t` does not live long enough", "23:12: a `?String` views text it doesn't own; store a `String` to own it", errors: 4
   # A String views text it doesn't own. Where one outlives the Text it
   # views, as a function's String result or a String field, the
   # diagnostic says so and points at Text, which owns its bytes.
