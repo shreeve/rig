@@ -4309,6 +4309,19 @@ program builds the same everywhere.
   `unlikely`; one that never ran is `cold` once the block around it ran
   100 times; one that ran on 19 in 20 or more is `likely`.
 
+`rig build --bolt -- WORKLOAD` lays the executable out again after
+building it, with LLVM's BOLT, which sees what Rig's counts cannot: the
+machine code's own blocks. The build keeps its relocations
+(`--emit-relocs`); `perf record -j any,u` runs the workload, recording
+the branches the processor takes (samples alone where it records
+none); `perf2bolt` turns that into BOLT's profile; and `llvm-bolt`
+reorders each function's blocks by heat (`ext-tsp`), splits cold code
+off, orders functions by their calls (`cdsort`), and folds identical
+ones. It needs Linux with perf, llvm-bolt, and perf2bolt, which it
+finds on PATH or under LLVM's versioned names (`llvm-bolt-21`,
+`/usr/lib/llvm-21/bin`), and it says which is missing before it builds.
+With `--pgo` as well, one workload serves both.
+
 ### Symbols
 
 A symbol, `:name`, is one `SYMBOL_COLON` and the name after it, a
