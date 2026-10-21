@@ -1,0 +1,107 @@
+# ownership: tests whose names start `once`.
+
+test "once closure owns what it moves in", '''
+  3
+  5
+  3
+'''
+  # A closure passed to a parameter written `once` may move out what it
+  # moved in: its one call owns it, as a function owns a parameter, and
+  # drops what it keeps.
+  fun run(f: once ?fun() -> Int) -> Int
+    f()
+
+  fun take(s: String) -> Int
+    s.len
+
+  a = String("abc")
+  print(run(|<a| a.len))
+  b = String("hello")
+  print(run(|<b| take(<b)))
+  c = String("xy")
+  d = String("z")
+  print(run(|<c, <d| take(<c) + d.len))
+
+test "once closure never called", '''
+  3
+  -1
+'''
+  # A closure its callee never calls drops what it moved in with its
+  # environment.
+  error E
+    bad
+
+  fun maybe(n: Int, f: once ?fun() -> Int) -> Int!
+    return E.bad if n < 0
+    f()
+
+  a = String("abc")
+  print(maybe(1, |<a| a.len) catch -1)
+  b = String("never")
+  print(maybe(-1, |<b| b.len) catch -1)
+
+test "once passed on", "4"
+  # A `once` parameter may be passed on to another `once` parameter,
+  # which uses it up.
+  fun run(f: once ?fun() -> Int) -> Int
+    f()
+
+  fun passed(f: once ?fun() -> Int) -> Int
+    run(f) + 1
+
+  s = String("abc")
+  print(passed(|<s| s.len))
+
+test "once generic", '''
+  3
+  xy
+'''
+  fun run[R](f: once ?fun() -> R) -> R
+    f()
+
+  a = String("abc")
+  print(run(|<a| a.len))
+  b = String("xy")
+  print(run(|<b| <b))
+
+fail "once called twice", "2:9: `f` is called at most once (`once`), and it is used up already", "2:3: `f` was used here", errors: 1
+  fun twice(f: once ?fun() -> Int) -> Int
+    f() + f()
+
+  print(twice(|| 1))
+
+fail "once called in a loop", "`f` is called at most once (`once`), and it is used up already", "`f` was used here, in a previous iteration of the loop", errors: 1
+  fun looped(f: once ?fun() -> Int) -> Int
+    n = 0
+    for _ in 0..3
+      n += f()
+    n
+
+  print(looped(|| 1))
+
+fail "once handed to a closure parameter", "`f` is called at most once (`once`), so it is only called, `f()`, or passed to another `once` parameter", errors: 1
+  fun lend(f: ?fun() -> Int) -> Int
+    f()
+
+  fun handed(f: once ?fun() -> Int) -> Int
+    lend(f)
+
+  print(handed(|| 1))
+
+fail "once on a value", "`once` marks a closure the function calls at most once, and `n` is a `Int`: write it before a closure's type, `n: once ?fun() -> T`", errors: 1
+  fun bad(n: once Int) -> Int
+    n
+
+  print(bad(1))
+
+fail "once only where passed", "cannot move captured `s`: the closure keeps what it captures for every call", errors: 1
+  # Only a closure passed to a `once` parameter may move out what it
+  # captured; any other may run again.
+  fun keep(f: ?fun() -> Int) -> Int
+    f()
+
+  fun take(s: String) -> Int
+    s.len
+
+  s = String("abc")
+  print(keep(|<s| take(<s)))

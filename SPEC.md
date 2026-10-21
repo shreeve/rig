@@ -7781,7 +7781,9 @@ call, and clone a captured owning value, but not move, drop, or
 reassign it: the closure may be called again, so it cannot be the
 closure's value either. For the same reason `<` of any capture is
 rejected, a copy (`|+n|`) too: `<n` would leave the closure's `n` as
-it was for the next call, and a plain `n` copies it. A captured view
+it was for the next call, and a plain `n` copies it. A closure passed
+to a parameter its callee calls once is the exception
+([Closures called once](#closures-called-once)). A captured view
 may be passed to a call, which views it for the call. A captured read view may be the
 closure's value, and a call's result then views what the closure
 captured. Through a captured write view the body can write fields,
@@ -8062,6 +8064,49 @@ sub main()
 
 ```error
 cannot lend `c` to write while a read loan is live
+```
+
+### Closures called once
+
+A parameter written `f: once ?fun(A) -> R` is a callable view its
+function calls at most once. The body calls it, `f(x)`, or passes it to
+another `once` parameter, and either uses it up: a second call, a call
+in a loop, or a pass to any other parameter is rejected. `once` comes
+before a closure's type only.
+
+A closure literal passed to a `once` parameter owns what it moves in
+(`|<x|`) as a function owns a parameter taken by value: its one call may
+move it out, and drops what it keeps. When the callee never calls it,
+the closure's environment drops it. Every other capture is as for any
+closure. `time.within` takes its closure this way, so a deadline can
+wait for a task started before it ([Deadlines](#deadlines)).
+
+```rig
+fun run(f: once ?fun() -> Int) -> Int
+  f() + 1
+
+fun take(s: String) -> Int
+  s.len
+
+sub main()
+  name = String("Ada")
+  print(run(|<name| take(<name)))
+```
+
+```output
+4
+```
+
+```rig reject
+fun twice(f: once ?fun() -> Int) -> Int
+  f() + f()
+
+sub main()
+  print(twice(|| 1))
+```
+
+```error
+`f` is called at most once (`once`), and it is used up already
 ```
 
 ### Owned closures
@@ -10381,11 +10426,11 @@ propagate with `!`, so the call can fail. Every fallible waiting point
 `f` reaches after the deadline fails with `task.Stop.timeout`:
 `time.sleep`, which sleeps only until the deadline, `task.check`, and
 a wait on a task, a set, or `task.all`, whose tasks are canceled first.
-`within` calls `f` exactly once, so a closure written in the call may
-move what it captures, and its one call drops what it leaves: a task or
-a set made before the deadline is waited for in it,
-`time.within(ns, |<t| >t!)`.
 
+- `within` calls `f` once (its parameter is written `f: once ?fun() ->
+  R!`, [Closures called once](#closures-called-once)), so `f` may move in
+  a task started before it and wait for it: `time.within(d, |<t| >t!)`
+  gives a deadline to one task, and `|<ts| >ts!` to a set.
 - The tasks `f` starts keep the deadline.
 - Inside another deadline, the earlier one holds, and the outer one is
   back once `f` returns.

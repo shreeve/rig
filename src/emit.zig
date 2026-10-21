@@ -209,6 +209,9 @@ const FunState = struct {
     /// environment, bound at the top of its body as parameters are
     /// (`SemContext.recordOnceClosure`).
     once_caps: []const SymbolId = &.{},
+    /// The environment of a closure its callee calls at most once, which
+    /// its call marks called (`emitFunPrologue`).
+    once_env: []const u8 = "",
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
@@ -1040,6 +1043,13 @@ pub const Emitter = struct {
             const local = self.localOf(facts.syntax.paramNameNode(p) orelse continue) orelse continue;
             try self.bindParamLocal(local);
         };
+        // A closure its callee calls at most once marks its environment
+        // called: the call owns what the environment held, which the
+        // environment drops only when it was never called.
+        if (self.fun.once_env.len > 0) {
+            try self.line("{s}.__rig_called = true;", .{self.fun.once_env});
+            self.fun.once_env = "";
+        }
         const once_caps = self.fun.once_caps;
         self.fun.once_caps = &.{};
         for (once_caps) |sym| try self.bindParamLocal(self.localBySym(sym) orelse continue);
@@ -7948,6 +7958,8 @@ pub const Emitter = struct {
             // Inside the body, a capture is a field of the environment.
             _ = try self.declare(.{ .sym = c.sym, .zig_name = field, .ty = c.ty }, c.name);
         }
+        const once = self.facts.isOnceClosure(lambda);
+        if (once) try self.line("__rig_called: bool = false,", .{});
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
         // A large frame is never inlined into its caller's.
@@ -7956,7 +7968,7 @@ pub const Emitter = struct {
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
-        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env, .once_caps = once_caps.items };
+        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env or once) "" else env, .once_caps = once_caps.items, .once_env = if (once) env else "" };
         try self.bindParams(params, false);
         for (params.items()) |p| {
             try self.w.writeAll(", ");
@@ -8174,9 +8186,14 @@ pub const Emitter = struct {
         const owns = try self.emitStackClosure(env, h.node);
         try self.w.writeAll("\n");
         try self.poisonAtExit(env);
-        // A closure called exactly once takes what it owns of its
-        // environment, and drops it there.
-        if (owns and !self.facts.isOnceClosure(h.node)) try self.line("defer rig.dropFields(&{s});", .{env});
+        // A closure called at most once takes what it owns of its
+        // environment when it is called, and drops it there; otherwise
+        // the environment drops it.
+        if (owns) {
+            if (self.facts.isOnceClosure(h.node)) {
+                try self.line("defer if (!{s}.__rig_called) rig.dropFields(&{s});", .{ env, env });
+            } else try self.line("defer rig.dropFields(&{s});", .{env});
+        }
         try self.writeIndent(self.indent);
         try self.w.print("const {s} = ", .{h.name});
         try self.emitCallableTy("FnRef", self.facts.types.get(fn_ty).function);

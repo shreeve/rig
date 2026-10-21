@@ -1002,8 +1002,8 @@ pub const Facts = struct {
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `io.copy` (`Checker.ioCopy`).
     io_copies: std.AutoHashMapUnmanaged(u64, void) = .empty,
-    /// Closure literals called exactly once, by the call they are
-    /// written in (`SemContext.recordOnceClosure`).
+    /// Closure literals called at most once, by the call they are passed
+    /// to (`SemContext.recordOnceClosure`).
     once_closures: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
     /// that makes them (`Checker.crossCheck`), with what pins each.
@@ -1690,6 +1690,10 @@ pub const Origins = struct {
     /// where the declaration's `keeps` names them; none for a function
     /// type's origins, which keep by type.
     lent: ParamMask = 0,
+    /// The closure parameters the function calls at most once, written
+    /// `f: once ?fun() -> T`: a closure literal passed to one may move
+    /// what it captures out (`|<t| >t!`), as its own parameters.
+    once: ParamMask = 0,
 };
 
 /// A function's `from` clause: the names it lists (empty for `from
@@ -1745,6 +1749,12 @@ pub const CallParams = struct {
     /// lent parameter its callee's `keeps` names.
     pub fn keepsLent(self: CallParams, arg: usize) bool {
         return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores & self.origins.lent);
+    }
+
+    /// Whether the argument at index `arg` fills a parameter the callee
+    /// calls at most once (`Origins.once`).
+    pub fn fillsOnce(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.once);
     }
 
     /// Whether the call keeps its receiver, which its callee's `keeps`
@@ -2347,6 +2357,9 @@ pub const SemContext = struct {
     /// (`keeps s, @`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
     declared_keeps: std.AutoHashMapUnmanaged(u32, DeclaredKeeps) = .empty,
+    /// The parameters each function and method calls at most once, those
+    /// written `f: once ?fun() -> T`, by where its name is declared.
+    declared_once: std.AutoHashMapUnmanaged(u32, ParamMask) = .empty,
     /// The `for` loops over an iterator that typecheck found, each to be
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
@@ -2415,6 +2428,7 @@ pub const SemContext = struct {
         self.facts.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
         self.declared_keeps.deinit(self.allocator);
+        self.declared_once.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
@@ -2740,6 +2754,7 @@ pub const SemContext = struct {
         const key = nodeKey(call) orelse return null;
         return self.facts.call_params.get(key);
     }
+
 
     /// What a bracket list instantiates; null for an index (or a node
     /// sema never reached).
@@ -3299,9 +3314,9 @@ pub const SemContext = struct {
     pub fn isIoCopy(self: *const SemContext, call: Sexp) bool {
         return self.facts.io_copies.contains(exprKey(call) orelse return false);
     }
-    /// Records that closure literal `lambda` is called exactly once, by
-    /// the call it is written in (`time.within`'s): what it owns of its
-    /// captures, its one call takes (`once_captures`).
+    /// Records that closure literal `lambda` is called at most once, by
+    /// the call it is passed to, whose parameter is written `once`: what
+    /// it owns of its captures, its one call takes (`once_captures`).
     pub fn recordOnceClosure(self: *SemContext, lambda: Sexp) !void {
         try self.facts.once_closures.put(self.allocator, recordExprKey(lambda) orelse return, {});
         for (captureList(ir.Lambda.captures(lambda))) |cap| switch (captureModeOf(cap) orelse continue) {
@@ -6843,6 +6858,7 @@ fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, po
 fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
     try declKeeps(ctx, name, pos, f, &o);
+    o.once = ctx.declared_once.get(pos) orelse 0;
     const d = ctx.declared_origins.get(pos) orelse return o;
     const results = try viewTargets(ctx, a, f.returns);
     if (results.isEmpty()) {
@@ -8799,8 +8815,8 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
-        // `>t`, which the Parser wrapper rewrites to a call first.
-        .wait => .none,
+        // `>t` and `f: once T`, which the Parser wrapper rewrites first.
+        .wait, .once => .none,
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed, .task => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,

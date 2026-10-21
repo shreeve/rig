@@ -1908,6 +1908,7 @@ test/reject/concurrency/task_copy.rig main
 test/reject/concurrency/within_a_closure_called_more_than_once.rig main
 test/reject/ownership/closure_write_capture_returns_no_owner.rig main
 test/reject/ownership/field_view_loop_elements_keep_the_list_lent.rig main
+test/reject/ownership/once_only_where_passed.rig main
 test/reject/probes/R11a-d1l.rig main
 test/reject/probes/R13-s-m-lib.rig Opt.or
 test/reject/probes/R15-p-a1.rig main
