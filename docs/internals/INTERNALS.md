@@ -4259,34 +4259,6 @@ symbols); a query that decides more than that belongs in `Pending`.
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
 
-### Profiles
-
-`rig build --pgo=FILE` builds by a profile, from Rig's own IR, since Zig
-has none (`src/pgo.zig`). With `-- WORKLOAD` after the file, it first
-builds the program counting its sites at the executable `-o` names, runs
-the workload (which runs that executable), and writes FILE from the
-counts; without one, it reads FILE as it is, so a profile kept beside the
-program builds the same everywhere.
-
-- **Sites.** A function's entry and each block `emitBlock` writes (a
-  branch's arm, a loop's body), numbered in the order emit writes them.
-  An instrumented build starts each with `rig.pgoHit(N)`, an atomic add
-  to counter `N`; its root declares `__rig_pgo_sites`, how many. The
-  runtime writes `SITE COUNT` for each site that ran to the file
-  `RIG_PGO_OUT` names when the program ends (`finish`, `failMain`); a
-  panic writes none.
-- **The profile.** Text, one `fun MODULE NAME HASH ENTRIES` a function
-  and `ORDINAL COUNT` under it for each block that ran. HASH is a hash of
-  the function's source text: an edited function loses its counts, and a
-  profile never steers a function it was not recorded from.
-- **What a build does with it.** A function the run never entered is
-  cold (`@branchHint(.cold)`, `noinline`) and never inlined. One entered
-  at least 1 in 100 times as often as the hottest is inlined up to 240
-  nodes, not 60, within every frame limit (`inlining.decide`). A branch's
-  arm that ran on 1 in 20 runs of the block around it, or fewer, is
-  `unlikely`; one that never ran is `cold` once the block around it ran
-  100 times; one that ran on 19 in 20 or more is `likely`.
-
 ### Symbols
 
 A symbol, `:name`, is one `SYMBOL_COLON` and the name after it, a
