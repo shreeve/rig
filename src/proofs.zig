@@ -984,9 +984,11 @@ const Pass = struct {
         const mark = p.defers.items.len;
         p.depth += 1;
         const depth = p.depth;
-        for (ir.Block.stmts(block)) |stmt| {
+        const list = ir.Block.stmts(block);
+        for (list, 0..) |stmt, i| {
             // What no path reaches proves nothing.
             if (st.dead) st.* = .{};
+            if (i + 1 < list.len) try p.fillWritten(stmt, list[i + 1]);
             if (stmts) try p.proposeFlag(stmt, st);
             try p.walkStmt(stmt, st);
         }
@@ -1117,6 +1119,71 @@ const Pass = struct {
         try p.walkBlock(block, &b, true);
         applyKills(st, &(try p.killsOf(block)));
         st.dead = false;
+    }
+
+    /// A fill no element of which is read before it is written
+    /// (docs/internals/INTERNALS.md, "Fills written before they are
+    /// read"): `t = [n of v]`, `v` a literal and the elements numbers or
+    /// `Bool`, then, as the next statement, `for k in 0..n` (`n` the same
+    /// literal, or `t.len`) whose body starts with `t[k] = e`, names `t`
+    /// nowhere else, and jumps nowhere. Each iteration writes element `k`
+    /// before anything else of it runs, and only a `return` or a failure
+    /// leaves the loop early, which leaves `t`'s scope too; so when
+    /// anything reads `t`, every element was written. Emit writes the
+    /// array `undefined`, which a debug build fills with 0xAA bytes, so a
+    /// read the proof missed reads those, not the fill, and the
+    /// differential run sees it.
+    fn fillWritten(p: *Pass, decl: Sexp, loop: Sexp) Error!void {
+        if (!decl.isKind(.set) or rig.bindingKindOf(ir.Set.op(decl)).operator() != null) return;
+        const fill = ir.Set.value(decl);
+        if (!fill.isKind(.array_fill)) return;
+        const v = ir.ArrayFill.value(fill);
+        if (v != .src or p.ctx.symbolOf(v) != null) return;
+        const target = ir.Set.target(decl);
+        if (target != .src) return;
+        const t = p.ctx.symbolOf(target) orelse return;
+        if (!p.ownBinding(t)) return;
+        const arr = switch (p.ctx.types.get(p.ctx.symbols.items[t].ty)) {
+            .array => |a| a,
+            else => return,
+        };
+        switch (p.ctx.types.get(arr.elem)) {
+            .int, .float, .bool => {},
+            else => return,
+        }
+        const n: u64 = switch (p.ctx.types.get(arr.len)) {
+            .ct_value => |cv| std.math.cast(u64, cv.int) orelse return,
+            else => return,
+        };
+        if (!loop.isKind(.@"for") or ir.For.@"else"(loop) != .nil) return;
+        const range = ir.For.source(loop);
+        if (!range.isKind(.@"..") or rig.isInclusive(range)) return;
+        if ((p.intLiteral(ir.get(range, .left)) orelse return) != 0) return;
+        const hi = ir.get(range, .right);
+        if (p.intLiteral(hi)) |h| {
+            if (h != n) return;
+        } else {
+            if (!hi.isKind(.member)) return;
+            const name = sema.identAt(p.source(), ir.Member.name(hi)) orelse return;
+            const obj = ir.Member.object(hi);
+            if (!std.mem.eql(u8, name, "len") or obj != .src or p.ctx.symbolOf(obj) != t) return;
+        }
+        const k = p.ctx.symbolOf(ir.For.@"var"(loop)) orelse return;
+        const body = ir.For.body(loop);
+        if (!body.isKind(.block)) return;
+        const stmts = ir.Block.stmts(body);
+        if (stmts.len == 0) return;
+        const first = stmts[0];
+        if (!first.isKind(.set) or rig.bindingKindOf(ir.Set.op(first)).operator() != null) return;
+        const store = ir.Set.target(first);
+        if (!store.isKind(.index)) return;
+        const obj = ir.Index.object(store);
+        const at = ir.Index.index(store);
+        if (obj != .src or p.ctx.symbolOf(obj) != t or at != .src or p.ctx.symbolOf(at) != k) return;
+        if (namesSym(p.ctx, ir.Set.value(first), t)) return;
+        for (stmts[1..]) |s| if (namesSym(p.ctx, s, t)) return;
+        if (jumps(body)) return;
+        try p.record(fill, .{ .written = true }, null);
     }
 
     /// `raw` is opaque: nothing in it is proven, and no fact outlives it.
@@ -1436,6 +1503,22 @@ const Pass = struct {
         st.dead = false;
     }
 };
+
+/// Whether `e` names binding `sym` anywhere.
+fn namesSym(ctx: *const SemContext, e: Sexp, sym: SymbolId) bool {
+    if (e == .src) return ctx.symbolOf(e) == sym;
+    if (e != .list) return false;
+    for (e.items()) |c| if (namesSym(ctx, c, sym)) return true;
+    return false;
+}
+
+/// Whether `e` holds a `break` or a `continue`.
+fn jumps(e: Sexp) bool {
+    if (e != .list) return false;
+    if (rig.isJump(e)) return true;
+    for (e.items()) |c| if (jumps(c)) return true;
+    return false;
+}
 
 /// Whether the store `set` writes into an element of the binding `sym`
 /// (`v[j] = x`, `v[j].f = x`): the step of its target next to the binding
@@ -1943,6 +2026,7 @@ pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *s
             .@"+" => "+",
             .set => "+=",
             .member => sema.identAt(ctx.source, ir.Member.name(n)) orelse "member",
+            .array_fill => "fill",
             else => @tagName(n.kind().?),
         };
         const span = if (ctx.parser) |pr| pr.base.span(n) else rig.leafSpan(ctx.source, n);
@@ -1956,6 +2040,7 @@ pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *s
             if (p.lower) try t.writeAll(" lower");
             if (p.upper) try t.writeAll(" upper");
             if (p.no_overflow) try t.writeAll(" no_overflow");
+            if (p.written) try t.writeAll(" written");
             try out.append(a, .{ .start = span.start, .text = text.written() });
         }
     }
@@ -2661,6 +2746,28 @@ test "E2: a near miss bounds nothing" {
         \\
     ,
         \\50:5 += no_overflow
+        \\
+    );
+}
+
+test "fills written before they are read" {
+    // `t` is written whole before it is read; `u`'s loop reads `u`, and
+    // `w`'s loop stops short.
+    try expectDump(
+        \\fun f(i: Int) -> Int
+        \\  t = [8 of 0]
+        \\  for k in 0..8
+        \\    t[k] = k *% i
+        \\  u = [8 of 0]
+        \\  for k in 0..8
+        \\    u[k] = u[0] +% k
+        \\  w = [8 of 0]
+        \\  for k in 0..7
+        \\    w[k] = k
+        \\  t[i] +% u[i] +% w[i]
+        \\
+    ,
+        \\2:7 fill written
         \\
     );
 }

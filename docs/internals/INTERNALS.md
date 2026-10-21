@@ -1982,6 +1982,28 @@ beside a use, and checks that the use is proven exactly when a guard
 dominates its unit and no write of `i` is in that unit or on a path
 from the guard.
 
+### Fills written before they are read
+
+A fill `[n of x]` writes every element before the program can read one.
+Where the program itself writes every element before it reads any, the
+fill does nothing, and the proof pass (`Pass.fillWritten`) records it as
+`written` on the fill; emit then writes the array `undefined`, with no
+`@memset`. The shape is a positive list: a statement `t = [n of v]`, `v`
+a literal and the elements numbers or `Bool`, `t` a local of the body;
+then, as the next statement, `for k in 0..n` (`n` the same literal, or
+`t.len`; not `0..=n`) whose body starts with `t[k] = e`, names `t`
+nowhere else (`e` included), and holds no `break` or `continue`. Each
+iteration writes element `k` before anything else of it runs; only a
+`return` or a failure leaves the loop early, and either leaves `t`'s
+scope too; so wherever `t` is read, every element was written.
+
+A debug build fills an `undefined` array with 0xAA bytes, so a read the
+proof missed reads those rather than the fill's value: the differential
+run (`swarm test/rig.rip proofs`, against `RIG_NO_PROOFS=1`, which makes
+every fill) sees it, and `RIG_SANITIZE` builds, which are debug builds,
+read the same bytes. `rig check --facts=proofs` prints such a fill as
+`L:C fill written`.
+
 ### Generics
 
 A generic type's or generic function's body is checked once, with its
