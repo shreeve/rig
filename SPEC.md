@@ -1692,10 +1692,20 @@ words that ask for a speed and never change what the program means:
   out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
-([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and a function
-whose every path ends in a `panic` is taken as `rarely`: the branch to
-a panic, and to the runtime's own failure reports, is laid out as the
-path that is not taken. A marker applies to every
+([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and LLVM may
+inline larger ones. A function whose every path ends in a `panic` is
+taken as `rarely`: the branch to a panic, and to the runtime's own
+failure reports, is laid out as the path that is not taken.
+`rig build --release` warns about a function whose frame, as the
+executable reserves it, passes a page though its own values fit in one,
+and names the functions it calls to mark `called`; a `rarely` function,
+which is cold, is not named:
+
+```text
+main.rig:10:12: warning: `step` reserves 4864 bytes of stack, more than a page (4096 bytes), though its own values take 16: what is inlined into it holds the rest, and every call pays for the whole frame; to keep the function it calls out of line, mark it `called`: `report`
+```
+
+A marker applies to every
 instance of a function with compile-time parameters, and a method
 takes one as any function does, in its type's body or outside it.
 
