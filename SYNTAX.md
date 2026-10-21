@@ -273,10 +273,11 @@ function's result type (`-> ?Item from a`), and `static` only right
 after that `from`; `keeps` only at the end of a function's header
 (`sub watch(!@, s: ?String) keeps s`); a parameter or a local may be
 named any of them.
-`inline`, `called`, and `rarely` are keywords only at the start of a
+`inline` and `called` are keywords only at the start of a
 declaration (after any `pub`), right before its `fun` or `sub`
-(`inline fun f()`, `pub rarely sub s()`), so a local, a parameter, a
-field, or a method may be named any of them. `none`
+(`inline fun f()`, `pub called sub s()`), and `rarely` only alone on a
+line, so a local, a parameter, a field, or a method may be named any of
+them. `none`
 is a reserved name, the absent optional, which no binding, variant, or
 error may take ([SPEC](SPEC.md#enums)). The words
 held for later start no form yet. Words that are keywords elsewhere but
@@ -554,12 +555,12 @@ From lowest to highest precedence:
 
 | Operators | Notes |
 |---|---|
-| `a if c else b`, `e catch f` | ternary and error fallback, right-nested; `e catch return v` and `a ?? return v` take a jump at this level |
+| `a if c else b` | ternary, right-nested; `e catch return v` and `a ?? return v` take a jump here, and the whole expression before it, and `e catch \|err\|` takes a block below |
 | `or` | |
 | `and` | |
 | `not` | |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
-| `??` | optional fallback, right-associative |
+| `??` `catch` | optional and error fallback, read left to right, as Zig's `orelse` and `catch`: `f() catch none ?? -1` is `(f() catch none) ?? -1`; a handler that compares, joins, or chooses is parenthesized, `f() catch (a if c else b)`; a chain of `??` gives what `a ?? (b ?? c)` does |
 | `..` `..=` | a range, `a..b` up to and not including `b`, `a..=b` through `b`: a `for` source, a match pattern, or a slice's index, where a side may be open (`xs[a..]`, `xs[..=b]`) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
@@ -727,14 +728,18 @@ sign -1
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
-- A marker before `fun` or `sub` asks for a speed, and changes no
+- A marker before `fun` or `sub` says how calls compile, and changes no
   meaning: `inline fun number(s: ?String, i: Int) -> Num` inlines the
-  function at every call, `called fun document[dense: Bool](...)` keeps
-  every call a call, and `rarely fun utf8_text(s: ?String, i: Int) ->
-  Int` says it is rarely called, so it stays out of the code that calls
-  it ([SPEC §3](SPEC.md#function-markers)). A function takes one
-  marker, and a method takes one as any function does
-  (`inline fun Point.norm(?@) -> Int`).
+  function at every call, and `called fun document[dense: Bool](...)`
+  keeps every call a call ([SPEC §3](SPEC.md#function-markers)). A
+  function takes one marker, and a method takes one as any function
+  does (`inline fun Point.norm(?@) -> Int`).
+- `rarely`, alone as the first line of a function's body, a branch of
+  `if` or `match`, a `catch` handler, or a loop's body, says the block
+  rarely runs, so the code around it is laid out for the case that does
+  not, and a function so marked stays out of line: `fun utf8_text(s:
+  ?String, i: Int) -> Int` with `rarely` as its body's first line
+  ([SPEC](SPEC.md#rarely)).
 
 A definition without its parameter list is rejected, with the header
 to write:
@@ -1871,6 +1876,7 @@ stmt      = decl | "@" name stmt | simple ["if" value]
 simple    = tail | assign
           | postfix "=!" tail | name ":" type ("=" | "=!") tail
           | "new" name [":" type] ("=" | "=!") tail | "-" name | "pass"
+          | "rarely"                                # alone, a block's first line
           | "return" [tail] | "return" value "," value, ...
           | ["new"] postfix "," postfix, ... ("=" | "=!") tail   # names or `_`
           | "break" ["@" name] [tail] | "continue" ["@" name]

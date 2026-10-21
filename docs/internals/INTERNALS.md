@@ -230,7 +230,7 @@ the finished semantic IR.
 
 ### Keywords
 
-The reserved words (all but `new`, `obj`, `called`, `rarely`, and `of`) are literal lexer
+The reserved words (all but `new`, `obj`, `inline`, `called`, `rarely`, and `of`) are literal lexer
 rules in `rig.grammar` ahead of the identifier rule (`"if" → if`), so
 the lexer's DFA classifies them; `src/rig.zig` keeps no keyword table and
 checks token categories. `new` and `obj` need the next token to be told
@@ -243,16 +243,30 @@ state accepts both and promotion would turn every statement-initial
 written `struct Name` fails to parse and is reported with the word to
 write (`foreignWord` in the Parser wrapper).
 
-`called` and `rarely`, a function's markers, are contextual in the
-wrapper for the same reason as `obj`: each is a keyword only at the start
-of a declaration (after any `pub`) when the next token is `fun` or `sub`,
+`called`, a function's marker, is contextual in the wrapper for the
+same reason as `obj`: it is a keyword only at the start of a
+declaration (after any `pub`) when the next token is `fun` or `sub`,
 and a name everywhere else, so no program that names something `called`
-or `rarely` changes. Two markers before one `fun` (`called rarely fun`)
-are the lexer's error `two_markers`, and a marker before `pub` its error
+changes. Two markers before one `fun` (`inline called fun`) are the
+lexer's error `two_markers`, and a marker before `pub` its error
 `marker_before_pub`. The grammar takes one optional `mark` before `FUN`
 or `SUB` in every function form (`fun`, `sub`, `method`, and `zfun`,
-which sema rejects) and builds it as the node `(called)` or `(rarely)`
+which sema rejects) and builds it as the node `(inline)` or `(called)`
 in the `mark` role of `fun` and `sub`; it adds no conflict.
+
+`rarely` is a keyword only at the start of a statement that it ends
+alone on its line, and a name everywhere else. The grammar takes it as
+a statement, `(rarely)`; the Parser wrapper keeps the one that starts
+the body of a function, a branch of `if` or `match`, a `catch` handler,
+or a loop (`placeRarely`) and rejects any other (`strayRarely`). Every
+pass reads it as `pass`, and emit writes it `rig.cold();`, an inline
+function whose body is `@branchHint(.cold)`: Zig takes the hint only as
+the first statement of a branch or a function, and through an inline
+call it lands in the branch the call is in wherever the call stands, so
+a capture or a loop's bookkeeping written before the block's statements
+needs no care. `rig.markerOf` reads a body that starts with `rarely` as
+the `rarely` marker, which the inlining rule and the function's cold
+start follow.
 
 `unique`, `from` and `static` are contextual. `@keywords ctx unique from
 static` with `@as IDENT = [ctx!]` lets the parser accept each wherever a
@@ -310,8 +324,9 @@ detached sigil, is the one reported.
 | `$size(T)` vs `$outer: for`, `$outer:` over a block, `break $outer`, `break $outer (x)` | `$` vs `LABEL`, `LABEL_COLON` | decided in `Lexer.classifyDollar`. `$` touching a name that touches a `(` is a builtin call, anywhere. Any other `$name` is a label: declared at the start of a line or after another label, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`), with a `:` touching the name, which is `LABEL_COLON` (`label_decl` without it); and named after `break` or `continue`. The `$` touches the name (`dollar_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a `$name` anywhere else is an error (`dollar_stray`). After a declared label's `:` a statement starts; after a jump's label the next token starts an operand |
 | `@`, `!@`, `@hits`, `@visit()` | `IDENT`, and `.` | `@` is self, a name the rewriter returns as `IDENT` whose text is `@`; an `@` touching a name is followed by a `.` the rewriter returns before the name (`member_dot`), so `@hits` parses as the member access `@ . hits`. `@.hits` is an error (`receiver_dot`) |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
-| keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `called` and `rarely` only there before `fun` or `sub` |
-| `called fun g()`, `pub rarely sub s()` vs `called = 3`, `p.rarely`, `fun called()` | `CALLED`, `RARELY` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
+| keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `inline` and `called` only there before `fun` or `sub`, `rarely` only alone on its line |
+| `called fun g()`, `pub inline sub s()` vs `called = 3`, `p.inline`, `fun called()` | `CALLED`, `INLINE` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
+| `rarely` alone on its line vs `rarely = 1`, `p.rarely`, `rarely fun f()` | `RARELY` vs `IDENT` | `rarely` is a keyword at the start of a statement when the line ends after it |
 | `obj Point`, `pub obj Pair[T]` vs `obj = 5`, `obj.x`, `f(obj: 1)` | `OBJ` vs `IDENT` | `obj` is a keyword at the start of a statement (after any `pub`) when a name follows it on the line; the parser's `@keywords` promotion cannot tell the two apart by state, since a statement may start with either |
 | `b\n  .add(1)` vs `match c\n  .red => 1` | no token | a line starting with `.` and a name, indented deeper than the statement above it, is joined to it (no `NEWLINE`, no `INDENT`) when that statement is complete and opens no block; see The lexer rewriter |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
@@ -3899,7 +3914,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   cycle of calls among marked `inline` functions (`decide`,
   `forcedCycles`, whose edges are each one's calls in its own frame, so
   a closure that calls it back is a call). A function marked `called
-  fun` or `rarely fun` is never inlined by the rule below (`rig.markerOf`,
+  fun`, or whose body starts with `rarely`, is never inlined by the rule below (`rig.markerOf`,
   read where `inlining.decide` collects the functions). Emit writes a
   `called` function `noinline fn`, so LLVM keeps every call a call too:
   each instance of a function with compile-time values is then a

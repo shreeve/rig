@@ -203,8 +203,9 @@ const FunState = struct {
     /// The function is emitted `inline`: its parameters are bound as
     /// run-time values (`emitFunPrologue`).
     inlined: bool = false,
-    /// The function is marked `rarely`: its body starts with
-    /// `@branchHint(.cold)`, which Zig takes only as the first statement.
+    /// The function is cold (its body starts with `rarely`, or it always
+    /// panics): its body starts with `@branchHint(.cold)`, which Zig
+    /// takes only as the first statement.
     cold: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
@@ -1559,6 +1560,8 @@ pub const Emitter = struct {
             .drop => try self.emitDrop(sexp),
             // An empty block: a statement wherever Zig wants one.
             .pass => try self.w.writeAll("{}"),
+            // `rarely`: the branch it starts is cold (`rig.cold`).
+            .rarely => try self.w.writeAll("rig.cold();"),
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),

@@ -1,8 +1,9 @@
 # timeout: 120
 # The function markers (SPEC.md, "Function markers"): `inline fun` is
 # emitted `inline fn` at any size, `called fun` is emitted `noinline fn`,
-# and `rarely fun` starts with Zig's cold hint; the last two are never
-# inlined by the compiler's own rule. test/rig/emit-markers.rig.test
+# and a body that starts with `rarely` starts with Zig's cold hint; the
+# last two are never inlined by the compiler's own rule.
+# test/rig/emit-markers.rig.test
 # checks the shape of the Zig of each and what the programs print, and
 # tools/markers.py writes it and the programs here. This script reads
 # what the command line shows: std.json's shape, one parser with two

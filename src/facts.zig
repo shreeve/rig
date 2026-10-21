@@ -228,8 +228,9 @@ pub const Facts = struct {
     pub fn isLargeOwner(f: Facts, node: Sexp) bool {
         return f.c().large_frames.contains(f.c().startOf(node));
     }
-    /// The marker of the `fun` or `sub` `node`: `rarely` starts its body
-    /// with the cold hint, and `called` emits it `noinline fn`.
+    /// The marker of the `fun` or `sub` `node`: `rarely`, its body's
+    /// first line, starts it with the cold hint, and `called` emits it
+    /// `noinline fn`.
     pub fn markerOf(f: Facts, node: Sexp) rig.Marker {
         _ = f;
         return rig.markerOf(node);
