@@ -8018,6 +8018,17 @@ pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: Typ
 
 /// The marked spelling (`formatTypeMarked`) of generic type `sym`
 /// applied to its own parameters: `Pair[A, B]`, with `A` and `B` marked.
+/// `List[T, inline: n]` as `formatGenericSelfMarked` spells a generic: its
+/// element type marked as the List's parameter, and its length marked as
+/// `n`, the runtime's second argument (`InlineList(T, n)`).
+pub fn formatInlineListMarked(ctx: *const SemContext, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
+    const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
+    const list = ctx.list_sym_id;
+    const elem = try p.param(ctx.symbols.items[list].type_params.?[0]);
+    const len = try a.print("{c}n{c}", .{ type_param_mark, type_param_mark });
+    return p.instance(ctx.symbols.items[list].name, try p.withInline(elem, len));
+}
+
 pub fn formatGenericSelfMarked(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
     const p: TypePrinter = .{ .ctx = ctx, .a = a, .marked = true };
     var args: std.ArrayList(u8) = .empty;
@@ -8033,6 +8044,11 @@ const TypePrinter = struct {
     a: std.mem.Allocator,
     /// Type parameters are marked (`formatTypeMarked`).
     marked: bool = false,
+
+    /// A List's arguments, `args`, with its inline length `len`.
+    fn withInline(p: TypePrinter, args: []const u8, len: []const u8) std.mem.Allocator.Error![]const u8 {
+        return p.a.print("{s}, inline: {s}", .{ args, len });
+    }
 
     fn id(p: TypePrinter, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
         // Marked whole, as `t` and its id, for the instance to spell.
@@ -8081,7 +8097,7 @@ const TypePrinter = struct {
             .parameterized_nominal => |pn| if (pn.sym == ctx.box_sym_id and pn.args.len == 1)
                 try p.handle(pn.args[0], '^')
             else if (pn.inline_len > 0)
-                try p.instance(ctx.symbols.items[pn.sym].name, try a.print("{s}, inline: {d}", .{ try p.list(pn.args), pn.inline_len }))
+                try p.instance(ctx.symbols.items[pn.sym].name, try p.withInline(try p.list(pn.args), try a.print("{d}", .{pn.inline_len})))
             else
                 try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),

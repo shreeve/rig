@@ -802,6 +802,9 @@ pub const Facts = struct {
     pub fn formatGenericSelfMarked(f: Facts, a: std.mem.Allocator, sym: SymbolId) std.mem.Allocator.Error![]const u8 {
         return sema.formatGenericSelfMarked(f.c(), a, sym);
     }
+    pub fn formatInlineListMarked(f: Facts, a: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
+        return sema.formatInlineListMarked(f.c(), a);
+    }
 
     // How a type is held in Zig: one answer per type, which every pass
     // reads the same way (docs/internals/INTERNALS.md, Emit, "Views").

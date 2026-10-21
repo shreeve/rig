@@ -1991,8 +1991,6 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
             handleName("^", @typeInfo(@FieldType(T, "value")).pointer.child, names)
         else if (@hasDecl(T, "__rig_fn"))
             fnName(T.__rig_fn[0], T.__rig_fn[1], names)
-        else if (@hasDecl(T, "__rig_inline") and T.__rig_inline > 0)
-            std.fmt.comptimePrint("List[{s}, inline: {d}]", .{ nameOf(T.__rig_args[0], names), T.__rig_inline })
         else
             genericName(T, names),
         else => @compileError("rig.typeName: no Rig name for " ++ @typeName(T)),
@@ -2020,7 +2018,9 @@ fn spell(comptime parts: anytype, comptime args: anytype, comptime names: anytyp
     var out: []const u8 = "";
     inline for (parts) |part| out = out ++ switch (@typeInfo(@TypeOf(part))) {
         .pointer => part,
-        .comptime_int => nameOf(args[part], names),
+        // An argument that is a value (`List[T, inline: n]`'s `n`) is
+        // its number.
+        .comptime_int => if (@TypeOf(args[part]) == type) nameOf(args[part], names) else std.fmt.comptimePrint("{d}", .{args[part]}),
         else => nameOf(part, names),
     };
     return out;
