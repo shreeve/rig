@@ -79,7 +79,10 @@ changed the language since it:
   is inlined at every call, one marked `called fun` is always a call
   (`noinline fn`), and one marked `rarely fun` is kept out of line with
   Zig's cold hint (the three words are contextual); a
-  `for` index counter needs no per-iteration cast.
+  `for` index counter needs no per-iteration cast; and a fill of
+  zeros (`t = [n of 0]`) that a loop then writes whole before anything
+  reads it is not made (docs/internals/INTERNALS.md, "Fills written
+  before they are read").
 - **The stack:** a program runs on a 64 MiB stack the runtime maps
   over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by
   deep recursion or a frame no larger than the guard, stops with

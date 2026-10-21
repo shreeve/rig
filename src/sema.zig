@@ -1142,10 +1142,13 @@ pub const Proven = packed struct(u8) {
     upper: bool = false,
     /// The `+` cannot overflow.
     no_overflow: bool = false,
-    _: u5 = 0,
+    /// Of a fill `[n of x]`: every element is written before any is
+    /// read, so the fill is not made.
+    written: bool = false,
+    _: u4 = 0,
 
     pub fn any(p: Proven) bool {
-        return p.lower or p.upper or p.no_overflow;
+        return p.lower or p.upper or p.no_overflow or p.written;
     }
 };
 
