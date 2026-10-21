@@ -146,6 +146,33 @@ fail "apis bounded copy", "`T` is bounded by `Eq`, which does not give a copy; a
 
   print(twice(1))
 
+test "apis copy bound through a view", '''
+  9 4
+  fig
+'''
+  # A `T` bounded by `Copy` copies in every instance, so a body copies one
+  # out of a view of it, as it copies one out of a `[]T`.
+
+  fun get[T: Copy](x: ?T) -> T
+    x
+
+  fun largest[T: Ord + Copy](xs: []T, first: T) -> T
+    xs.reduce(first, |best, x| x if x > best else best)
+
+  n = 9
+  print(get(?n), largest([3, 4, 1], 0))
+  print(largest(["fig", "ab"], ""))
+
+fail "apis bounded copy through a view", "`T` is bounded by `Eq`, which does not give a copy; add `Copy` to its bounds: `[T: Copy + Eq]`"
+  # A bounded `T` without `Copy` is copied out of a view no more than out
+  # of a name.
+
+  fun get[T: Eq](x: ?T) -> T
+    x
+
+  n = 9
+  print(get(?n))
+
 fail "apis parameter case", "a type parameter starts with a capital letter: `[T]`; a compile-time value parameter has a type: `[t: Int]`", "a compile-time value parameter starts with a lowercase letter: `[n: Int]`; a type parameter has no type, and is written alone or with its bounds: `[N]`, `[N: Ord]`"
   # A type parameter starts with a capital letter and a value parameter
   # with a lowercase one, so `[T: Ord]` and `[n: Int]` read apart.
