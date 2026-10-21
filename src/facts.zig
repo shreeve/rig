@@ -831,6 +831,14 @@ pub const Facts = struct {
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {
         return storage.genericReadView(f.c(), ty);
     }
+    /// The none the object type `ty` names (`sema.namedNoneOf`).
+    pub fn namedNoneOf(f: Facts, ty: TypeId) ?sema.NamedNone {
+        return sema.namedNoneOf(f.c(), ty);
+    }
+    /// The none the object `sym` of this module names.
+    pub fn namedNoneOfSym(f: Facts, sym: SymbolId) ?sema.NamedNone {
+        return f.c().named_nones.get(sym);
+    }
     /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, with
     /// every operation through the optional helpers
     /// (`sema.optionalRouted`); `strict` under `RIG_STRICT_OPTIONALS`.

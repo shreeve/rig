@@ -31,6 +31,13 @@ changed the language since it:
   bytes, not 40) and `== none` is one compare. An optional of it,
   `(T?)?`, takes the next spare value where one is left. An object of
   numbers alone keeps its flag.
+- **An object that names its none:** `obj Node` with one integer or
+  plain-enum field may declare `none id == 0`; its `Node?` then holds
+  that value for `none`, the size of a `Node`, tested with one compare,
+  and an object holding a `Node` has an optional its own size too. No
+  `Node` holds the value: a constant is rejected, a run-time value is
+  checked as the object is made, and the field is read-only everywhere
+  (SPEC §12, "An object that names its none").
 - **Inclusive ranges:** `a..=b` runs through `b`, beside `a..b`, which
   stops before it: a `for` source (`for b in 0..=U8.max` reaches the
   type's largest value without stepping past it), a slice

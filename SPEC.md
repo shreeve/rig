@@ -8628,8 +8628,9 @@ closure literal, not to a function name or a closure binding: write
 expected, and `none` needs a known optional type. An object's `T?` is
 the size of a `T` when a field of it has a value no `T` holds (address
 0 for a `String`, `List`, box, or handle, a spare value for a `Bool` or
-a plain enum whose tag has one, directly or in a field's own object), and a `T` beside a
-flag otherwise, as any other type's is.
+a plain enum whose tag has one, the value an object names as its none
+([below](#an-object-that-names-its-none)), directly or in a field's own
+object), and a `T` beside a flag otherwise, as any other type's is.
 
 | Form | Meaning |
 |---|---|
@@ -8815,6 +8816,68 @@ sub main()
 
 ```error
 `as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`
+```
+
+### An object that names its none
+
+An object whose one field is an integer or a plain enum may name a
+value that field never holds, a member line `none field == value`: its
+optional then holds that value for `none`, so a `T?` is the size of a
+`T`, and testing one is one compare. Nothing else changes: `none`,
+`if n as x`, `??`, `?`, and `==` mean what they mean for any optional,
+and an optional of it, `(Node?)?`, holds a flag beside it, since the
+none is one value. An object holding a `Node` in a field has an
+optional the size of the object too.
+
+- No value of the object holds its none. A constructor given it as a
+  constant is an error; one given a value known only when the program
+  runs checks it there, and panics when it is the none.
+- The field is read-only everywhere, its own module too: only a
+  constructor sets it. Make a new object to change it.
+- Only a non-generic object with one field names a none, and that field
+  is an integer, whose none is a constant it can hold, or a plain enum,
+  whose none is one of its variants (`none kind == .empty`). A field's
+  default is never its none.
+
+```rig
+obj Node
+  id: U32
+  none id == 0
+
+fun parent_of(parents: ?List[U32], n: Node) -> Node?
+  p = parents[Int(n.id)]
+  return none if p == 0
+  Node(id: p)
+
+sub main()
+  parents = List[U32]([0, 0, 1, 1, 2])
+  depth = 0
+  cur: Node? = Node(id: 4)
+  while cur as n
+    depth += 1
+    cur = parent_of(parents, n)
+  print(depth)
+```
+
+```output
+3
+```
+
+```rig reject
+obj Node
+  id: U32
+  none id == 0
+
+sub main()
+  n = Node(id: 0)
+  m = Node(id: 2)
+  m.id = 3
+  print(n.id, m.id)
+```
+
+```error
+a `Node` never holds `id` 0, which is what a `Node?` holds for `none`; write `none` where no `Node` is meant
+cannot assign to `m.id`: `id` names the none of `Node` (`none id == ...`), so only its constructor sets it; make a new `Node`
 ```
 
 ### `as` with a pattern
