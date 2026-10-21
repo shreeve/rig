@@ -32,7 +32,6 @@ const Facts = facts.Facts;
 const Wide = facts.Wide;
 const diag = @import("diag.zig");
 const nametable = @import("nametable.zig");
-const pgo = facts.pgo;
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -281,21 +280,6 @@ pub const Emitter = struct {
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{ .quota = false },
-    /// `rig build --pgo` (`pgo.zig`): the sites an instrumented build
-    /// counts, or the profile a build reads; null otherwise.
-    pgo: ?*pgo.State = null,
-    /// The function whose sites are being emitted (`pgo.funKey`), and the
-    /// ordinal of its next site: its entry is 0, and each block of its
-    /// body that `emitBlock` writes is the next.
-    pgo_fun: []const u8 = "",
-    pgo_ordinal: u32 = 0,
-    /// With a profile: what it records of the function being emitted.
-    pgo_counts: ?*const pgo.Fun = null,
-    /// With a profile: the count of each site open around the point being
-    /// emitted, innermost last, which a branch's count is weighed against.
-    pgo_open: std.ArrayList(u64) = .empty,
-    /// The next block `emitBlock` writes is a branch's arm (`emitBranchStmt`).
-    pgo_branch: bool = false,
     /// The result the `result_part` being emitted takes: `__rig_res_N[j]`,
     /// of the destructure whose target it is (`emitDestructure`).
     part_name: []const u8 = "",
@@ -938,26 +922,9 @@ pub const Emitter = struct {
         const inlined = self.facts.isInlined(name_node);
         const marker = self.facts.markerOf(node);
         const recursive = self.yield_checks and self.facts.isRecursive(name_node);
-        // With a profile, a function its run never entered is cold, as
-        // `rarely` makes it (and `inlining.decide` never inlines it).
-        const saved_fun = self.pgo_fun;
-        const saved_ordinal = self.pgo_ordinal;
-        const saved_counts = self.pgo_counts;
-        defer {
-            self.pgo_fun = saved_fun;
-            self.pgo_ordinal = saved_ordinal;
-            self.pgo_counts = saved_counts;
-        }
-        var never_ran = false;
-        if (self.pgo) |state| {
-            self.pgo_fun = try pgo.funKey(state.allocator, self.facts.zig_file, name, self.facts.textOf(node));
-            self.pgo_ordinal = 0;
-            self.pgo_counts = if (state.instrument) null else state.lookup(self.pgo_fun);
-            never_ran = !state.instrument and !is_main and state.neverRan(self.pgo_fun);
-        }
         // A function that always panics is cold, as a `rarely` one is,
         // so a call of it is laid out off the path that does not.
-        const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body)) or never_ran;
+        const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
         self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .recursive = recursive };
 
         // The runtime's panic handler flushes buffered `print` output first.
@@ -973,7 +940,7 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    {s}{s};\n}}\n\n", .{ run, catches });
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or never_ran or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
+        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
@@ -1412,56 +1379,10 @@ pub const Emitter = struct {
 
     /// `{ stmts }` for a statement-position block.
     fn emitBlock(self: *Emitter, body: Sexp) Error!void {
-        const branch = self.pgo_branch;
-        self.pgo_branch = false;
         try self.openBrace();
-        // A branch's hint is its first statement, as Zig requires; a
-        // function's body starts with its prologue.
-        var open = false;
-        if (branch) open = try self.emitSite(true);
         try self.emitFunPrologue();
-        if (!branch) open = try self.emitSite(false);
         try self.emitStmts(try self.stmtsOf(body));
         try self.closeBrace();
-        if (open) _ = self.pgo_open.pop();
-    }
-
-    /// The next site of the function being emitted (`pgo.zig`). In an
-    /// instrumented build, its counter: the runtime adds one to it each
-    /// time the block runs. Every build numbers the sites alike, so a
-    /// build with a profile finds each one's count by its ordinal; there,
-    /// a branch's arm that ran on 1 in 20 runs of the code around it, or
-    /// fewer, is `unlikely`, one that never ran is `cold` (when the code
-    /// around it ran 100 times or more), and one that ran on 19 in 20 or
-    /// more is `likely`. Whether a site is open, with its count, for the
-    /// sites inside it to be weighed against (`pgo_open`).
-    fn emitSite(self: *Emitter, branch: bool) Error!bool {
-        const state = self.pgo orelse return false;
-        if (self.pgo_fun.len == 0) return false;
-        const ordinal = self.pgo_ordinal;
-        self.pgo_ordinal += 1;
-        if (state.instrument) {
-            try self.line("rig.pgoHit({d});", .{try state.site(self.pgo_fun, ordinal)});
-            return false;
-        }
-        const counts = self.pgo_counts orelse return false;
-        const n = if (ordinal == 0) counts.entries else counts.blocks.get(ordinal) orelse 0;
-        if (branch and self.pgo_open.items.len > 0) {
-            const around = self.pgo_open.items[self.pgo_open.items.len - 1];
-            const hint: ?[]const u8 = if (around == 0)
-                null
-            else if (n == 0 and around >= 100)
-                "cold"
-            else if (n * 20 <= around)
-                "unlikely"
-            else if (n * 20 >= around * 19)
-                "likely"
-            else
-                null;
-            if (hint) |h| try self.line("@branchHint(.{s});", .{h});
-        }
-        try self.pgo_open.append(self.allocator, n);
-        return true;
     }
 
     fn emitStmts(self: *Emitter, stmts: []const Sexp) Error!void {
@@ -1476,10 +1397,6 @@ pub const Emitter = struct {
     fn emitValueBody(self: *Emitter, body: Sexp) Error!void {
         try self.openBrace();
         try self.emitFunPrologue();
-        const open = try self.emitSite(false);
-        defer if (open) {
-            _ = self.pgo_open.pop();
-        };
         const stmts = try self.stmtsOf(body);
         const last = stmts.len - 1;
         try self.emitStmts(stmts[0..last]);
@@ -1744,7 +1661,6 @@ pub const Emitter = struct {
             try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-            if (in_place and self.provenOf(expr).written) return self.w.writeAll("{}");
             if (in_place) {
                 try self.w.writeAll("@memset(&");
                 try self.writeLocalPlace(local);
@@ -1851,9 +1767,6 @@ pub const Emitter = struct {
         const stored = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(name_node));
         try self.w.print("var {s}: ", .{stored.zig_name});
         try self.emitTypeTy(ty);
-        // A fill whose every element is written before any is read is not
-        // made (`provenOf`): a debug build fills it with 0xAA bytes.
-        if (self.provenOf(fill).written) return self.w.writeAll(" = undefined;");
         try self.w.print(" = undefined; @memset(&{s}, {s});", .{ stored.zig_name, value_buf.written() });
     }
 
@@ -2819,10 +2732,7 @@ pub const Emitter = struct {
     }
 
     fn emitBranchStmt(self: *Emitter, branch: Sexp) Error!void {
-        if (branch.isKind(.block)) {
-            self.pgo_branch = true;
-            return self.emitBlock(branch);
-        }
+        if (branch.isKind(.block)) return self.emitBlock(branch);
         try self.w.writeAll("{ ");
         try self.emitStmt(branch);
         try self.w.writeAll(" }");
@@ -5544,7 +5454,6 @@ pub const Emitter = struct {
         const ty = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped array literal");
         try self.w.writeAll("@as(");
         try self.emitTypeTy(self.peelViews(ty));
-        if (self.provenOf(sexp).written) return self.w.writeAll(", undefined)");
         try self.w.writeAll(", @splat(");
         try self.emitBare(ir.ArrayFill.value(sexp));
         try self.w.writeAll("))");

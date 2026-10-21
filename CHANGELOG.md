@@ -96,15 +96,12 @@ changed the language since it:
   kept out of line (the three words are contextual; `rarely fun` is
   gone); a
   `for` index counter needs no per-iteration cast; a List index makes
-  one bounds test, not two; the proven checks cover Lists, Lists in
+  one bounds test, not two; and the proven checks cover Lists, Lists in
   fields, `for` ranges, `s[i + c]`, a bound through a bound, and flags:
   facts tested once before a statement, which omit the tests they prove
   while they hold, so a record read from consecutive slots or a loop
   whose bound may pass a List's length makes its tests once
-  (docs/internals/INTERNALS.md, "Flags"); and a fill of zeros
-  (`t = [n of 0]`) that a loop then writes whole before anything reads
-  it is not made (docs/internals/INTERNALS.md, "Fills written before
-  they are read").
+  (docs/internals/INTERNALS.md, "Flags").
 - **The stack:** a program runs on a 64 MiB stack the runtime maps
   over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by
   deep recursion or a frame no larger than the guard, stops with

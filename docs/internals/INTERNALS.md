@@ -1997,28 +1997,6 @@ beside a use, and checks that the use is proven exactly when a guard
 dominates its unit and no write of `i` is in that unit or on a path
 from the guard.
 
-### Fills written before they are read
-
-A fill `[n of x]` writes every element before the program can read one.
-Where the program itself writes every element before it reads any, the
-fill does nothing, and the proof pass (`Pass.fillWritten`) records it as
-`written` on the fill; emit then writes the array `undefined`, with no
-`@memset`. The shape is a positive list: a statement `t = [n of v]`, `v`
-a literal and the elements numbers or `Bool`, `t` a local of the body;
-then, as the next statement, `for k in 0..n` (`n` the same literal, or
-`t.len`; not `0..=n`) whose body starts with `t[k] = e`, names `t`
-nowhere else (`e` included), and holds no `break` or `continue`. Each
-iteration writes element `k` before anything else of it runs; only a
-`return` or a failure leaves the loop early, and either leaves `t`'s
-scope too; so wherever `t` is read, every element was written.
-
-A debug build fills an `undefined` array with 0xAA bytes, so a read the
-proof missed reads those rather than the fill's value: the differential
-run (`swarm test/rig.rip proofs`, against `RIG_NO_PROOFS=1`, which makes
-every fill) sees it, and `RIG_SANITIZE` builds, which are debug builds,
-read the same bytes. `rig check --facts=proofs` prints such a fill as
-`L:C fill written`.
-
 ### Generics
 
 A generic type's or generic function's body is checked once, with its
@@ -4280,34 +4258,6 @@ symbols); a query that decides more than that belongs in `Pending`.
 - **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
-
-### Profiles
-
-`rig build --pgo=FILE` builds by a profile, from Rig's own IR, since Zig
-has none (`src/pgo.zig`). With `-- WORKLOAD` after the file, it first
-builds the program counting its sites at the executable `-o` names, runs
-the workload (which runs that executable), and writes FILE from the
-counts; without one, it reads FILE as it is, so a profile kept beside the
-program builds the same everywhere.
-
-- **Sites.** A function's entry and each block `emitBlock` writes (a
-  branch's arm, a loop's body), numbered in the order emit writes them.
-  An instrumented build starts each with `rig.pgoHit(N)`, an atomic add
-  to counter `N`; its root declares `__rig_pgo_sites`, how many. The
-  runtime writes `SITE COUNT` for each site that ran to the file
-  `RIG_PGO_OUT` names when the program ends (`finish`, `failMain`); a
-  panic writes none.
-- **The profile.** Text, one `fun MODULE NAME HASH ENTRIES` a function
-  and `ORDINAL COUNT` under it for each block that ran. HASH is a hash of
-  the function's source text: an edited function loses its counts, and a
-  profile never steers a function it was not recorded from.
-- **What a build does with it.** A function the run never entered is
-  cold (`@branchHint(.cold)`, `noinline`) and never inlined. One entered
-  at least 1 in 100 times as often as the hottest is inlined up to 240
-  nodes, not 60, within every frame limit (`inlining.decide`). A branch's
-  arm that ran on 1 in 20 runs of the block around it, or fewer, is
-  `unlikely`; one that never ran is `cold` once the block around it ran
-  100 times; one that ran on 19 in 20 or more is `likely`.
 
 ### Symbols
 
