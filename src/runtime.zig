@@ -171,7 +171,11 @@ pub const NicheAt = struct {
 /// or List's buffer, a slice, a function), a `Bool`'s byte, a plain
 /// enum's spare tag values, or a field's or element's niche. Of a
 /// struct's fields, the one with the most spare values, then the first.
+/// A field's type or default names an optional outside any function, so
+/// this sets the budget an emitted function does (`eval_quota`): its
+/// loops pass once per variant and field, and an enum may have thousands.
 pub fn nicheOf(comptime T: type) ?NicheAt {
+    @setEvalBranchQuota(eval_quota);
     return switch (@typeInfo(T)) {
         .pointer => |p| if (p.attrs.@"allowzero" or p.size == .c) null else .{ .offset = 0, .Word = usize, .value = 0, .spare = 1 },
         .bool => .{ .offset = 0, .Word = u8, .value = 2, .spare = 254 },
@@ -616,7 +620,8 @@ pub fn take(alive: *bool, value: anytype) @TypeOf(value) {
 }
 
 /// The compile-time evaluation budget every emitted function that is not
-/// inline sets first (`@setEvalBranchQuota`). Zig charges each inline
+/// inline sets first (`@setEvalBranchQuota`), and `nicheOf`, which a
+/// type outside any function reaches. Zig charges each inline
 /// call, and each pass of a compile-time loop in an inlined body, to the
 /// budget of the function the code lands in, 1000 by default, and fails
 /// the build when it runs out. No Rig program evaluates anything at

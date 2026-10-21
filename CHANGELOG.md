@@ -30,7 +30,9 @@ changed the language since it:
   `T?` is the size of the object (`Cheese?` with a `String` is 32
   bytes, not 40) and `== none` is one compare. An optional of it,
   `(T?)?`, takes the next spare value where one is left. An object of
-  numbers alone keeps its flag.
+  numbers alone keeps its flag. It holds for an enum of thousands of
+  variants and an object of thousands of fields, in an object's field
+  types and defaults too.
 - **An object that names its none:** `obj Node` with one integer or
   plain-enum field may declare `none id == 0`; its `Node?` then holds
   that value for `none`, the size of a `Node`, tested with one compare,
