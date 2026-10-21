@@ -184,11 +184,15 @@ deterministically (`sched.deterministic`, SPEC §3 "Tests"):
   deadline, and fibers waiting on a timer behind it still wake.
 - **Descriptors.** A fiber waiting on a file descriptor wakes once it
   is ready, at whatever virtual time. With no fiber ready, the poller is
-  looked at first; with descriptors registered, it is waited on for up
-  to 1 ms of real time before the clock jumps to a timer, since bytes
-  written to a socket may still be on their way (macOS delivers them on
-  loopback a moment later), and a jump past a wait's deadline would end
-  it spuriously.
+  looked at first. Before the clock jumps to a timer, a run with
+  descriptors registered waits, in real time, while any registered
+  socket still has bytes its other end has not taken (`SO_NWRITE` on
+  macOS, `SIOCOUTQ` on Linux) and they move, then 1 ms more: bytes
+  written to a socket may still be on their way, which macOS delivers on
+  loopback later, the busier the machine the later, and a jump past a
+  wait's deadline would end it spuriously. Bytes that stand still for
+  half a second, in a buffer whose reader waits on the clock, do not
+  hold it.
 - **Deadlock.** With no fiber ready and no timer set, every task waits
   on another, and the program panics.
 

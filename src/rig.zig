@@ -208,10 +208,11 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
-        // `>t`, rewritten to a call before any pass reads a statement,
-        // and `f: once T`, rewritten to a parameter.
-        .wait, .once => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        // `>t`, rewritten to a call; `f: once T`, rewritten to a
+        // parameter; and `a..=b`, rewritten to an inclusive `..`: each
+        // before any pass reads a statement.
+        .wait, .once, .@"..=" => .none,
     };
 }
 
@@ -402,6 +403,12 @@ pub fn isBracketList(e: Sexp) bool {
 pub fn isMethodCallee(callee: Sexp) bool {
     if (callee.isKind(.member)) return true;
     return isBracketList(callee) and ir.get(callee, .object).isKind(.member);
+}
+
+/// Whether range `r`, a `..` or a range pattern, includes its end:
+/// `a..=b`.
+pub fn isInclusive(r: Sexp) bool {
+    return ir.get(r, .inclusive) != .nil;
 }
 
 /// A slice, `xs[a..b]`: an index node whose index is a range.
@@ -1357,7 +1364,7 @@ pub const Lexer = struct {
             // A member may start a line inside brackets, continuing a
             // chain from the line before.
             .dot => if (after_value) (if ((before and !self.startsLine(tok)) or after) .member else null) else if (after) .enum_dot else null,
-            .dotdot => if (!after_value) (if (after) .range_end else null) else if (before != after) (if (before) .infix_before else .infix_after) else null,
+            .dotdot, .dotdot_eq => if (!after_value) (if (after) .range_end else null) else if (before != after) (if (before) .infix_before else .infix_after) else null,
             .dotdot_open => if (after_value and before) .range_end else null,
             .lparen, .lbracket => if (after_value and before and !self.startsLine(tok)) .call_bracket else null,
             else => if (after_value and isInfix(cat) and before != after) (if (before) .infix_before else .infix_after) else null,
@@ -1813,7 +1820,7 @@ fn isValue(cat: TokenCat) bool {
 /// not touch a jump's label (`break $outer-1`, `break $outer.red`).
 fn startsOperand(cat: TokenCat) bool {
     return isSigil(cat) or switch (cat) {
-        .lparen, .lbracket, .dot, .dotdot, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq => true,
+        .lparen, .lbracket, .dot, .dotdot, .dotdot_eq, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq => true,
         else => false,
     };
 }
@@ -2231,11 +2238,11 @@ pub const Parser = struct {
         return switch (sp.kind) {
             .infix_before => if (prefixMeaning(op)) |m|
                 self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s} {s} {s}` to {s}, or `{s}, {s}{s}` to {s} `{s}` as a value of its own", .{ left, op, right, left, op, right, m.infix, left, op, right, m.prefix, right })
-            else if (std.mem.eql(u8, op, ".."))
+            else if (std.mem.eql(u8, op, "..") or std.mem.eql(u8, op, "..="))
                 self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s}{s}{s}` or `{s} {s} {s}`", .{ left, op, right, left, op, right, left, op, right })
             else
                 self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s} {s} {s}`", .{ left, op, right, left, op, right }),
-            .infix_after => if (std.mem.eql(u8, op, ".."))
+            .infix_after => if (std.mem.eql(u8, op, "..") or std.mem.eql(u8, op, "..="))
                 self.format("`{s}{s} {s}`: an operator has the same spacing on both sides; write `{s}{s}{s}` or `{s} {s} {s}`", .{ left, op, right, left, op, right, left, op, right })
             else
                 self.format("`{s}{s} {s}`: an operator has the same spacing on both sides; write `{s} {s} {s}`", .{ left, op, right, left, op, right }),
@@ -2252,7 +2259,7 @@ pub const Parser = struct {
             .range_end => if (sp.pos + sp.len < src.len and src[sp.pos + sp.len] == ']')
                 self.format("a range's `..` touches its only bound; write `{s}..`", .{left})
             else
-                self.format("a range's `..` touches its only bound; write `..{s}`", .{right}),
+                self.format("a range's `{s}` touches its only bound; write `{s}{s}`", .{ op, op, right }),
             .closure_hanging => self.format("a closure body below its bar list ends with `{s}` on a line of its own: end this line before the `{s}`, and write `{s}` on the next line at the indentation of the line that opened it (column {d}); a one-line body may instead follow the bar list on its line", .{ op, op, op, sp.column + 1 }),
             .closure_close => self.format("a closure body below its bar list ends where the `{c}` around it stands alone at the start of a line, at the indentation of the line that opened it (column {d})", .{ closerOf(src, sp), sp.column + 1 }),
             .closure_indent => self.format("write this `{s}`, which ends a closure body below its bar list, at the indentation of the line that opened it (column {d})", .{ op, sp.column + 1 }),
@@ -2507,14 +2514,20 @@ pub const Parser = struct {
     fn openRange(self: *Parser, tok: Token) ?diag.Diagnostic {
         const lexer = &self.base.lexer;
         const at: Token, const side: []const u8 = switch (tok.cat) {
-            .dotdot => .{ tok, "a start" },
+            .dotdot, .dotdot_eq => .{ tok, "a start" },
             .dotdot_open => .{ tok, if (lexer.before_cat == .lbracket) "both ends" else "an end" },
             else => blk: {
                 // The real token before this one; a layout token is not
                 // one, so the last real token is.
                 const cat, const pos = if (tok.len > 0) .{ lexer.before_cat, lexer.before_pos } else .{ lexer.prev_cat, lexer.prev_pos };
-                if (cat != .dotdot or tok.cat == .err) return null;
-                if (tok.cat == .assign and tok.pos == pos + 2) return self.inclusiveRange(pos);
+                if ((cat != .dotdot and cat != .dotdot_eq) or tok.cat == .err) return null;
+                if (cat == .dotdot_eq) {
+                    // The `..=` ends where the space before this token
+                    // starts.
+                    var end = if (tok.len > 0) tok.pos else pos + 3;
+                    while (end > 3 and isSpaceBefore(self.base.source[end - 1])) end -= 1;
+                    return .{ .severity = .@"error", .pos = end - 3, .end = end, .message = "`a..=` needs the end it includes; only `..` leaves a slice's end open: `xs[a..]`" };
+                }
                 break :blk .{ .{ .cat = .dotdot, .pre = 0, .pos = pos, .len = 2 }, "an end" };
             },
         };
@@ -2643,22 +2656,6 @@ pub const Parser = struct {
         if (!comma) return null;
         const first = start + @as(u32, @intCast(std.mem.find(u8, src[start..end], line).?));
         return .{ .severity = .@"error", .pos = first, .end = first + @as(u32, @intCast(line.len)), .message = self.format("results are written `return {s}`", .{line}) };
-    }
-
-    /// `0..=3`: Rig's ranges exclude their end. Reported at the `..=`.
-    fn inclusiveRange(self: *Parser, at: u32) diag.Diagnostic {
-        var probe = BaseLexer.init(self.base.source);
-        probe.pos = at + 3;
-        const end = probe.next();
-        const text = probe.text(end);
-        const n = if (end.cat == .integer) std.fmt.parseInt(i64, text, 0) catch null else null;
-        const fix = if (n) |v|
-            self.format("`..={s}` is written `..{d}`", .{ text, v + 1 })
-        else if (isWord(end.cat))
-            self.format("`..={s}` is written `..{s} + 1`", .{ text, text })
-        else
-            "`..=b` is written `..b + 1`";
-        return .{ .severity = .@"error", .pos = at, .end = at + 3, .message = self.format("a range excludes its end: {s}", .{fix}) };
     }
 
     /// A note for a parse error inside a bracket opened on an earlier
@@ -3071,6 +3068,7 @@ pub const Parser = struct {
                 try self.once_params.put(self.allocator(), param.list.id, {});
                 return param;
             },
+            .@"..=" => return self.base.newNode(.@"..", &.{ ir.get(out, .left), ir.get(out, .right), .{ .tag = .inclusive } }, self.span(out)),
             .member, .index, .inst => self.waitTakesName(out, ir.get(out, .object)),
             .call => self.waitTakesName(out, ir.Call.callee(out)),
             .share, .box => try self.noteParenSuffix(out),

@@ -2749,7 +2749,7 @@ const Checker = struct {
         var elem_poisoned = false;
         if (source.isKind(.@"..")) {
             // Both bounds are integers of one type, the element's.
-            elem_ty = try self.checkIntDefaultOperands(source, "..", .integer, null);
+            elem_ty = try self.checkIntDefaultOperands(source, if (rig.isInclusive(source)) "..=" else "..", .integer, null);
             try self.ctx.recordType(source, try self.ctx.intern(.{ .range = elem_ty }));
         } else {
             const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
@@ -4046,7 +4046,10 @@ const Checker = struct {
         const pos = self.startOf(lo_node);
         try self.checkExpr(lo_node, scrutinee);
         const hi_node = ir.RangePattern.hi(pattern);
-        const hi_literal = isIntLiteralNode(self.ctx.source, hi_node);
+        // A half-open range's end may be one past the largest value; an
+        // inclusive one's is a value.
+        const inclusive = rig.isInclusive(pattern);
+        const hi_literal = !inclusive and isIntLiteralNode(self.ctx.source, hi_node);
         const st = self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee));
         if (hi_literal and (st == .int or st == .int_literal)) {
             // Record the bound's type without the fit check a value gets.
@@ -4061,6 +4064,13 @@ const Checker = struct {
             if (try self.perTarget(pattern, "the bounds of a range pattern")) return;
             try self.err(pos, "the bounds of a range pattern must be constant integers", .{});
             return;
+        }
+        if (inclusive) {
+            if (lo.? > hi.?) {
+                try self.err(pos, "empty range `{d}..={d}`: a range pattern `lo..=hi` matches from its start through its end", .{ lo.?, hi.? });
+                return;
+            }
+            return self.coverInts(cov, lo.?, hi.?, pos);
         }
         if (st == .int) {
             const b = intBounds(st.int);
@@ -7596,7 +7606,7 @@ const Checker = struct {
         const lo = ir.@"..".left(range);
         const hi = ir.@"..".right(range);
         if (lo != .nil and hi != .nil) {
-            _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
+            _ = try self.checkIntDefaultOperands(range, if (rig.isInclusive(range)) "..=" else "..", .integer, null);
             return;
         }
         const bound = if (lo != .nil) lo else hi;
@@ -7608,8 +7618,9 @@ const Checker = struct {
     }
 
     /// Constant bounds are checked now: `0 <= a <= b`, and `b <= len` for
-    /// an array, whose length is part of its type. Others are checked
-    /// when the slice is taken. An open end is the length.
+    /// an array, whose length is part of its type; `a..=b` ends at
+    /// `b + 1`. Others are checked when the slice is taken. An open end
+    /// is the length.
     fn checkSliceBounds(self: *Checker, range: Sexp, len: ?u64) Error!void {
         const lo_node = ir.@"..".left(range);
         const hi_node = ir.@"..".right(range);
@@ -7621,6 +7632,11 @@ const Checker = struct {
         }
         if (self.constInt(hi_node)) |b| {
             if (b < 0) return self.errAt(hi_node, "a slice bound cannot be negative; got `{d}`", .{b});
+            if (rig.isInclusive(range)) {
+                if (len) |n| if (b >= n) return self.errAt(hi_node, "slice end `{d}` is past the last index of an array of length {d}", .{ b, n });
+                if (lo_node != .nil) if (lo) |a| if (a > b + 1) return self.errAt(range, "slice `{d}..={d}` starts after it ends", .{ a, b });
+                return;
+            }
             if (len) |n| if (b > n) return self.errAt(hi_node, "slice end `{d}` is past the end of an array of length {d}", .{ b, n });
             if (lo_node != .nil) if (lo) |a| if (a > b) return self.errAt(range, "slice `{d}..{d}` starts after it ends", .{ a, b });
         }

@@ -562,7 +562,7 @@ From lowest to highest precedence:
 | `not` | |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
 | `??` | optional fallback, right-associative |
-| `..` | half-open range: a `for` source, a match pattern, or a slice's index, where a side may be open (`xs[a..]`) |
+| `..` `..=` | a range, `a..b` up to and not including `b`, `a..=b` through `b`: a `for` source, a match pattern, or a slice's index, where a side may be open (`xs[a..]`, `xs[..=b]`) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |
@@ -1199,7 +1199,7 @@ iteration. An `else` block runs when the loop ends without `break`.
 
 ### for
 
-`for x in source` walks a range `a..b`, an array, a slice, a `?String`
+`for x in source` walks a range `a..b` or `a..=b`, an array, a slice, a `?String`
 (its bytes), a `List`, or an iterator, a value whose type has
 `next(!@) -> T?` (`for x in !it` is `while (!it).next() as x`).
 `for x, i in xs` also binds the index, after the element (not for an
@@ -1217,6 +1217,8 @@ sub main()
     total += i
   for 0..2
     total += 100
+  for i in 1..=3
+    total += i
   for c, i in ["a", "b"]
     print(i, c)
   print(total)
@@ -1229,7 +1231,7 @@ sub main()
 ```output
 0 a
 1 b
-210
+216
 [10, 20, 30]
 ```
 
@@ -1547,6 +1549,7 @@ as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 | `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or List |
 | `?t[a..b]` | a lend of part of a String: a `?String` viewing it |
 | `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a `?String`: a slice argument is lent as its name is |
+| `xs[a..=b]`, `xs[..=b]` | a slice through `xs[b]` |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
 | `?t` where a `?String` is expected | `?t[..]` of a String |
@@ -1793,6 +1796,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `NAME`, `m.NAME` | a module constant's value: an integer, a `Bool`, or an enum value |
 | `:name` | a symbol |
 | `lo..hi` | an integer from `lo` up to, not including, `hi` |
+| `lo..=hi` | an integer from `lo` through `hi` |
 | `_` | everything else |
 | any other name | everything else, bound to the name |
 | `p, q` | any of the alternatives, which bind no names |
@@ -1887,7 +1891,7 @@ for       = "for" name ["," name] "in" value block ["else" block]
           | "for" value block ["else" block]            # `for _ in value`
 match     = "match" value INDENT arm* DEDENT
 arm       = pattern, ... ["if" value] ("=>" simple | block)
-pattern   = patom [".." patom]
+pattern   = patom [(".." | "..=") patom]
 patom     = name | ["-"] integer | "true" | "false"
           | "." name ["(" [(name | name ":" name), ...] ")"]
           | [name "."] name "." name | ":" name           # `:` touches the name
@@ -1903,7 +1907,7 @@ conj      = conj "and" neg | neg
 neg       = "not" neg | infix "as" name ("," name)* | infix
 infix     = unary (op unary)*                       # the table in section 6
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~" | "^") unary | postfix
-postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"
+postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]" | "[" [expr] "..=" expr "]"
           | "[" expr, expr, ... "]" | "(" args ")" ["&"] | "!" | "?") | atom
                                                     # `&` touching `)`: a task
 args      = [(name ":" expr | expr), ...] | (name ":" expr | expr), ..., tail-closure

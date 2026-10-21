@@ -1252,6 +1252,10 @@ pub const StorageKind = enum {
     range_start,
     /// A range `for`'s end (`__rig_end`).
     range_end,
+    /// Whether an inclusive range `for` runs again (`__rig_more`): its
+    /// counter never steps past the end, which may be its type's largest
+    /// value.
+    range_more,
     /// A `match` subject evaluated once, before its arms (`__rig_subject`).
     subject,
     /// The whole value a `match <x` arm takes (`__rig_whole`).
@@ -8815,10 +8819,10 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
-        // `>t` and `f: once T`, which the Parser wrapper rewrites first.
-        .wait, .once => .none,
+        // `>t`, `f: once T`, and `a..=b`, which the Parser wrapper rewrites first.
+        .wait, .once, .@"..=" => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed, .task => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,
         .read, .write => .lend,
         .member, .index => .path,
