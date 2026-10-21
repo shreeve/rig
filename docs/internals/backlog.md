@@ -227,10 +227,11 @@ fixing.
 - **SPEC writes Zig's builtins as `@bitCast` and `@intCast`** *(checked)*
   in two places, where Rig spells them `$bitCast` and `$intCast`; in
   `raw`, `@bitCast(x)` is "use of unbound name `@`".
-- **The bounds-check proof uses a guard only on the true edge.**
-  `return 0 if i < 0 or i >= s.len` before `s[i]` proves nothing, while
-  `if i >= 0 and i < s.len` then `s[i]` does; `for i in 0..xs.len` with
-  `xs[i]` is not proven either (`rig check --facts=proofs`).
+- **The bounds-check proof uses a guard only on the true edge**
+  *(checked)*. `return 0 if i < 0 or i >= s.len` before `s[i]` proves
+  nothing, while `if i >= 0 and i < s.len` then `s[i]` does
+  (`rig check --facts=proofs`). A `for i in 0..xs.len` over a List or a
+  slice is proven.
 - **`rig emit` takes no `--release`,** so it shows one build's Zig; WELCOME
   and INTERNALS should say which, or emit should take the mode.
 - **`extern zig` is for std alone,** so a program cannot call Zig of its
