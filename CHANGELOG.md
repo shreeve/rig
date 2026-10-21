@@ -108,8 +108,9 @@ first step is on `main` (SPEC §18):
   result; a task is never left running past its scope.
 - **Cancellation:** `<t.cancel()`, a cancel that sticks, `std.task`
   (`Stop`, `check`), and a fallible `time.sleep`.
-- **Sets and joins:** `Tasks[T]`, waited for with `>ts` or
-  `<ts.wait_first()`; `task.all` for two tasks or more of any types.
+- **Sets and joins:** `Tasks[T]` with `>ts` and `wait_first`, and
+  `task.all`; a deadline for any wait is `time.within`'s, which calls
+  its closure exactly once, so it may move a task or a set in.
 - **Isolating a panic:** `task.isolate(f)` stops a panic in `f`, or
   in a task under it, cancels and waits for those tasks, leaves `f`'s
   frames where they stand, and fails with `task.Stop.panicked`

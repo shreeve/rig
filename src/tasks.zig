@@ -286,10 +286,10 @@ const Wakeup = struct {
     }
 
     /// Sleep until a watched task ends after `seen` was read, the
-    /// deadline or the waiter's own passes, or the waiter is canceled: a
-    /// waiting point.
-    fn sleep(self: *Wakeup, seen: u32, within: ?i96) Stop!void {
-        const deadline = earlier(within, task().deadline);
+    /// waiter's deadline passes, or the waiter is canceled: a waiting
+    /// point.
+    fn sleep(self: *Wakeup, seen: u32) Stop!void {
+        const deadline = task().deadline;
         if (canceledHere()) return canceled_error;
         if (deadline) |d| if (nowNs() >= d) return timeout_error;
         // The fiber sleeps until a tick, the deadline, or a cancel wakes it.
@@ -323,7 +323,7 @@ fn TaskValues(comptime Tup: type) type {
     return if (fallible) anyerror!Values else Values;
 }
 
-/// `task.all(a, b, c, ...)`: wait for tasks of any
+/// `task.all(a, b, ...)`: wait for tasks of any
 /// types, and give each one's value. When some can fail, waiting is a
 /// waiting point, and the first task to fail, in the order they end,
 /// cancels the others: the call waits for them, drops what they gave,
@@ -381,7 +381,7 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
         }
         if (left > 0 and failure == null) {
             rt.sched.block(&b);
-            const slept = w.sleep(seen, null);
+            const slept = w.sleep(seen);
             rt.sched.unblock();
             slept catch |err| {
                 failure = err;
@@ -409,12 +409,6 @@ fn nowNs() i96 {
 /// keeps virtual.
 pub fn monotonicNs() Int {
     return @intCast(nowNs());
-}
-
-/// The deadline `within` nanoseconds from now, or none.
-fn deadlineIn(within: ?Int) ?i96 {
-    const ns = within orelse return null;
-    return nowNs() + ns;
 }
 
 /// The earlier of two deadlines, either of which may be none.
@@ -464,9 +458,9 @@ const timeout_error = error.@"std.task.Stop.timeout";
 /// - `wait_first`, only for a set that can fail, gives the first result
 ///   to succeed and cancels the rest; when every task fails, it fails
 ///   with the error of the last.
-/// - `within` is a deadline in nanoseconds, only for a set that can
-///   fail: when it passes, the rest are canceled and the wait fails with
-///   `task.Stop.timeout`.
+/// - The waiting task's deadline (`time.within`) bounds a wait on a set
+///   that can fail: when it passes, the rest are canceled and the wait
+///   fails with `task.Stop.timeout`.
 /// - Waiting on a set that can fail is a waiting point: a canceled
 ///   waiter cancels every task and fails with `task.Stop.canceled`.
 /// - Dropping a set cancels every task that can fail first, then waits
@@ -548,10 +542,9 @@ pub fn Tasks(comptime T: type) type {
             }
         };
 
-        /// `>ts`: every result, in the order added; nothing for tasks
-        /// that give none. `within` is null: a deadline is the running
-        /// task's (`time.within`).
-        pub fn wait_all(self: Self, within: ?Int) All {
+        /// `>ts`: every result, in the order added; nothing for tasks that
+        /// give none.
+        pub fn wait_all(self: Self) All {
             var s = self;
             defer s.free();
             const n = s.items.items.len;
@@ -564,7 +557,6 @@ pub fn Tasks(comptime T: type) type {
                 for (s.items.items) |t| out.push(t.wait());
                 return out;
             }
-            const deadline = deadlineIn(within);
             const results = defaultAllocator().alloc(Value, n) catch oom();
             defer defaultAllocator().free(results);
             // `taken`: waited for; `got`: waited for, and gave a result.
@@ -595,7 +587,7 @@ pub fn Tasks(comptime T: type) type {
                 }
                 if (left == 0) break;
                 rt.sched.block(&b);
-                const slept = s.wakeup.?.sleep(seen, deadline);
+                const slept = s.wakeup.?.sleep(seen);
                 rt.sched.unblock();
                 slept catch |err| {
                     s.stopUntaken(taken);
@@ -610,13 +602,12 @@ pub fn Tasks(comptime T: type) type {
         }
 
         /// `<ts.wait_first()`: the first result to succeed.
-        pub fn wait_first(self: Self, within: ?Int) T {
+        pub fn wait_first(self: Self) T {
             if (comptime !fallible) @compileError("rig: wait_first is only for a set that can fail");
             var s = self;
             defer s.free();
             const n = s.items.items.len;
             if (n == 0) @panic("wait_first on a set with no tasks");
-            const deadline = deadlineIn(within);
             const taken = defaultAllocator().alloc(bool, n) catch oom();
             defer defaultAllocator().free(taken);
             @memset(taken, false);
@@ -643,7 +634,7 @@ pub fn Tasks(comptime T: type) type {
                     return last;
                 }
                 rt.sched.block(&b);
-                const slept = s.wakeup.?.sleep(seen, deadline);
+                const slept = s.wakeup.?.sleep(seen);
                 rt.sched.unblock();
                 slept catch |err| {
                     s.stopUntaken(taken);
@@ -1486,6 +1477,17 @@ pub fn Actor(comptime T: type) type {
                 const l: rt.sched.Label = .{ .actor = actorName(T), .method = name };
             }.l;
         }
+
+        /// A free slot in its mailbox, as a deadlock names a wait for one
+        /// (`actorSpawn`).
+        const slot_label: rt.sched.Label = .{ .actor = actorName(T), .method = "", .slot = true };
+
+        /// Whether a call made with `&` could take a slot now: what a
+        /// wait for one waits on, for a deadlock's walk.
+        fn slotFree(p: *const anyopaque) bool {
+            const self: *const Self = @ptrCast(@alignCast(p));
+            return self.pending.load(.seq_cst) < self.capacity;
+        }
         /// Marks the type for `rt.Shared`'s atomic counts.
         pub const __rig_actor = {};
         /// Its arguments, for `typeName`.
@@ -1975,14 +1977,26 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Tas
     const R = ActorResult(@TypeOf(handle), name);
     const box = boxOf(handle);
     const self = &box.value;
+    // Waiting for a slot, the fiber blocks on the actor, as a call to it
+    // does: a slot frees only once the actor answers a call made with
+    // `&`, so a wait the actor's own method makes, or one through calls
+    // that come back to the waiter, is a deadlock (`rt.sched.block`).
+    const A = @TypeOf(self.*);
+    const slot_wait: rt.sched.Blocked = .{ .call = .{ .label = &A.slot_label, .held_by = &self.held_by, .msg = self, .answered = A.slotFree } };
+    var blocked = false;
     while (true) {
         const n = self.pending.load(.seq_cst);
         if (n < self.capacity) {
             if (self.pending.cmpxchgWeak(n, n + 1, .seq_cst, .seq_cst) == null) break;
             continue;
         }
+        if (!blocked) {
+            blocked = true;
+            rt.sched.block(&slot_wait);
+        }
         rt.sched.yield();
     }
+    if (blocked) rt.sched.unblock();
     const Run = struct {
         fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
             defer {

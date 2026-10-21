@@ -413,7 +413,8 @@ const Lowerer = struct {
     /// A closure's body, checked as a function of its own (Core §7):
     /// what it captured holds a value on entry and an external loan for
     /// the closure's life, which its environment owns and never drops
-    /// here; its parameters are a function's, whose views last one call.
+    /// here, unless the closure is called exactly once and owns it; its
+    /// parameters are a function's, whose views last one call.
     fn runClosure(self: *Lowerer, e: Sexp) Error!void {
         const ft = switch (self.ctx.types.get(try self.typeOf(e))) {
             .function => |f| f,
@@ -421,17 +422,15 @@ const Lowerer = struct {
         };
         self.cur = try self.newBlock();
         try self.regions.append(self.a, .{});
-        // A closure its callee calls at most once owns what it moved in,
-        // as a function owns a parameter taken by value: its one call may
-        // move it out (`f: once ?fun() -> T`).
-        const once = self.ctx.isOnceClosure(e);
         for (sema.captureList(ir.Lambda.captures(e))) |cap| {
             const leaf = sema.captureNameNode(cap) orelse return abstain("an unusual capture");
             const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
             const sym = self.ctx.symbols.items[sym_id];
             const v = try self.newVar(sym.name, sym.ty, false, leaf.src.pos);
             self.f.vars.items[v].param = true;
-            self.f.vars.items[v].capture = !(once and sema.captureModeOf(cap).? == .cap_move);
+            // A closure called exactly once takes what it owns of its
+            // captures, as a function takes a parameter given by value.
+            self.f.vars.items[v].capture = !self.ctx.isOnceCapture(sym_id);
             try self.vars.put(self.a, sym_id, v);
             try self.f.params.append(self.a, v);
             if (self.f.vars.items[v].kind == .write_view) try self.write_params.append(self.a, v);

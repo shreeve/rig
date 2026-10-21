@@ -946,10 +946,6 @@ pub const Facts = struct {
     /// parameters, and which arguments it passes loans on from
     /// (`CallParams`).
     call_params: std.AutoHashMapUnmanaged(NodeKey, CallParams) = .empty,
-    /// Closure literals passed to a parameter their callee calls at most
-    /// once (`Origins.once`): each owns what it moves in as its own
-    /// parameters do, and may move it out (`SemContext.isOnceClosure`).
-    once_closures: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Match nodes whose non-default arms cover every value.
     exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
@@ -981,8 +977,8 @@ pub const Facts = struct {
     /// The `Bool`s that decide a test, its last line and each `return`
     /// with a value in it -> what a failing one reports.
     test_checks: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
-    /// The calls of `task.all`, which wait for the tasks
-    /// they take (`Checker.taskJoin`).
+    /// The calls of `task.all`, which wait for the tasks they take
+    /// (`Checker.taskJoin`).
     task_joins: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `par.map` and `par.each`, which run a function on
     /// several tasks (`Checker.parCall`).
@@ -1006,6 +1002,9 @@ pub const Facts = struct {
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `io.copy` (`Checker.ioCopy`).
     io_copies: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Closure literals called at most once, by the call they are passed
+    /// to (`SemContext.recordOnceClosure`).
+    once_closures: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `f(x)&` tasks that are local, pinned to the thread of the task
     /// that makes them (`Checker.crossCheck`), with what pins each.
     local_tasks: std.AutoHashMapUnmanaged(u64, LocalTask) = .empty,
@@ -2247,6 +2246,11 @@ pub const SemContext = struct {
     /// recorded by `storage.plan`): emit arms such a binding's drop
     /// behind an alive flag, and the ownership checker moves no other.
     consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// The captures of a closure called exactly once that it owns
+    /// (`|<x|`, `|+x|`, `|~x|`; `recordOnceClosure`): its one call takes
+    /// them, as a function takes a parameter given by value, so its body
+    /// may move them out, and drops what it leaves.
+    once_captures: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// The array types spelled or built in generic declarations, which
     /// each instance checks against `max_value_bytes`; `module_id` is
     /// the module whose source `pos` is in (0 for this one).
@@ -2751,16 +2755,6 @@ pub const SemContext = struct {
         return self.facts.call_params.get(key);
     }
 
-    /// Whether closure literal `lambda` is passed to a parameter its
-    /// callee calls at most once (`recordOnceClosure`).
-    pub fn isOnceClosure(self: *const SemContext, lambda: Sexp) bool {
-        const key = nodeKey(lambda) orelse return false;
-        return self.facts.once_closures.contains(key);
-    }
-
-    pub fn recordOnceClosure(self: *SemContext, lambda: Sexp) !void {
-        try self.facts.once_closures.put(self.allocator, recordKey(lambda), {});
-    }
 
     /// What a bracket list instantiates; null for an index (or a node
     /// sema never reached).
@@ -3319,6 +3313,31 @@ pub const SemContext = struct {
     /// Whether `call` is `io.copy` (`recordIoCopy`).
     pub fn isIoCopy(self: *const SemContext, call: Sexp) bool {
         return self.facts.io_copies.contains(exprKey(call) orelse return false);
+    }
+    /// Records that closure literal `lambda` is called at most once, by
+    /// the call it is passed to, whose parameter is written `once`: what
+    /// it owns of its captures, its one call takes (`once_captures`).
+    pub fn recordOnceClosure(self: *SemContext, lambda: Sexp) !void {
+        try self.facts.once_closures.put(self.allocator, recordExprKey(lambda) orelse return, {});
+        for (captureList(ir.Lambda.captures(lambda))) |cap| switch (captureModeOf(cap) orelse continue) {
+            .cap_move, .cap_clone, .cap_weak => {
+                const sym = self.symbolOf(captureNameNode(cap) orelse continue) orelse continue;
+                try self.once_captures.put(self.allocator, sym, {});
+            },
+            .cap_read, .cap_write => {},
+        };
+    }
+
+    /// Whether closure literal `lambda` is called exactly once
+    /// (`recordOnceClosure`).
+    pub fn isOnceClosure(self: *const SemContext, lambda: Sexp) bool {
+        return self.facts.once_closures.contains(exprKey(lambda) orelse return false);
+    }
+
+    /// Whether capture `sym` is taken by its closure's one call
+    /// (`recordOnceClosure`).
+    pub fn isOnceCapture(self: *const SemContext, sym: SymbolId) bool {
+        return self.once_captures.contains(sym);
     }
 
     /// Records that the task `call` makes is local, pinned by `local`;
@@ -5110,12 +5129,12 @@ pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     return false;
 }
 
-/// The hint for a name that earlier releases gave a built-in type: what
-/// it is written now. Null for any other name.
-pub fn retiredNameHint(name: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String` (0.3.0 renamed `Text` to `String`, and the view `String` to `?String`)";
-    if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]` (`Vec[T]` before 0.3.0)";
-    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression (`Box[T]` and `Box(value)` before 0.3.0)";
+/// The hint for a name that likely means a built-in type: how that type
+/// is written. Null for any other name.
+pub fn builtinNameHint(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "Text")) return "; owned text is `String`, and its read view is `?String`";
+    if (std.mem.eql(u8, name, "Vec")) return "; a growable array is `List[T]`";
+    if (std.mem.eql(u8, name, "Box")) return "; a box is written `^T` as a type and `^value` as an expression";
     return null;
 }
 
@@ -8630,7 +8649,7 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
     }];
     switch (sym.kind) {
         .param, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
-        .capture => return if (e == .src) .capture else partSource(ctx, e),
+        .capture => return if (e != .src) partSource(ctx, e) else if (ctx.isOnceCapture(ctx.symbolOf(root).?)) .binding else .capture,
         .local => {
             if (sym.scope == module_scope) return .declared;
             return if (e == .src) .binding else partSource(ctx, e);

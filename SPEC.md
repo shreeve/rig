@@ -10205,10 +10205,11 @@ it holds.
 - `<ts.wait_first()` gives the first result to succeed and cancels the
   rest; when every task fails, it fails with the last error. It is only
   for tasks that can fail, since the rest must be stopped.
-- A wait with a deadline is written inside `time.within`, whose
-  closure moves the set in: `time.within(2 * time.SECOND, |<ts| >ts!)`
-  ([Deadlines](#deadlines)). Past the deadline the tasks still running
-  are canceled, and the wait fails with `task.Stop.timeout`.
+- A wait with a deadline is written in `time.within`
+  ([Deadlines](#deadlines)), which takes the set into its closure:
+  `time.within(ns, |<ts| >ts!)`. When the deadline passes, the tasks
+  still running are canceled, and the wait fails with
+  `task.Stop.timeout`.
 - Waiting on tasks that can fail is a waiting point: a canceled waiter
   cancels them all and fails with `Stop.canceled`.
 - Dropping a set cancels the tasks that can fail, all of them first,
@@ -10253,10 +10254,10 @@ sub main()
 50
 ```
 
-`task.all(a, b, ...)` of `std.task` ([std.task](docs/STD.md#stdtask))
-waits for two tasks or more, of different types, and gives each one's
-value as several results: `u, o = task.all(user(id)&, orders(id)&)!`.
-The call takes its tasks,
+`task.all(a, b, ...)` of `std.task`
+([std.task](docs/STD.md#stdtask)) waits for two tasks or more, of
+different types, and gives each one's value as several results:
+`u, o = task.all(user(id)&, orders(id)&)!`. The call takes its tasks,
 and can fail when any of them can; then the first to fail cancels the
 others.
 
@@ -10356,6 +10357,11 @@ worker thread per core (`RIG_WORKERS` sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).
+A call that blocks its thread, as reading a file does, runs on a pool
+of threads while its task waits; `RIG_BLOCKING_THREADS` sets how many
+at most (64 by default), and a thread idle 10 seconds ends. With
+`RIG_SCHED_STATS=1` set, the program prints what each worker did as it
+ends.
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in
 `main` does, unless an isolate stops it ([below](#isolating-a-panic)). If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task
@@ -10441,21 +10447,21 @@ fun slow(ms: Int) -> Int!
 sub main()
   print(time.within(time.SECOND, || slow(1)!) catch -1)
   print(time.within(5 * time.MS, || slow(60_000)!) catch -1)
+  t = slow(60_000)&
+  print(time.within(5 * time.MS, |<t| >t!) catch -1)
   n = time.within(time.SECOND, ||
     a = slow(1)!
     b = time.within(5 * time.MS, || slow(60_000)!) catch 0
     a + b
   ) catch -1
   print(n)
-  t = slow(60_000)&
-  print(time.within(5 * time.MS, |<t| >t!) catch -1)
 ```
 
 ```output
 1
 -1
-1
 -1
+1
 ```
 
 ### Actors
@@ -10513,8 +10519,16 @@ as `deadlock: these calls wait on each other, and none can go on:
 Bank.pay -> Ledger.post -> Bank.balance`, where `Bank.pay` called
 `Ledger.post`, which called `Bank.balance`. Waits on tasks and on sets
 of tasks count too: a method that waits on a task that calls its own
-actor is such a cycle. The wait that closes the cycle finds it, so the
-program never hangs on one.
+actor is such a cycle, and so is a wait for a free slot in an actor's
+mailbox (a call made with `&`), which only the actor's answer to an
+earlier such call frees: `Hub.run -> a slot in Hub's mailbox`. The wait
+that closes the cycle finds it, so the program never hangs on one.
+
+A deterministic run, as `rig test` makes, also panics when every task
+waits and nothing can wake one, on channels say, with no timer or
+socket pending: `every task is waiting on another, and none can run: a
+deadlock`. Any other run waits on: an interrupt may still cancel
+`main`, so a program may wait on a channel for nothing but that.
 
 A panic in an actor's method ends the actor. Its value is abandoned,
 not dropped, since the panic may have left it half-changed; a debug

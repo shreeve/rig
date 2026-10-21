@@ -944,13 +944,16 @@ pub const Checker = struct {
     fn noteInvalidated(self: *Checker, id: VarId, use_pos: u32) Error!void {
         const v = self.vars.items[id];
         const f = self.flows.items[id];
-        const what = if (f.status == .dropped) "dropped" else "moved";
+        // `>t` takes the task it waits for.
+        const waited = f.status != .dropped and f.at > 0 and f.at <= self.source.len and self.source[f.at - 1] == '>' and if (self.sema) |ctx| if (v.ty) |t| sema.isTask(ctx, t) or sema.isTaskSet(ctx, t) else false else false;
+        const what = if (f.status == .dropped) "dropped" else if (waited) "waited for" else "moved";
+        const why = if (waited) "; a wait takes what it waits for, so it waits once" else "";
         // Deferred code runs after the code that follows it, and a
         // loop's step after its body.
         if (self.loop != null and f.at >= (self.step_at orelse use_pos) and !self.in_defer) {
-            try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop", .{ v.name, what });
+            try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop{s}", .{ v.name, what, why });
         } else {
-            try self.note(f.at, "`{s}` was {s} here", .{ v.name, what });
+            try self.note(f.at, "`{s}` was {s} here{s}", .{ v.name, what, why });
         }
     }
 
@@ -3137,10 +3140,7 @@ pub const Checker = struct {
                 const place = self.resolvePlace(inner) orelse return self.walk(inner);
                 // A capture that owns a resource, or holds a view, is
                 // reported as one (`rejectConsumedView`).
-                // One a closure called at most once moved in is its own
-                // (`walkLambda`).
-                const v = self.vars.items[place.root];
-                if (v.capture_resource or v.kind == .local) return self.moveVar(place.root, self.startOf(inner), .move);
+                if (self.vars.items[place.root].capture_resource) return self.moveVar(place.root, self.startOf(inner), .move);
                 _ = try self.walk(inner);
                 try self.errAt(inner, "cannot move `{s}`, a copy capture: the closure keeps it for every call; remove the `<` to copy it", .{self.text(inner)});
                 return .{};
@@ -5359,29 +5359,25 @@ pub const Checker = struct {
         self.loop = null;
         self.reachable = true;
         try self.pushScopeFor(.closure, body);
-        // A closure passed to a parameter its callee calls at most once
-        // owns what it moves in as a local of its body, which its one
-        // call may move out or drops at its end.
-        const once = if (self.sema) |ctx| !owned and ctx.isOnceClosure(node) else false;
         for (caps, cap_values.items) |cap, cv| {
             const name = sema.captureNameNode(cap).?;
             const ty = self.symType(name.src.pos);
-            if (once and sema.captureModeOf(cap).? == .cap_move and !self.isPoisonType(ty)) {
-                _ = try self.addVar(.{ .name = self.text(name), .decl = name.src.pos, .ty = ty, .kind = .local, .ref = self.refOfType(ty) }, .{ .loans = cv.loans });
-                continue;
-            }
             // A capture the type checker rejected holds nothing.
             const resource = !self.isPoisonType(ty) and switch (sema.captureModeOf(cap).?) {
                 .cap_clone => !self.copies(ty),
                 .cap_weak, .cap_move, .cap_read, .cap_write => true,
             };
+            // A closure its callee calls at most once (`f: once ?fun()`)
+            // takes what it owns of its captures, as a function takes a
+            // parameter given by value.
+            const once = if (self.sema) |ctx| if (ctx.symbolOf(name)) |sym| ctx.isOnceCapture(sym) else false else false;
             _ = try self.addVar(.{
                 .name = self.text(name),
                 .decl = name.src.pos,
                 .ty = ty,
-                .kind = .capture,
+                .kind = if (once) .local else .capture,
                 .ref = self.refOfType(ty),
-                .capture_resource = resource,
+                .capture_resource = resource and !once,
             }, .{ .loans = cv.loans });
         }
         try self.bindParams(params);

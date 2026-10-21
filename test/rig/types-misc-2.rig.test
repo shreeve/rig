@@ -1540,7 +1540,7 @@ fail "string push wide", "5:9: `push` appends an integer type; got `F32`", "6:9:
   !s.reserve("x")
   !s.push()
 
-fail "string retired name", "4:13: use of unbound type `Text`; owned text is `String`, and its read view is `?String`", "7:5: use of unbound name `Text`; owned text is `String`, and its read view is `?String`"
+fail "string type by another name", "4:13: use of unbound type `Text`; owned text is `String`, and its read view is `?String`", "7:5: use of unbound name `Text`; owned text is `String`, and its read view is `?String`"
   # Owned text is `String` and its read view is `?String`. `Text` is
   # unbound, with a hint.
 

@@ -64,8 +64,9 @@ test "sets deadline", seeds: 20, '''
   slow stops
   Stop.timeout true
 '''
-  # `time.within` cancels what is still running when the deadline
-  # passes: a set moved into its closure is waited for there.
+  # A wait for a set made before a deadline, given the set in
+  # `time.within`, cancels what is still running when the deadline
+  # passes.
   use std.task
   use std.time
 
@@ -172,7 +173,7 @@ test "sets void", seeds: 20, '''
   >ts
   print("done", 3)
 
-test "sets all of two types", seeds: 20, '''
+test "sets both", seeds: 20, '''
   user2 6
   6
 '''
@@ -194,7 +195,7 @@ test "sets all of two types", seeds: 20, '''
 
   print(both(2) catch -1)
 
-test "sets all fails", seeds: 20, '''
+test "sets both fails", seeds: 20, '''
   slow stops
   -1
 '''
@@ -238,21 +239,33 @@ fail "sets wait first infallible", "`wait_first` takes the first task to succeed
   !ts.add(sq(2)&)
   print(<ts.wait_first())
 
-fail "sets deadline argument", "a set of tasks is waited for with `>`, and a deadline is `time.within`'s: `time.within(2 * time.SECOND, |<ts| >ts!)`", errors: 1
-  fun sq(x: Int) -> Int
-    x * x
-
-  ts = Tasks[Int]()
-  !ts.add(sq(2)&)
-  print(<ts.wait_all(within: 5))
-
-fail "sets wait args", "a set of tasks is waited for with `>`, and a deadline is `time.within`'s: `time.within(2 * time.SECOND, |<ts| >ts!)`", errors: 1
+fail "sets wait first args", "`wait_first` takes nothing; to give it a deadline, call it in `time.within`: `time.within(2 * time.SECOND, |<ts| <ts.wait_first()!)`", errors: 1
   fun sq(x: Int) -> Int!
     x * x
 
   ts = Tasks[Int!]()
   !ts.add(sq(2)&)
-  print(<ts.wait_all(5) catch List[Int]())
+  print(<ts.wait_first(within: 5) catch -1)
+
+test "sets wait first within", seeds: 20, '''
+  slow stops
+  7
+'''
+  # `time.within` gives `wait_first` a deadline, as it does `>ts`.
+  use std.time
+
+  fun slow() -> Int!
+    defer print("slow stops")
+    time.sleep(10 * time.SECOND)!
+    1
+
+  fun quick() -> Int!
+    7
+
+  ts = Tasks[Int!]()
+  !ts.add(slow()&)
+  !ts.add(quick()&)
+  print(time.within(time.SECOND, |<ts| <ts.wait_first()!) catch -1)
 
 fail "sets loans", "cannot lend `xs` to write while a read loan is live", errors: 1
   # A set keeps the loans of its tasks.
@@ -282,14 +295,14 @@ fail "sets lost", "the tasks of `ws` can fail, and they are dropped where its sc
   ws = Tasks[Int!]()
   !ws.add(sq(2)&)
 
-fail "sets both", "two tasks are waited for with `task.all`, as more are: `task.all(f(x)&, g(y)&)`", errors: 1
+fail "sets all count", "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", errors: 1
   use std.task
 
   fun sq(x: Int) -> Int
     x * x
 
-  a, b, c = task.both(sq(1)&, sq(2)&, sq(3)&)
-  print(a, b, c)
+  a = task.all(sq(1)&)
+  print(a)
 
 fail "sets all not a task", "`task.all` waits for tasks, and `sq(2)` is a `Int`: make the call a task, `f(x)&`", errors: 1
   use std.task

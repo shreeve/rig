@@ -4580,7 +4580,7 @@ const Checker = struct {
     /// language's spelling of a Rig one, or a visible name it is a typo
     /// of.
     fn unboundHint(self: *Checker, leaf: Sexp, name: []const u8) Error![]const u8 {
-        if (sema.retiredNameHint(name)) |hint| return hint;
+        if (sema.builtinNameHint(name)) |hint| return hint;
         const other = try self.ctx.otherFileUse(name);
         if (other.len > 0) return other;
         const Other = struct { []const u8, []const u8 };
@@ -10939,6 +10939,8 @@ const Checker = struct {
                 try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
+            } else if (sema.chanValue(self.ctx, peeled) != null and (std.mem.eql(u8, method, "on_recv") or std.mem.eql(u8, method, "on_send"))) {
+                try self.err(pos, "`{s}` makes an arm of `task.select`, and stands only as one of its arguments: `task.select((!{s}).{s}(...), ...)`", .{ method, try self.plainText(stripSigil(obj)), method });
             } else if (std.mem.eql(u8, method, "text") and (self.hasVariantNames(peeled) or peeled == self.t().symbol_id)) {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
@@ -11476,17 +11478,16 @@ const Checker = struct {
     /// A `Cell[List[E]]` answers its List's `push`, `pop`, `keep`,
     /// `clear`, and, for a plain-data `E`, `get(i)`, through any path to
     /// the cell, as `set` does. Null for the Cell's own members.
-    /// `task.all(a, b, ...)` of `std.task`: wait for
-    /// tasks of any types, which the call takes, and give each one's value
-    /// as several results, failing when any task can. Rig declares no
-    /// function of any number of arguments, so the call is typed here,
-    /// its parameters the tasks' own types (`argType`). Null when
-    /// `module_sym` is not `std.task`, or `name` neither.
+    /// `task.all(a, b, ...)` of `std.task`: wait for tasks of any types,
+    /// which the call takes, and give each one's value as several
+    /// results, failing when any task can. Rig declares no function of
+    /// any number of arguments, so the call is typed here, its
+    /// parameters the tasks' own types (`argType`). Null when
+    /// `module_sym` is not `std.task`, or `name` is not `all`.
     fn taskJoin(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
         if (!std.mem.eql(u8, foreign.name, "std.task")) return null;
-        if (std.mem.eql(u8, name, "both")) return try self.badCall(args, pos, "two tasks are waited for with `task.all`, as more are: `task.all(f(x)&, g(y)&)`", .{});
         if (!std.mem.eql(u8, name, "all")) return null;
         if (args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
         const a = self.ctx.arena.allocator();
@@ -11948,15 +11949,14 @@ const Checker = struct {
     }
 
     /// `>ts` (all of them) and `<ts.wait_first()`: the waits of a set of
-    /// tasks, whose results depend on whether its tasks can fail; a
-    /// deadline is `time.within`'s. Null when the receiver is not a set,
-    /// or `method` neither wait.
+    /// tasks, whose results depend on whether its tasks can fail. A
+    /// deadline for either is `time.within`'s. Null when the set is not
+    /// one, or `method` neither wait.
     fn taskSetWait(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const set = sema.unwrapViews(self.ctx, obj_ty);
         if (!sema.isTaskSet(self.ctx, set)) return null;
         const first = std.mem.eql(u8, method, "wait_first");
-        // `>ts` waits for them all, as `wait_all` with no deadline does.
-        if (!first and !std.mem.eql(u8, method, "wait_all") and !rig.isWaitMember(callee)) return null;
+        if (!first and !rig.isWaitMember(callee)) return null;
         const each = sema.taskResult(self.ctx, set).?;
         const fails = self.ctx.types.get(each) == .fallible;
         const value = if (fails) self.ctx.types.get(each).fallible else each;
@@ -11983,10 +11983,8 @@ const Checker = struct {
             try self.synthArgs(args);
             return self.t().invalid_id;
         }
-        // A deadline is `time.within`'s, for one task or a set alike.
         if (args.len > 0) {
-            const wait = if (first) try self.ctx.arena.allocator().print("<{s}.wait_first()!", .{shown}) else try self.ctx.arena.allocator().print(">{s}!", .{shown});
-            try self.err(pos, "`{s}` takes no arguments; to wait with a deadline, wait inside `time.within`: `time.within(2 * time.SECOND, |<{s}| {s})`", .{ method, shown, wait });
+            try self.err(pos, "`wait_first` takes nothing; to give it a deadline, call it in `time.within`: `time.within(2 * time.SECOND, |<{s}| <{s}.wait_first()!)`", .{ shown, shown });
             try self.synthArgs(args);
             return self.t().invalid_id;
         }
@@ -12006,16 +12004,14 @@ const Checker = struct {
         return try self.badCall(args, pos, "`>` waits for a task, and `{s}` has type `{s}`; a task is a call made with `&`, `t = f(x)&`", .{ shown, try self.tyName(obj_ty) });
     }
 
-    /// `t.wait()` or `ts.wait_all()` written out: a task is waited for
-    /// with `>t`, and a set with `>ts`; a deadline is `time.within`'s.
+    /// `t.wait()` written out: a task is waited for with `>t`; a
+    /// deadline is `time.within`'s.
     fn spelledWait(self: *Checker, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const held = sema.unwrapViews(self.ctx, obj_ty);
-        const task = sema.isTask(self.ctx, held) and std.mem.eql(u8, method, "wait");
-        const set = sema.isTaskSet(self.ctx, held) and std.mem.eql(u8, method, "wait_all");
-        if (!task and !set) return null;
+        if (!sema.isTask(self.ctx, held) or !std.mem.eql(u8, method, "wait")) return null;
         const shown = try self.plainText(stripSigil(obj));
-        if (args.len > 0) return try self.badCall(args, pos, "a {s} is waited for with `>`, and a deadline is `time.within`'s: `time.within(2 * time.SECOND, |<{s}| >{s}!)`", .{ if (task) "task" else "set of tasks", shown, shown });
-        return try self.badCall(args, pos, "a {s} is waited for with `>`: write `>{s}`", .{ if (task) "task" else "set of tasks", shown });
+        if (args.len > 0) return try self.badCall(args, pos, "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2 * time.SECOND, |<{s}| >{s}!)`", .{ shown, shown });
+        return try self.badCall(args, pos, "a task is waited for with `>`: write `>{s}`", .{shown});
     }
 
     fn cellListCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, pos: u32, args: []const Sexp) Error!?TypeId {
@@ -12436,7 +12432,18 @@ const Checker = struct {
     /// a diagnostic that asks for the mark; empty for any other receiver.
     fn markNote(self: *Checker, recv: Sexp) []const u8 {
         const ty = self.ctx.typeOf(recv) orelse return "";
-        return if (sema.changesByMark(self.ctx, ty)) ": changing a shared Cell is marked with `!`" else "";
+        if (!sema.changesByMark(self.ctx, ty)) return "";
+        const held = sema.unwrapAccess(self.ctx, ty);
+        if (sema.chanValue(self.ctx, held) != null) return ": a channel changes as it sends and receives, and a change through a shared handle is marked with `!`";
+        return switch (self.ctx.types.get(held)) {
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.cell_sym_id)
+                ": changing a shared Cell is marked with `!`"
+            else if (pn.sym == self.ctx.signal_sym_id)
+                ": changing a shared Signal is marked with `!`"
+            else
+                ": changing a Cell it holds is marked with `!`",
+            else => ": changing a Cell it holds is marked with `!`",
+        };
     }
 
     /// Receiver rules: `?@` is lent implicitly; `!@` needs an explicit

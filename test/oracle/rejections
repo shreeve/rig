@@ -1905,6 +1905,7 @@ target.name_compound.ternary.grow main
 target.name_compound.ternary.move main
 target.name_compound.ternary.read main
 test/reject/concurrency/task_copy.rig main
+test/reject/concurrency/within_a_closure_called_more_than_once.rig main
 test/reject/ownership/once_only_where_passed.rig main
 test/reject/probes/R11a-d1l.rig main
 test/reject/probes/R13-s-m-lib.rig Opt.or
@@ -4495,6 +4496,8 @@ doc/learn-02-ownership/ab206322570f main
 doc/learn-02-ownership/ae486b0562a3 longest
 doc/learn-02-ownership/da0926a793e5 main
 doc/learn-02-ownership/f760280c2daa main
+doc/learn-05-text/2ee81974a525 main
+doc/learn-06-stdlib/5909f4c068da main
 error.arg_then_write.destructure run
 error.arg_then_write.destructure_branch run
 error.arg_then_write.destructure_view run

@@ -84,7 +84,7 @@ aim to match it in the rest.
   Tokio task is a state machine: each pause returns up through every
   future it is nested in, and each resume calls back down through them.
 - **A long computation never holds up the rest.** The compiler puts a
-  yield check in every outermost loop and recursive function of a
+  yield check in every loop and recursive function of a
   program that makes tasks, so a task waiting behind one waits for a
   slice of it, not all of it. Tokio never stops a running task, and Go
   stops one after 10 ms.
@@ -142,7 +142,7 @@ The first error, or the deadline, cancels the rest and waits for them.
 Two different calls at once:
 
 ```text
-u, o = task.both(user(id)&, orders(id)&)!
+u, o = task.all(user(id)&, orders(id)&)!
 ```
 
 A server whose handlers share a counter and a room list (built):
@@ -196,8 +196,11 @@ place a fallible type stands as a type argument.
   result is passed on with `>t!` or handled with `catch`.
 - `<t.cancel()` cancels a fallible task, waits for it, and gives what it
   returned, usually `error.Canceled`.
-- `task.all(a, b, c)` waits for two tasks or more, of different types,
-  at once. The first error cancels the others.
+- `task.all(a, b, c)` waits for several tasks of different types at
+  once. The first error cancels the others.
+- `time.within(d, |<t| >t!)` waits with a deadline: `within` calls its
+  closure once (`f: once ?fun() -> R!`), so the closure may move the
+  task in.
 - A function may return a task (`-> Task[T]`). The task keeps the loans
   its signature shows, as any result does.
 
@@ -799,7 +802,7 @@ Each item gives the answer the model takes.
 15. **Order of work**, each step its own pull request:
     1. moving the runtime's global state into task context, then `&`,
        `Task`, `Tasks`, the loan and cancellation rules, and
-       `task.both`, on `Threaded`;
+       `task.all`, on `Threaded`;
     2. the crossing facts, a `*Cell` of one word across tasks, and `par`;
     3. actors, unwinding, `task.isolate`, and supervised actors;
     4. the scheduler core, benchmarked with no I/O;
