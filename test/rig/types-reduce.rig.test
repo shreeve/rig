@@ -1,0 +1,108 @@
+# types: tests whose names start `reduce`.
+
+test "reduce sums areas", "13.0 13.0 4.0"
+  # The running value, `start` first, with each element lent as `?T`,
+  # gives the next; on an array, a List, and a slice.
+  obj Square
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  a = [Square(side: 2.0), Square(side: 3.0)]
+  v: List[Square] = List()
+  !v.push(Square(side: 2.0))
+  !v.push(Square(side: 3.0))
+  print(a.reduce(0.0, |sum, x| sum + x.area()), v.reduce(0.0, |sum, x| sum + x.area()), ?a[..1].reduce(0.0, |sum, x| sum + x.area()))
+
+test "reduce best score", "9 -1"
+  scores = [3, 9, 4]
+  none_yet: List[Int] = List()
+  print(scores.reduce(0, |best, x| x if x > best else best), none_yet.reduce(-1, |best, x| x if x > best else best))
+
+test "reduce owned accumulator", "ann bob cy |3"
+  # The running value moves through each call, so it may own what it
+  # holds; the sanitizer sees nothing leak.
+  obj Person
+    name: String
+
+  people: List[Person] = List()
+  for n in ["ann", "bob", "cy"]
+    !people.push(Person(name: String(n)))
+  names = people.reduce(String(), |s, p| String(s, p.name, " "))
+  print(String(names, "|", people.len))
+
+test "reduce empty gives start", "7 start"
+  e: List[Int] = List()
+  words: List[String] = List()
+  print(e.reduce(7, |a, x| a + x), words.reduce(String("start"), |s, w| String(s, w)))
+
+test "reduce named function", "6"
+  fun add(a: Int, x: ?Int) -> Int
+    a + x
+
+  print([1, 2, 3].reduce(0, add))
+
+test "reduce fallible", '''
+  6
+  ParseError.invalid 2
+  ParseError.invalid
+'''
+  # A closure that can fail makes `reduce` fallible: the first failure
+  # ends it, and the running value the closure took is dropped.
+  use std.text
+
+  fun total(words: []?String, calls: *Cell[Int]) -> Int!
+    words.reduce(0, |+calls, sum, w|
+      !calls.add(1)
+      sum + text.parse_int(w)!
+    )!
+
+  fun joined(words: []?String) -> String!
+    words.reduce(String(), |s, w| String(s, text.parse_int(w)!))!
+
+  calls = *Cell(0)
+  print(total(["1", "2", "3"], +calls)!)
+  calls2 = *Cell(0)
+  _ = total(["1", "x", "3"], +calls2) catch |e|
+    print(e, calls2.get())
+    0
+  _ = joined(["1", "x"]) catch |e|
+    print(e)
+    String()
+
+test "reduce in a generic body", "13.0 3.0"
+  # A `[]T` of a type parameter: the closure's `x.area()` takes its type
+  # from the other operand, `sum`, a `Float`.
+  obj Square
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+  fun total[T](xs: []T) -> Float
+    xs.reduce(0.0, |sum, x| sum + x.area())
+
+  print(total([Square(side: 2.0), Square(side: 3.0)]), total([Circle(r: 1.0)]))
+
+code "reduce calls the runtime's inline loop", "rig.reduce(xs, @as(f64, 0.0), __rig_arg_1_1)"
+  fun total(xs: []Float) -> Float
+    xs.reduce(0.0, |sum, x| sum + x)
+
+  print(total([1.0]))
+
+fail "reduce takes a start and a function", "`reduce` takes the starting value and the function that gives the next value from the running one and each element"
+  print([1, 2].reduce(0))
+
+fail "reduce function gives the running value's type", "type mismatch"
+  print([1, 2].reduce(0, |sum, x| String("no")))
+
+fail "reduce only reads its elements", "only reads its elements"
+  a = [1, 2]
+  print(!a.reduce(0, |s, x| s + x))

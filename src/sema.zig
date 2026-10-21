@@ -1005,6 +1005,8 @@ pub const Facts = struct {
     http_serves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The calls of `io.copy` (`Checker.ioCopy`).
     io_copies: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The calls of `xs.reduce(start, f)` (`Checker.reduceCall`).
+    reduce_calls: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Closure literals called at most once, by the call they are passed
     /// to (`SemContext.recordOnceClosure`).
     once_closures: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -3418,6 +3420,15 @@ pub const SemContext = struct {
     /// Whether `call` is `http.serve` (`recordHttpServe`).
     pub fn isHttpServe(self: *const SemContext, call: Sexp) bool {
         return self.facts.http_serves.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordReduceCall(self: *SemContext, call: Sexp) !void {
+        try self.facts.reduce_calls.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `xs.reduce(start, f)` (`recordReduceCall`).
+    pub fn isReduceCall(self: *const SemContext, call: Sexp) bool {
+        return self.facts.reduce_calls.contains(exprKey(call) orelse return false);
     }
 
     pub fn recordIoCopy(self: *SemContext, call: Sexp) !void {

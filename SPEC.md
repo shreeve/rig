@@ -921,6 +921,24 @@ sub main()
 6 16 3.75 5
 ```
 
+Another folds them: `xs.reduce(start, f)` passes the running value,
+`start` first, and each element in order, lent as `?T`, to `f`, which
+gives the next; it gives the last, or `start` when there are none. A
+`start` of type `A` takes an `f` of type `?fun(A, ?T) -> A`: a closure
+written there, or a function's name. The running value moves through
+each call, so it may own what it holds, and an `f` that can fail makes
+`reduce` fallible, ending at the first failure ([std](docs/STD.md#reduce)).
+
+```rig
+sub main()
+  a = [3, 9, 4]
+  print(a.reduce(0, |best, x| x if x > best else best), a.reduce(String(), |s, x| String(s, x)))
+```
+
+```output
+9 394
+```
+
 A recursive function passes on write slices of its own write slice:
 
 ```rig

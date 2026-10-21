@@ -10941,6 +10941,7 @@ const Checker = struct {
             if (try self.waitOperand(obj, obj_ty, pos, args)) |ty| return ty;
         } else if (try self.spelledWait(obj, obj_ty, method, pos, args)) |ty| return ty;
         if (sema.actorOfHandle(self.ctx, obj_ty)) |value| return self.actorCall(callee, obj, obj_ty, value, method, pos, args, ct);
+        if (std.mem.eql(u8, method, "reduce")) if (try self.reduceCall(obj, obj_ty, pos, args, ct)) |ty| return self.noteMethod(callee, .read, ty);
         if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| {
             const reads = switch (std.meta.stringToEnum(sema.ElemOp, method) orelse .copy) {
                 .read, .sum => true,
@@ -11574,6 +11575,86 @@ const Checker = struct {
             .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .sum => unreachable,
         }
         return self.t().void_id;
+    }
+
+    /// `xs.reduce(start, f)` on a slice, an array, or a List: the running
+    /// value, `start` first, passed with each element in order, lent as a
+    /// `?T`, to `f`, which gives the next; the last. The running value
+    /// moves through, so it may own what it holds; a `start` of type `A`
+    /// takes an `f` of type `?fun(A, ?T) -> A`, and one whose `f` can
+    /// fail can fail, with the first failure. It only reads its
+    /// receiver. Null when the receiver has no elements.
+    fn reduceCall(self: *Checker, obj: Sexp, obj_ty: TypeId, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
+        const peeled = sema.unwrapViews(self.ctx, obj_ty);
+        const elem: TypeId = switch (self.ctx.types.get(peeled)) {
+            .slice => |sl| sl.elem,
+            .array => |a| a.elem,
+            else => listElementType(self.ctx, peeled) orelse return null,
+        };
+        const example = "`xs.reduce(0, |sum, x| sum + x)`";
+        if (ct) |b| return try self.badCall(args, b, "`reduce` takes no compile-time arguments", .{});
+        if (obj.isKind(.move) and self.isReceiverSigil(obj)) {
+            try self.misplacedSigil(obj, "reduce", "does not consume `self`");
+            return try self.skipCall(args);
+        }
+        if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, "reduce", "only reads its elements");
+        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return try self.badCall(args, pos, "`reduce` takes the starting value and the function that gives the next value from the running one and each element: {s}", .{example});
+        const start = try self.argType(args[0]);
+        if (self.isPoison(start)) return try self.skipCall(args);
+        // A literal start runs as an `Int` or a `Float`.
+        const value = readValue(self.ctx, start);
+        const acc = if (value == self.t().int_literal_id) self.t().int_id else if (value == self.t().float_literal_id) self.t().float_id else value;
+        const each = try self.ctx.intern(.{ .read_view = elem });
+        const fn_ty = (try self.reduceFunction(args[1], acc, each)) orelse return try self.skipCall(args);
+        const fails = self.ctx.types.get(self.ctx.types.get(fn_ty).function.returns) == .fallible;
+        const result = if (fails) try self.ctx.intern(.{ .fallible = acc }) else acc;
+        const recv = try self.ctx.intern(.{ .read_view = peeled });
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ recv, acc, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = false };
+        try self.noteCallee(f);
+        // `mk().reduce(...)` reads a temporary, dropped when its statement ends.
+        if (self.isTemporary(obj)) try self.lendTemp(obj);
+        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{ .names = &.{ "start", "f" } }, "reduce", pos, .{ .receiver = true });
+        if (self.current_call) |c| try self.ctx.recordReduceCall(c);
+        return result;
+    }
+
+    /// The type of `reduce`'s function `f`, taking the running value as
+    /// `acc` and each element as `each`: a closure literal's, checked
+    /// quietly first as one that cannot fail and then, when its body
+    /// needs to, as one that can; or the type of a function or a
+    /// function value. Null, reported, when it is neither.
+    fn reduceFunction(self: *Checker, f: Sexp, acc: TypeId, each: TypeId) Error!?TypeId {
+        const plain = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = acc, .is_sub = false } });
+        if (f.isKind(.lambda)) {
+            const failing = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = acc }), .is_sub = false } });
+            if (try self.lambdaChecksQuietly(f, plain)) return plain;
+            if (try self.lambdaChecksQuietly(f, failing)) return failing;
+            return plain;
+        }
+        const ty = try self.argType(f);
+        if (self.isPoison(ty)) return null;
+        const owned: ?TypeId = if (sema.ownedClosureFn(self.ctx, ty)) |o| try self.ctx.intern(.{ .function = o }) else null;
+        const fn_ty = if (self.ctx.types.get(ty) == .function) ty else sema.callableFnTy(self.ctx, ty) orelse owned orelse {
+            try self.errAt(f, "`reduce` calls a function with the running value and each element, a closure or a function's name; `{s}` is a `{s}`", .{ self.sourceText(f), try self.tyName(ty) });
+            return null;
+        };
+        const returns = self.ctx.types.get(fn_ty).function.returns;
+        return if (self.ctx.types.get(returns) == .fallible) try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = acc }), .is_sub = false } }) else plain;
+    }
+
+    /// Whether closure literal `f` checks against function type `want`
+    /// with no diagnostic, checked quietly.
+    fn lambdaChecksQuietly(self: *Checker, f: Sexp, want: TypeId) Error!bool {
+        const mark = self.ctx.diagnostics.items.len;
+        self.ctx.quiet += 1;
+        self.tentative += 1;
+        defer {
+            self.ctx.quiet -= 1;
+            self.tentative -= 1;
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        }
+        _ = try self.checkLambda(f, want);
+        return self.ctx.diagnostics.items.len == mark;
     }
 
     /// `xs.sum()` and `xs.sum(start: n)`: the elements of a slice, an

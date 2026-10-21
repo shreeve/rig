@@ -119,6 +119,15 @@ changed the language since it:
   amounts and `$fromBackingInt`: they cast through the unsigned type of
   the source's width, since Zig 0.17 lowers a direct cast as LLVM
   `trunc nsw`, which made such values poison.
+- **`reduce`:** `xs.reduce(start, f)` on a slice, an array, or a List
+  passes the running value, `start` first, and each element in order,
+  lent as `?T`, to `f`, and keeps what `f` gives; an empty one gives
+  `start`. The running value moves through, so it may own what it holds
+  (`people.reduce(String(), |s, p| String(s, p.name, " "))`); a closure
+  that can fail makes the call fallible, ending at the first failure. It
+  works in a generic body on a `[]T` through the APIs a type gives, and
+  a closure written at the call is inlined in a release build, as fast
+  as the loop written out (docs/STD.md, "reduce").
 - **Compiler and tools:** a synthetic span outside its source reads as
   empty; the package cache and the build store have size caps;
   `src/parser.zig` is generated at build time from `rig.grammar`
