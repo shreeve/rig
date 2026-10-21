@@ -1,13 +1,12 @@
 # types: tests whose names start `write`.
 
-use std.hash
 
 fail "write call already lent", "`(!b)` already lends `b` to write: remove the outer `!` and write `(!b).ensure(1, List())`"
   # A receiver already lent to write, `(!b)`, takes no second `!`: the
   # outer one is removed, not parenthesized again.
 
 
-  b = hash.Map[Int, List[Int]].new()
+  b = Map[Int, List[Int]].new()
   !(!b).ensure(1, List()).push(5)
   print(b.len)
 

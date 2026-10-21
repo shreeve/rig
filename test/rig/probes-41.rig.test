@@ -1,6 +1,5 @@
 # Probes from past reviews and audits, 41 of 41: t-mv4 to viewvalue-f2.
 
-use std.hash
 use std.random
 
 fail "t-mv4", "cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
@@ -796,8 +795,8 @@ test "viewvalue-c6", '''
     x: Int
     y: Int
 
-  fun mk() -> hash.Map[String, P]
-    q = hash.Map[String, P]()
+  fun mk() -> Map[String, P]
+    q = Map[String, P]()
     !q.put(String("a"), P(x: 1, y: 2))
     q
 
@@ -835,7 +834,7 @@ test "viewvalue-d7", '''
       s += a[k]
     s
 
-  m = hash.Map[String, Shape]()
+  m = Map[String, Shape]()
   !m.put(String("a"), .rect(w: 2, h: 3))
   a = ?m.get("a") ?? .point
   b = ?m.get("b") ?? .circle(r: 9)

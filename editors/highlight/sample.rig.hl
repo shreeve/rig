@@ -3,9 +3,6 @@
 > # goldens. It is read, not run: the last section holds what Rig rejects.
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
 > 
-> use std.hash
-  ^^^ keyword
-         ^ punctuation
 > use std.text
   ^^^ keyword
          ^ punctuation
@@ -537,28 +534,27 @@
     ^ storage.modifier
 >   n
 > 
-> fun fallible(m: ?hash.Map[String, Int], k: ?String) -> Int!
+> fun fallible(m: ?Map[String, Int], k: ?String) -> Int!
   ^^^^ keyword
       ^^^^^^^^ function
               ^ punctuation
                ^ variable.parameter
                 ^ punctuation
                   ^ storage.modifier
-                       ^ punctuation
-                        ^^^ type
-                           ^ punctuation
-                            ^^^^^^ type
-                                  ^ punctuation
-                                    ^^^ type
-                                       ^^ punctuation
-                                          ^ variable.parameter
-                                           ^ punctuation
-                                             ^ storage.modifier
-                                              ^^^^^^ type
-                                                    ^ punctuation
-                                                      ^^ operator
-                                                         ^^^ type
-                                                            ^ storage.modifier
+                   ^^^ type
+                      ^ punctuation
+                       ^^^^^^ type
+                             ^ punctuation
+                               ^^^ type
+                                  ^^ punctuation
+                                     ^ variable.parameter
+                                      ^ punctuation
+                                        ^ storage.modifier
+                                         ^^^^^^ type
+                                               ^ punctuation
+                                                 ^^ operator
+                                                    ^^^ type
+                                                       ^ storage.modifier
 >   n = m.get(k) ?? 0
       ^ operator
          ^ punctuation
@@ -712,20 +708,19 @@
                            ^ operator
                                ^ operator
                                   ^ punctuation
->   m = hash.Map[Int, Int].new(capacity: 16)
+>   m = Map[Int, Int].new(capacity: 16)
       ^ operator
-            ^ punctuation
-             ^^^ type
-                ^ punctuation
+        ^^^ type
+           ^ punctuation
+            ^^^ type
+               ^ punctuation
                  ^^^ type
-                    ^ punctuation
-                      ^^^ type
-                         ^^ punctuation
-                              ^ punctuation
-                               ^^^^^^^^ variable.parameter
-                                       ^ punctuation
-                                         ^^ constant.numeric
-                                           ^ punctuation
+                    ^^ punctuation
+                         ^ punctuation
+                          ^^^^^^^^ variable.parameter
+                                  ^ punctuation
+                                    ^^ constant.numeric
+                                      ^ punctuation
 >   grid = [3 of 0]
          ^ operator
            ^ punctuation

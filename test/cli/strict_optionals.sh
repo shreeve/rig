@@ -8,7 +8,6 @@
 source "$ROOT/test/cli/_lib.sh"
 
 cat >main.rig <<'EOF2'
-use std.hash
 
 error E
   bad
@@ -97,7 +96,7 @@ sub main()
     print(x ?? Node(id: 0))
   print(arr.get(1), arr.get(2))
   print(Color.from_int(1), Color.from_int(7))
-  m = hash.Map[String, Node]()
+  m = Map[String, Node]()
   !m.put(String("a"), Node(id: 6))
   print(m.get("a") ?? Node(id: 0), m.get("z") ?? Node(id: 0))
   r.sym = mk(1)

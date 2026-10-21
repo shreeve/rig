@@ -1,6 +1,6 @@
 # Hash map benchmark
 
-Times `std/hash.rig`'s Map against Zig's `std.HashMap`
+Times the built-in Map (`std/__rig_builtin.rig`) against Zig's `std.HashMap`
 (`AutoHashMapUnmanaged` and `StringHashMapUnmanaged`), both allocating
 from `smp_allocator`, as a Rig program does. It is not part of the test
 suite or CI.

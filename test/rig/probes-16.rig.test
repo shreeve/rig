@@ -1,6 +1,5 @@
 # Probes from past reviews and audits, 16 of 41: rev210-j02_repoint_field_then_write to review-arm-temps-2-m03_name_target_dropped_in_arm.
 
-use std.hash
 use std.text
 
 test "rev210-j02 repoint field then write", '''
@@ -1459,7 +1458,7 @@ test "rev236-fuzz", "true true"
   sub addone(k: ?String, v: !String)
     !v.add("+")
 
-  fun agree(m: ?hash.Map[String, String], ref: ?Model, span: Int) -> Bool
+  fun agree(m: ?Map[String, String], ref: ?Model, span: Int) -> Bool
     return false if m.len != ref.len
     for x in 0..span
       k = mk(x)
@@ -1483,7 +1482,7 @@ test "rev236-fuzz", "true true"
 
   fun run(seed: U64, span: Int, steps: Int) -> Bool
     r = Rand(s: seed)
-    m = hash.Map[String, String].new(capacity: (!r).next(20))
+    m = Map[String, String].new(capacity: (!r).next(20))
     ref = Model()
     for step in 0..steps
       op = (!r).next(20)
@@ -1556,7 +1555,7 @@ test "rev236-sfuzz", "true true"
 
   fun run(seed: U64, span: Int, steps: Int) -> Bool
     r = Rand(s: seed)
-    s = hash.Set[String].new(capacity: (!r).next(20))
+    s = Set[String].new(capacity: (!r).next(20))
     ref: List[String] = List()
     for _ in 0..steps
       op = (!r).next(20)
@@ -1610,7 +1609,7 @@ test "rev236-sym", '''
   503 0
   9 8 0 q8
 '''
-  n = hash.Symbols()
+  n = Symbols()
   print((!n).intern("a"), (!n).intern("b"), (!n).intern("c"))
   !n.reserve(100, bytes: 400)
   bad = 0
@@ -1628,7 +1627,7 @@ test "rev236-sym", '''
     t = String("s", i)
     bad += 1 if (!n).intern(?t) != U32(i + 3)
   print(n.len, bad)
-  e = hash.Symbols()
+  e = Symbols()
   for i in 0..9
     _ = (!e).intern(String("q", i))
   print(e.len, e.id("q8"), e.id("q0"), e.text(8))
@@ -1733,7 +1732,7 @@ test "rev240-m01 drop counting", "true true true 0"
 
   fun run(seed: U64, span: Int, steps: Int, live: ?*Cell[Int]) -> Int
     r = Rand(s: seed)
-    m = hash.Map[String, Res].new()
+    m = Map[String, Res].new()
     for step in 0..steps
       op = (!r).next(12)
       k = String("k", (!r).next(span))
@@ -1817,7 +1816,7 @@ test "rev240-m02 string model", '''
       return false if x != b[i]
     true
 
-  fun agree(m: ?hash.Map[String, List[Int]], ref: ?Model, span: Int) -> Bool
+  fun agree(m: ?Map[String, List[Int]], ref: ?Model, span: Int) -> Bool
     return false if m.len != ref.len
     for x in 0..span
       k = String("key", x)
@@ -1841,7 +1840,7 @@ test "rev240-m02 string model", '''
 
   fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Int
     r = Rand(s: seed)
-    m = hash.Map[String, List[Int]].new(capacity: reserve)
+    m = Map[String, List[Int]].new(capacity: reserve)
     ref = Model()
     for step in 0..steps
       op = (!r).next(20)
@@ -1899,7 +1898,7 @@ test "rev240-m02 string model", '''
 
   fun run_set(seed: U64, span: Int, steps: Int) -> Int
     r = Rand(s: seed)
-    s = hash.Set[String]()
+    s = Set[String]()
     ref = Model()
     for step in 0..steps
       op = (!r).next(10)
@@ -1978,7 +1977,7 @@ test "rev240-m03 value kinds", '''
       .line(len) => return len
       .label(text) => return text.len
 
-  boxes = hash.Map[Int, ^Node].new()
+  boxes = Map[Int, ^Node].new()
   for i in 0..30
     b = (!boxes).ensure_with(i % 13, box_of)
     b.n += 1
@@ -1989,7 +1988,7 @@ test "rev240-m03 value kinds", '''
     t += e.value.n
   print(boxes.len, t, boxes.get(1) != none)
 
-  shared = hash.Map[String, *Node].new()
+  shared = Map[String, *Node].new()
   one = *Node(name: String("one"), n: 1)
   for i in 0..20
     _ = (!shared).ensure(String("s", i % 11), +one)
@@ -1998,7 +1997,7 @@ test "rev240-m03 value kinds", '''
   <shared
   print(one.n)
 
-  shapes = hash.Map[Int, Shape].new()
+  shapes = Map[Int, Shape].new()
   for i in 0..25
     _ = (!shapes).ensure_with(i % 17, shape_of)
   !shapes.retain(|k, s| weight(s) > 1)
@@ -2010,7 +2009,7 @@ test "rev240-m03 value kinds", '''
   a = String("alpha")
   b = String("beta")
   c = String("gamma")
-  views = hash.Map[?String, ?String].new()
+  views = Map[?String, ?String].new()
   x = (!views).ensure(?a, ?b)
   print(x)
   x = ?c
@@ -2021,7 +2020,7 @@ test "rev240-m03 value kinds", '''
   for e in ?views.items()
     print(e.key, e.value)
 
-  vs = hash.Set[?String]()
+  vs = Set[?String]()
   for i in 0..20
     _ = (!vs).add(?a[0..(i % 5) + 1])
   !vs.retain(|k| k.len != 3)
@@ -2056,7 +2055,7 @@ test "rev240-m05 retain drop interleaving", '''
     print("f", k)
     k % 2 == 0
 
-  m = hash.Map[Int, Res].new()
+  m = Map[Int, Res].new()
   for i in 0..4
     !m.put(i, Res(n: i))
   !m.retain(|k, r| keep(k, !r))
@@ -2066,7 +2065,7 @@ fail "rev240-p03 ensure with view across take", "use of `m` while a write loan i
   fun mk(k: ?Int) -> String
     String("v")
 
-  m = hash.Map[Int, String].new()
+  m = Map[Int, String].new()
   c = (!m).ensure_with(1, mk)
   t = (!m).take(1)
   !c.add("x")
@@ -2074,7 +2073,7 @@ fail "rev240-p03 ensure with view across take", "use of `m` while a write loan i
 
 fail "rev240-p10 return ensure view of local map", "cannot return a view of `m`, which this function was not lent"
   fun grab() -> !Int
-    m = hash.Map[Int, Int].new()
+    m = Map[Int, Int].new()
     (!m).ensure(1, 0)
 
   r = grab()
@@ -2090,7 +2089,7 @@ test "rev240-s01 ensure with write capture read early", '''
     0
 
   count = 0
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   c = (!m).ensure_with(1, |!count, k| mk(k, !count))
   print(count)
   c += 1
@@ -2098,8 +2097,8 @@ test "rev240-s01 ensure with write capture read early", '''
 
 test "rev240-s10 reuse fn value for two maps", "30 20 2"
   count = 0
-  a = hash.Map[Int, Int].new()
-  b = hash.Map[Int, Int].new()
+  a = Map[Int, Int].new()
+  b = Map[Int, Int].new()
   f = |!count, k: ?Int| tick(k, !count)
   x = (!a).ensure_with(1, ?f)
   y = (!b).ensure_with(2, ?f)

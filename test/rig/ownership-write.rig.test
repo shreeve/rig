@@ -1,6 +1,5 @@
 # ownership: tests whose names start `write`.
 
-use std.hash
 use std.sort
 
 fail "write field stores param view", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
@@ -1865,14 +1864,14 @@ test "write through view of view", '''
     w = gslot(!v, 0)
     w = b
 
-  sub edit(m: !hash.Map[Int, ?P], b: ?P) keeps b
+  sub edit(m: !Map[Int, ?P], b: ?P) keeps b
     if (!m).edit(1) as w
       w = b
 
-  fun at(m: ?hash.Map[Int, ?P], k: Int) -> Int?
+  fun at(m: ?Map[Int, ?P], k: Int) -> Int?
     m.get(k)?.x
 
-  fun medit(m: !hash.Map[Int, ?P], b: ?P) -> Int? keeps b
+  fun medit(m: !Map[Int, ?P], b: ?P) -> Int? keeps b
     (!m).edit(1)? = b
     1
 
@@ -1891,7 +1890,7 @@ test "write through view of view", '''
   print(v[0].n)
   bind(!v, ?c)
   print(v[0].n, a.n, b.n, c.n)
-  m = hash.Map[Int, ?P]()
+  m = Map[Int, ?P]()
   !m.put(1, ?a)
   print(medit(!m, ?b), at(?m, 1))
   edit(!m, ?c)

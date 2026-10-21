@@ -149,12 +149,11 @@ A server with a hit counter every request shares, rooms that people
 join, and one route that panics:
 
 ```rig
-use std.hash
 use std.http
 use std.net
 
 obj Rooms
-  members: hash.Map[String, Int]
+  members: Map[String, Int]
 
   fun join(!@, room: String) -> Int
     n = (@members.get(?room) ?? 0) + 1
@@ -166,7 +165,7 @@ fun pick(xs: ?List[Int], i: Int) -> Int
 
 sub main()!
   hits = *Cell(0)
-  rooms = *Actor(Rooms(members: hash.Map[String, Int]()))
+  rooms = *Actor(Rooms(members: Map[String, Int]()))
   l = net.listen("127.0.0.1:8080")!
   http.serve(<l, |+hits, +rooms, req|
     match req.path

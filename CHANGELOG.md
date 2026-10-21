@@ -95,7 +95,14 @@ changed the language since it:
   `Printer`, and `Hasher` serve them, and `x.order(?y)` orders any two
   values that provide `Ord`. A method merely named `hash` is an ordinary method: a
   Map keys such a type by its parts, where it rejected it.
-- **std takes bounds:** `hash.Map[K: Hash, V]` and `hash.Set[K: Hash]`;
+- **Map, Set, and Symbols are built in:** they and the types their
+  members give (`Item`, `Items`, `Keys`, `Values`, `Members`) are named
+  with no import, as `List` is, and print with no module; there is no
+  `std.hash`. A module's own type of one of these names hides the
+  built-in one. `tools/migrate-builtin-map.py` rewrites a tree's
+  programs, tests, and Markdown: it removes `use std.hash` and the
+  `hash.` before these names.
+- **std takes bounds:** `Map[K: Hash, V]` and `Set[K: Hash]`;
   `sort`, `search`, `lower_bound`, and `math.min`, `max`, and `clamp`
   take `T: Ord`; `slices.contains` and `index_of` take `T: Eq`;
   `math.abs` takes `T: Signed + Ord`; and `sort.sort_by_key` sorts by a

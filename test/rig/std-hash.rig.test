@@ -1,13 +1,11 @@
 # std: tests whose names start `hash`.
 
-use std.hash
-
 test "hash churn", '''
   true true true true
   true true
   true true true
 '''
-  # std.hash's Map and Set against a plain reference, a List of pairs searched in
+  # Map and Set against a plain reference, a List of pairs searched in
   # turn, over a long pseudo-random run of puts, takes, gets, edits,
   # `put_new`s, `ensure`s, `retain`s, and clears, at sizes that cross from a small Map (no table) to a table
   # and back after a clear, and with room reserved. After every step the
@@ -75,7 +73,7 @@ test "hash churn", '''
       @s = @s *% 6364136223846793005 +% 1442695040888963407
       Int((@s >> 33) % U64(n))
 
-  fun agree(m: ?hash.Map[Int, Int], ref: ?Model, span: Int) -> Bool
+  fun agree(m: ?Map[Int, Int], ref: ?Model, span: Int) -> Bool
     return false if m.len != ref.len
     for x in 0..span
       k = x * 1024
@@ -99,7 +97,7 @@ test "hash churn", '''
 
   fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
     r = Rand(s: seed)
-    m = hash.Map[Int, Int].new(capacity: reserve)
+    m = Map[Int, Int].new(capacity: reserve)
     ref = Model()
     for step in 0..steps
       op = (!r).next(20)
@@ -131,7 +129,7 @@ test "hash churn", '''
       return false if not agree(?m, ?ref, span)
     true
 
-  fun set_agrees(s: ?hash.Set[Int], ref: ?Model, span: Int) -> Bool
+  fun set_agrees(s: ?Set[Int], ref: ?Model, span: Int) -> Bool
     return false if s.len != ref.len
     for x in 0..span
       return false if s.has(x * 1024) != (ref.find(x * 1024) != none)
@@ -147,7 +145,7 @@ test "hash churn", '''
 
   fun run_set(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
     r = Rand(s: seed)
-    s = hash.Set[Int].new(capacity: reserve)
+    s = Set[Int].new(capacity: reserve)
     ref = Model()
     for _ in 0..steps
       op = (!r).next(10)
@@ -190,14 +188,14 @@ test "hash compound keys", '''
     name: ?String
     n: Int
 
-  m = hash.Map[Key, Int].new()
+  m = Map[Key, Int].new()
   !m.put(Key(name: String("a"), n: 1), 10)
   c = (!m).ensure(Key(name: String("b"), n: 2), 0)
   c += 5
   print(m.get(Key(name: String("a"), n: 1)), m.get(Key(name: String("b"), n: 2)), m.has(Key(name: String("a"), n: 2)))
 
   t = String("a")
-  v = hash.Map[KeyView, Int].new()
+  v = Map[KeyView, Int].new()
   !v.put(KeyView(name: ?t, n: 1), 10)
   w = (!v).ensure(KeyView(name: "b", n: 2), 0)
   w += 5
@@ -208,7 +206,7 @@ test "hash ensure chain", "[5, 6] 1"
   # statement, with no `!` before the receiver it already lends.
 
 
-  b = hash.Map[Int, List[Int]].new()
+  b = Map[Int, List[Int]].new()
   (!b).ensure(1, List()).push(5)
   (!b).ensure(1, List()).push(6)
   print(b.get(1), b.len)
@@ -218,7 +216,7 @@ fail "hash ensure keeps lent", "use of `m.len` while a write loan on `m` is live
   # to write, so the Map cannot be read or written while the view lives.
 
 
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   c = (!m).ensure(1, 0)
   print(m.len)
   c += 1
@@ -250,7 +248,7 @@ test "hash ensure with", '''
     l
 
   count = 0
-  m = hash.Map[String, List[String]].new()
+  m = Map[String, List[String]].new()
   for w in ["ab", "cd", "ab", "ab", "ef", "cd"]
     added = false
     g = (!m).ensure_with(String(w), |!count, !added, k| make(k, !count, !added))
@@ -261,7 +259,7 @@ test "hash ensure with", '''
     print(e.key, e.value)
 
   calls = 0
-  sq = hash.Map[Int, Int].new()
+  sq = Map[Int, Int].new()
   for i in 0..40
     v = (!sq).ensure_with(i % 10, |!calls, k| square(k, !calls))
     v += 1
@@ -276,7 +274,7 @@ fail "hash ensure with no map", "cannot lend `m` to write while a read loan is l
   # cannot capture the Map.
 
 
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   v = (!m).ensure_with(1, |?m, k| m.len + k)
   v += 1
 
@@ -285,7 +283,7 @@ fail "hash get keeps lent", "cannot lend `m` to write while a read loan is live"
   # so the Map cannot be written while the view lives.
 
 
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   r = ?m.get("a")
   !m.put(String("b"), 1)
   print(r)
@@ -295,7 +293,7 @@ fail "hash items then put", "cannot lend `m` to write while a read loan is live"
   # while the loop walks it.
 
 
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   !m.put(String("a"), 1)
   for e in ?m.items()
     !m.put(String("c"), 2)
@@ -304,7 +302,7 @@ fail "hash key no eq", "cannot use `K = List[Int]`"
   # A key is a value `.hash()` takes, and a List has no `==`.
 
 
-  m = hash.Map[List[Int], Int].new()
+  m = Map[List[Int], Int].new()
   print(m.len)
 
 fail "hash key same type", "type mismatch: expected `?Key`, got `KeyView`"
@@ -320,16 +318,16 @@ fail "hash key same type", "type mismatch: expected `?Key`, got `KeyView`"
     name: ?String
     n: Int
 
-  m = hash.Map[Key, Int].new()
+  m = Map[Key, Int].new()
   print(m.get(KeyView(name: "a", n: 1)))
 
-fail "hash len read only", "7:9: `len` is a field of `hash.Map[String, Int]`, not a method: write `m.len`", "7:18: `len` is a field of `hash.Set[Int]`, not a method: write `s.len`", "8:3: cannot assign to `m.len`: field `len` of `hash.Map` is read-only outside module `std.hash`, which declares it `pub ?len`", "9:3: cannot assign to `s.len`: field `len` of `hash.Set` is read-only outside module `std.hash`", errors: 4
+fail "hash len read only", "7:9: `len` is a field of `Map[String, Int]`, not a method: write `m.len`", "7:18: `len` is a field of `Set[Int]`, not a method: write `s.len`", "8:3: cannot assign to `m.len`: field `len` of `Map` is read-only outside the methods of `Map`", "9:3: cannot assign to `s.len`: field `len` of `Set` is read-only outside the methods of `Set`", errors: 4
   # A Map's and a Set's `len` is a field, read anywhere and written only
-  # by `std.hash`; `len()` is no method.
+  # by their own methods; `len()` is no method.
 
 
-  m = hash.Map[String, Int]()
-  s = hash.Set[Int]()
+  m = Map[String, Int]()
+  s = Set[Int]()
   print(m.len(), s.len())
   m.len = 3
   s.len += 1
@@ -368,10 +366,10 @@ test "hash map", '''
   true false 1 1 0 0
   0 false
 '''
-  # std.hash's Map and Set: every member, over owned and viewed text keys,
+  # Map and Set: every member, over owned and viewed text keys,
   # integers, objects, and enums, through growth, taking, and clearing,
   # with values that own memory, in the order keys were first put in.
-  # `hash.Map[K, V]()` and `hash.Set[K]()` make empty ones, also as a
+  # `Map[K, V]()` and `Set[K]()` make empty ones, also as a
   # field's default, and `len` is a field read anywhere.
 
 
@@ -387,10 +385,10 @@ test "hash map", '''
     v += k.len
 
   obj Binder
-    ids: hash.Map[U32, U32] = hash.Map[U32, U32]()
-    seen: hash.Set[U32] = hash.Set[U32]()
+    ids: Map[U32, U32] = Map[U32, U32]()
+    seen: Set[U32] = Set[U32]()
 
-  m = hash.Map[String, String].new()
+  m = Map[String, String].new()
   print(m.len, m.has("a"), m.get("a"))
   !m.put(String("a"), String("one"))
   !m.put(String("b"), String("two"))
@@ -413,7 +411,7 @@ test "hash map", '''
   !m.clear()
   print(m.len, m.get("b"))
 
-  ints = hash.Map[Int, Int].new()
+  ints = Map[Int, Int].new()
   for i in 0..1000
     !ints.put(i * 7, i)
   for i in 0..1000
@@ -436,7 +434,7 @@ test "hash map", '''
     break
   print(first)
 
-  counts = hash.Map[?String, Int].new()
+  counts = Map[?String, Int].new()
   words = ["to", "be", "or", "not", "to", "be"]
   for w in words
     if (!counts).edit(w) as c
@@ -447,17 +445,17 @@ test "hash map", '''
   for e in ?counts.items()
     print(e.key, e.value)
 
-  pts = hash.Map[Pt, ?String].new()
+  pts = Map[Pt, ?String].new()
   !pts.put(Pt(x: 1, y: 2), "a")
   !pts.put(Pt(x: 2, y: 1), "b")
   print(pts.get(?Pt(x: 1, y: 2)), pts.get(?Pt(x: 2, y: 1)), pts.has(?Pt(x: 1, y: 1)))
 
-  keyed = hash.Map[Key, Int].new()
+  keyed = Map[Key, Int].new()
   !keyed.put(Key.name(s: String("x")), 1)
   !keyed.put(Key.num(n: 5), 2)
   print(keyed.get(Key.name(s: String("x"))), keyed.get(Key.num(n: 5)), keyed.get(Key.num(n: 6)))
 
-  s = hash.Set[String].new()
+  s = Set[String].new()
   print((!s).add(String("x")), (!s).add(String("y")), (!s).add(String("x")), s.len)
   print(s.has("x"), s.has("z"), (!s).take("x"), (!s).take("x"), s.len)
   _ = (!s).add(String("z"))
@@ -470,7 +468,7 @@ test "hash map", '''
   other = Binder()
   !bd.ids.put(1, 10)
   print((!bd.seen).add(1), (!bd.seen).add(1), bd.ids.len, bd.seen.len, other.ids.len, other.seen.len)
-  e = hash.Map[Int, Int]()
+  e = Map[Int, Int]()
   print(e.len, e.has(1))
 
 test "hash results", '''
@@ -486,12 +484,12 @@ test "hash results", '''
   # `Map.ensure_added` lends the value under a key to write, with whether
   # the key was new; `Map.at` gives the entry at an index, in order.
 
-  sub count(m: !hash.Map[String, Int], word: ?String)
+  sub count(m: !Map[String, Int], word: ?String)
     w, added = (!m).ensure_added(String(word), 0)
     w += 1
     print("new", word) if added
 
-  m = hash.Map[String, Int]()
+  m = Map[String, Int]()
   for word in ["a", "b", "a", "c", "a"]
     count(!m, word)
   print(m.get("a") ?? 0, m.get("b") ?? 0, m.len)
@@ -512,7 +510,7 @@ fail "hash retain no map", "cannot lend `m` to write while a read loan is live"
   # closure cannot capture the Map, to read it or to write it.
 
 
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   !m.put(1, 1)
   !m.retain(|?m, k, v| m.len > 1)
   print(m.len)
@@ -523,14 +521,14 @@ test "hash symbols", '''
   true
   0 1 0 2
 '''
-  # std.hash's Symbols: a string gets a dense id from 0 the first time
+  # Symbols: a string gets a dense id from 0 the first time
   # it is interned, the same id after, from any text type; `id` finds one
   # without adding it, and `text` views an id's text. Over many strings
   # it crosses from scanning its few stored hashes to a table, and every
   # id still names its own text.
 
 
-  names = hash.Symbols()
+  names = Symbols()
   a = (!names).intern("width")
   b = (!names).intern("height")
   w = String("wid", "th")
@@ -549,7 +547,7 @@ test "hash symbols", '''
     else
       ok = false
   print(ok)
-  more = hash.Symbols()
+  more = Symbols()
   !more.reserve(4, bytes: 16)
   print((!more).intern(""), (!more).intern("x"), (!more).intern(""), more.len)
 
@@ -583,7 +581,7 @@ test "hash write drops", '''
     print("make", k)
     Res(n: k * 100)
 
-  m = hash.Map[Int, Res].new()
+  m = Map[Int, Res].new()
   print(m.len, (!m).put_new(1, Res(n: 1)))
   print("a", (!m).put_new(1, Res(n: 2)))
   c = (!m).ensure(1, Res(n: 3))
@@ -638,7 +636,7 @@ test "hash writes", '''
   drop 11
   drop 1
 '''
-  # std.hash's writes beyond `put`: `ensure` lends the value under a key,
+  # Map's writes beyond `put`: `ensure` lends the value under a key,
   # putting one first when the key is new; `put_new` puts only a new key,
   # so the first value wins; `edit` then `put` makes a value only for a
   # new key; and `retain` keeps, in order, the entries a closure says to,
@@ -653,28 +651,28 @@ test "hash writes", '''
 
   words = ["to", "be", "or", "not", "to", "be", "to"]
 
-  counts = hash.Map[String, Int].new()
+  counts = Map[String, Int].new()
   for w in words
     c = (!counts).ensure(String(w), 0)
     c += 1
   for e in ?counts.items()
     print(e.key, e.value)
 
-  groups = hash.Map[Int, List[String]].new()
+  groups = Map[Int, List[String]].new()
   for w in words
     g = (!groups).ensure(w.len, List())
     !g.push(String(w))
   for e in ?groups.items()
     print(e.key, e.value)
 
-  seen = hash.Map[?String, Int].new()
+  seen = Map[?String, Int].new()
   order = List[?String]()
   for i in 0..words.len
     if (!seen).put_new(words[i], i)
       !order.push(words[i])
   print(order, seen.get("to"), seen.get("be"), seen.len)
 
-  made = hash.Map[String, String].new()
+  made = Map[String, String].new()
   for w in ["ab", "cd", "ab"]
     if (!made).edit(w) as s
       !s.add("+")
@@ -683,7 +681,7 @@ test "hash writes", '''
   for e in ?made.items()
     print(e.key, e.value)
 
-  res = hash.Map[Int, Res].new()
+  res = Map[Int, Res].new()
   for i in 0..12
     !res.put(i, Res(n: i * 10))
   !res.retain(|k, r| keep(k, !r))
@@ -694,7 +692,7 @@ test "hash writes", '''
   !res.put(30, Res(n: 1))
   print(res.len, res.has(30))
 
-  nums = hash.Set[Int].new()
+  nums = Set[Int].new()
   for i in 0..20
     _ = (!nums).add(i)
   !nums.retain(|k| k % 5 != 0)
@@ -707,3 +705,37 @@ test "hash writes", '''
   fun keep(k: ?Int, r: !Res) -> Bool
     r.n += 1
     k % 4 != 3 and k < 10
+
+test "hash built in", '''
+  1 true 0
+  Map[String, Int]
+'''
+  # Map, Set, and Symbols are part of the language, named with no import,
+  # and their types print with no module.
+
+  m: Map[String, Int] = Map()
+  !m.put(String("a"), 1)
+  s = Set[Int].new()
+  _ = (!s).add(2)
+  y = Symbols()
+  print(m.get("a"), s.has(2), y.len)
+  print($name(Map[String, Int]))
+
+test "hash own map", "2 0"
+  # A module's own `Map` hides the built-in one; `Set` stays built in.
+
+  obj Map
+    n: Int
+
+  sub main()
+    m = Map(n: 2)
+    s: Set[Int] = Set()
+    print(m.n, s.len)
+
+fail "hash no module", "3:1: the standard library has no module `hash`"
+  # Map, Set, and Symbols need no import, and no module holds them.
+
+  use std.hash
+
+  sub main()
+    print(1)

@@ -8433,6 +8433,8 @@ const TypePrinter = struct {
         const other = p.ctx.foreign_semas.get(module_id) orelse return "<imported>";
         if (sym_id >= other.symbols.items.len) return "<imported>";
         const name = other.symbols.items[sym_id].name;
+        // A built-in type written in Rig is named with no module.
+        if (std.mem.eql(u8, other.name, "std." ++ rig.builtin_module_name)) return name;
         for (p.ctx.imports) |imp| {
             if (imp.module_id == module_id) return p.a.print("{s}.{s}", .{ imp.local_name, name });
         }

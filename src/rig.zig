@@ -1974,6 +1974,10 @@ const HiddenName = enum(u16) {
     /// The method a wait calls: `>t` is `<t.wait()`, on a task or a set
     /// of tasks (`isWaitCall`).
     wait = 4,
+    /// The module of the built-in types written in Rig (`Map`, `Set`,
+    /// `Symbols`), which a module that names one uses
+    /// (`Parser.builtinRefs`).
+    builtin_module = 5,
 
     fn text(self: HiddenName) []const u8 {
         return switch (self) {
@@ -1982,6 +1986,7 @@ const HiddenName = enum(u16) {
             .discard => "_",
             .u8 => "U8",
             .wait => "wait",
+            .builtin_module => builtin_module_name,
         };
     }
 };
@@ -1998,6 +2003,21 @@ pub fn isWaitMember(member: Sexp) bool {
     if (!member.isKind(.member)) return false;
     const name = ir.Member.name(member);
     return name == .src and name.src.id == hidden_id_base + @intFromEnum(HiddenName.wait);
+}
+
+/// The name the module of the built-in types written in Rig has, which
+/// no program can import: names starting `__rig` are the compiler's.
+pub const builtin_module_name = "__rig_builtin";
+
+/// The built-in types written in Rig, in `std/__rig_builtin.rig`: a
+/// program names them with no import, and its own declaration of one
+/// hides it.
+pub const builtin_type_names = [_][]const u8{ "Map", "Set", "Symbols", "Item", "Items", "Keys", "Values", "Members" };
+
+/// Whether `leaf` is the hidden name of the module of the built-in types
+/// written in Rig (`Parser.builtinRefs`).
+pub fn isBuiltinModuleLeaf(leaf: Sexp) bool {
+    return leaf == .src and leaf.src.id == hidden_id_base + @intFromEnum(HiddenName.builtin_module);
 }
 
 /// The name of the binding that holds a `for` loop's source.
@@ -3080,7 +3100,7 @@ pub const Parser = struct {
             .module => {
                 self.strayRarely(out, false);
                 self.moduleConsts(out);
-                return self.attachMethods(out);
+                return self.builtinRefs(try self.attachMethods(out));
             },
             .@"struct", .@"enum", .errors => try self.pubMembers(out),
             .generic_struct => {
@@ -3142,6 +3162,109 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// A name of a built-in type written in Rig (`builtin_type_names`),
+    /// where it refers to the type, is that type of the hidden module
+    /// that declares them, `__rig_builtin.Map`, and each file that names
+    /// one uses that module, so the passes after the wrapper read it as
+    /// any imported type. A module that declares a name of its own, or
+    /// imports a module under it, keeps its own.
+    fn builtinRefs(self: *Parser, module: Sexp) std.mem.Allocator.Error!Sexp {
+        var hidden: [builtin_type_names.len]bool = @splat(false);
+        for (module.items()[1..]) |d0| {
+            const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
+            const name: Sexp = switch (d.kind() orelse continue) {
+                .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .fun, .sub, .@"extern", .extern_fun, .extern_sub => ir.get(d, .name),
+                .use => if (ir.Use.alias(d) != .nil) ir.Use.alias(d) else blk: {
+                    const p = ir.Use.name(d);
+                    break :blk if (p.isKind(.member)) ir.Member.name(p) else p;
+                },
+                .set => ir.Set.target(d),
+                else => continue,
+            };
+            if (name != .src) continue;
+            const text = leafText(self.base.source, name.src);
+            for (builtin_type_names, 0..) |n, i| if (std.mem.eql(u8, n, text)) {
+                hidden[i] = true;
+            };
+        }
+        var firsts: std.ArrayList(u32) = .empty;
+        const out = try self.rewriteBuiltin(module, &hidden, &firsts);
+        if (firsts.items.len == 0) return out;
+        // One `use` of the module in each file that names a built-in
+        // type, at the first name there.
+        const items = out.items();
+        const uses = try self.allocator().alloc(Sexp, firsts.items.len);
+        for (firsts.items, uses) |pos, *u| u.* = try self.base.newNode(.use, &.{ hiddenLeaf(pos, .builtin_module), .nil }, .{ .start = pos, .end = pos + 1 });
+        const all = try std.mem.concat(self.allocator(), Sexp, &.{ items[0..1], uses, items[1..] });
+        return .{ .list = parser.List.withId(all, out.list.id) };
+    }
+
+    /// `node` with each name of a built-in type that refers to it made
+    /// `__rig_builtin.Name` (`builtinRefs`). A declaration's own name, a
+    /// member's name, a field's, a binding's, and a parameter's are names
+    /// of their own, and stay. `firsts` gets the position of the first
+    /// such name of each file.
+    fn rewriteBuiltin(self: *Parser, node: Sexp, hidden: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
+        if (node != .list) return node;
+        const kind = node.kind();
+        const items = node.items();
+        var copy: ?[]Sexp = null;
+        for (items, 0..) |c, i| {
+            if (kind != null and i == 0) continue;
+            const new = if (c == .src) blk: {
+                // Leaves in an untagged list (parameters, captures, names)
+                // are names of their own.
+                const k = kind orelse break :blk c;
+                if (!self.refersAt(node, k, c)) break :blk c;
+                break :blk try self.builtinRef(c, hidden, firsts);
+            } else try self.rewriteBuiltin(c, hidden, firsts);
+            if (std.meta.eql(new, c)) continue;
+            if (copy == null) copy = try self.allocator().dupe(Sexp, items);
+            copy.?[i] = new;
+        }
+        const out = copy orelse return node;
+        return .{ .list = parser.List.withId(out, node.list.id) };
+    }
+
+    /// The file of a module of several files that `pos` is in: how many
+    /// files end before it (`Lexer.ends`).
+    fn fileAt(self: *const Parser, pos: u32) usize {
+        var n: usize = 0;
+        for (self.base.lexer.ends) |e| {
+            if (pos >= e) n += 1;
+        }
+        return n;
+    }
+
+    /// Whether leaf `c`, a child of `node` (of kind `k`), stands where a
+    /// name refers to a type or a value, rather than naming a new one.
+    fn refersAt(self: *Parser, node: Sexp, k: Tag, c: Sexp) bool {
+        _ = self;
+        // A generic instance's type is named in its `name` slot.
+        if (k == .generic_inst) return true;
+        inline for ([_]parser.Role{ .name, .alias, .label, .@"var", .index, .target, .operand, .owner }) |r| {
+            if (ir.has(k, r) and std.meta.eql(ir.get(node, r), c)) return false;
+        }
+        return true;
+    }
+
+    /// `leaf` as `__rig_builtin.Name` when it names a built-in type its
+    /// module does not hide.
+    fn builtinRef(self: *Parser, leaf: Sexp, hidden: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
+        const text = leafText(self.base.source, leaf.src);
+        const i = for (builtin_type_names, 0..) |n, i| {
+            if (std.mem.eql(u8, n, text)) break i;
+        } else return leaf;
+        if (hidden[i] or isHiddenLeaf(leaf)) return leaf;
+        const file = self.fileAt(leaf.src.pos);
+        const seen = for (firsts.items) |p| {
+            if (self.fileAt(p) == file) break true;
+        } else false;
+        if (!seen) try firsts.append(self.allocator(), leaf.src.pos);
+        const at: parser.Span = .{ .start = leaf.src.pos, .end = leafEnd(self.base.source, leaf.src) };
+        return self.base.newNode(.member, &.{ hiddenLeaf(leaf.src.pos, .builtin_module), leaf }, at);
     }
 
     /// The type parameters among `walked[slot]`, a declaration's

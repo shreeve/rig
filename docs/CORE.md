@@ -1031,10 +1031,9 @@ fallback is rejected: lend the fallback and clone the result, as in
 `+(m.get(k) ?? ?String("none"))`. *(built)*
 
 ```rig
-use std.hash
 
 sub main()
-  m = hash.Map[String, Int]()
+  m = Map[String, Int]()
   for k in ["a", "b", "a"]
     !m.put(String(k), (m.get(k) ?? 0) + 1)
   print(m.get("a") ?? 0, m.get("b") ?? 0)
@@ -1045,10 +1044,9 @@ sub main()
 ```
 
 ```rig reject
-use std.hash
 
 sub main()
-  m = hash.Map[String, String]()
+  m = Map[String, String]()
   s = m.get("a") ?? String("none")
   print(s)
 ```
@@ -1309,8 +1307,8 @@ sub main()
 1
 ```
 
-**A container written in Rig follows its signatures.** `hash.Map[K,
-V]` and `hash.Set[K]` are std code with no rule of their own: `!m.put(k,
+**A container written in Rig follows its signatures.** `Map[K,
+V]` and `Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns
 a `(?V)?` view `from @`, which carries the loan on `m` and not on
 `k` (sentence 7); `(!m).edit(k)` returns a `(!V)?` that carries a write

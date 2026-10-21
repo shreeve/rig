@@ -374,7 +374,6 @@ A word counter needs three of these. It folds case, turns everything
 that is not part of a word into a space, and splits on white space:
 
 ```rig
-use std.hash
 use std.text
 
 fun fold(s: ?String) -> String
@@ -389,7 +388,7 @@ fun fold(s: ?String) -> String
 sub main()
   line = "The cat sat. The CAT, the Dog; don't stop, the cat!"
   low = fold(line)
-  seen = hash.Map[?String, Int].new()
+  seen = Map[?String, Int].new()
   for w in text.words(?low)
     n = (!seen).ensure(w, 0)
     n += 1
@@ -598,14 +597,13 @@ sub main()
 no variant `rcet` on enum `Shape`
 ```
 
-A symbol is a plain value, so it is a good key. A `hash.Map[Symbol,
+A symbol is a plain value, so it is a good key. A `Map[Symbol,
 Int]` holds options by name with no strings to allocate or compare:
 
 ```rig
-use std.hash
 
 sub main()
-  opts: hash.Map[Symbol, Int] = hash.Map()
+  opts: Map[Symbol, Int] = Map()
   !opts.put(:width, 80)
   !opts.put(:height, 24)
   print(opts.get(:width) ?? 0, opts.get(:depth) ?? 0, opts.len)

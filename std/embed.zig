@@ -3,13 +3,13 @@
 //! block its Zig shim. `RIG_STD=dir` reads them from `dir` instead.
 
 pub const files = [_]struct { []const u8, []const u8 }{
+    .{ "__rig_builtin.rig", @embedFile("__rig_builtin.rig") },
     .{ "bigint.rig", @embedFile("bigint.rig") },
     .{ "bigint.zig", @embedFile("bigint.zig") },
     .{ "file.rig", @embedFile("file.rig") },
     .{ "file.zig", @embedFile("file.zig") },
     .{ "char.zig", @embedFile("char.zig") },
     .{ "char_tables.zig", @embedFile("char_tables.zig") },
-    .{ "hash.rig", @embedFile("hash.rig") },
     .{ "http.rig", @embedFile("http.rig") },
     .{ "http.zig", @embedFile("http.zig") },
     .{ "io.rig", @embedFile("io.rig") },

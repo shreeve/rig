@@ -1,4 +1,4 @@
-# std.hash's Map timed on Int and String keys: insert, hit lookup, miss
+# The built-in Map timed on Int and String keys: insert, hit lookup, miss
 # lookup, and iterate, each over N keys; hits in Maps of 4 and 8 keys;
 # interning N words; and writing a value whether or not its key is new,
 # three ways, on misses and on hits. Each loop walks its keys as
@@ -8,13 +8,12 @@
 # one group keeps in registers does not depend on what the compiler
 # inlines into `main` around it.
 
-use std.hash
 use std.time
 
 N = 1000000
 
 called sub ints(n: Int)
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   t = time.now()
   for i in 0..n
     !m.put(i *% -7046029254386353131, i)
@@ -45,7 +44,7 @@ called sub strings(n: Int)
     !put.push(String("key", i))
     !look.push(String("key", i))
     !miss.push(String("key", n + i))
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   t = time.now()
   for k, i in <put
     !m.put(<k, i)
@@ -71,7 +70,7 @@ called sub strings(n: Int)
 # N hit lookups in a Map of `size` Int keys: the symbol tables most
 # programs hold are this small.
 called sub small(n: Int, size: Int)
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   for i in 0..size
     !m.put(i *% -7046029254386353131, i)
   sum = 0
@@ -87,7 +86,7 @@ called sub intern(n: Int)
   words: List[String] = List()
   for i in 0..n
     !words.push(String("w", (i * 7919) % 50000))
-  names = hash.Symbols()
+  names = Symbols()
   sum: U64 = 0
   t = time.now()
   for w in ?words
@@ -112,7 +111,7 @@ fun keys(n: Int) -> List[String]
   ks
 
 called sub int_ensure(n: Int)
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   t = time.now()
   for i in 0..n
     w = (!m).ensure(i *% -7046029254386353131, 0)
@@ -125,7 +124,7 @@ called sub int_ensure(n: Int)
   print("int ensure-hit", t.elapsed(), m.get(0))
 
 called sub int_ensure_with(n: Int)
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   t = time.now()
   for i in 0..n
     w = (!m).ensure_with(i *% -7046029254386353131, one)
@@ -138,7 +137,7 @@ called sub int_ensure_with(n: Int)
   print("int ensure_with-hit", t.elapsed(), m.get(0))
 
 called sub int_edit_put(n: Int)
-  m = hash.Map[Int, Int].new()
+  m = Map[Int, Int].new()
   t = time.now()
   for i in 0..n
     k = i *% -7046029254386353131
@@ -159,7 +158,7 @@ called sub int_edit_put(n: Int)
 called sub string_ensure(n: Int)
   put = keys(n)
   look = keys(n)
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   t = time.now()
   for k in <put
     w = (!m).ensure(<k, 0)
@@ -174,7 +173,7 @@ called sub string_ensure(n: Int)
 called sub string_ensure_with(n: Int)
   put = keys(n)
   look = keys(n)
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   t = time.now()
   for k in <put
     w = (!m).ensure_with(<k, one_of)
@@ -189,7 +188,7 @@ called sub string_ensure_with(n: Int)
 called sub string_edit_put(n: Int)
   put = keys(n)
   look = keys(n)
-  m = hash.Map[String, Int].new()
+  m = Map[String, Int].new()
   t = time.now()
   for k in <put
     if (!m).edit(k) as w
