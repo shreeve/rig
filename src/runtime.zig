@@ -1692,14 +1692,16 @@ pub fn InlineList(comptime T: type, comptime n: usize) type {
 /// so a view of one points into the List itself, which its loan keeps
 /// in place. With no inline room it is a plain List.
 fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
-    // A zero-bit element takes no memory either way.
-    const inline_len = if (@sizeOf(T) == 0) 0 else inline_len_in;
+    // A zero-bit element takes no memory either way. A List with no
+    // inline room never asks `T`'s size or alignment, so a type may hold
+    // a List of itself (an enum whose variant holds `List[Self]`).
+    const inline_len = if (inline_len_in == 0) 0 else if (@sizeOf(T) == 0) 0 else inline_len_in;
     return struct {
         /// The elements, once they are on the heap; empty while they fit
         /// inline.
         buf: []T = &.{},
         len: usize = 0,
-        inline_buf: [inline_len]T = undefined,
+        inline_buf: if (inline_len == 0) void else [inline_len]T = if (inline_len == 0) {} else undefined,
 
         const Self = @This();
         /// Its arguments, for `typeName`.
@@ -1988,7 +1990,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         pub fn filled(n: Int, value: T) Self {
             const count = std.math.cast(usize, n) orelse @panic("negative size");
             if (count == 0) return .empty;
-            if (count <= inline_len) {
+            if (inline_len > 0 and count <= inline_len) {
                 var v: Self = .{ .len = count };
                 @memset(v.inline_buf[0..count], value);
                 return v;
