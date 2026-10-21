@@ -638,6 +638,7 @@ pub fn rt(value: anytype) @TypeOf(value) {
 
 /// Allocate one `T` with the default allocator.
 pub fn create(comptime T: type) *T {
+    if (heap_profile) HeapProfile.owner(T);
     if (fills or @sizeOf(T) == 0) return defaultAllocator().create(T) catch oom();
     const p = defaultAllocator().rawAlloc(@sizeOf(T), .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
     return @ptrCast(@alignCast(p));
@@ -2074,6 +2075,10 @@ pub const String = struct {
     }
 
     noinline fn addValueOf(self: *String, value: anytype) void {
+        // The writer grows this String's bytes, which a heap profile
+        // counts as the String's own growth does: as `u8`s.
+        if (heap_profile) HeapProfile.within(u8);
+        defer if (heap_profile) HeapProfile.leave();
         var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
         defer self.list = out.toArrayList();
         writeValue(&out.writer, value, true) catch oom();
@@ -3824,6 +3829,10 @@ const root = @import("root");
 const leak_checked = builtin.optimize == .debug;
 const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
 const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
+/// Built with `RIG_HEAP_PROFILE=1`, the root module declares
+/// `__rig_heap_profile`, and every allocation goes through `HeapProfile`,
+/// which reports at exit what owned the program's memory at its peak.
+const heap_profile = @hasDecl(root, "__rig_heap_profile") and root.__rig_heap_profile;
 
 // Tasks. A program that makes tasks (`f(x)&`) declares `__rig_tasks` in
 // its root module, and runs them on the scheduler (`sched.zig`): fibers
@@ -3892,6 +3901,13 @@ var leak_checker: LeakChecker = .{};
 /// Rig's own, a heap per thread with no lock (`alloc.zig`); in a debug
 /// build, the leak checker's.
 pub fn defaultAllocator() std.mem.Allocator {
+    if (heap_profile) return heap_profiler.allocator();
+    return ownAllocator();
+}
+
+/// The allocator `defaultAllocator` gives, or that `HeapProfile` counts
+/// for.
+fn ownAllocator() std.mem.Allocator {
     return if (leak_checked) leak_checker.allocator() else fast_alloc.allocator;
 }
 
@@ -3909,6 +3925,7 @@ const fills = sanitize;
 
 /// `n` new `T`s, their bytes unwritten.
 pub fn allocSlice(comptime T: type, n: usize) []T {
+    if (heap_profile) HeapProfile.owner(T);
     if (fills or n == 0 or @sizeOf(T) == 0) return defaultAllocator().alloc(T, n) catch oom();
     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
     const p = defaultAllocator().rawAlloc(bytes, .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
@@ -3918,6 +3935,7 @@ pub fn allocSlice(comptime T: type, n: usize) []T {
 /// `old`'s `T`s in a buffer of `n`: grown or shrunk in place when the
 /// allocator can, otherwise copied to a new one.
 pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
+    if (heap_profile) HeapProfile.owner(T);
     if (fills or @sizeOf(T) == 0) return defaultAllocator().realloc(old, n) catch oom();
     if (old.len == 0) return allocSlice(T, n);
     if (n == 0) {
@@ -3951,6 +3969,175 @@ pub fn destroy(ptr: anytype) void {
     const bytes: [*]u8 = @ptrCast(ptr);
     defaultAllocator().rawFree(bytes[0..@sizeOf(T)], .fromByteUnits(@alignOf(T)), @returnAddress());
 }
+
+/// What owns the program's memory (`RIG_HEAP_PROFILE=1`): every live
+/// block's size and owner, the type `allocSlice`, `reallocSlice`, or
+/// `create` names just before it allocates (a List's or slice's element,
+/// a box's value), or `untyped` for a block allocated another way, as text
+/// a writer builds. Each owner counts its live bytes and blocks; when the
+/// bytes live in all first pass the highest seen by more than a 200th, it
+/// records every owner's then (`peak`). `report`, at exit, prints the
+/// owners at that peak, largest first. The requested bytes are counted,
+/// not the allocator's rounding up of them; its own tables live in
+/// `smp_allocator`, outside the count.
+const HeapProfile = struct {
+    const Owner = struct {
+        name: []const u8,
+        live: usize = 0,
+        blocks: usize = 0,
+        at_peak: usize = 0,
+        blocks_at_peak: usize = 0,
+        made: usize = 0,
+    };
+    const Block = struct { size: usize, owner: *Owner };
+
+    live: std.AutoHashMapUnmanaged(usize, Block) = .empty,
+    owners: std.ArrayList(*Owner) = .empty,
+    bytes: usize = 0,
+    peak: usize = 0,
+    recorded: usize = 0,
+
+    var untyped: Owner = .{ .name = "untyped" };
+    /// The owner the next allocation on this thread is for.
+    threadlocal var next: ?*Owner = null;
+    /// The owner of every allocation on this thread that names none, while
+    /// code that allocates through a Zig writer runs (`within`).
+    threadlocal var scope: ?*Owner = null;
+
+    const table_allocator = std.heap.smp_allocator;
+
+    fn of(comptime T: type) *Owner {
+        const S = struct {
+            var o: Owner = .{ .name = @typeName(T) };
+        };
+        return &S.o;
+    }
+
+    /// The next allocation is `T`'s.
+    inline fn owner(comptime T: type) void {
+        next = of(T);
+    }
+
+    /// Until `leave`, an allocation that names no owner is `T`'s.
+    inline fn within(comptime T: type) void {
+        scope = of(T);
+    }
+
+    inline fn leave() void {
+        scope = null;
+    }
+
+    fn allocator(self: *HeapProfile) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    fn lock() void {
+        if (concurrent) profile_lock.lockUncancelable(io());
+    }
+
+    fn unlock() void {
+        if (concurrent) profile_lock.unlock(io());
+    }
+
+    fn taken() *Owner {
+        const o = next orelse scope orelse &untyped;
+        next = null;
+        return o;
+    }
+
+    fn add(self: *HeapProfile, addr: usize, size: usize, o: *Owner) void {
+        if (o.made == 0 and o.live == 0 and o.blocks == 0) self.owners.append(table_allocator, o) catch oom();
+        self.live.put(table_allocator, addr, .{ .size = size, .owner = o }) catch oom();
+        o.live += size;
+        o.blocks += 1;
+        o.made += 1;
+        self.bytes += size;
+        if (self.bytes > self.peak) {
+            self.peak = self.bytes;
+            if (self.bytes > self.recorded + self.recorded / 200) {
+                self.recorded = self.bytes;
+                for (self.owners.items) |each| {
+                    each.at_peak = each.live;
+                    each.blocks_at_peak = each.blocks;
+                }
+            }
+        }
+    }
+
+    fn drop(self: *HeapProfile, addr: usize) void {
+        const b = (self.live.fetchRemove(addr) orelse return).value;
+        b.owner.live -= b.size;
+        b.owner.blocks -= 1;
+        self.bytes -= b.size;
+    }
+
+    fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *HeapProfile = @ptrCast(@alignCast(ctx));
+        const o = taken();
+        const p = ownAllocator().rawAlloc(n, alignment, ret_addr) orelse return null;
+        lock();
+        defer unlock();
+        self.add(@intFromPtr(p), n, o);
+        return p;
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *HeapProfile = @ptrCast(@alignCast(ctx));
+        // A resize that fails leaves the owner for the allocation after it.
+        if (!ownAllocator().rawResize(memory, alignment, new_len, ret_addr)) return false;
+        const o = taken();
+        lock();
+        defer unlock();
+        const was = if (self.live.get(@intFromPtr(memory.ptr))) |b| b.owner else o;
+        self.drop(@intFromPtr(memory.ptr));
+        self.add(@intFromPtr(memory.ptr), new_len, was);
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *HeapProfile = @ptrCast(@alignCast(ctx));
+        const p = ownAllocator().rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+        const o = taken();
+        lock();
+        defer unlock();
+        const was = if (self.live.get(@intFromPtr(memory.ptr))) |b| b.owner else o;
+        self.drop(@intFromPtr(memory.ptr));
+        self.add(@intFromPtr(p), new_len, was);
+        return p;
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *HeapProfile = @ptrCast(@alignCast(ctx));
+        next = null;
+        lock();
+        self.drop(@intFromPtr(memory.ptr));
+        unlock();
+        ownAllocator().rawFree(memory, alignment, ret_addr);
+    }
+
+    /// The owners of the peak, largest first, on stderr.
+    fn report(self: *HeapProfile) void {
+        const items = self.owners.items;
+        std.mem.sort(*Owner, items, {}, struct {
+            fn more(_: void, a: *Owner, b: *Owner) bool {
+                return a.at_peak > b.at_peak;
+            }
+        }.more);
+        const mib = 1024.0 * 1024.0;
+        std.debug.print("rig: heap profile: {d:.1} MiB live at the peak, in {d} owners; by what owned them then:\n", .{ @as(f64, @floatFromInt(self.recorded)) / mib, items.len });
+        std.debug.print("{s:>10} {s:>6} {s:>10} {s:>8} {s:>11}  {s}\n", .{ "MiB", "share", "blocks", "avg B", "ever made", "owner: a List's or slice's element, a box's value; u8 is text" });
+        var shown: usize = 0;
+        for (items) |o| {
+            if (shown == 40 or o.at_peak == 0) break;
+            shown += 1;
+            const share = 100.0 * @as(f64, @floatFromInt(o.at_peak)) / @as(f64, @floatFromInt(@max(self.recorded, 1)));
+            std.debug.print("{d:>10.2} {d:>5.1}% {d:>10} {d:>8} {d:>11}  {s}\n", .{ @as(f64, @floatFromInt(o.at_peak)) / mib, share, o.blocks_at_peak, o.at_peak / @max(o.blocks_at_peak, 1), o.made, o.name });
+        }
+    }
+};
+
+var heap_profiler: HeapProfile = .{};
+var profile_lock: std.Io.Mutex = .init;
 
 /// Tracks every live allocation by address. Its own table lives in
 /// `smp_allocator`, outside the count.
@@ -4753,6 +4940,7 @@ pub fn finish() void {
     lockOutput();
     flush();
     unlockOutput();
+    if (heap_profile) heap_profiler.report();
     if (leak_checked and leak_checker.left_count > 0) {
         const n = leak_checker.left_count;
         std.debug.print("note: rig: {d} allocation{s} ({d} bytes) left by a panic that `task.isolate` or an actor stopped\n", .{ n, if (n == 1) "" else "s", leak_checker.left_bytes });
