@@ -89,6 +89,9 @@ Which document answers which question:
 | Why is Rig this way? | docs/DESIGN.md, docs/design/mantras.md |
 | Which Zig 0.17 APIs does Rig use? | docs/internals/zig-0.17.md |
 | What is decided but not started? | docs/ROADMAP.md, docs/internals/backlog.md |
+| What problems have the docs found in the compiler? | the end of docs/internals/backlog.md |
+| What are APIs (`api Shape`), and which stage is built? | docs/design/apis.md |
+| How is a Learn Rig journey written, and which remain? | docs/internals/journeys.md |
 
 ## Workflow
 
@@ -204,6 +207,19 @@ until its rule is built. docs/internals/tests.md has the rest.
   that fail the same way twice.
 - **Messages to the owner** are short, with decisions as a numbered list
   and a default for each.
+- **Naming** is the owner's call, from a few candidates, each shown in
+  a declaration, an error message, and a sentence of prose. His taste:
+  short plain words, three letters where they read well (`obj`, `sub`,
+  `fun`, `api`, `add`); a mark for a mechanic and a word for a library
+  (`?{Shape}` for an API object); a word people already know, used for
+  what it already means, over a coined one; no punctuation doing a
+  keyword's job.
+- **Sessions:** the owner approves; the session that designed a change
+  briefs the one that builds it, quoting his words; the builder lands
+  it and sends its design questions back to the designer, who answers
+  from the record and takes what the record does not settle to the
+  owner. Sessions settle the rest between themselves, and an FYI needs
+  no reply.
 - **A change that rejects programs a release accepted** lists them in
   the release notes, and before it merges Trig gets a one-line note and
   a migration script.

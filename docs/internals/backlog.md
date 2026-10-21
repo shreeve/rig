@@ -165,3 +165,53 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
   `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
   a capture and a field lend, like `!c`, lend what the handle holds.
+
+Found while writing the Learn Rig journeys. Those marked *checked* were
+confirmed on `main` when they were written here; check the rest before
+fixing.
+
+- **A discarded result passes silently** *(checked)*. `file.remove(p)!`
+  as a statement drops its `Bool` with no error, while a bare `0` is
+  rejected. Make the rule one: a statement whose value is not `Void`
+  needs `_ =`, or say in SPEC why a call's result may go unused.
+- **No way to write a long literal over several lines** *(checked)*. A
+  `'...'` raw string that crosses a line is "unterminated string", and
+  neither SPEC nor STD says how to write one; journey 06 built its text
+  with `String(a, b, c)`. Either let raw strings span lines or name the
+  way in SPEC's string section.
+- **SPEC writes Zig's builtins as `@bitCast` and `@intCast`** *(checked)*
+  in two places, where Rig spells them `$bitCast` and `$intCast`; in
+  `raw`, `@bitCast(x)` is "use of unbound name `@`".
+- **The bounds-check proof uses a guard only on the true edge.**
+  `return 0 if i < 0 or i >= s.len` before `s[i]` proves nothing, while
+  `if i >= 0 and i < s.len` then `s[i]` does; `for i in 0..xs.len` with
+  `xs[i]` is not proven either (`rig check --facts=proofs`).
+- **`rig emit` takes no `--release`,** so it shows one build's Zig; WELCOME
+  and INTERNALS should say which, or emit should take the mode.
+- **`extern zig` is for std alone,** so a program cannot call Zig of its
+  own. Decide whether a program may, and say so either way.
+- **A capture error inside an `http.serve` closure is reported twice.**
+- **`RIG_LEAK_TRACE=1 rig test` prints no allocation trace,** though
+  `rig run` of the same body does, and the leak note says to use
+  `rig run`.
+- **A list of objects is refused in a way that does not lead to the
+  fix.** `List([Order(...)])` is rejected for objects, and an array
+  lent with `?orders` needs a `[]Order` parameter; the messages should
+  name the form that works.
+- **A backgrounded server's first `print` may not appear.** With
+  stdout piped, `rig run server.rig &` showed no "listening on" line;
+  likely buffering, not yet looked at.
+- **The scheduler's sleep handshake.** formal/README records a gap for
+  work made into the global queue that the model closes only with a
+  `relook` step, which `src/sched.zig` does not have, and which neither
+  HANDOFF nor ROADMAP mentions.
+- **design/formal-plan.md describes `RIG_SANITIZE=views`,** which `src/`
+  does not have; mark it planned or remove it.
+- **A debug panic prints Zig stack frames with local paths,** so a doc
+  block cannot hold one and a panicking program cannot be shown with
+  its exact stderr; there is no way to turn the frames off.
+- **`rig check --tasks`,** to list each local task and what pins it, was
+  decided by the concurrency panel and is not built.
+- **`hash.Symbols` reads as related to `Symbol`,** the type of `:width`,
+  and is not: it interns strings. Renaming it `hash.Interner`, with an
+  error that points from the old name, waits on the owner.
