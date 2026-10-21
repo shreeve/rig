@@ -1112,7 +1112,10 @@ sub main()
 
 The entries are kept in one List, in order, each with its key's hash
 beside it, so no key is hashed twice: not when the table grows, nor
-when an entry is taken. A Map or Set builds a table when it first
+when an entry is taken. A key of 8 bytes or fewer (an `Int`, a `U32`
+id, an enum, a `Symbol`) keeps no hash: it hashes in a few steps and
+compares in one, so a small Map compares keys, and a table hashes a key
+again where it needs one, 8 bytes an entry fewer. A Map or Set builds a table when it first
 holds more than 8 entries, or when `reserve` makes room for more, and
 keeps it until `clear`; until then, a lookup compares the stored
 hashes in turn, then the key where one matches. The table is
