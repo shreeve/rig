@@ -7972,7 +7972,7 @@ const Checker = struct {
         // thread.
         if (!self.ctx.isLocalTask(node)) {
             const result = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
-            if (sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
+            if (try sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
                 try self.errAt(callee, "`{s}` may run on another core, so what it gives must move to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
                 return self.t().invalid_id;
             }
@@ -8004,8 +8004,8 @@ const Checker = struct {
         } else if (k == .read_view) .read else if (k == .write_view) .write else .given;
         const how: sema.Crossing = if (mode == .read) .shares else .moves;
         const inner = if (k == .read_view or k == .write_view) sema.unwrapViews(self.ctx, part_ty) else part_ty;
-        const pin = sema.crossingBlocker(self.ctx, inner, how) orelse return true;
-        const blocker = sema.localBlocker(self.ctx, inner, how) orelse {
+        const pin = (try sema.crossingBlocker(self.ctx, inner, how)) orelse return true;
+        const blocker = (try sema.localBlocker(self.ctx, inner, how)) orelse {
             const why = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`: `{s}` {s}", .{ self.sourceText(part), try self.tyName(part_ty), try self.blockerReason(pin, mode == .read, if (pin == part_ty) "is" else if (pin == inner) "views" else null) });
             try self.ctx.recordLocalTask(call, .{ .pos = self.startOf(call), .call = self.sourceText(call), .why = why });
             return true;
@@ -11506,7 +11506,7 @@ const Checker = struct {
         if (!declared) {
             return self.badCall(args, value, "an actor runs an object or an enum, whose methods its handles call; `{s}` has type `{s}`", .{ shown, try self.tyName(ty) });
         }
-        if (sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
+        if (try sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
             return self.badCall(args, value, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
         }
         if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, value, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
@@ -11558,7 +11558,7 @@ const Checker = struct {
             else => false,
         };
         if (!declared) return self.badCall(args, f, "an actor runs an object or an enum, whose methods its handles call; the function gives a value of type `{s}`", .{try self.tyName(ty)});
-        if (sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
+        if (try sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
             return self.badCall(args, f, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
         }
         if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, f, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
@@ -11568,7 +11568,7 @@ const Checker = struct {
             const id = self.ctx.symbolOf(name_node) orelse continue;
             const cty = self.ctx.symbols.items[id].ty;
             if (self.isPoison(cty)) continue;
-            const blocker = sema.crossingBlocker(self.ctx, cty, .moves) orelse continue;
+            const blocker = (try sema.crossingBlocker(self.ctx, cty, .moves)) orelse continue;
             return self.badCall(args, name_node, "the tasks that run the actor call the function that makes its value, and `{s}` {s}", .{ self.text(name_node), try self.blockerReason(blocker, false, if (blocker == cty) "is" else null) });
         }
         const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
@@ -11641,7 +11641,7 @@ const Checker = struct {
             }
             const how: sema.Crossing = if (k == .read_view) .shares else .moves;
             const inner = if (k == .read_view) sema.unwrapViews(self.ctx, ty) else ty;
-            if (sema.crossingBlocker(self.ctx, inner, how)) |blocker| {
+            if (try sema.crossingBlocker(self.ctx, inner, how)) |blocker| {
                 try self.errAt(arg, "an actor runs its methods on a task of its own, and `{s}` {s}: `{s}` {s}", .{ self.sourceText(arg), if (how == .shares) "is lent to it to read" else "is given to it", try self.tyName(ty), try self.blockerReason(blocker, how == .shares, if (blocker == ty) "is" else if (blocker == inner) "views" else null) });
                 return self.t().invalid_id;
             }
@@ -11651,7 +11651,7 @@ const Checker = struct {
             try self.err(pos, "`{s}` gives a `{s}`, which may view the actor's state; a method called through a handle gives a value", .{ method, try self.tyName(result) });
             return self.t().invalid_id;
         }
-        if (sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
+        if (try sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
             try self.err(pos, "`{s}` gives a value made on the actor's task, and `{s}` {s}", .{ method, try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
             return self.t().invalid_id;
         }
@@ -12117,11 +12117,11 @@ const Checker = struct {
             if (!try self.parCapture(cap, shown)) return self.t().invalid_id;
         };
         const how: sema.Crossing = if (kind == .map) .shares else .moves;
-        if (sema.crossingBlocker(self.ctx, elem, how)) |blocker| {
+        if (try sema.crossingBlocker(self.ctx, elem, how)) |blocker| {
             try self.errAt(xs, "`{s}` hands the elements of `{s}` to tasks that may run on other cores, {s} each, and `{s}` {s}", .{ shown, self.sourceText(xs), if (kind == .map) "to read" else "to write", try self.tyName(elem), try self.blockerReason(blocker, kind == .map, if (blocker == elem) "is" else null) });
             return self.t().invalid_id;
         }
-        if (kind == .map) if (sema.crossingBlocker(self.ctx, value, .moves)) |blocker| {
+        if (kind == .map) if (try sema.crossingBlocker(self.ctx, value, .moves)) |blocker| {
             try self.errAt(f, "`par.map` gathers the values that tasks on other cores make, and `{s}` {s}", .{ try self.tyName(value), try self.blockerReason(blocker, false, if (blocker == value) "is" else null) });
             return self.t().invalid_id;
         };
@@ -12472,7 +12472,7 @@ const Checker = struct {
         const ty = self.ctx.symbols.items[id].ty;
         if (self.isPoison(ty)) return true;
         const inner = sema.unwrapViews(self.ctx, ty);
-        const blocker = sema.crossingBlocker(self.ctx, inner, .shares) orelse return true;
+        const blocker = (try sema.crossingBlocker(self.ctx, inner, .shares)) orelse return true;
         try self.errAt(name_node, "`{s}` calls the closure on several tasks at once, which all read what it captures, and `{s}` {s}", .{ shown, name, try self.blockerReason(blocker, true, if (blocker == ty) "is" else if (blocker == inner) "views" else null) });
         return false;
     }
