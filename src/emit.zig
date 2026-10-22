@@ -5778,7 +5778,7 @@ pub const Emitter = struct {
             .block => try self.emitValueBlock(sexp, .{}, self.typeOf(sexp)),
             .raw_block => try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp)),
             .@"while", .@"for", .labeled => if (facts.syntax.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
-            .array => try self.emitArray(sexp),
+            .array => if (try self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
             // A jump as a fallback (`?? return`, `catch break`): a block
             // that leaves, which Zig types as `noreturn`.
@@ -6029,6 +6029,37 @@ pub const Emitter = struct {
             try self.emitStored(e);
         }
         try self.w.writeAll(if (elems.len > 0) " }" else "}");
+    }
+
+    /// An array literal whose elements are evaluated first (`hoistsArgs`):
+    /// each that is not pure into a temporary in its turn, as a call's
+    /// arguments are (`hoist`), and the array built of them last, so an
+    /// element that leaves drops the owned ones made before it.
+    /// `[String("a"), mk()!]`:
+    ///
+    ///     __rig_array_N: {
+    ///         var __rig_arg_N_0: rig.String = rig.String.of(.{ "a" });
+    ///         var __rig_live_N_0 = true;
+    ///         defer if (__rig_live_N_0) rig.drop(&__rig_arg_N_0);
+    ///         var __rig_arg_N_1: rig.String = try mk();
+    ///         ...
+    ///         break :__rig_array_N [_]rig.String{ rig.take(&__rig_live_N_0, __rig_arg_N_0), ... };
+    ///     }
+    fn emitHoistedArray(self: *Emitter, sexp: Sexp) Error!void {
+        const id = self.nextId();
+        try self.w.print("__rig_array_{d}: ", .{id});
+        try self.openBrace();
+        const first = self.hoisted.items.len;
+        for (ir.Array.elems(sexp), 0..) |e, i| {
+            if (try self.isPureArg(e)) continue;
+            try self.hoist(.{ .node = e, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, i }) }, .{ .pair = .{ id, @intCast(i) } }, &.{}, 0, true);
+        }
+        try self.writeIndent(self.indent);
+        try self.w.print("break :__rig_array_{d} ", .{id});
+        try self.emitArray(sexp);
+        self.hoisted.shrinkRetainingCapacity(first);
+        try self.w.writeAll(";\n");
+        try self.closeBrace();
     }
 
     /// `[n of x]` → `@as([n]T, @splat(x))`.

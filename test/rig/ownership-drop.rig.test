@@ -593,3 +593,175 @@ fail "drop view param", "cannot drop view"
   rc = *Wrap(payload: 5)
   kill(?rc)
   print(rc.payload)
+
+test "drop parts made before an array element that fails", '''
+  2 -1
+  2 -1
+  2 -1
+  2 -1
+  2 -1
+  3 -1
+'''
+  # An array literal's elements are made left to right; one that leaves
+  # (`!`) drops the owned elements made before it, in a flat literal, a
+  # nested one, an array of objects, an array passed straight to a call,
+  # and an array whose earlier element was moved from a local.
+
+  error E
+    bad
+
+  obj P
+    a: String
+    b: String
+
+  fun mk(n: Int) -> String!E
+    return E.bad if n == 0
+    String("m")
+
+  fun mi(n: Int) -> Int!E
+    return E.bad if n == 0
+    n
+
+  fun count(xs: [2]String) -> Int
+    xs.len
+
+  fun flat(n: Int) -> Int!E
+    xs = [String("a"), mk(n)!]
+    xs.len
+
+  fun nested(n: Int) -> Int!E
+    xs = [[String("a")], [mk(n)!]]
+    xs.len
+
+  fun objects(n: Int) -> Int!E
+    ps = [P(a: String("a"), b: String("b")), P(a: String("c"), b: mk(n)!)]
+    ps.len
+
+  fun passed(n: Int) -> Int!E
+    count([String("a"), String(mi(n)!)])
+
+  fun string(n: Int) -> Int!E
+    xs = [String("a"), String(mi(n)!)]
+    xs.len
+
+  fun moved(n: Int) -> Int!E
+    a = String("a")
+    xs = [<a, mk(n)!, String("c")]
+    xs.len
+
+  print(flat(1) catch -1, flat(0) catch -1)
+  print(nested(1) catch -1, nested(0) catch -1)
+  print(objects(1) catch -1, objects(0) catch -1)
+  print(passed(1) catch -1, passed(0) catch -1)
+  print(string(1) catch -1, string(0) catch -1)
+  print(moved(1) catch -1, moved(0) catch -1)
+
+test "drop parts made before an array element that leaves", '''
+  2 -1
+  4 2
+  2 -1
+'''
+  # An element leaves by `?`, by a `catch` that breaks or returns: the
+  # owned elements made before it are dropped, and those of an optional
+  # array as well.
+
+  fun mo(n: Int) -> String?
+    return none if n == 0
+    String("o")
+
+  error E
+    bad
+
+  fun mk(n: Int) -> String!E
+    return E.bad if n == 0
+    String("m")
+
+  fun absent(n: Int) -> Int?
+    xs = [String("a"), mo(n)?]
+    xs.len
+
+  fun broken(n: Int) -> Int
+    k = 0
+    for i in 0..2
+      xs = [String("a"), mk(n - i) catch break]
+      k += xs.len
+    k
+
+  fun returned(n: Int) -> Int
+    xs: [2]String? = [String("a"), mk(n) catch return -1]
+    xs.len
+
+  print(absent(1) ?? -1, absent(0) ?? -1)
+  print(broken(2), broken(1))
+  print(returned(1), returned(0))
+
+test "drop parts made before a part that fails", '''
+  2 -1
+  2 -1
+  2 -1
+  2 -1
+  2 -1
+  4 -1
+'''
+  # Every value built of several parts drops the owned parts made before
+  # one that fails: a call's arguments, an object's fields, a variant's
+  # payload, the parts of a String, the results of `return a, b`, and
+  # the arguments of a method whose self is a temporary.
+
+  error E
+    bad
+
+  obj P
+    a: String
+    b: String
+
+  obj W
+    s: String
+
+    fun with(?@, t: ?String) -> Int
+      @s.len + t.len
+
+  enum V
+    two(a: String, b: String)
+    one
+
+  fun mk(n: Int) -> String!E
+    return E.bad if n == 0
+    String("m")
+
+  fun take(a: String, b: String) -> Int
+    a.len + b.len
+
+  fun pair(n: Int) -> (String, String)!E
+    return String("a"), mk(n)!
+
+  fun call(n: Int) -> Int!E
+    take(String("a"), mk(n)!)
+
+  fun fields(n: Int) -> Int!E
+    p = P(a: String("a"), b: mk(n)!)
+    p.a.len + p.b.len
+
+  fun payload(n: Int) -> Int!E
+    v = V.two(a: String("a"), b: mk(n)!)
+    match v
+      .two(a, b) => a.len + b.len
+      .one => 0
+
+  fun joined(n: Int) -> Int!E
+    s = String(String("a"), mk(n)!)
+    s.len
+
+  fun results(n: Int) -> Int!E
+    a, b = pair(n)!
+    a.len + b.len
+
+  fun method(n: Int) -> Int!E
+    W(s: String("abc")).with(mk(n)!)
+
+  print(call(1) catch -1, call(0) catch -1)
+  print(fields(1) catch -1, fields(0) catch -1)
+  print(payload(1) catch -1, payload(0) catch -1)
+  print(joined(1) catch -1, joined(0) catch -1)
+  print(results(1) catch -1, results(0) catch -1)
+  print(method(1) catch -1, method(0) catch -1)

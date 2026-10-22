@@ -604,10 +604,11 @@ pub const Facts = struct {
     pub fn viewsOptionalValue(f: Facts, value: Sexp) ?bool {
         return storage.decided(f.c(), value, .views_optional_value);
     }
-    /// The decisions about a call the plan made (`storage`): whether it
-    /// evaluates its arguments first, how it holds its receiver and each
-    /// argument, whether it consumes a temporary receiver, and whether an
-    /// argument, an assigned value, or an index is pure.
+    /// The decisions about a call or an array literal the plan made
+    /// (`storage`): whether it evaluates its arguments or elements first,
+    /// how it holds its receiver and each part, whether it consumes a
+    /// temporary receiver, and whether a part, an assigned value, or an
+    /// index is pure.
     pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
         return storage.decided(f.c(), call, .hoists_args);
     }

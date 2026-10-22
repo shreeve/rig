@@ -6220,6 +6220,34 @@ sub main()
 cannot lend `a` to write while the left operand's read of it is in use
 ```
 
+**Leaving partway.** A value built of several parts makes them left to
+right: a call's arguments, an array literal's elements, an object's
+fields, a variant's payload, the parts of `String(a, b)`, and the
+results of `return a, b`. A part may leave before the value is built,
+by `!` or `?`, or by a `catch` or a branch that returns, breaks, or
+continues. The parts made before it are then dropped, and the value is
+never built.
+
+```rig
+error E
+  bad
+
+fun mk(n: Int) -> String!E
+  return E.bad if n == 0
+  String("b")
+
+fun pair(n: Int) -> Int!E
+  xs = [String("a"), mk(n)!]
+  xs[0].len + xs[1].len
+
+sub main()
+  print(pair(1) catch -1, pair(0) catch -1)
+```
+
+```output
+2 -1
+```
+
 A view of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
 self of a method call) finds the place up to each index before the
 index runs, so an index cannot write lend or move the place's root:
