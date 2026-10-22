@@ -376,7 +376,8 @@ const Classifier = struct {
                 const gop = try c.by_pos.getOrPut(c.a, name.start);
                 if (!gop.found_existing) gop.value_ptr.* = .{ .kind = .property };
             },
-            .enum_lit, .symbol, .variant_pattern => try c.put(ir.get(node, .name), .{ .kind = .enumMember }),
+            .enum_lit, .symbol => try c.put(ir.get(node, .name), .{ .kind = .enumMember }),
+            .variant_pattern => try c.put(rig.variantPatternName(node), .{ .kind = .enumMember }),
             .labeled => try c.label(ir.Labeled.label(node)),
             .@"break" => try c.label(ir.get(node, .label)),
             .@"continue" => try c.label(ir.get(node, .label)),

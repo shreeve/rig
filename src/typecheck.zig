@@ -185,6 +185,9 @@ const Checker = struct {
     /// branch there is read in place, by address, never copied
     /// (`cellMadeAway`).
     in_place: Sexp = .nil,
+    /// The member pattern being checked, `E.name =>`, which tests the
+    /// member whether or not it has fields.
+    member_pattern: Sexp = .nil,
     /// The operand of the `return` being checked: an error value meets a
     /// `T!` only in its branch leaves (`isReturnLeaf`).
     return_operand: Sexp = .nil,
@@ -4288,17 +4291,23 @@ const Checker = struct {
     }
 
     fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
-        const name = ir.VariantPattern.name(pattern);
+        const name = rig.variantPatternName(pattern);
         const vname = self.text(name);
         const vpos = name.src.pos;
         const bindings = ir.VariantPattern.bindings(pattern);
-        try self.recordCovered(vname, vpos, cov);
-        if (sema.unwrapViews(self.ctx, scrutinee) == self.t().any_error_id) {
-            try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
+        // The set the member is of: the one its pattern names, or the
+        // subject's; where the subject may be of several sets, the one
+        // that has it. Recorded as the pattern's type.
+        const subject = sema.unwrapViews(self.ctx, scrutinee);
+        const several = subject == self.t().any_error_id or sema.isErrorUnion(self.ctx, subject);
+        const set = (try self.variantPatternSet(pattern, subject, several)) orelse {
+            cov.rejected = true;
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
-        }
-        const resolved = (try sema.lookupVariant(self.ctx, scrutinee, vname)) orelse {
+        };
+        try self.ctx.recordType(pattern, set);
+        try self.recordCovered(if (several) try self.errorArmKey(subject, set, vname) else vname, vpos, cov);
+        const resolved = (try sema.lookupVariant(self.ctx, set, vname)) orelse {
             try self.reportMissingVariant(scrutinee, vname, vpos);
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
@@ -4408,13 +4417,42 @@ const Checker = struct {
         };
     }
 
+    /// The set of variant pattern `pattern`'s member, of a subject of type
+    /// `subject`, which may be of `several` sets: the set it names
+    /// (`E.name(...)`), which the subject may be; else the one set of
+    /// those that has the member; else the subject's. Null once rejected.
+    fn variantPatternSet(self: *Checker, pattern: Sexp, subject: TypeId, several: bool) Error!?TypeId {
+        const named = ir.VariantPattern.name(pattern);
+        const name = rig.variantPatternName(pattern);
+        if (self.isPoison(subject)) return null;
+        if (named.isKind(.member)) {
+            var r = self.resolver();
+            const set = try r.resolveType(ir.Member.object(named));
+            if (self.isPoison(set)) return null;
+            const shown = try self.plainText(named);
+            if (!sema.isErrorSet(self.ctx, set)) {
+                try self.errAt(named, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{shown});
+                return null;
+            }
+            const within = if (subject == self.t().any_error_id) true else if (sema.isErrorUnion(self.ctx, subject)) sema.errorSubset(self.ctx, set, subject) else set == subject;
+            if (!within) {
+                try self.errAt(named, "`{s}` is not in `{s}`, the error the subject may be", .{ shown, try self.tyName(subject) });
+                return null;
+            }
+            return set;
+        }
+        if (!several) return subject;
+        const set = if (subject == self.t().any_error_id) try self.resolveErrorName(name) else try self.unionMemberSet(subject, name);
+        return if (self.isPoison(set)) null else set;
+    }
+
     /// The binding of each of `fields`, in field order, that the variant
     /// pattern `pattern` writes. A pattern binds a variant's fields either
     /// in order, all of them, or by name, any of them, and `.nil` stands
     /// for a field it leaves out (`sema.SemContext.payloadBindings`).
     /// Null after reporting a pattern that does neither.
     fn fieldBindings(self: *Checker, pattern: Sexp, fields: []const Field) Error!?[]const Sexp {
-        const name = ir.VariantPattern.name(pattern);
+        const name = rig.variantPatternName(pattern);
         const vname = self.text(name);
         const bindings = ir.VariantPattern.bindings(pattern);
         var named: usize = 0;
@@ -7406,7 +7444,7 @@ const Checker = struct {
                 try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ tname, tname, field, field, tname });
                 return self.t().invalid_id;
             }
-            if (m.payload != null and m.payload.?.len > 0) {
+            if (m.payload != null and m.payload.?.len > 0 and !(nt.sym.flags.error_set and self.member_pattern != .nil and pos == self.startOf(ir.Member.name(self.member_pattern)))) {
                 try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ tname, field, tname, field });
                 return self.t().invalid_id;
             }
@@ -15775,7 +15813,10 @@ const Checker = struct {
     /// `E.name` or `m.E.name` as a pattern: a member of error set `E`,
     /// where the subject is of that set or is any error.
     fn checkQualifiedPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        const saved = self.member_pattern;
+        self.member_pattern = pattern;
         const ty = try self.synthExpr(pattern);
+        self.member_pattern = saved;
         const subject = sema.unwrapViews(self.ctx, scrutinee);
         const obj = ir.Member.object(pattern);
         const shown = try self.plainText(pattern);

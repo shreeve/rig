@@ -480,6 +480,13 @@ pub fn isMethodCallee(callee: Sexp) bool {
     return isBracketList(callee) and ir.get(callee, .object).isKind(.member);
 }
 
+/// The member a variant pattern names, `.name(...)` or `E.name(...)`:
+/// its name's leaf.
+pub fn variantPatternName(p: Sexp) Sexp {
+    const n = ir.VariantPattern.name(p);
+    return if (n.isKind(.member)) ir.Member.name(n) else n;
+}
+
 /// Whether range `r`, a `..` or a range pattern, includes its end:
 /// `a..=b`.
 pub fn isInclusive(r: Sexp) bool {

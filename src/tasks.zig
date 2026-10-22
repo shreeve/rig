@@ -875,7 +875,7 @@ fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, compt
     const count = @min(want, n);
     const chunk = @max(1, n / (count * 8));
     if (count <= 1 or chunk >= n) {
-        if (comptime !fallible) return body(ctx, 0, n);
+        if (comptime !fallible) return callChunk(body, ctx, 0, n, undefined) catch unreachable;
         var slot: rt.ErrData = undefined;
         callChunk(body, ctx, 0, n, &slot) catch |err| {
             if (comptime @TypeOf(out) == rt.ErrSlot) out.* = slot else rt.dropErrorData(err, &slot);
@@ -896,7 +896,7 @@ fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, compt
                     // run keeps if it fails first.
                     var slot: rt.ErrData = undefined;
                     callChunk(body, c, lo, hi, &slot) catch |err| return s.fail(err, &slot);
-                } else body(c, lo, hi);
+                } else callChunk(body, c, lo, hi, undefined) catch unreachable;
             }
         }
     };
@@ -915,7 +915,7 @@ fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, compt
 /// `body(ctx, lo, hi)`, a chunk of a `par` run, given `slot` for its
 /// failure's fields when it takes one.
 fn callChunk(comptime body: anytype, ctx: anytype, lo: usize, hi: usize, slot: rt.ErrSlot) anyerror!void {
-    if (comptime takesSlot(@TypeOf(body))) return body(ctx, lo, hi, slot);
+    if (comptime @typeInfo(@TypeOf(body)).@"fn".param_types.len == 4) return body(ctx, lo, hi, slot);
     return body(ctx, lo, hi);
 }
 
@@ -925,6 +925,11 @@ fn callChunk(comptime body: anytype, ctx: anytype, lo: usize, hi: usize, slot: r
 /// a call fails, the values made are dropped: those that need it are
 /// marked as they are made.
 pub fn parMap(xs: anytype, f: anytype, limit: Int) MapOut(@TypeOf(f)) {
+    return parMapInto(xs, f, limit, rt.no_slot);
+}
+
+/// `parMap` where a failure's fields go into the caller's slot `out`.
+pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const R = ReturnOf(F);
     const fallible = @typeInfo(R) == .error_union;
@@ -938,10 +943,10 @@ pub fn parMap(xs: anytype, f: anytype, limit: Int) MapOut(@TypeOf(f)) {
 
         const marked = fallible and rt.needsDrop(V);
 
-        fn chunk(c: *const @This(), lo: usize, hi: usize) if (fallible) anyerror!void else void {
+        fn chunk(c: *const @This(), lo: usize, hi: usize, slot: rt.ErrSlot) if (fallible) anyerror!void else void {
             for (lo..hi) |i| {
                 if (comptime fallible) {
-                    c.out[i] = try c.f.call(.{rt.lend(&c.xs[i])});
+                    c.out[i] = try c.f.call(rt.argsWithSlot(F, .{rt.lend(&c.xs[i])}, slot));
                     if (comptime marked) c.made[i] = true;
                 } else c.out[i] = c.f.call(.{rt.lend(&c.xs[i])});
             }
@@ -955,12 +960,12 @@ pub fn parMap(xs: anytype, f: anytype, limit: Int) MapOut(@TypeOf(f)) {
     }
     defer if (comptime marked) defaultAllocator().free(ctx.made);
     if (comptime fallible) {
-        parRun(true, xs.len, limit, &ctx, Ctx.chunk) catch |err| {
+        parRunInto(true, xs.len, limit, &ctx, Ctx.chunk, out_slot) catch |err| {
             if (comptime marked) for (ctx.out, ctx.made) |*v, m| if (m) dropElement(V, v);
             rt.drop(&out);
             return err;
         };
-    } else parRun(false, xs.len, limit, &ctx, Ctx.chunk);
+    } else parRunInto(false, xs.len, limit, &ctx, Ctx.chunk, out_slot);
     out.len = xs.len;
     return out;
 }
@@ -968,20 +973,25 @@ pub fn parMap(xs: anytype, f: anytype, limit: Int) MapOut(@TypeOf(f)) {
 /// `par.each(!xs, f, limit: n)`: `f(!x)` for each element `x` of the
 /// slice `xs`, each call on one of up to `limit` tasks (`parRun`).
 pub fn parEach(xs: anytype, f: anytype, limit: Int) EachOut(@TypeOf(f)) {
+    return parEachInto(xs, f, limit, rt.no_slot);
+}
+
+/// `parEach` where a failure's fields go into the caller's slot `out`.
+pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const fallible = @typeInfo(ReturnOf(F)) == .error_union;
     const Ctx = struct {
         xs: @TypeOf(xs),
         f: F,
 
-        fn chunk(c: *const @This(), lo: usize, hi: usize) if (fallible) anyerror!void else void {
+        fn chunk(c: *const @This(), lo: usize, hi: usize, slot: rt.ErrSlot) if (fallible) anyerror!void else void {
             for (lo..hi) |i| {
-                if (comptime fallible) try c.f.call(.{&c.xs[i]}) else c.f.call(.{&c.xs[i]});
+                if (comptime fallible) try c.f.call(rt.argsWithSlot(F, .{&c.xs[i]}, slot)) else c.f.call(.{&c.xs[i]});
             }
         }
     };
     const ctx: Ctx = .{ .xs = xs, .f = f };
-    return parRun(fallible, xs.len, limit, &ctx, Ctx.chunk);
+    return parRunInto(fallible, xs.len, limit, &ctx, Ctx.chunk, out);
 }
 
 /// A boundary a panic stops at: a call of `task.isolate(f)`, which runs
@@ -1043,6 +1053,21 @@ pub const Isolate = struct {
 /// and give what it gives; or, when a panic in it or in a task under it
 /// reached this boundary, fail with `task.Stop.panicked` (`Isolate`).
 pub fn isolate(f: anytype) IsolateOut(@TypeOf(f)) {
+    return isolateInto(f, rt.no_slot);
+}
+
+/// `isolate` where a failure's fields go into the caller's slot `out`,
+/// or are dropped where it has none.
+pub fn isolateInto(f: anytype, out: anytype) IsolateOut(@TypeOf(f)) {
+    var own: rt.ErrData = undefined;
+    const slot: rt.ErrSlot = if (comptime @TypeOf(out) == rt.ErrSlot) out else &own;
+    const result = isolateWith(f, slot);
+    if (comptime @TypeOf(out) != rt.ErrSlot) if (result) |_| {} else |err| rt.dropErrorData(err, &own);
+    return result;
+}
+
+/// `isolate`, with `f`'s failure's fields in `slot` when it takes one.
+fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const R = ReturnOf(F);
     const state = task();
@@ -1050,15 +1075,16 @@ pub fn isolate(f: anytype) IsolateOut(@TypeOf(f)) {
     const Run = struct {
         f: F,
         rec: *Isolate,
+        slot: rt.ErrSlot,
         result: R = undefined,
 
         fn entry(p: *anyopaque) callconv(.c) noreturn {
             const run: *@This() = @ptrCast(@alignCast(p));
-            run.result = run.f.call(.{});
+            run.result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
             rt.sched.leaveApart(run.rec.home);
         }
     };
-    var run: Run = .{ .f = f, .rec = &rec };
+    var run: Run = .{ .f = f, .rec = &rec, .slot = slot };
     state.isolate = &rec;
     rt.sched.runApart(&rec.home, &run, Run.entry);
     task().isolate = rec.outer;
@@ -1072,10 +1098,20 @@ pub fn isolate(f: anytype) IsolateOut(@TypeOf(f)) {
 /// 0); past that, fail as its last run failed. A cancel or a deadline is
 /// no failure to start again from: it fails at once.
 pub fn supervise(f: anytype, restarts: Int, per: Int) IsolateOut(@TypeOf(f)) {
+    return superviseInto(f, restarts, per, rt.no_slot);
+}
+
+/// `supervise` where the last run's failure's fields go into the caller's
+/// slot `out`; a run started again drops its fields first.
+pub fn superviseInto(f: anytype, restarts: Int, per: Int, out: anytype) IsolateOut(@TypeOf(f)) {
     var count: Int = 0;
     var window: i96 = 0;
     while (true) {
-        if (isolate(f)) |v| return v else |err| {
+        var own: rt.ErrData = undefined;
+        if (isolateWith(f, &own)) |v| return v else |err| {
+            errdefer if (comptime @TypeOf(out) == rt.ErrSlot) {
+                out.* = own;
+            } else rt.dropErrorData(err, &own);
             if (err == canceled_error or err == timeout_error) return err;
             if (restarts >= 0) {
                 if (per > 0) {
@@ -1088,6 +1124,7 @@ pub fn supervise(f: anytype, restarts: Int, per: Int) IsolateOut(@TypeOf(f)) {
                 if (count >= restarts) return err;
                 count += 1;
             }
+            rt.dropErrorData(err, &own);
         }
     }
 }
@@ -2162,7 +2199,18 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Tas
             }
             return @TypeOf(b.value).call(b, name, a);
         }
+
+        /// `run` of a method that may fail with fields: it is given the
+        /// task's slot, last.
+        fn runInto(b: @TypeOf(box), a: @TypeOf(args), slot: rt.ErrSlot) R {
+            defer {
+                _ = b.value.pending.fetchSub(1, .seq_cst);
+                b.dropStrong();
+            }
+            return @TypeOf(b.value).call(b, name, a ++ .{slot});
+        }
     };
+    if (comptime takesSlot(@TypeOf(@field(@TypeOf(self.value), name)))) return Task(R).spawn(Run.runInto, .{ box.cloneStrong(), args });
     return Task(R).spawn(Run.run, .{ box.cloneStrong(), args });
 }
 

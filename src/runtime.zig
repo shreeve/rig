@@ -30,9 +30,11 @@ pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
+pub const parMapInto = tasks.parMapInto;
 pub const Actor = tasks.Actor;
 pub const actor = tasks.actor;
 pub const supervise = tasks.supervise;
+pub const superviseInto = tasks.superviseInto;
 pub const chan = tasks.chan;
 pub const Chan = tasks.Chan;
 pub const select = tasks.select;
@@ -42,8 +44,10 @@ pub const actorSupervised = tasks.actorSupervised;
 pub const actorCall = tasks.actorCall;
 pub const actorSpawn = tasks.actorSpawn;
 pub const isolate = tasks.isolate;
+pub const isolateInto = tasks.isolateInto;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEach = tasks.parEach;
+pub const parEachInto = tasks.parEachInto;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
 
@@ -180,6 +184,40 @@ pub inline fn dropFailure(code: anyerror, data: *ErrData) bool {
 pub inline fn failWith(out: ErrSlot, code: anyerror, members_fields: anytype) anyerror {
     writeErrorFields(out, members_fields);
     return code;
+}
+
+/// `e == E.name`: whether `v`, an error value or a code, is `code`.
+pub inline fn isError(v: anytype, code: anyerror) bool {
+    const V = @TypeOf(v);
+    if (V == ErrorValue) return v.code == code;
+    if (V == *ErrorValue or V == *const ErrorValue) return v.code == code;
+    return @as(anyerror, v) == code;
+}
+
+/// `isError` on an error value made for the test, which drops it.
+pub inline fn isErrorDiscard(v: anytype, code: anyerror) bool {
+    var held = v;
+    defer if (comptime @TypeOf(held) == ErrorValue) held.__rig_drop();
+    return isError(held, code);
+}
+
+/// Whether a function value of type `F` (a `FnRef` or a `Closure`, or a
+/// pointer to one) takes the slot its failure's fields go in, last.
+pub fn callTakesSlot(comptime F: type) bool {
+    const V = switch (@typeInfo(F)) {
+        .pointer => |p| p.child,
+        else => F,
+    };
+    if (@typeInfo(V) != .@"struct" or !@hasDecl(V, "Args")) return false;
+    const types = @typeInfo(V.Args).@"struct".field_types;
+    return types.len > 0 and types[types.len - 1] == ErrSlot;
+}
+
+/// `args` for a call of a function value of type `F`, with `slot` last
+/// where it takes one (`callTakesSlot`).
+pub inline fn argsWithSlot(comptime F: type, args: anytype, slot: ErrSlot) if (callTakesSlot(F)) @TypeOf(args ++ .{slot}) else @TypeOf(args) {
+    if (comptime callTakesSlot(F)) return args ++ .{slot};
+    return args;
 }
 
 /// A failing `return` of `v`, an error value the function holds: its
@@ -5835,7 +5873,8 @@ pub noinline fn fail(pieces: anytype) noreturn {
 /// One `test "name"` block.
 pub const Test = struct {
     name: []const u8,
-    func: *const fn () anyerror!void,
+    /// The test's body, given the slot a failure's fields go in.
+    func: *const fn (out: ErrSlot) anyerror!void,
 };
 
 /// The tests of one module; `module` is empty for the root module.
@@ -5896,7 +5935,8 @@ fn runTestsHere(modules: []const TestModule) void {
         current_test = name;
         const before = usage();
         test_false = null;
-        const result = t.func();
+        var slot: ErrData = undefined;
+        const result = t.func(&slot);
         current_test = null;
         flush();
         if (result) |_| {
@@ -5911,7 +5951,11 @@ fn runTestsHere(modules: []const TestModule) void {
                 tests_passed += 1;
             }
         } else |err| {
-            w.print("FAIL  {f}: {s}\n", .{ name, errorShown(err) }) catch {};
+            // A failure is shown with its fields, which are then dropped.
+            w.print("FAIL  {f}: ", .{name}) catch {};
+            if (error_glue) |g| g.print(err, @ptrCast(&slot), w) catch {} else w.writeAll(errorShown(err)) catch {};
+            w.writeAll("\n") catch {};
+            dropErrorData(err, &slot);
             tests_failed += 1;
         }
         flush();

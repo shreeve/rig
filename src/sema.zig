@@ -925,6 +925,13 @@ fn nodeKey(node: Sexp) ?NodeKey {
     return node.list.id;
 }
 
+/// The key of a node or a leaf: a list node by its id, a leaf by its
+/// place in the source, above every id.
+fn leafOrNodeKey(node: Sexp) ?u64 {
+    if (node == .src) return (@as(u64, 1) << 62) | node.src.pos;
+    return nodeKey(node) orelse null;
+}
+
 /// The key of a node a fact is recorded for: a node the parser built.
 fn recordKey(node: Sexp) NodeKey {
     return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
@@ -1115,7 +1122,7 @@ pub const Facts = struct {
     /// `return`'s operand, or a branch of one, of an error type where a
     /// `T!` goes (`SemContext.recordFailingLeaf`). Emit stores the fields
     /// of one with fields through the function's `__out`.
-    failing_leaves: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    failing_leaves: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -3159,11 +3166,11 @@ pub const SemContext = struct {
     }
 
     pub fn recordFailingLeaf(self: *SemContext, node: Sexp) !void {
-        try self.facts.failing_leaves.put(self.allocator, recordKey(node), {});
+        try self.facts.failing_leaves.put(self.allocator, leafOrNodeKey(node) orelse return, {});
     }
 
     pub fn isFailingLeaf(self: *const SemContext, node: Sexp) bool {
-        return self.facts.failing_leaves.contains(nodeKey(node) orelse return false);
+        return self.facts.failing_leaves.contains(leafOrNodeKey(node) orelse return false);
     }
 
     pub fn recordMemberTest(self: *SemContext, node: Sexp) !void {
@@ -4562,6 +4569,11 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
             c.any_error = c.any_error or h.any_error;
         }
     }
+    // A union of error sets owns what its sets' members carry.
+    for (ctx.symbols.items[id].error_parts orelse &.{}) |part| if (fieldsAt(ctx, part, 1)) {
+        c.glue = true;
+        c.plain = false;
+    };
     // The built-in generics are runtime types: a List owns its buffer and
     // a box its value's memory, and none of them is copied like plain data.
     // A Signal owns its subscribers too, but has no glue of its own: it

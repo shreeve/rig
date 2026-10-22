@@ -589,6 +589,13 @@ pub const MatchMode = enum { read, write, consume };
 
 /// The enum a `match` switches on: the one a box or handle holds, or
 /// the subject's type.
+/// The type an arm's member pattern is of: an error member's own set,
+/// which the subject may be one of; else the subject's, `subject`.
+fn armType(ctx: *const SemContext, pattern: Sexp, subject: ?TypeId) ?TypeId {
+    if (pattern.isKind(.variant_pattern) or pattern.isKind(.member)) if (ctx.typeOf(pattern)) |t| if (sema.isErrorSet(ctx, t)) return t;
+    return subject;
+}
+
 pub fn matchedType(ctx: *const SemContext, match: Sexp) ?TypeId {
     const scrutinee = ir.Match.subject(match);
     const ty = typeOf(ctx, scrutinee) orelse return null;
@@ -1659,11 +1666,11 @@ const Planner = struct {
                 if (mode == .consume) try p.record(arm, .whole, .owned, .arm);
                 continue;
             }
-            const variant = pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit);
+            const variant = pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit) or (pattern.isKind(.member) and ctx.isErrorMember(pattern));
             if (mode == .consume) {
                 if (!variant) {
                     try p.record(arm, .whole, .owned, .arm);
-                } else if (variantPayload(ctx, ty orelse continue, srcText(ctx, ir.get(pattern, .name)))) |fields| {
+                } else if (variantPayload(ctx, armType(ctx, pattern, ty) orelse continue, srcText(ctx, if (pattern.isKind(.variant_pattern)) rig.variantPatternName(pattern) else ir.get(pattern, .name)))) |fields| {
                     if (fields.len > 0) try p.record(arm, .payload, .owned, .arm);
                 }
                 continue;

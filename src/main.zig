@@ -1325,6 +1325,8 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         \\
     , .{emit.runtime_filename});
     try env.writeRootFlags(w, true, taskGuardOf(graph), makesActors(graph));
+    // The driver is the root, so it names the program's error glue.
+    if (declaresErrorFields(graph)) try w.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
     try w.writeAll(
         \\
         \\fn testsOf(comptime module: type) []const rig.Test {
