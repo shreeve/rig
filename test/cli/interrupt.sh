@@ -66,6 +66,18 @@ sub main()
   time.sleep(10 * time.SECOND) catch print("woke")
 EOF2
 
+cat >reads.rig <<'EOF2'
+use std.file
+
+sub main()!
+  defer print("defer ran")
+  if file.open("fifo")! as f
+    warn("started")
+    s = String()
+    n = (!f).read(!s, 4096)!
+    print("read", n)
+EOF2
+
 cat >spins.rig <<'EOF2'
 sub main()!
   warn("started")
@@ -78,7 +90,7 @@ sub check()!
   return
 EOF2
 
-for p in sleeps tasks accepts catches plain spins; do
+for p in sleeps tasks accepts reads catches plain spins; do
   rig build -o $p $p.rig >/dev/null 2>&1 || fail "build $p.rig"
 done
 
@@ -123,6 +135,17 @@ start ./accepts
 kill -INT $pid
 ends "an interrupt cancels an accept" 130
 expect_eq "$(cat out.txt)" "defer ran" "its defer runs after accept"
+
+# A read of a file that has nothing to give: a FIFO this script holds
+# open to write, so the program's open does not wait for a writer.
+mkfifo fifo
+exec 3<>fifo
+start ./reads
+kill -INT $pid
+ends "an interrupt cancels a blocked file read" 130
+expect_eq "$(cat out.txt)" "defer ran" "its defer runs after the read"
+expect_eq "$(cat err.txt)" "started" "a canceled read shows no error"
+exec 3>&-
 
 start ./catches
 kill -INT $pid

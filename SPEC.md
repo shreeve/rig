@@ -10816,7 +10816,8 @@ the program at once, so a `main` in a loop that reaches no waiting
 point can still be stopped. A `main` that cannot fail is never
 canceled, and the signals end it as they end any program; a program
 started with a signal ignored (`nohup`) keeps ignoring it. `rig run`
-waits for its program to end.
+waits for its program to end: one that catches the cancel and runs on
+keeps it waiting, until the program ends or a second interrupt ends it.
 
 ### Sets of tasks
 
