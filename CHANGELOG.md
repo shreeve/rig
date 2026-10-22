@@ -192,6 +192,16 @@ changed the language since it:
   works in a generic body on a `[]T` through the APIs a type gives, and
   a closure written at the call is inlined in a release build, as fast
   as the loop written out (docs/STD.md, "reduce").
+- **Tables:** `Table[T, n]` holds `n` slots from the moment it is made,
+  each `T()` until written, and a `Slot[n]` is a number below `n` that
+  only `push`, `Slot[n].of(i)`, and a literal below `n` make, so `t[s]`
+  reads or writes its slot with no bounds test, whichever table gave
+  `s`. A table of plain data whose default is all zero bytes reserves its
+  slots with its own `mmap`, so untouched slots take no memory and the
+  table never copies as it grows; other elements are made in every slot,
+  up to 64 MiB. `Table()` is no field's default: a table is made where its
+  owner is. On Trig's stores, the same reads without a test made
+  ts-pattern 3.1% faster (docs/STD.md, "Table and Slot").
 - **Compile-time functions:** a `fun` with only a bracket parameter
   list, `fun cap[n: Int] -> Int`, runs in the checker, and its call
   `cap[8]` is a constant wherever one may stand: an expression, a module

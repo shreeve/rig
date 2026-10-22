@@ -7280,6 +7280,10 @@ their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
 names are not reserved: a module that declares a type of its own of one
 of these names hides the built-in one.
 
+`Table[T, n]` and `Slot[n]` ([Table](#table)) are built into the
+compiler, as a List is, but their names are not reserved either: a
+module's own `Table` or `Slot` hides the built-in one.
+
 ### Cell
 
 `Cell[T]` holds one value that can be replaced through any handle to it,
@@ -7713,6 +7717,107 @@ drop 2
 left 1
 drop 1
 ```
+
+### Table
+
+`Table[T, n]` holds `n` slots from the moment it is made, each `T()`
+until it is written, and `Slot[n]` is a number below `n` that names one
+of them. Only the table's `push`, `Slot[n].of(i)`, and a literal below
+`n` make a slot, so a `Slot[n]` is in range of every `Table[_, n]`: `t[s]`
+reads or writes its slot with no test, whichever table gave `s`. A
+table is an owning value whose slots are places, as a List's elements
+are; a slot is plain data.
+
+| Member | Meaning |
+|---|---|
+| `Table()`, `Table[T, n]()` | a table of `n` slots, each `T()` (typed by context or by brackets); made as the program runs, so it is never a field's default |
+| `(!t).push(x)`, `!t.push(x)` | write slot `len`, add one to `len`, and give that slot as a `Slot[n]`; panics with "a table of `n` slots is full" when all `n` are pushed |
+| `t.len` | the number of slots pushed |
+| `t[s]`, `t[s] = x` | slot `s`, a `Slot[n]`, a place as a List's element is: read in place, lent with `?t[s]` or `!t[s]`, and assigned, which drops the old value; no test |
+| `t[i]` | with an integer `i`, the slot tested `0 <= i < n` (not `len`) |
+| `for x in t`, `?t`, `!t` | the pushed slots, `0..len`; a loop takes no slot out |
+| `Slot[n].of(i)` | `Slot[n]?`: the slot `i` names when `0 <= i < n`, else `none` |
+| `Int(s)` | the slot's number (any integer type: `U32(s)`) |
+| a literal `k` | a `Slot[n]` where `0 <= k < n`, checked at compile time; inside a generic body, where `n` is a parameter, write `Slot[n].of(k)` |
+
+A slot copies, compares with `==` and `<`, hashes, and prints as its
+number, so it keys a `Map`. It has no arithmetic, and nothing converts
+another value to it but `of`: `Slot[8](3)`, `s + 1`, and an `Int` where a
+`Slot[8]` goes are rejected. A slot of one `n` indexes only a table of
+the same `n`; convert with `Slot[m].of(Int(s))`. Its value is the
+smallest of `U8`, `U16`, `U32`, and `U64` that holds `n - 1`.
+
+```rig
+obj Ty
+  flags: U32 = 0
+
+sub main()
+  t: Table[Ty, 1024] = Table()
+  a = (!t).push(Ty(flags: 1))
+  b = (!t).push(Ty(flags: 2))
+  t[b].flags += 40
+  print(a, b, t[b].flags, t.len)
+  far: Slot[1024] = 1000
+  print(t[far].flags)
+  if Slot[1024].of(Int(b) + 1) as next
+    print(next, t[next].flags)
+```
+
+```output
+0 1 42 2
+0
+2 0
+```
+
+**Every slot holds a value.** `T` has a default, `T()`: a number,
+`Bool`, `Slot`, String, List, optional, or object whose every field has
+one. A view is no element (a slot holds a value before it is written).
+How the slots are held follows from `T`:
+
+- When `T` is plain data whose default is all zero bytes (integers,
+  `Bool`, slots, a plain enum's variant whose value is 0, and objects
+  and arrays of these), the table **reserves** `n * $size(T)` bytes of
+  address space, and the system gives each page as zeros when it is
+  first touched: a slot never written takes no memory. Up to 64 TiB.
+- Otherwise (a float, which may be `-0.0`; an optional; a value that
+  owns; any other default), every slot is **made** with the table, up to
+  64 MiB, and dropping the table drops all `n` slots.
+
+A table past its limit is rejected. On a target whose system gives no
+lazily zeroed pages (wasm32, Windows), a reserved table holds the slots
+it has been written up to and tests each slot against them, with the
+same meaning. A system that refuses the reservation (`ulimit -v`,
+strict overcommit) makes `Table()` panic; a table is never smaller than
+`n`.
+
+```rig reject
+obj File
+  name: String = String()
+
+sub main()
+  files: Table[File, 4194304] = Table()
+  print(files.len)
+```
+
+```error
+a `Table[File, 4194304]` makes every slot up front; `File` owns what it holds, so its 4194304 slots would take 96 MiB
+```
+
+```rig reject
+sub main()
+  t: Table[Int, 8] = Table()
+  i = 3
+  s: Slot[8] = i
+  print(t[s])
+```
+
+```error
+type mismatch: expected `Slot[8]`, got `Int`
+```
+
+A table grows only by `push` and never shrinks: it has no `pop`,
+`clear`, or `keep`, and no clone (`+t`). An id read from data enters
+with `of`, its one test.
 
 ### Boxes, `^T`
 

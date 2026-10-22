@@ -110,6 +110,12 @@ pub inline fn tickCall() void {
 pub const sched = @import("sched.zig");
 // Sockets and the HTTP server (`net.zig`).
 pub const net = @import("net.zig");
+
+// Tables (`table.zig`): `Table[T, n]` and `Slot[n]`.
+const table_zig = @import("table.zig");
+pub const Table = table_zig.Table;
+pub const SlotOf = table_zig.Slot;
+pub const slotOf = table_zig.slotOf;
 pub const httpServe = net.serve;
 
 test {
@@ -2586,9 +2592,9 @@ pub const Proven = enum { lower, upper, both };
 
 /// Proven tests are asserted in every debug build, and in an optimized
 /// build whose root module asks for it (`RIG_VERIFY_PROOFS=1`).
-const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
+pub const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
 
-fn proofPanic() noreturn {
+pub fn proofPanic() noreturn {
     @branchHint(.cold);
     @panic("rig: a proven check failed (compiler bug)");
 }
@@ -5875,7 +5881,7 @@ fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
     }
 }
 
-fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {
+pub fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {
     try w.writeAll("[");
     for (items, 0..) |x, i| {
         if (i > 0) try w.writeAll(", ");

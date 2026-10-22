@@ -284,8 +284,8 @@ held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
 The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
-`Endian` are reserved names. The built-in types `Map`, `Set`, `Order`,
-`Hasher`, and `Printer`, and the built-in functions `print`, `warn`, and
+`Endian` are reserved names. The built-in types `Map`, `Set`, `Table`,
+`Slot`, `Order`, `Hasher`, and `Printer`, and the built-in functions `print`, `warn`, and
 `swap`, are names a declaration may hide.
 
 ## 4. Literals
@@ -605,6 +605,7 @@ operator does, and which types it takes, is in
 | weak closure | `~fun(Int) -> Int` | |
 | callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
 | vector | `Simd[U8, 16]`, `Simd[Bool, 64]`, `Simd[F32, n]` | lanes operated on together ([SPEC §2](SPEC.md#vectors)) |
+| table, slot | `Table[Type, 1024]`, `Slot[1024]` | `n` slots from the start, and a number below `n` that names one ([SPEC §10](SPEC.md#table)) |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),

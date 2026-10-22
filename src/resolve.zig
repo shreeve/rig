@@ -209,7 +209,8 @@ const SymbolResolver = struct {
         // A module's own `Order`, `Printer`, or `Hasher` hides the
         // built-in one, which a type's own `order`, `print`, and
         // `hash_into` take (docs/design/apis.md).
-        if (dup) |prev| if (prev == self.ctx.order_sym_id or prev == self.ctx.printer_sym_id or prev == self.ctx.hasher_sym_id) {
+        // So do its own `Table` and `Slot`.
+        if (dup) |prev| if (prev == self.ctx.order_sym_id or prev == self.ctx.printer_sym_id or prev == self.ctx.hasher_sym_id or prev == self.ctx.table_sym_id or prev == self.ctx.slot_sym_id) {
             dup = null;
         };
         // `String`, `Static`, and `Symbol` are built-in types, like `List`,
@@ -3282,6 +3283,7 @@ pub const TypeResolver = struct {
     /// The instance of generic `sym_id` at `args`, spelled at `pos`.
     fn instanceOf(self: *TypeResolver, sym_id: SymbolId, args_in: []const TypeId, pos: u32) Error!TypeId {
         if (sym_id == self.ctx.simd_sym_id) return simdInstance(self.ctx, args_in, pos);
+        if (sym_id == self.ctx.slot_sym_id) return slotInstance(self.ctx, args_in, pos);
         const sym = self.ctx.symbols.items[sym_id];
         const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args_in } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
@@ -3328,10 +3330,29 @@ pub fn simdInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!Type
     return ctx.intern(.{ .simd = .{ .elem = elem, .len = len } });
 }
 
+/// `Slot[n]`, spelled at `pos`: a number below `n`, a type of its own
+/// kind (`Type.slot`), not a generic instance. A known `n` is at least 1;
+/// a compile-time parameter `n` is checked at each instance
+/// (`Requirement.slot_count`), so every slot is below a count that has
+/// slots. Poison after a diagnostic.
+pub fn slotInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!TypeId {
+    if (args.len != 1 or sema.containsPoison(ctx, args[0])) return ctx.types.invalid_id;
+    switch (ctx.types.get(args[0])) {
+        .ct_value => |v| if (v.int < 1 or v.int > sema.max_slot_count) {
+            try ctx.err(pos, "a `Slot` names one of `n` slots; `n` is at least 1 and at most {d}; got {d}", .{ sema.max_slot_count, v.int });
+            return ctx.types.invalid_id;
+        },
+        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .slot_count, .pos = pos, .op = "a slot count" }),
+        else => return ctx.types.invalid_id,
+    }
+    return ctx.intern(.{ .slot = args[0] });
+}
+
 /// Element-type rules of the built-in generics. An instance over generic
 /// parameters (`List[T]` in `Stack[T]`) is checked for each instantiation
 /// instead (`sema.expandInstantiations`).
 pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
+    if (sym_id == ctx.table_sym_id) return tableElementError(ctx, args);
     if (args.len != 1 or sema.containsTypeVar(ctx, args[0])) return null;
     const a = ctx.arena.allocator();
     const arg = try sema.formatType(ctx, args[0]);
@@ -3349,6 +3370,53 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isPlainData(ctx, args[0])) return null;
         return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`) or plain data (an object, enum, optional, or array that owns nothing); got `{s}`", .{arg});
+    }
+    return null;
+}
+
+/// The element rule of `Table[T, n]` (Core §10, "Tables"): `n` is at
+/// least 1, and `T` is a value with a default, which every slot holds
+/// until it is written. A table of `T` whose default is all zeros is
+/// reserved, at most `max_reserved_table_bytes` of address space; any
+/// other is made up front, at most `max_made_table_bytes`
+/// (`sema.tableFill`). An instance over generic parameters is checked for
+/// each instantiation.
+fn tableElementError(ctx: *SemContext, args: []const TypeId) Error!?[]const u8 {
+    if (args.len != 2 or sema.containsTypeVar(ctx, args[0]) or sema.containsTypeVar(ctx, args[1])) return null;
+    // A poison argument was reported where it was made.
+    if (sema.containsPoison(ctx, args[0]) or sema.containsPoison(ctx, args[1])) return null;
+    const a = ctx.arena.allocator();
+    const n: u64 = switch (ctx.types.get(args[1])) {
+        .ct_value => |v| if (v.int < 1 or v.int > sema.max_slot_count)
+            return try a.print("a `Table` has `n` slots; `n` is at least 1 and at most {d}; got {d}", .{ sema.max_slot_count, v.int })
+        else
+            @intCast(v.int),
+        else => return null,
+    };
+    const elem = args[0];
+    const shown = try sema.formatType(ctx, elem);
+    const table = try a.print("Table[{s}, {d}]", .{ shown, n });
+    if (sema.holdsCallable(ctx, elem) or sema.mayHoldView(ctx, elem) or sema.isViewType(ctx, elem)) {
+        return try a.print("a `Table` holds values; a view cannot be one, since every slot holds a value before it is written; got `{s}`", .{shown});
+    }
+    const fill = sema.tableFill(ctx, elem);
+    if (fill == .none) {
+        return try a.print("a `{s}` fills its slots with `{s}()`, and `{s}` has no default: a slot holds a number, `Bool`, `Slot`, String, List, optional, or object whose every field has a default", .{ table, shown, shown });
+    }
+    const size = (try sema.minBytes(ctx, elem)) orelse return null;
+    const bytes = std.math.mul(u128, size, n) catch std.math.maxInt(u128);
+    switch (fill) {
+        .zeros => if (bytes > sema.max_reserved_table_bytes) {
+            return try a.print("a `{s}` reserves {d} GiB of address space for its slots, past the {d} GiB a table reserves", .{ table, bytes >> 30, sema.max_reserved_table_bytes >> 30 });
+        },
+        .made => if (bytes > sema.max_made_table_bytes) {
+            const why = if (sema.typeHasDropGlue(ctx, elem) or sema.isUnique(ctx, elem))
+                try a.print("`{s}` owns what it holds", .{shown})
+            else
+                try a.print("`{s}()` is not all zeros", .{shown});
+            return try a.print("a `{s}` makes every slot up front; {s}, so its {d} slots would take {d} MiB, past the {d} MiB a table makes up front: make `n` smaller, or give `{s}` defaults that are all zeros", .{ table, why, n, bytes >> 20, sema.max_made_table_bytes >> 20, shown });
+        },
+        .none => unreachable,
     }
     return null;
 }
@@ -3678,6 +3746,32 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const n = ctx.symbols.items[g.sym].type_params.?[1];
         ctx.symbols.items[n].kind = .param;
         ctx.symbols.items[n].ty = ctx.types.int_id;
+    }
+
+    // Table[T, n: Int]: `n` slots from the start, each `T()` until
+    // written (`tableElementError`); `!t.push(x)` writes slot `len` and
+    // gives it as a `Slot[n]`. Typing knows `len`, `t[s]`, and `for`, as
+    // a List's. Slot[n: Int]: a number below `n`, a type of its own kind
+    // (`slotInstance`), whose `of` typing knows. Neither name is reserved:
+    // a module's own `Table` or `Slot` hides the built-in one.
+    {
+        const g = try addGeneric(ctx, module_scope, module_scope, "Table", &.{ "T", "n" });
+        ctx.table_sym_id = g.sym;
+        const n = ctx.symbols.items[g.sym].type_params.?[1];
+        ctx.symbols.items[n].kind = .param;
+        ctx.symbols.items[n].ty = ctx.types.int_id;
+        const n_ty = try ctx.intern(.{ .ct_param = n });
+        const self_ty = try ctx.intern(.{ .parameterized_nominal = .{ .sym = g.sym, .args = try ctx.dupeIds(&.{ g.params[0], n_ty }) } });
+        const write_self = try ctx.intern(.{ .write_view = self_ty });
+        const slot = try ctx.intern(.{ .slot = n_ty });
+        try setFields(ctx, g.sym, &.{
+            try method(ctx, "push", .write, &.{ write_self, g.params[0] }, slot, null),
+        });
+        const s = try addGeneric(ctx, module_scope, module_scope, "Slot", &.{"n"});
+        ctx.slot_sym_id = s.sym;
+        const sn = ctx.symbols.items[s.sym].type_params.?[0];
+        ctx.symbols.items[sn].kind = .param;
+        ctx.symbols.items[sn].ty = ctx.types.int_id;
     }
 
     // Signal[T]: a value that copies, plus subscriber closures notified on `set`.
