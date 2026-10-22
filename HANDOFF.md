@@ -52,14 +52,6 @@ newest entry summarizes the latest rounds.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
-- **Frozen values (`*Frozen[T]`),** branch `frozen`: a handle counted
-  atomically to a value that never changes, read by many tasks
-  (records: docs/history/records/2026-10/frozen/). Lands after the full
-  suite and Trig's light gate.
-- **The scheduler worker's layout:** its hot fields aligned to cache
-  lines, to win back what #541's two new fields cost: on the Mac `yield`
-  is 50% slower and `spawn` 13% slower, on pup `yield` 12% slower; timed on pup
-  before it lands.
 
 ## Next, in order
 

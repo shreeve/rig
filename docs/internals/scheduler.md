@@ -58,6 +58,9 @@ a program that makes none starts no workers.
   also takes a task left in another's slot 3 µs (`sched.stealNext`), as
   Go takes a `runnext`. A global queue takes overflow and work from
   outside the workers.
+- **Cache lines.** Each worker begins a cache line and fills whole
+  lines, so no line holds two workers' fields, and the fields each
+  writes at every switch never slow another's (`sched.Worker`).
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
   is next on its worker hands the worker straight to it, on the task's
