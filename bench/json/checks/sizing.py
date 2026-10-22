@@ -67,9 +67,9 @@ PATCHES = {
              lambda l: l.replace("if (@as(u64, n) > max_len) lenPanic();",
                                  "{ @setRuntimeSafety(false); if (@as(u64, n) > max_len) unreachable; }"))],
     "tape": [("json.zig",) + exprs(
-        "(rig.len(self.tape.len) * 2) + @as(i64, if (is_object) 1 else 0)", "(rig.len(self.tape.len) * 16) + tag",
+        "(rig.lenOf(self.tape) * 2) + @as(i64, if (is_object) 1 else 0)", "(rig.lenOf(self.tape) * 16) + tag",
         "((start * 16) + tag) + 1", "((@shlExact(@as(i64, offset), @intCast(27)) + n) * 16) + tag",
-        "(rig.len(self.floats.len) * 16) + rig.rt(T_FLOAT)", "(rig.len(self.ints.len) * 16) + rig.rt(T_BIG_INT)")],
+        "(rig.lenOf(self.floats) * 16) + rig.rt(T_FLOAT)", "(rig.lenOf(self.ints) * 16) + rig.rt(T_BIG_INT)")],
     "idx": [("json.zig", lambda l: "rig.at(" in l or "rig.readInt(u32, s, at, .big)" in l, idx)],
     "pos": [("json.zig",) + exprs(
         "i - first", "i - dot", "int_digits + frac_digits", "return i + k;|i + k", "(i + 16)", "(i + 8)",

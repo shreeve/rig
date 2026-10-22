@@ -5911,19 +5911,19 @@ pub const Emitter = struct {
             try self.writeReach(obj_ty.?);
             return self.w.writeAll(".length()");
         }
+        // The length of a List, a slice, or an array (`rig.lenOf`, which
+        // tests it only where it is not held below `max_len`).
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
-            try self.w.writeAll("rig.len(");
+            try self.w.writeAll("rig.lenOf(");
             try self.emitMemberBase(obj, obj_ty);
-            try self.w.writeAll(".len)");
-            return;
+            return self.w.writeAll(")");
         }
         // The length of an array or List in a box.
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.boxedType(self.facts.unwrapReadAccess(obj_ty.?)) != null and self.hasLen(self.facts.unwrapAccess(obj_ty.?))) {
-            try self.w.writeAll("rig.len(");
+            try self.w.writeAll("rig.lenOf(");
             try self.emitMemberBase(obj, obj_ty);
             try self.writeReach(obj_ty.?);
-            try self.w.writeAll(".len)");
-            return;
+            return self.w.writeAll(")");
         }
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {

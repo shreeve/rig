@@ -765,3 +765,42 @@ fail "list from array owners", "`List(...)` copies each element, and a `String` 
 fail "list from array element type", "type mismatch: expected `Int`, got `Float`", errors: 1
   xs = List[Int]([1.5])
   print(xs)
+
+code "list length read holds no test", "rig.lenOf(xs)"
+  # A List's length is at most `max_len` by construction, so reading it
+  # as an `Int` tests nothing (`rig.heldLen`).
+  xs = List[Int]()
+  !xs.push(1)
+  print(xs.len)
+
+test "list length of zero-size elements at the longest length", 4611686018427387903
+  # A List of zero-bit elements takes no memory; it may grow to
+  # `max_len`, `2^62 - 1`, which its length reads as.
+  obj Z
+    sub hi(?@)
+      print("hi")
+
+  xs = List[Z]()
+  !xs.resize((1 << 62) - 1, Z())
+  print(xs.len)
+
+bomb "list of zero-size elements stops growing at the longest length", "length out of range", prints: "full"
+  # Growth is where a List's length is held below `max_len`: the push
+  # past it panics, before any read of the length.
+  obj Z
+    sub hi(?@)
+      print("hi")
+
+  xs = List[Z]()
+  !xs.resize((1 << 62) - 1, Z())
+  print("full")
+  !xs.push(Z())
+  print("pushed")
+
+bomb "list filled of zero-size elements past the longest length", "length out of range"
+  obj Z
+    sub hi(?@)
+      print("hi")
+
+  xs = List.filled(1 << 62, Z())
+  print("made")

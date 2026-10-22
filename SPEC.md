@@ -7507,7 +7507,7 @@ owns one), and read views.
 | `List(a)`, `List[T](a)` | a new List holding a copy of each element of the array or slice `a`, in one allocation of exactly their count, as `String("abc")` copies text: `List([1, 2, 3])`; typed by `a`, by context, or by brackets; the elements are plain data that carry no loan |
 | `List.filled(n, x)`, `List[T].filled(n, x)` | a List of `n` copies of `x` (typed by `x`, by context, or by brackets); `x` must copy (below); panics when `n` is negative |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
-| `v.len` | the number of elements |
+| `v.len` | the number of elements, at most `2^62 - 1`: a List never grows past it, and growth that would panics ("length out of range"), so reading the length makes no test |
 | `v.is_empty()` | `v.len == 0`; it only reads, so `!v.is_empty()` is rejected (negate with `not`) |
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
