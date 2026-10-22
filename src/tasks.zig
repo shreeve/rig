@@ -69,6 +69,9 @@ pub fn Task(comptime T: type) type {
                     state.deadline = deadline;
                     state.isolate = control.isolate;
                     defer control.finish();
+                    // A call that may fail with fields writes them into
+                    // the task's record.
+                    if (comptime takesSlot(@TypeOf(f))) return @call(.auto, f, a ++ .{&control.err});
                     return @call(.auto, f, a);
                 }
             };
@@ -115,12 +118,23 @@ pub fn Task(comptime T: type) type {
         /// canceled and waited for, and the wait fails with
         /// `task.Stop.timeout`.
         pub fn wait(self: Self) T {
+            return self.waitWith(rt.no_slot);
+        }
+
+        /// `>t` where the waiter catches the task's failure, or passes it
+        /// on, with its fields: they move from the task's record into
+        /// the waiter's slot `out`.
+        pub fn waitInto(self: Self, out: rt.ErrSlot) T {
+            return self.waitWith(out);
+        }
+
+        fn waitWith(self: Self, out: anytype) T {
             var t = self;
             defer t.release();
             if (canceledHere()) {
                 var result = t.stop();
                 if (comptime !fallible) return result;
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 return canceled_error;
             }
             var result: T = undefined;
@@ -138,16 +152,16 @@ pub fn Task(comptime T: type) type {
             }
             result = job.taken();
             if (comptime fallible) if (timed_out) {
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 return timeout_error;
             };
             // Canceled while it waited, even when the task ended before
             // the cancel could reach it.
             const passed_on = t.control.canceled.load(.acquire) or (if (mine) |c| c.load(.acquire) else false);
-            if (!passed_on) return result;
+            if (!passed_on) return keepResult(T, result, &t.control.err, out);
             markCanceled();
             if (comptime !fallible) return result;
-            dropElement(T, &result);
+            dropResult(T, &result, &t.control.err);
             return canceled_error;
         }
 
@@ -156,9 +170,19 @@ pub fn Task(comptime T: type) type {
         /// result when it ended first. Only a task that can fail is
         /// canceled; the checker rejects any other.
         pub fn cancel(self: Self) T {
+            return self.cancelWith(rt.no_slot);
+        }
+
+        /// `<t.cancel()` where the caller takes the failure's fields
+        /// into its slot `out`.
+        pub fn cancelInto(self: Self, out: rt.ErrSlot) T {
+            return self.cancelWith(out);
+        }
+
+        fn cancelWith(self: Self, out: anytype) T {
             var t = self;
             defer t.release();
-            return t.stop();
+            return keepResult(T, t.stop(), &t.control.err, out);
         }
 
         pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -170,7 +194,7 @@ pub fn Task(comptime T: type) type {
         pub fn __rig_drop(self: *Self) void {
             defer self.release();
             var result = if (fallible or canceledHere()) self.stop() else self.handle.result();
-            dropElement(T, &result);
+            dropResult(T, &result, &self.control.err);
         }
 
         /// Record the cancel, which ends a wait the task is in that a
@@ -184,6 +208,51 @@ pub fn Task(comptime T: type) type {
             self.handle.free();
         }
     };
+}
+
+/// Whether a function of type `F` takes the slot its failure's fields go
+/// in (`rt.ErrSlot`), as its last parameter: one that may fail with
+/// fields, in a program with error glue.
+fn takesSlot(comptime F: type) bool {
+    if (comptime rt.error_glue == null) return false;
+    const info = switch (@typeInfo(F)) {
+        .@"fn" => |f| f,
+        .pointer => |p| switch (@typeInfo(p.child)) {
+            .@"fn" => |f| f,
+            else => return false,
+        },
+        else => return false,
+    };
+    if (info.param_types.len == 0) return false;
+    const last = info.param_types[info.param_types.len - 1] orelse return false;
+    return last == rt.ErrSlot;
+}
+
+/// Drop `result`, a task's: its value, or its failure's fields, which
+/// `data` holds.
+fn dropResult(comptime T: type, result: *T, data: *rt.ErrData) void {
+    if (comptime @typeInfo(T) == .error_union) {
+        if (result.*) |_| {} else |err| return rt.dropErrorData(err, data);
+    }
+    dropElement(T, result);
+}
+
+/// `result`, a task's, as its waiter takes it: a failure's fields, which
+/// `data` holds, move into the waiter's slot `out`, or are dropped where
+/// the waiter has none.
+fn keepResult(comptime T: type, result: T, data: *rt.ErrData, out: anytype) T {
+    keepFailure(T, &result, data, out);
+    return result;
+}
+
+/// `keepResult`'s part for a failure: its fields, which `data` holds, move
+/// into `out`, or are dropped where there is none.
+fn keepFailure(comptime T: type, result: *const T, data: *rt.ErrData, out: anytype) void {
+    if (comptime @typeInfo(T) == .error_union) {
+        if (result.*) |_| {} else |err| {
+            if (comptime @TypeOf(out) == rt.ErrSlot) out.* = data.* else rt.dropErrorData(err, data);
+        }
+    }
 }
 
 /// How a task is held: its fiber's record, which keeps its result once
@@ -218,6 +287,10 @@ fn Handle(comptime T: type) type {
 /// `Wakeup` of what waits on it when it ends. Allocated outside the leak
 /// count, as the backend's own records are.
 pub const Control = struct {
+    /// The fields of the task's failure, which its call writes when it
+    /// takes a slot (`rt.ErrSlot`), until a waiter takes them or the
+    /// task's result is dropped.
+    err: rt.ErrData = undefined,
     canceled: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
     wakeup: std.atomic.Value(?*Wakeup) = .init(null),
@@ -329,6 +402,16 @@ fn TaskValues(comptime Tup: type) type {
 /// cancels the others: the call waits for them, drops what they gave,
 /// and fails with its error.
 pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
+    return waitTasksWith(tasks, rt.no_slot);
+}
+
+/// `task.all(...)` where the waiter takes the failure's fields into its
+/// slot `out`.
+pub fn waitTasksInto(tasks: anytype, out: rt.ErrSlot) TaskValues(@TypeOf(tasks)) {
+    return waitTasksWith(tasks, out);
+}
+
+fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
     const Tup = @TypeOf(tasks);
     const n = @typeInfo(Tup).@"struct".field_types.len;
     const Out = TaskValues(Tup);
@@ -366,6 +449,9 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
                 taken[i] = true;
                 left -= 1;
                 const result = ts[i].handle.result();
+                // The first failure's fields move out of its record before
+                // the record is freed.
+                keepFailure(@TypeOf(result), &result, &ts[i].control.err, out);
                 ts[i].release();
                 const R = @TypeOf(result);
                 if (@typeInfo(R) == .error_union) {
@@ -392,7 +478,7 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
     inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
     inline for (0..n) |i| if (!taken[i]) {
         var result = ts[i].handle.stopped();
-        dropElement(@TypeOf(result), &result);
+        dropResult(@TypeOf(result), &result, &ts[i].control.err);
         ts[i].release();
     };
     inline for (0..n) |i| if (got[i]) dropElement(@TypeOf(values[i]), &values[i]);
@@ -548,6 +634,16 @@ pub fn Tasks(comptime T: type) type {
         /// `>ts`: every result, in the order added; nothing for tasks that
         /// give none.
         pub fn wait_all(self: Self) All {
+            return self.waitAllWith(rt.no_slot);
+        }
+
+        /// `>ts` where the waiter takes the failure's fields into its slot
+        /// `out`.
+        pub fn wait_allInto(self: Self, out: rt.ErrSlot) All {
+            return self.waitAllWith(out);
+        }
+
+        fn waitAllWith(self: Self, out: anytype) All {
             var s = self;
             defer s.free();
             const n = s.items.items.len;
@@ -556,9 +652,9 @@ pub fn Tasks(comptime T: type) type {
                     for (s.items.items) |t| t.wait();
                     return;
                 }
-                var out = List(Value).initCapacity(@intCast(n));
-                for (s.items.items) |t| out.push(t.wait());
-                return out;
+                var values = List(Value).initCapacity(@intCast(n));
+                for (s.items.items) |t| values.push(t.wait());
+                return values;
             }
             const results = defaultAllocator().alloc(Value, n) catch oom();
             defer defaultAllocator().free(results);
@@ -578,6 +674,9 @@ pub fn Tasks(comptime T: type) type {
                     taken[i] = true;
                     left -= 1;
                     const result = t.handle.result();
+                    // Its failure's fields are taken from its record
+                    // before the record is freed.
+                    keepFailure(T, &result, &t.control.err, out);
                     t.release();
                     if (result) |v| {
                         results[i] = v;
@@ -599,13 +698,23 @@ pub fn Tasks(comptime T: type) type {
                 };
             }
             if (comptime Value == void) return;
-            var out = List(Value).initCapacity(@intCast(n));
-            for (results) |v| out.push(v);
-            return out;
+            var values = List(Value).initCapacity(@intCast(n));
+            for (results) |v| values.push(v);
+            return values;
         }
 
         /// `<ts.wait_first()`: the first result to succeed.
         pub fn wait_first(self: Self) T {
+            return self.waitFirstWith(rt.no_slot);
+        }
+
+        /// `<ts.wait_first()` where the waiter takes the last failure's
+        /// fields into its slot `out`.
+        pub fn wait_firstInto(self: Self, out: rt.ErrSlot) T {
+            return self.waitFirstWith(out);
+        }
+
+        fn waitFirstWith(self: Self, out: anytype) T {
             if (comptime !fallible) @compileError("rig: wait_first is only for a set that can fail");
             var s = self;
             defer s.free();
@@ -617,7 +726,10 @@ pub fn Tasks(comptime T: type) type {
             const untaken: Untaken = .{ .items = s.items.items, .taken = taken };
             const b = untaken.blocked();
             var left = n;
-            var last: Err = undefined;
+            // The last failure, with its fields: each one replaces the one
+            // before, whose fields are dropped.
+            var last: ?Err = null;
+            var last_data: rt.ErrData = undefined;
             while (true) {
                 const seen = s.wakeup.?.ticks.load(.seq_cst);
                 for (s.items.items, 0..) |*t, i| {
@@ -625,21 +737,30 @@ pub fn Tasks(comptime T: type) type {
                     taken[i] = true;
                     left -= 1;
                     const result = t.handle.result();
+                    if (result) |_| {} else |err| {
+                        if (last) |l| rt.dropErrorData(l, &last_data);
+                        last = err;
+                        last_data = t.control.err;
+                    }
                     t.release();
                     if (result) |v| {
+                        if (last) |l| rt.dropErrorData(l, &last_data);
                         s.stopUntaken(taken);
                         s.items.items.len = 0;
                         return v;
-                    } else |err| last = err;
+                    } else |_| {}
                 }
                 if (left == 0) {
                     s.items.items.len = 0;
-                    return last;
+                    const l = last.?;
+                    if (comptime @TypeOf(out) == rt.ErrSlot) out.* = last_data else rt.dropErrorData(l, &last_data);
+                    return l;
                 }
                 rt.sched.block(&b);
                 const slept = s.wakeup.?.sleep(seen);
                 rt.sched.unblock();
                 slept catch |err| {
+                    if (last) |l| rt.dropErrorData(l, &last_data);
                     s.stopUntaken(taken);
                     s.items.items.len = 0;
                     return err;
@@ -656,7 +777,7 @@ pub fn Tasks(comptime T: type) type {
             for (self.items.items, taken) |*t, k| {
                 if (k) continue;
                 var result = t.handle.stopped();
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 t.release();
             }
         }
@@ -684,7 +805,7 @@ pub fn Tasks(comptime T: type) type {
             }
             for (self.items.items) |*t| {
                 var result = if (fallible or canceledHere()) t.handle.stopped() else t.handle.result();
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 t.release();
             }
         }
@@ -718,10 +839,16 @@ const ParState = struct {
     chunk: usize,
     failed: std.atomic.Value(bool) = .init(false),
     failure: anyerror = undefined,
+    /// The first failure's fields.
+    failure_data: rt.ErrData = undefined,
 
-    /// Record `err`, unless a failure came first.
-    fn fail(self: *ParState, err: anyerror) void {
-        if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) self.failure = err;
+    /// Record `err`, with its fields in `data`, unless a failure came
+    /// first, whose fields are kept and these dropped.
+    fn fail(self: *ParState, err: anyerror, data: *rt.ErrData) void {
+        if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
+            self.failure = err;
+            self.failure_data = data.*;
+        } else rt.dropErrorData(err, data);
     }
 };
 
@@ -734,6 +861,12 @@ const ParState = struct {
 /// to fail stops the tasks taking more and cancels them, and once all
 /// have ended, the run fails with its error.
 fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype) if (fallible) anyerror!void else void {
+    return parRunInto(fallible, n, limit, ctx, body, rt.no_slot);
+}
+
+/// `parRun` where the run's failure's fields go into the caller's slot
+/// `out`, or are dropped where it has none.
+fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime body: anytype, out: anytype) if (fallible) anyerror!void else void {
     if (n == 0) return;
     const workers: usize = if (rt.scheduled) rt.sched.workersRunning() else 1;
     // Deterministic, on one thread, the elements are still split among
@@ -741,7 +874,15 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
     const want: usize = if (limit > 0) @intCast(limit) else if (rt.sched.deterministic) 4 else workers;
     const count = @min(want, n);
     const chunk = @max(1, n / (count * 8));
-    if (count <= 1 or chunk >= n) return body(ctx, 0, n);
+    if (count <= 1 or chunk >= n) {
+        if (comptime !fallible) return body(ctx, 0, n);
+        var slot: rt.ErrData = undefined;
+        callChunk(body, ctx, 0, n, &slot) catch |err| {
+            if (comptime @TypeOf(out) == rt.ErrSlot) out.* = slot else rt.dropErrorData(err, &slot);
+            return err;
+        };
+        return;
+    }
     var state: ParState = .{ .n = n, .chunk = chunk };
     const Ctx = @TypeOf(ctx);
     const Worker = struct {
@@ -751,7 +892,10 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
                 if (lo >= s.n) return;
                 const hi = @min(lo + s.chunk, s.n);
                 if (comptime fallible) {
-                    body(c, lo, hi) catch |err| return s.fail(err);
+                    // Each chunk fails into a slot of its own, which the
+                    // run keeps if it fails first.
+                    var slot: rt.ErrData = undefined;
+                    callChunk(body, c, lo, hi, &slot) catch |err| return s.fail(err, &slot);
                 } else body(c, lo, hi);
             }
         }
@@ -762,7 +906,17 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
     Worker.run(&state, ctx);
     if (fallible and state.failed.load(.acquire)) for (helpers) |t| t.control.cancel();
     for (helpers) |t| t.wait();
-    if (comptime fallible) if (state.failed.load(.acquire)) return state.failure;
+    if (comptime fallible) if (state.failed.load(.acquire)) {
+        if (comptime @TypeOf(out) == rt.ErrSlot) out.* = state.failure_data else rt.dropErrorData(state.failure, &state.failure_data);
+        return state.failure;
+    };
+}
+
+/// `body(ctx, lo, hi)`, a chunk of a `par` run, given `slot` for its
+/// failure's fields when it takes one.
+fn callChunk(comptime body: anytype, ctx: anytype, lo: usize, hi: usize, slot: rt.ErrSlot) anyerror!void {
+    if (comptime takesSlot(@TypeOf(body))) return body(ctx, lo, hi, slot);
+    return body(ctx, lo, hi);
 }
 
 /// `par.map(?xs, f, limit: n)`: a List of `f(x)` for each element `x` of
@@ -2135,4 +2289,120 @@ test "a task given what crosses cores runs anywhere, and a local task and its ma
     try std.testing.expect(!Run.maker_pinned_before);
     try std.testing.expect(Run.local_pinned);
     try std.testing.expect(Run.maker_pinned_after);
+}
+
+test "a task's failure data moves to the waiter's slot, and is dropped wherever it is discarded" {
+    const builtin = @import("builtin");
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const G = rt.TestErrorGlue;
+    const Run = struct {
+        var kept: u8 = 0;
+        var drops_after_into: usize = 0;
+        var drops_after_wait: usize = 0;
+        var drops_after_cancel: usize = 0;
+        var drops_after_drop: usize = 0;
+        fn fails(out: rt.ErrSlot) anyerror!i64 {
+            out.bytes[0] = 7;
+            return error.WithData;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            G.drops.store(0, .seq_cst);
+            var slot: rt.ErrData = undefined;
+            const a = Task(anyerror!i64).spawn(fails, .{});
+            if (a.waitInto(&slot)) |_| {} else |_| kept = slot.bytes[0];
+            drops_after_into = G.drops.load(.seq_cst);
+            const b = Task(anyerror!i64).spawn(fails, .{});
+            _ = b.wait() catch {};
+            drops_after_wait = G.drops.load(.seq_cst);
+            const c = Task(anyerror!i64).spawn(fails, .{});
+            _ = c.cancel() catch {};
+            drops_after_cancel = G.drops.load(.seq_cst);
+            var d = Task(anyerror!i64).spawn(fails, .{});
+            d.__rig_drop();
+            drops_after_drop = G.drops.load(.seq_cst);
+        }
+    };
+    rt.sched.runForTest(Run.first, 2);
+    try std.testing.expectEqual(@as(u8, 7), Run.kept);
+    try std.testing.expectEqual(@as(usize, 0), Run.drops_after_into);
+    try std.testing.expectEqual(@as(usize, 1), Run.drops_after_wait);
+    try std.testing.expectEqual(@as(usize, 2), Run.drops_after_cancel);
+    try std.testing.expectEqual(@as(usize, 3), Run.drops_after_drop);
+}
+
+test "a set of tasks keeps the failure it gives and drops every other one's data" {
+    const builtin = @import("builtin");
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const G = rt.TestErrorGlue;
+    const Run = struct {
+        var all_kept: u8 = 0;
+        var first_kept: u8 = 0;
+        var drops_after_all: usize = 0;
+        var drops_after_first: usize = 0;
+        var drops_after_drop: usize = 0;
+        fn fails(n: u8, out: rt.ErrSlot) anyerror!i64 {
+            out.bytes[0] = n;
+            return error.WithData;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            G.drops.store(0, .seq_cst);
+            var slot: rt.ErrData = undefined;
+            var a: Tasks(anyerror!i64) = .{};
+            a.add(Task(anyerror!i64).spawn(fails, .{5}));
+            if (a.wait_allInto(&slot)) |l| {
+                var v = l;
+                v.__rig_drop();
+            } else |_| all_kept = slot.bytes[0];
+            drops_after_all = G.drops.load(.seq_cst);
+            var b: Tasks(anyerror!i64) = .{};
+            b.add(Task(anyerror!i64).spawn(fails, .{1}));
+            b.add(Task(anyerror!i64).spawn(fails, .{2}));
+            if (b.wait_firstInto(&slot)) |_| {} else |_| first_kept = slot.bytes[0];
+            drops_after_first = G.drops.load(.seq_cst);
+            var c: Tasks(anyerror!i64) = .{};
+            c.add(Task(anyerror!i64).spawn(fails, .{3}));
+            c.add(Task(anyerror!i64).spawn(fails, .{4}));
+            c.__rig_drop();
+            drops_after_drop = G.drops.load(.seq_cst);
+        }
+    };
+    rt.sched.runForTest(Run.first, 2);
+    try std.testing.expectEqual(@as(u8, 5), Run.all_kept);
+    try std.testing.expectEqual(@as(usize, 0), Run.drops_after_all);
+    try std.testing.expect(Run.first_kept == 1 or Run.first_kept == 2);
+    try std.testing.expectEqual(@as(usize, 1), Run.drops_after_first);
+    try std.testing.expectEqual(@as(usize, 3), Run.drops_after_drop);
+}
+
+test "a par run keeps its first chunk's failure data and drops every later one's" {
+    const builtin = @import("builtin");
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const G = rt.TestErrorGlue;
+    const Run = struct {
+        var kept: u8 = 0;
+        var failed = false;
+        var drops: usize = 0;
+        var calls: std.atomic.Value(usize) = .init(0);
+        const Ctx = struct {};
+        fn chunk(_: *const Ctx, lo: usize, _: usize, out: rt.ErrSlot) anyerror!void {
+            _ = calls.fetchAdd(1, .seq_cst);
+            out.bytes[0] = @intCast(lo + 1);
+            return error.WithData;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            G.drops.store(0, .seq_cst);
+            const ctx: Ctx = .{};
+            var slot: rt.ErrData = undefined;
+            parRunInto(true, 64, 4, &ctx, chunk, &slot) catch {
+                failed = true;
+                kept = slot.bytes[0];
+            };
+            drops = G.drops.load(.seq_cst);
+        }
+    };
+    rt.sched.runForTest(Run.first, 4);
+    try std.testing.expect(Run.failed);
+    try std.testing.expect(Run.kept >= 1);
+    // Every chunk that ran failed: one was kept, the rest dropped.
+    try std.testing.expectEqual(Run.calls.load(.seq_cst) - 1, Run.drops);
 }

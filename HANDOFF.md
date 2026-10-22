@@ -33,27 +33,25 @@ newest entry summarizes the latest rounds.
 - **Health:** the bar for landing is a green full run on `main`: the
   full suite (`swarm test/rig.rip all`, with the doc examples, their
   pending examples the planned Core rules), `test/matrix.py`, the unit
-  tests, and the oracle floors in `test/oracle/coverage`. No case is
-  marked `known: true`: no bug is open.
+  tests, and the oracle floors in `test/oracle/coverage`. A change to
+  the compiler, the runtime, or std also passes Trig's light gate before
+  it merges: Trig's release build, and its six projects run five ways,
+  byte-identical to `main`; Trig's full suites run on `main` every few
+  hours or on demand. No case is marked `known: true`: no bug is open.
 
 ## In flight
 
-- **Declared error sets** (#542, branch `errsets`): round R2 of errors
-  with data (`-> T!E`, `error L = A | B`, `catch |e|` typed by the
-  callee's set), from the approved spec (docs/history/records/revamp/r3/errors-panel/).
-  Its review found eight programs that check and then fail in Zig or
-  leak; all are fixed, each with a case (review in
-  docs/history/records/2026-10/errors-r2/), and a second round of such
-  findings stops it for redesign. Then Trig's build, and the owner's
-  names for std's I/O unions.
-- **Map and Set probes without tests:** the checks inside the built-in
-  Map and Set, 17% of Trig's check cost, measured first.
+- **Errors with data,** from the approved spec
+  (docs/history/records/revamp/r3/errors-panel/): on `main` are declared
+  error sets (R2, #542), clones across modules and Map's `+` (#548), the
+  runtime's error-data plumbing (R3a, #550), and CORE's paragraph "A
+  failure moves its error", revised by a panel of four
+  (docs/history/records/2026-10/errors-core/). Next are R3 (fields,
+  with the sites R3a left to it: a failure through a function value),
+  R4 (std.json), and R2.5 (generic sets).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
-  without a test made ts-pattern 3.1% faster.
-- **Each worker on cache lines of its own** (#552, branch
-  `sched-align`): `yield` back below its pre-#541 time on the Mac and
-  pup, nothing else slower (docs/history/records/2026-10/scheduler/align.md);
-  then Trig's light gate.
+  without a test, measured in a stand-in build, made ts-pattern about 3%
+  faster.
 
 ## Next, in order
 
@@ -80,7 +78,11 @@ uses about 1.7x less memory. In the owner's order:
    `if !@slots[j] as s` cannot be returned `from @`, though the read
    form can; and an object's field cannot be moved out of it alone (no
    partial moves). Together they keep a Map slot at 40 bytes rather
-   than 24 (backlog, "The Map's entries in its table slots").
+   than 24 (backlog, "The Map's entries in its table slots"). The same
+   first limit keeps `find` from handing back the entry, which is what
+   the rest of Map's and Set's checks wait on: a 1.3-1.9% ceiling on
+   ts-pattern; proving their probe indexes alone gained nothing
+   (docs/history/records/2026-10/safety-checks/len-and-map-notes.md).
 
 Measured and set aside: lazy member tables (symbols are about a tenth
 of Trig's heap), prefault for every heap with tasks (no gain, 8-15%

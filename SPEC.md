@@ -5664,13 +5664,13 @@ fun first(o: Int?) -> Int?
 ### Clone
 
 `+x` makes a new owner. For a shared or weak handle it bumps the
-count; for plain data it copies; for a String, a List, a box, an
-optional, an array, or an object or enum declared in the module that
-holds them, it clones each part the same way: a String's bytes and a
-List's elements are copied, a box's value is boxed again, and a handle
-inside is counted again (a deep copy). A type with a `drop` body, a
-unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
-and a type imported from another module have no clone. `+p.a` clones
+count; for plain data it copies; for a String, a List, a Map, a Set, a
+box, an optional, an array, or an object or enum of any module, it
+clones each part the same way: a String's bytes and a List's elements
+are copied, a box's value is boxed again, and a handle inside is
+counted again (a deep copy). A type with a `drop` body, a unique type
+(one holding a `Cell`, or declared `unique`), and a `Signal` have no
+clone. `+p.a` clones
 the value in a field, and `+v[i]` an element.
 `+e` only reads `e`: a value made there (`+make()`) is a temporary its
 statement drops, and `+(a if c else b)` reads `a` or `b` where it is.
@@ -9497,12 +9497,14 @@ fun find(n: Int) -> Int!
 
 ### Naming the error
 
-`f() catch |err| handler` names the error for the handler. Functions do
-not declare which errors they fail with, so `err` may be any error: its
-type is `error` ([Any error](#any-error)). It is compared with
-error-set members (`err == E.name`), matched by them (`E.name =>`,
-with a `_` arm, since no arms name every error), printed, and returned
-from a fallible function. It is the handler's own: `<err` or `return
+`f() catch |err| handler` names the error for the handler. Its type is
+the set `f` declares ([Declared sets and fields](#declared-sets-and-fields)):
+`-> T!E` gives `err` the type `E`, and a `match` that names every
+member of `E` needs no `_`. A function declared `-> T!` may fail with
+any error, so `err` then has the type `error` ([Any error](#any-error)),
+and a `match` on it ends with a `_` arm. `err` is compared with
+error-set members (`err == E.name`), matched by them (`E.name =>`),
+printed, and returned from a fallible function. It is the handler's own: `<err` or `return
 err` moves it on, and `+err` clones it. The handler may be a block.
 
 An error is its set's member: a failure with `Net.timeout` is not
@@ -11091,6 +11093,7 @@ thread.
 | `!T` | when `T` moves | never |
 | `Task[T]` | when `T` moves | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
+| `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
 | any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`; a callable view `?fun`; an owned closure `*fun` or `~fun` | never | never |
 
@@ -11480,6 +11483,66 @@ sub main()!
 ```output
 10
 true
+```
+
+### Frozen values
+
+`*Frozen(x)` moves `x` behind a shared handle counted atomically, as
+an actor's is, and freezes it: nothing changes it again. Many tasks
+read one value this way with no copy, where a plain `*T` stays with its
+task and a value given to each task is copied for each. What a frozen
+value holds never changes, so it holds plain data, owners, `String`s,
+`List`s, objects and enums of such, and other frozen values, but no
+`Cell`, `Signal`, `*Actor`, `*Chan`, other `*T` or `~T`, task,
+closure, or view. `Frozen[T]` is checked where it is written, and a
+generic parameter in each instance that freezes it. A frozen value
+lives only behind `*`: `Frozen[T]` is never a field, parameter,
+element, or type argument by value.
+
+- Fields, read methods, and elements are reached through the handle,
+  `f.title`, `f.get()`, `f[0]`, as through any `*T`, and nothing writes
+  through it; `?f` lends the frozen value as a `?T`.
+- `+f` adds a handle, in one atomic step; the last one dropped, on
+  whichever task drops it, drops the value.
+- The handles move and share: they go to any task, by value, through a
+  view, in a field, or through a channel, and never make a task local.
+- They compare and hash as the value they reach, so `*Frozen[String]`
+  keys a Map; no other handle has `==`.
+- A frozen value has no weak handle, and is never frozen again: `+f`
+  shares it.
+
+```rig
+obj Page
+  title: String
+  hits: Int
+
+fun title_len(p: *Frozen[Page]) -> Int
+  p.title.len
+
+sub main()
+  p = *Frozen(Page(title: String("home"), hits: 3))
+  a = title_len(+p)&
+  b = title_len(+p)&
+  print(>a + >b, p.hits)
+  q = *Frozen(Page(title: String("home"), hits: 3))
+  print(p == q)
+```
+
+```output
+8 3
+true
+```
+
+```rig reject
+obj Counter
+  hits: *Cell[Int]
+
+sub main()
+  c = *Frozen(Counter(hits: *Cell(0)))
+```
+
+```error
+a frozen value holds only data that never changes, and `Counter` holds `*Cell[Int]`
 ```
 
 ### Each element on several tasks

@@ -433,3 +433,15 @@ code "table a match subject is reached read-only", "w.constSlot(ws)", /^(?![\s\S
     "ab" => 1
     x => x.len
   print(c)
+
+test "table of an object with an empty method", "true 0"
+  # A method named like a runtime name is the object's own.
+  obj Bag
+    xs: List[Int] = List()
+
+    fun empty(?@) -> Bool
+      @xs.len == 0
+
+  t: Table[Bag, 4] = Table()
+  s: Slot[4] = 3
+  print(t[s].empty(), t[s].xs.len)

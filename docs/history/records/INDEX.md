@@ -20,13 +20,18 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Closure field-path captures (#539) | `\|?@template\|` captures one field | [functions/closure-path-captures.approved.md](2026-10/functions/closure-path-captures.approved.md) |
 | Lazy member tables | built in Trig, measured small (symbols are about a tenth of the heap), removed | [lazy-members/](2026-10/lazy-members/) |
 | Safety checks | every check removed is worth 11.2% on ts-pattern; index tests 8.0%; by site and family | [safety-checks/](2026-10/safety-checks/) |
-| Map and Set internal checks | a 1.3-1.9% ceiling on ts-pattern; the restructure that let proofs cover the probes gained nothing (+0.2%), so it was not landed; the rest needs a typed entry index or `find` returning the entry (an ownership-checker limit) | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md), [map-set-patches/](2026-10/safety-checks/map-set-patches/) |
-| List length invariant (#538) | a List's length is below 2^62 by construction, so reading it makes no test: Trig 1.4-2.9% faster | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md) |
-| Table and Slot (#536) | indexes with no bounds test; 3.1% on Trig's stores; two adversarial reviews | [table-slot/](2026-10/table-slot/) |
+| Map and Set internal checks | a 1.3-1.9% ceiling on ts-pattern; the restructure that let proofs cover the probes gained nothing (0.2% slower), so it was not landed; the rest needs a typed entry index or `find` returning the entry (an ownership-checker limit) | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md), [map-set-patches/](2026-10/safety-checks/map-set-patches/) |
+| List length invariant (#538) | a List's length is below 2^62 by construction, so reading it makes no test: Trig 0.8-2.9% faster | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md) |
+| Table and Slot (#536) | indexes with no bounds test; about 3% on Trig's stores in a stand-in build (store indexes treated as proven; Trig has not migrated yet); two adversarial reviews | [table-slot/](2026-10/table-slot/) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Memory: List growth slack | exact presizing saves 4% on Linux, nothing on the Mac; not pursued | [memory/](2026-10/memory/) |
+| Audit of #532-#547 | no test or oracle weakened; one memory hole from #532 (a closure literal to an actor's task) and three check-then-fail bugs fixed; headline numbers corrected to measured ranges | [audit/](2026-10/audit/) |
 | Declared error sets (R2, #542) | its first review, and its fixes | [errors-r2/](2026-10/errors-r2/) |
+| Clones across modules, and Map's `+` | its review: a nested generic hid a drop body, fixed | [clone/](2026-10/clone/) |
+| Error data in the runtime (R3a) | its design, and a review with no blocker | [errors-r3a/](2026-10/errors-r3a/) |
+| CORE's "A failure moves its error" | a panel of four, and the final text | [errors-core/](2026-10/errors-core/) |
+| Frozen values (`*Frozen[T]`) | a handle counted atomically for a value no one changes, read by many tasks; Rig's review | [frozen/](2026-10/frozen/) |
 
 ## Every record
 
@@ -36,10 +41,29 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [prefault-benches.log](2026-10/allocator-g9/prefault-benches.log)
 - [scale-e.txt](2026-10/allocator-g9/scale-e.txt)
 
+### 2026-10/clone/
+
+- [review-1.md](2026-10/clone/review-1.md): Review: clones across modules, and the fix of its finding
+
+### 2026-10/errors-core/
+
+- [final.md](2026-10/errors-core/final.md): the panel's result, and the final text's choices
+- [brief.md](2026-10/errors-core/brief.md), [expert-1-spec-author.md](2026-10/errors-core/expert-1-spec-author.md), [expert-2-ownership.md](2026-10/errors-core/expert-2-ownership.md), [expert-3-writer.md](2026-10/errors-core/expert-3-writer.md), [expert-4-core-purist.md](2026-10/errors-core/expert-4-core-purist.md)
+
+### 2026-10/errors-r3a/
+
+- [design.md](2026-10/errors-r3a/design.md): R3a, the runtime's error-data plumbing
+- [review-1.md](2026-10/errors-r3a/review-1.md): its review, and the resolution
+
 ### 2026-10/errors-r2/
 
 - [review-1.md](2026-10/errors-r2/review-1.md): Review: declared error sets (branch `errsets`, PR #542)
 - [review-1-fixes.md](2026-10/errors-r2/review-1-fixes.md): how each of review 1's findings was fixed
+
+### 2026-10/frozen/
+
+- [design.md](2026-10/frozen/design.md): `*Frozen[T]`: a value many tasks read
+- [review-1.md](2026-10/frozen/review-1.md): Review: `*Frozen[T]` (branch `frozen`), and its fixes
 
 ### 2026-10/functions/
 

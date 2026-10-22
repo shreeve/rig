@@ -6563,6 +6563,14 @@ fail "owned closure from function", "`*` makes an owned closure only from a clos
   f = |n: Int| n + 1
   b = *f
 
+fail "owned closure from function where one is expected", "5:24: `*` makes an owned closure only from a closure literal: `*|...| body`", errors: 1
+  # So also where the binding names the handle's type.
+  fun g(n: Int) -> Int
+    n + 1
+
+  h: *fun(Int) -> Int = *g
+  print(h(1))
+
 test "owned closure in generic", '''
   11
   hi

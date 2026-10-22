@@ -25,6 +25,7 @@ const tasks = @import("tasks.zig");
 pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
+pub const waitTasksInto = tasks.waitTasksInto;
 pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
@@ -76,6 +77,61 @@ pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f
     return @call(.auto, f, args);
 }
 pub const Stop = tasks.Stop;
+
+// Errors with data. A program in which a member with fields reaches
+// `error` declares `__rig_error_glue` in its root module: the size and
+// alignment of the program's largest member's fields, and functions that
+// drop and print a member's fields given its code. A failure is its Zig
+// error code and an `ErrData`, the bytes of its fields, which the code
+// says how to read. Every place the runtime keeps or discards a Rig
+// failure keeps or drops its data. With no glue, `ErrData` has no bytes
+// and every branch on it is dead at compile time, so a program none of
+// whose errors has fields runs as it would without any of this. The
+// runtime's own tests use `TestErrorGlue`, which counts what it drops.
+
+/// The program's error glue, if a member with fields reaches `error`.
+pub const error_glue: ?type = if (builtin.is_test) TestErrorGlue else if (@hasDecl(root, "__rig_error_glue")) root.__rig_error_glue else null;
+
+/// The bytes of a failure's fields: room for the program's largest
+/// member's, or none.
+pub const ErrData = extern struct {
+    bytes: [if (error_glue) |g| g.size else 0]u8 align(if (error_glue) |g| g.alignment else 1),
+};
+
+/// Where a function that may fail with fields writes them: the hidden
+/// last parameter emit gives it, a slot its catching frame owns.
+pub const ErrSlot = *ErrData;
+
+/// What a wait is given in place of an `ErrSlot` when no one takes the
+/// failure's fields: a compile-time choice, so a plain wait has no slot
+/// code at all, and the fields are dropped.
+pub const NoSlot = struct {};
+pub const no_slot: NoSlot = .{};
+
+/// Drop the fields of failure `code` held in `data`; nothing for a member
+/// without fields.
+pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
+    if (comptime error_glue) |g| g.drop(code, @ptrCast(data));
+}
+
+/// The glue of the runtime's tests: `error.WithData` carries 16 bytes,
+/// and each drop of them is counted.
+pub const TestErrorGlue = struct {
+    pub const size: usize = 16;
+    pub const alignment: usize = 8;
+    /// Counted from any thread: a test's tasks fail on several.
+    pub var drops: std.atomic.Value(usize) = .init(0);
+
+    pub fn drop(code: anyerror, data: *anyopaque) void {
+        _ = data;
+        if (code == error.WithData) _ = drops.fetchAdd(1, .seq_cst);
+    }
+
+    pub fn print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        _ = data;
+        try w.writeAll(@errorName(code));
+    }
+};
 const Control = tasks.Control;
 
 /// How many turns of a loop run between a task's yield checks (`turn`).
@@ -671,6 +727,9 @@ pub fn eql(a: anytype, b: anytype) bool {
     // other side counts as `some` at that level), and `none` equals only
     // `none`: a `String?` beside a `?String` compares the text.
     if (comptime A == @TypeOf(null) or B == @TypeOf(null)) return nullish(a) and nullish(b);
+    // A frozen value's handles compare what they reach (Rig gives no
+    // other handle `==`).
+    if (comptime isCountedPointer(A) and isCountedPointer(B)) return eql(a.value, b.value);
     // A view held as a pointer compares as the value it reaches.
     if (comptime isValuePointer(A)) return eql(a.*, b);
     if (comptime isValuePointer(B)) return eql(a, b.*);
@@ -701,6 +760,14 @@ pub fn eql(a: anytype, b: anytype) bool {
 fn isValuePointer(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .one and !isString(T) and !isStringView(T) and @typeInfo(p.child) != .@"fn",
+        else => false,
+    };
+}
+
+/// A handle `*T` to a counted allocation (`Counted`).
+fn isCountedPointer(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .one and @typeInfo(p.child) == .@"struct" and @hasDecl(p.child, "__rig_shared"),
         else => false,
     };
 }
@@ -765,6 +832,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
         },
         .pointer => |p| {
             if (comptime isStringView(T)) return std.mem.eql(u8, a, b);
+            if (comptime isCountedPointer(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
             if (comptime isScalar(p.child)) return std.mem.eql(p.child, a, b);
             if (a.len != b.len) return false;
@@ -812,6 +880,8 @@ pub fn hashAs(comptime T: type, x: T) u64 {
         .null => return hash_none,
         .pointer => |p| {
             if (comptime isStringView(T)) return hashBytes(x);
+            // A frozen value's handle hashes what it reaches.
+            if (comptime isCountedPointer(T)) return hashAs(@FieldType(p.child, "value"), x.value);
             if (p.size == .one) return hashAs(p.child, x.*);
             if (p.size != .slice) @compileError("rig.hash: no `.hash()` of " ++ @typeName(T));
             var h: u64 = hashInt(x.len);
@@ -1017,6 +1087,20 @@ fn synchronized(comptime T: type) bool {
 /// may be on other cores while a weak one is used here; dropping its
 /// value, one word, does nothing.
 pub fn Shared(comptime T: type) type {
+    return Counted(T, false);
+}
+
+/// The allocation behind `*Frozen[T]`: a `T` no one changes again, which
+/// any task reads, so its handles are counted atomically.
+pub fn Frozen(comptime T: type) type {
+    return Counted(T, true);
+}
+
+/// `Shared` and `Frozen`: a counted allocation whose counts are atomic
+/// when it is `always_atomic` (a frozen value's) or its `T` is
+/// `synchronized`. That is decided inside the type, when it is first
+/// used, so a `T` that holds a `*T` is complete by then.
+fn Counted(comptime T: type, comptime always_atomic: bool) type {
     return struct {
         strong: usize,
         weak: usize,
@@ -1026,7 +1110,7 @@ pub fn Shared(comptime T: type) type {
         pub const __rig_shared = {};
 
         const Self = @This();
-        const atomic_count = synchronized(T);
+        const atomic_count = always_atomic or synchronized(T);
 
         pub fn cloneStrong(self: *Self) *Self {
             if (atomic_count) {
@@ -1275,6 +1359,13 @@ pub fn discardAt(ptr: anytype) void {
 /// Allocate a new `*T` holding `value`.
 pub fn shared(value: anytype) *Shared(@TypeOf(value)) {
     const box = create(Shared(@TypeOf(value)));
+    box.* = .{ .strong = 1, .weak = 1, .value = value };
+    return box;
+}
+
+/// `*Frozen(value)`: the first handle to a frozen value.
+pub fn frozen(value: anytype) *Frozen(@TypeOf(value)) {
+    const box = create(Frozen(@TypeOf(value)));
     box.* = .{ .strong = 1, .weak = 1, .value = value };
     return box;
 }
@@ -1738,6 +1829,9 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         }
 
         pub const empty: Self = .{};
+        /// The value a table's slot starts as (`table.defaultOf`): a name
+        /// no Rig declaration can take, where `empty` could be a method.
+        pub const __rig_default: Self = .{};
 
         /// `List(capacity: n)`: an empty List with room for exactly `n`
         /// elements, one allocation of `n` slots, so a List made to its
@@ -2048,6 +2142,8 @@ pub const String = struct {
     pub const __rig_string = {};
 
     pub const empty: String = .{};
+    /// The value a table's slot starts as (`table.defaultOf`).
+    pub const __rig_default: String = .{};
 
     /// `String(a, b, ...)`.
     pub inline fn of(pieces: anytype) String {
@@ -5108,6 +5204,41 @@ pub fn failMain(err: anyerror) noreturn {
     std.process.exit(1);
 }
 
+/// A failure leaving `main` or a test with its fields in `data`: shown as
+/// `error: Set.member(field: value, ...)` (the glue's `print`), then its
+/// fields dropped, before the leak check runs, so the fields are never
+/// reported as leaked. A cancel an interrupt sent shows nothing. Emit
+/// calls it once the failure has left `main`'s body and the body's drops
+/// and defers have run, before the leak check; then `failMainReported`.
+pub fn reportFailure(err: anyerror, data: *ErrData) void {
+    defer dropErrorData(err, data);
+    if (err == error.@"std.task.Stop.canceled") if (interruptedBy() != null) return;
+    lockOutput();
+    defer unlockOutput();
+    flushQuietly();
+    var buf: [256]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    showFailure(err, data, &ls.file_writer.interface);
+}
+
+/// `error: ` and failure `err` with its fields in `data`, as the
+/// program's glue prints them, on a line of `w`.
+fn showFailure(err: anyerror, data: *const ErrData, w: *std.Io.Writer) void {
+    w.writeAll("error: ") catch {};
+    if (error_glue) |g| g.print(err, @ptrCast(data), w) catch {} else w.writeAll(errorShown(err)) catch {};
+    w.writeAll("\n") catch {};
+    w.flush() catch {};
+}
+
+/// A failure `reportFailure` showed leaves the program: exit 1, or end
+/// as the interrupt that canceled `main` does.
+pub fn failMainReported(err: anyerror) noreturn {
+    @branchHint(.cold);
+    if (err == error.@"std.task.Stop.canceled") if (interruptedBy()) |sig| endBy(sig);
+    std.process.exit(1);
+}
+
 // Interrupts. A `main` that can fail declares `__rig_interrupt` in the
 // root module, and an interrupt (SIGINT) or a request to end (SIGTERM)
 // cancels it: it fails with `task.Stop.canceled` at its next fallible
@@ -7088,4 +7219,19 @@ test "index bounds and division" {
     try testing.expectEqual('b', at(@as([]const u8, "abc"), @as(i64, 1)));
     try testing.expectEqual(2.5, div(@as(f64, 5), 2));
     try testing.expectEqual(-2, div(@as(i64, -5), 2));
+}
+
+test "a failure leaving main is shown through the glue, and its fields dropped" {
+    // Compiled here, as R3's emit will call them.
+    _ = &reportFailure;
+    _ = &failMainReported;
+    TestErrorGlue.drops.store(0, .seq_cst);
+    var data: ErrData = undefined;
+    var buf: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    showFailure(error.WithData, &data, &w);
+    try std.testing.expectEqualStrings("error: WithData\n", w.buffered());
+    dropErrorData(error.WithData, &data);
+    dropErrorData(error.Plain, &data);
+    try std.testing.expectEqual(@as(usize, 1), TestErrorGlue.drops.load(.seq_cst));
 }

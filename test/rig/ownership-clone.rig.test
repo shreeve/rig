@@ -1,0 +1,137 @@
+# ownership: `+x` of a type declared in another module, and of the
+# built-in Map and Set, which clone part by part (Core sentence 2).
+
+test "another module's object clones part by part", "a ab 1"
+  use lib
+
+  sub main()
+    a = lib.Box2(name: String("a"))
+    !a.tags.push(String("t"))
+    b = +a
+    !b.name.push("b")
+    print(a.name, b.name, b.tags.len)
+
+  file "lib.rig"
+    pub obj Box2
+      pub name: String
+      pub tags: List[String] = List()
+
+test "another module's generic and recursive types clone", '''
+  w
+  1 2
+'''
+  use lib
+
+  sub main()
+    w = lib.Wrap[String](item: String("w"))
+    w2 = +w
+    print(w2.item)
+    n = lib.Node(n: 1, next: ^lib.Node(n: 2, next: none))
+    n2 = +n
+    if n2.next as nx
+      print(n2.n, nx.n)
+
+  file "lib.rig"
+    pub obj Wrap[T]
+      pub item: T
+
+    pub obj Node
+      pub n: Int
+      pub next: ^Node?
+
+test "a Map and a Set clone, and the clones are their own", '''
+  1 2
+  1 2
+  2
+'''
+  m: Map[String, Int] = Map()
+  !m.put(String("x"), 1)
+  m2 = +m
+  !m2.put(String("y"), 2)
+  print(m.len, m2.len)
+  s: Set[String] = Set()
+  !s.add(String("k"))
+  s2 = +s
+  !s2.add(String("j"))
+  print(s.len, s2.len)
+  mm: Map[Int, Map[String, Int]] = Map()
+  !mm.put(1, +m)
+  !mm.put(2, +m2)
+  mm2 = +mm
+  print(mm2.len)
+
+fail "another module's type with a drop body has no clone", "`+x` cannot clone a `lib.Res`: a value with a `drop` body, or holding a Signal or a write view, has no clone; move it with `<x`, or lend it"
+  use lib
+
+  sub main()
+    r = lib.Res(id: 1)
+    r2 = +r
+    print(r2.id)
+
+  file "lib.rig"
+    pub obj Res
+      pub id: Int
+      drop(!@)
+        print("drop", @id)
+
+fail "another module's unique type has no clone", "`+x` cannot clone a `lib.Once`: it is unique, and a copy would duplicate it; move it with `<x`"
+  use lib
+
+  sub main()
+    o = lib.Once(n: 1)
+    o2 = +o
+    print(o2.n)
+
+  file "lib.rig"
+    pub obj Once unique
+      pub n: Int
+
+fail "a Map of values with no clone has no clone", "has no clone"
+  use lib
+
+  sub main()
+    m: Map[Int, lib.Res] = Map()
+    m2 = +m
+    print(m2.len)
+
+  file "lib.rig"
+    pub obj Res
+      pub id: Int
+      drop(!@)
+        print("drop", @id)
+
+fail "a Map of Maps of values with no clone has no clone", "has no clone"
+  # The inner Map is the same generic reached again: its arguments are
+  # checked too.
+  obj Res
+    id: Int
+    drop(!@)
+      print("drop", @id)
+
+  m: Map[Int, Map[Int, Res]] = Map()
+  m2 = +m
+  print(m2.len)
+
+fail "a generic of itself over a value with no clone has no clone", "has no clone"
+  obj Res
+    id: Int
+    drop(!@)
+      print("drop", @id)
+
+  obj Wrap[T]
+    item: T
+
+  w = Wrap[Wrap[Res]](item: Wrap[Res](item: Res(id: 1)))
+  w2 = +w
+  print(w2.item.item.id)
+
+test "a recursive generic still clones", "1 2"
+  obj Node[T]
+    v: T
+    next: ^Node[T]?
+
+  n = Node[String](v: String("1"), next: ^Node[String](v: String("2"), next: none))
+  n2 = +n
+  if n2.next as nx
+    print(n2.v, nx.v)
+

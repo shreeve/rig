@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Clones across modules:** `+x` deep-copies an object or enum declared
+  in another module, part by part, as it does one of its own, and so a
+  `Map` or `Set` (built in, written in Rig) whose keys and values clone.
+  A type with a `drop` body, a unique type, and a `Signal` still have no
+  clone.
+
 - **Declared error sets:** a function may name the set it fails with,
   `-> T!E` or `sub f()!E`, and `T!` stays any error. `error L = A | B`
   names a union of sets. `catch |e|` gives `e` the callee's set, so a
@@ -86,6 +92,11 @@ changed the language since it:
 - **A closure never called is rejected:** alone on a line, discarded
   with `_ =`, or bound and never used, with one message; `_ = |x| ...`
   passed the checker and failed in the Zig it emitted.
+- **Frozen values:** `*Frozen(x)` puts a value that never changes again
+  behind a handle counted atomically, so many tasks read it with no
+  copy (Rust's `Arc`). It holds only data that never changes, reads as
+  the value through its handle, and compares and hashes as the value,
+  so it keys a Map (SPEC §18, "Frozen values").
 - **Owned closures:** `*fun` and `*sub` take and return anything a
   function's signature may hold: write and read views for the call,
   owners, and handles (docs/CORE.md §7). A temporary callee,
@@ -220,6 +231,11 @@ changed the language since it:
 - **A match on an element:** `match v[0]` with an arm that reads no
   binding, such as `_ => 1`, compiles for Lists and Tables, as a value
   and as a statement; it failed in the Zig it emitted.
+- **A closure literal given to an actor:** a method call through an
+  actor's handle, waited on or run as a task, rejects a closure literal
+  argument, as a task's call does: the actor runs it on a task of its
+  own while its captures live in the caller's statement. `*g` of a
+  function, where a `*fun` is expected, is rejected as `*g` alone is.
 - **Tables:** `Table[T, n]` holds `n` slots from the moment it is made,
   each `T()` until written, and a `Slot[n]` is a number below `n` that
   only `push`, `Slot[n].of(i)`, and a literal below `n` make, so `t[s]`
@@ -228,8 +244,10 @@ changed the language since it:
   slots with its own `mmap`, so untouched slots take no memory and the
   table never copies as it grows; other elements are made in every slot,
   up to 64 MiB. `Table()` is no field's default: a table is made where its
-  owner is. On Trig's stores, the same reads without a test made
-  ts-pattern 3.1% faster (docs/STD.md, "Table and Slot").
+  owner is. A measuring build of Trig whose store indexes were treated
+  as proven, a stand-in for tables, ran ts-pattern about 3% faster
+  (fastest of 10, 2.8% fewer cycles); Trig's stores move to tables in a
+  change of its own (docs/STD.md, "Table and Slot").
 - **Compile-time functions:** a `fun` with only a bracket parameter
   list, `fun cap[n: Int] -> Int`, runs in the checker, and its call
   `cap[8]` is a constant wherever one may stand: an expression, a module

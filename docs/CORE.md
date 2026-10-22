@@ -284,8 +284,7 @@ sub main()
 nowhere, so it drops now. `+x` is a copy, a count bump, or a deep
 copy, as the type says; a `unique` type or one with a `drop` body
 has none; `+s` of a `?String` is a new `String`. *(built;*
-a deep copy of a type declared in another module, or of one holding a
-`Signal`, is *planned*.*)*
+a deep copy of a type holding a `Signal` is *planned*.*)*
 
 ```rig
 obj File
@@ -324,7 +323,7 @@ pub obj Bag
   pub items: List[Int]
 ```
 
-```rig pending
+```rig
 use bag
 
 sub main()
@@ -726,10 +725,15 @@ you share is a `Cell`, and it changes only by a marked call: `!c.set(5)`.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. A `Cell` of one word may go to
-other tasks, each change landing at once. `Cell`, `Signal`, and owned
-closures are no-loan homes: they hold no view that carries a loan, so
-they keep text only as a `Static`; a `*T` carries the loans of what it
-holds. *(built)*
+other tasks, each change landing at once. A frozen value, `*Frozen(x)`,
+lives only behind `*`: never a local, parameter, element, or type
+argument by value. It holds only data that never changes: no `Cell`,
+`Signal`, task, closure, view, or handle but another frozen value's.
+So nothing it reaches ever changes, its handles are counted atomically
+and go to any task, and `?f` lends the frozen value as a `?T`.
+`Cell`, `Signal`, and owned closures are no-loan homes: they hold no
+view that carries a loan, so they keep text only as a `Static`; a `*T`
+carries the loans of what it holds. *(built)*
 
 ```rig
 sub main()
@@ -804,16 +808,28 @@ return Bad.oops
 ```
 
 **A failure moves its error.** An error set's member may carry fields,
-as an enum's variant does, but never a view, and every field clones.
-*(planned)* An error is plain or owning by the enum rule (§1), and
-`error`, which holds an error of any set, is owning. *(built)*
-`return E.name(...)` moves the error out of the function, `e!` passes
-the same error to the caller, and `catch |err|` makes it the handler's
-own binding, which drops when the handler ends unless the handler moves
-it on (`return err`, `<err`). *(built)* A `catch` that names no error
-drops it before its handler runs. *(planned)* Reading, matching,
-printing, storing, and cloning an error follow its type, as for any
-value. *(built)*
+as an enum's variant does. Each field's type holds no loan, holds no
+`*` or `~` handle anywhere inside it, and clones (sentence 2), so an
+error never limits an owner, goes to any task, always has a `+`, and
+drops without running a `drop` body. *(planned)* An error is plain or
+owning by the enum rule (§1), and `error`, which holds an error of any
+set, is owning. *(built)* Each fallible call is lent, to write, a
+hidden `E?` of its statement, `E` the call's set, empty until the call
+fails; the `!` or `catch` that every fallible call carries (sentence 10)
+is that lend's mark, and since an error holds no loan, the call keeps
+nothing there and its result views none of it (sentence 7). *(planned)*
+A failing `return` stores the error it made through its function's
+view and leaves, before the scopes it leaves end. On a failure the
+caller takes the error out with `<` (§5): `e!` returns it, the same
+error, to its own caller, and `catch |err|` makes it the handler's own
+binding, which drops when the handler ends unless the handler moves it
+on (`return err`, `<err`). *(built)* A `catch` that binds no name, or
+`_`, takes it nowhere, a statement `<`, so it drops before its handler
+runs. *(planned)* A task holds its call's error as it holds its result:
+`>t!` and `>t catch` take it as `>t` takes the result, and dropping the
+task drops it. *(built;* a task's error with fields is *planned.)*
+Reading, matching, printing, storing, and cloning an error follow its
+type, as for any value. *(built)*
 
 ```rig reject
 error E
@@ -864,6 +880,35 @@ sub main()
 ParseError.bad(pos: 0, msg: "not a digit: x1")
 at 0 not a digit: x1
 -2
+```
+
+```rig pending
+error Lookup
+  missing(names: List[?String])
+```
+
+```error
+an error's field never holds a loan: hold a `String` or a `Static`
+```
+
+```rig pending
+use std.task
+
+error E
+  bad(msg: String)
+
+error ES = E | task.Stop
+
+fun f() -> Int!ES
+  return E.bad(msg: String("never read"))
+
+sub main()
+  t = f()&
+  print("dropped")
+```
+
+```output
+dropped
 ```
 
 Only code inside `raw` may break these rules. *(built)*
@@ -1565,7 +1610,8 @@ sub main()
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may
 read and write what is live there; they never extend a loan past it.
-*(built)*
+No failure leaves one: a fallible call in it is caught there, so the
+error a failing scope is leaving with is never replaced. *(built)*
 
 ```rig
 sub main()
