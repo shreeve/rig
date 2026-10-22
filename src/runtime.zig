@@ -1794,6 +1794,9 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         }
 
         pub const empty: Self = .{};
+        /// The value a table's slot starts as (`table.defaultOf`): a name
+        /// no Rig declaration can take, where `empty` could be a method.
+        pub const __rig_default: Self = .{};
 
         /// `List(capacity: n)`: an empty List with room for exactly `n`
         /// elements, one allocation of `n` slots, so a List made to its
@@ -2104,6 +2107,8 @@ pub const String = struct {
     pub const __rig_string = {};
 
     pub const empty: String = .{};
+    /// The value a table's slot starts as (`table.defaultOf`).
+    pub const __rig_default: String = .{};
 
     /// `String(a, b, ...)`.
     pub inline fn of(pieces: anytype) String {

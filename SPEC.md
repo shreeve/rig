@@ -9497,12 +9497,14 @@ fun find(n: Int) -> Int!
 
 ### Naming the error
 
-`f() catch |err| handler` names the error for the handler. Functions do
-not declare which errors they fail with, so `err` may be any error: its
-type is `error` ([Any error](#any-error)). It is compared with
-error-set members (`err == E.name`), matched by them (`E.name =>`,
-with a `_` arm, since no arms name every error), printed, and returned
-from a fallible function. It is the handler's own: `<err` or `return
+`f() catch |err| handler` names the error for the handler. Its type is
+the set `f` declares ([Declared sets and fields](#declared-sets-and-fields)):
+`-> T!E` gives `err` the type `E`, and a `match` that names every
+member of `E` needs no `_`. A function declared `-> T!` may fail with
+any error, so `err` then has the type `error` ([Any error](#any-error)),
+and a `match` on it ends with a `_` arm. `err` is compared with
+error-set members (`err == E.name`), matched by them (`E.name =>`),
+printed, and returned from a fallible function. It is the handler's own: `<err` or `return
 err` moves it on, and `+err` clones it. The handler may be a block.
 
 An error is its set's member: a failure with `Net.timeout` is not
