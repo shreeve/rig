@@ -97,6 +97,11 @@ changed the language since it:
   copy (Rust's `Arc`). It holds only data that never changes, reads as
   the value through its handle, and compares and hashes as the value,
   so it keys a Map (SPEC §18, "Frozen values").
+- **One message for one mistake:** a closure that stores a view of one
+  field of a value into another (`|!p.a, ?p.b| !p.a.push(p.b)`) is
+  reported where the closure is made, not again in its body, and a
+  generic that names `*Frozen[T]` and freezes a `T` reports a bad
+  instance once.
 - **Owned closures:** `*fun` and `*sub` take and return anything a
   function's signature may hold: write and read views for the call,
   owners, and handles (docs/CORE.md §7). A temporary callee,
