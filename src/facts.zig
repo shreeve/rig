@@ -40,6 +40,7 @@ const SemContext = sema.SemContext;
 
 pub const TypeId = sema.TypeId;
 pub const SymbolId = sema.SymbolId;
+pub const MemberCompares = sema.MemberCompares;
 
 /// How a read binding of a write view is bound (`Facts.readsThroughWrite`).
 pub const ThroughWrite = enum { pointer, value };
@@ -440,6 +441,9 @@ pub const Facts = struct {
     }
     pub fn repoints(f: Facts, node: Sexp) bool {
         return f.c().repoints(node);
+    }
+    pub fn memberCompares(f: Facts, member: sema.Field) sema.MemberCompares {
+        return f.c().memberCompares(member);
     }
     pub fn isFailingLeaf(f: Facts, node: Sexp) bool {
         return f.c().isFailingLeaf(node);

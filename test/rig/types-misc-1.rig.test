@@ -2838,13 +2838,13 @@ test "error compare branch", '''
     one
     two
 
-  fun same(o: error?, b: error, a: error) -> Bool
-    (o ?? b) == a
+  fun same(o: error?, b: error) -> Bool
+    (o ?? b) == X.one
 
   fun pick(c: Bool, a: error, b: error) -> Bool
     (a if c else b) == X.one
 
-  print(same(none, X.one, X.one), same(X.two, X.one, X.one))
+  print(same(none, X.one), same(X.two, X.one))
   print(pick(true, X.one, X.two), pick(false, X.one, X.two))
 
 fail "error is a type", "3:5: `error` is a type, not a value"

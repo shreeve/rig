@@ -605,6 +605,179 @@ fail "a field moved before an `errdefer` reads it", "use of `s` after move"
   sub main()
     print(f() catch -1)
 
+test "two errors with fields compare, as their set's fields do", "true false true true"
+  error E
+    bad(msg: String)
+    plain
+
+  sub main()
+    x = E.bad(msg: String("a"))
+    y = E.bad(msg: String("a"))
+    z = E.bad(msg: String("b"))
+    print(x == y, x == z, x != z, x == E.bad(msg: String("a")))
+
+test "an error with fields keys a Set and a Map", "2 true true 1"
+  error E
+    bad(msg: String)
+    plain
+
+  sub main()
+    s = Set[E]()
+    !s.add(E.bad(msg: String("a")))
+    !s.add(E.bad(msg: String("a")))
+    !s.add(E.plain)
+    !s.add(E.plain)
+    m = Map[E, Int]()
+    !m.put(E.bad(msg: String("k")), 1)
+    print(s.len, s.has(E.plain), s.has(E.bad(msg: String("a"))), m.get(E.bad(msg: String("k"))) ?? -1)
+
+test "a match on an error made there runs it once", '''
+  mk 1
+  bad t
+'''
+  error E
+    bad(msg: String)
+    plain
+
+  fun mk(n: Int) -> E
+    print("mk", n)
+    return E.plain if n == 0
+    E.bad(msg: String("t"))
+
+  sub main()
+    match mk(1)
+      .bad(m) => print("bad", m)
+      .plain => print("plain")
+
+test "a view of an error with fields", '''
+  E.bad(msg: "held")
+  4
+'''
+  error E
+    bad(msg: String)
+    plain
+
+  fun show(e: ?E) -> Int
+    print(e)
+    match e
+      .bad(m) => m.len
+      .plain => 0
+
+  sub main()
+    x = E.bad(msg: String("held"))
+    print(show(?x))
+
+test "a catch in the arguments of a call that takes the slot", "0"
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n > 0
+    n
+
+  sub main()
+    print(f(f(1) catch 0) catch -1)
+
+test "a `T!` function passes on an error of a set without fields", "-1"
+  error E
+    bad(msg: String)
+
+  error M
+    plain
+
+  fun m(n: Int) -> Int!M
+    return M.plain if n > 0
+    n
+
+  fun g(n: Int) -> Int!
+    v = m(n) catch |e|
+      return e
+    v
+
+  sub main()
+    print(g(1) catch |e| (-1 if e == M.plain else -2))
+
+fail "two errors of any set compared whole", "an `error` may be of any set, and has no `==` of its own: match it, or compare it with a member (`e == E.name`)"
+  fun same(a: error, b: error) -> Bool
+    a == b
+
+  sub main()
+    pass
+
+fail "an error whose fields have no `==`", "`==` is not defined for `E`: field `bad.names` is a `List[Int]`, which has no `==`"
+  error E
+    bad(names: List[Int])
+
+  sub main()
+    x = E.bad(names: List[Int]())
+    y = E.bad(names: List[Int]())
+    print(x == y)
+
+test "a dotted member tests an error of a set, a union, or any set", '''
+  true false true
+  true false
+  0
+  false true true
+  false false
+  0
+'''
+  error E
+    bad(msg: String)
+    plain
+
+  error M
+    m
+
+  error L = E | M
+
+  fun f(n: Int) -> Int!L
+    return E.bad(msg: String("x")) if n == 1
+    return M.m if n == 2
+    n
+
+  fun g(n: Int) -> Int!
+    f(n)!
+
+  sub main()
+    for n in [1, 2]
+      v = f(n) catch |e|
+        print(e == .bad, e == .m, e != .plain)
+        0
+      w = g(n) catch |e|
+        print(e == .bad, e == .plain)
+        0
+      print(v + w)
+
+test "a function without fields lent where one with them goes", '''
+  -1
+  M.plain
+  -2
+'''
+  use std.time
+
+  error E
+    bad(msg: String)
+
+  error M
+    plain
+
+  fun m(n: Int) -> Int!M
+    return M.plain if n > 0
+    n
+
+  fun twice(h: ?fun(Int) -> Int!) -> Int!
+    h(1)! * 2
+
+  fun once() -> Int!
+    m(1)!
+
+  sub main()
+    print(twice(m) catch -1)
+    r = time.within(1000000000, once) catch |e|
+      print(e)
+      -2
+    print(r)
+
 fail "a field holding a loan", "an error's field never holds a loan: hold a `String` or a `Static`"
   error E
     bad(names: List[?String])

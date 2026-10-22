@@ -925,12 +925,8 @@ fn nodeKey(node: Sexp) ?NodeKey {
     return node.list.id;
 }
 
-/// The key of a node or a leaf: a list node by its id, a leaf by its
-/// place in the source, above every id.
-fn leafOrNodeKey(node: Sexp) ?u64 {
-    if (node == .src) return (@as(u64, 1) << 62) | node.src.pos;
-    return nodeKey(node) orelse null;
-}
+/// Whether an error member's fields compare with `==`, and hash.
+pub const MemberCompares = struct { eq: bool = false, hash: bool = false };
 
 /// The key of a node a fact is recorded for: a node the parser built.
 fn recordKey(node: Sexp) NodeKey {
@@ -1123,6 +1119,11 @@ pub const Facts = struct {
     /// `T!` goes (`SemContext.recordFailingLeaf`). Emit stores the fields
     /// of one with fields through the function's `__out`.
     failing_leaves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Whether the fields of each error-set member that has them compare
+    /// with `==` and hash, by the member's name in its declaration
+    /// (`SemContext.recordMemberCompares`): the program's glue compares
+    /// and hashes only those.
+    member_compares: std.AutoHashMapUnmanaged(u64, MemberCompares) = .empty,
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -2093,6 +2094,10 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         // A field a pattern leaves out shows as `-`.
         []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
         []const SetMember => for (v) |m| try w.print(" {s}.{s}", .{ try formatTypeIn(ctx, a, m.set), m.name }),
+        MemberCompares => {
+            if (v.eq) try w.writeAll(" eq");
+            if (v.hash) try w.writeAll(" hash");
+        },
         []const ArgSlot => for (v) |slot| switch (slot) {
             .arg => |i| try w.print(" arg{d}", .{i}),
             .default => try w.writeAll(" default"),
@@ -3165,12 +3170,20 @@ pub const SemContext = struct {
         return self.facts.set_pattern_members.get(nodeKey(node) orelse return null);
     }
 
+    pub fn recordMemberCompares(self: *SemContext, member: Field, compares: MemberCompares) !void {
+        try self.facts.member_compares.put(self.allocator, member.decl_pos, compares);
+    }
+
+    pub fn memberCompares(self: *const SemContext, member: Field) MemberCompares {
+        return self.facts.member_compares.get(member.decl_pos) orelse .{};
+    }
+
     pub fn recordFailingLeaf(self: *SemContext, node: Sexp) !void {
-        try self.facts.failing_leaves.put(self.allocator, leafOrNodeKey(node) orelse return, {});
+        try self.facts.failing_leaves.put(self.allocator, exprKey(node) orelse return, {});
     }
 
     pub fn isFailingLeaf(self: *const SemContext, node: Sexp) bool {
-        return self.facts.failing_leaves.contains(leafOrNodeKey(node) orelse return false);
+        return self.facts.failing_leaves.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordMemberTest(self: *SemContext, node: Sexp) !void {
@@ -6326,7 +6339,13 @@ const EquatableWalk = struct {
         const decl = nominalDecl(ctx, ty) orelse return null;
         if (isBuiltinGeneric(decl.ctx, decl.sym)) return .no_eq;
         const sym = decl.symbol();
-        if (sym.flags.error_set) return null;
+        // An error set compares by its member and the member's fields, as
+        // an enum does by its variant; a union, as the sets it joins.
+        if (sym.error_parts) |parts| {
+            if ((try self.visited.getOrPut(ctx.allocator, ty)).found_existing) return null;
+            for (parts) |part| try self.push(i, if (decl.module_id) |m| try importType(ctx, decl.ctx, part, m) else part, "");
+            return null;
+        }
         // A type that gives `==` or hashing its own meaning is compared or
         // hashed by its own method, whatever its fields; one with its own
         // `==` and no hash of its own has no hash by its fields.

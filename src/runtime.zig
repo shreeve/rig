@@ -157,9 +157,22 @@ pub const ErrorValue = struct {
     }
 
     pub fn eql(a: ErrorValue, b: ErrorValue) bool {
+        return __rig_own_eq(&a, &b);
+    }
+
+    /// `==`: the same member, with fields that compare equal.
+    pub fn __rig_own_eq(a: *const ErrorValue, b: *const ErrorValue) bool {
         if (a.code != b.code) return false;
         if (comptime error_glue) |g| return g.eql(a.code, &a.data, &b.data);
         return true;
+    }
+
+    /// The hash of the member and its fields, equal for values `==` calls
+    /// equal.
+    pub fn __rig_own_hash(self: *const ErrorValue) u64 {
+        const h = hashInt(@intFromError(self.code));
+        if (comptime error_glue) |g| return hashMix(h, g.hash(self.code, &self.data));
+        return h;
     }
 
     pub fn __rig_print(self: ErrorValue, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -248,6 +261,9 @@ pub fn ErrorGlueOps(comptime F: type) type {
         pub fn clone(src: *const ErrData, dst: *ErrData) void {
             @as(*F, @ptrCast(@alignCast(dst))).* = cloneValue(@as(*const F, @ptrCast(@alignCast(src))));
         }
+        pub fn hash(data: *const ErrData) u64 {
+            return hashAs(F, @as(*const F, @ptrCast(@alignCast(data))).*);
+        }
         pub fn eqlFields(a: *const ErrData, b: *const ErrData) bool {
             return eql(@as(*const F, @ptrCast(@alignCast(a))).*, @as(*const F, @ptrCast(@alignCast(b))).*);
         }
@@ -287,6 +303,11 @@ pub const TestErrorGlue = struct {
     pub fn clone(code: anyerror, src: *const ErrData, dst: *ErrData) void {
         _ = code;
         dst.* = src.*;
+    }
+
+    pub fn hash(code: anyerror, data: *const ErrData) u64 {
+        _ = code;
+        return std.hash.Wyhash.hash(0, &data.bytes);
     }
 
     pub fn eql(code: anyerror, a: *const ErrData, b: *const ErrData) bool {
@@ -1812,13 +1833,23 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         const Self = @This();
         pub const Args = @Tuple(params);
 
+        /// The first `n` of `args`: all of them, or all but the slot a
+        /// function that fails without fields does not take, lent where
+        /// one that may fail with fields goes.
+        fn argsFor(comptime n: usize, args: Args) @Tuple(params[0..n]) {
+            var out: @Tuple(params[0..n]) = undefined;
+            inline for (0..n) |k| out[k] = args[k];
+            return out;
+        }
+
         /// Lend `env`, a stack closure's environment, whose `__rig_invoke`
         /// takes the parameters.
         pub fn of(comptime Env: type, env: *Env) Self {
+            const n = @typeInfo(@TypeOf(Env.__rig_invoke)).@"fn".param_types.len - 1;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const e: *Env = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, Env.__rig_invoke, .{e} ++ args);
+                    return @call(.auto, Env.__rig_invoke, .{e} ++ argsFor(n, args));
                 }
             };
             return .{ .ctx = env, .call_fn = thunk.call };
@@ -1828,10 +1859,11 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         pub fn ofFn(f: anytype) Self {
             if (@typeInfo(@TypeOf(f)) == .@"fn") return ofFn(&f);
             const F = @TypeOf(f);
+            const n = @typeInfo(@typeInfo(F).pointer.child).@"fn".param_types.len;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const g: F = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, g, args);
+                    return @call(.auto, g, argsFor(n, args));
                 }
             };
             return .{ .ctx = @ptrCast(@constCast(f)), .call_fn = thunk.call };
@@ -1842,10 +1874,11 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         pub fn ofClosure(handle: anytype) Self {
             const box = if (@typeInfo(@TypeOf(handle.*)) == .pointer) handle.* else handle;
             const C = @TypeOf(box.value);
+            const n = @typeInfo(C.Args).@"struct".field_types.len;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const c: *C = @ptrCast(@alignCast(ctx));
-                    return c.invoke(args);
+                    return c.invoke(argsFor(n, args));
                 }
             };
             return .{ .ctx = &box.value, .call_fn = thunk.call };

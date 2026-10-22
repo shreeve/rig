@@ -643,6 +643,12 @@ pub fn matchRereads(ctx: *const SemContext, match: Sexp) bool {
 }
 
 fn decideMatchRereads(ctx: *const SemContext, match: Sexp) bool {
+    // An error that may carry fields is switched on by its code, and read
+    // again for its fields.
+    if (matchedType(ctx, match)) |ty| {
+        const value = sema.unwrapViews(ctx, ty);
+        if (ctx.types.get(value) == .any_error or sema.setHasFields(ctx, value)) return true;
+    }
     const mode = matchMode(ctx, match);
     for (ir.Match.arms(match)) |arm| {
         const pattern = ir.Arm.pattern(arm);

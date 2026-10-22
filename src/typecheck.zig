@@ -627,6 +627,15 @@ const Checker = struct {
         const self_ty = try self.ctx.intern(.{ .nominal = sym });
         for (fields) |f| {
             if (!f.is_variant) continue;
+            // Whether the member's fields compare and hash, which the
+            // glue reads.
+            var compares: sema.MemberCompares = .{ .eq = true, .hash = true };
+            for (f.payload orelse &.{}) |p| {
+                if (self.isPoison(p.ty)) continue;
+                if (try sema.notEquatable(self.ctx, p.ty, null) != null) compares.eq = false;
+                if (try sema.notHashable(self.ctx, p.ty, null) != null) compares.hash = false;
+            }
+            if (f.payload != null and f.payload.?.len > 0) try self.ctx.recordMemberCompares(f, compares);
             for (f.payload orelse &.{}) |p| {
                 if (self.isPoison(p.ty)) continue;
                 const shown = try self.tyName(p.ty);
@@ -5413,6 +5422,20 @@ const Checker = struct {
             // with a payload too (SPEC §5, "Comparing").
             if (lit.isKind(.enum_lit) and !self.isPoison(reached)) {
                 const subject = sema.unwrapViews(self.ctx, if (self.ctx.types.get(reached) == .optional) self.ctx.types.get(reached).optional else reached);
+                // Beside an error that may carry fields, `.name` tests the
+                // member, of the one set the error may be that has it.
+                if (sema.setHasFields(self.ctx, subject) or (subject == self.t().any_error_id and sema.declaresErrorFields(self.ctx))) {
+                    const name = ir.EnumLit.name(lit);
+                    const set = if (sema.isErrorUnion(self.ctx, subject)) try self.unionMemberSet(subject, name) else if (subject == self.t().any_error_id) try self.resolveErrorName(name) else blk: {
+                        if ((try sema.lookupVariant(self.ctx, subject, self.text(name))) == null) {
+                            try self.reportMissingVariant(subject, self.text(name), srcPos(name, 0));
+                            break :blk self.t().invalid_id;
+                        }
+                        break :blk subject;
+                    };
+                    try self.ctx.recordType(lit, set);
+                    return self.t().bool_id;
+                }
                 if (sema.enumVariantCount(self.ctx, subject) != null and !sema.isErrorSet(self.ctx, subject)) {
                     if (try sema.lookupVariant(self.ctx, subject, self.text(ir.EnumLit.name(lit)))) |_| {
                         try self.ctx.recordType(lit, reached);
@@ -5513,6 +5536,15 @@ const Checker = struct {
         return self.t().bool_id;
     }
 
+    /// Whether `e` names an error member: `.name`, `E.name`, or one made
+    /// with its fields, `E.name(...)`.
+    fn namesErrorMember(self: *Checker, e: Sexp) bool {
+        if (e.isKind(.enum_lit) or self.ctx.isErrorMember(e)) return true;
+        if (!e.isKind(.call) or !ir.Call.callee(e).isKind(.member)) return false;
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return sema.isErrorSet(self.ctx, sema.unwrapViews(self.ctx, ty)) and self.ctx.typeOf(ir.Call.callee(e)) == null;
+    }
+
     /// `l == r` once both operands are typed, `a` and `b`.
     fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a: TypeId, b: TypeId, op: []const u8) Error!TypeId {
         if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
@@ -5558,10 +5590,27 @@ const Checker = struct {
             return self.t().bool_id;
         }
         // Any error compares with a member of any error set, and a union
-        // with a member of a set it joins.
+        // with a member of a set it joins: a bare member tests which
+        // member it is, one with fields compares them too. Two errors
+        // compare whole when their set has `==`, which `error`, of any
+        // set, has not.
         const any_err = self.t().any_error_id;
-        if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
-        if (sema.isErrorSet(self.ctx, a) and sema.isErrorSet(self.ctx, b) and (sema.errorSubset(self.ctx, a, b) or sema.errorSubset(self.ctx, b, a))) return self.t().bool_id;
+        const joined = sema.isErrorSet(self.ctx, a) and sema.isErrorSet(self.ctx, b) and (sema.errorSubset(self.ctx, a, b) or sema.errorSubset(self.ctx, b, a));
+        if (joined or (a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) {
+            for ([2]Sexp{ l, r }, [2]TypeId{ a, b }) |side, ty| if (self.namesErrorMember(side)) {
+                if (side.isKind(.call)) try self.checkEquatable(ty, side, op);
+                return self.t().bool_id;
+            };
+            if (a == any_err and b == any_err) {
+                try self.errAt(l, "an `error` may be of any set, and has no `{s}` of its own: match it, or compare it with a member (`e == E.name`)", .{op});
+                return self.t().bool_id;
+            }
+            // Beside `error`, the other's set decides; of two sets, the
+            // wider.
+            const set = if (a == any_err) b else if (b == any_err) a else if (sema.errorSubset(self.ctx, a, b)) b else a;
+            try self.checkEquatable(set, l, op);
+            return self.t().bool_id;
+        }
         // A String, boxed or not, compares with a `?String` or a String by
         // content.
         const string_ty = self.t().string_id;

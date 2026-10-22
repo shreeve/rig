@@ -80,7 +80,7 @@ pub const GlueModule = struct { facts: Facts, path: []const u8 };
 /// module re-exports it as `__rig_error_glue`.
 pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule, runtime_path: []const u8) !void {
     try w.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\n", .{runtime_path});
-    const Member = struct { module: usize, set: []const u8, name: []const u8, facts: Facts };
+    const Member = struct { module: usize, set: []const u8, name: []const u8, facts: Facts, compares: facts.MemberCompares };
     var members: std.ArrayList(Member) = .empty;
     for (mods, 0..) |m, i| {
         var used = false;
@@ -88,7 +88,7 @@ pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule
             if (!sym.flags.error_set or sym.error_parts != null or facts.syntax.isProxy(sym)) continue;
             for (sym.fields orelse &.{}) |f| {
                 if (!f.is_variant or f.payload == null or f.payload.?.len == 0) continue;
-                try members.append(a, .{ .module = i, .set = sym.name, .name = f.name, .facts = m.facts });
+                try members.append(a, .{ .module = i, .set = sym.name, .name = f.name, .facts = m.facts, .compares = m.facts.memberCompares(f) });
                 used = true;
             }
         }
@@ -101,15 +101,25 @@ pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule
         for (members.items) |m| try w.print(", @{s}(m{d}.{f})", .{ if (what[0] == 's') "sizeOf" else "alignOf", m.module, ident(try std.fmt.allocPrint(a, "{s}__{s}", .{ m.set, m.name })) });
         try w.writeAll(");\n");
     }
-    const ops = [_]struct { head: []const u8, call: []const u8, other: []const u8 }{
+    // `eql` and `hash` list only the members whose fields compare and
+    // hash; the checkers let no other reach them.
+    const Needs = enum { all, eq, hash };
+    // (`marks` keeps a parameter no listed member reads from being unused.)
+    const ops = [_]struct { head: []const u8, call: []const u8, other: []const u8, needs: Needs = .all, marks: []const u8 = "" }{
         .{ .head = "drop(code: anyerror, data: *rig.ErrData) void", .call = "drop(data)", .other = "{}" },
         .{ .head = "clone(code: anyerror, src: *const rig.ErrData, dst: *rig.ErrData) void", .call = "clone(src, dst)", .other = "{}" },
-        .{ .head = "eql(code: anyerror, a: *const rig.ErrData, b: *const rig.ErrData) bool", .call = "eqlFields(a, b)", .other = "true" },
+        .{ .head = "eql(code: anyerror, a: *const rig.ErrData, b: *const rig.ErrData) bool", .call = "eqlFields(a, b)", .other = "true", .needs = .eq, .marks = "_ = &a;\n        _ = &b;\n        " },
+        .{ .head = "hash(code: anyerror, data: *const rig.ErrData) u64", .call = "hash(data)", .other = "0", .needs = .hash, .marks = "_ = &data;\n        " },
         .{ .head = "print(code: anyerror, data: *const rig.ErrData, w: *std.Io.Writer) std.Io.Writer.Error!void", .call = "print(rig.errorShown(code), data, w)", .other = "w.writeAll(rig.errorShown(code))" },
     };
     for (ops) |op| {
-        try w.print("    pub fn {s} {{\n        switch (code) {{\n", .{op.head});
+        try w.print("    pub fn {s} {{\n        {s}switch (code) {{\n", .{ op.head, op.marks });
         for (members.items) |m| {
+            switch (op.needs) {
+                .all => {},
+                .eq => if (!m.compares.eq) continue,
+                .hash => if (!m.compares.hash) continue,
+            }
             try w.writeAll("            error.");
             try writeErrorName(w, m.facts, m.set, m.name);
             try w.print(" => return Ops(m{d}.{f}).{s},\n", .{ m.module, ident(try std.fmt.allocPrint(a, "{s}__{s}", .{ m.set, m.name })), op.call });
@@ -961,7 +971,11 @@ pub const Emitter = struct {
     /// declares one.
     fn isErrorValueTy(self: *Emitter, ty: TypeId) bool {
         if (ty == self.facts.types.any_error_id) return self.error_data;
-        return self.facts.setHasFields(ty);
+        // A view of one is a pointer to it, not one.
+        return switch (self.facts.types.get(ty)) {
+            .read_view, .write_view => false,
+            else => self.facts.setHasFields(ty),
+        };
     }
 
     /// The struct of the fields of member `member` of error set `set`, as
@@ -1009,6 +1023,13 @@ pub const Emitter = struct {
         try self.w.writeAll("rig.ErrorValue.of(");
         try self.writeError(set, name, at);
         try self.w.writeAll(", .{})");
+    }
+
+    /// Whether `sexp` is an error that may carry fields, a `rig.ErrorValue`;
+    /// an error of a set without them is its code alone.
+    fn holdsErrorValue(self: *Emitter, sexp: Sexp) bool {
+        const ty = self.typeOf(sexp) orelse return false;
+        return self.isErrorValueTy(self.peelViews(ty));
     }
 
     /// Whether `sexp` names an error member, `E.name` or `E.name(fields)`,
@@ -3610,7 +3631,7 @@ pub const Emitter = struct {
         } else if (rereads) info.reread = try self.placeText(info);
         // An error that carries fields is switched on by its code, and
         // read again through its place for its fields.
-        const err_value = info.error_set and info.ty != null and self.isErrorValueTy(info.ty.?);
+        const err_value = info.error_set and info.ty != null and self.isErrorValueTy(self.peelViews(info.ty.?));
         if (err_value and info.reread.len == 0) info.reread = try self.placeText(info);
         const place = info.reread;
         const subject = info.subject;
@@ -3705,7 +3726,7 @@ pub const Emitter = struct {
                         prelude.head = head;
                     },
                 }
-            } else if (pattern.isKind(.set_pattern) and err_value and self.isErrorValueTy(self.typeOf(pattern) orelse info.ty.?)) {
+            } else if (pattern.isKind(.set_pattern) and err_value and self.isErrorValueTy(self.peelViews(self.typeOf(pattern) orelse info.ty.?))) {
                 // `g: E =>` of an error that carries fields: `g` is the
                 // error itself, which every set's value is laid out as;
                 // under `match <e`, the arm owns it.
@@ -4128,7 +4149,7 @@ pub const Emitter = struct {
     /// Whether a match on `info` is on an error that may carry fields,
     /// which it tests by code and reads fields of through its bytes.
     fn matchesErrorValue(self: *Emitter, info: MatchInfo) bool {
-        return info.error_set and info.ty != null and self.isErrorValueTy(info.ty.?);
+        return info.error_set and info.ty != null and self.isErrorValueTy(self.peelViews(info.ty.?));
     }
 
     /// `subj.fieldsAs(F)`: the fields of `pattern`'s member, read through
@@ -4721,7 +4742,7 @@ pub const Emitter = struct {
         };
         // An error value the function fails with, held rather than made
         // here, sends its fields through the caller's slot.
-        if (self.fun.has_out and !sameNode(sexp, self.failing) and self.facts.isFailingLeaf(sexp) and !self.namesErrorMember(sexp)) {
+        if (self.fun.has_out and !sameNode(sexp, self.failing) and self.facts.isFailingLeaf(sexp) and !self.namesErrorMember(sexp) and self.holdsErrorValue(sexp)) {
             const saved = self.failing;
             defer self.failing = saved;
             self.failing = sexp;
@@ -5885,20 +5906,6 @@ pub const Emitter = struct {
             if (!bare) try self.w.writeAll(")");
             return;
         };
-        // A bare `.variant` beside a payload enum tests the variant only.
-        if (is_eq) for ([2]usize{ 0, 1 }) |i| {
-            const value = operands[1 - i];
-            if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
-            // A value made here that owns a resource is dropped once
-            // tested.
-            const temp = try self.dropsWhenTested(value);
-            if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
-            try self.emitExpr(value);
-            try self.w.writeAll(", ");
-            try self.emitExpr(operands[i]);
-            return self.w.writeAll(")");
-        };
         // `e == E.name` on an error that may carry fields tests its code
         // and never its fields.
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
@@ -5916,6 +5923,20 @@ pub const Emitter = struct {
             try self.writeError(set, self.srcText(name), member);
             return self.w.writeAll(")");
         };
+        // A bare `.variant` beside a payload enum tests the variant only.
+        if (is_eq) for ([2]usize{ 0, 1 }) |i| {
+            const value = operands[1 - i];
+            if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
+            // A value made here that owns a resource is dropped once
+            // tested.
+            const temp = try self.dropsWhenTested(value);
+            if (kind == .@"!=") try self.w.writeAll("!");
+            try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
+            try self.emitExpr(value);
+            try self.w.writeAll(", ");
+            try self.emitExpr(operands[i]);
+            return self.w.writeAll(")");
+        };
         // `x == K.name`, a member test: which variant `x` holds.
         if (is_eq and self.facts.isMemberTest(sexp)) {
             const i: usize = if (operands[1].isKind(.member)) 1 else 0;
@@ -5924,6 +5945,12 @@ pub const Emitter = struct {
             try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
             try self.emitExpr(operands[1 - i]);
             return self.w.print(", .{f})", .{ident(self.srcText(ir.Member.name(operands[i])))});
+        }
+        // Two errors that may carry fields compare member and fields
+        // through the glue (`ErrorValue.__rig_own_eq`).
+        if (is_eq and (self.holdsErrorValue(operands[0]) or self.holdsErrorValue(operands[1]))) {
+            if (kind == .@"!=") try self.w.writeAll("!");
+            return self.emitCall2("rig.eql(", operands, ")");
         }
         if (is_eq and self.comparesStructurally(operands)) {
             if (kind == .@"!=") try self.w.writeAll("!");
@@ -8049,7 +8076,8 @@ pub const Emitter = struct {
 
     /// The code of the error value at `place`, as the Zig set of `ty`'s
     /// codes, so a `switch` on a declared set names every member.
-    fn writeErrorCode(self: *Emitter, ty: TypeId, place: []const u8) Error!void {
+    fn writeErrorCode(self: *Emitter, viewed: TypeId, place: []const u8) Error!void {
+        const ty = self.peelViews(viewed);
         if (ty == self.facts.types.any_error_id) return self.w.print("{s}.code", .{place});
         const saved = self.error_codes;
         self.error_codes = true;
@@ -8078,20 +8106,22 @@ pub const Emitter = struct {
     /// The slot a `catch` lends its call `value` when the call may fail
     /// with fields: a block that holds it opens here, and the call is
     /// given it (`emitArgs`).
-    const CatchSlot = struct { name: []const u8, label: []const u8 };
+    /// `saved` is the slot lent to a call around this one, given back
+    /// when this one's block closes.
+    const CatchSlot = struct { name: []const u8, label: []const u8, saved: @FieldType(Emitter, "fail_slot") };
 
     fn openCatchSlot(self: *Emitter, value: Sexp) Error!?CatchSlot {
         if (!self.failsWithFieldsCall(value)) return null;
         const id = self.nextId();
-        const slot: CatchSlot = .{ .name = try self.fmt("__rig_fail_{d}", .{id}), .label = try self.fmt("__rig_fb_{d}", .{id}) };
+        const slot: CatchSlot = .{ .name = try self.fmt("__rig_fail_{d}", .{id}), .label = try self.fmt("__rig_fb_{d}", .{id}), .saved = self.fail_slot };
         try self.w.print("({s}: {{ var {s}: rig.ErrData = undefined; break :{s} ", .{ slot.label, slot.name, slot.label });
         self.fail_slot = .{ .call = value, .expr = try self.fmt("&{s}", .{slot.name}) };
         return slot;
     }
 
     fn closeCatchSlot(self: *Emitter, slot: ?CatchSlot) Error!void {
-        if (slot == null) return;
-        self.fail_slot = null;
+        const s = slot orelse return;
+        self.fail_slot = s.saved;
         try self.w.writeAll("; })");
     }
 
