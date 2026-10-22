@@ -4000,6 +4000,8 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
         if (moves(ctx, sym.ty) != .no) continue;
         if (sym.flags.pattern_bound) {
             try ctx.lintErr(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
+        } else if (sym.flags.closure) {
+            try ctx.lintErr(sym.decl_pos, "`{s}` is a closure that is never called: call it, or remove it", .{sym.name});
         } else {
             try ctx.lintErr(sym.decl_pos, "`{s}` is assigned but never read; use it, or discard the value with `_ = ...`", .{sym.name});
         }

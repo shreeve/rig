@@ -8367,6 +8367,20 @@ fun make() -> fun() -> Int
 closures cannot escape their defining scope
 ```
 
+A closure's body runs only when the closure is called, so one that is
+never called is rejected: alone on a line, discarded with `_ =`, or
+bound and never used.
+
+```rig reject
+sub main()
+  n = 1
+  _ = |+n| print(n)
+```
+
+```error
+this closure is never called: bind it and call it (`f = |...| ...`, then `f()`), or remove it
+```
+
 ### Callable views
 
 A parameter of type `?fun(A) -> R` or `?sub(A)` takes a **callable

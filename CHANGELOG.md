@@ -66,6 +66,9 @@ changed the language since it:
 - **Text and lists:** String `reserve`, `push[T, e]`, and List
   `reserve`; a byte order on a one-byte type is rejected; clearing a
   List of plain values sets its length.
+- **A closure never called is rejected:** alone on a line, discarded
+  with `_ =`, or bound and never used, with one message; `_ = |x| ...`
+  passed the checker and failed in the Zig it emitted.
 - **Owned closures:** `*fun` and `*sub` take and return anything a
   function's signature may hold: write and read views for the call,
   owners, and handles (docs/CORE.md §7). A temporary callee,
