@@ -27,11 +27,13 @@ The runtime reads it once:
 
 ```zig
 pub const error_glue: ?type = if (builtin.is_test) TestErrorGlue else if (@hasDecl(root, "__rig_error_glue")) root.__rig_error_glue else null;
-pub const ErrData = if (error_glue) |g| [g.size]u8 align(g.alignment) else [0]u8;
+pub const ErrData = extern struct { bytes: [N or 0]u8 align(A or 1) };
 pub const ErrSlot = *ErrData;
+pub const NoSlot = struct {}; // a wait no one takes the fields from
 ```
 
-`ErrData` is the bytes of a failure's fields; a failure is its Zig error
+`ErrData` holds the bytes of a failure's fields (a struct, so its
+alignment is the glue's); a failure is its Zig error
 code and an `ErrData`, the code saying which member, and so whether the
 bytes hold anything. `ErrSlot` is the hidden `__out` parameter R3's emit
 gives a function that may fail with fields. With no glue, `ErrData` is

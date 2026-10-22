@@ -25,6 +25,7 @@ const tasks = @import("tasks.zig");
 pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
+pub const waitTasksInto = tasks.waitTasksInto;
 pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
@@ -101,6 +102,12 @@ pub const ErrData = extern struct {
 /// last parameter emit gives it, a slot its catching frame owns.
 pub const ErrSlot = *ErrData;
 
+/// What a wait is given in place of an `ErrSlot` when no one takes the
+/// failure's fields: a compile-time choice, so a plain wait has no slot
+/// code at all, and the fields are dropped.
+pub const NoSlot = struct {};
+pub const no_slot: NoSlot = .{};
+
 /// Drop the fields of failure `code` held in `data`; nothing for a member
 /// without fields.
 pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
@@ -112,11 +119,12 @@ pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
 pub const TestErrorGlue = struct {
     pub const size: usize = 16;
     pub const alignment: usize = 8;
-    pub var drops: usize = 0;
+    /// Counted from any thread: a test's tasks fail on several.
+    pub var drops: std.atomic.Value(usize) = .init(0);
 
     pub fn drop(code: anyerror, data: *anyopaque) void {
         _ = data;
-        if (code == error.WithData) drops += 1;
+        if (code == error.WithData) _ = drops.fetchAdd(1, .seq_cst);
     }
 
     pub fn print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -5160,8 +5168,8 @@ pub fn failMain(err: anyerror) noreturn {
 /// `error: Set.member(field: value, ...)` (the glue's `print`), then its
 /// fields dropped, before the leak check runs, so the fields are never
 /// reported as leaked. A cancel an interrupt sent shows nothing. Emit
-/// calls it where the failure leaves the body, then `failMainReported`
-/// once the body's drops and the leak check have run.
+/// calls it once the failure has left `main`'s body and the body's drops
+/// and defers have run, before the leak check; then `failMainReported`.
 pub fn reportFailure(err: anyerror, data: *ErrData) void {
     defer dropErrorData(err, data);
     if (err == error.@"std.task.Stop.canceled") if (interruptedBy() != null) return;
@@ -7177,7 +7185,7 @@ test "a failure leaving main is shown through the glue, and its fields dropped" 
     // Compiled here, as R3's emit will call them.
     _ = &reportFailure;
     _ = &failMainReported;
-    TestErrorGlue.drops = 0;
+    TestErrorGlue.drops.store(0, .seq_cst);
     var data: ErrData = undefined;
     var buf: [64]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
@@ -7185,5 +7193,5 @@ test "a failure leaving main is shown through the glue, and its fields dropped" 
     try std.testing.expectEqualStrings("error: WithData\n", w.buffered());
     dropErrorData(error.WithData, &data);
     dropErrorData(error.Plain, &data);
-    try std.testing.expectEqual(@as(usize, 1), TestErrorGlue.drops);
+    try std.testing.expectEqual(@as(usize, 1), TestErrorGlue.drops.load(.seq_cst));
 }
