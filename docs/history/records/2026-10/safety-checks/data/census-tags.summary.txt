@@ -1,0 +1,82 @@
+sites by kind:
+  index              73714
+  cast               36688
+  overflow           21465
+  other              6675
+  bounds             3276
+  panic(explicit)    79
+  total 141897
+
+sites by handler (call instructions in parentheses):
+  indexPanic               71369  (3188)
+  integerOverflow          21442  (2554)
+  integerOutOfBounds       18369  (1459)
+  lenPanic                 17982  (1879)
+  memcpyAlias              5126  (927)
+  outOfBounds              2993  (1612)
+  slicePanic               2345  (697)
+  incorrectAlignment       817  (514)
+  reachedUnreachable       696  (299)
+  startGreaterThanEnd      248  (170)
+  integerPartOutOfBounds   201  (51)
+  castToNull               135  (118)
+  divideByZero             35  (18)
+  panic: negative size     28  (12)
+  panic: integer part of floating point value out of bounds 26  (6)
+  shlOverflow              23  (10)
+  sliceCastLenRemainder    16  (13)
+  panic: None              12  (12)
+  copyLenMismatch          9  (5)
+  sentinelMismatch         8  (8)
+  panic: rig: a thread used another thread's heap 6  (2)
+  forLenMismatch           2  (1)
+  panic: TODO implement netInterfaceName for linux 2  (1)
+  exactDivisionRemainder   1  (1)
+  panic: TODO implement netConnectIpPosix with timeout 1  (1)
+  panic: bigint.pow: the power is negative 1  (1)
+  invalidEnumValue         1  (1)
+  panic: TODO implement dirSetFileOwner 1  (1)
+  panic: out of memory     1  (1)
+  panic: bigint: the shift is negative 1  (1)
+
+top 40 functions by sites (source frame):
+  13387  ast.Ast.new_node   {'cast': 13387}
+   5799  ast.Ast.word_node   {'index': 4031, 'overflow': 1682, 'bounds': 86}
+   4723  checker.Ids.local_sym   {'index': 1601, 'overflow': 3122}
+   3400  ast.Ast.add_list   {'cast': 3400}
+   3335  ast.Ast.add_text   {'cast': 2885, 'other': 450}
+   2794  checker.Checker.checker_symbol   {'overflow': 2794}
+   2679  ast.Ast.word_list   {'index': 1839, 'overflow': 836, 'bounds': 4}
+   2510  ast.Ast.kind   {'index': 2510}
+   2256  checker.Ids.sym_file_of   {'index': 2256}
+   2228  ast.Ast.nodes   {'index': 1440, 'overflow': 788}
+   1768  ast.Ast.finish_node   {'index': 790, 'cast': 978}
+   1710  checker.Checker.symbol_declaration   {'index': 1710}
+   1579  ast.Ast.binary_expression   {'index': 1579}
+   1531  __rig_std___rig_builtin.Map(u32,printer.EmitNode).get   {'index': 1531}
+   1226  parser.Parser.report   {'overflow': 582, 'cast': 644}
+   1189  checker.Checker.type_flags   {'index': 1189}
+   1146  checker.Checker.data_place   {'index': 1146}
+   1141  ast.Ast.update_node   {'index': 1141}
+   1059  checker.Checker.symbol_flags   {'index': 1059}
+   1026  checker.Checker.symbol_declaration_count   {'index': 756, 'cast': 270}
+    994  checker.Ids.node_id   {'index': 584, 'overflow': 410}
+    968  checker.Checker.new_type_list   {'cast': 968}
+    899  checker.node_ref   {'cast': 792, 'overflow': 107}
+    891  __rig_std_text.Interner.text   {'index': 891}
+    817  __rig_std___rig_builtin.Map(u32,printer.EmitNode).replace   {'index': 817}
+    763  __rig_std___rig_builtin.Table.place   {'index': 507, 'cast': 256}
+    706  ast.Ast.name   {'index': 706}
+    704  checker.Ids.sym   {'overflow': 524, 'index': 180}
+    670  ast.Ast.pos   {'index': 670}
+    632  ast.Ast.parent   {'index': 632}
+    631  checker.Checker.type_at   {'index': 597, 'overflow': 32, 'cast': 2}
+    609  ast.Ast.jsdoc_parameter_or_property_tag   {'index': 609}
+    590  checker.Checker.symbol_name   {'index': 590}
+    588  ast.as_node   {'index': 383, 'bounds': 205}
+    562  checker.Checker.new_type   {'cast': 421, 'overflow': 141}
+    518  declarations.DeclarationTransformer.keep   {'index': 253, 'overflow': 85, 'cast': 180}
+    493  ast.Ast.parameter_declaration   {'index': 493}
+    485  __rig_std___rig_builtin.Map(u32,u32).get   {'index': 485}
+    475  ast.Ast.set_loc   {'index': 437, 'cast': 38}
+    457  checker.Checker.type_object_flags   {'index': 457}

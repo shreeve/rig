@@ -1,0 +1,147 @@
+--- /Users/shreeve/Data/Code/rig-revamp/src/ownership.zig	2026-10-03 20:41:24.456257501 -0600
++++ src/ownership.zig	2026-10-03 22:35:25.990409782 -0600
+@@ -203,6 +203,8 @@
+     /// The var with the same name this one hides, for name lookup.
+     shadows: ?VarId = null,
+     via: Via = .owned,
++    /// PROTO: position among the function's run-time parameters.
++    param_index: ?u8 = null,
+ };
+ 
+ const ScopeKind = enum {
+@@ -374,6 +376,7 @@
+ };
+ 
+ const PlainRequirement = sema.PlainRequirement;
++const proto_on = true;
+ 
+ // =============================================================================
+ // Checker
+@@ -474,6 +477,11 @@
+     errors_found: u32 = 0,
+     /// How many of `plain_reqs` this module's own bodies record.
+     own_plain_reqs: usize = 0,
++    /// PROTO: inferred result origins per function symbol (bit i: param i).
++    summaries: std.AutoHashMapUnmanaged(SymbolId, u64) = .empty,
++    cur_mask: u64 = 0,
++    next_param: ?u8 = null,
++    proto_changed: bool = false,
+ 
+     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
+         var c = Checker{
+@@ -519,7 +527,24 @@
+     }
+ 
+     pub fn check(self: *Checker, sexp: Sexp) Error!void {
+-        try self.walkDecl(sexp);
++        if (sexp.isKind(.module) and proto_on) {
++            for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walkDecl(c);
++            for (ir.Module.decls(sexp)) |c0| {
++                const c = if (c0.isKind(.@"pub")) ir.Pub.decl(c0) else c0;
++                if (c.isKind(.fun) or c.isKind(.sub)) if (self.sema.?.symbolOf(ir.get(c, .name))) |sym| try self.summaries.put(self.gpa, sym, 0);
++            }
++            var rounds: u32 = 0;
++            while (rounds < 8) : (rounds += 1) {
++                self.proto_changed = false;
++                self.quiet += 1;
++                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walkDecl(c);
++                self.quiet -= 1;
++                if (!self.proto_changed) break;
++            }
++            var it = self.summaries.iterator();
++            while (it.next()) |e| std.debug.print("PROTO summary {s}: mask=0x{x} (rounds {d})\n", .{ self.sema.?.symbols.items[e.key_ptr.*].name, e.value_ptr.*, rounds + 1 });
++            for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walkDecl(c);
++        } else try self.walkDecl(sexp);
+         self.own_plain_reqs = self.plain_reqs.items.len;
+         if (self.sema) |ctx| for (ctx.plain_reqs.items) |r| {
+             if (r.module_id != 0) try self.plain_reqs.append(self.gpa, r);
+@@ -1270,8 +1295,18 @@
+ 
+         try self.pushScopeFor(.function, .nil);
+         for (tparams.items()) |p| if (p != .src) try self.bindParam(p);
++        const saved_mask = self.cur_mask;
++        self.cur_mask = 0;
++        self.next_param = 0;
+         for (params.items()) |p| try self.bindParam(p);
++        self.next_param = null;
+         try self.walkBody(body, returns_value);
++        if (proto_on and top and name != .nil) if (self.sema.?.symbolOf(name)) |sym| {
++            const gop = try self.summaries.getOrPut(self.gpa, sym);
++            if (!gop.found_existing or gop.value_ptr.* != (gop.value_ptr.* | self.cur_mask)) self.proto_changed = true;
++            gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.* | self.cur_mask else self.cur_mask;
++        };
++        self.cur_mask = saved_mask;
+         try self.popScope();
+         try self.rewind(outer);
+         // Nothing allocated for a module-level function outlives it.
+@@ -1336,7 +1371,9 @@
+             .ty = ty,
+             .kind = .param,
+             .ref = ref,
++            .param_index = self.next_param,
+         }, .{});
++        if (self.next_param) |*n| n.* += 1;
+         // Borrows handed in by the caller: an external loan on the param
+         // itself marks them as returnable and conflict-free.
+         if (ref != .none or (ty != null and self.mayCarryBorrow(ty))) {
+@@ -2794,6 +2831,7 @@
+         const args = ir.Call.args(node);
+         if (self.swapBuiltin(callee)) |swap| if (args.len == 2) return self.walkSwapCall(args, swap);
+         var result: Value = .{};
++        var proto_mask: ?u64 = null;
+ 
+         // Method call: the receiver is borrowed for the whole call. A
+         // write receiver is reserved (read) while the arguments are
+@@ -2846,6 +2884,9 @@
+             // A callable's result may borrow what the callable holds: a
+             // closure its captures, a borrowed callable what it lends.
+             result = try self.walkName(callee, true);
++            if (proto_on and self.callSlotsNone(node)) if (self.sema.?.symbolOf(callee)) |sym| {
++                proto_mask = self.summaries.get(sym);
++            };
+         } else if (isLambda(callee)) {
+             self.lambda_ok = true;
+             result = try self.walk(callee);
+@@ -2908,7 +2949,15 @@
+             if (!self.keepsCallable(node, a)) continue;
+             stored = try self.valueUnion(stored, v.*);
+         }
+-        result = try self.valueUnion(result, stored);
++        if (proto_mask) |m| {
++            var narrowed = result;
++            for (args, arg_values, 0..) |a, v, i| {
++                if (i >= 64 or (m >> @intCast(i)) & 1 == 0) continue;
++                if (!self.keepsCallable(node, a)) continue;
++                narrowed = try self.valueUnion(narrowed, v);
++            }
++            result = narrowed;
++        } else result = try self.valueUnion(result, stored);
+ 
+         // The callee may store what its arguments borrow into anything it
+         // can mutate: the receiver, and whatever the write borrows passed
+@@ -2944,6 +2993,15 @@
+         return result;
+     }
+ 
++    fn callSlotsNone(self: *const Checker, node: Sexp) bool {
++        return self.sema.?.callSlotsOf(node) == null;
++    }
++
++    fn isTopFun(self: *const Checker, sym: SymbolId) bool {
++        const k = self.sema.?.symbols.items[sym].kind;
++        return k == .function;
++    }
++
+     /// A call argument that reads a place by value whose value shares
+     /// storage the place owns (a Vec's buffer, a box, a shared handle, a
+     /// struct holding one; through a write borrow, what it reaches): the
+@@ -3431,6 +3489,9 @@
+             return;
+         }
+         if (self.func.ret_may_borrow and self.reachable) try self.checkEscape(value);
++        if (!self.func.in_closure and self.reachable) for (value.loans) |l| {
++            if (self.vars.items[l.root].param_index) |i| self.cur_mask |= @as(u64, 1) << @intCast(i);
++        };
+     }
+ 
+     /// A bare name that leaves the function moves out: a match payload

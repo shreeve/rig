@@ -1,0 +1,229 @@
+diff --git c/src/main.zig i/src/main.zig
+index e0d7bc4..60e1f87 100644
+--- c/src/main.zig
++++ i/src/main.zig
+@@ -7,6 +7,7 @@
+ //! the Zig toolchain.
+ 
+ const std = @import("std");
++const timing = @import("timing.zig");
+ const build_options = @import("build_options");
+ const parser = @import("parser.zig");
+ const ir = parser.ir;
+@@ -128,6 +129,9 @@ pub fn main(init: std.process.Init) !void {
+     const env: Env = .{ .map = init.environ_map };
+     const args = try init.minimal.args.toSlice(allocator);
+     const opts = parseArgs(io, args[@min(1, args.len)..]);
++    timing.enabled = env.flag("RIG_TIME");
++    const __total = timing.start();
++    defer timing.report(__total);
+ 
+     switch (opts.command) {
+         .tokens, .parse, .normalize => {
+@@ -310,9 +314,8 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
+ 
+     var buffer: [4096]u8 = undefined;
+     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
+-    try graph.writeAllDiagnostics(&writer.interface);
+-    try writer.interface.flush();
+-    if (graph.hasErrors()) std.process.exit(1);
++    { const __t = timing.start(); defer timing.stop(.diagnostics, __t); try graph.writeAllDiagnostics(&writer.interface); try writer.interface.flush(); }
++    if (graph.hasErrors()) { timing.report(timing.start()); std.process.exit(1); }
+     return graph;
+ }
+ 
+@@ -391,6 +394,8 @@ fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *c
+ fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const []const u8, program_args: []const []const u8) !u8 {
+     const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
+     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
++    const __tz = timing.start();
++    defer timing.stop(.zig, __tz);
+     var child = std.process.spawn(io, .{
+         .argv = try std.mem.concat(allocator, []const u8, &.{ argv, libc, dashes, program_args }),
+         .stdin = .inherit,
+@@ -448,13 +453,13 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
+         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
+         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, m.sema);
+         defer em.deinit();
+-        try em.emit(m.ir);
++        { const __t = timing.start(); defer timing.stop(.emit, __t); try em.emit(m.ir); }
+         links_libc = links_libc or em.links_libc;
+         if (i == 0 and (env.leakTrace() or env.sanitize())) {
+             try file_buffer.writer.writeAll("\n");
+             try env.writeRootFlags(&file_buffer.writer);
+         }
+-        try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
++        { const __t = timing.start(); defer timing.stop(.write_files, __t); try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written()); }
+         for (m.shims.items) |shim| try writeFile(io, try std.fs.path.join(allocator, &.{ dir, "rig", "std", shim.name }), shim.source);
+         if (i == 0) root_source = file_buffer.written();
+     }
+diff --git c/src/modules.zig i/src/modules.zig
+index 4d62710..caebc75 100644
+--- c/src/modules.zig
++++ i/src/modules.zig
+@@ -24,6 +24,7 @@
+ //! import's own errors are reported.
+ 
+ const std = @import("std");
++const timing = @import("timing.zig");
+ const parser = @import("parser.zig");
+ const sema = @import("sema.zig");
+ const ownership = @import("ownership.zig");
+@@ -417,7 +418,7 @@ pub const ModuleGraph = struct {
+         }
+         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
+         defer own.deinit();
+-        try own.check(m.ir);
++        { const __t = timing.start(); defer timing.stop(.ownership, __t); try own.check(m.ir); }
+         for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
+         // What the generic bodies copy, for the modules that import them.
+         try m.sema.plain_reqs.appendSlice(self.allocator, own.ownPlainReqs());
+diff --git c/src/rig.zig i/src/rig.zig
+index d1dce87..0a2300a 100644
+--- c/src/rig.zig
++++ i/src/rig.zig
+@@ -16,6 +16,7 @@
+ //! escaping that emit needs (`writeZigIdent`).
+ 
+ const std = @import("std");
++const timing = @import("timing.zig");
+ const parser = @import("parser.zig");
+ const diag = @import("diag.zig");
+ const ir = parser.ir;
+@@ -1098,7 +1099,12 @@ pub const Parser = struct {
+     /// Parse and rewrite into the semantic IR. On `error.ParseError`,
+     /// `diagnostic()` describes the failure.
+     pub fn parseProgram(self: *Parser) !Sexp {
+-        const tree = try self.rewrite(try self.parseTree());
++        const __t0 = timing.start();
++        const raw = try self.parseTree();
++        timing.stop(.parse_tree, __t0);
++        const __t1 = timing.start();
++        const tree = try self.rewrite(raw);
++        timing.stop(.rewrite, __t1);
+         if (self.failure != null) return error.ParseError;
+         return tree;
+     }
+diff --git c/src/sema.zig i/src/sema.zig
+index 8358874..8bebc09 100644
+--- c/src/sema.zig
++++ i/src/sema.zig
+@@ -48,6 +48,7 @@
+ //! everything so one mistake doesn't cascade.
+ 
+ const std = @import("std");
++const timing = @import("timing.zig");
+ const parser = @import("parser.zig");
+ const rig = @import("rig.zig");
+ pub const diag = @import("diag.zig");
+@@ -1499,18 +1500,21 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
+ 
+     const scope = try ctx.pushScopeKind(scope_invalid, .module);
+     std.debug.assert(scope == module_scope);
+-    try resolve.registerBuiltins(&ctx, module_scope);
+-    try resolve.resolveSymbols(&ctx, tree, module_scope);
+-    try resolve.resolveDeclarations(&ctx, tree, module_scope);
++    { const __t = timing.start(); defer timing.stop(.register_builtins, __t); try resolve.registerBuiltins(&ctx, module_scope); }
++    { const __t = timing.start(); defer timing.stop(.resolve_symbols, __t); try resolve.resolveSymbols(&ctx, tree, module_scope); }
++    { const __t = timing.start(); defer timing.stop(.resolve_declarations, __t); try resolve.resolveDeclarations(&ctx, tree, module_scope); }
++    const __t_cc = timing.start();
+     const order = try computeContents(&ctx);
+-    try checkInfiniteTypes(&ctx);
+-    try checkTypeSizes(&ctx, order);
+-    try resolve.checkDeclarations(&ctx);
+-    try typecheck.checkModule(&ctx, tree, module_scope);
+-    try typecheck.checkFrames(&ctx, tree);
+-    try checkUnreadLocals(&ctx);
+-    try expandInstantiations(&ctx);
+-    try typecheck.checkGenericInstantiations(&ctx);
++    timing.stop(.compute_contents, __t_cc);
++    { const __t = timing.start(); defer timing.stop(.check_infinite_types, __t); try checkInfiniteTypes(&ctx); }
++    { const __t = timing.start(); defer timing.stop(.check_type_sizes, __t); try checkTypeSizes(&ctx, order); }
++    { const __t = timing.start(); defer timing.stop(.check_declarations, __t); try resolve.checkDeclarations(&ctx); }
++    { const __t = timing.start(); defer timing.stop(.typecheck_module, __t); try typecheck.checkModule(&ctx, tree, module_scope); }
++    { const __t = timing.start(); defer timing.stop(.check_frames, __t); try typecheck.checkFrames(&ctx, tree); }
++    { const __t = timing.start(); defer timing.stop(.check_unread_locals, __t); try checkUnreadLocals(&ctx); }
++    { const __t = timing.start(); defer timing.stop(.expand_instantiations, __t); try expandInstantiations(&ctx); }
++    { const __t = timing.start(); defer timing.stop(.check_generic_instantiations, __t); try typecheck.checkGenericInstantiations(&ctx); }
++    if (timing.enabled) std.debug.print("RIG_COUNT module={s} type_instances={d} fn_instances={d} generic_frames={d} generic_arrays={d} generic_uses={d} generic_fn_uses={d}\n", .{ ctx.name, ctx.instantiation_sites.count(), ctx.fn_instances.items.len, ctx.generic_frames.items.len, ctx.generic_arrays.items.len, ctx.generic_uses.items.len, ctx.generic_fn_uses.items.len });
+     return ctx;
+ }
+ 
+diff --git c/src/timing.zig i/src/timing.zig
+new file mode 100644
+index 0000000..0e2868b
+--- /dev/null
++++ i/src/timing.zig
+@@ -0,0 +1,72 @@
++//! Crude phase timers (scratch instrumentation): RIG_TIME=1 prints them.
++const std = @import("std");
++
++pub var enabled = false;
++
++pub const Phase = enum {
++    parse_tree,
++    rewrite,
++    register_builtins,
++    resolve_symbols,
++    resolve_declarations,
++    compute_contents,
++    check_infinite_types,
++    check_type_sizes,
++    check_declarations,
++    typecheck_module,
++    check_frames,
++    check_unread_locals,
++    expand_instantiations,
++    check_generic_instantiations,
++    ownership,
++    diagnostics,
++    emit,
++    write_files,
++    zig,
++};
++
++var totals = [_]u64{0} ** @typeInfo(Phase).@"enum".fields.len;
++var cpu_totals = [_]u64{0} ** @typeInfo(Phase).@"enum".fields.len;
++var counts = [_]u32{0} ** @typeInfo(Phase).@"enum".fields.len;
++
++const TS = std.Io.Clock.Timestamp;
++pub const T = struct { wall: TS, cpu: TS };
++
++fn io() std.Io {
++    return std.Io.Threaded.global_single_threaded.io();
++}
++
++pub fn start() T {
++    return .{ .wall = TS.now(io(), .awake), .cpu = TS.now(io(), .cpu_thread) };
++}
++
++fn ns(a: TS, b: TS) u64 {
++    return @intCast(a.durationTo(b).raw.toNanoseconds());
++}
++
++pub fn stop(phase: Phase, t0: T) void {
++    const now = start();
++    totals[@intFromEnum(phase)] += ns(t0.wall, now.wall);
++    cpu_totals[@intFromEnum(phase)] += ns(t0.cpu, now.cpu);
++    counts[@intFromEnum(phase)] += 1;
++}
++
++pub fn report(total0: T) void {
++    if (!enabled) return;
++    const now = start();
++    var sum: u64 = 0;
++    var csum: u64 = 0;
++    std.debug.print("RIG_TIME {s:<30} {s:>10}    {s:>10}\n", .{ "phase", "wall_ms", "cpu_ms" });
++    for (totals, cpu_totals, 0..) |w, c, i| {
++        if (counts[i] == 0) continue;
++        sum += w;
++        csum += c;
++        std.debug.print("RIG_TIME {s:<30} {d:>10.3}    {d:>10.3}  (x{d})\n", .{ @tagName(@as(Phase, @enumFromInt(i))), ms(w), ms(c), counts[i] });
++    }
++    std.debug.print("RIG_TIME {s:<30} {d:>10.3}    {d:>10.3}\n", .{ "sum_of_phases", ms(sum), ms(csum) });
++    std.debug.print("RIG_TIME {s:<30} {d:>10.3}    {d:>10.3}\n", .{ "total_in_main", ms(ns(total0.wall, now.wall)), ms(ns(total0.cpu, now.cpu)) });
++}
++
++fn ms(x: u64) f64 {
++    return @as(f64, @floatFromInt(x)) / 1e6;
++}

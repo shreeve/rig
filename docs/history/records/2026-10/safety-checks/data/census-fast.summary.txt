@@ -1,0 +1,60 @@
+sites by kind:
+  index              72050
+  cast               18053
+  panic(explicit)    46
+  total 90149
+
+sites by handler (call instructions in parentheses):
+  indexPanic               69745  (3388)
+  lenPanic                 18053  (1867)
+  slicePanic               2305  (692)
+  panic: negative size     26  (10)
+  panic: None              12  (4)
+  panic: TODO implement netInterfaceName for linux 3  (1)
+  panic: TODO implement netConnectIpPosix with timeout 1  (1)
+  panic: bigint.pow: the power is negative 1  (1)
+  panic: TODO implement dirSetFileOwner 1  (1)
+  panic: out of memory     1  (1)
+  panic: bigint: the shift is negative 1  (1)
+
+top 40 functions by sites (source frame):
+   5356  ast.Ast.new_node   {'cast': 5356}
+   2516  ast.Ast.kind   {'index': 2516}
+   2454  ast.Ast.word_node   {'index': 2454}
+   2257  checker.Ids.sym_file_of   {'index': 2257}
+   1758  checker.Checker.symbol_declaration   {'index': 1758}
+   1606  checker.Ids.local_sym   {'index': 1606}
+   1582  ast.Ast.binary_expression   {'index': 1582}
+   1558  __rig_std___rig_builtin.Map(u32,printer.EmitNode).get   {'index': 1558}
+   1452  ast.Ast.add_list   {'cast': 1452}
+   1451  ast.Ast.nodes   {'index': 1451}
+   1182  checker.Checker.type_flags   {'index': 1182}
+   1119  checker.Checker.data_place   {'index': 1119}
+   1089  checker.Checker.symbol_declaration_count   {'index': 819, 'cast': 270}
+   1086  ast.Ast.update_node   {'index': 1086}
+   1062  checker.Checker.symbol_flags   {'index': 1062}
+   1020  ast.Ast.word_list   {'index': 1020}
+    897  __rig_std_text.Interner.text   {'index': 897}
+    818  __rig_std___rig_builtin.Map(u32,printer.EmitNode).replace   {'index': 818}
+    758  ast.Ast.finish_node   {'index': 758}
+    728  ast.Ast.name   {'index': 728}
+    672  ast.Ast.pos   {'index': 672}
+    654  ast.Ast.add_text   {'cast': 654}
+    648  parser.Parser.report   {'cast': 648}
+    628  checker.Checker.symbol_name   {'index': 628}
+    617  ast.Ast.parent   {'index': 617}
+    609  ast.as_node   {'index': 609}
+    608  ast.Ast.jsdoc_parameter_or_property_tag   {'index': 608}
+    594  checker.Ids.node_id   {'index': 594}
+    573  checker.Checker.type_at   {'index': 572, 'cast': 1}
+    500  ast.Ast.parameter_declaration   {'index': 500}
+    498  __rig_std___rig_builtin.Table.place   {'index': 498}
+    481  __rig_std___rig_builtin.Map(u32,u32).get   {'index': 481}
+    471  ast.Ast.expression   {'index': 471}
+    469  checker.Checker.new_type_list   {'cast': 469}
+    466  checker.Checker.symbol_value_declaration   {'index': 466}
+    459  ast.Ast.module_declaration   {'index': 459}
+    455  checker.Checker.type_object_flags   {'index': 455}
+    454  declarations.DeclarationTransformer.keep   {'index': 259, 'cast': 195}
+    425  __rig_std___rig_builtin.Map(u32,u32).replace   {'index': 425}
+    412  ast.Ast.modifiers   {'index': 412}

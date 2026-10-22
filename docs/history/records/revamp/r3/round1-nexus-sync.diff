@@ -1,0 +1,81 @@
+diff --git c/rig.grammar w/rig.grammar
+index 3db197734..133f3fcfa 100644
+--- c/rig.grammar
++++ w/rig.grammar
+@@ -95,6 +95,7 @@ tokens
+     called          # a keyword only before the `fun` or `sub` of a declaration
+     not
+     or
++    panic
+     pass
+     pub
+     raw
+@@ -316,6 +317,7 @@ tokens
+ "match"                                     → match
+ "not"                                       → not
+ "or"                                        → or
++"panic"                                     → panic
+ "pass"                                      → pass
+ "pub"                                       → pub
+ "raw"                                       → raw
+@@ -417,6 +419,7 @@ tokens
+     return                      value?
+     break                       value? label:leaf?
+     continue                    label:leaf?
++    panic                       ...args          # `panic(a, b)`: ends the program
+     defer, errdefer             body
+     raw_block                   body:block
+     propagate, propagate_none   value
+@@ -474,7 +477,7 @@ tokens
+     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
+     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
+     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
+-    MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PASS: "`pass`", PUB: "`pub`"
++    MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PANIC: "`panic`", PASS: "`pass`", PUB: "`pub`"
+     RAW: "`raw`", RETURN: "`return`", SUB: "`sub`", TEST: "`test`", TRY: "`try`"
+     TYPE: "`type`", USE: "`use`", WHILE: "`while`", ZIG: "`zig`"
+     ASYNC: "`async`", AWAIT: "`await`", CONST: "`const`", IMPL: "`impl`"
+@@ -534,7 +537,7 @@ tokens
+     type                [A-Z] [A-Za-z0-9_]* not before [A-Za-z0-9_]
+ 
+     keyword.control     "if" "else" "while" "for" "in" "match" "return" "break" "continue"
+-                        "pass" "defer" "errdefer" "catch" "try" "await" "yield"
++                        "pass" "panic" "defer" "errdefer" "catch" "try" "await" "yield"
+     keyword             "fun" "sub" "enum" "type" "use" "pub" "const" "extern" "zig" "test"
+                         "raw" "drop" "error" "as" "async" "impl" "trait" "when" "where"
+     keyword             ctx
+@@ -1133,6 +1136,7 @@ atom     = name
+          | FALSE
+          | "." name:name                            → (enum_lit)
+          | "@" name:name "(" args:args ")"          → (builtin)
++         | PANIC "(" args:args ")"                  → (panic)  # a statement or a branch's value (typecheck)
+          | "[" [elems:exprs] "]"                    → (array)
+          | "[" elems:exprs "," "]"                  → (array)
+          | "[" size:expr OF value:expr "]"          → (array_fill)  # `[n of 0]`
+diff --git c/src/rig.zig w/src/rig.zig
+index 4d21dedd2..3d1d95d2b 100644
+--- c/src/rig.zig
++++ w/src/rig.zig
+@@ -127,6 +127,13 @@ pub fn leavesBody(e: Sexp) bool {
+     return std.mem.findScalar(Tag, &body_exit_kinds, k) != null;
+ }
+ 
++/// Whether `e` ends the code that follows it in its block: a `return`,
++/// a jump (`isJump`), or a `panic`, which ends the program.
++pub fn leaves(e: Sexp) bool {
++    const k = e.kind() orelse return false;
++    return k == .@"return" or k == .panic or std.mem.findScalar(Tag, &jump_kinds, k) != null;
++}
++
+ /// Whether `e` is a jump (`jump_kinds`).
+ pub fn isJump(e: Sexp) bool {
+     const k = e.kind() orelse return false;
+@@ -188,7 +195,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
+         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
+         .raw_block => .raw,
+         // Assignments, drops, `pass`, the exits and jumps, and expressions.
+-        .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
++        .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+     };
+ }

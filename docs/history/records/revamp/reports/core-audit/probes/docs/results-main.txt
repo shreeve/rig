@@ -1,0 +1,146 @@
+=== p01_readme_std.rig
+6 [1, 2, 3]
+[exit ]
+=== p02_return_bare_moves.rig
+1
+drop 1
+[exit ]
+=== p03_array_of_borrows.rig
+3
+11
+[exit ]
+=== p04_vec_of_vec.rig
+p04_vec_of_vec.rig:6:9: error: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `Vec[Int]`
+  rows: Vec[Vec[Int]] = Vec()
+p04_vec_of_vec.rig:7:9: error: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `Row`
+  recs: Vec[Row] = Vec()
+[exit ]
+=== p05_for_bare_vec.rig
+p05_for_bare_vec.rig:5:12: error: write `for x in ?v` to read the Vec's elements
+  for x in v
+[exit ]
+=== p06_if_bare_owning_optional.rig
+p06_if_bare_owning_optional.rig:10:6: error: bare use of `Res` value `m` in binding would alias an owning value; `Res` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<m` to move ownership
+  if m as r
+[exit ]
+=== p07_box_vec_members.rig
+p07_box_vec_members.rig:4:11: error: a `Box[Vec[Int]]` reaches no fields of its value; lend the value with `?b` or `!b`, or move it out with `<b.unbox()`
+  print(b.len)
+[exit ]
+=== p08_plain_struct_through_borrow.rig
+p08_plain_struct_through_borrow.rig:7:3: error: type mismatch: expected `P`, got `?P`; only a number, `Bool`, `String`, or plain enum is copied out of a borrow: take the borrow where it goes (`?P` or `!P`)
+  p
+[exit ]
+=== p09_rng_bare_copy.rig
+p09_rng_bare_copy.rig:6:7: error: bare use of `Rng` value `r` in binding would alias an owning value; `Rng` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<r` to move ownership
+  s = r
+[exit ]
+=== p10_star_bare_name.rig
+p10_star_bare_name.rig:10:8: error: bare use of `S` value `x` in shared allocation would alias an owning value; `S` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<x` to move ownership
+  h = *x
+[exit ]
+=== p11_bare_error_last_line.rig
+1 -1
+[exit ]
+=== p12_vec_index_owning.rig
+p12_vec_index_owning.rig:11:16: error: indexing a `Vec[*B]` would copy an owning element out of the Vec; iterate with `for x in ?v` instead
+  print(get_n(?v[0]))
+[exit ]
+=== p13_sort_vec_bare_lend.rig
+p13_sort_vec_bare_lend.rig:8:13: error: type mismatch: expected `[]T`, got `Vec[Int]`
+  sort.sort(!v)
+[exit ]
+=== p14_cell_struct_fork.rig
+0 5
+[exit ]
+=== p15_plus_vec.rig
+p15_plus_vec.rig:5:8: error: `+x` cannot clone a `Vec[Int]`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned
+  w = +v
+[exit ]
+=== p16_text_on_main.rig
+p16_text_on_main.rig:3:7: error: use of unbound name `Text`
+  t = Text("a")
+[exit ]
+=== p17_handle_lends_view.rig
+p17_handle_lends_view.rig:13:14: error: type mismatch: expected `?Shape`, got `?*Shape`
+  print(area(?h))
+[exit ]
+=== p18_vec_lend_slice.rig
+p18_vec_lend_slice.rig:11:15: error: type mismatch: expected `[]Int`, got `?Vec[Int]`
+  print(total(?v))
+[exit ]
+=== p19_print_ternary_owners.rig
+p19_print_ternary_owners.rig:12:9: error: this `R` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+  print(a if c else b)
+[exit ]
+=== p20_print_nullish_owner.rig
+p20_print_nullish_owner.rig:10:9: error: `??` on an optional `R?` would copy an owning handle out of it; take the handle out with `if x as h`
+  print(o ?? R(n: 9))
+[exit ]
+=== p21_bare_read_lend.rig
+p21_bare_read_lend.rig:10:17: error: type mismatch: expected `?Packet`, got `Packet`; lend a read borrow: `?p`
+  print(size_of(p))
+[exit ]
+=== p22_fallible_nullish.rig
+p22_fallible_nullish.rig:10:9: error: fallible call to `f` must be wrapped with `!` (propagate) or `catch` (handle)
+  print(f(-1) ?? 0)
+p22_fallible_nullish.rig:5:5:   note: `f` declared as fallible here
+fun f(n: Int) -> Int!
+p22_fallible_nullish.rig:10:9: error: `??` needs an optional on its left; this expression has type `Int!`
+  print(f(-1) ?? 0)
+[exit ]
+=== p23_new_forms.rig
+p23_new_forms.rig:4:8: error: unexpected `:`; expected `=`
+  new x: Int = x + 1
+[exit ]
+=== p24_take_optional_element.rig
+p24_take_optional_element.rig:9:6: error: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `*B?`
+  v: Vec[*B?] = Vec()
+p24_take_optional_element.rig:11:7: error: indexing a `Vec[*B?]` would copy an owning element out of the Vec; iterate with `for x in ?v` instead
+  if <v[0] as b
+p24_take_optional_element.rig:13:9: error: indexing a `Vec[*B?]` would copy an owning element out of the Vec; iterate with `for x in ?v` instead
+  print(v[0] == none)
+[exit ]
+=== p25_write_view_where_read.rig
+1
+2
+[exit ]
+=== p26_array_owning.rig
+p26_array_owning.rig:6:8: error: arrays cannot hold values that own resources (`*B`); use a `Vec`
+  hs = [*B(n: 1), *B(n: 2)]
+[exit ]
+=== p27_vec_box_text_branch.rig
+p27_vec_box_text_branch.rig:3:10: error: use of unbound type `Text`
+  v: Vec[Text] = Vec()
+p27_vec_box_text_branch.rig:3:18: error: `Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)
+  v: Vec[Text] = Vec()
+[exit ]
+=== p28_slice_owning_elements.rig
+p28_slice_owning_elements.rig:5:17: error: slices cannot view values that own resources (`*B`); borrow the Vec instead
+fun count(xs: []*B) -> Int
+p28_slice_owning_elements.rig:11:16: error: cannot slice a `Vec[*B]`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` or `for x in !v` instead
+  print(count(?v[..]))
+[exit ]
+=== p29_swap_vec_handles.rig
+p29_swap_vec_handles.rig:10:9: error: indexing a `Vec[*B]` would copy an owning element out of the Vec; iterate with `for x in ?v` instead
+  print(v[0].n)
+[exit ]
+=== p30_zig_static_view.rig
+true
+[exit ]
+=== p31_hello_main_sig.rig
+hi
+=== p32_bool_write_call_reads_as_not.rig
+true
+=== p33_take_optional_vec_element.rig
+p33_take_optional_vec_element.rig:6:6: error: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `Box[N]?`
+  v: Vec[Box[N]?] = Vec()
+p33_take_optional_vec_element.rig:8:7: error: indexing a `Vec[Box[N]?]` would copy an owning element out of the Vec; iterate with `for x in ?v` instead
+  if <v[0] as b
+=== p34_cell_mutation_unmarked.rig
+1
+=== p35_design_sort_example.rig
+p35_design_sort_example.rig:8:8: error: call to `sort.sort` expects 1 argument, got 2
+  sort.sort(!v[..], |a, b| a < b)
+=== p36_fixed_binding_ct.rig
+3

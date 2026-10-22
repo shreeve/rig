@@ -1,0 +1,141 @@
+From 0599c5f1abc935b38c478399b0266298d2d4d81b Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Sun, 4 Oct 2026 18:26:15 -0600
+Subject: [PATCH 1/3] Search std.sort and std.slices for a view of the value
+
+lower_bound, search, contains, and index_of take x: ?T, so a Vec[Text] is searched for ?t; index_of reads each element where it is rather than binding a copy.
+---
+ docs/STD.md                             | 15 ++++++++-----
+ std/slices.rig                          |  9 ++++----
+ std/sort.rig                            |  4 ++--
+ test/behavior/std/search_takes_view.rig | 30 +++++++++++++++++++++++++
+ 4 files changed, 46 insertions(+), 12 deletions(-)
+ create mode 100644 test/behavior/std/search_takes_view.rig
+
+diff --git a/docs/STD.md b/docs/STD.md
+index 7077ac9d..68324444 100644
+--- a/docs/STD.md
++++ b/docs/STD.md
+@@ -235,7 +235,8 @@ true true
+ ## std.sort
+ 
+ Sorting, and searching sorted slices, written in Rig over slices, so
+-they work on arrays and on Vecs alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
++they work on arrays and on Vecs alike (`!a`, `?a`, `!v`, `?v`), of any
++element: `sort_by` moves elements of any type, `sort` needs `<`. `sort`,
+ `lower_bound`, and `search` order elements with `<` (numbers and
+ Strings), and `search` compares them with `==`; each call is checked
+ for its element type, as any generic call is.
+@@ -244,8 +245,8 @@ for its element type, as any generic call is.
+ |---|---|
+ | `sort(xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
+ | `sort_by(xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
+-| `lower_bound(xs: []T, x: T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
+-| `search(xs: []T, x: T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
++| `lower_bound(xs: []T, x: ?T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
++| `search(xs: []T, x: ?T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
+ 
+ `sort` sorts runs of 20 elements by insertion, then merges them in
+ place by rotations: O(n log n) comparisons, O(n log² n) swaps, and
+@@ -321,13 +322,15 @@ sub main
+ ## std.slices
+ 
+ Linear operations on slices, written in Rig, on arrays and on Vecs
+-through a slice. `contains` and `index_of` compare elements with `==`.
++through a slice. `contains` and `index_of` compare elements with `==`,
++and, like `search`, take a view of the value to look for, so a `Vec[Text]`
++is searched for `?t`.
+ 
+ | Function | Result |
+ |---|---|
+ | `reverse(xs: ![]T)` | reverse the order of `xs` in place |
+-| `contains(xs: []T, x: T) -> Bool` | whether some element equals `x` |
+-| `index_of(xs: []T, x: T) -> Int?` | the index of the first element equal to `x`, or `none` |
++| `contains(xs: []T, x: ?T) -> Bool` | whether some element equals `x` |
++| `index_of(xs: []T, x: ?T) -> Int?` | the index of the first element equal to `x`, or `none` |
+ 
+ ```rig
+ use std.slices
+diff --git a/std/slices.rig b/std/slices.rig
+index 988c69de..de4e2a8c 100644
+--- a/std/slices.rig
++++ b/std/slices.rig
+@@ -11,12 +11,13 @@ pub sub reverse[T](xs: ![]T)
+     j -= 1
+ 
+ # Whether some element of `xs` equals `x`.
+-pub fun contains[T](xs: []T, x: T) -> Bool
++pub fun contains[T](xs: []T, x: ?T) -> Bool
+   index_of(xs, x) != none
+ 
+ # The index of the first element of `xs` equal to `x`, or `none`.
+-pub fun index_of[T](xs: []T, x: T) -> Int?
+-  for e, i in xs
+-    if e == x
++pub fun index_of[T](xs: []T, x: ?T) -> Int?
++  i = 0
++  while i < xs.len : i += 1
++    if xs[i] == x
+       return i
+   none
+diff --git a/std/sort.rig b/std/sort.rig
+index eed68255..c343d004 100644
+--- a/std/sort.rig
++++ b/std/sort.rig
+@@ -105,7 +105,7 @@ sub swap_range[T](xs: ![]T, a: Int, b: Int, n: Int)
+ # The index where `x` belongs in `xs`, which is sorted in the order of
+ # `<`: the first element not less than `x`, or `xs.len` when there is
+ # none. Inserting `x` there keeps `xs` sorted.
+-pub fun lower_bound[T](xs: []T, x: T) -> Int
++pub fun lower_bound[T](xs: []T, x: ?T) -> Int
+   lo = 0
+   hi = xs.len
+   while lo < hi
+@@ -119,7 +119,7 @@ pub fun lower_bound[T](xs: []T, x: T) -> Int
+ # The index of an element equal to `x` in `xs`, which is sorted in the
+ # order of `<`, found by binary search: the first such element; `none`
+ # when there is none.
+-pub fun search[T](xs: []T, x: T) -> Int?
++pub fun search[T](xs: []T, x: ?T) -> Int?
+   i = lower_bound(xs, x)
+   if i < xs.len and xs[i] == x
+     return i
+diff --git a/test/behavior/std/search_takes_view.rig b/test/behavior/std/search_takes_view.rig
+new file mode 100644
+index 00000000..db3b595b
+--- /dev/null
++++ b/test/behavior/std/search_takes_view.rig
+@@ -0,0 +1,30 @@
++# `std.sort` and `std.slices` search for a view of the value, so they
++# serve elements that own, and `sort_by` and `reverse` move any element.
++
++use std.sort
++use std.slices
++
++sub main
++  a = [1, 3, 5, 7]
++  print(sort.search(?a, 5), sort.lower_bound(?a, 4), slices.contains(?a, 7), slices.index_of(?a, 2))
++  x = 3
++  print(sort.search(?a, x), slices.contains(?a, ?x))
++  v: Vec[Text] = Vec()
++  !v.push(Text("b"))
++  !v.push(Text("a"))
++  sort.sort_by(!v, |p, q| p.len < q.len)
++  t = Text("a")
++  print(slices.contains(?v, ?t), slices.index_of(?v, ?t))
++  s: Vec[String] = Vec()
++  !s.push("x")
++  !s.push("y")
++  print(slices.contains(?s, "y"), sort.search(?s, "y"))
++  slices.reverse(!v)
++  print(v)
++
++# expect:
++# 2 2 true none
++# 1 true
++# true 1
++# true 1
++# ["a", "b"]
+-- 
+2.55.0
+

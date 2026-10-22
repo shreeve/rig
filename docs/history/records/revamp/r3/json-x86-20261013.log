@@ -1,0 +1,48 @@
+cpuq: waiting 1m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: no --max-wait: if this caller has a timeout, it may end this wait before the job starts
+cpuq: waiting 2m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 3m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 4m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 5m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 6m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 7m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 8m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 9m00s: 1st in normal; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 10m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 11m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 12m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 13m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 14m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 15m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 16m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 17m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 18m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 19m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 20m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+cpuq: waiting 21m00s: 1st in high; 8/20 cores in use by rig-pup:simd2 (pid 2046407, 8)
+| file | bytes | rig-safe | sonic-rs | simd-json-tape | serde_json | zig-tape-safe |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 631514 | 2609 | 2746 | 2475 | 380 | 692 |
+| twitterescaped | 562408 | 2406 | 2185 | 1448 | 333 | 476 |
+| canada | 2251051 | 1370 | 1434 | 1124 | 349 | 398 |
+| citm_catalog | 1727204 | 2907 | 3543 | 2592 | 691 | 753 |
+| gsoc-2018 | 3327831 | 5685 | 5144 | 3494 | 1176 | 445 |
+| github_events | 65132 | 3194 | 3870 | 2764 | 428 | 631 |
+
+MB/s, fastest of 15 interleaved runs of about 400 ms
+cycles/byte, instructions/byte (perf stat, cpu_core, CPU 2)
+| file | variant | cycles/byte | instructions/byte | IPC |
+|---|---|---:|---:|---:|
+| twitter | rig-safe | 1.816 | 9.297 | 5.12 |
+| twitter | sonic-rs | 1.748 | 7.992 | 4.57 |
+| twitterescaped | rig-safe | 1.922 | 10.268 | 5.34 |
+| twitterescaped | sonic-rs | 2.161 | 10.469 | 4.84 |
+| canada | rig-safe | 3.427 | 17.050 | 4.98 |
+| canada | sonic-rs | 3.340 | 16.133 | 4.83 |
+| citm_catalog | rig-safe | 1.616 | 8.715 | 5.39 |
+| citm_catalog | sonic-rs | 1.298 | 6.290 | 4.84 |
+| gsoc-2018 | rig-safe | 0.806 | 3.779 | 4.69 |
+| gsoc-2018 | sonic-rs | 0.966 | 2.508 | 2.60 |
+| github_events | rig-safe | 1.457 | 8.033 | 5.51 |
+| github_events | sonic-rs | 1.256 | 5.394 | 4.30 |
+ALL-DONE

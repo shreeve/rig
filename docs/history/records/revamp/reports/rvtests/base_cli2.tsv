@@ -1,0 +1,16 @@
+cli/ct_diagnostics	0.102
+cli/diagnostics	0.133
+cli/emit_shapes	0.077
+cli/emit	1.001
+cli/generic_scale	0.854
+cli/extern_libc	3.815
+cli/modules	3.657
+cli/leaks	6.245
+cli/build	8.648
+cli/stack_guard	3.132
+cli/test_names_escaped	1.028
+cli/usage	0.186
+cli/test_blocks	4.139
+cli/zig_cache	4.914
+cli/run	11.879
+cli/release_checks	24.397

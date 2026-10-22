@@ -1,0 +1,19 @@
+test/behavior/effects/errdefer_in_failing_value_block.rig| type mismatch: expected `Int!`, got `E`
+test/behavior/types/optional_fallback_from_context.rig| type mismatch: expected `Int!`, got `Bad`
+test/behavior/types/receiver_sigil_bool_value.rig| a write-borrowing call that returns `Bool` is written `(!self).insert(...)`, so it is never read as negation
+test/corpus/audit-fuzz-c-gen-g00000.rig| type mismatch: expected `T!`, got `E`
+test/corpus/audit-fuzz-c-gen-g00327.rig| type mismatch: expected `T!`, got `E`
+test/corpus/audit-fuzz-pf2-accepted-0bb6dd2b9b.rig| a write-borrowing call that returns `Bool` is written `(!self).insert(...)`, so it is never read as negation
+test/corpus/audit-fuzz-pf2-accepted-38eb257bac.rig| type mismatch: expected `T!`, got `E`
+test/corpus/audit-fuzz-pf2-accepted-63d05e3672.rig| type mismatch: expected `T!`, got `E`
+test/corpus/audit-fuzz-pf2-accepted-7a44573bdc.rig| type mismatch: expected `T!`, got `E`
+test/corpus/audit-fuzz-pf2-accepted-9baaf7ea0a.rig| type mismatch: expected `T!`, got `E`
+test/corpus/docs-probes-nb.rig| a write-borrowing call that returns `Bool` is written `(!s).bump(...)`, so it is never read as negation
+test/corpus/purity-principles-p06c_errbinding.rig| type mismatch: expected `Int!`, got `E`
+test/corpus/purity-principles-p18_notbang.rig| a write-borrowing call that returns `Bool` is written `(!s).insert(...)`, so it is never read as negation
+test/corpus/review-errors-a6.rig| type mismatch: expected `Color!`, got `Bad`
+test/corpus/review-sc3-n1.rig| a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so it is never read as negation
+test/corpus/seams-surface-a01_bool_short.rig| a write-borrowing call that returns `Bool` is written `(!s).insert(...)`, so it is never read as negation
+test/corpus/seams-surface-a03_fail_by_binding.rig| type mismatch: expected `Int!`, got `E`
+test/corpus/syntax-review-symmetry-p_main_errprop.rig| type mismatch: expected `Int!`, got `E`
+test/corpus/syntax-review-ux-rs1.rig| type mismatch: expected `Int!`, got `EvalError`

@@ -1,0 +1,22 @@
+# notes
+- README L190: "however they are spaced" – check with touching rule
+- FAQ L135: only ints/floats/Bool cross FFI? check SPEC 16
+- FAQ L155: "grammar builds with no conflicts" vs AGENTS "every conflict that remains is listed" – check
+- SPEC L843: owning list omits Box (and Cell?)
+- SPEC L2110-2111 "constructors always use them [keyword args]" false: positional one-field ctors
+- SPEC L3710 "`!w.push(x)` or `w.push(x)`" FALSE: w.push rejected (c1.rig)
+- SPEC L2496 stray leading space paragraph after output block
+- SPEC L4057 "`a?` not in a closure body" FALSE (o1.rig works); also contradicts SPEC L3770
+- SPEC L4322 orphan fragment " `E!` for an error set E is rejected" after output block
+- SYNTAX L236 "as a statement also `f a`" STALE paren-free
+- SYNTAX L453 built-in generics omit Box; L470 owning list omit Box; SPEC L843 same
+- SYNTAX L368 `.5` float literal not in SPEC literal table
+- SYNTAX L1397-1399 "Fields are public wherever their struct is; private fields are on the roadmap" STALE (pub fields shipped)
+- SYNTAX L3454 "`greet()` or `greet 1` calls it" STALE paren-free
+- SYNTAX L3470 "constructors name the type and every field" vs positional ctor
+- SYNTAX L3464 "*x, Vec, owned closures are the only things that allocate" – Box also allocates
+- SYNTAX App C grammar: fun `["->" type]` optional (now required), sub missing `!`, match subject sigils missing, closure captures missing ?/!, 
+- SYNTAX L3334 lowering: Vec,Cell – Box/Signal missing
+- SPEC L1760 / SYNTAX L491 "emits Zig const unless reassigned" false: numeric locals emitted var + `_ = &a` (v.rig)
+- SYNTAX L2693 multi-line bodies example: two identical-shaped calls (leftover of paren-free variant)
+- SYNTAX L3202 NaN prints nan: verified

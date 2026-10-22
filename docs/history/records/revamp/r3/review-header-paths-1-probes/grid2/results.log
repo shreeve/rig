@@ -1,0 +1,344 @@
+=== l_as.n.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.n.bare.holder.rig:59:7: error: this `as` reads `h1.w`, which holds a write view, through a branch, and wo
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.n.bare.holder.rig:59:7: error: this `as` read
+=== l_as.n.bare.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.n.bare.local.rig:58:7: error: this `as` reads `a`, which holds a write view, through a branch, and would 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.n.bare.local.rig:58:7: error: this `as` reads
+=== l_as.n.bare.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.n.bare.wparam.rig:56:7: error: this `as` reads `a`, which holds a write view, through a branch, and would
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.n.bare.wparam.rig:56:7: error: this `as` read
+=== l_as.r.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.bare.holder.rig:63:9: error: cannot assign to parameter `h1`; parameters are immutable (bind a copy wit
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.bare.holder.rig:63:9: error: cannot assign 
+=== l_as.r.bare.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.r.bare.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.r.path.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path.holder.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path.holder.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.r.path.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path.local.rig f prod=accept ref=reject C2 58:8 a bare write view would be copied; 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path.local.rig f prod=accept ref=reject C2 58:8 a bare write view would be copied; 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.r.path.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path.wparam.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path.wparam.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.r.path2.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path2.holder.rig f prod=accept ref=reject C2 56:9 a bare write view would be copied
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path2.holder.rig f prod=accept ref=reject C2 56:9 a bare write view would be copied
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.r.path2.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path2.local.rig f prod=accept ref=reject C2 58:9 a bare write view would be copied;
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path2.local.rig f prod=accept ref=reject C2 58:9 a bare write view would be copied;
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.r.path2.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path2.wparam.rig f prod=accept ref=reject C2 56:9 a bare write view would be copied
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.r.path2.wparam.rig f prod=accept ref=reject C2 56:9 a bare write view would be copied
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.w.bare.holder.rig:63:9: error: cannot assign to parameter `h1`; parameters are immutable (bind a copy wit
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_as.w.bare.holder.rig:63:9: error: cannot assign 
+=== l_as.w.bare.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.bare.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.path.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.path.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.path.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.path2.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.path2.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_as.w.path2.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_for.n.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.n.bare.holder.rig:60:13: error: this `for` reads `h1.w`, which holds a write view, through a branch, and
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.n.bare.holder.rig:62:8: error: cannot lend p
+=== l_for.n.bare.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.n.bare.local.rig:59:13: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.n.bare.local.rig f prod=accept ref=reject C2 59:13 a bare write view would be copied
+=== l_for.n.bare.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.n.bare.wparam.rig:57:13: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.n.bare.wparam.rig f prod=accept ref=reject C2 57:13 a bare write view would be copie
+=== l_for.r.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.bare.holder.rig:60:14: error: this `for` reads `h1.w`, which holds a write view, through a branch, and
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.bare.holder.rig:60:14: error: the loop wou
+=== l_for.r.bare.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.bare.local.rig:59:14: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.bare.local.rig:59:14: error: the loop woul
+=== l_for.r.bare.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.bare.wparam.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.bare.wparam.rig:57:14: error: the loop wou
+=== l_for.r.path.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path.holder.rig:57:14: error: this `for` reads `h1.w`, which holds a write view, through a branch, and
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path.holder.rig f prod=accept ref=reject C4 59:8 cannot write `h1` while a read lo
+=== l_for.r.path.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path.local.rig:59:14: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path.local.rig f prod=accept ref=reject C4 61:8 cannot write `a` while a read loan
+=== l_for.r.path.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path.wparam.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path.wparam.rig f prod=accept ref=reject C4 59:8 cannot write `a` while a read loa
+=== l_for.r.path2.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path2.holder.rig:57:15: error: this `for` reads `h1.w`, which holds a write view, through a branch, an
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path2.holder.rig f prod=accept ref=reject C4 59:8 cannot write `h1` while a read l
+=== l_for.r.path2.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path2.local.rig:59:15: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path2.local.rig f prod=accept ref=reject C4 61:8 cannot write `a` while a read loa
+=== l_for.r.path2.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path2.wparam.rig:57:15: error: this `for` reads `a`, which holds a write view, through a branch, and w
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.r.path2.wparam.rig f prod=accept ref=reject C4 59:8 cannot write `a` while a read lo
+=== l_for.w.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.bare.holder.rig:60:14: error: this `for` reads `h1.w`, which holds a write view, through a branch, and
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.bare.holder.rig:60:14: error: `for x in !x
+=== l_for.w.bare.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.bare.local.rig:59:14: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.bare.local.rig:59:14: error: `for x in !xs
+=== l_for.w.bare.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.bare.wparam.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.bare.wparam.rig:57:14: error: `for x in !x
+=== l_for.w.path.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path.holder.rig:57:14: error: this `for` reads `h1.w`, which holds a write view, through a branch, and
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path.holder.rig:57:13: error: `for x in !x
+=== l_for.w.path.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path.local.rig:59:14: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path.local.rig:59:13: error: `for x in !xs
+=== l_for.w.path.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path.wparam.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path.wparam.rig:57:13: error: `for x in !x
+=== l_for.w.path2.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path2.holder.rig:57:15: error: this `for` reads `h1.w`, which holds a write view, through a branch, an
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path2.holder.rig:57:13: error: `for x in !
+=== l_for.w.path2.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path2.local.rig:59:15: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path2.local.rig:59:13: error: `for x in !x
+=== l_for.w.path2.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path2.wparam.rig:57:15: error: this `for` reads `a`, which holds a write view, through a branch, and w
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_for.w.path2.wparam.rig:57:13: error: `for x in !
+=== l_match.n.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.n.bare.holder.rig:59:10: error: this `match` reads `h1.w`, which holds a write view, through a branch,
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.n.bare.holder.rig:59:10: error: this `matc
+=== l_match.n.bare.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.n.bare.local.rig:58:10: error: this `match` reads `a`, which holds a write view, through a branch, and
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.n.bare.local.rig:58:10: error: this `match
+=== l_match.n.bare.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.n.bare.wparam.rig:56:10: error: this `match` reads `a`, which holds a write view, through a branch, an
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.n.bare.wparam.rig:56:10: error: this `matc
+=== l_match.r.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.bare.holder.rig:62:7: error: cannot assign to parameter `h1`; parameters are immutable (bind a copy 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.bare.holder.rig:62:7: error: cannot assi
+=== l_match.r.bare.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.r.bare.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.r.path.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.r.path.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be copi
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be copi
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.r.path.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.r.path2.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path2.holder.rig f prod=accept ref=reject C2 56:12 a bare write view would be co
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path2.holder.rig f prod=accept ref=reject C2 56:12 a bare write view would be co
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.r.path2.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path2.local.rig f prod=accept ref=reject C2 58:12 a bare write view would be cop
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path2.local.rig f prod=accept ref=reject C2 58:12 a bare write view would be cop
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.r.path2.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path2.wparam.rig f prod=accept ref=reject C2 56:12 a bare write view would be co
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.r.path2.wparam.rig f prod=accept ref=reject C2 56:12 a bare write view would be co
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.w.bare.holder.rig:62:7: error: cannot assign to parameter `h1`; parameters are immutable (bind a copy 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_match.w.bare.holder.rig:62:7: error: cannot assi
+=== l_match.w.bare.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.bare.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.path.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.path.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.path.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.path2.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.path2.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_match.w.path2.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.n.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.n.bare.holder.rig:59:10: error: this `as` reads `h1.w`, which holds a write view, through a branch,
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.n.bare.holder.rig:59:10: error: this `a
+=== l_while_as.n.bare.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.n.bare.local.rig:58:10: error: this `as` reads `a`, which holds a write view, through a branch, and
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.n.bare.local.rig:58:10: error: this `as
+=== l_while_as.n.bare.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.n.bare.wparam.rig:56:10: error: this `as` reads `a`, which holds a write view, through a branch, an
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.n.bare.wparam.rig:56:10: error: this `a
+=== l_while_as.r.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.bare.holder.rig:63:9: error: cannot assign to parameter `h1`; parameters are immutable (bind a co
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.bare.holder.rig:63:9: error: cannot a
+=== l_while_as.r.bare.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.r.bare.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.r.path.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.r.path.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be c
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be c
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.r.path.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.r.path2.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path2.holder.rig f prod=accept ref=reject C2 56:12 a bare write view would be
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path2.holder.rig f prod=accept ref=reject C2 56:12 a bare write view would be
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.r.path2.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path2.local.rig f prod=accept ref=reject C2 58:12 a bare write view would be 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path2.local.rig f prod=accept ref=reject C2 58:12 a bare write view would be 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.r.path2.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path2.wparam.rig f prod=accept ref=reject C2 56:12 a bare write view would be
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.r.path2.wparam.rig f prod=accept ref=reject C2 56:12 a bare write view would be
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.bare.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.w.bare.holder.rig:63:9: error: cannot assign to parameter `h1`; parameters are immutable (bind a co
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen2/l_while_as.w.bare.holder.rig:63:9: error: cannot a
+=== l_while_as.w.bare.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.bare.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.path.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.path.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.path.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.path2.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.path2.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== l_while_as.w.path2.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|

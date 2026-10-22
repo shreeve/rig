@@ -1,0 +1,232 @@
+a01_arg_q                    main   OK: 2|1|
+a01_arg_q                    branch OK: 2|1|
+a02_arg_bare                 main   ERR: error: type mismatch: expected `?Bag`, got `Bag`; lend a read borrow: `?b`
+a02_arg_bare                 branch ERR: error: type mismatch: expected `?Bag`, got `Bag`; lend a read borrow: `?b`
+a03_arg_int_bare             main   ERR: error: type mismatch: expected `?Int`, got `Int`; lend a read borrow: `?k`
+a03_arg_int_bare             branch ERR: error: type mismatch: expected `?Int`, got `Int`; lend a read borrow: `?k`
+a03b_arg_int_q               main   OK: 5|
+a03b_arg_int_q               branch OK: 5|
+a05_arg_vec_field_bare       main   ERR: error: type mismatch: expected `?Vec[Int]`, got `Vec[Int]`; lend a read borrow: `?b.v`
+a05_arg_vec_field_bare       branch ERR: error: type mismatch: expected `?Vec[Int]`, got `Vec[Int]`; lend a read borrow: `?b.v`
+c01_closure_implicit         main   ERR: error: `b` is a local of the enclosing function; capture it to use it inside the closure (`|+b|` copies or clones it, `|<b|` moves it, `|?b|` or `|!b|
+c01_closure_implicit         branch ERR: error: `b` is a local of the enclosing function; capture it to use it inside the closure (`|+b|` copies or clones it, `|<b|` moves it, `|?b|` or `|!b|
+c02_closure_bare_capture     main   ERR: error: closure parameter `b` has the name of the local `b`; to capture the local, give it a sigil (`|+b|` copies or clones it, `|<b|` moves it, `|?b|`
+c02_closure_bare_capture     branch ERR: error: closure parameter `b` has the name of the local `b`; to capture the local, give it a sigil (`|+b|` copies or clones it, `|<b|` moves it, `|?b|`
+c03_closure_q_capture        main   OK: 3|3|
+c03_closure_q_capture        branch OK: 3|3|
+d01_field_read               main   OK: 3 1|
+d01_field_read               branch OK: 3 1|
+d02_field_owner_bind         main   ERR: error: bare use of `Vec` value `b.v` in binding would copy the buffer pointer; a field cannot be moved out of its parent
+d02_field_owner_bind         branch ERR: error: bare use of `Vec` value `b.v` in binding would copy the buffer pointer; a field cannot be moved out of its parent
+d03_bind_owner               main   ERR: error: bare use of `Bag` value `b` in binding would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration), so 
+d03_bind_owner               branch ERR: error: bare use of `Bag` value `b` in binding would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration), so 
+d04_bind_borrow              main   OK: 3 3|
+d04_bind_borrow              branch OK: 3 3|
+e01_eq_bare                  main   ERR: error: `==` is not defined for `Vec[Int]`: `Vec[Int]` has no `==`
+e01_eq_bare                  branch ERR: error: `==` is not defined for `Vec[Int]`: `Vec[Int]` has no `==`
+e02_eq_struct                main   ERR: error: `==` is not defined for `Bag`: field `v` is a `Vec[Int]`, which has no `==`
+e02_eq_struct                branch ERR: error: `==` is not defined for `Bag`: field `v` is a `Vec[Int]`, which has no `==`
+e03_eq_handle                main   ERR: error: `==` is not defined for `*S`: `*S` is a handle, which could compare by identity or by content
+e03_eq_handle                branch ERR: error: `==` is not defined for `*S`: `*S` is a handle, which could compare by identity or by content
+e04_eq_text_temp             main   ERR: error: use of unbound type `Text`
+e04_eq_text_temp             branch OK: true true true|
+e05_eq_opt_none              main   OK: false|0|
+e05_eq_opt_none              branch OK: false|0|
+f01_for_vec_bare             main   ERR: error: write `for x in ?v` to read the Vec's elements
+f01_for_vec_bare             branch ERR: error: write `for x in ?v` to read the Vec's elements
+f01b_for_vec_q               main   OK: 1|2|2|
+f01b_for_vec_q               branch OK: 1|2|2|
+f02_for_array_bare           main   OK: 1|2|3|1|2|3|
+f02_for_array_bare           branch OK: 1|2|3|1|2|3|
+f03_for_field_bare           main   ERR: error: write `for x in ?b.v` to read the Vec's elements
+f03_for_field_bare           branch ERR: error: write `for x in ?b.v` to read the Vec's elements
+f04_for_call                 main   ERR: error: this `Bag` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+f04_for_call                 branch ERR: error: this `Bag` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+f05_for_vec_of_owner_bare    main   ERR: error: write `for h in ?v` to read the Vec's elements
+f05_for_vec_of_owner_bare    branch ERR: error: write `for h in ?v` to read the Vec's elements
+g01_generic_borrow_param_bare main   ERR: error: type mismatch: expected `?Int`, got `Int`; lend a read borrow: `?k`
+g01_generic_borrow_param_bare branch ERR: error: type mismatch: expected `?Int`, got `Int`; lend a read borrow: `?k`
+g02_generic_value_param      main   OK: 4 4|
+g02_generic_value_param      branch OK: 4 4|
+g03_ternary_views            main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+g03_ternary_views            branch ERR: error: `a if c else b` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else
+i01_ifas_bare                main   ERR: error: bare use of `Bag` value `o` in binding would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration), so 
+i01_ifas_bare                branch ERR: error: bare use of `Bag` value `o` in binding would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration), so 
+i01b_ifas_q                  main   OK: 2|2|
+i01b_ifas_q                  branch OK: 2|2|
+i01c_ifas_move               main   OK: 2|
+i01c_ifas_move               branch OK: 2|
+i02_ifas_call                main   OK: 9|
+i02_ifas_call                branch OK: 9|
+i03_whileas_bare             main   ERR: error: bare use of `Bag` value `o` in binding would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration), so 
+i03_whileas_bare             branch ERR: error: bare use of `Bag` value `o` in binding would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration), so 
+k01_take_arg_bare            main   ERR: error: bare use of `Bag` value `b` in call argument would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+k01_take_arg_bare            branch ERR: error: bare use of `Bag` value `b` in call argument would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+k02_take_field_bare          main   ERR: error: bare use of `Bag` value `b` in call argument would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+k02_take_field_bare          branch ERR: error: bare use of `Bag` value `b` in call argument would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+k03_take_push_bare           main   ERR: error: bare use of `Bag` value `b` in call argument would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+k03_take_push_bare           branch ERR: error: bare use of `Bag` value `b` in call argument would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+k04_take_assign_field_bare   main   ERR: error: bare use of `Bag` value `b` in field assignment would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declarat
+k04_take_assign_field_bare   branch ERR: error: bare use of `Bag` value `b` in field assignment would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declarat
+k05_take_arg_call            main   OK: 1|
+k05_take_arg_call            branch OK: 1|
+k06_take_handle_bare         main   ERR: error: bare use of shared (`*T`) handle `h` in binding would alias the handle; use `<h` to move or `+h` to clone
+k06_take_handle_bare         branch ERR: error: bare use of shared (`*T`) handle `h` in binding would alias the handle; use `<h` to move or `+h` to clone
+k07_take_handle_arg          main   ERR: error: bare use of shared (`*T`) handle `h` in call argument would alias the handle; use `<h` to move or `+h` to clone
+k07_take_handle_arg          branch ERR: error: bare use of shared (`*T`) handle `h` in call argument would alias the handle; use `<h` to move or `+h` to clone
+l01_array_slice              main   OK: 6 5|
+l01_array_slice              branch OK: 6 5|
+l01b_array_slice_bare        main   ERR: error: type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
+l01b_array_slice_bare        branch ERR: error: type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
+l02_vec_slice_q              main   ERR: error: type mismatch: expected `[]Int`, got `?Vec[Int]`
+l02_vec_slice_q              branch ERR: error: type mismatch: expected `[]Int`, got `?Vec[Int]`
+l02b_vec_slice_range         main   OK: 4|
+l02b_vec_slice_range         branch OK: 4|
+l03_vec_wslice               main   ERR: error: type mismatch: expected `![]Int`, got `!Vec[Int]`
+l03_vec_wslice               branch ERR: error: type mismatch: expected `![]Int`, got `!Vec[Int]`
+l03b_array_wslice            main   OK: [0, 5] [0]|
+l03b_array_wslice            branch OK: [0, 5] [0]|
+l04_handle_view              main   ERR: error: type mismatch: expected `?S`, got `?*S`
+l04_handle_view              branch ERR: error: type mismatch: expected `?S`, got `?*S`
+l04b_handle_bare             main   ERR: error: type mismatch: expected `?S`, got `*S`
+l04b_handle_bare             branch ERR: error: type mismatch: expected `?S`, got `*S`
+l04c_handle_member           main   OK: 3 3|
+l04c_handle_member           branch OK: 3 3|
+l05_box_view                 main   OK: 4 4|
+l05_box_view                 branch OK: 4 4|
+l05b_box_bare                main   ERR: error: type mismatch: expected `?S`, got `Box[S]`
+l05b_box_bare                branch ERR: error: type mismatch: expected `?S`, got `Box[S]`
+l06_opt_view                 main   ERR: error: type mismatch: expected `(?S)?`, got `?S?`
+l06_opt_view                 branch ERR: error: type mismatch: expected `(?S)?`, got `?S?`
+l06b_opt_view_ifas           main   OK: 3|
+l06b_opt_view_ifas           branch OK: 3|
+l07_vec_opt_slice            main   ERR: error: type mismatch: expected `([]Int)?`, got `?Vec[Int]?`
+l07_vec_opt_slice            branch ERR: error: type mismatch: expected `([]Int)?`, got `?Vec[Int]?`
+l07b_array_opt_slice         main   ERR: error: type mismatch: expected `([]Int)?`, got `?[2]Int`
+l07b_array_opt_slice         branch ERR: error: type mismatch: expected `([]Int)?`, got `?[2]Int`
+l08_callable                 main   OK: 3 12 20|
+l08_callable                 branch OK: 3 12 20|
+l08b_callable_closure_bare   main   ERR: error: closure `add` cannot be moved, returned, stored, or aliased; call it as `add()`, lend it to a call as `?add`, or make the literal owned (`*|...
+l08b_callable_closure_bare   branch ERR: error: closure `add` cannot be moved, returned, stored, or aliased; call it as `add()`, lend it to a call as `?add`, or make the literal owned (`*|...
+l08c_callable_alias          main   ERR: error: type mismatch: expected `?fun(Int) -> Int`, got `fun(Int) -> Int`; lend a read borrow: `?inc`
+l08c_callable_alias          branch ERR: error: type mismatch: expected `?fun(Int) -> Int`, got `fun(Int) -> Int`; lend a read borrow: `?inc`
+l09_box_of_handle_none       main   ERR: error: type mismatch: expected `!S`, got `!*S`
+l09_box_of_handle_none       branch ERR: error: type mismatch: expected `!S`, got `!*S`
+l10_vec_slice_index_view     main   OK: 3|
+l10_vec_slice_index_view     branch OK: 3|
+l11_box_array_slice          main   ERR: error: type mismatch: expected `[]Int`, got `?Box[[3]Int]`
+l11_box_array_slice          branch ERR: error: type mismatch: expected `[]Int`, got `?Box[[3]Int]`
+l12_box_box                  main   ERR: error: type mismatch: expected `?S`, got `?Box[Box[S]]`
+l12_box_box                  branch ERR: error: type mismatch: expected `?S`, got `?Box[Box[S]]`
+l13_wborrow_param_to_slice   main   OK: 2|
+l13_wborrow_param_to_slice   branch OK: 2|
+l14_vec_param_to_slice       main   ERR: error: type mismatch: expected `[]Int`, got `?Vec[Int]`
+l14_vec_param_to_slice       branch ERR: error: type mismatch: expected `[]Int`, got `?Vec[Int]`
+l15_handle_text_member       main   ERR: error: use of unbound name `Text`
+l15_handle_text_member       branch ERR: error: cannot compare `*Text` with `String`
+l16_owned_closure_lend       main   ERR: error: an owned closure is lent to a `?fun(Int) -> Int` parameter: write `?cb`
+l16_owned_closure_lend       branch ERR: error: an owned closure is lent to a `?fun(Int) -> Int` parameter: write `?cb`
+m02_match_enum_bare          main   OK: p 1|p 1|
+m02_match_enum_bare          branch OK: p 1|p 1|
+m03_match_box_bare           main   ERR: error: a `match` reaches the value inside a box through a borrow: `match ?b`
+m03_match_box_bare           branch ERR: error: a `match` reaches the value inside a box through a borrow: `match ?b`
+m04_match_call               main   ERR: error: this `Shape` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+m04_match_call               branch OK: p 1|
+m05_match_handle             main   ERR: error: cannot `match` on a value of type `*Shape`; match works on enums, errors, integers, and Bool
+m05_match_handle             branch ERR: error: cannot `match` on a value of type `*Shape`; match works on enums, errors, integers, and Bool
+p01_print_bare               main   OK: [3]|1 4|3|
+p01_print_bare               branch OK: [3]|1 4|3|
+p02_print_owner              main   OK: Bag(n: 3, v: [3])|3|
+p02_print_owner              branch OK: Bag(n: 3, v: [3])|3|
+q01_print_ternary_names      main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q01_print_ternary_names      branch ERR: error: `a if c else b` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else
+q02_print_optprop_name       main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q02_print_optprop_name       branch ERR: error: `o?` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else ?b`), or r
+q03_print_coalesce_name      main   ERR: error: `??` on an optional `B?` would copy an owning handle out of it; take the handle out with `if x as h`
+q03_print_coalesce_name      branch ERR: error: `mko(1) ?? d` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else ?
+q04_receiver_temp            main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q04_receiver_temp            branch ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q05_receiver_temp_paren      main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q05_receiver_temp_paren      branch OK: 5|drop 5|
+q06_cond_drop_timing         main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q06_cond_drop_timing         branch OK: then-body|drop 1|after|
+q07_while_drop_timing        main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q07_while_drop_timing        branch OK: body 0|drop 10|body 1|drop 11|drop 12|after|
+q08_ifas_header_view         main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q08_ifas_header_view         branch OK: body 3|drop 3|after|
+q09_match_temp_move          main   ERR: error: this `E` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q09_match_temp_move          branch ERR: error: cannot move `b` out of `mk()`: `match mk()` reads `mk()`; write `match <mk()` to take its fields
+q10_match_temp_read          main   ERR: error: this `E` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q10_match_temp_read          branch OK: arm 1|drop 1|after|
+q11_for_temp_borrow          main   OK: 1|1|
+q11_for_temp_borrow          branch OK: 1|1|
+q12_print_temp               main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q12_print_temp               branch OK: 4 B(n: 5)|drop 5|drop 4|after|
+q13_coalesce_bind            main   ERR: error: `??` on an optional `B?` would copy an owning handle out of it; take the handle out with `if x as h`
+q13_coalesce_bind            branch OK: 0|drop 0|
+q14_lend_temp_arg            main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q14_lend_temp_arg            branch OK: 7|drop 7|after|
+q15_while_as_header_view     main   ERR: error: this `B` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+q15_while_as_header_view     branch OK: body 0|drop 0|body 1|drop 1|body 2|drop 2|drop 3|after|
+q16_cut_header               main   ERR: error: the standard library has no module `text`
+q16_cut_header               branch OK: k 5|
+r01_receiver_bare            main   OK: 4|3|
+r01_receiver_bare            branch OK: 4|3|
+r01b_receiver_q              main   OK: 4|4|
+r01b_receiver_q              branch OK: 4|4|
+r02_receiver_call            main   ERR: error: this `Bag` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+r02_receiver_call            branch ERR: error: this `Bag` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+r03_receiver_field           main   ERR: error: this `Bag` is a temporary that owns a resource, and nothing would drop it; bind it to a name first
+r03_receiver_field           branch OK: 3|
+r04_receiver_consume_bare    main   ERR: error: method `total` consumes the receiver; use `<receiver.total(...)`
+r04_receiver_consume_bare    branch ERR: error: method `total` consumes the receiver; use `<receiver.total(...)`
+r05_receiver_box_method      main   OK: 3 3|
+r05_receiver_box_method      branch OK: 3 3|
+r06_receiver_write_bare      main   ERR: error: method `push` requires a write-borrowed receiver; use `!receiver.push(...)`
+r06_receiver_write_bare      branch ERR: error: method `push` requires a write-borrowed receiver; use `!receiver.push(...)`
+s01_for_ternary_vec          main   ERR: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
+s01_for_ternary_vec          branch ERR: error: incompatible types: 'rig.runtime.Vec(i64)' and 'rig.runtime.Vec(i64).IntoIter'
+s02_for_optprop_vec          main   ERR: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
+s02_for_optprop_vec          branch OK: 0|
+s03_for_optprop_named        main   ERR: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` to a name first
+s03_for_optprop_named        branch ERR: thread 19640379 panic: rig: double free or free of memory that was never allocated
+t01_return_bare              main   OK: 0 0 0 0|
+t01_return_bare              branch OK: 0 0 0 0|
+t02_break_bare               main   ERR: error: bare use of `Bag` value `b` in `break` value would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+t02_break_bare               branch ERR: error: bare use of `Bag` value `b` in `break` value would alias an owning value; `Bag` carries drop glue (resource fields or a user `drop` declaration
+t03_return_param_view        main   OK: 0|
+t03_return_param_view        branch OK: 0|
+w01_held_write_forward_bare  main   ERR: error: write `!s`: the call writes through `s`
+w01_held_write_forward_bare  branch ERR: error: write `!s`: the call writes through `s`
+w02_held_read_forward_bare   main   OK: 1|
+w02_held_read_forward_bare   branch OK: 1|
+x01_text_reads               main   ERR: error: use of unbound name `Text`
+x01_text_reads               branch OK: hello|<hello> true 5|h|hello|
+x02_text_arg_bare            main   ERR: error: use of unbound name `Text`
+x02_text_arg_bare            branch ERR: error: type mismatch: expected `String`, got `Text`; lend it as a String with `?t` or `?t[..]`
+x03_text_for_bare            main   ERR: error: use of unbound name `Text`
+x03_text_for_bare            branch ERR: error: cannot iterate over `Text`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`; walk a Text's bytes through its String view:
+x04_text_for_q               main   ERR: error: use of unbound name `Text`
+x04_text_for_q               branch OK: 104|105|
+x05_qtext_param_reads        main   ERR: error: use of unbound type `Text`
+x05_qtext_param_reads        branch OK: he hello|
+x05b_qtext_param_for         main   ERR: error: use of unbound type `Text`
+x05b_qtext_param_for         branch ERR: error: cannot iterate over `?Text`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`; walk a Text's bytes through its String view
+x06_textopt_to_stringopt     main   ERR: error: use of unbound type `Text`
+x06_textopt_to_stringopt     branch ERR: error: type mismatch: expected `String?`, got `?Text?`
+x07_text_to_stringopt        main   ERR: error: use of unbound name `Text`
+x07_text_to_stringopt        branch OK: hi|
+x08_boxtext_string           main   ERR: error: use of unbound name `Text`
+x08_boxtext_string           branch OK: h|el|true|
+x08b_boxtext_len             main   ERR: error: use of unbound name `Text`
+x08b_boxtext_len             branch ERR: error: a `Box[Text]` reaches no fields of its value; lend the value with `?b` or `!b`, or move it out with `<b.unbox()`
+x09_boxtext_add              main   ERR: error: use of unbound name `Text`
+x09_boxtext_add              branch ERR: error: a `Box[Text]` reaches no methods of its value; lend the value with `?b` or `!b`, or move it out with `<b.unbox()`
+x10_handletext_string        main   ERR: error: use of unbound name `Text`
+x10_handletext_string        branch ERR: error: type mismatch: expected `String`, got `?*Text`
+x11_field_text_self          main   ERR: error: use of unbound type `Text`
+x11_field_text_self          branch ERR: error: a slice of a Text borrows it; write `?self.title[..2]`
+x12_qtext_local_bare         main   ERR: error: use of unbound name `Text`
+x12_qtext_local_bare         branch OK: h|5|
+x13_text_temp_bind           main   ERR: error: use of unbound type `Text`
+x13_text_temp_bind           branch OK: 3 true|x1|
