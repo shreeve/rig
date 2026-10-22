@@ -8401,18 +8401,8 @@ const Checker = struct {
     /// it and the task making it run on this thread from then on. Reports
     /// the part that cannot go even to a local task.
     fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
-        var part_ty = part_ty_in;
-        // A closure literal written in the call is lent to it as a
-        // callable view, as `?f` of a closure is: it views what it
-        // captures.
         const lent_closure = part.isKind(.lambda);
-        if (lent_closure) {
-            const fn_ty = sema.unwrapViews(self.ctx, part_ty);
-            part_ty = switch (self.ctx.types.get(fn_ty)) {
-                .callable => try self.ctx.intern(.{ .read_view = fn_ty }),
-                else => try sema.callableOfFn(self.ctx, fn_ty),
-            };
-        }
+        const part_ty = try self.crossingTypeOf(part, part_ty_in);
         const k = self.ctx.types.get(part_ty);
         // A closure binding is typed as a function value but holds its
         // captures; only its callable view `?g` reaches a call.
@@ -8442,6 +8432,20 @@ const Checker = struct {
         const what = if (lent_closure) "this closure" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.sourceText(part)});
         try self.errAt(part, "{s} {s}: `{s}` {s}", .{ what, passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
         return false;
+    }
+
+    /// The type `part`, an argument of `ty` going to another task (a
+    /// task's call or an actor's), crosses as: a closure literal written
+    /// there is lent as a callable view, as `?f` of a closure is, since
+    /// it views what it captures. The one classifier for both
+    /// (`crossCheck`, `actorCall`).
+    fn crossingTypeOf(self: *Checker, part: Sexp, ty: TypeId) Error!TypeId {
+        if (!part.isKind(.lambda)) return ty;
+        const fn_ty = sema.unwrapViews(self.ctx, ty);
+        return switch (self.ctx.types.get(fn_ty)) {
+            .callable => try self.ctx.intern(.{ .read_view = fn_ty }),
+            else => try sema.callableOfFn(self.ctx, fn_ty),
+        };
     }
 
     /// Why a value holding `blocker` cannot go to another core
@@ -12150,7 +12154,7 @@ const Checker = struct {
         // What crosses to the actor's task.
         for (args) |a| {
             const arg = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
-            const ty = self.ctx.typeOf(arg) orelse continue;
+            const ty = try self.crossingTypeOf(arg, self.ctx.typeOf(arg) orelse continue);
             if (self.isPoison(ty)) continue;
             const k = self.ctx.types.get(ty);
             if (k == .write_view) {
@@ -14324,6 +14328,13 @@ const Checker = struct {
                 }
                 const tt = self.ctx.types.get(target);
                 if (tt != .shared) return null;
+                // An owned closure is made only from a closure literal,
+                // where a handle's value is a function as where `*f`
+                // stands alone (`synthShare`).
+                if (self.ctx.types.get(tt.shared) == .function) {
+                    try self.errAt(operand, "`*` makes an owned closure only from a closure literal: `*|...| body`", .{});
+                    return self.t().invalid_id;
+                }
                 // `*` of a weak handle upgrades it whatever is expected
                 // (`weakUpgrade`), so it makes no `*~T`: synthesized, it
                 // mismatches. An operand typed where it stands is typed

@@ -226,6 +226,11 @@ changed the language since it:
 - **A match on an element:** `match v[0]` with an arm that reads no
   binding, such as `_ => 1`, compiles for Lists and Tables, as a value
   and as a statement; it failed in the Zig it emitted.
+- **A closure literal given to an actor:** a method call through an
+  actor's handle, waited on or run as a task, rejects a closure literal
+  argument, as a task's call does: the actor runs it on a task of its
+  own while its captures live in the caller's statement. `*g` of a
+  function, where a `*fun` is expected, is rejected as `*g` alone is.
 - **Tables:** `Table[T, n]` holds `n` slots from the moment it is made,
   each `T()` until written, and a `Slot[n]` is a number below `n` that
   only `push`, `Slot[n].of(i)`, and a literal below `n` make, so `t[s]`
@@ -234,8 +239,10 @@ changed the language since it:
   slots with its own `mmap`, so untouched slots take no memory and the
   table never copies as it grows; other elements are made in every slot,
   up to 64 MiB. `Table()` is no field's default: a table is made where its
-  owner is. On Trig's stores, the same reads without a test made
-  ts-pattern 3.1% faster (docs/STD.md, "Table and Slot").
+  owner is. A measuring build of Trig whose store indexes were treated
+  as proven, a stand-in for tables, ran ts-pattern about 3% faster
+  (fastest of 10, 2.8% fewer cycles); Trig's stores move to tables in a
+  change of its own (docs/STD.md, "Table and Slot").
 - **Compile-time functions:** a `fun` with only a bracket parameter
   list, `fun cap[n: Int] -> Int`, runs in the checker, and its call
   `cap[8]` is a constant wherever one may stand: an expression, a module

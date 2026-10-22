@@ -545,3 +545,37 @@ fail "actor supervised behind a handle", "an actor lives only behind a shared ha
     n: Int
 
   r = Actor.supervised(*|| Rooms(n: 1))
+
+fail "actor closure literal in a task call", "13:16: an actor runs its methods on a task of its own", errors: 1
+  # A closure literal written in an actor call lends its captures to the
+  # actor's task, as one in a task call does; they would end with the
+  # statement while the actor runs.
+  obj Counter
+    hits: Int
+
+    fun apply(!@, f: ?fun(Int) -> Int) -> Int
+      @hits = f(@hits)
+      @hits
+
+  c = *Actor(Counter(hits: 1))
+  total = 0
+  t = (!c).apply(|!total, x|
+    total += x
+    total
+  )&
+  total += 100
+  print(>t, total)
+
+fail "actor closure literal in a call", "12:18: an actor runs its methods on a task of its own, and `|+k, x| x + k` is lent to it to read", errors: 1
+  # An actor runs its methods on a task of its own, so a closure literal
+  # given to one is lent to that task, waited on or not.
+  obj Counter
+    hits: Int
+
+    fun apply(!@, f: ?fun(Int) -> Int) -> Int
+      @hits = f(@hits)
+      @hits
+
+  c = *Actor(Counter(hits: 1))
+  k = 3
+  print((!c).apply(|+k, x| x + k))
