@@ -623,3 +623,14 @@ fail "closure path capture on one line", "write `p.q`, the path this closure cap
       .q
       .m
   print(f())
+
+fail "closure path capture stores a view of itself once", "8:6: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself", errors: 1
+  # Two captures of one value's fields: a store of one in the other is
+  # reported once, where the closure is made, not again in its body.
+  obj P
+    a: List[?String]
+    b: String
+
+  p = P(a: List[?String](), b: String("x"))
+  f = |!p.a, ?p.b| !p.a.push(p.b)
+  f()
