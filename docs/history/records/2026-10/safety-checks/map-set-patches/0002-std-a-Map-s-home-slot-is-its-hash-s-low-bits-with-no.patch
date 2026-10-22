@@ -1,0 +1,124 @@
+From 9cc6ebb9e2a649adb77f7a146c77a7023eee90cb Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Thu, 22 Oct 2026 01:29:56 -0600
+Subject: [PATCH 2/2] std: a Map's home slot is its hash's low bits with no
+ checked conversion
+
+---
+ std/__rig_builtin.rig | 22 +++++++++++++++-------
+ std/text.rig          |  9 +++++++--
+ 2 files changed, 22 insertions(+), 9 deletions(-)
+
+diff --git a/std/__rig_builtin.rig b/std/__rig_builtin.rig
+index 2f8a4dd5d..399d1e500 100644
+--- a/std/__rig_builtin.rig
++++ b/std/__rig_builtin.rig
+@@ -50,7 +50,7 @@ obj Table
+   sub place(!@, j: Int, h: U64)
+     ts = !@tags[..]
+     ats = !@at[..]
+-    i = Int(h & U64(ts.len - 1))
++    i = home_of(h, ts.len)
+     for _ in 0..2
+       while 0 <= i and i < ts.len and i < ats.len
+         if ts[i] == 0
+@@ -333,7 +333,7 @@ pub obj Map[K: Hash, V]
+     ts = ?@table.tags[..]
+     ats = ?@table.at[..]
+     tag = tag_of(h)
+-    i = Int(h & U64(ts.len - 1))
++    i = home_of(h, ts.len)
+     for _ in 0..2
+       while 0 <= i and i < ts.len and i < ats.len
+         t = ts[i]
+@@ -403,12 +403,12 @@ pub obj Map[K: Hash, V]
+   # its key hashes to (`hash_at`), so the table keeps no tombstones.
+   sub unlink(!@, j: Int, h: U64)
+     mask = @table.tags.len - 1
+-    hole = Int(h & U64(mask))
++    hole = home_of(h, @table.tags.len)
+     while @table.tags[hole] == 0 or @table.at[hole] != U32(j)
+       hole = (hole + 1) & mask
+     s = (hole + 1) & mask
+     while 0 <= s and s < @table.tags.len and @table.tags[s] != 0
+-      home = Int(@hash_at(Int(@table.at[s])) & U64(mask))
++      home = home_of(@hash_at(Int(@table.at[s])), @table.tags.len)
+       if ((s - home) & mask) >= ((s - hole) & mask)
+         @table.tags[hole] = @table.tags[s]
+         @table.at[hole] = @table.at[s]
+@@ -520,7 +520,7 @@ pub obj Set[K: Hash]
+     ts = ?@table.tags[..]
+     ats = ?@table.at[..]
+     tag = tag_of(h)
+-    i = Int(h & U64(ts.len - 1))
++    i = home_of(h, ts.len)
+     for _ in 0..2
+       while 0 <= i and i < ts.len and i < ats.len
+         t = ts[i]
+@@ -589,12 +589,12 @@ pub obj Set[K: Hash]
+   # hashes to (`hash_at`), so the table keeps no tombstones.
+   sub unlink(!@, j: Int, h: U64)
+     mask = @table.tags.len - 1
+-    hole = Int(h & U64(mask))
++    hole = home_of(h, @table.tags.len)
+     while @table.tags[hole] == 0 or @table.at[hole] != U32(j)
+       hole = (hole + 1) & mask
+     s = (hole + 1) & mask
+     while 0 <= s and s < @table.tags.len and @table.tags[s] != 0
+-      home = Int(@hash_at(Int(@table.at[s])) & U64(mask))
++      home = home_of(@hash_at(Int(@table.at[s])), @table.tags.len)
+       if ((s - home) & mask) >= ((s - hole) & mask)
+         @table.tags[hole] = @table.tags[s]
+         @table.at[hole] = @table.at[s]
+@@ -610,6 +610,14 @@ fun table_size(want: Int, now: Int) -> Int
+     n *= 2
+   n
+ 
++# The slot the hash `h` names in a table of `n` slots, a power of two:
++# the hash's low bits. They are taken below 2^62 first, so the
++# conversion to `Int` makes no test, and `n -% 1` makes no test either:
++# it wraps only for a table of no slots, where it keeps every bit and
++# the probe's bounds test ends the probe at once.
++fun home_of(h: U64, n: Int) -> Int
++  Int(h & 0x3FFF_FFFF_FFFF_FFFF) & (n -% 1)
++
+ # A used slot's tag: the top seven bits of the key's hash, with the high
+ # bit set (a free slot's tag is 0). The bits that pick a slot are the
+ # hash's low bits under the table's mask, fewer than 57 in any table
+diff --git a/std/text.rig b/std/text.rig
+index 24ed5b2d2..eedd3d1de 100644
+--- a/std/text.rig
++++ b/std/text.rig
+@@ -552,7 +552,7 @@ pub obj Interner
+     ts = ?@table.tags[..]
+     ats = ?@table.at[..]
+     tag = id_tag_of(h)
+-    i = Int(h & U64(ts.len - 1))
++    i = id_home_of(h, ts.len)
+     for _ in 0..2
+       while 0 <= i and i < ts.len and i < ats.len
+         t = ts[i]
+@@ -584,7 +584,7 @@ obj IdTable
+   sub place(!@, j: Int, h: U64)
+     ts = !@tags[..]
+     ats = !@at[..]
+-    i = Int(h & U64(ts.len - 1))
++    i = id_home_of(h, ts.len)
+     for _ in 0..2
+       while 0 <= i and i < ts.len and i < ats.len
+         if ts[i] == 0
+@@ -613,6 +613,11 @@ fun id_table_size(want: Int, now: Int) -> Int
+     n *= 2
+   n
+ 
++# The slot the hash `h` names in a table of `n` slots, as a Map's
++# (`home_of` in std/__rig_builtin.rig).
++fun id_home_of(h: U64, n: Int) -> Int
++  Int(h & 0x3FFF_FFFF_FFFF_FFFF) & (n -% 1)
++
+ # A used slot's tag: the top seven bits of the key's hash, with the high
+ # bit set (a free slot's tag is 0). The bits that pick a slot are the
+ # hash's low bits under the table's mask, fewer than 57 in any table
+-- 
+2.55.0
+

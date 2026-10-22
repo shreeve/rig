@@ -1,0 +1,3 @@
+slot /home/shreeve/.cache/trig-release-build.lock, cores 10,11
+note: emitted Zig is in /zfs/worktrees/rig/len-map/out/map
+map built in 445s, status 137

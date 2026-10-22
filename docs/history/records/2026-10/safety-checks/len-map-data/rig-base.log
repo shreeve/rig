@@ -1,0 +1,1 @@
+slot /home/shreeve/.cache/trig-release-build.lock cores 10,11: zig build -Dnexus=/zfs/rig/nexus/bin/nexus
