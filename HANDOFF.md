@@ -42,11 +42,13 @@ newest entry summarizes the latest rounds.
 ## In flight
 
 - **Errors with data,** from the approved spec
-  (docs/history/records/revamp/r3/errors-panel/): declared error sets
-  (R2, #542) are on `main`; next are a round for cross-module clone and
-  Map's `+`, then R3a (the runtime's slot plumbing, with no change in
-  behavior), the Core paragraph, R3 (fields), R4 (std.json), and R2.5
-  (generic sets).
+  (docs/history/records/revamp/r3/errors-panel/): on `main` are declared
+  error sets (R2, #542), clones across modules and Map's `+` (#548), the
+  runtime's error-data plumbing (R3a, #550), and CORE's paragraph "A
+  failure moves its error", revised by a panel of four
+  (docs/history/records/2026-10/errors-core/). Next are R3 (fields,
+  with the sites R3a left to it: a failure through a function value),
+  R4 (std.json), and R2.5 (generic sets).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
