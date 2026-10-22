@@ -3560,7 +3560,10 @@ pub const Emitter = struct {
         const name = try self.hiddenStorage(info.match, .subject, by, .next);
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
         if ((try self.hasStorage(value)) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
-            try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
+            // Read by no arm (`_ => 1`), the subject is still evaluated
+            // once, for its index's test: the discard keeps Zig from
+            // rejecting an unused constant.
+            try self.line("const {s} = &{s}; _ = &{s};", .{ name, try self.placeText(info.*), name });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
         }
@@ -3577,7 +3580,7 @@ pub const Emitter = struct {
                 try self.emitWriteViewPtr(value);
                 try self.closeHeader(h);
             }
-            try self.w.writeAll(";\n");
+            try self.w.print("; _ = &{s};\n", .{name});
             var buf: Writer.Allocating = .init(self.arena.allocator());
             {
                 const saved_w = self.w;
