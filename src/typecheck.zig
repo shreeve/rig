@@ -701,6 +701,11 @@ const Checker = struct {
     /// `Cell(0)`, or `[n of 0]`, which each value gets a fresh one of.
     fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8) Error!void {
         const field = std.mem.eql(u8, what, "field");
+        // A table reserves or makes its slots as the program runs, which
+        // a default, a constant the object's type holds, cannot.
+        if (sema.tableElem(self.ctx, ty) != null) {
+            return self.errAt(value, "a table is made as the program runs, so it is no {s}'s default: make it where the value is made, `{s}()` in a constructor or a function", .{ what, "Table" });
+        }
         const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
             if (field and try self.emptyConstructorGap(value)) return;
@@ -1965,7 +1970,7 @@ const Checker = struct {
             } else if (self.ctx.isEnumText(step)) {
                 place.block(if (inner == self.t().symbol_id) .symbol_text else .text, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
-            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
+            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or sema.tableElem(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             }
@@ -2874,13 +2879,13 @@ const Checker = struct {
                 // loop cannot both view and take, unless its elements copy.
                 const peeled_hands = self.hands(peeled_source);
                 const unbound = (!peeled_hands.hasStorage() and peeled_hands.kind != .made) or (mode == .iter and peeled_hands.kind == .part_of_made and self.held_base == .nil);
-                const list = listElementType(self.ctx, source_ty) != null;
+                const list = listElementType(self.ctx, source_ty) != null or sema.tableElem(self.ctx, source_ty) != null;
                 const moving = list or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, source_ty))) {
                     .array => |a| sema.copies(self.ctx, a.elem) == .no,
                     else => false,
                 };
                 // A List whose elements move is reported by `elementTypeForLoop`.
-                const list_moves = if (listElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
+                const list_moves = if (listElementType(self.ctx, sema.unwrapViews(self.ctx, source_ty)) orelse sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, source_ty))) |e| sema.moves(self.ctx, e) == .yes else false;
                 if (mode != .move and unbound and !list_moves and (if (mode == .iter) moving else list) and !self.isPoison(source_ty)) {
                     const what = if (list) "a List held in a place or made by a call" else "a place or takes a value made here";
                     try self.errAt(peeled_source, "a `for` walks {s}: bind this `{s}` to a name first", .{ what, try self.tyName(source_ty) });
@@ -2945,7 +2950,7 @@ const Checker = struct {
         const peeled = sema.unwrapViews(self.ctx, ty);
         switch (self.ctx.types.get(peeled)) {
             .nominal, .imported_nominal => {},
-            .parameterized_nominal => if (listElementType(self.ctx, peeled) != null) return .not_iterator,
+            .parameterized_nominal => if (listElementType(self.ctx, peeled) != null or sema.tableElem(self.ctx, peeled) != null) return .not_iterator,
             else => return .not_iterator,
         }
         const next = (try self.findMethod(peeled, "next")) orelse return .not_iterator;
@@ -3261,7 +3266,21 @@ const Checker = struct {
         if (self.isPoison(source_ty)) return self.t().invalid_id;
         const peeled = sema.unwrapViews(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
-            .parameterized_nominal => if (listElementType(self.ctx, peeled)) |elem| {
+            // A table's pushed slots, `0..len`, read or written in place, as
+            // a List's elements are; a loop takes none of them out.
+            .parameterized_nominal => if (sema.tableElem(self.ctx, peeled)) |elem| {
+                if (mode == .move) {
+                    const shown = try self.plainText(inner_source);
+                    try self.err(pos, "a loop takes no slot out of a table; loop over `?{s}` or `!{s}`", .{ shown, shown });
+                    return self.t().invalid_id;
+                }
+                if (sema.moves(self.ctx, elem) == .yes and !self.placeOf(inner_source).named()) {
+                    try self.err(pos, "a loop over a table of `{s}` walks a table that a name holds, or a field or element of one; bind it to a name first", .{try self.tyName(elem)});
+                    return self.t().invalid_id;
+                }
+                if (mode == .write) return self.writeElement(source, inner_source, elem);
+                return self.loopElement(.read, elem);
+            } else if (listElementType(self.ctx, peeled)) |elem| {
                 // Elements that move (handles and boxes) are walked by
                 // view; every other element is plain data.
                 const is_resource = sema.moves(self.ctx, elem) == .yes;
@@ -4228,7 +4247,7 @@ const Checker = struct {
                 // A value made here, an enum, an error, an integer, or a
                 // Bool, is the match's whole.
                 if (self.hands(subject).kind == .made) if (self.ctx.typeOf(subject)) |ty| switch (self.ctx.types.get(ty)) {
-                    .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool, .symbol => break :blk .read_own,
+                    .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool, .symbol, .slot => break :blk .read_own,
                     else => {},
                 };
                 // Anything else is read.
@@ -6483,7 +6502,9 @@ const Checker = struct {
             .depends => try self.requireOf(value, .copies, self.startOf(operand), "clones a value"),
             .no => {
                 const shown = try self.tyName(value);
-                if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) {
+                if (sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, value)) != null) {
+                    try self.errAt(operand, "`+x` cannot clone a `{s}`: a table has no clone, since a copy would make every slot; move it with `<x`, or lend it", .{shown});
+                } else if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a write view, which has one holder; move it with `<x`", .{shown});
                 } else if (!sema.typeHasDropGlue(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it is unique, and a copy would duplicate it; move it with `<x`", .{shown});
@@ -6847,7 +6868,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .array, .slice, .string_view, .static, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
-            .parameterized_nominal => if ((listElementType(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null or sema.isTaskSet(self.ctx, peeled)) and std.mem.eql(u8, field, "len")) return self.t().int_id,
+            .parameterized_nominal => if ((listElementType(self.ctx, peeled) != null or sema.tableElem(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null or sema.isTaskSet(self.ctx, peeled)) and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
                 return self.t().invalid_id;
@@ -7605,6 +7626,10 @@ const Checker = struct {
             try self.checkListConstruction(call, ty);
             return ty;
         }
+        if (nt.id == self.ctx.table_sym_id) {
+            try self.checkTableConstruction(call);
+            return ty;
+        }
         if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, e, stack_signal, .{});
         if (nt.id == self.ctx.chan_sym_id) return self.chanMake(call, e, ty, args);
         const subst: TypeSubst = .{ .params = nt.sym.type_params orelse &.{}, .args = self.ctx.types.get(ty).parameterized_nominal.args };
@@ -7713,6 +7738,9 @@ const Checker = struct {
             _ = try self.synthQuiet(index);
             return obj_ty;
         }
+        // A slot of a table: with a `Slot[n]` of its own `n`, a place with
+        // no test; with an integer, tested against `n`.
+        if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty))) |elem| return self.tableIndex(index, sema.unwrapReadAccess(self.ctx, obj_ty), elem);
         const idx_ty = try self.synthValue(index);
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
@@ -7762,6 +7790,24 @@ const Checker = struct {
         }
         try self.errAt(object, "cannot index a value of type `{s}`", .{try self.tyName(obj_ty)});
         return self.t().invalid_id;
+    }
+
+    /// Slot `index` of a table of type `table` (Core §10, "Tables"): a
+    /// place of type `elem`, as a List's element is. A `Slot[n]` of the
+    /// table's own `n` needs no test; an integer is tested `0 <= i < n`;
+    /// a slot of another count is a type error.
+    fn tableIndex(self: *Checker, index: Sexp, table: TypeId, elem: TypeId) Error!TypeId {
+        const want = (try sema.tableSlot(self.ctx, table)).?;
+        const idx_ty = sema.unwrapViews(self.ctx, try self.synthValue(index));
+        if (self.isPoison(idx_ty)) return elem;
+        if (self.ctx.types.get(idx_ty) == .slot) {
+            if (idx_ty != want) try self.errAt(index, "type mismatch: expected `{s}`, got `{s}`; a slot indexes a table of its own `n` (convert with `{s}.of(Int(s))`)", .{ try self.tyName(want), try self.tyName(idx_ty), try self.tyName(want) });
+            return elem;
+        }
+        if (!sema.isInteger(self.ctx, idx_ty)) {
+            try self.errAt(index, "a table's index is a `{s}`, or an integer it tests; got `{s}`", .{ try self.tyName(want), try self.tyName(idx_ty) });
+        } else if (idx_ty == self.t().int_literal_id) try self.defaultIntLiteral(index);
+        return elem;
     }
 
     /// The element of List `peeled` (the type of `object`), sliced. Null
@@ -8251,7 +8297,12 @@ const Checker = struct {
         // `f[...](args)`, `Wrap[Int](args)`: compile-time arguments.
         var ct: ?Sexp = null;
         if (rig.isBracketList(callee)) if (try self.instTarget(ir.get(callee, .object))) |target| switch (target) {
-            .generic => |nt| return if (nt.id == self.ctx.simd_sym_id) self.simdConvert(try self.typeInstance(callee, nt), args, self.startOf(callee)) else self.constructInstance(node, callee, nt, args),
+            .generic => |nt| return if (nt.id == self.ctx.simd_sym_id)
+                self.simdConvert(try self.typeInstance(callee, nt), args, self.startOf(callee))
+            else if (nt.id == self.ctx.slot_sym_id)
+                self.slotMade(callee, try self.typeInstance(callee, nt), args)
+            else
+                self.constructInstance(node, callee, nt, args),
             .function => {
                 ct = callee;
                 callee = ir.get(callee, .object);
@@ -8300,6 +8351,8 @@ const Checker = struct {
                         return self.badCall(args, callee, "`List()` needs its element type: name it (`List[T]()`), give it where the value goes (`v: List[T] = List()`), or make the List from an array, `List([1, 2, 3])`", .{});
                     }
                     if (sym_id == self.ctx.simd_sym_id) return self.badCall(args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
+                    if (sym_id == self.ctx.slot_sym_id) return self.badCall(args, callee, "a `Slot[n]` is made by `push`, by `Slot[n].of(i)`, or by a literal below `n`", .{});
+                    if (sym_id == self.ctx.table_sym_id) return self.badCall(args, callee, "`Table()` needs its type: give it where the value goes (`t: Table[T, n] = Table()`), or name it, `Table[T, n]()`", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     if (sym_id == self.ctx.actor_sym_id) return self.actorMake(node, callee, args);
                     return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
@@ -8323,6 +8376,7 @@ const Checker = struct {
     /// converts to the number type it names.
     fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
         if (self.isPoison(ty)) return self.skipCall(args);
+        if (self.ctx.types.get(ty) == .slot) return self.slotMade(callee, ty, args);
         if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
         if (self.ctx.types.get(ty) == .simd) {
             if (callee == .src) if (self.lookupQuiet(callee)) |id| try self.ctx.recordName(callee, id);
@@ -8335,6 +8389,10 @@ const Checker = struct {
         if (nt.args) |targs| {
             if (nt.id == self.ctx.list_sym_id) {
                 try self.checkListConstruction(call, ty);
+                return ty;
+            }
+            if (nt.id == self.ctx.table_sym_id) {
+                try self.checkTableConstruction(call);
                 return ty;
             }
             if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
@@ -8465,6 +8523,8 @@ const Checker = struct {
             };
             return target;
         }
+        // A slot's number: `Int(s)`.
+        if (self.ctx.types.get(sema.unwrapViews(self.ctx, from)) == .slot) return target;
         if (!sema.isNumeric(self.ctx, from)) {
             try self.errAt(arg, "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
         } else if (self.ctx.types.get(target) == .int) {
@@ -9320,6 +9380,69 @@ const Checker = struct {
         if (sym.kind != .type_alias or self.ctx.types.get(sym.ty) != .simd) return null;
         try self.ctx.recordName(obj, id);
         return sym.ty;
+    }
+
+    /// The slot type `obj` names where a value could stand: `Slot[n]`
+    /// (recorded as its instance), or an alias of one, also another
+    /// module's (`lib.TypeId`); null when it names none.
+    fn slotNamed(self: *Checker, obj: Sexp) Error!?TypeId {
+        if (rig.isBracketList(obj)) {
+            const target = (try self.instTarget(ir.get(obj, .object))) orelse return null;
+            if (target != .generic or target.generic.id != self.ctx.slot_sym_id) return null;
+            return try self.typeInstance(obj, target.generic);
+        }
+        if (obj.isKind(.member)) {
+            const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
+            const found = self.foreignLookup(id, self.text(ir.Member.name(obj))) orelse return null;
+            if (found.sym.kind != .type_alias or found.ctx.types.get(found.sym.ty) != .slot) return null;
+            return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
+        }
+        if (obj != .src) return null;
+        const id = self.lookupQuiet(obj) orelse return null;
+        const sym = self.ctx.symbols.items[id];
+        if (sym.kind != .type_alias or self.ctx.types.get(sym.ty) != .slot) return null;
+        try self.ctx.recordName(obj, id);
+        return sym.ty;
+    }
+
+    /// `Slot[n](x)`: no slot is made from other bits; reported.
+    fn slotMade(self: *Checker, callee: Sexp, st: TypeId, args: []const Sexp) Error!TypeId {
+        if (self.isPoison(st)) return self.skipCall(args);
+        const shown = try self.tyName(st);
+        const n = if (self.ctx.types.get(st) == .slot) (if (sema.slotCount(self.ctx, self.ctx.types.get(st).slot)) |c| try self.ctx.arena.allocator().print("{d}", .{c}) else "`n`") else "`n`";
+        return self.badCall(args, callee, "a `{s}` is made by `push`, by `{s}.of(i)`, or by a literal below {s}", .{ shown, shown, n });
+    }
+
+    /// `Slot[n].of(i)`: the slot `i` names, `Slot[n]?`, `none` unless
+    /// `0 <= i < n`. A slot type has no other function.
+    fn slotTypeCall(self: *Checker, callee: Sexp, st: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        if (self.isPoison(st)) return self.skipCall(args);
+        const shown = try self.tyName(st);
+        if (!std.mem.eql(u8, method, "of")) return self.badCall(args, pos, "`{s}` has no function `{s}`; its one function is `{s}.of(i)`, the slot an integer names", .{ shown, method, shown });
+        if (ct) |b| return self.badCall(args, b, "`of` takes no compile-time arguments", .{});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`{s}.of(i)` takes one argument, an integer; got {d}", .{ shown, args.len });
+        const result = try self.ctx.intern(.{ .optional = st });
+        var from = try self.synthValue(args[0]);
+        if (self.isPoison(from)) return result;
+        if (!sema.isInteger(self.ctx, from)) {
+            try self.errAt(args[0], "`{s}.of(i)` takes an integer; `i` has type `{s}`", .{ shown, try self.tyName(from) });
+            return result;
+        }
+        if (from == self.t().int_literal_id) {
+            try self.defaultIntLiteral(args[0]);
+            from = self.t().int_id;
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{from}), .returns = result, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .from_int, .elem = from, .num = st });
+        return result;
+    }
+
+    /// `Table()`: its slots, each `T()`; it takes no arguments.
+    fn checkTableConstruction(self: *Checker, call: Sexp) Error!void {
+        const args = ir.Call.args(call);
+        if (args.len == 0) return;
+        try self.errAt(args[0], "`Table()` takes no arguments: a table holds its `n` slots, each `T()`, from the moment it is made", .{});
+        try self.synthArgs(args);
     }
 
     /// `Simd[T, n].splat(x)`: a vector of type `vt` whose every lane is
@@ -11311,6 +11434,7 @@ const Checker = struct {
             return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         }
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
+        if (try self.slotNamed(obj)) |st| return self.misreachedWrite(misreached, obj, method, try self.slotTypeCall(callee, st, method, pos, args, ct));
         if (self.symbolNamed(obj)) return self.misreachedWrite(misreached, obj, method, try self.symbolTypeCall(callee, method, pos, args, ct));
         if (try self.numberType(obj)) |nty| return self.misreachedWrite(misreached, obj, method, try self.numberTypeCall(callee, obj, nty, method, pos, args, ct));
         if (try self.namedType(obj)) |nt| {
@@ -12989,6 +13113,7 @@ const Checker = struct {
     /// requirements (through its instantiation site).
     fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
         if (sym_id == self.ctx.simd_sym_id) return resolve.simdInstance(self.ctx, args, pos);
+        if (sym_id == self.ctx.slot_sym_id) return resolve.slotInstance(self.ctx, args, pos);
         if (try resolve.builtinElementError(self.ctx, sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
         const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
         if (!sema.containsTypeVar(self.ctx, ty)) {
@@ -13894,7 +14019,7 @@ const Checker = struct {
                     else => {},
                 };
                 if (sema.isStringLiteralText(s)) return self.byteString(e, target);
-                if (!sema.isIntLiteralText(s) or !sema.isInteger(self.ctx, target)) return null;
+                if (!sema.isIntLiteralText(s) or !(sema.isInteger(self.ctx, target) or self.ctx.types.get(target) == .slot)) return null;
                 try self.checkLiteralFits(e, target);
                 return target;
             },
@@ -13959,6 +14084,8 @@ const Checker = struct {
                     try self.synthArgs(ir.Call.args(e));
                 } else if (id == self.ctx.list_sym_id) {
                     try self.checkListConstruction(e, target);
+                } else if (id == self.ctx.table_sym_id) {
+                    try self.checkTableConstruction(e);
                 } else {
                     const sym = self.ctx.symbols.items[id];
                     _ = try self.construct(id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
@@ -14135,6 +14262,12 @@ const Checker = struct {
         };
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
         const target = lifted;
+        // A literal below `n` is a `Slot[n]`, checked as it is given one.
+        if (self.ctx.types.get(target) == .slot and actual == self.t().int_literal_id) {
+            try self.ctx.recordType(e, target);
+            try self.recordLiteralType(e, target);
+            return self.checkLiteralFits(e, target);
+        }
         if (!sema.isNumeric(self.ctx, target)) return;
         if (self.ctx.types.get(target) == .float) if (integerOnlyOp(e)) |op| {
             return self.errAt(op, "operator `{s}` is for integers, and its literal operands here take the type `{s}`", .{ @tagName(op.kind().?), try self.tyName(target) });
@@ -15161,9 +15294,15 @@ const Checker = struct {
     /// in range for an integer type, exactly for a float type.
     fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
         const tt = self.ctx.types.get(target);
-        if (tt != .int and tt != .float) return;
+        if (tt != .int and tt != .float and tt != .slot) return;
+        // A literal is a slot only where its count is known: in a generic
+        // body, `Slot[n].of(i)` makes one, tested.
+        if (tt == .slot and sema.slotCount(self.ctx, tt.slot) == null) {
+            return self.errAt(e, "a literal is a `{s}` only where `n` is known; make one with `{s}.of(i)`", .{ try self.tyName(target), try self.tyName(target) });
+        }
         switch (sema.constInt(self.ctx, e)) {
             .value => |v| if (!holdsInt(self.ctx, target, v)) switch (tt) {
+                .slot => |n| try self.errAt(e, "integer value `{d}` does not fit in `{s}` (0..{d}): a slot names one of {d} slots", .{ v, try self.tyName(target), sema.slotCount(self.ctx, n).? - 1, sema.slotCount(self.ctx, n).? }),
                 .int => |info| try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), intBounds(info).min, intBounds(info).max }),
                 else => try self.errAt(e, "integer value `{d}` does not fit exactly in `{s}`", .{ v, try self.tyName(target) }),
             },
@@ -16247,7 +16386,8 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         else => {},
     }
     return switch (a) {
-        .int_literal => e == .int or e == .float,
+        // A literal is a `Slot[n]` below `n` (`Checker.checkLiteralFits`).
+        .int_literal => e == .int or e == .float or e == .slot,
         .float_literal => e == .float,
         else => false,
     };
@@ -16541,6 +16681,7 @@ fn wholeLiterals(source: []const u8, e: Sexp) bool {
 /// constant that would round).
 fn holdsInt(ctx: *const SemContext, ty: TypeId, v: Wide) bool {
     return switch (ctx.types.get(ty)) {
+        .slot => |n| if (sema.slotCount(ctx, n)) |c| v >= 0 and v < c else false,
         .int => |info| v >= intBounds(info).min and v <= intBounds(info).max,
         .float => |f| blk: {
             const mantissa: u8 = if (f.bits == 32) 24 else 53;

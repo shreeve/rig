@@ -1307,6 +1307,30 @@ sub main()
 1
 ```
 
+**Tables.** A `Table[T, n]` is an owning value, like a List. It holds
+`n` slots from the moment it is made, each `T()` until written. A
+`Slot[n]` is plain data: a number below `n` that only `push`, `of`, and
+literals make. A slot is a place, like a List's element: read in place,
+lent with `?t[s]` or `!t[s]`, and assigned (dropping the old value).
+`!t.push(x)` lends the table to write, assigns slot `len`, and returns
+it. It desugars to the forms above: `t[s]` is the element `s` of an
+array of `n` elements the table owns, and `!t.push(x)` is
+`t[len] = x; len += 1` after a test that `len < n`. No rule here
+changes for it. *(built)*
+
+```rig reject
+sub main()
+  t: Table[Int, 4] = Table()
+  s = (!t).push(1)
+  a = ?t[s]
+  !t.push(2)
+  print(a)
+```
+
+```error
+cannot lend `t` to write while a read loan is live
+```
+
 **A container written in Rig follows its signatures.** `Map[K,
 V]` and `Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns

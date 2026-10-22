@@ -1227,6 +1227,50 @@ sub main()
 `resize` copies its value into every element it adds, and a `List[Int]` owns a resource, so it cannot be copied
 ```
 
+## Table and Slot
+
+`Table[T, n]` and `Slot[n]` are built in ([SPEC §10](../SPEC.md#table)):
+a table of `n` slots from the start, each `T()` until written, and a
+number below `n` that names one, which indexes any table of `n` with
+no test. A store of records that only grows, with ids into it, is a
+table and its slots: `push` gives each record's id, and an id read
+from data enters with `Slot[n].of(i)`, its one test.
+
+```rig
+TYPES = 1 << 20
+
+type TypeId = Slot[TYPES]
+
+obj Type
+  flags: U32 = 0
+  base: TypeId = 0
+
+obj Store
+  types: Table[Type, TYPES]
+
+  fun new() -> Store
+    Store(types: Table())
+
+  fun add(!@, flags: U32, base: TypeId) -> TypeId
+    (!@types).push(Type(flags: flags, base: base))
+
+sub main()
+  st = Store.new()
+  nil = (!st).add(0, 0)
+  int = (!st).add(1, nil)
+  list = (!st).add(2, int)
+  print(st.types[st.types[list].base].flags, st.types.len, Int(nil))
+```
+
+```output
+1 3 0
+```
+
+A count that only goes up needs no type of its own: `+%=` wraps
+rather than fails, and a 64-bit count that adds 1 cannot wrap in any
+program's life (2^63 additions take 292 years at one a nanosecond), so
+`@count +%= 1` makes no test.
+
 ## reduce
 
 `xs.reduce(start, f)` folds the elements of a slice, an array, or a

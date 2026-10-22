@@ -58,6 +58,9 @@ pub const alloc_source = @embedFile("alloc.zig");
 /// Sockets and the HTTP server (`src/net.zig`), written beside the runtime too.
 pub const net_filename = "rig/net.zig";
 pub const net_source = @embedFile("net.zig");
+/// Tables (`src/table.zig`), written beside the runtime.
+pub const table_filename = "rig/table.zig";
+pub const table_source = @embedFile("table.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.
@@ -933,6 +936,12 @@ pub const Emitter = struct {
         try self.w.print("pub const __rig_name = .{{ .module = \"{s}\", .name = ", .{nameModule(self.facts)});
         try self.writeSpelling(spelling, .parts, null);
         try self.w.writeAll(" };\n");
+        // A table of the type reserves its slots, which the system gives
+        // as zeros (`sema.tableFill`, `rig.Table`).
+        if (self.facts.declFill(sym) == .zeros) {
+            try self.writeIndent(depth);
+            try self.w.writeAll("pub const __rig_zeros = true;\n");
+        }
     }
 
     fn emitFields(self: *Emitter, depth: u32) Error!void {
@@ -3160,7 +3169,7 @@ pub const Emitter = struct {
         if (source.isKind(.@"..")) return self.emitRangeFor(sexp, lp);
 
         const src_ty = self.typeOf(source);
-        const is_list = src_ty != null and self.isListTy(src_ty.?);
+        const is_list = src_ty != null and (self.isListTy(src_ty.?) or self.facts.tableElem(self.peelViews(src_ty.?)) != null);
         // A List or an array of values that move, which the loop takes or
         // its source makes, hands its elements over one at a time.
         if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_list);
@@ -5608,6 +5617,18 @@ pub const Emitter = struct {
         // An element that is not copied (`readsInPlace`) is reached
         // where it is, as a field is: never a copy of its bits.
         const in_place = as_place or self.elemInPlace(sexp);
+        // A table's slot: by a `Slot[n]`, with no test, unless every test
+        // is made (`no_proofs`); by an integer, tested against `n`.
+        if (held_ty != null and self.facts.tableElem(self.peelViews(held_ty.?)) != null) {
+            try self.emitIndexBase(base, base_ty, .expr);
+            const method = if (!in_place) "at" else if (self.read_place or !as_place or self.throughReadView(base)) "constSlot" else "slot";
+            const by_slot = if (self.typeOf(index)) |t| self.facts.types.get(t) == .slot else false;
+            try self.w.print(".{s}{s}(", .{ method, if (by_slot and !self.no_proofs) "" else "Int" });
+            self.place_chain = false;
+            try self.emitBare(index);
+            try self.w.writeAll(if (in_place) ").*" else ")");
+            return;
+        }
         if (held_ty != null and self.isListTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
             const method = if (!in_place) "at" else if (self.read_place or !as_place or self.throughReadView(base)) "constSlot" else "slot";
@@ -5735,7 +5756,7 @@ pub const Emitter = struct {
         var t = self.peelViews(self.typeOf(part) orelse return false);
         while (true) switch (self.facts.types.get(t)) {
             .optional => |inner| t = inner,
-            .int, .float, .int_literal, .float_literal, .bool => return true,
+            .int, .float, .int_literal, .float_literal, .bool, .slot => return true,
             else => return false,
         };
     }
@@ -6946,8 +6967,14 @@ pub const Emitter = struct {
                 try self.emitArgs(call);
                 return self.w.writeAll(")");
             },
-            // `rig.enumFromInt(E, n)`.
-            .from_int => {
+            // `rig.slotOf(n, i)`: `Slot[n].of(i)`.
+            .from_int => if (self.facts.types.get(ec.num) == .slot) {
+                try self.w.writeAll("rig.slotOf(");
+                try self.emitTypeTy(self.facts.types.get(ec.num).slot);
+                try self.w.writeAll(", ");
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")");
+            } else {
                 try self.w.writeAll("rig.enumFromInt(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
@@ -7163,6 +7190,7 @@ pub const Emitter = struct {
             };
             if (self.facts.symbolOf(callee)) |sym_id| {
                 if (sym_id == self.facts.list_sym_id) return self.emitListConstruction(sexp);
+                if (sym_id == self.facts.table_sym_id) return self.emitTableConstruction(sexp);
                 if (sym_id == self.facts.signal_sym_id) return self.emitSignalConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
@@ -7440,6 +7468,13 @@ pub const Emitter = struct {
             try self.w.writeAll("@intCast(@backingInt(rig.rt(");
             try self.emitBare(arg);
             return self.w.writeAll("))))");
+        }
+        // A slot's number, which Zig checks fits a narrower type.
+        if (self.facts.types.get(self.peelViews(arg_ty)) == .slot) {
+            try self.writeAsOpen(target);
+            try self.w.writeAll(if (self.facts.types.get(target) == .int) "@intCast(rig.rt(" else "@floatFromInt(rig.rt(");
+            try self.emitBare(arg);
+            return self.w.writeAll(")))");
         }
         const from = switch (self.facts.types.get(self.peelViews(arg_ty))) {
             .int, .float => self.peelViews(arg_ty),
@@ -8008,6 +8043,12 @@ pub const Emitter = struct {
         try self.w.writeAll(".empty");
     }
 
+    /// `Table()`: its `n` slots reserved or made as it runs (`rig.Table`).
+    fn emitTableConstruction(self: *Emitter, call: Sexp) Error!void {
+        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Table construction"));
+        try self.w.writeAll(".init()");
+    }
+
     /// `Signal(v)`.
     fn emitSignalConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
@@ -8552,6 +8593,12 @@ pub const Emitter = struct {
                 try self.emitTypeTy(v.elem);
                 try self.w.writeAll(")");
             },
+            // `Slot[n]`: the runtime's smallest unsigned that holds `n - 1`.
+            .slot => |n| {
+                try self.w.writeAll("rig.SlotOf(");
+                try self.emitTypeTy(n);
+                try self.w.writeAll(")");
+            },
             // An array length or a generic type's value argument.
             .ct_value => |v| try self.w.print("{d}", .{v.int}),
             .ct_param => |sym_id| try self.writeTypeParam(sym_id),
@@ -8768,7 +8815,7 @@ pub const Emitter = struct {
         return switch (self.facts.types.get(t)) {
             .array => |a| a.elem,
             .slice => |sl| sl.elem,
-            .parameterized_nominal => |pn| if (self.isListTy(t)) pn.args[0] else null,
+            .parameterized_nominal => |pn| if (self.isListTy(t) or self.facts.tableElem(t) != null) pn.args[0] else null,
             else => null,
         };
     }
@@ -8784,7 +8831,7 @@ pub const Emitter = struct {
         const peeled = self.peelViews(ty);
         return switch (self.facts.types.get(peeled)) {
             .array, .slice, .string_view, .static => true,
-            else => self.isListTy(peeled),
+            else => self.isListTy(peeled) or self.facts.tableElem(peeled) != null,
         };
     }
 
@@ -8794,7 +8841,7 @@ pub const Emitter = struct {
     /// not a pointer to one.
     fn isPlainTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string_view, .static, .function => true,
+            .int, .float, .int_literal, .float_literal, .bool, .string_view, .static, .function, .slot => true,
             .optional => |inner| self.isPlainTy(inner),
             else => false,
         };
@@ -8869,7 +8916,7 @@ pub const Emitter = struct {
     /// A number, Bool, plain enum, or error: Zig's `==` compares it.
     fn isScalarTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
-            .int, .float, .bool, .symbol, .int_literal, .float_literal, .any_error => true,
+            .int, .float, .bool, .symbol, .int_literal, .float_literal, .any_error, .slot => true,
             .nominal, .imported_nominal => self.facts.isPlainEnum(ty) or self.facts.isErrorSet(ty),
             else => false,
         };

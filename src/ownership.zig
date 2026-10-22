@@ -2711,7 +2711,7 @@ pub const Checker = struct {
         return switch (self.typeData(ty)) {
             .array => true,
             .slice => root,
-            else => self.isList(ty),
+            else => self.holdsElems(ty),
         };
     }
 
@@ -3094,7 +3094,7 @@ pub const Checker = struct {
     fn inVarStorage(self: *const Checker, e: Sexp) bool {
         if (self.exprType(e)) |ty| switch (self.typeData(ty)) {
             .write_view, .read_view, .shared, .slice => return false,
-            else => if (self.isList(ty)) return false,
+            else => if (self.holdsElems(ty)) return false,
         };
         if (e.isKind(.member) or e.isKind(.index)) return self.inVarStorage(ir.get(e, .object));
         return true;
@@ -6908,6 +6908,13 @@ pub const Checker = struct {
         const ctx = self.sema orelse return false;
         const t = ctx.types.get(ty);
         return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.list_sym_id;
+    }
+
+    /// A `List[T]` or a `Table[T, n]`: elements held behind it, in memory
+    /// it owns, not in the var.
+    fn holdsElems(self: *const Checker, ty: TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return self.isList(ty) or sema.tableElem(ctx, ty) != null;
     }
 
     /// A List (or a view of one) whose elements move (`sema.moves`):

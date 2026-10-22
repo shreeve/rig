@@ -830,7 +830,7 @@ pub fn loopBindsStringBytes(ctx: *const SemContext, loop: Sexp) bool {
     const elem = switch (ctx.types.get(t)) {
         .array => |a| a.elem,
         .slice => |sl| sl.elem,
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) pn.args[0] else return false,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.table_sym_id) pn.args[0] else return false,
         else => return false,
     };
     return sema.viewsStringBytes(ctx, elem, bound);

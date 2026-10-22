@@ -116,6 +116,7 @@ pub const Facts = struct {
     is_root: bool,
     cell_sym_id: SymbolId,
     list_sym_id: SymbolId,
+    table_sym_id: SymbolId,
     signal_sym_id: SymbolId,
     actor_sym_id: SymbolId,
     chan_sym_id: SymbolId,
@@ -141,6 +142,7 @@ pub const Facts = struct {
             .is_root = ctx.is_root,
             .cell_sym_id = ctx.cell_sym_id,
             .list_sym_id = ctx.list_sym_id,
+            .table_sym_id = ctx.table_sym_id,
             .signal_sym_id = ctx.signal_sym_id,
             .actor_sym_id = ctx.actor_sym_id,
             .chan_sym_id = ctx.chan_sym_id,
@@ -770,6 +772,20 @@ pub const Facts = struct {
     }
     pub fn isNumeric(f: Facts, ty: TypeId) bool {
         return sema.isNumeric(f.c(), ty);
+    }
+    /// How a `Table` of `ty` fills its slots (`sema.tableFill`): an object
+    /// that fills with zeros says so to the runtime (`__rig_zeros`).
+    pub fn tableFill(f: Facts, ty: TypeId) sema.TableFill {
+        return sema.tableFill(f.c(), ty);
+    }
+    /// How a table fills its slots with the type `sym` declares
+    /// (`sema.declFill`).
+    pub fn declFill(f: Facts, sym: SymbolId) sema.TableFill {
+        return sema.declFill(f.c(), sym);
+    }
+    /// `T` of a `Table[T, n]`; null for any other type.
+    pub fn tableElem(f: Facts, ty: TypeId) ?TypeId {
+        return sema.tableElem(f.c(), ty);
     }
     pub fn isPlainEnum(f: Facts, ty: TypeId) bool {
         return sema.isPlainEnum(f.c(), ty);

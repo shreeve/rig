@@ -23,6 +23,7 @@ items, with their probe cases, are in
 - **More compile-time functions** (the first form is built, SPEC "Compile-time functions"): a call over an enclosing generic's parameter and arithmetic on one in a type (`[cap[n]]Int`, `[n * 2]Int`), by hidden compile-time arguments the checker computes per instance; then text parameters (`hash[s: Static]`), plain objects, and reading module array constants in a body.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Drop bodies for enums and generic types.**
+- **Tables, next** (`Table[T, n]` and `Slot[n]` are built, SPEC "Table"): a `Span` that std mints, covering a run of slots (`start`, `count`) with no test per element; then `program.files` as a table (Trig's phase 2, an eager table of an owning `File`); and, only if catching an id from another table at compile time is ever worth it, generative brands (`Table[T, B]`, `Id[B]`, a scope whose brand is fresh), which need rank-2 scopes and erased parameters. `pop`, `clear`, and `keep` (a `clear` restores every touched slot to `T()`).
 
 - **Errors that carry data**, after `error` the type: declared sets (`T!E`, `error L = A | B`) and the typed `catch` binding, then member fields moved up through `!`, then `std.json`'s fallible API ([SPEC §13](../SPEC.md#declared-sets-and-fields)).
 - **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
