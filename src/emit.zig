@@ -102,10 +102,10 @@ pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule
         try w.writeAll(");\n");
     }
     const ops = [_]struct { head: []const u8, call: []const u8, other: []const u8 }{
-        .{ .head = "drop(code: anyerror, data: *anyopaque) void", .call = "drop(data)", .other = "{}" },
-        .{ .head = "clone(code: anyerror, src: *const anyopaque, dst: *anyopaque) void", .call = "clone(src, dst)", .other = "{}" },
-        .{ .head = "eql(code: anyerror, a: *const anyopaque, b: *const anyopaque) bool", .call = "eqlFields(a, b)", .other = "true" },
-        .{ .head = "print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void", .call = "print(rig.errorShown(code), data, w)", .other = "w.writeAll(rig.errorShown(code))" },
+        .{ .head = "drop(code: anyerror, data: *rig.ErrData) void", .call = "drop(data)", .other = "{}" },
+        .{ .head = "clone(code: anyerror, src: *const rig.ErrData, dst: *rig.ErrData) void", .call = "clone(src, dst)", .other = "{}" },
+        .{ .head = "eql(code: anyerror, a: *const rig.ErrData, b: *const rig.ErrData) bool", .call = "eqlFields(a, b)", .other = "true" },
+        .{ .head = "print(code: anyerror, data: *const rig.ErrData, w: *std.Io.Writer) std.Io.Writer.Error!void", .call = "print(rig.errorShown(code), data, w)", .other = "w.writeAll(rig.errorShown(code))" },
     };
     for (ops) |op| {
         try w.print("    pub fn {s} {{\n        switch (code) {{\n", .{op.head});

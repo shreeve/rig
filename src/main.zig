@@ -931,8 +931,8 @@ fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.
 /// (`placeBatchFiles`), the runtime once to `DIR/rig/runtime.zig` as the
 /// Zig module `rig`, and `DIR/main.zig` starts program `N` when its
 /// first argument is `N`, handing the program the rest. A file the
-/// checkers reject, or with no `sub main()`, is left out, with its
-/// diagnostics on stderr. `DIR/programs` lists the programs built,
+/// checkers reject, with no `sub main()`, or whose errors carry fields
+/// (whose glue the root names), is left out, with a note on stderr. `DIR/programs` lists the programs built,
 /// `N<TAB>FILE` a line. The status is Zig's, or 1 when no program could
 /// be built. `DIR/inputs` holds a hash of every file of the batch, how
 /// Zig builds it, and which Zig (`zigIdentity`): when it matches and
@@ -996,6 +996,13 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         defer graph.deinit();
         if (!declaresMain(graph.root())) {
             std.debug.print("{s}:1:1: error: no `sub main()` to run\n", .{graph.root().display});
+            continue;
+        }
+        // A program whose errors carry fields has glue of its own
+        // (`__rig_errors.zig`), which the runtime reads from the root, so
+        // it is built alone.
+        if (declaresErrorFields(&graph)) {
+            std.debug.print("{s}:1:1: note: errors that carry fields: built alone, not in a batch\n", .{graph.root().display});
             continue;
         }
         const pkg = try emitPackage(allocator, env, &graph, .{ .batch = true });

@@ -2939,8 +2939,9 @@ fail "error name needs its set", "28:6: error sets `Net` and `Disk` both have a 
   d: Disk = Net.timeout
   print(a, b, n == Disk.timeout, d)
 
-fail "error set members", "only enums declare payload variants", "error set members have no values; write `reset`", "an error set cannot declare methods"
-  # An error set lists plain members: no payloads, values, or methods.
+fail "error set members", "error set members have no values; write `reset`", "an error set cannot declare methods"
+  # An error set lists members, which may carry fields, but no values
+  # or methods.
 
   error NetErr
     timeout
@@ -2999,7 +3000,7 @@ fail "error value only through return", "11:3: an error value meets `Int!` only 
   print(tail() catch 0, branch(1) catch 0, arm(1) catch 0, ternary(1) catch 0)
   print(named(0) catch 0, called(0) catch 0, deeper(1) catch 0)
 
-fail "error values checked", "type mismatch: expected `Int`, got `ParseError`", "no error set has a member `missing`", "`match` on `error` is not exhaustive; add `_ =>`", "type mismatch: expected `Int`, got `error`", "operator `+` requires numeric operands; got `error`", "cannot compare `error` with `Int`", "an error has no payload to destructure; match it as `.empty`"
+fail "error values checked", "type mismatch: expected `Int`, got `ParseError`", "no error set has a member `missing`", "`match` on `error` is not exhaustive; add `_ =>`", "type mismatch: expected `Int`, got `error`", "operator `+` requires numeric operands; got `error`", "cannot compare `error` with `Int`", "variant `empty` has no payload to destructure"
   # Only a fallible function fails with an error value. The error
   # `catch |err|` names may be any error: it is matched by the names of
   # error-set members, with a default arm, and it

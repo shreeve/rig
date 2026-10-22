@@ -9747,7 +9747,7 @@ bad range
 -1
 ```
 
-```rig pending
+```rig
 error Net
   timeout
 
@@ -9778,7 +9778,7 @@ Net.timeout
 Disk.full(path: "/tmp")
 ```
 
-```rig pending
+```rig
 error IoError
   closed
 
@@ -9843,16 +9843,16 @@ fun f() -> Int!A
 `B.y` is not in `A`, the error set `f` declares
 ```
 
-```rig pending
+```rig reject
 error P
   bad(text: ?String)
 ```
 
 ```error
-an error's field is never a view: hold a `String` or a `Static`
+an error's field never holds a loan: hold a `String` or a `Static`
 ```
 
-```rig pending
+```rig reject
 obj Random unique
   seed: Int
 
@@ -9876,7 +9876,7 @@ error L = A
 a union of error sets lists no members of its own; declare a set for `extra` and join it
 ```
 
-```rig pending
+```rig reject
 error E
   bad(msg: String)
 

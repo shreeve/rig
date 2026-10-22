@@ -850,7 +850,7 @@ sub main()
 use of `err` after move
 ```
 
-```rig pending
+```rig
 error ParseError
   empty
   bad(pos: Int, msg: String)
@@ -882,7 +882,7 @@ at 0 not a digit: x1
 -2
 ```
 
-```rig pending
+```rig reject
 error Lookup
   missing(names: List[?String])
 ```

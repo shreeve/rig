@@ -5432,7 +5432,11 @@ const Checker = struct {
         for ([2]Sexp{ l, r }, 0..) |side, i| {
             if (!side.isKind(.member)) continue;
             const nt = (try self.namedType(ir.Member.object(side))) orelse continue;
-            if (nt.sym.flags.error_set or nt.sym.kind != .nominal_type) continue;
+            if (nt.sym.flags.error_set) {
+                if (try self.errorMemberTest(side, if (i == 0) r else l, nt)) |ty| return ty;
+                continue;
+            }
+            if (nt.sym.kind != .nominal_type) continue;
             // A plain enum's values compare as they are.
             const payloads = for (nt.sym.fields orelse &.{}) |f| {
                 if (f.is_variant and f.payload != null and f.payload.?.len > 0) break true;
@@ -5480,6 +5484,33 @@ const Checker = struct {
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         return self.finishEquality(e, l, r, a, b, op);
+    }
+
+    /// `e == E.name`, where member `name` of set `nt` has fields: a test
+    /// of which member the error `other` is, which compares no fields
+    /// (SPEC §13, "Comparing"). Null for a member without fields, which
+    /// compares as any value does.
+    fn errorMemberTest(self: *Checker, side: Sexp, other: Sexp, nt: NamedType) Error!?TypeId {
+        const name = self.text(ir.Member.name(side));
+        const m = for (nt.sym.fields orelse &.{}) |f| {
+            if (f.is_variant and std.mem.eql(u8, f.name, name)) break f;
+        } else return null;
+        if (m.payload == null or m.payload.?.len == 0) return null;
+        const set = try self.namedTypeValue(nt);
+        const ty = try self.synthEqOperand(other);
+        const value = sema.unwrapViews(self.ctx, ty);
+        if (self.isPoison(value) or self.isPoison(set)) return self.t().bool_id;
+        const within = value == self.t().any_error_id or value == set or (sema.isErrorUnion(self.ctx, value) and sema.errorSubset(self.ctx, set, value));
+        if (!within) {
+            try self.errAt(other, "cannot compare `{s}` with `{s}`", .{ try self.tyName(ty), try self.tyName(set) });
+            return self.t().bool_id;
+        }
+        // Read as `x == .name` reads it: a value made here is dropped by
+        // the test, any other owner read in place.
+        if (sema.moves(self.ctx, ty) != .no and self.hands(other).kind != .made) try self.readLeaf(other);
+        try self.ctx.recordType(side, set);
+        try self.ctx.recordErrorMember(side);
+        return self.t().bool_id;
     }
 
     /// `l == r` once both operands are typed, `a` and `b`.

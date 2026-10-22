@@ -115,7 +115,7 @@ pub const no_slot: NoSlot = .{};
 /// Drop the fields of failure `code` held in `data`; nothing for a member
 /// without fields.
 pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
-    if (comptime error_glue) |g| g.drop(code, @ptrCast(data));
+    if (comptime error_glue) |g| g.drop(code, data);
 }
 
 /// A Rig error value of a set that has a member with fields, or of
@@ -152,18 +152,18 @@ pub const ErrorValue = struct {
 
     pub fn clone(self: *const ErrorValue) ErrorValue {
         var out: ErrorValue = .{ .code = self.code, .data = undefined };
-        if (comptime error_glue) |g| g.clone(self.code, @ptrCast(&self.data), @ptrCast(&out.data));
+        if (comptime error_glue) |g| g.clone(self.code, &self.data, &out.data);
         return out;
     }
 
     pub fn eql(a: ErrorValue, b: ErrorValue) bool {
         if (a.code != b.code) return false;
-        if (comptime error_glue) |g| return g.eql(a.code, @ptrCast(&a.data), @ptrCast(&b.data));
+        if (comptime error_glue) |g| return g.eql(a.code, &a.data, &b.data);
         return true;
     }
 
     pub fn __rig_print(self: ErrorValue, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        if (comptime error_glue) |g| return g.print(self.code, @ptrCast(&self.data), w);
+        if (comptime error_glue) |g| return g.print(self.code, &self.data, w);
         try w.writeAll(errorShown(self.code));
     }
 };
@@ -242,17 +242,17 @@ pub inline fn writeErrorFields(data: *ErrData, fields: anytype) void {
 /// `code`'s fields, read from its struct `F` in `data`.
 pub fn ErrorGlueOps(comptime F: type) type {
     return struct {
-        pub fn drop(data: *anyopaque) void {
+        pub fn drop(data: *ErrData) void {
             dropElement(F, @as(*F, @ptrCast(@alignCast(data))));
         }
-        pub fn clone(src: *const anyopaque, dst: *anyopaque) void {
+        pub fn clone(src: *const ErrData, dst: *ErrData) void {
             @as(*F, @ptrCast(@alignCast(dst))).* = cloneValue(@as(*const F, @ptrCast(@alignCast(src))));
         }
-        pub fn eqlFields(a: *const anyopaque, b: *const anyopaque) bool {
+        pub fn eqlFields(a: *const ErrData, b: *const ErrData) bool {
             return eql(@as(*const F, @ptrCast(@alignCast(a))).*, @as(*const F, @ptrCast(@alignCast(b))).*);
         }
         /// `Set.member(field: value, ...)`, the name given.
-        pub fn print(name: []const u8, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        pub fn print(name: []const u8, data: *const ErrData, w: *std.Io.Writer) std.Io.Writer.Error!void {
             try w.writeAll(name);
             try w.writeAll("(");
             const v: *const F = @ptrCast(@alignCast(data));
@@ -274,22 +274,22 @@ pub const TestErrorGlue = struct {
     /// Counted from any thread: a test's tasks fail on several.
     pub var drops: std.atomic.Value(usize) = .init(0);
 
-    pub fn drop(code: anyerror, data: *anyopaque) void {
+    pub fn drop(code: anyerror, data: *ErrData) void {
         _ = data;
         if (code == error.WithData) _ = drops.fetchAdd(1, .seq_cst);
     }
 
-    pub fn print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    pub fn print(code: anyerror, data: *const ErrData, w: *std.Io.Writer) std.Io.Writer.Error!void {
         _ = data;
         try w.writeAll(@errorName(code));
     }
 
-    pub fn clone(code: anyerror, src: *const anyopaque, dst: *anyopaque) void {
+    pub fn clone(code: anyerror, src: *const ErrData, dst: *ErrData) void {
         _ = code;
-        @as(*ErrData, @ptrCast(@alignCast(dst))).* = @as(*const ErrData, @ptrCast(@alignCast(src))).*;
+        dst.* = src.*;
     }
 
-    pub fn eql(code: anyerror, a: *const anyopaque, b: *const anyopaque) bool {
+    pub fn eql(code: anyerror, a: *const ErrData, b: *const ErrData) bool {
         _ = code;
         return std.mem.eql(u8, &@as(*const ErrData, @ptrCast(@alignCast(a))).bytes, &@as(*const ErrData, @ptrCast(@alignCast(b))).bytes);
     }
@@ -5388,7 +5388,7 @@ pub fn reportFailure(err: anyerror, data: *ErrData) void {
 /// program's glue prints them, on a line of `w`.
 fn showFailure(err: anyerror, data: *const ErrData, w: *std.Io.Writer) void {
     w.writeAll("error: ") catch {};
-    if (error_glue) |g| g.print(err, @ptrCast(data), w) catch {} else w.writeAll(errorShown(err)) catch {};
+    if (error_glue) |g| g.print(err, data, w) catch {} else w.writeAll(errorShown(err)) catch {};
     w.writeAll("\n") catch {};
     w.flush() catch {};
 }
@@ -5953,7 +5953,7 @@ fn runTestsHere(modules: []const TestModule) void {
         } else |err| {
             // A failure is shown with its fields, which are then dropped.
             w.print("FAIL  {f}: ", .{name}) catch {};
-            if (error_glue) |g| g.print(err, @ptrCast(&slot), w) catch {} else w.writeAll(errorShown(err)) catch {};
+            if (error_glue) |g| g.print(err, &slot, w) catch {} else w.writeAll(errorShown(err)) catch {};
             w.writeAll("\n") catch {};
             dropErrorData(err, &slot);
             tests_failed += 1;

@@ -138,6 +138,26 @@ rig test bool.rig >out.txt 2>&1; rc=$?
 expect_rc $rc 1 "a run a test gave false in"
 expect_eq "$(cat out.txt)" $'ok    test "sum adds the elements"\nok    test "a list grows and shrinks"\nok    test "parse reads text"\nok    test "parse rejects empty text"\nFAIL  test "sum is wrong on purpose": sum([1, 2, 3]) == 7 is false\n9\nok    test "prints and passes"\nok    test "make sure move works"\nFAIL  test "an early return false": return false if n > 2\nFAIL  test "no error comes": reached false on line 52\nFAIL  test "another error comes": e == Parse.empty is false\nFAIL  test "a failing bang": Parse.long\n6 passed, 5 failed\nseed 1: `rig test --seed=1` runs these tests the same way again' "Bool report"
 
+# A test that fails with fields shows them, and drops them before the
+# next test's leak check.
+cat >fields.rig <<'EOF'
+error E
+  bad(msg: String)
+
+fun f(n: Int) -> Int!E
+  return E.bad(msg: String("at")) if n > 0
+  n
+
+test "fails with fields"
+  f(1)! == 1
+
+test "passes after"
+  f(0)! == 0
+EOF
+rig test fields.rig >out.txt 2>&1; rc=$?
+expect_rc $rc 1 "a run a test failed with fields in"
+expect_eq "$(cat out.txt)" $'FAIL  test "fails with fields": E.bad(msg: "at")\nok    test "passes after"\n1 passed, 1 failed\nseed 1: `rig test --seed=1` runs these tests the same way again' "a failure with fields"
+
 cat >none.rig <<'EOF'
 sub main()
   print("no tests here")
