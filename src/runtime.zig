@@ -138,7 +138,7 @@ pub const ErrorValue = struct {
     }
 
     /// The member's fields, read in place as their struct `F`.
-    pub fn fieldsAs(self: anytype, comptime F: type) if (@typeInfo(@TypeOf(self)).pointer.is_const) *const F else *F {
+    pub fn fieldsAs(self: *const ErrorValue, comptime F: type) *const F {
         return @ptrCast(@alignCast(&self.data));
     }
 

@@ -3559,10 +3559,16 @@ pub const Emitter = struct {
             try self.writeIndent(self.indent);
             if (value_pos) try self.w.print("break :{s} ", .{block});
         } else if (rereads) info.reread = try self.placeText(info);
+        // An error that carries fields is switched on by its code, and
+        // read again through its place for its fields.
+        const err_value = info.error_set and info.ty != null and self.isErrorValueTy(info.ty.?);
+        if (err_value and info.reread.len == 0) info.reread = try self.placeText(info);
         const place = info.reread;
         const subject = info.subject;
         try self.w.writeAll("switch (");
-        if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
+        if (err_value) {
+            try self.writeErrorCode(info.ty.?, place);
+        } else if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
             try self.w.writeAll(info.reread);
         } else if (try self.headerPoints(subject)) {
             // A place reached through temporaries is switched on where it
@@ -3621,7 +3627,10 @@ pub const Emitter = struct {
                 has_default = true;
                 try self.w.writeAll("else => ");
                 const named = !std.mem.eql(u8, self.srcText(pattern), "_");
-                switch (info.mode) {
+                if (err_value and info.mode != .consume) {
+                    // The whole error, read where it is.
+                    if (named) prelude.aliases = try self.wholeAlias(pattern, place, body);
+                } else switch (info.mode) {
                     .read => if (named) try self.emitCapture(pattern),
                     .write => if (named) {
                         prelude.aliases = try self.wholeAlias(pattern, try self.fmt("&{s}", .{place}), .nil);
@@ -3632,6 +3641,12 @@ pub const Emitter = struct {
                         prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, .nil);
                     },
                 }
+            } else if (pattern.isKind(.set_pattern) and err_value and self.isErrorValueTy(self.typeOf(pattern) orelse info.ty.?)) {
+                // `g: E =>` of an error that carries fields: `g` is the
+                // error itself, which every set's value is laid out as.
+                try self.writePatternHead(pattern, info);
+                try self.w.writeAll(" => ");
+                prelude.aliases = try self.wholeAlias(ir.SetPattern.name(pattern), place, body);
             } else if (pattern.isKind(.set_pattern)) {
                 // `g: E =>`: `g` is the prong's capture, which Zig gives
                 // the set of the members the prong lists, a subset of `E`.
@@ -3672,6 +3687,19 @@ pub const Emitter = struct {
                         try self.w.print("|{s}| ", .{payload});
                         prelude = try self.consumedPayload(captures, fields, payload, .nil);
                     }
+                } else if (captures.len > 0 and err_value) {
+                    // A member's fields, read in place from the error.
+                    const set = self.typeOf(pattern) orelse info.ty.?;
+                    var buf: Writer.Allocating = .init(self.arena.allocator());
+                    {
+                        const saved_w = self.w;
+                        self.w = &buf.writer;
+                        defer self.w = saved_w;
+                        try self.w.print("{s}.fieldsAs(", .{place});
+                        try self.emitMemberFieldsTy(set, vname);
+                        try self.w.writeAll(")");
+                    }
+                    prelude.aliases = try self.payloadAliases(captures, info, vname, .{ .expr = buf.written() }, .nil);
                 } else if (captures.len > 0) {
                     prelude.aliases = try self.payloadAliases(captures, info, vname, .{ .arm = arm }, .nil);
                     // A payload a read binds as a view is reached in place.
@@ -3857,6 +3885,10 @@ pub const Emitter = struct {
                 try writeErrorName(self.w, m.facts, m.set, m.name);
             }
             return;
+        }
+        // A member of an error set with fields, by its code.
+        if (pattern.isKind(.variant_pattern) and info.error_set) {
+            return self.writeError(self.typeOf(pattern) orelse info.ty.?, self.srcText(ir.VariantPattern.name(pattern)), pattern);
         }
         if (pattern.isKind(.enum_lit) and info.error_set) {
             // Sema gave `.name` against an error the type of its set.
@@ -5565,9 +5597,9 @@ pub const Emitter = struct {
                     const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
-                    const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id }, self.srcText(name));
+                    const binding = try self.catchBinding(sym.?, name, tmp, if (slot) |s| s.name else null);
                     if (some_handler) try self.w.writeAll("rig.some(");
-                    try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id, .slot = if (slot) |s| s.name else null } }, self.typeOf(sexp));
+                    try self.emitValueBlock(handler, binding, self.typeOf(sexp));
                     if (some_handler) try self.w.writeAll(")");
                     try self.popScope();
                 } else {
@@ -5628,6 +5660,7 @@ pub const Emitter = struct {
         const handler = ir.Catch.handler(sexp);
         const ok = try self.fresh("__rig_ok");
         const kept = try self.fresh("__rig_kept");
+        const slot = try self.openCatchSlot(ir.Catch.value(sexp));
         try self.w.writeAll("(if (");
         try self.emitFallbackHolder(sexp, ir.Catch.value(sexp));
         try self.w.print(") |{s}| {{ var {s} = {s}; rig.drop(&{s}); }} else ", .{ ok, kept, ok, kept });
@@ -5637,14 +5670,20 @@ pub const Emitter = struct {
             const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
             try self.pushScope();
-            const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id }, self.srcText(name));
-            try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id } }, self.facts.types.void_id);
+            const binding = try self.catchBinding(sym.?, name, tmp, if (slot) |s| s.name else null);
+            try self.emitValueBlock(handler, binding, self.facts.types.void_id);
             try self.popScope();
+        } else if (slot) |s| {
+            // A catch that binds no error drops its fields first.
+            try self.w.print("|{s}_c| if (rig.dropFailure({s}_c, &{s})) ", .{ s.name, s.name, s.name });
+            try self.emitValueBlock(handler, .{}, self.facts.types.void_id);
+            try self.w.writeAll(" else unreachable");
         } else {
             try self.w.writeAll("|_| ");
             try self.emitValueBlock(handler, .{}, self.facts.types.void_id);
         }
         try self.w.writeAll(")");
+        try self.closeCatchSlot(slot);
     }
 
     /// A statement that gives a value (`facts.syntax.yieldsValue`).
@@ -6334,12 +6373,13 @@ pub const Emitter = struct {
                 const name = ir.Catch.name(e);
                 const handler = ir.Catch.handler(e);
                 const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
+                if (self.failsWithFieldsCall(holder)) return self.unsupported(e, "a catch of an error with fields whose value is read in place");
                 if (sym != null and self.usage.used.contains(sym.?)) {
                     const tmp = try self.hiddenStorage(e, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
-                    const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id }, self.srcText(name));
-                    try self.emitYieldBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id } }, ty, .leaf_ptr);
+                    const binding = try self.catchBinding(sym.?, name, tmp, null);
+                    try self.emitYieldBlock(handler, binding, ty, .leaf_ptr);
                     try self.popScope();
                 } else {
                     try self.w.writeAll("|_| ");
@@ -7824,6 +7864,35 @@ pub const Emitter = struct {
             self.fail_slot = null;
             try self.w.print("{s}{s}", .{ if (written > 0) ", " else "", s.expr });
         };
+    }
+
+    /// What a `catch |name|` handler starts with: `name` bound to the
+    /// error captured as `tmp`. An error that carries fields is an owned
+    /// local made of the code and its slot's fields, dropped where the
+    /// handler ends unless moved; any other is the code itself.
+    fn catchBinding(self: *Emitter, sym: SymbolId, name: Sexp, tmp: []const u8, slot: ?[]const u8) Error!Prelude {
+        const ty = self.symType(sym) orelse self.facts.types.any_error_id;
+        if (!self.isErrorValueTy(ty)) {
+            const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(name));
+            return .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = ty } };
+        }
+        var l: Local = .{ .sym = sym, .ty = ty, .kind = self.kindOf(ty) };
+        if (l.kind != null) l.guard = self.resourceGuard(sym);
+        const stored = try self.declare(l, self.srcText(name));
+        const expr = try self.fmt("rig.ErrorValue.taken({s}, &{s})", .{ tmp, slot orelse "rig.no_error_data" });
+        return .{ .owned = try self.arena.allocator().dupe(OwnedBinding, &.{.{ .local = stored.*, .expr = expr }}) };
+    }
+
+    /// The code of the error value at `place`, as the Zig set of `ty`'s
+    /// codes, so a `switch` on a declared set names every member.
+    fn writeErrorCode(self: *Emitter, ty: TypeId, place: []const u8) Error!void {
+        if (ty == self.facts.types.any_error_id) return self.w.print("{s}.code", .{place});
+        const saved = self.error_codes;
+        self.error_codes = true;
+        defer self.error_codes = saved;
+        try self.w.writeAll("@as(");
+        try self.emitTypeTy(ty);
+        try self.w.print(", @errorCast({s}.code))", .{place});
     }
 
     /// The slot a `catch` lends its call `value` when the call may fail
