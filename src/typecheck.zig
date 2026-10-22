@@ -616,6 +616,36 @@ const Checker = struct {
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
 
+    /// The fields of error set `sym`'s members: each field's type holds no
+    /// loan, holds no `*` or `~` handle, and clones, so an error never
+    /// limits an owner, goes to any task, and drops without running a
+    /// `drop` body (CORE, "A failure moves its error").
+    fn checkErrorFields(self: *Checker, sym: SymbolId, fields: []const sema.Field) Error!void {
+        const self_ty = try self.ctx.intern(.{ .nominal = sym });
+        for (fields) |f| {
+            if (!f.is_variant) continue;
+            for (f.payload orelse &.{}) |p| {
+                if (self.isPoison(p.ty)) continue;
+                const shown = try self.tyName(p.ty);
+                if (p.ty == self.t().any_error_id or p.ty == self_ty) {
+                    try self.err(p.decl_pos, "a member holding `{s}` contains itself: write `^{s}`", .{ shown, shown });
+                } else if (sema.isErrorSet(self.ctx, p.ty) and sema.setHasFields(self.ctx, p.ty)) {
+                    // Every error with fields is held in room for the
+                    // program's largest member, so one held inline would
+                    // hold itself.
+                    try self.err(p.decl_pos, "a member holding `{s}`, whose members have fields, holds it boxed: write `^{s}`", .{ shown, shown });
+                } else if (sema.mayHoldView(self.ctx, p.ty)) {
+                    try self.err(p.decl_pos, "an error's field never holds a loan: hold a `String` or a `Static`", .{});
+                } else if (sema.holdsHandle(self.ctx, p.ty)) {
+                    try self.err(p.decl_pos, "an error's field holds no handle: `{s}` shares what it holds, and an error owns what it carries", .{shown});
+                } else if (sema.cloneable(self.ctx, p.ty) == .no) {
+                    const why = if (sema.isUnique(self.ctx, p.ty)) "is unique" else "has no clone";
+                    try self.err(p.decl_pos, "an error's fields must clone, and `{s}` {s}", .{ shown, why });
+                }
+            }
+        }
+    }
+
     /// `error L = A | B`: no part joins `L` again, directly or through
     /// another union, so `L` stands for a finite list of sets.
     fn checkErrorJoin(self: *Checker, node: Sexp) Error!void {
@@ -666,6 +696,7 @@ const Checker = struct {
         self.nominal = try sema.makeNominalContext(self.ctx, sym_id);
         defer self.nominal = prev;
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+        if (node.isKind(.errors)) try self.checkErrorFields(sym_id, fields);
         for (ir.rest(node, .members)) |m| {
             const h = m.kind() orelse continue;
             switch (h) {
@@ -5852,6 +5883,7 @@ const Checker = struct {
     /// `return err` with `err` of `actual`, an error set or `error`, in
     /// a function returning `expected`, a `T!E`: `E` must hold it.
     fn checkReturnedError(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        try self.ctx.recordFailingLeaf(e);
         const declared = self.ctx.types.get(expected).fallible.set;
         if (self.isPoison(actual) or sema.errorSubset(self.ctx, actual, declared)) return;
         const fname = try self.bodyName();

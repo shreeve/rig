@@ -114,6 +114,120 @@ pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
     if (comptime error_glue) |g| g.drop(code, @ptrCast(data));
 }
 
+/// A Rig error value of a set that has a member with fields, or of
+/// `error` in a program with one: its code, which names the member, and
+/// the member's fields. It owns them: dropping it drops them, and its
+/// clone, `==`, and print go through the program's glue.
+pub const ErrorValue = struct {
+    code: anyerror,
+    data: ErrData,
+
+    pub const __rig_error_value = true;
+
+    /// The value of member `code` whose fields are `fields`, a struct of
+    /// them (`.{}` for a member without fields).
+    pub fn of(code: anyerror, members_fields: anytype) ErrorValue {
+        var v: ErrorValue = .{ .code = code, .data = undefined };
+        writeErrorFields(&v.data, members_fields);
+        return v;
+    }
+
+    /// The value a failure left: its code and the fields its slot holds.
+    pub fn taken(code: anyerror, data: *const ErrData) ErrorValue {
+        return .{ .code = code, .data = data.* };
+    }
+
+    /// The member's fields, read in place as their struct `F`.
+    pub fn fieldsAs(self: anytype, comptime F: type) if (@typeInfo(@TypeOf(self)).pointer.is_const) *const F else *F {
+        return @ptrCast(@alignCast(&self.data));
+    }
+
+    pub fn __rig_drop(self: *ErrorValue) void {
+        dropErrorData(self.code, &self.data);
+    }
+
+    pub fn clone(self: *const ErrorValue) ErrorValue {
+        var out: ErrorValue = .{ .code = self.code, .data = undefined };
+        if (comptime error_glue) |g| g.clone(self.code, @ptrCast(&self.data), @ptrCast(&out.data));
+        return out;
+    }
+
+    pub fn eql(a: ErrorValue, b: ErrorValue) bool {
+        if (a.code != b.code) return false;
+        if (comptime error_glue) |g| return g.eql(a.code, @ptrCast(&a.data), @ptrCast(&b.data));
+        return true;
+    }
+
+    pub fn __rig_print(self: ErrorValue, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (comptime error_glue) |g| return g.print(self.code, @ptrCast(&self.data), w);
+        try w.writeAll(errorShown(self.code));
+    }
+};
+
+/// The fields of a failure no one reads: none.
+pub const no_error_data: ErrData = std.mem.zeroes(ErrData);
+
+/// A `catch` that binds no error drops failure `code`'s fields, which its
+/// slot `data` holds, before its handler runs; true, so the handler
+/// follows (`if (rig.dropFailure(c, &slot)) handler else unreachable`).
+pub inline fn dropFailure(code: anyerror, data: *ErrData) bool {
+    dropErrorData(code, data);
+    return true;
+}
+
+/// A failing `return` of member `code` with `fields`: they go into the
+/// caller's slot `out`, and the code is what the function fails with.
+pub inline fn failWith(out: ErrSlot, code: anyerror, members_fields: anytype) anyerror {
+    writeErrorFields(out, members_fields);
+    return code;
+}
+
+/// A failing `return` of `v`, an error value the function holds: its
+/// fields go into the caller's slot `out`, and it is moved.
+pub inline fn failValue(out: ErrSlot, v: ErrorValue) anyerror {
+    out.* = v.data;
+    return v.code;
+}
+
+/// Write `fields`, a member's struct of fields, into the bytes `data`
+/// (a failure's slot, or an `ErrorValue`'s); nothing for a member
+/// without fields.
+pub inline fn writeErrorFields(data: *ErrData, fields: anytype) void {
+    const F = @TypeOf(fields);
+    if (comptime @sizeOf(F) == 0) return;
+    comptime std.debug.assert(@sizeOf(F) <= @sizeOf(ErrData) and @alignOf(F) <= @alignOf(ErrData));
+    @as(*F, @ptrCast(@alignCast(data))).* = fields;
+}
+
+/// The glue a program declares for its members with fields, written by
+/// emit (`__rig_errors.zig`): drop, clone, `==`, and print of member
+/// `code`'s fields, read from its struct `F` in `data`.
+pub fn ErrorGlueOps(comptime F: type) type {
+    return struct {
+        pub fn drop(data: *anyopaque) void {
+            dropElement(F, @as(*F, @ptrCast(@alignCast(data))));
+        }
+        pub fn clone(src: *const anyopaque, dst: *anyopaque) void {
+            @as(*F, @ptrCast(@alignCast(dst))).* = cloneValue(@as(*const F, @ptrCast(@alignCast(src))));
+        }
+        pub fn eqlFields(a: *const anyopaque, b: *const anyopaque) bool {
+            return eql(@as(*const F, @ptrCast(@alignCast(a))).*, @as(*const F, @ptrCast(@alignCast(b))).*);
+        }
+        /// `Set.member(field: value, ...)`, the name given.
+        pub fn print(name: []const u8, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll(name);
+            try w.writeAll("(");
+            const v: *const F = @ptrCast(@alignCast(data));
+            inline for (@typeInfo(F).@"struct".field_names, 0..) |name_f, i| {
+                if (i > 0) try w.writeAll(", ");
+                try w.print("{s}: ", .{name_f});
+                try writeValue(w, @field(v, name_f), false);
+            }
+            try w.writeAll(")");
+        }
+    };
+}
+
 /// The glue of the runtime's tests: `error.WithData` carries 16 bytes,
 /// and each drop of them is counted.
 pub const TestErrorGlue = struct {
@@ -130,6 +244,16 @@ pub const TestErrorGlue = struct {
     pub fn print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
         _ = data;
         try w.writeAll(@errorName(code));
+    }
+
+    pub fn clone(code: anyerror, src: *const anyopaque, dst: *anyopaque) void {
+        _ = code;
+        @as(*ErrData, @ptrCast(@alignCast(dst))).* = @as(*const ErrData, @ptrCast(@alignCast(src))).*;
+    }
+
+    pub fn eql(code: anyerror, a: *const anyopaque, b: *const anyopaque) bool {
+        _ = code;
+        return std.mem.eql(u8, &@as(*const ErrData, @ptrCast(@alignCast(a))).bytes, &@as(*const ErrData, @ptrCast(@alignCast(b))).bytes);
     }
 };
 const Control = tasks.Control;
@@ -1268,7 +1392,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             return out;
         },
         .@"struct" => |s| {
-            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
             if (comptime @hasDecl(T, "__rig_weak")) return value.cloneWeak();
             var out: T = undefined;

@@ -435,6 +435,9 @@ pub const Facts = struct {
     pub fn repoints(f: Facts, node: Sexp) bool {
         return f.c().repoints(node);
     }
+    pub fn isFailingLeaf(f: Facts, node: Sexp) bool {
+        return f.c().isFailingLeaf(node);
+    }
     pub fn isMemberTest(f: Facts, node: Sexp) bool {
         return f.c().isMemberTest(node);
     }
@@ -834,6 +837,11 @@ pub const Facts = struct {
     /// (`sema.ownApiOf`).
     pub fn ownApiOf(f: Facts, ty: TypeId, api: sema.Api) ?sema.Field {
         return sema.ownApiOf(f.c(), ty, api);
+    }
+
+    /// Whether error set `ty` has a member with fields (`sema.setHasFields`).
+    pub fn setHasFields(f: Facts, ty: TypeId) bool {
+        return sema.setHasFields(f.c(), ty);
     }
 
     /// A member of a declared error set, with the facts of the module

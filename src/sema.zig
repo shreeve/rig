@@ -1110,6 +1110,11 @@ pub const Facts = struct {
     /// before it did: what its Zig prong lists
     /// (`SemContext.recordSetPatternMembers`).
     set_pattern_members: std.AutoHashMapUnmanaged(NodeKey, []const SetMember) = .empty,
+    /// The error values that leave their function by failing: a
+    /// `return`'s operand, or a branch of one, of an error type where a
+    /// `T!` goes (`SemContext.recordFailingLeaf`). Emit stores the fields
+    /// of one with fields through the function's `__out`.
+    failing_leaves: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -3145,6 +3150,14 @@ pub const SemContext = struct {
 
     pub fn setPatternMembers(self: *const SemContext, node: Sexp) ?[]const SetMember {
         return self.facts.set_pattern_members.get(nodeKey(node) orelse return null);
+    }
+
+    pub fn recordFailingLeaf(self: *SemContext, node: Sexp) !void {
+        try self.facts.failing_leaves.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn isFailingLeaf(self: *const SemContext, node: Sexp) bool {
+        return self.facts.failing_leaves.contains(nodeKey(node) orelse return false);
     }
 
     pub fn recordMemberTest(self: *SemContext, node: Sexp) !void {
@@ -5557,6 +5570,70 @@ pub fn setHoldsStop(ctx: *const SemContext, set: TypeId, a: std.mem.Allocator) s
     try errorSetLeaves(ctx, set, &leaves, a);
     for (leaves.items) |leaf| {
         if (std.mem.eql(u8, leaf.ctx.name, "std.task") and std.mem.eql(u8, leaf.ctx.symbols.items[leaf.sym].name, "Stop")) return true;
+    }
+    return false;
+}
+
+/// Whether error set `ty`, a set or a union, has a member with fields:
+/// a value of it carries them (errors-spec §7.2).
+pub fn setHasFields(ctx: *const SemContext, ty: TypeId) bool {
+    return fieldsAt(ctx, ty, 0);
+}
+
+fn fieldsAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+    if (depth > union_depth) return false;
+    const d = nominalDecl(ctx, ty) orelse return false;
+    const sym = d.symbol();
+    if (!sym.flags.error_set) return false;
+    if (sym.error_parts) |parts| {
+        for (parts) |part| if (fieldsAt(d.ctx, part, depth + 1)) return true;
+        return false;
+    }
+    for (sym.fields orelse &.{}) |f| {
+        if (f.is_variant and f.payload != null and f.payload.?.len > 0) return true;
+    }
+    return false;
+}
+
+/// Whether any error set this module declares has a member with fields.
+pub fn declaresErrorFields(ctx: *const SemContext) bool {
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.error_set or sym.error_parts != null or isProxy(sym)) continue;
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_variant and f.payload != null and f.payload.?.len > 0) return true;
+        }
+    }
+    return false;
+}
+
+/// Whether a value of `ty` holds a shared or weak handle (`*T`, `~T`)
+/// anywhere inside it: what an error's field may not (errors-spec §4.1).
+pub fn holdsHandle(ctx: *const SemContext, ty: TypeId) bool {
+    return handleAt(ctx, ty, 0);
+}
+
+fn handleAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+    if (depth > 32) return false;
+    return switch (ctx.types.get(ty)) {
+        .shared, .weak => true,
+        .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, depth + 1),
+        .fallible => |f| handleAt(ctx, f.ok, depth + 1),
+        .array => |a| handleAt(ctx, a.elem, depth + 1),
+        .slice => |s| handleAt(ctx, s.elem, depth + 1),
+        .parameterized_nominal => |pn| blk: {
+            for (pn.args) |arg| if (handleAt(ctx, arg, depth + 1)) break :blk true;
+            break :blk fieldsHoldHandle(ctx, ty, depth);
+        },
+        .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, depth),
+        else => false,
+    };
+}
+
+fn fieldsHoldHandle(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+    const d = nominalDecl(ctx, ty) orelse return false;
+    for (d.symbol().fields orelse &.{}) |*f| {
+        if (f.is_method) continue;
+        for (dataFields(f)) |field| if (handleAt(d.ctx, field.ty, depth + 1)) return true;
     }
     return false;
 }
