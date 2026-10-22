@@ -38,7 +38,9 @@ planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Declared error sets** (#542, branch `errsets`): round R2 of errors
   with data (`-> T!E`, `error L = A | B`, `catch |e|` typed by the
   callee's set), from the approved spec (`.git/revamp/r3/errors-panel/`).
-  It waits on a review, Trig's build, and the owner's names for std's
+  Its review found eight programs that check and then fail in Zig or
+  leak; they are being fixed, and a second round of such findings stops
+  it for redesign. Then Trig's build, and the owner's names for std's
   I/O unions.
 - **Map and Set probes without tests:** the checks inside the built-in
   Map and Set, 17% of Trig's check cost, measured first.
