@@ -284,8 +284,7 @@ sub main()
 nowhere, so it drops now. `+x` is a copy, a count bump, or a deep
 copy, as the type says; a `unique` type or one with a `drop` body
 has none; `+s` of a `?String` is a new `String`. *(built;*
-a deep copy of a type declared in another module, or of one holding a
-`Signal`, is *planned*.*)*
+a deep copy of a type holding a `Signal` is *planned*.*)*
 
 ```rig
 obj File
@@ -324,7 +323,7 @@ pub obj Bag
   pub items: List[Int]
 ```
 
-```rig pending
+```rig
 use bag
 
 sub main()

@@ -932,7 +932,9 @@ Ruby, and JavaScript: `put` on a key already there keeps its place, and
 and what holds one. Text hashes and compares by its bytes, so a
 `Map[String, V]` finds `m.get("x")` and `m.get(?t)` alike, and a
 `Map[?String, V]` holds views. Each instance is checked for its key
-type, as any generic is.
+type, as any generic is. `+m` is a new Map holding a clone of each key
+and value, when they clone ([SPEC §7](../SPEC.md#clone)); so is `+s` of
+a Set.
 
 | Member | Signature | Ownership |
 |---|---|---|
