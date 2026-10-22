@@ -2190,7 +2190,7 @@ pub const TypeResolver = struct {
                             try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = vpos, .is_variant = true, .value = value });
                         },
                         .variant => {
-                            if (!is_enum or head == .errors) {
+                            if (!is_enum) {
                                 try self.ctx.errAt(m, "only enums declare payload variants", .{});
                                 continue;
                             }

@@ -925,6 +925,9 @@ fn nodeKey(node: Sexp) ?NodeKey {
     return node.list.id;
 }
 
+/// Whether an error member's fields compare with `==`, and hash.
+pub const MemberCompares = struct { eq: bool = false, hash: bool = false };
+
 /// The key of a node a fact is recorded for: a node the parser built.
 fn recordKey(node: Sexp) NodeKey {
     return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
@@ -1111,6 +1114,16 @@ pub const Facts = struct {
     /// before it did: what its Zig prong lists
     /// (`SemContext.recordSetPatternMembers`).
     set_pattern_members: std.AutoHashMapUnmanaged(NodeKey, []const SetMember) = .empty,
+    /// The error values that leave their function by failing: a
+    /// `return`'s operand, or a branch of one, of an error type where a
+    /// `T!` goes (`SemContext.recordFailingLeaf`). Emit stores the fields
+    /// of one with fields through the function's `__out`.
+    failing_leaves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Whether the fields of each error-set member that has them compare
+    /// with `==` and hash, by the member's name in its declaration
+    /// (`SemContext.recordMemberCompares`): the program's glue compares
+    /// and hashes only those.
+    member_compares: std.AutoHashMapUnmanaged(u64, MemberCompares) = .empty,
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -2081,6 +2094,10 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         // A field a pattern leaves out shows as `-`.
         []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
         []const SetMember => for (v) |m| try w.print(" {s}.{s}", .{ try formatTypeIn(ctx, a, m.set), m.name }),
+        MemberCompares => {
+            if (v.eq) try w.writeAll(" eq");
+            if (v.hash) try w.writeAll(" hash");
+        },
         []const ArgSlot => for (v) |slot| switch (slot) {
             .arg => |i| try w.print(" arg{d}", .{i}),
             .default => try w.writeAll(" default"),
@@ -3151,6 +3168,22 @@ pub const SemContext = struct {
 
     pub fn setPatternMembers(self: *const SemContext, node: Sexp) ?[]const SetMember {
         return self.facts.set_pattern_members.get(nodeKey(node) orelse return null);
+    }
+
+    pub fn recordMemberCompares(self: *SemContext, member: Field, compares: MemberCompares) !void {
+        try self.facts.member_compares.put(self.allocator, member.decl_pos, compares);
+    }
+
+    pub fn memberCompares(self: *const SemContext, member: Field) MemberCompares {
+        return self.facts.member_compares.get(member.decl_pos) orelse .{};
+    }
+
+    pub fn recordFailingLeaf(self: *SemContext, node: Sexp) !void {
+        try self.facts.failing_leaves.put(self.allocator, exprKey(node) orelse return, {});
+    }
+
+    pub fn isFailingLeaf(self: *const SemContext, node: Sexp) bool {
+        return self.facts.failing_leaves.contains(exprKey(node) orelse return false);
     }
 
     pub fn recordMemberTest(self: *SemContext, node: Sexp) !void {
@@ -4552,6 +4585,11 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
             c.any_error = c.any_error or h.any_error;
         }
     }
+    // A union of error sets owns what its sets' members carry.
+    for (ctx.symbols.items[id].error_parts orelse &.{}) |part| if (fieldsAt(ctx, part, 1)) {
+        c.glue = true;
+        c.plain = false;
+    };
     // The built-in generics are runtime types: a List owns its buffer and
     // a box its value's memory, and none of them is copied like plain data.
     // A Signal owns its subscribers too, but has no glue of its own: it
@@ -5581,6 +5619,70 @@ pub fn setHoldsStop(ctx: *const SemContext, set: TypeId, a: std.mem.Allocator) s
     return false;
 }
 
+/// Whether error set `ty`, a set or a union, has a member with fields:
+/// a value of it carries them (errors-spec §7.2).
+pub fn setHasFields(ctx: *const SemContext, ty: TypeId) bool {
+    return fieldsAt(ctx, ty, 0);
+}
+
+fn fieldsAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+    if (depth > union_depth) return false;
+    const d = nominalDecl(ctx, ty) orelse return false;
+    const sym = d.symbol();
+    if (!sym.flags.error_set) return false;
+    if (sym.error_parts) |parts| {
+        for (parts) |part| if (fieldsAt(d.ctx, part, depth + 1)) return true;
+        return false;
+    }
+    for (sym.fields orelse &.{}) |f| {
+        if (f.is_variant and f.payload != null and f.payload.?.len > 0) return true;
+    }
+    return false;
+}
+
+/// Whether any error set this module declares has a member with fields.
+pub fn declaresErrorFields(ctx: *const SemContext) bool {
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.error_set or sym.error_parts != null or isProxy(sym)) continue;
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_variant and f.payload != null and f.payload.?.len > 0) return true;
+        }
+    }
+    return false;
+}
+
+/// Whether a value of `ty` holds a shared or weak handle (`*T`, `~T`)
+/// anywhere inside it: what an error's field may not (errors-spec §4.1).
+pub fn holdsHandle(ctx: *const SemContext, ty: TypeId) bool {
+    return handleAt(ctx, ty, 0);
+}
+
+fn handleAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+    if (depth > 32) return false;
+    return switch (ctx.types.get(ty)) {
+        .shared, .weak => true,
+        .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, depth + 1),
+        .fallible => |f| handleAt(ctx, f.ok, depth + 1),
+        .array => |a| handleAt(ctx, a.elem, depth + 1),
+        .slice => |s| handleAt(ctx, s.elem, depth + 1),
+        .parameterized_nominal => |pn| blk: {
+            for (pn.args) |arg| if (handleAt(ctx, arg, depth + 1)) break :blk true;
+            break :blk fieldsHoldHandle(ctx, ty, depth);
+        },
+        .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, depth),
+        else => false,
+    };
+}
+
+fn fieldsHoldHandle(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+    const d = nominalDecl(ctx, ty) orelse return false;
+    for (d.symbol().fields orelse &.{}) |*f| {
+        if (f.is_method) continue;
+        for (dataFields(f)) |field| if (handleAt(d.ctx, field.ty, depth + 1)) return true;
+    }
+    return false;
+}
+
 /// Whether function type `f` is lent where function type `want` goes:
 /// the same, or with the same parameters and a result `T!A` where
 /// `want`'s is a `T!L` whose set holds `A`'s. The view's thunk
@@ -6237,7 +6339,13 @@ const EquatableWalk = struct {
         const decl = nominalDecl(ctx, ty) orelse return null;
         if (isBuiltinGeneric(decl.ctx, decl.sym)) return .no_eq;
         const sym = decl.symbol();
-        if (sym.flags.error_set) return null;
+        // An error set compares by its member and the member's fields, as
+        // an enum does by its variant; a union, as the sets it joins.
+        if (sym.error_parts) |parts| {
+            if ((try self.visited.getOrPut(ctx.allocator, ty)).found_existing) return null;
+            for (parts) |part| try self.push(i, if (decl.module_id) |m| try importType(ctx, decl.ctx, part, m) else part, "");
+            return null;
+        }
         // A type that gives `==` or hashing its own meaning is compared or
         // hashed by its own method, whatever its fields; one with its own
         // `==` and no hash of its own has no hash by its fields.

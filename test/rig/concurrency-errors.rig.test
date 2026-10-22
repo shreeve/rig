@@ -1,0 +1,188 @@
+# Tasks whose failures carry fields: the fields move from the task's
+# record to whoever waits (SPEC §13, CORE "Errors"), under every
+# schedule the seeds try.
+
+test "a task fails with fields, and its waiter takes them", ''', seeds: 20
+  E.bad(msg: "x")
+  -1
+  2
+'''
+  use std.task
+
+  error E
+    bad(msg: String)
+
+  error L = E | task.Stop
+
+  fun f(n: Int) -> Int!L
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  sub main()!
+    t = f(1)&
+    v = >t catch |e|
+      print(e)
+      -1
+    print(v)
+    u = f(2)&
+    print(>u!)
+
+test "`task.all` passes the first failure's fields on", ''', seeds: 20
+  6
+  -1
+'''
+  use std.task
+
+  error E
+    bad(msg: String)
+
+  error L = E | task.Stop
+
+  fun check(x: ?Int) -> Int!L
+    return E.bad(msg: String("big")) if x > 5
+    x * 2
+
+  fun both(x: Int, y: Int) -> Int!
+    a, b = task.all(check(?x)&, check(?y)&)!
+    a + b
+
+  sub main()!
+    print(both(1, 2)!)
+    print(both(1, 8) catch |e| -1)
+
+test "a set's waits give a failure's fields", ''', seeds: 20
+  all E.bad(msg: "big")
+  0
+  first E.bad(msg: "big")
+  -1
+'''
+  use std.task
+
+  error E
+    bad(msg: String)
+
+  fun check(x: Int) -> Int!
+    task.check()!
+    return E.bad(msg: String("big")) if x > 5
+    x * 2
+
+  sub main()!
+    ts = Tasks[Int!]()
+    !ts.add(check(2)&)
+    !ts.add(check(9)&)
+    all = >ts catch |e|
+      print("all", e)
+      List[Int]()
+    print(all.len)
+    ws = Tasks[Int!]()
+    !ws.add(check(6)&)
+    !ws.add(check(7)&)
+    w = <ws.wait_first() catch |e|
+      print("first", e)
+      -1
+    print(w)
+
+test "`par.map` and `par.each` pass a failing call's fields on", ''', seeds: 20
+  3
+  E.bad(msg: "big", at: 7)
+  0
+  E.bad(msg: "big", at: 9)
+'''
+  use std.task
+  use std.par
+
+  error E
+    bad(msg: String, at: Int)
+
+  error L = E | task.Stop
+
+  fun check(x: ?Int) -> Int!L
+    return E.bad(msg: String("big"), at: x) if x > 5
+    x * 2
+
+  sub bump(x: !Int)!L
+    return E.bad(msg: String("big"), at: x) if x > 8
+    x += 1
+
+  sub main()!
+    xs = [1, 2, 3]
+    ys = par.map(?xs, check)!
+    print(ys.len)
+    zs = [1, 7, 3]
+    r = par.map(?zs, check) catch |e|
+      print(e)
+      List[Int]()
+    print(r.len)
+    ws = [1, 9]
+    par.each(!ws, bump) catch |e|
+      print(e)
+
+test "`isolate`, `time.within`, and `supervise` pass the fields on", ''', seeds: 20
+  1
+  iso E.bad(msg: "g")
+  -1
+  within E.bad(msg: "g")
+  -1
+  sup E.bad(msg: "g")
+  -1
+'''
+  use std.task
+  use std.time
+
+  error E
+    bad(msg: String)
+
+  fun g(n: Int) -> Int!
+    return E.bad(msg: String("g")) if n > 1
+    n
+
+  sub main()!
+    a = task.isolate(|| g(1)!)!
+    print(a)
+    b = task.isolate(|| g(2)!) catch |e|
+      print("iso", e)
+      -1
+    print(b)
+    c = time.within(1000000000, || g(3)!) catch |e|
+      print("within", e)
+      -1
+    print(c)
+    d = task.supervise(|| g(4)!, restarts: 2, per: 1000000000) catch |e|
+      print("sup", e)
+      -1
+    print(d)
+
+test "an actor's method fails with fields, called and as a task", ''', seeds: 20
+  2
+  E.bad(msg: "neg")
+  -1
+  task E.bad(msg: "neg")
+  -1
+'''
+  use std.task
+
+  error E
+    bad(msg: String)
+
+  error L = E | task.Stop
+
+  obj Counter
+    n: Int
+
+    fun bump(!@, k: Int) -> Int!L
+      return E.bad(msg: String("neg")) if k < 0
+      @n += k
+      @n
+
+  sub main()!
+    c = *Actor(Counter(n: 0))
+    print((!c).bump(2)!)
+    v = (!c).bump(-1) catch |e|
+      print(e)
+      -1
+    print(v)
+    t = (!c).bump(-2)&
+    w = >t catch |e|
+      print("task", e)
+      -1
+    print(w)

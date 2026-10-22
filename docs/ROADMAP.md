@@ -25,7 +25,7 @@ items, with their probe cases, are in
 - **Drop bodies for enums and generic types.**
 - **Tables, next** (`Table[T, n]` and `Slot[n]` are built, SPEC "Table"): a `Span` that std mints, covering a run of slots (`start`, `count`) with no test per element; then `program.files` as a table (Trig's phase 2, an eager table of an owning `File`); and, only if catching an id from another table at compile time is ever worth it, generative brands (`Table[T, B]`, `Id[B]`, a scope whose brand is fresh), which need rank-2 scopes and erased parameters. `pop`, `clear`, and `keep` (a `clear` restores every touched slot to `T()`).
 
-- **Errors that carry data**, after `error` the type: declared sets (`T!E`, `error L = A | B`) and the typed `catch` binding, then member fields moved up through `!`, then `std.json`'s fallible API ([SPEC §13](../SPEC.md#declared-sets-and-fields)).
+- **Errors that carry data**: declared sets and member fields are built; next are std's I/O sets and `std.json`'s fallible API, then sets as compile-time parameters ([SPEC §13](../SPEC.md#declared-sets-and-fields)).
 - **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
 - **Several results**, after their first form (SPEC "Several results"):
   in registers when small, `from` per result, and a `for` that binds

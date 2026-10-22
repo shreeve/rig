@@ -185,6 +185,9 @@ const Checker = struct {
     /// branch there is read in place, by address, never copied
     /// (`cellMadeAway`).
     in_place: Sexp = .nil,
+    /// The member pattern being checked, `E.name =>`, which tests the
+    /// member whether or not it has fields.
+    member_pattern: Sexp = .nil,
     /// The operand of the `return` being checked: an error value meets a
     /// `T!` only in its branch leaves (`isReturnLeaf`).
     return_operand: Sexp = .nil,
@@ -616,6 +619,45 @@ const Checker = struct {
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
 
+    /// The fields of error set `sym`'s members: each field's type holds no
+    /// loan, holds no `*` or `~` handle, and clones, so an error never
+    /// limits an owner, goes to any task, and drops without running a
+    /// `drop` body (CORE, "A failure moves its error").
+    fn checkErrorFields(self: *Checker, sym: SymbolId, fields: []const sema.Field) Error!void {
+        const self_ty = try self.ctx.intern(.{ .nominal = sym });
+        for (fields) |f| {
+            if (!f.is_variant) continue;
+            // Whether the member's fields compare and hash, which the
+            // glue reads.
+            var compares: sema.MemberCompares = .{ .eq = true, .hash = true };
+            for (f.payload orelse &.{}) |p| {
+                if (self.isPoison(p.ty)) continue;
+                if (try sema.notEquatable(self.ctx, p.ty, null) != null) compares.eq = false;
+                if (try sema.notHashable(self.ctx, p.ty, null) != null) compares.hash = false;
+            }
+            if (f.payload != null and f.payload.?.len > 0) try self.ctx.recordMemberCompares(f, compares);
+            for (f.payload orelse &.{}) |p| {
+                if (self.isPoison(p.ty)) continue;
+                const shown = try self.tyName(p.ty);
+                if (p.ty == self.t().any_error_id or p.ty == self_ty) {
+                    try self.err(p.decl_pos, "a member holding `{s}` contains itself: write `^{s}`", .{ shown, shown });
+                } else if (sema.isErrorSet(self.ctx, p.ty) and sema.setHasFields(self.ctx, p.ty)) {
+                    // Every error with fields is held in room for the
+                    // program's largest member, so one held inline would
+                    // hold itself.
+                    try self.err(p.decl_pos, "a member holding `{s}`, whose members have fields, holds it boxed: write `^{s}`", .{ shown, shown });
+                } else if (sema.mayHoldView(self.ctx, p.ty)) {
+                    try self.err(p.decl_pos, "an error's field never holds a loan: hold a `String` or a `Static`", .{});
+                } else if (sema.holdsHandle(self.ctx, p.ty)) {
+                    try self.err(p.decl_pos, "an error's field holds no handle: `{s}` shares what it holds, and an error owns what it carries", .{shown});
+                } else if (sema.cloneable(self.ctx, p.ty) == .no) {
+                    const why = if (sema.isUnique(self.ctx, p.ty)) "is unique" else "has no clone";
+                    try self.err(p.decl_pos, "an error's fields must clone, and `{s}` {s}", .{ shown, why });
+                }
+            }
+        }
+    }
+
     /// `error L = A | B`: no part joins `L` again, directly or through
     /// another union, so `L` stands for a finite list of sets.
     fn checkErrorJoin(self: *Checker, node: Sexp) Error!void {
@@ -666,6 +708,7 @@ const Checker = struct {
         self.nominal = try sema.makeNominalContext(self.ctx, sym_id);
         defer self.nominal = prev;
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+        if (node.isKind(.errors)) try self.checkErrorFields(sym_id, fields);
         for (ir.rest(node, .members)) |m| {
             const h = m.kind() orelse continue;
             switch (h) {
@@ -4257,17 +4300,23 @@ const Checker = struct {
     }
 
     fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage, mode: MatchMode) Error!void {
-        const name = ir.VariantPattern.name(pattern);
+        const name = rig.variantPatternName(pattern);
         const vname = self.text(name);
         const vpos = name.src.pos;
         const bindings = ir.VariantPattern.bindings(pattern);
-        try self.recordCovered(vname, vpos, cov);
-        if (sema.unwrapViews(self.ctx, scrutinee) == self.t().any_error_id) {
-            try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
+        // The set the member is of: the one its pattern names, or the
+        // subject's; where the subject may be of several sets, the one
+        // that has it. Recorded as the pattern's type.
+        const subject = sema.unwrapViews(self.ctx, scrutinee);
+        const several = subject == self.t().any_error_id or sema.isErrorUnion(self.ctx, subject);
+        const set = (try self.variantPatternSet(pattern, subject, several)) orelse {
+            cov.rejected = true;
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
-        }
-        const resolved = (try sema.lookupVariant(self.ctx, scrutinee, vname)) orelse {
+        };
+        try self.ctx.recordType(pattern, set);
+        try self.recordCovered(if (several) try self.errorArmKey(subject, set, vname) else vname, vpos, cov);
+        const resolved = (try sema.lookupVariant(self.ctx, set, vname)) orelse {
             try self.reportMissingVariant(scrutinee, vname, vpos);
             for (bindings) |b| self.poisonBinding(sema.bindingName(b));
             return;
@@ -4377,13 +4426,42 @@ const Checker = struct {
         };
     }
 
+    /// The set of variant pattern `pattern`'s member, of a subject of type
+    /// `subject`, which may be of `several` sets: the set it names
+    /// (`E.name(...)`), which the subject may be; else the one set of
+    /// those that has the member; else the subject's. Null once rejected.
+    fn variantPatternSet(self: *Checker, pattern: Sexp, subject: TypeId, several: bool) Error!?TypeId {
+        const named = ir.VariantPattern.name(pattern);
+        const name = rig.variantPatternName(pattern);
+        if (self.isPoison(subject)) return null;
+        if (named.isKind(.member)) {
+            var r = self.resolver();
+            const set = try r.resolveType(ir.Member.object(named));
+            if (self.isPoison(set)) return null;
+            const shown = try self.plainText(named);
+            if (!sema.isErrorSet(self.ctx, set)) {
+                try self.errAt(named, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{shown});
+                return null;
+            }
+            const within = if (subject == self.t().any_error_id) true else if (sema.isErrorUnion(self.ctx, subject)) sema.errorSubset(self.ctx, set, subject) else set == subject;
+            if (!within) {
+                try self.errAt(named, "`{s}` is not in `{s}`, the error the subject may be", .{ shown, try self.tyName(subject) });
+                return null;
+            }
+            return set;
+        }
+        if (!several) return subject;
+        const set = if (subject == self.t().any_error_id) try self.resolveErrorName(name) else try self.unionMemberSet(subject, name);
+        return if (self.isPoison(set)) null else set;
+    }
+
     /// The binding of each of `fields`, in field order, that the variant
     /// pattern `pattern` writes. A pattern binds a variant's fields either
     /// in order, all of them, or by name, any of them, and `.nil` stands
     /// for a field it leaves out (`sema.SemContext.payloadBindings`).
     /// Null after reporting a pattern that does neither.
     fn fieldBindings(self: *Checker, pattern: Sexp, fields: []const Field) Error!?[]const Sexp {
-        const name = ir.VariantPattern.name(pattern);
+        const name = rig.variantPatternName(pattern);
         const vname = self.text(name);
         const bindings = ir.VariantPattern.bindings(pattern);
         var named: usize = 0;
@@ -5344,6 +5422,20 @@ const Checker = struct {
             // with a payload too (SPEC §5, "Comparing").
             if (lit.isKind(.enum_lit) and !self.isPoison(reached)) {
                 const subject = sema.unwrapViews(self.ctx, if (self.ctx.types.get(reached) == .optional) self.ctx.types.get(reached).optional else reached);
+                // Beside an error that may carry fields, `.name` tests the
+                // member, of the one set the error may be that has it.
+                if (sema.setHasFields(self.ctx, subject) or (subject == self.t().any_error_id and sema.declaresErrorFields(self.ctx))) {
+                    const name = ir.EnumLit.name(lit);
+                    const set = if (sema.isErrorUnion(self.ctx, subject)) try self.unionMemberSet(subject, name) else if (subject == self.t().any_error_id) try self.resolveErrorName(name) else blk: {
+                        if ((try sema.lookupVariant(self.ctx, subject, self.text(name))) == null) {
+                            try self.reportMissingVariant(subject, self.text(name), srcPos(name, 0));
+                            break :blk self.t().invalid_id;
+                        }
+                        break :blk subject;
+                    };
+                    try self.ctx.recordType(lit, set);
+                    return self.t().bool_id;
+                }
                 if (sema.enumVariantCount(self.ctx, subject) != null and !sema.isErrorSet(self.ctx, subject)) {
                     if (try sema.lookupVariant(self.ctx, subject, self.text(ir.EnumLit.name(lit)))) |_| {
                         try self.ctx.recordType(lit, reached);
@@ -5363,7 +5455,11 @@ const Checker = struct {
         for ([2]Sexp{ l, r }, 0..) |side, i| {
             if (!side.isKind(.member)) continue;
             const nt = (try self.namedType(ir.Member.object(side))) orelse continue;
-            if (nt.sym.flags.error_set or nt.sym.kind != .nominal_type) continue;
+            if (nt.sym.flags.error_set) {
+                if (try self.errorMemberTest(side, if (i == 0) r else l, nt)) |ty| return ty;
+                continue;
+            }
+            if (nt.sym.kind != .nominal_type) continue;
             // A plain enum's values compare as they are.
             const payloads = for (nt.sym.fields orelse &.{}) |f| {
                 if (f.is_variant and f.payload != null and f.payload.?.len > 0) break true;
@@ -5413,6 +5509,42 @@ const Checker = struct {
         return self.finishEquality(e, l, r, a, b, op);
     }
 
+    /// `e == E.name`, where member `name` of set `nt` has fields: a test
+    /// of which member the error `other` is, which compares no fields
+    /// (SPEC §13, "Comparing"). Null for a member without fields, which
+    /// compares as any value does.
+    fn errorMemberTest(self: *Checker, side: Sexp, other: Sexp, nt: NamedType) Error!?TypeId {
+        const name = self.text(ir.Member.name(side));
+        const m = for (nt.sym.fields orelse &.{}) |f| {
+            if (f.is_variant and std.mem.eql(u8, f.name, name)) break f;
+        } else return null;
+        if (m.payload == null or m.payload.?.len == 0) return null;
+        const set = try self.namedTypeValue(nt);
+        const ty = try self.synthEqOperand(other);
+        const value = sema.unwrapViews(self.ctx, ty);
+        if (self.isPoison(value) or self.isPoison(set)) return self.t().bool_id;
+        const within = value == self.t().any_error_id or value == set or (sema.isErrorUnion(self.ctx, value) and sema.errorSubset(self.ctx, set, value));
+        if (!within) {
+            try self.errAt(other, "cannot compare `{s}` with `{s}`", .{ try self.tyName(ty), try self.tyName(set) });
+            return self.t().bool_id;
+        }
+        // Read as `x == .name` reads it: a value made here is dropped by
+        // the test, any other owner read in place.
+        if (sema.moves(self.ctx, ty) != .no and self.hands(other).kind != .made) try self.readLeaf(other);
+        try self.ctx.recordType(side, set);
+        try self.ctx.recordErrorMember(side);
+        return self.t().bool_id;
+    }
+
+    /// Whether `e` names an error member: `.name`, `E.name`, or one made
+    /// with its fields, `E.name(...)`.
+    fn namesErrorMember(self: *Checker, e: Sexp) bool {
+        if (e.isKind(.enum_lit) or self.ctx.isErrorMember(e)) return true;
+        if (!e.isKind(.call) or !ir.Call.callee(e).isKind(.member)) return false;
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return sema.isErrorSet(self.ctx, sema.unwrapViews(self.ctx, ty)) and self.ctx.typeOf(ir.Call.callee(e)) == null;
+    }
+
     /// `l == r` once both operands are typed, `a` and `b`.
     fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a: TypeId, b: TypeId, op: []const u8) Error!TypeId {
         if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
@@ -5458,10 +5590,27 @@ const Checker = struct {
             return self.t().bool_id;
         }
         // Any error compares with a member of any error set, and a union
-        // with a member of a set it joins.
+        // with a member of a set it joins: a bare member tests which
+        // member it is, one with fields compares them too. Two errors
+        // compare whole when their set has `==`, which `error`, of any
+        // set, has not.
         const any_err = self.t().any_error_id;
-        if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
-        if (sema.isErrorSet(self.ctx, a) and sema.isErrorSet(self.ctx, b) and (sema.errorSubset(self.ctx, a, b) or sema.errorSubset(self.ctx, b, a))) return self.t().bool_id;
+        const joined = sema.isErrorSet(self.ctx, a) and sema.isErrorSet(self.ctx, b) and (sema.errorSubset(self.ctx, a, b) or sema.errorSubset(self.ctx, b, a));
+        if (joined or (a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) {
+            for ([2]Sexp{ l, r }, [2]TypeId{ a, b }) |side, ty| if (self.namesErrorMember(side)) {
+                if (side.isKind(.call)) try self.checkEquatable(ty, side, op);
+                return self.t().bool_id;
+            };
+            if (a == any_err and b == any_err) {
+                try self.errAt(l, "an `error` may be of any set, and has no `{s}` of its own: match it, or compare it with a member (`e == E.name`)", .{op});
+                return self.t().bool_id;
+            }
+            // Beside `error`, the other's set decides; of two sets, the
+            // wider.
+            const set = if (a == any_err) b else if (b == any_err) a else if (sema.errorSubset(self.ctx, a, b)) b else a;
+            try self.checkEquatable(set, l, op);
+            return self.t().bool_id;
+        }
         // A String, boxed or not, compares with a `?String` or a String by
         // content.
         const string_ty = self.t().string_id;
@@ -5852,6 +6001,7 @@ const Checker = struct {
     /// `return err` with `err` of `actual`, an error set or `error`, in
     /// a function returning `expected`, a `T!E`: `E` must hold it.
     fn checkReturnedError(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        try self.ctx.recordFailingLeaf(e);
         const declared = self.ctx.types.get(expected).fallible.set;
         if (self.isPoison(actual) or sema.errorSubset(self.ctx, actual, declared)) return;
         const fname = try self.bodyName();
@@ -7374,7 +7524,7 @@ const Checker = struct {
                 try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ tname, tname, field, field, tname });
                 return self.t().invalid_id;
             }
-            if (m.payload != null and m.payload.?.len > 0) {
+            if (m.payload != null and m.payload.?.len > 0 and !(nt.sym.flags.error_set and self.member_pattern != .nil and pos == self.startOf(ir.Member.name(self.member_pattern)))) {
                 try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ tname, field, tname, field });
                 return self.t().invalid_id;
             }
@@ -15743,7 +15893,10 @@ const Checker = struct {
     /// `E.name` or `m.E.name` as a pattern: a member of error set `E`,
     /// where the subject is of that set or is any error.
     fn checkQualifiedPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        const saved = self.member_pattern;
+        self.member_pattern = pattern;
         const ty = try self.synthExpr(pattern);
+        self.member_pattern = saved;
         const subject = sema.unwrapViews(self.ctx, scrutinee);
         const obj = ir.Member.object(pattern);
         const shown = try self.plainText(pattern);

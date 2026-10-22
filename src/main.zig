@@ -931,8 +931,8 @@ fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.
 /// (`placeBatchFiles`), the runtime once to `DIR/rig/runtime.zig` as the
 /// Zig module `rig`, and `DIR/main.zig` starts program `N` when its
 /// first argument is `N`, handing the program the rest. A file the
-/// checkers reject, or with no `sub main()`, is left out, with its
-/// diagnostics on stderr. `DIR/programs` lists the programs built,
+/// checkers reject, with no `sub main()`, or whose errors carry fields
+/// (whose glue the root names), is left out, with a note on stderr. `DIR/programs` lists the programs built,
 /// `N<TAB>FILE` a line. The status is Zig's, or 1 when no program could
 /// be built. `DIR/inputs` holds a hash of every file of the batch, how
 /// Zig builds it, and which Zig (`zigIdentity`): when it matches and
@@ -996,6 +996,13 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         defer graph.deinit();
         if (!declaresMain(graph.root())) {
             std.debug.print("{s}:1:1: error: no `sub main()` to run\n", .{graph.root().display});
+            continue;
+        }
+        // A program whose errors carry fields has glue of its own
+        // (`__rig_errors.zig`), which the runtime reads from the root, so
+        // it is built alone.
+        if (declaresErrorFields(&graph)) {
+            std.debug.print("{s}:1:1: note: errors that carry fields: built alone, not in a batch\n", .{graph.root().display});
             continue;
         }
         const pkg = try emitPackage(allocator, env, &graph, .{ .batch = true });
@@ -1325,6 +1332,8 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         \\
     , .{emit.runtime_filename});
     try env.writeRootFlags(w, true, taskGuardOf(graph), makesActors(graph));
+    // The driver is the root, so it names the program's error glue.
+    if (declaresErrorFields(graph)) try w.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
     try w.writeAll(
         \\
         \\fn testsOf(comptime module: type) []const rig.Test {
@@ -1561,6 +1570,13 @@ fn makesTasks(graph: *const modules.ModuleGraph) bool {
     return false;
 }
 
+/// Whether some module declares an error member with fields: the program
+/// then carries error data (`emit.Emitter.error_data`), with its glue.
+fn declaresErrorFields(graph: *const modules.ModuleGraph) bool {
+    for (graph.modules.items) |*m| if (sema.declaresErrorFields(m.sema)) return true;
+    return false;
+}
+
 fn makesActors(graph: *const modules.ModuleGraph) bool {
     for (graph.modules.items) |*m| if (m.sema.makes_actors) return true;
     return false;
@@ -1599,6 +1615,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     var uses_symbols = false;
     const tasks = makesTasks(graph);
     const task_guard = taskGuardOf(graph);
+    const error_data = declaresErrorFields(graph);
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));
@@ -1607,6 +1624,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
         em.yield_checks = tasks;
+        em.error_data = error_data;
         em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
         // A debug build of the compiler checks that emit writes the units
@@ -1629,6 +1647,8 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
         }
+        // A program with error fields reads them through its glue.
+        if (i == 0 and error_data) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| {
             // A shim beside the runtime imports it by its path; in a batch
@@ -1637,6 +1657,14 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
             try files.append(allocator, .{ .path = try std.fs.path.join(allocator, &.{ "rig", "std", shim.name }), .contents = contents });
         }
         if (i == 0) root_source = file_buffer.written();
+    }
+    // The program's error glue (`emit.writeErrorGlue`).
+    if (error_data) {
+        const mods = try allocator.alloc(emit.GlueModule, graph.modules.items.len);
+        for (graph.modules.items, mods) |*m, *g| g.* = .{ .facts = emit_facts.Facts.of(m.sema), .path = m.out_basename };
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        try emit.writeErrorGlue(allocator, &out.writer, mods, runtime_import);
+        try files.append(allocator, .{ .path = emit.errors_filename, .contents = out.written() });
     }
     // Every symbol of every module, numbered once (`src/symbols.zig`).
     if (uses_symbols) {

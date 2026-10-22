@@ -566,15 +566,39 @@ it stands, and nothing runs after it.
 **Absence and failure are types, and every use says what it does with
 them.**
 
-## What is not there yet
+## Errors that say more
 
-Three parts of the error design are decided and not built. A function
-will name the set it fails with, `-> Int!Config`. Sets will join by a
-named union, `error L = A | B`. And a member
-will carry fields, so `Config.missing` could say which line failed
+A member may carry fields, as an enum's variant does, so the error can
+say which line failed. The failure carries them up through `!`, and the
+handler owns them: it prints them, matches them, or passes them on
 ([SPEC §13, "Declared sets and fields"](../../SPEC.md#declared-sets-and-fields)).
-Until then, `catch |e|` sees any error, a `match` on it needs a `_`
-arm, and an error is only its name.
+
+```rig
+error Config
+  missing(line: Int)
+  empty_key
+
+fun value_of(n: Int) -> Int!Config
+  return Config.missing(line: n) if n > 9
+  return Config.empty_key if n < 0
+  n
+
+sub main()
+  v = value_of(12) catch |e|
+    print(e)
+    match e
+      .missing(line) => -line
+      .empty_key => 0
+  print(v)
+```
+
+```output
+Config.missing(line: 12)
+-12
+```
+
+A field holds no view, so an error never keeps anything lent, and it
+always clones, so `+e` copies it.
 
 ## Where to go next
 

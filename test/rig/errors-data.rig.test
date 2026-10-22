@@ -1,0 +1,843 @@
+# Errors that carry fields: a member declares them, a failure moves them
+# to whoever handles it, and every handler binds, reads, takes, or drops
+# them (SPEC §13, CORE "Errors").
+
+test "a member with fields, caught and printed", '''
+  1 -1
+  ParseError.bad(pos: 0, msg: "not a digit: x1")
+  at 0 not a digit: x1
+  -2
+'''
+  error ParseError
+    bad(pos: Int, msg: String)
+    empty
+
+  fun digit(s: ?String) -> Int!ParseError
+    return ParseError.empty if s.len == 0
+    return ParseError.bad(pos: 0, msg: String("not a digit: ", s)) if s[0] < 0x30 or s[0] > 0x39
+    s.len
+
+  sub main()
+    print(digit("4") catch -1, digit("") catch -1)
+    r = digit("x1") catch |e|
+      print(e)
+      match e
+        ParseError.bad(pos, msg) => print("at", pos, msg)
+        ParseError.empty => print("empty")
+      -2
+    print(r)
+
+test "a failure passes up through `!`, its fields with it", '''
+  E.bad(msg: "deep")
+  -1
+'''
+  error E
+    bad(msg: String)
+
+  fun inner() -> Int!E
+    return E.bad(msg: String("deep"))
+
+  fun middle() -> Int!E
+    inner()! + 1
+
+  sub main()
+    v = middle() catch |e|
+      print(e)
+      -1
+    print(v)
+
+test "`catch |e| return e` passes the error on", "3 -1 2"
+  error E
+    bad(msg: String)
+    plain
+
+  fun f(n: Int) -> Int!E
+    return E.plain if n == 0
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  fun g(n: Int) -> Int!E
+    v = f(n) catch |e|
+      return e
+    v
+
+  sub main()
+    print(g(1) catch |e| (2 if e == E.plain else 3), g(0) catch |e| (-1 if e == E.plain else 0), g(2) catch 0)
+
+test "a bare member tests the member, never its fields", "true false E.plain E.bad(msg: \"y\")"
+  error E
+    bad(msg: String)
+    plain
+
+  sub main()
+    x: E = E.plain
+    y = E.bad(msg: String("y"))
+    print(x == E.plain, y == E.plain, x, y)
+
+test "a nameless catch drops the fields before its handler", "0 1"
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!E
+    return E.bad(msg: String("x"))
+
+  sub main()
+    print(f() catch 0, f() catch |_| 1)
+
+test "a catch that leaves the loop drops the fields", "4"
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n % 2 == 0
+    n
+
+  sub main()
+    total = 0
+    for n in [1, 2, 3, 4]
+      v = f(n) catch continue
+      total += v
+    for n in [5, 6, 7]
+      v = f(n) catch break
+      total -= v
+    print(total + 5)
+
+test "a qualified pattern names a member of a joined set", '''
+  3
+  -1
+  -112
+'''
+  error IoError
+    closed
+
+  error ParseError
+    bad(pos: Int)
+
+  error LoadError = IoError | ParseError
+
+  fun read(n: Int) -> Int!IoError
+    return IoError.closed if n < 0
+    n
+
+  fun parse(n: Int) -> Int!ParseError
+    return ParseError.bad(n) if n > 9
+    n
+
+  fun load(n: Int) -> Int!LoadError
+    parse(read(n)!)!
+
+  sub main()
+    for n in [3, -1, 12]
+      v = load(n) catch |e|
+        match e
+          IoError.closed => -1
+          ParseError.bad(pos) => -100 - pos
+      print(v)
+
+test "a dotted pattern finds its member's set in a union", "-1 -112"
+  error IoError
+    closed
+
+  error ParseError
+    bad(pos: Int)
+
+  error LoadError = IoError | ParseError
+
+  fun load(n: Int) -> Int!LoadError
+    return IoError.closed if n < 0
+    return ParseError.bad(n) if n > 9
+    n
+
+  sub main()
+    a = load(-1) catch |e|
+      match e
+        .closed => -1
+        .bad(pos) => -100 - pos
+    b = load(12) catch |e|
+      match e
+        .closed => -1
+        .bad(pos) => -100 - pos
+    print(a, b)
+
+test "`match <e` takes the fields", '''
+  plain
+  -1
+  kept x
+  -1
+  2
+'''
+  error E
+    bad(msg: String)
+    plain
+
+  fun f(n: Int) -> Int!E
+    return E.plain if n == 0
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  sub keep(s: String)
+    print("kept", s)
+
+  sub main()
+    for n in [0, 1, 2]
+      v = f(n) catch |e|
+        match <e
+          E.bad(msg) => keep(<msg)
+          E.plain => print("plain")
+        -1
+      print(v)
+
+test "`match <e` with alternatives, a catch-all, and `g: E`", '''
+  -1
+  4
+  -1
+  3
+  E.plain
+  -2
+  E.bad(msg: "x", code: 4)
+  -2
+  1
+  E E.plain
+  -3
+  5
+  E E.worse(msg: "w")
+  -3
+'''
+  error E
+    bad(msg: String, code: Int)
+    worse(msg: String)
+    plain
+
+  fun f(n: Int) -> Int!E
+    return E.plain if n == 0
+    return E.bad(msg: String("x"), code: 4) if n == 1
+    return E.worse(msg: String("w")) if n == 2
+    n
+
+  fun g(n: Int) -> Int!
+    f(n)!
+
+  sub main()
+    for n in [0, 1, 2, 3]
+      v = f(n) catch |e|
+        match <e
+          E.bad(code: c) => c
+          E.worse, E.plain => -1
+      print(v)
+    for n in [0, 1, 2]
+      v = f(n) catch |e|
+        match <e
+          E.worse(m) => m.len
+          other
+            print(other)
+            -2
+      print(v)
+    for n in [0, 1, 2]
+      v = g(n) catch |e|
+        match <e
+          E.bad(msg, code) => code + msg.len
+          x: E
+            print("E", x)
+            -3
+          _ => -4
+      print(v)
+
+test "guarded arms read the fields in place, and take them", '''
+  -1
+  1
+  30
+  7
+  -5
+  E.bad(msg: "x", code: 1)
+  -1
+  4
+'''
+  error E
+    bad(msg: String, code: Int)
+    plain
+
+  fun f(n: Int) -> Int!E
+    return E.plain if n == 0
+    return E.bad(msg: String("x"), code: n) if n < 5
+    n
+
+  sub main()
+    for n in [0, 1, 3, 7]
+      v = f(n) catch |e|
+        match e
+          E.bad(code: c) if c > 2 => c * 10
+          E.bad(msg: m) => m.len
+          _ => -1
+      print(v)
+    for n in [0, 1, 3]
+      v = f(n) catch |e|
+        match <e
+          E.bad(msg, code) if code > 2 => code + msg.len
+          other if other == E.plain => -5
+          other
+            print(other)
+            -1
+      print(v)
+
+test "`if e as` binds a member's fields", "as x"
+  error E
+    bad(msg: String)
+    plain
+
+  fun f() -> Int!E
+    return E.bad(msg: String("x"))
+
+  sub main()
+    f() catch |e|
+      if e as .bad(m)
+        print("as", m)
+      0
+
+test "a caught error is kept and printed later", '''
+  2
+  E.bad(msg: "x")
+  E.bad(msg: "x")
+  2
+'''
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  sub main()
+    errs = List[E]()
+    for n in [1, 2, 1]
+      f(n) catch |e|
+        !errs.push(<e)
+        0
+    print(errs.len)
+    for e in errs
+      print(e)
+    c = +errs
+    print(c.len)
+
+test "an error boxed into an object's field", "E.bad(msg: \"x\")"
+  error E
+    bad(msg: String)
+
+  obj Box
+    e: ^E
+
+  fun f() -> Int!E
+    return E.bad(msg: String("x"))
+
+  sub main()
+    f() catch |e|
+      b = Box(e: ^<e)
+      print(b.e)
+      0
+
+test "a method fails with fields", '''
+  1
+  2
+  E.bad(msg: "at")
+  -1
+  E.bad(msg: "at")
+  -1
+'''
+  error E
+    bad(msg: String)
+
+  obj Parser
+    pos: Int
+
+    fun next(!@) -> Int!E
+      @pos += 1
+      return E.bad(msg: String("at")) if @pos > 2
+      @pos
+
+  sub main()
+    p = Parser(pos: 0)
+    for _ in 0..4
+      v = (!p).next() catch |e|
+        print(e)
+        -1
+      print(v)
+
+test "a function that never fails with fields still takes the slot", "3"
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!E
+    3
+
+  sub main()
+    print(f() catch -1)
+
+test "a function value and a closure fail with fields", '''
+  -1
+  13
+  E.bad(msg: "d")
+  -2
+'''
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  fun g(h: ?fun(Int) -> Int!E) -> Int!E
+    h(1)! + h(2)!
+
+  sub main()
+    print(g(f) catch |e| -1)
+    k = 5
+    print(g(|+k, n| (n + k)) catch |e| -1)
+    r = g(|n|
+      return E.bad(msg: String("d")) if n == 1
+      n
+    ) catch |e|
+      print(e)
+      -2
+    print(r)
+
+test "an owned closure fails with fields", '''
+  2
+  E.bad(msg: "own")
+  -3
+'''
+  error E
+    bad(msg: String)
+
+  sub main()
+    s = String("own")
+    h: *fun(Int) -> Int!E = *|+s, n|
+      return E.bad(msg: +s) if n == 1
+      n
+    print(h(2) catch -1)
+    v = h(1) catch |e|
+      print(e)
+      -3
+    print(v)
+
+test "a `T!` function passes a set's fields on", '''
+  2
+  E.bad(msg: "x")
+  bad x
+  -1
+'''
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  fun g(n: Int) -> Int!
+    f(n)!
+
+  sub main()
+    print(g(2) catch -1)
+    r = g(1) catch |e|
+      print(e)
+      match e
+        E.bad(m) => print("bad", m)
+        _ => print("other")
+      -1
+    print(r)
+
+test "a set with fields from another module", '''
+  Shape.bad(side: -2, why: "negative")
+  -1
+'''
+  use geo
+
+  sub main()
+    v = geo.area(-2) catch |e|
+      print(e)
+      -1
+    print(v)
+
+  file "geo.rig"
+    pub error Shape
+      bad(side: Int, why: String)
+
+    pub fun area(side: Int) -> Int!Shape
+      return Shape.bad(side: side, why: String("negative")) if side < 0
+      side * side
+
+test "main fails with fields", "defer ran", exit: 1, stderr: "error: E.bad(msg: \"x\")"
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!E
+    return E.bad(msg: String("x"))
+
+  sub main()!
+    defer print("defer ran")
+    f()!
+
+test "`fun main() -> Int!` fails with fields", "ok 0", exit: 1, stderr: "error: E.bad(msg: \"x\")"
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n > 0
+    n
+
+  fun main() -> Int!
+    x = f(0)!
+    print("ok", x)
+    f(1)!
+
+test "a cause boxed as `^error`, cloned with `+e`", '''
+  W.wrapped(msg: "load", cause: IoError.closed)
+  true
+  -1
+  W.wrapped(msg: "load", cause: IoError.denied(path: "/etc"))
+  true
+  -1
+  2
+'''
+  error IoError
+    closed
+    denied(path: String)
+
+  error W
+    wrapped(msg: String, cause: ^error)
+
+  fun open(p: Int) -> Int!IoError
+    return IoError.closed if p == 0
+    return IoError.denied(path: String("/etc")) if p == 1
+    p
+
+  fun load(p: Int) -> Int!W
+    v = open(p) catch |e|
+      return W.wrapped(msg: String("load"), cause: ^<e)
+    v
+
+  sub main()
+    for p in [0, 1, 2]
+      v = load(p) catch |e|
+        c = +e
+        print(e)
+        print(c == W.wrapped)
+        -1
+      print(v)
+
+test "a field whose value fails: the inner error wins", "1 3"
+  error E
+    bad(msg: String)
+
+  error M
+    mk
+
+  fun mk(n: Int) -> String!
+    return M.mk if n > 0
+    String("ok")
+
+  fun f(n: Int) -> Int!
+    return E.bad(msg: mk(n)!)
+
+  sub main()
+    print(f(0) catch |e| (1 if e == E.bad else 2), f(1) catch |e| (3 if e == M.mk else 4))
+
+test "a `List[error]` of several sets", '''
+  A.a(n: 7)
+  B.b(s: "bee")
+  B.plain
+  true true
+'''
+  error A
+    a(n: Int)
+
+  error B
+    b(s: String)
+    plain
+
+  fun fa() -> Int!
+    return A.a(n: 7)
+
+  fun fb(k: Int) -> Int!
+    return B.plain if k == 0
+    return B.b(s: String("bee"))
+
+  sub main()
+    errs = List[error]()
+    fa() catch |e|
+      !errs.push(<e)
+      0
+    fb(1) catch |e|
+      !errs.push(<e)
+      0
+    fb(0) catch |e|
+      !errs.push(<e)
+      0
+    for e in errs
+      print(e)
+    print(errs[1] == B.b, errs[2] == B.plain)
+
+test "a Zig-backed `T!` call in a program with fields", "none -1"
+  use std.file
+
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  fun listed(p: Static) -> Int!
+    found = file.read_dir(String(p))!
+    return -1 if found == none
+    0
+
+  sub main()
+    print("none", listed("/nonexistent/rig-errors") catch -2)
+
+fail "a field moved before an `errdefer` reads it", "use of `s` after move"
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!E
+    s = String("x")
+    errdefer print(s)
+    return E.bad(msg: <s)
+
+  sub main()
+    print(f() catch -1)
+
+test "two errors with fields compare, as their set's fields do", "true false true true"
+  error E
+    bad(msg: String)
+    plain
+
+  sub main()
+    x = E.bad(msg: String("a"))
+    y = E.bad(msg: String("a"))
+    z = E.bad(msg: String("b"))
+    print(x == y, x == z, x != z, x == E.bad(msg: String("a")))
+
+test "an error with fields keys a Set and a Map", "2 true true 1"
+  error E
+    bad(msg: String)
+    plain
+
+  sub main()
+    s = Set[E]()
+    !s.add(E.bad(msg: String("a")))
+    !s.add(E.bad(msg: String("a")))
+    !s.add(E.plain)
+    !s.add(E.plain)
+    m = Map[E, Int]()
+    !m.put(E.bad(msg: String("k")), 1)
+    print(s.len, s.has(E.plain), s.has(E.bad(msg: String("a"))), m.get(E.bad(msg: String("k"))) ?? -1)
+
+test "a match on an error made there runs it once", '''
+  mk 1
+  bad t
+'''
+  error E
+    bad(msg: String)
+    plain
+
+  fun mk(n: Int) -> E
+    print("mk", n)
+    return E.plain if n == 0
+    E.bad(msg: String("t"))
+
+  sub main()
+    match mk(1)
+      .bad(m) => print("bad", m)
+      .plain => print("plain")
+
+test "a view of an error with fields", '''
+  E.bad(msg: "held")
+  4
+'''
+  error E
+    bad(msg: String)
+    plain
+
+  fun show(e: ?E) -> Int
+    print(e)
+    match e
+      .bad(m) => m.len
+      .plain => 0
+
+  sub main()
+    x = E.bad(msg: String("held"))
+    print(show(?x))
+
+test "a catch in the arguments of a call that takes the slot", "0"
+  error E
+    bad(msg: String)
+
+  fun f(n: Int) -> Int!E
+    return E.bad(msg: String("x")) if n > 0
+    n
+
+  sub main()
+    print(f(f(1) catch 0) catch -1)
+
+test "a `T!` function passes on an error of a set without fields", "-1"
+  error E
+    bad(msg: String)
+
+  error M
+    plain
+
+  fun m(n: Int) -> Int!M
+    return M.plain if n > 0
+    n
+
+  fun g(n: Int) -> Int!
+    v = m(n) catch |e|
+      return e
+    v
+
+  sub main()
+    print(g(1) catch |e| (-1 if e == M.plain else -2))
+
+fail "two errors of any set compared whole", "an `error` may be of any set, and has no `==` of its own: match it, or compare it with a member (`e == E.name`)"
+  fun same(a: error, b: error) -> Bool
+    a == b
+
+  sub main()
+    pass
+
+fail "an error whose fields have no `==`", "`==` is not defined for `E`: field `bad.names` is a `List[Int]`, which has no `==`"
+  error E
+    bad(names: List[Int])
+
+  sub main()
+    x = E.bad(names: List[Int]())
+    y = E.bad(names: List[Int]())
+    print(x == y)
+
+test "a dotted member tests an error of a set, a union, or any set", '''
+  true false true
+  true false
+  0
+  false true true
+  false false
+  0
+'''
+  error E
+    bad(msg: String)
+    plain
+
+  error M
+    m
+
+  error L = E | M
+
+  fun f(n: Int) -> Int!L
+    return E.bad(msg: String("x")) if n == 1
+    return M.m if n == 2
+    n
+
+  fun g(n: Int) -> Int!
+    f(n)!
+
+  sub main()
+    for n in [1, 2]
+      v = f(n) catch |e|
+        print(e == .bad, e == .m, e != .plain)
+        0
+      w = g(n) catch |e|
+        print(e == .bad, e == .plain)
+        0
+      print(v + w)
+
+test "a function without fields lent where one with them goes", '''
+  -1
+  M.plain
+  -2
+'''
+  use std.time
+
+  error E
+    bad(msg: String)
+
+  error M
+    plain
+
+  fun m(n: Int) -> Int!M
+    return M.plain if n > 0
+    n
+
+  fun twice(h: ?fun(Int) -> Int!) -> Int!
+    h(1)! * 2
+
+  fun once() -> Int!
+    m(1)!
+
+  sub main()
+    print(twice(m) catch -1)
+    r = time.within(1000000000, once) catch |e|
+      print(e)
+      -2
+    print(r)
+
+fail "a field holding a loan", "an error's field never holds a loan: hold a `String` or a `Static`"
+  error E
+    bad(names: List[?String])
+
+  sub main()
+    pass
+
+fail "a field holding a handle", "an error's field holds no handle: `*Cell[Int]` shares what it holds, and an error owns what it carries"
+  error E
+    bad(c: *Cell[Int])
+
+  sub main()
+    pass
+
+fail "a field that is unique", "an error's fields must clone, and `Random` is unique"
+  obj Random unique
+    seed: Int
+
+  error E
+    bad(r: Random)
+
+  sub main()
+    pass
+
+fail "`error` held inline", "a member holding `error` contains itself: write `^error`"
+  error E
+    wrapped(cause: error)
+
+  sub main()
+    pass
+
+fail "a set that holds itself", "a member holding `E` contains itself: write `^E`"
+  error E
+    wrapped(cause: E)
+
+  sub main()
+    pass
+
+fail "a caught error used after it moved", "use of `err` after move"
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!E
+    return E.bad(msg: String("x"))
+
+  sub main()
+    n = f() catch |err|
+      keep = <err
+      print(err)
+      0
+    print(n)
+
+code "a program with no fields passes no slot", "fn f(__rig_in_n: i64) E!i64 {"
+  error E
+    bad
+    plain
+
+  fun f(n: Int) -> Int!E
+    return E.bad if n > 0
+    n
+
+  sub main()
+    print(f(0) catch -1)

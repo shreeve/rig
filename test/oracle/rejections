@@ -339,6 +339,7 @@ doc/CORE/d251df077eee pick
 doc/CORE/b79d09dc3fc0 main
 doc/CORE/9706c95012fc main
 doc/SPEC/04dc002dec7e main
+doc/SPEC/1107b3aac2fa main
 doc/SPEC/130809a39003 main
 doc/SPEC/139ce610c32d main
 doc/SPEC/5d3748c13a79 main
@@ -1906,6 +1907,8 @@ target.name_compound.ternary.move main
 target.name_compound.ternary.read main
 test/reject/concurrency/task_copy.rig main
 test/reject/concurrency/within_a_closure_called_more_than_once.rig main
+test/reject/errors/a_caught_error_used_after_it_moved.rig main
+test/reject/errors/a_field_moved_before_an_`errdefer`_reads_it.rig f
 test/reject/ownership/closure_write_capture_returns_no_owner.rig main
 test/reject/ownership/field_view_loop_elements_keep_the_list_lent.rig main
 test/reject/ownership/once_only_where_passed.rig main

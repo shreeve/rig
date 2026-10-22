@@ -30,9 +30,11 @@ pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
 pub const parMap = tasks.parMap;
+pub const parMapInto = tasks.parMapInto;
 pub const Actor = tasks.Actor;
 pub const actor = tasks.actor;
 pub const supervise = tasks.supervise;
+pub const superviseInto = tasks.superviseInto;
 pub const chan = tasks.chan;
 pub const Chan = tasks.Chan;
 pub const select = tasks.select;
@@ -42,8 +44,10 @@ pub const actorSupervised = tasks.actorSupervised;
 pub const actorCall = tasks.actorCall;
 pub const actorSpawn = tasks.actorSpawn;
 pub const isolate = tasks.isolate;
+pub const isolateInto = tasks.isolateInto;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEach = tasks.parEach;
+pub const parEachInto = tasks.parEachInto;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
 
@@ -111,7 +115,171 @@ pub const no_slot: NoSlot = .{};
 /// Drop the fields of failure `code` held in `data`; nothing for a member
 /// without fields.
 pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
-    if (comptime error_glue) |g| g.drop(code, @ptrCast(data));
+    if (comptime error_glue) |g| g.drop(code, data);
+}
+
+/// A Rig error value of a set that has a member with fields, or of
+/// `error` in a program with one: its code, which names the member, and
+/// the member's fields. It owns them: dropping it drops them, and its
+/// clone, `==`, and print go through the program's glue.
+pub const ErrorValue = struct {
+    code: anyerror,
+    data: ErrData,
+
+    pub const __rig_error_value = true;
+
+    /// The value of member `code` whose fields are `fields`, a struct of
+    /// them (`.{}` for a member without fields).
+    pub fn of(code: anyerror, members_fields: anytype) ErrorValue {
+        var v: ErrorValue = .{ .code = code, .data = undefined };
+        writeErrorFields(&v.data, members_fields);
+        return v;
+    }
+
+    /// The value a failure left: its code and the fields its slot holds.
+    pub fn taken(code: anyerror, data: *const ErrData) ErrorValue {
+        return .{ .code = code, .data = data.* };
+    }
+
+    /// The member's fields, read in place as their struct `F`.
+    pub fn fieldsAs(self: *const ErrorValue, comptime F: type) *const F {
+        return @ptrCast(@alignCast(&self.data));
+    }
+
+    pub fn __rig_drop(self: *ErrorValue) void {
+        dropErrorData(self.code, &self.data);
+    }
+
+    pub fn clone(self: *const ErrorValue) ErrorValue {
+        var out: ErrorValue = .{ .code = self.code, .data = undefined };
+        if (comptime error_glue) |g| g.clone(self.code, &self.data, &out.data);
+        return out;
+    }
+
+    pub fn eql(a: ErrorValue, b: ErrorValue) bool {
+        return __rig_own_eq(&a, &b);
+    }
+
+    /// `==`: the same member, with fields that compare equal.
+    pub fn __rig_own_eq(a: *const ErrorValue, b: *const ErrorValue) bool {
+        if (a.code != b.code) return false;
+        if (comptime error_glue) |g| return g.eql(a.code, &a.data, &b.data);
+        return true;
+    }
+
+    /// The hash of the member and its fields, equal for values `==` calls
+    /// equal.
+    pub fn __rig_own_hash(self: *const ErrorValue) u64 {
+        const h = hashInt(@intFromError(self.code));
+        if (comptime error_glue) |g| return hashMix(h, g.hash(self.code, &self.data));
+        return h;
+    }
+
+    pub fn __rig_print(self: ErrorValue, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (comptime error_glue) |g| return g.print(self.code, &self.data, w);
+        try w.writeAll(errorShown(self.code));
+    }
+};
+
+/// The fields of a failure no one reads: none.
+pub const no_error_data: ErrData = std.mem.zeroes(ErrData);
+
+/// A `catch` that binds no error drops failure `code`'s fields, which its
+/// slot `data` holds, before its handler runs; true, so the handler
+/// follows (`if (rig.dropFailure(c, &slot)) handler else unreachable`).
+pub inline fn dropFailure(code: anyerror, data: *ErrData) bool {
+    dropErrorData(code, data);
+    return true;
+}
+
+/// A failing `return` of member `code` with `fields`: they go into the
+/// caller's slot `out`, and the code is what the function fails with.
+pub inline fn failWith(out: ErrSlot, code: anyerror, members_fields: anytype) anyerror {
+    writeErrorFields(out, members_fields);
+    return code;
+}
+
+/// `e == E.name`: whether `v`, an error value or a code, is `code`.
+pub inline fn isError(v: anytype, code: anyerror) bool {
+    const V = @TypeOf(v);
+    if (V == ErrorValue) return v.code == code;
+    if (V == *ErrorValue or V == *const ErrorValue) return v.code == code;
+    return @as(anyerror, v) == code;
+}
+
+/// `isError` on an error value made for the test, which drops it.
+pub inline fn isErrorDiscard(v: anytype, code: anyerror) bool {
+    var held = v;
+    defer if (comptime @TypeOf(held) == ErrorValue) held.__rig_drop();
+    return isError(held, code);
+}
+
+/// Whether a function value of type `F` (a `FnRef` or a `Closure`, or a
+/// pointer to one) takes the slot its failure's fields go in, last.
+pub fn callTakesSlot(comptime F: type) bool {
+    const V = switch (@typeInfo(F)) {
+        .pointer => |p| p.child,
+        else => F,
+    };
+    if (@typeInfo(V) != .@"struct" or !@hasDecl(V, "Args")) return false;
+    const types = @typeInfo(V.Args).@"struct".field_types;
+    return types.len > 0 and types[types.len - 1] == ErrSlot;
+}
+
+/// `args` for a call of a function value of type `F`, with `slot` last
+/// where it takes one (`callTakesSlot`).
+pub inline fn argsWithSlot(comptime F: type, args: anytype, slot: ErrSlot) if (callTakesSlot(F)) @TypeOf(args ++ .{slot}) else @TypeOf(args) {
+    if (comptime callTakesSlot(F)) return args ++ .{slot};
+    return args;
+}
+
+/// A failing `return` of `v`, an error value the function holds: its
+/// fields go into the caller's slot `out`, and it is moved.
+pub inline fn failValue(out: ErrSlot, v: ErrorValue) anyerror {
+    out.* = v.data;
+    return v.code;
+}
+
+/// Write `fields`, a member's struct of fields, into the bytes `data`
+/// (a failure's slot, or an `ErrorValue`'s); nothing for a member
+/// without fields.
+pub inline fn writeErrorFields(data: *ErrData, fields: anytype) void {
+    const F = @TypeOf(fields);
+    if (comptime @sizeOf(F) == 0) return;
+    comptime std.debug.assert(@sizeOf(F) <= @sizeOf(ErrData) and @alignOf(F) <= @alignOf(ErrData));
+    @as(*F, @ptrCast(@alignCast(data))).* = fields;
+}
+
+/// The glue a program declares for its members with fields, written by
+/// emit (`__rig_errors.zig`): drop, clone, `==`, and print of member
+/// `code`'s fields, read from its struct `F` in `data`.
+pub fn ErrorGlueOps(comptime F: type) type {
+    return struct {
+        pub fn drop(data: *ErrData) void {
+            dropElement(F, @as(*F, @ptrCast(@alignCast(data))));
+        }
+        pub fn clone(src: *const ErrData, dst: *ErrData) void {
+            @as(*F, @ptrCast(@alignCast(dst))).* = cloneValue(@as(*const F, @ptrCast(@alignCast(src))));
+        }
+        pub fn hash(data: *const ErrData) u64 {
+            return hashAs(F, @as(*const F, @ptrCast(@alignCast(data))).*);
+        }
+        pub fn eqlFields(a: *const ErrData, b: *const ErrData) bool {
+            return eql(@as(*const F, @ptrCast(@alignCast(a))).*, @as(*const F, @ptrCast(@alignCast(b))).*);
+        }
+        /// `Set.member(field: value, ...)`, the name given.
+        pub fn print(name: []const u8, data: *const ErrData, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll(name);
+            try w.writeAll("(");
+            const v: *const F = @ptrCast(@alignCast(data));
+            inline for (@typeInfo(F).@"struct".field_names, 0..) |name_f, i| {
+                if (i > 0) try w.writeAll(", ");
+                try w.print("{s}: ", .{name_f});
+                try writeValue(w, @field(v, name_f), false);
+            }
+            try w.writeAll(")");
+        }
+    };
 }
 
 /// The glue of the runtime's tests: `error.WithData` carries 16 bytes,
@@ -122,14 +290,29 @@ pub const TestErrorGlue = struct {
     /// Counted from any thread: a test's tasks fail on several.
     pub var drops: std.atomic.Value(usize) = .init(0);
 
-    pub fn drop(code: anyerror, data: *anyopaque) void {
+    pub fn drop(code: anyerror, data: *ErrData) void {
         _ = data;
         if (code == error.WithData) _ = drops.fetchAdd(1, .seq_cst);
     }
 
-    pub fn print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    pub fn print(code: anyerror, data: *const ErrData, w: *std.Io.Writer) std.Io.Writer.Error!void {
         _ = data;
         try w.writeAll(@errorName(code));
+    }
+
+    pub fn clone(code: anyerror, src: *const ErrData, dst: *ErrData) void {
+        _ = code;
+        dst.* = src.*;
+    }
+
+    pub fn hash(code: anyerror, data: *const ErrData) u64 {
+        _ = code;
+        return std.hash.Wyhash.hash(0, &data.bytes);
+    }
+
+    pub fn eql(code: anyerror, a: *const ErrData, b: *const ErrData) bool {
+        _ = code;
+        return std.mem.eql(u8, &@as(*const ErrData, @ptrCast(@alignCast(a))).bytes, &@as(*const ErrData, @ptrCast(@alignCast(b))).bytes);
     }
 };
 const Control = tasks.Control;
@@ -1296,7 +1479,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             return out;
         },
         .@"struct" => |s| {
-            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
             if (comptime @hasDecl(T, "__rig_weak")) return value.cloneWeak();
             var out: T = undefined;
@@ -1650,13 +1833,23 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         const Self = @This();
         pub const Args = @Tuple(params);
 
+        /// The first `n` of `args`: all of them, or all but the slot a
+        /// function that fails without fields does not take, lent where
+        /// one that may fail with fields goes.
+        fn argsFor(comptime n: usize, args: Args) @Tuple(params[0..n]) {
+            var out: @Tuple(params[0..n]) = undefined;
+            inline for (0..n) |k| out[k] = args[k];
+            return out;
+        }
+
         /// Lend `env`, a stack closure's environment, whose `__rig_invoke`
         /// takes the parameters.
         pub fn of(comptime Env: type, env: *Env) Self {
+            const n = @typeInfo(@TypeOf(Env.__rig_invoke)).@"fn".param_types.len - 1;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const e: *Env = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, Env.__rig_invoke, .{e} ++ args);
+                    return @call(.auto, Env.__rig_invoke, .{e} ++ argsFor(n, args));
                 }
             };
             return .{ .ctx = env, .call_fn = thunk.call };
@@ -1666,10 +1859,11 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         pub fn ofFn(f: anytype) Self {
             if (@typeInfo(@TypeOf(f)) == .@"fn") return ofFn(&f);
             const F = @TypeOf(f);
+            const n = @typeInfo(@typeInfo(F).pointer.child).@"fn".param_types.len;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const g: F = @ptrCast(@alignCast(ctx));
-                    return @call(.auto, g, args);
+                    return @call(.auto, g, argsFor(n, args));
                 }
             };
             return .{ .ctx = @ptrCast(@constCast(f)), .call_fn = thunk.call };
@@ -1680,10 +1874,11 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         pub fn ofClosure(handle: anytype) Self {
             const box = if (@typeInfo(@TypeOf(handle.*)) == .pointer) handle.* else handle;
             const C = @TypeOf(box.value);
+            const n = @typeInfo(C.Args).@"struct".field_types.len;
             const thunk = struct {
                 fn call(ctx: *anyopaque, args: Args) R {
                     const c: *C = @ptrCast(@alignCast(ctx));
-                    return c.invoke(args);
+                    return c.invoke(argsFor(n, args));
                 }
             };
             return .{ .ctx = &box.value, .call_fn = thunk.call };
@@ -5226,7 +5421,7 @@ pub fn reportFailure(err: anyerror, data: *ErrData) void {
 /// program's glue prints them, on a line of `w`.
 fn showFailure(err: anyerror, data: *const ErrData, w: *std.Io.Writer) void {
     w.writeAll("error: ") catch {};
-    if (error_glue) |g| g.print(err, @ptrCast(data), w) catch {} else w.writeAll(errorShown(err)) catch {};
+    if (error_glue) |g| g.print(err, data, w) catch {} else w.writeAll(errorShown(err)) catch {};
     w.writeAll("\n") catch {};
     w.flush() catch {};
 }
@@ -5711,7 +5906,8 @@ pub noinline fn fail(pieces: anytype) noreturn {
 /// One `test "name"` block.
 pub const Test = struct {
     name: []const u8,
-    func: *const fn () anyerror!void,
+    /// The test's body, given the slot a failure's fields go in.
+    func: *const fn (out: ErrSlot) anyerror!void,
 };
 
 /// The tests of one module; `module` is empty for the root module.
@@ -5772,7 +5968,8 @@ fn runTestsHere(modules: []const TestModule) void {
         current_test = name;
         const before = usage();
         test_false = null;
-        const result = t.func();
+        var slot: ErrData = undefined;
+        const result = t.func(&slot);
         current_test = null;
         flush();
         if (result) |_| {
@@ -5787,7 +5984,11 @@ fn runTestsHere(modules: []const TestModule) void {
                 tests_passed += 1;
             }
         } else |err| {
-            w.print("FAIL  {f}: {s}\n", .{ name, errorShown(err) }) catch {};
+            // A failure is shown with its fields, which are then dropped.
+            w.print("FAIL  {f}: ", .{name}) catch {};
+            if (error_glue) |g| g.print(err, &slot, w) catch {} else w.writeAll(errorShown(err)) catch {};
+            w.writeAll("\n") catch {};
+            dropErrorData(err, &slot);
             tests_failed += 1;
         }
         flush();

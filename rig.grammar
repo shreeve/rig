@@ -440,7 +440,7 @@ tokens
     alt_pattern                 ...alts
     range_pattern               lo hi inclusive:tag(inclusive)?
     set_pattern                 name:leaf set
-    variant_pattern             name:leaf ...bindings
+    variant_pattern             name ...bindings   # `.name(...)`, or `E.name(...)`: a member
     enum_lit                    name:leaf
     symbol                      name:leaf
     return                      value?
@@ -1143,6 +1143,10 @@ pattern  = patatom
 patatom  = name
          | object:name "." name:name                → (member)
          | object:pqual "." name:name               → (member)
+         | name "." name "(" ")"                    → (variant_pattern (member 1 3))
+         | name "." name "(" pbinds ![","] ")"      → (variant_pattern (member 1 3) ...5)
+         | pqual "." name "(" ")"                   → (variant_pattern (member 1 3))
+         | pqual "." name "(" pbinds ![","] ")"     → (variant_pattern (member 1 3) ...5)
          | INTEGER
          | "-" operand:INTEGER                      → (neg)
          | STRING_DQ

@@ -19,6 +19,15 @@ changed the language since it:
   A type with a `drop` body, a unique type, and a `Signal` still have no
   clone.
 
+- **Errors that carry fields:** an error set's member may declare fields,
+  `bad(pos: Int, msg: String)`, which hold no loan or handle and clone.
+  A failure moves its error up through `!` to the `catch` that owns it;
+  `match` names a member with its set, `E.bad(pos, msg) =>`, and a bare
+  `e == E.bad` tests the member. An error prints with its fields, and
+  `main` or a test that fails with one shows them. Tasks, `task.all`,
+  `par`, `isolate`, `supervise`, `time.within`, and actor methods hand
+  the fields to the waiter. A program whose errors carry fields is built
+  outside a `rig batch`.
 - **Declared error sets:** a function may name the set it fails with,
   `-> T!E` or `sub f()!E`, and `T!` stays any error. `error L = A | B`
   names a union of sets. `catch |e|` gives `e` the callee's set, so a

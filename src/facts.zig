@@ -40,6 +40,7 @@ const SemContext = sema.SemContext;
 
 pub const TypeId = sema.TypeId;
 pub const SymbolId = sema.SymbolId;
+pub const MemberCompares = sema.MemberCompares;
 
 /// How a read binding of a write view is bound (`Facts.readsThroughWrite`).
 pub const ThroughWrite = enum { pointer, value };
@@ -440,6 +441,12 @@ pub const Facts = struct {
     }
     pub fn repoints(f: Facts, node: Sexp) bool {
         return f.c().repoints(node);
+    }
+    pub fn memberCompares(f: Facts, member: sema.Field) sema.MemberCompares {
+        return f.c().memberCompares(member);
+    }
+    pub fn isFailingLeaf(f: Facts, node: Sexp) bool {
+        return f.c().isFailingLeaf(node);
     }
     pub fn isMemberTest(f: Facts, node: Sexp) bool {
         return f.c().isMemberTest(node);
@@ -843,6 +850,11 @@ pub const Facts = struct {
     /// (`sema.ownApiOf`).
     pub fn ownApiOf(f: Facts, ty: TypeId, api: sema.Api) ?sema.Field {
         return sema.ownApiOf(f.c(), ty, api);
+    }
+
+    /// Whether error set `ty` has a member with fields (`sema.setHasFields`).
+    pub fn setHasFields(f: Facts, ty: TypeId) bool {
+        return sema.setHasFields(f.c(), ty);
     }
 
     /// A member of a declared error set, with the facts of the module
