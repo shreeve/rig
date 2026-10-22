@@ -38,18 +38,17 @@ newest entry summarizes the latest rounds.
 
 ## In flight
 
-- **Declared error sets** (#542, branch `errsets`): round R2 of errors
-  with data (`-> T!E`, `error L = A | B`, `catch |e|` typed by the
-  callee's set), from the approved spec (docs/history/records/revamp/r3/errors-panel/).
-  Its review found eight programs that check and then fail in Zig or
-  leak; all are fixed, each with a case (review in
-  docs/history/records/2026-10/errors-r2/), and a second round of such
-  findings stops it for redesign. Then Trig's build, and the owner's
-  names for std's I/O unions.
-- **Map and Set probes without tests:** the checks inside the built-in
-  Map and Set, 17% of Trig's check cost, measured first.
+- **Errors with data,** from the approved spec
+  (docs/history/records/revamp/r3/errors-panel/): declared error sets
+  (R2, #542) are on `main`; next are a round for cross-module clone and
+  Map's `+`, then R3a (the runtime's slot plumbing, with no change in
+  behavior), the Core paragraph, R3 (fields), R4 (std.json), and R2.5
+  (generic sets).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test made ts-pattern 3.1% faster.
+- **The scheduler worker's layout:** its hot fields aligned to cache
+  lines, to win back `yield`'s few nanoseconds lost in #541; timed on pup
+  before it lands.
 
 ## Next, in order
 
