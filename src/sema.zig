@@ -57,6 +57,7 @@ const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
 const storage = @import("storage.zig");
 const timing = @import("timing.zig");
+pub const cteval = @import("cteval.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -983,6 +984,8 @@ pub const Facts = struct {
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
     /// for one that gives compile-time arguments rather than an index.
     instances: std.AutoHashMapUnmanaged(NodeKey, Instance) = .empty,
+    /// A compile-time function's call -> its value (`CtCall`).
+    ct_calls: std.AutoHashMapUnmanaged(NodeKey, CtCall) = .empty,
     /// Call of a generic function (or a statement `f[Int]` that is the
     /// call) -> its type arguments.
     generic_calls: std.AutoHashMapUnmanaged(NodeKey, GenericCall) = .empty,
@@ -1676,6 +1679,11 @@ pub const Instance = union(enum) {
     function,
 };
 
+/// A compile-time function's call, `(ct_call cap 8)` (`cteval.markCalls`):
+/// the value the checker computed, `SemContext.ct.results[result]`; null
+/// in a compile-time function's body, where the evaluator runs the call.
+pub const CtCall = struct { result: ?u32 };
+
 /// The compile-time arguments a call passes, one per compile-time
 /// parameter in order: a type parameter's type, inferred or given, and
 /// `type_invalid` at a value parameter, whose value is in the call's
@@ -2027,6 +2035,10 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             .type => |ty| try w.print(" type {s}", .{try formatTypeIn(ctx, a, ty)}),
             .function => try w.writeAll(" function"),
         },
+        CtCall => if (v.result) |r| {
+            try w.writeAll(" ");
+            try cteval.writeValue(ctx, w, ctx.ct.results.items[r].value, ctx.ct.results.items[r].ty);
+        } else try w.writeAll(" in a compile-time body"),
         GenericCall => {
             for (v.type_args) |ty| try w.print(" {s}", .{if (ty == type_invalid) "_" else try formatTypeIn(ctx, a, ty)});
             if (v.receiver_arg) try w.writeAll(" receiver");
@@ -2521,6 +2533,10 @@ pub const SemContext = struct {
     /// kind, keyed by where its fields are (`indexMembers`), so that
     /// finding one walks no others. Lives in the arena.
     member_index: std.AutoHashMapUnmanaged(usize, MemberIndex) = .empty,
+    /// The module's compile-time functions, what their calls computed, and
+    /// the hidden constants emit writes for the arrays among them
+    /// (`cteval.State`).
+    ct: cteval.State = .{},
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -2620,6 +2636,7 @@ pub const SemContext = struct {
         self.result_bounds.deinit(self.allocator);
         self.unit_of.deinit(self.allocator);
         self.unit_roots.deinit(self.allocator);
+        self.ct.deinit(self.allocator);
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
         self.type_memo.drop_body.deinit(self.allocator);
@@ -3692,6 +3709,14 @@ pub const SemContext = struct {
         try self.facts.instances.put(self.allocator, recordKey(node), inst);
     }
 
+    pub fn recordCtCall(self: *SemContext, node: Sexp, call: CtCall) !void {
+        try self.facts.ct_calls.put(self.allocator, recordKey(node), call);
+    }
+
+    pub fn ctCallOf(self: *const SemContext, node: Sexp) ?CtCall {
+        return self.facts.ct_calls.get(nodeKey(node) orelse return null);
+    }
+
     pub fn recordGenericCall(self: *SemContext, node: Sexp, call: GenericCall) !void {
         try self.facts.generic_calls.put(self.allocator, recordKey(node), call);
     }
@@ -4384,6 +4409,40 @@ fn computeContents(ctx: *SemContext) std.mem.Allocator.Error![]const SymbolId {
     ctx.type_info.clearRetainingCapacity();
     try ctx.syncTypeInfo();
     return ctx.arena.allocator().dupe(SymbolId, c.order.items);
+}
+
+/// Make the ownership facts of types known for a compile-time
+/// function's body, which is checked before every declaration is
+/// resolved (`resolve.ensureCtFun`). The body names only integers,
+/// `Bool`, and plain enums (`cteval.checkNames`), whose variants are
+/// resolved by then (`resolve.resolveVariantsEarly`), so every type the
+/// window reaches is complete; a signature, which may name any type, is
+/// resolved outside it (`resolve.ensureCtSig`). False when the facts are
+/// known already; else `endEarlyContents` takes back everything the
+/// window computed, to be computed again for every type.
+pub fn beginEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!bool {
+    if (ctx.contents_ready) return false;
+    ctx.ct.window.clearRetainingCapacity();
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (sym.kind != .nominal_type or sym.fields == null or sym.contents.done or sym.decl_pos >= imported_decl_pos) continue;
+        if (!isPlainEnum(ctx, try ctx.intern(.{ .nominal = @intCast(i) }))) continue;
+        try symbolContents(ctx, @intCast(i));
+        try ctx.ct.window.append(ctx.allocator, @intCast(i));
+    }
+    ctx.contents_ready = true;
+    ctx.ct.window_open = true;
+    ctx.type_info.clearRetainingCapacity();
+    try ctx.syncTypeInfo();
+    return true;
+}
+
+pub fn endEarlyContents(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.ct.window.items) |id| ctx.symbols.items[id].contents = .{};
+    ctx.ct.window.clearRetainingCapacity();
+    ctx.contents_ready = false;
+    ctx.ct.window_open = false;
+    ctx.type_info.clearRetainingCapacity();
+    try ctx.syncTypeInfo();
 }
 
 fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
@@ -6650,7 +6709,9 @@ pub const ParCall = enum { map, each };
 /// Whether a value of `ty` meets `how` (`Crossing`): nothing it reaches
 /// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
 /// `Signal`, which change through handles on this core, a set of tasks,
-/// or a function value, whose captures a function type does not show.
+/// or a callable view `?fun`, whose captures its type does not show. A
+/// function value, `fun(A) -> R`, is a named function's address and
+/// crosses.
 /// A `*Cell` of one word crosses (`isWordCell`): its counts and its
 /// changes are atomic instructions. A read view crosses when what it
 /// views shares; a write view and a `Task` move when what they hold
@@ -6711,10 +6772,10 @@ fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
 /// What in `ty` keeps it from going to a local task as `how` says: one
 /// pinned to the thread of the task that makes it, so values that stay on
 /// one thread go to it (a `*T` or `~T` whose counts are not atomic, a
-/// `Cell`, a `Signal`, a function given). What still stops it: a set of
-/// tasks, a task or a write view lent to read, a function lent to read,
-/// whose captures may lend to write, and a channel's elements, which go
-/// to any task.
+/// `Cell`, a `Signal`). What still stops it: a set of tasks, a task or a
+/// write view lent to read, a callable view `?fun`, whose captures may
+/// lend to write, an owned closure (`*fun`, `~fun`), and a channel's
+/// elements, which go to any task.
 pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocator.Error!?TypeId {
     var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
@@ -6724,6 +6785,12 @@ pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocat
 
 const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
+/// Whether a `*` or `~` handle's `inner` is an owned closure, `*fun` or
+/// `~fun`, which goes to no task.
+fn ownedClosure(ctx: *const SemContext, inner: TypeId) bool {
+    return ctx.types.get(inner) == .function;
+}
+
 /// `local`: what a local task may not take (`localBlocker`).
 fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
     const here: Blocker = .{ .ctx = ctx, .ty = ty };
@@ -6732,9 +6799,13 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // count atomically, and what they reach changes one task at a
         // time. A channel's elements go to any task. A local task reads
         // what another handle reaches on the same thread.
-        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, false, seen) else if (local) blockerIn(ctx, inner, .shares, local, seen) else here,
-        .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local) blockerIn(ctx, inner, .shares, local, seen) else here,
-        .function, .callable => if (local and how == .moves) null else here,
+        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, false, seen) else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
+        .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
+        // A function value is a named function's address and holds
+        // nothing (Core §7); a callable view may view a closure's
+        // captures, which its type does not show.
+        .function => null,
+        .callable => here,
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
         .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, seen),
         .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, local, seen),
@@ -9384,7 +9455,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
         // A destructure's target takes its result out of the statement's
         // temporary, whole, as a binding takes a call's result.
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .symbol, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
+        // A compile-time call is a value made where it is written, as an
+        // array literal is.
+        .call, .builtin, .inst, .ct_call, .lambda, .match, .block, .raw_block, .enum_lit, .symbol, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
@@ -9646,13 +9719,19 @@ const CheckedNames = struct {
             else => null,
         };
     }
+
+    /// A compile-time call's integer value, which the checker computed
+    /// and recorded where it typed the call.
+    pub fn ctCall(self: CheckedNames, e: Sexp) CtFold {
+        return cteval.recordedInt(self.ctx, e);
+    }
 };
 
 /// `constInt` with what `names` knows (`ctFoldBy`).
 pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
     return switch (ctFoldBy(ctx, e, names)) {
         .value => |t| .{ .value = t.v },
-        .not_constant, .mismatch => .not_constant,
+        .not_constant, .mismatch, .failed => .not_constant,
         .overflow => .overflow,
     };
 }
@@ -9675,7 +9754,77 @@ pub const CtFold = union(enum) {
     overflow: struct { node: Sexp, int: ?IntInfo },
     /// `node` combines constants of two integer types.
     mismatch: struct { node: Sexp, a: IntInfo, b: IntInfo },
+    /// A compile-time call in it failed, and was reported at the call
+    /// (`cteval.callAt`).
+    failed,
 };
+
+/// The result of one integer operation on constants (`ctArith`).
+pub const Arith = union(enum) {
+    value: Wide,
+    /// The result does not fit the operation's type.
+    overflow,
+    /// `/` or `%` by zero.
+    div_zero,
+    /// A shift by a negative amount, or by the type's width or more.
+    shift_range,
+};
+
+/// The one arithmetic core of constant folding (`ctFoldBy`) and of
+/// compile-time functions (`cteval`): the binary operator `h` on `a` and
+/// `b` in the integer type `int`. Wrapping and saturating operators and
+/// `<<%` need a type; the others compute exactly without one (literals
+/// alone, whose context types them later).
+pub fn ctArith(h: Tag, a: Wide, b: Wide, int: ?IntInfo) Arith {
+    switch (h) {
+        // Wrapping arithmetic keeps the low bits of the result in its
+        // type, which a `Wide` computes exactly (its width is a multiple
+        // of every integer type's).
+        .@"+%", .@"-%", .@"*%" => {
+            const v = switch (h) {
+                .@"+%" => a +% b,
+                .@"-%" => a -% b,
+                else => a *% b,
+            };
+            return .{ .value = wrapTo(int.?, v) };
+        },
+        // Saturating arithmetic stops at the type's limits, which a
+        // `Wide` holds.
+        .@"+|", .@"-|" => {
+            const r = intRange(int.?);
+            const v = if (h == .@"+|") a + b else a - b;
+            return .{ .value = std.math.clamp(v, r.min, r.max) };
+        },
+        // A shift keeps the low bits too, if its amount is below the
+        // width.
+        .@"<<%" => {
+            if (b < 0 or b >= int.?.width()) return .shift_range;
+            return .{ .value = wrapTo(int.?, a << @intCast(b)) };
+        },
+        else => {},
+    }
+    const v: ?Wide = switch (h) {
+        .@"+" => std.math.add(Wide, a, b) catch null,
+        .@"-" => std.math.sub(Wide, a, b) catch null,
+        .@"*" => std.math.mul(Wide, a, b) catch null,
+        .@"/" => if (b == 0) return .div_zero else std.math.divTrunc(Wide, a, b) catch null,
+        .@"%" => if (b == 0) return .div_zero else if (b == -1) 0 else @rem(a, b),
+        // A shift by the width or more is out of range; one that loses
+        // bits overflows.
+        .@"<<" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else blk: {
+            const r = a << @intCast(b);
+            break :blk if (r >> @intCast(b) == a) r else null;
+        },
+        .@">>" => if (b < 0 or b >= (int orelse IntInfo{}).width()) return .shift_range else a >> @intCast(b),
+        .@"&" => a & b,
+        .@"|" => a | b,
+        .@"^" => a ^ b,
+        else => unreachable,
+    };
+    const r = v orelse return .overflow;
+    if (int) |i| if (!intInfoFits(i, r)) return .overflow;
+    return .{ .value = r };
+}
 
 /// The one constant evaluator: the value of a constant integer
 /// expression, for module and local constants, array lengths,
@@ -9685,7 +9834,9 @@ pub const CtFold = union(enum) {
 /// and `member(e)`, each a `?TypedInt`, the value of a constant and of
 /// another module's (`lib.N`); and `literalInt(e) ?IntInfo`, the integer
 /// type arithmetic on literals alone is computed in (for a wrapping
-/// operation or a shift).
+/// operation or a shift). A `names` that declares `ctCall(e) CtFold`
+/// gives the value of a compile-time call (`cap[8]`), so every folding
+/// site folds calls too.
 pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
     switch (e) {
         .src => {
@@ -9695,6 +9846,10 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
+            if (h == .ct_call) {
+                if (comptime @hasDecl(@TypeOf(names), "ctCall")) return names.ctCall(e);
+                return .not_constant;
+            }
             // `U8(k)` (or `Byte(k)` of an alias) of a constant integer: a
             // constant of the target type, which must hold it.
             if (h == .call) {
@@ -9741,59 +9896,21 @@ pub fn ctFoldBy(ctx: *const SemContext, e: Sexp, names: anytype) CtFold {
             // A shift is in its left operand's type.
             const shift = h == .@"<<" or h == .@"<<%" or h == .@">>";
             if (!shift) if (a.int) |ai| if (b.int) |bi| if (!std.meta.eql(ai, bi)) return .{ .mismatch = .{ .node = e, .a = ai, .b = bi } };
-            const int = if (shift) a.int orelse names.literalInt(e) else a.int orelse b.int;
-            // Wrapping arithmetic keeps the low bits of the result in its
-            // type, which a `Wide` computes exactly (its width is a
-            // multiple of every integer type's). Literals alone wrap in
-            // the type their context gives them; without one, the width
-            // is not known here, so the program computes it.
+            var int = if (shift) a.int orelse names.literalInt(e) else a.int orelse b.int;
+            // Literals alone wrap and saturate in the type their context
+            // gives them; without one, the width is not known here, so
+            // the program computes it.
             switch (h) {
-                .@"+%", .@"-%", .@"*%" => {
-                    const info = int orelse names.literalInt(e) orelse return .not_constant;
-                    const v = switch (h) {
-                        .@"+%" => a.v +% b.v,
-                        .@"-%" => a.v -% b.v,
-                        else => a.v *% b.v,
-                    };
-                    return .{ .value = .{ .v = wrapTo(info, v), .int = info } };
-                },
-                // Saturating arithmetic stops at the type's limits, which a
-                // `Wide` holds; literals alone need their context's type too.
-                .@"+|", .@"-|" => {
-                    const info = int orelse names.literalInt(e) orelse return .not_constant;
-                    const r = intRange(info);
-                    const v = if (h == .@"+|") a.v + b.v else a.v - b.v;
-                    return .{ .value = .{ .v = std.math.clamp(v, r.min, r.max), .int = info } };
-                },
-                // A shift keeps the low bits too, if its amount is below the
-                // width (reported where the operator is checked).
-                .@"<<%" => {
-                    const info = int orelse names.literalInt(e) orelse return .not_constant;
-                    if (b.v < 0 or b.v >= info.width()) return .not_constant;
-                    return .{ .value = .{ .v = wrapTo(info, a.v << @intCast(b.v)), .int = info } };
-                },
+                .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<%" => int = int orelse names.literalInt(e) orelse return .not_constant,
                 else => {},
             }
-            const v: ?Wide = switch (h) {
-                .@"+" => std.math.add(Wide, a.v, b.v) catch null,
-                .@"-" => std.math.sub(Wide, a.v, b.v) catch null,
-                .@"*" => std.math.mul(Wide, a.v, b.v) catch null,
-                // Division by zero and negative shift amounts are
+            return switch (ctArith(h, a.v, b.v, int)) {
+                .value => |v| .{ .value = .{ .v = v, .int = int } },
+                .overflow => .{ .overflow = .{ .node = e, .int = int } },
+                // Division by zero and shift amounts out of range are
                 // reported where the operator is checked.
-                .@"/" => if (b.v == 0) return .not_constant else std.math.divTrunc(Wide, a.v, b.v) catch null,
-                .@"%" => if (b.v == 0) return .not_constant else if (b.v == -1) 0 else @rem(a.v, b.v),
-                // A shift by the width or more is reported where the
-                // operator is checked; one that loses bits overflows.
-                .@"<<" => if (b.v < 0 or b.v >= (int orelse IntInfo{}).width()) return .not_constant else blk: {
-                    const r = a.v << @intCast(b.v);
-                    break :blk if (r >> @intCast(b.v) == a.v) r else null;
-                },
-                .@">>" => if (b.v < 0 or b.v >= (int orelse IntInfo{}).width()) return .not_constant else a.v >> @intCast(b.v),
-                .@"&" => a.v & b.v,
-                .@"|" => a.v | b.v,
-                else => a.v ^ b.v,
+                .div_zero, .shift_range => .not_constant,
             };
-            return typedResult(e, v orelse return .{ .overflow = .{ .node = e, .int = int } }, int);
         },
         else => return .not_constant,
     }
@@ -10040,7 +10157,7 @@ pub const per_target_why = "the value of `{s}` is chosen for each target when Zi
 
 /// The value of a constant Bool expression: literals, `not`, `and`,
 /// `or`, and comparisons of constant integers (`ctFoldBy`).
-fn constBoolBy(ctx: *const SemContext, e: Sexp, names: anytype) ?bool {
+pub fn constBoolBy(ctx: *const SemContext, e: Sexp, names: anytype) ?bool {
     switch (e) {
         .src => {
             const word = identAt(ctx.source, e) orelse "";

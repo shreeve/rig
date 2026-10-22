@@ -22,6 +22,7 @@ const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const sema = @import("sema.zig");
+const typecheck = @import("typecheck.zig");
 const Wide = sema.Wide;
 
 const Sexp = parser.Sexp;
@@ -823,13 +824,130 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     if (!tree.isKind(.module)) return;
     try checkDetachedMethods(ctx, tree);
     try checkUseNames(ctx);
-    try orderModuleConsts(ctx, tree);
-    try foldModuleConsts(ctx);
+    try ctx.ct.declare(ctx, tree);
+    try sema.cteval.markCalls(ctx, tree);
+    const order = try orderModuleConsts(ctx, tree);
+    try foldModuleConsts(ctx, order);
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
     for (ir.Module.decls(tree)) |decl| {
         if ((if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.errors)) tr.declares_errors = true;
     }
-    for (ir.Module.decls(tree)) |decl| try tr.resolveDecl(decl);
+    for (ir.Module.decls(tree)) |decl| {
+        // A compile-time function is resolved with the constants
+        // (`ensureCtFun`), and so are the variants of a plain enum, whose
+        // methods are resolved here.
+        if (rig.isCtFun(decl)) {
+            if (ctx.symbolOf(ir.Fun.name(rig.unpub(decl)))) |id| _ = try ensureCtFun(ctx, id);
+            continue;
+        }
+        const d = rig.unpub(decl);
+        tr.part = if (d == .list and ctx.ct.early.contains(d.list.id)) .rest else .all;
+        try tr.resolveDecl(decl);
+    }
+}
+
+/// Resolve the variants of plain enum `decl` (an `enum` none of whose
+/// variants has a payload), with their values, ahead of the other
+/// declarations, once: a compile-time function may use them before the
+/// declarations are resolved in order. Its methods, which may name any
+/// type, are resolved in order (`TypeResolver.part`).
+fn resolveVariantsEarly(ctx: *SemContext, decl: Sexp) Error!void {
+    const gop = try ctx.ct.early.getOrPut(ctx.allocator, decl.list.id);
+    if (gop.found_existing) return;
+    var tr: TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope, .part = .variants };
+    try tr.resolveDecl(decl);
+}
+
+/// Resolve the signature of compile-time function `id` of this module
+/// (`cteval.CtFun`), once, with the plain enums its declaration names
+/// before it. False when it has none: a rejected type, or a signature
+/// that needs its own value.
+pub fn ensureCtSig(ctx: *SemContext, id: SymbolId) Error!bool {
+    const f = ctx.ct.funs.getPtr(id) orelse return false;
+    switch (f.sig) {
+        .done => return f.sig_ok,
+        .open => {
+            try ctx.errAt(ir.Fun.name(rig.unpub(f.decl)), "the signature of compile-time function `{s}` needs its own value", .{ctx.symbols.items[id].name});
+            return false;
+        },
+        .new => {},
+    }
+    f.sig = .open;
+    const decl = f.decl;
+    const def = rig.unpub(decl);
+    const mark = ctx.diagnostics.items.len;
+    // A signature may name any type, so it is resolved outside the window
+    // of a body checked early (`sema.beginEarlyContents`).
+    const window = ctx.ct.window_open;
+    if (window) try sema.endEarlyContents(ctx);
+    try resolveEnumsNamed(ctx, def);
+    var tr: TypeResolver = .{ .ctx = ctx, .scope = sema.module_scope };
+    const fn_ty = try tr.resolveFunction(def, sema.symbol_invalid);
+    if (!diag.hasErrorsIn(ctx.diagnostics.items[mark..])) try sema.cteval.checkSignature(ctx, def, fn_ty);
+    if (window) _ = try sema.beginEarlyContents(ctx);
+    const g = ctx.ct.funs.getPtr(id).?;
+    g.sig = .done;
+    g.sig_ok = !diag.hasErrorsIn(ctx.diagnostics.items[mark..]);
+    return g.sig_ok;
+}
+
+/// Check compile-time function `id` of this module, once: its signature,
+/// its body as any body is typed, and then against what runs at compile
+/// time (`cteval.checkBody`). False when it cannot be run.
+pub fn ensureCtFun(ctx: *SemContext, id: SymbolId) Error!bool {
+    const f = ctx.ct.funs.getPtr(id) orelse return false;
+    switch (f.body) {
+        .done => return f.ok,
+        .open => {
+            try ctx.errAt(ir.Fun.name(rig.unpub(f.decl)), "compile-time function `{s}` needs its own value while it is checked", .{ctx.symbols.items[id].name});
+            return false;
+        },
+        .new => {},
+    }
+    f.body = .open;
+    const decl = f.decl;
+    const def = rig.unpub(decl);
+    const mark = ctx.diagnostics.items.len;
+    var ok = try ensureCtSig(ctx, id);
+    if (ok) ok = try sema.cteval.checkNames(ctx, def);
+    if (ok) {
+        const early = try sema.beginEarlyContents(ctx);
+        try typecheck.checkCtFun(ctx, decl);
+        if (early) try sema.endEarlyContents(ctx);
+        ok = !diag.hasErrorsIn(ctx.diagnostics.items[mark..]);
+    }
+    if (ok) {
+        try sema.cteval.checkBody(ctx, def);
+        ok = !diag.hasErrorsIn(ctx.diagnostics.items[mark..]);
+    }
+    const g = ctx.ct.funs.getPtr(id).?;
+    g.body = .done;
+    g.ok = ok;
+    return ok;
+}
+
+/// Resolve the variants of each plain enum of this module that `node`
+/// names (`resolveVariantsEarly`): one a compile-time function names is
+/// ordered before it, unless the function is checked out of order, for a
+/// call another compile-time function's body makes.
+fn resolveEnumsNamed(ctx: *SemContext, node: Sexp) Error!void {
+    switch (node) {
+        .src => {
+            const name = identAt(ctx.source, node) orelse return;
+            var id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return;
+            // Through type aliases, as the signature resolves them.
+            var hops: u32 = 0;
+            while (ctx.symbols.items[id].kind == .type_alias and hops < 64) : (hops += 1) {
+                const target = ctx.alias_targets.get(id) orelse return;
+                if (target != .src) return resolveEnumsNamed(ctx, target);
+                id = ctx.lookupInScopeOnly(sema.module_scope, identAt(ctx.source, target) orelse return) orelse return;
+            }
+            if (ctx.symbols.items[id].kind != .nominal_type) return;
+            try resolveVariantsEarly(ctx, sema.cteval.plainEnumDecl(ctx, id) orelse return);
+        },
+        .list => for (node.items()) |c| try resolveEnumsNamed(ctx, c),
+        else => {},
+    }
 }
 
 /// A `use` may not bind the name of a declaration of its module, which
@@ -923,7 +1041,7 @@ fn declaredType(src: []const u8, tree: Sexp, name: []const u8) ?Sexp {
 /// one that depends on itself is rejected and left out. A module-level
 /// binding that is no constant (`k += 1`) comes last, for the checker
 /// to reject.
-fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
+fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error![]const Sexp {
     const a = ctx.allocator;
     var consts: std.ArrayList(Sexp) = .empty;
     defer consts.deinit(a);
@@ -931,6 +1049,26 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
     defer index.deinit(a);
     var rest: std.ArrayList(Sexp) = .empty;
     defer rest.deinit(a);
+    // The compile-time functions are ordered with the constants: a
+    // constant may call one, and one may read a constant
+    // (`foldModuleConsts`).
+    for (ir.Module.decls(tree)) |decl| {
+        if (!rig.isCtFun(decl)) continue;
+        const id = ctx.symbolOf(ir.Fun.name(rig.unpub(decl))) orelse continue;
+        if (index.contains(id)) continue;
+        try index.put(a, id, @intCast(consts.items.len));
+        try consts.append(a, decl);
+    }
+    // So are the plain enums, whose variants a compile-time function may
+    // use, and whose values may name constants (`resolveVariantsEarly`).
+    if (ctx.ct.funs.count() > 0) for (ir.Module.decls(tree)) |decl| {
+        const d = rig.unpub(decl);
+        if (!d.isKind(.@"enum")) continue;
+        const id = ctx.symbolOf(ir.get(d, .name)) orelse continue;
+        if (index.contains(id) or sema.cteval.plainEnumDecl(ctx, id) == null) continue;
+        try index.put(a, id, @intCast(consts.items.len));
+        try consts.append(a, decl);
+    };
     for (ir.Module.decls(tree)) |decl| {
         if (!rig.isModuleConst(decl)) continue;
         const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
@@ -951,6 +1089,16 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
     for (consts.items, 0..) |decl, i| {
         starts[i] = @intCast(deps.items.len);
         const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        if (set.isKind(.fun)) {
+            try constNamesIn(ctx, set, &index, &deps);
+            continue;
+        }
+        // An enum depends on what its variants' values name; its
+        // methods feed no value.
+        if (set.isKind(.@"enum")) {
+            for (ir.rest(set, .members)) |m| if (m.isKind(.valued)) try constNamesIn(ctx, ir.Valued.value(m), &index, &deps);
+            continue;
+        }
         try constNamesIn(ctx, ir.Set.value(set), &index, &deps);
         try constNamesIn(ctx, ir.Set.type(set), &index, &deps);
     }
@@ -968,6 +1116,7 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
     var stack: std.ArrayList(Frame) = .empty;
     defer stack.deinit(a);
     ctx.const_order.clearRetainingCapacity();
+    var order: std.ArrayList(Sexp) = .empty;
     for (0..consts.items.len) |root| {
         if (state[root] != .new) continue;
         state[root] = .open;
@@ -982,17 +1131,31 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error!void {
                         state[j] = .open;
                         try stack.append(a, .{ .i = j, .next = starts[j] });
                     },
-                    .open => if (!cyclic[j]) try reportConstCycle(ctx, consts.items, stack.items, j, cyclic),
+                    .open => if (!cyclic[j] and cycleHasConst(consts.items, stack.items, j)) try reportConstCycle(ctx, consts.items, stack.items, j, cyclic),
                     .done => {},
                 }
                 continue;
             }
             const done = stack.pop().?;
             state[done.i] = .done;
-            if (!cyclic[done.i]) try ctx.const_order.append(a, consts.items[done.i]);
+            if (cyclic[done.i]) continue;
+            try order.append(ctx.arena.allocator(), consts.items[done.i]);
+            if (rig.isModuleConst(consts.items[done.i])) try ctx.const_order.append(a, consts.items[done.i]);
         }
     }
     try ctx.const_order.appendSlice(a, rest.items);
+    return order.items;
+}
+
+/// Whether the cycle open on `stack` from `j` on holds a constant or an
+/// enum: one of compile-time functions alone is recursion, which is
+/// allowed.
+fn cycleHasConst(consts: []const Sexp, stack: anytype, j: u32) bool {
+    var from: usize = stack.len;
+    while (from > 0 and stack[from - 1].i != j) from -= 1;
+    from -|= 1;
+    for (stack[from..]) |f| if (!rig.isCtFun(consts[f.i])) return true;
+    return false;
 }
 
 /// Each constant of `index` that a name leaf in `node` names, appended
@@ -1002,10 +1165,23 @@ fn constNamesIn(ctx: *const SemContext, node: Sexp, index: *const std.AutoHashMa
     switch (node) {
         .src => {
             const text = identAt(ctx.source, node) orelse return;
-            const id = ctx.lookupInScopeOnly(sema.module_scope, text) orelse return;
+            var id = ctx.lookupInScopeOnly(sema.module_scope, text) orelse return;
+            // A type alias names what its target names, through a chain
+            // of aliases (one longer than this is a cycle, reported
+            // elsewhere).
+            var hops: u32 = 0;
+            while (ctx.symbols.items[id].kind == .type_alias and hops < 64) : (hops += 1) {
+                const target = ctx.alias_targets.get(id) orelse return;
+                if (target != .src) return constNamesIn(ctx, target, index, out);
+                id = ctx.lookupInScopeOnly(sema.module_scope, identAt(ctx.source, target) orelse return) orelse return;
+            }
             if (index.get(id)) |i| try out.append(ctx.allocator, i);
         },
-        .list => switch (node.kind() orelse return) {
+        .list => switch (node.kind() orelse {
+            // A group: a function's parameters.
+            for (node.items()) |c| try constNamesIn(ctx, c, index, out);
+            return;
+        }) {
             .member => try constNamesIn(ctx, ir.Member.object(node), index, out),
             .kwarg => try constNamesIn(ctx, ir.Kwarg.value(node), index, out),
             .enum_lit, .builtin => for (rig.children(node)[1..]) |c| try constNamesIn(ctx, c, index, out),
@@ -1018,26 +1194,48 @@ fn constNamesIn(ctx: *const SemContext, node: Sexp, index: *const std.AutoHashMa
 
 /// The constants open on `stack` from `j` on name each other in a
 /// cycle back to `j`: reported once, at `j`'s value, and each left out.
+/// The cycle is reported at its first constant, which may be a
+/// compile-time function's way back to itself (`N` → `f` → `N`); its
+/// compile-time functions are left in, to be reported where they need
+/// the constants.
 fn reportConstCycle(ctx: *SemContext, consts: []const Sexp, stack: anytype, j: u32, cyclic: []bool) Error!void {
     const a = ctx.arena.allocator();
     var from: usize = stack.len;
     while (from > 0 and stack[from - 1].i != j) from -= 1;
     from -|= 1;
+    const cycle = stack[from..];
+    var first: usize = 0;
+    while (rig.isCtFun(consts[cycle[first].i])) first += 1;
     var path: std.ArrayList(u8) = .empty;
-    for (stack[from..]) |f| {
-        cyclic[f.i] = true;
-        try path.print(a, "`{s}` → ", .{constName(ctx, consts[f.i])});
-        const set = if (consts[f.i].isKind(.@"pub")) ir.Pub.decl(consts[f.i]) else consts[f.i];
+    for (0..cycle.len) |k| {
+        const i = cycle[(first + k) % cycle.len].i;
+        try path.print(a, "`{s}` → ", .{constName(ctx, consts[i])});
+        if (!rig.isModuleConst(consts[i])) continue;
+        cyclic[i] = true;
+        const set = if (consts[i].isKind(.@"pub")) ir.Pub.decl(consts[i]) else consts[i];
         if (ctx.symbolOf(ir.Set.target(set))) |id| ctx.symbols.items[id].ty = ctx.types.invalid_id;
     }
-    try path.print(a, "`{s}`", .{constName(ctx, consts[j])});
-    const set = if (consts[j].isKind(.@"pub")) ir.Pub.decl(consts[j]) else consts[j];
-    try ctx.errAt(ir.Set.value(set), "constant `{s}` depends on itself ({s})", .{ constName(ctx, consts[j]), path.items });
+    const c = cycle[first].i;
+    try path.print(a, "`{s}`", .{constName(ctx, consts[c])});
+    const d = rig.unpub(consts[c]);
+    if (d.isKind(.@"enum")) {
+        // The compile-time functions on the cycle are left unchecked and
+        // fail quietly where they are called: what they would report
+        // follows from the cycle.
+        for (cycle) |f| if (rig.isCtFun(consts[f.i])) if (ctx.symbolOf(ir.Fun.name(rig.unpub(consts[f.i])))) |id| if (ctx.ct.funs.getPtr(id)) |fun| {
+            fun.* = .{ .decl = fun.decl, .sig = .done, .body = .done };
+        };
+        try ctx.errAt(ir.get(d, .name), "enum `{s}` depends on itself ({s})", .{ constName(ctx, consts[c]), path.items });
+        return;
+    }
+    try ctx.errAt(ir.Set.value(d), "constant `{s}` depends on itself ({s})", .{ constName(ctx, consts[c]), path.items });
 }
 
+/// The name a constant or a compile-time function declares.
 fn constName(ctx: *const SemContext, decl: Sexp) []const u8 {
-    const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
-    return identAt(ctx.source, ir.Set.target(set)) orelse "_";
+    const def = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+    if (def.isKind(.fun) or def.isKind(.@"enum")) return identAt(ctx.source, ir.get(def, .name)) orelse "_";
+    return identAt(ctx.source, ir.Set.target(def)) orelse "_";
 }
 
 /// Fold each integer module constant once, in dependency order
@@ -1045,9 +1243,19 @@ fn constName(ctx: *const SemContext, decl: Sexp) []const u8 {
 /// can name it. Its literals take its declared type (`Int` without
 /// one), as a local constant's do; one that does not fold, or does not
 /// fit its type, is left for the checker to report.
-fn foldModuleConsts(ctx: *SemContext) Error!void {
-    for (ctx.const_order.items) |decl| {
+/// A compile-time function in `order` is checked there, before the
+/// constants that call it (`ensureCtFun`).
+fn foldModuleConsts(ctx: *SemContext, order: []const Sexp) Error!void {
+    for (order) |decl| {
         const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+        if (set.isKind(.fun)) {
+            if (ctx.symbolOf(ir.Fun.name(set))) |id| _ = try ensureCtFun(ctx, id);
+            continue;
+        }
+        if (set.isKind(.@"enum")) {
+            try resolveVariantsEarly(ctx, set);
+            continue;
+        }
         const target = ir.Set.target(set);
         if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) continue;
         const id = ctx.symbolOf(target) orelse continue;
@@ -1059,7 +1267,7 @@ fn foldModuleConsts(ctx: *SemContext) Error!void {
         }
         const ty = ir.Set.type(set);
         const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
-        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{} };
+        const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{}, .eval = ctx };
         const t = switch (sema.ctFoldBy(ctx, ir.Set.value(set), names)) {
             .value => |t| t,
             else => continue,
@@ -1136,6 +1344,9 @@ pub const ConstNames = struct {
     /// The integer type arithmetic on literals alone takes: a module
     /// constant's declared type.
     literal: ?sema.IntInfo = null,
+    /// The context a compile-time call is computed in (`ctCall`); null
+    /// where none is.
+    eval: ?*SemContext = null,
 
     pub fn symbol(self: ConstNames, e: Sexp) ?SymbolId {
         const text = identAt(self.ctx.source, e) orelse return null;
@@ -1165,6 +1376,25 @@ pub const ConstNames = struct {
 
     pub fn literalInt(self: ConstNames, _: Sexp) ?sema.IntInfo {
         return self.literal;
+    }
+
+    /// A compile-time call's integer value, computed here
+    /// (`cteval.foldCall`): `cap[8]` in a type, a constant, or an enum
+    /// value. Without a context to compute it in, the value the checker
+    /// recorded for the call.
+    pub fn ctCall(self: ConstNames, e: Sexp) sema.CtFold {
+        const ctx = self.eval orelse return sema.cteval.recordedInt(self.ctx, e);
+        return sema.cteval.foldCall(ctx, e, self) catch .failed;
+    }
+
+    /// A compile-time call's value, as `ctCall` finds it; null after a
+    /// diagnostic.
+    pub fn ctValue(self: ConstNames, e: Sexp) Error!?sema.cteval.CtVal {
+        const ctx = self.eval orelse return if (sema.cteval.recorded(self.ctx, e)) |r| r.value else null;
+        return switch (try sema.cteval.valueCall(ctx, e, self)) {
+            .called => |c| c.value,
+            .not_call, .failed => null,
+        };
     }
 };
 
@@ -1208,6 +1438,10 @@ pub const TypeResolver = struct {
     /// The module declares an error set, which its fallible Zig-backed
     /// functions fail with.
     declares_errors: bool = false,
+    /// Which members of a plain enum `resolveNominal` resolves: all of
+    /// them, its variants alone (ahead of the other declarations,
+    /// `resolveVariantsEarly`), or the rest, once its variants are.
+    part: enum { all, variants, rest } = .all,
 
     /// The type a type name not found here was likely meant as: a
     /// built-in one written in lower case (`i32`, `string`), or a type
@@ -1830,8 +2064,19 @@ pub const TypeResolver = struct {
         var values: EnumValues = .{};
         defer values.seen.deinit(self.ctx.allocator);
         var none_line: ?Sexp = null;
+        // The variants resolved first: the rest of the members follow
+        // them, and none may reuse their names.
+        const rest = self.part == .rest;
+        if (rest) for (self.ctx.symbols.items[sym_id].fields orelse &.{}) |f| {
+            try fields.append(self.ctx.allocator, f);
+            try names.put(self.ctx.allocator, f.name, f.decl_pos);
+        };
 
         for (members) |m| {
+            // A variant is resolved with the variants, any other member
+            // with the rest.
+            const variant = m == .src or m.isKind(.valued);
+            if ((rest and variant) or (self.part == .variants and !variant)) continue;
             switch (m) {
                 .src => |s| {
                     const vname = identAt(self.ctx.source, m).?;
@@ -2141,9 +2386,10 @@ pub const TypeResolver = struct {
     /// are folded; null after a diagnostic.
     fn foldEnumValue(self: *TypeResolver, node: Sexp, name: []const u8) Error!?Wide {
         const what = "an enum value";
-        const fold = sema.ctFoldBy(self.ctx, node, ConstNames{ .ctx = self.ctx, .scope = sema.module_scope });
+        const fold = sema.ctFoldBy(self.ctx, node, ConstNames{ .ctx = self.ctx, .scope = sema.module_scope, .eval = self.ctx });
         switch (fold) {
             .value => |t| return t.v,
+            .failed => {},
             .overflow, .mismatch => try self.reportFold(node, fold, what),
             .not_constant => if (sema.perTargetLeaf(self.ctx, node)) |leaf| {
                 try self.ctx.errAt(node, "{s} must be known when Rig checks the program; " ++ sema.per_target_why, .{ what, try self.sourceText(leaf) });
@@ -2634,8 +2880,11 @@ pub const TypeResolver = struct {
                 try self.reportFold(node, fold, what);
                 return null;
             },
+            .failed => return null,
             .not_constant => {},
         }
+        // A compile-time call that gives no integer.
+        if (try sema.cteval.notInt(self.ctx, node, what)) return null;
         const text = try self.sourceText(node);
         if (sema.perTargetLeaf(self.ctx, node)) |leaf| {
             try self.ctx.errAt(node, "{s} must be known when Rig checks the program; " ++ sema.per_target_why, .{ what, try self.sourceText(leaf) });
@@ -2711,7 +2960,7 @@ pub const TypeResolver = struct {
                 what,                                                                try self.sourceText(m.node),
                 try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.a })), try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.b })),
             }),
-            .value, .not_constant => unreachable,
+            .value, .not_constant, .failed => unreachable,
         }
     }
 
@@ -2828,7 +3077,7 @@ pub const TypeResolver = struct {
 
     /// The constants names in a type denote.
     fn constNames(self: *const TypeResolver) ConstNames {
-        return .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params };
+        return .{ .ctx = self.ctx, .scope = self.scope, .type_params = self.nominal.type_params, .eval = self.ctx };
     }
 
     /// The symbol a name leaf in a compile-time integer denotes.

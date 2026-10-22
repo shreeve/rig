@@ -1,0 +1,1242 @@
+# ctfun: compile-time functions, `fun cap[n: Int] -> Int`, which the
+# checker runs: each call, `cap[8]`, is a constant where it is written,
+# and each failure a diagnostic at the call.
+
+test "ctfun value", '''
+  7
+  7
+'''
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  print(cap[3])
+  x = cap[3]
+  print(x)
+
+test "ctfun array length", '''
+  5
+  10
+'''
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  a: [cap[2]]Int = [5 of 0]
+  print(a.len)
+  b: [cap[2] * 2]U8 = [10 of 0]
+  print(b.len)
+
+test "ctfun module constants", ''', whole: true
+  6765 6766
+  [0, 1, 4, 9, 16]
+  9
+'''
+  fun fib[n: Int] -> Int
+    if n < 2
+      return n
+    fib[n - 1] + fib[n - 2]
+
+  fun squares[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      t[i] = i * i
+    t
+
+  X = fib[20]
+  Y = X + 1
+  TABLE = squares[5]
+
+  sub main()
+    print(X, Y)
+    print(TABLE)
+    i = 3
+    print(TABLE[i])
+
+test "ctfun generic type argument", '''
+  3 7 7
+'''
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+  r: Ring[Int, cap[1]] = Ring(items: [3 of 0])
+  s = Ring[Int, cap[1]](items: [3 of 7])
+  t: Ring[Int, 3] = s
+  print(r.items.len, s.items[2], t.items[0])
+
+test "ctfun compile-time argument", 5
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  sub show[n: Int]()
+    print(n)
+
+  show[cap[2]]()
+
+test "ctfun recursion", '''
+  832040
+  true true false
+'''
+  # In its body a compile-time function's parameters are values the
+  # checker knows, so a call there may compute its arguments.
+  fun fib[n: Int] -> Int
+    if n < 2
+      return n
+    fib[n - 1] + fib[n - 2]
+
+  fun even[n: Int] -> Bool
+    n == 0 or odd[n - 1]
+
+  fun odd[n: Int] -> Bool
+    n != 0 and even[n - 1]
+
+  print(fib[30])
+  print(even[10], odd[7], odd[8])
+
+test "ctfun loops and arrays", '''
+  [0, 1, 4, 9]
+  17
+  [[1, 2, 3], [4, 5, 6]]
+'''
+  fun squares[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      t[i] = i * i
+    t
+
+  fun total[n: Int] -> Int
+    s = 0
+    for x, i in squares[n]
+      s += x + i - i
+    k = 0
+    while true
+      k += 1
+      if k == 3
+        continue
+      if k > 5
+        break
+      s += k
+    s
+
+  fun grid[n: Int] -> [2][3]Int
+    g = [2 of [3 of 0]]
+    for i in 0..2
+      for j in 0..3
+        g[i][j] = i * 3 + j + n
+    g
+
+  print(squares[4])
+  print(total[3])
+  print(grid[1])
+
+test "ctfun labeled loops and match", '''
+  4 3 2 1
+'''
+  fun first[n: Int] -> Int
+    found = -1
+    $outer: for i in 0..n
+      for j in 0..n
+        if i * j == 6
+          found = i + j
+          break $outer
+    found
+
+  fun kind[n: Int] -> Int
+    match n
+      0 => 0
+      1..5 => 1
+      5, 6 => 2
+      k if k > 100 => 4
+      _ => 3
+
+  print(kind[200], kind[7], kind[6], kind[3])
+  _ = first[4]
+
+test "ctfun typed arithmetic", '''
+  44 255 200
+'''
+  fun wrap[k: U8] -> U8
+    k +% 200
+
+  fun sat[k: U8] -> U8
+    k +| 200
+
+  fun conv[k: Int] -> U8
+    U8(k)
+
+  print(wrap[100], sat[100], conv[200])
+
+test "ctfun enums and Bool", '''
+  2 .strict .loose
+  false
+'''
+  enum Mode
+    loose
+    strict
+
+  fun width[m: Mode] -> Int
+    match m
+      .loose => 1
+      .strict => 2
+
+  fun flip[m: Mode] -> Mode
+    .strict if m == .loose else .loose
+
+  fun pick[b: Bool] -> Mode
+    Mode.strict if b else Mode.loose
+
+  fun no[b: Bool] -> Bool
+    not b
+
+  print(width[.strict], flip[.loose], pick[false])
+  print(no[true])
+
+test "ctfun calls and constants", "21 true", whole: true
+  LIMIT = 4
+
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  fun sized[n: Int] -> Int
+    cap[n] + LIMIT * 5
+
+  fun top[n: Int] -> Bool
+    n < Int.max and n > Int(U8.min)
+
+  sub main()
+    print(sized[0], top[cap[2]])
+
+test "ctfun enum value", '''
+  3 12
+'''
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  enum E
+    a = cap[1]
+    b = cap[5] + 1
+
+  print(Int(E.a), Int(E.b))
+
+test "ctfun lent array", 14
+  # A call is a value made where it is written, so `?` lends a temporary
+  # of it, as it lends one of an array literal.
+  fun squares[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      t[i] = i * i
+    t
+
+  fun sum(xs: ?[4]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  print(sum(?squares[4]))
+
+test "ctfun array in a body", '''
+  5 4
+'''
+  fun squares[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      t[i] = i * i
+    t
+
+  q = squares[4]
+  q[0] = 4
+  print(q[1] + squares[4][2], q[0])
+
+test "ctfun imported", ''', whole: true
+  5 7 6
+  [0, 1, 4] .strict
+  true
+'''
+  use lib
+
+  fun twice[n: Int] -> Int
+    lib.cap[n] * 2
+
+  N = lib.cap[3]
+
+  sub main()
+    a: [lib.cap[2]]Int = [5 of 0]
+    print(a.len, N, twice[1])
+    print(lib.squares[3], lib.pick[true])
+    m: lib.Mode = lib.pick[false]
+    print(m == .loose)
+
+  file "lib.rig"
+    pub enum Mode
+      loose
+      strict
+
+    pub fun cap[n: Int] -> Int
+      n * 2 + 1
+
+    pub fun squares[n: Int] -> [n]Int
+      t = [n of 0]
+      for i in 0..n
+        t[i] = i * i
+      t
+
+    pub fun pick[b: Bool] -> Mode
+      .strict if b else .loose
+
+# ---- what a call computes, rejected at the call --------------------------
+
+fail "ctfun overflow", "6:5: compile-time call `fib[100]` overflows `Int`", "4:3: in `fib[n - 1] + fib[n - 2]`, in `fib[93]`", whole: true
+  fun fib[n: Int] -> Int
+    if n < 2
+      return n
+    fib[n - 1] + fib[n - 2]
+
+  X = fib[100]
+
+  sub main()
+    print(X)
+
+fail "ctfun divide by zero", "compile-time call `f[0]` divides by zero", "in `100 / n`"
+  fun f[n: Int] -> Int
+    100 / n
+
+  print(f[0])
+
+fail "ctfun index", "compile-time call `t[5]` indexes 5 in an array of length 3"
+  fun t[n: Int] -> Int
+    a = [1, 2, 3]
+    a[n]
+
+  print(t[5])
+
+fail "ctfun conversion", "compile-time call `f[300]` converts 300 to `U8`, which holds 0..255"
+  fun f[n: Int] -> U8
+    U8(n)
+
+  print(f[300])
+
+fail "ctfun steps", "compile-time call `f[1]` takes more than 10000000 steps", "in `while true`"
+  fun f[n: Int] -> Int
+    k = 0
+    while true
+      k += n
+    k
+
+  print(f[1])
+
+fail "ctfun depth", "compile-time call `f[0]` nests more than 256 compile-time calls"
+  fun f[n: Int] -> Int
+    f[n + 1]
+
+  print(f[0])
+
+fail "ctfun panic", "7:9: compile-time call `cap[0]` panics: cap needs a positive n", "3:5: in `panic(\"cap needs a positive n\")`", whole: true
+  fun cap[n: Int] -> Int
+    if n <= 0
+      panic("cap needs a positive n")
+    n
+
+  sub main()
+    print(cap[0])
+
+fail "ctfun fill length", "compile-time call `z[-1]` makes an array of length -1"
+  fun z[n: Int] -> [n]Int
+    [n of 0]
+
+  print(z[-1])
+
+fail "ctfun value size", "`[2000000]Int` takes 16000000 bytes; a value takes at most 8388608 (8 MiB)"
+  fun big[n: Int] -> [n]Int
+    [n of 0]
+
+  print(big[2000000][0])
+
+fail "ctfun failed constant used again", "compile-time call `f[0]` divides by zero", errors: 1, whole: true
+  fun f[n: Int] -> Int
+    100 / n
+
+  X = f[0]
+  Y = X + 1
+
+  sub main()
+    print(Y)
+
+# ---- what a compile-time function may do ----------------------------------
+
+fail "ctfun print", "a compile-time function cannot call `print`: `print` runs when the program does, and a compile-time function calls only compile-time functions, with brackets; if `f` runs when the program does too, write `fun f[n: Int]() -> Int`"
+  fun f[n: Int] -> Int
+    print(n)
+    n
+
+  print(f[1])
+
+fail "ctfun run-time call", "a compile-time function cannot call `helper`"
+  fun helper(x: Int) -> Int
+    x
+
+  fun f[n: Int] -> Int
+    helper(n)
+
+  print(f[1])
+
+fail "ctfun List", "a compile-time function cannot use `List`: it holds only integers, `Bool`, plain enums, and arrays of them"
+  fun f[n: Int] -> Int
+    xs = List[Int]()
+    xs.len + n
+
+  print(f[1])
+
+fail "ctfun text", "a compile-time function cannot hold text"
+  fun f[n: Int] -> Int
+    s: ?String = "a"
+    s.len + n
+
+  print(f[1])
+
+fail "ctfun Float", "a compile-time function cannot hold `1.5`: it is a `Float`"
+  fun f[n: Int] -> Int
+    x = 1.5
+    Int(x) + n
+
+  print(f[1])
+
+fail "ctfun defer", "a compile-time function cannot defer: it holds nothing to release"
+  fun f[n: Int] -> Int
+    defer pass
+    n
+
+  print(f[1])
+
+fail "ctfun closure", "a compile-time function cannot make a closure"
+  fun f[n: Int] -> Int
+    g = |x: Int| x + 1
+    g(n)
+
+  print(f[1])
+
+fail "ctfun method", "a compile-time function cannot call the method `get`: it reads only `.len` of an array"
+  fun f[n: Int] -> Bool
+    a = [1, 2]
+    a.get(n) == none
+
+  print(f[1])
+
+fail "ctfun raw", "a compile-time function cannot use `raw`: it runs only checked code"
+  fun f[n: Int] -> Int
+    raw
+      pass
+    n
+
+  print(f[1])
+
+fail "ctfun sigil", "a compile-time function cannot use `?a`"
+  fun f[n: Int] -> Int
+    a = [1, 2]
+    b = ?a
+    b[0] + n
+
+  print(f[1])
+
+fail "ctfun optional result", "compile-time function `f` cannot give a `Int?`: it gives an integer, a `Bool`, a plain enum, or an array of them"
+  fun f[n: Int] -> Int?
+    n
+
+  print(f[1])
+
+fail "ctfun object", "a compile-time function cannot use `Q`: it holds only integers, `Bool`, plain enums, and arrays of them, and `Q` names no integer type or plain enum", errors: 1
+  obj P
+    x: Int
+
+  type Q = P
+
+  fun f[n: Int] -> Int
+    q: Q = Q(x: n)
+    q.x
+
+  print(f[1])
+
+test "ctfun integer alias", "[255, 0, 1]"
+  type Byte = U8
+
+  fun bytes[b: Byte] -> [3]Byte
+    c: Byte = b +% 1
+    [b, c, c +% 1]
+
+  print(bytes[255])
+
+# ---- how it is declared ----------------------------------------------------
+
+fail "ctfun sub", "a compile-time function gives a value: write `fun show[n: Int] -> T`; a `sub` writes its parameter list: `sub show[n: Int]()`"
+  sub show[n: Int]
+    pass
+
+fail "ctfun empty brackets", "empty brackets"
+  fun t[] -> Int
+    1
+
+fail "ctfun type parameter", "write `fun s[T]() -> Int`: a function's parameter list is always written, even when empty"
+  fun s[T] -> Int
+    1
+
+fail "ctfun text parameter", "compile-time function `s` cannot take a `?String`: its parameters are integers, `Bool`, and plain enums", errors: 1
+  fun s[x: ?String] -> Int
+    1
+
+  print(s["a"])
+
+fail "ctfun inline", "`c[n: Int]` is a compile-time function, which the checker runs, so no call of it is left to mark `inline`: drop the `inline`"
+  inline fun c[n: Int] -> Int
+    n
+
+fail "ctfun method form", "a compile-time function is declared at module level; a method writes its parameter list: `fun c[n: Int](?@)`"
+  obj P
+    x: Int
+
+    fun c[n: Int] -> Int
+      n
+
+fail "ctfun no result", "a compile-time function gives a value: write its type, `fun c[n: Int] -> T`"
+  fun c[n: Int]
+    pass
+
+fail "ctfun neither list", "write `fun f() -> Int`: a function's parameter list is always written, even when empty"
+  fun f -> Int
+    1
+
+# ---- how it is called -------------------------------------------------------
+
+fail "ctfun called with parentheses", "`cap` is a compile-time function: its value is `cap[3]`, with no parentheses"
+  fun cap[n: Int] -> Int
+    n
+
+  print(cap[3]())
+
+fail "ctfun called without brackets", "`cap` runs at compile time: call it with brackets, `cap[...]`"
+  fun cap[n: Int] -> Int
+    n
+
+  print(cap(3))
+
+fail "ctfun run-time argument", "compile-time argument 1 of `cap` must be known at compile time"
+  fun cap[n: Int] -> Int
+    n
+
+  k = 3
+  print(cap[k])
+
+fail "ctfun as a value", "`cap` takes compile-time parameters, so it can only be called, not used as a value"
+  fun cap[n: Int] -> Int
+    n
+
+  f = cap
+  print(1)
+
+fail "ctfun arity", "`cap` expects 1 compile-time argument, got 2"
+  fun cap[n: Int] -> Int
+    n
+
+  print(cap[1, 2])
+
+fail "ctfun argument does not fit", "compile-time argument 1 of `cap` is `300`, which a `U8` cannot hold"
+  fun cap[n: U8] -> Int
+    Int(n)
+
+  a: [cap[300]]Int = [0 of 0]
+  print(a.len)
+
+fail "ctfun literal does not fit", "integer value `300` does not fit in `U8`"
+  fun cap[n: U8] -> Int
+    Int(n)
+
+  print(cap[300])
+
+fail "ctfun unused value", "this expression does nothing as a statement"
+  fun cap[n: Int] -> Int
+    n
+
+  cap[3]
+
+fail "ctfun not a type", "`cap[2]` is a compile-time value, not a type"
+  fun cap[n: Int] -> Int
+    n
+
+  print(List[cap[2]]().len)
+
+fail "ctfun gives no integer", "an array length is an integer; `flag[1]` gives a `Bool`"
+  fun flag[n: Int] -> Bool
+    n > 0
+
+  a: [flag[1]]Int = [1 of 0]
+  print(a.len)
+
+fail "ctfun over a generic's parameter", "compile-time argument 1 of `cap` is the compile-time parameter `n`; a compile-time function is called with values known where the call is written", errors: 2
+  # Per instance evaluation, `cap[n]` over a parameter, comes with
+  # `[n + 1]T` (docs/ROADMAP.md).
+  fun cap[n: Int] -> Int
+    n
+
+  fun make[n: Int]() -> [cap[n]]Int
+    [cap[n] of 0]
+
+  print(make[2]())
+
+fail "ctfun in a generic body", "compile-time argument 1 of `cap` is the compile-time parameter `n`"
+  fun cap[n: Int] -> Int
+    n
+
+  fun make[n: Int]() -> Int
+    x = cap[n]
+    x
+
+  print(make[2]())
+
+fail "ctfun cycle", "1:5: constant `N` depends on itself (`N` → `f` → `N`)", errors: 1, whole: true
+  N = f[1]
+
+  fun f[k: Int] -> [N]Int
+    [N of k]
+
+  sub main()
+    print(N)
+
+fail "ctfun result-sized argument", "compile-time argument 1 of `build` does arithmetic on a compile-time parameter"
+  fun build[n: Int] -> [n]Int
+    if n == 0
+      return [n of 0]
+    b = build[n - 1]
+    [n of b.len]
+
+  print(build[2])
+
+fail "ctfun arithmetic length unchanged", "an array length `n + 1` does arithmetic on a compile-time parameter"
+  fun make[n: Int]() -> [n + 1]Int
+    [n + 1 of 0]
+
+  print(make[2]())
+
+# ---- what reaches Zig -------------------------------------------------------
+
+code "ctfun scalar emits a literal", "var x: i64 = @as(i64, 7);"
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  x = cap[3]
+  print(x)
+
+code "ctfun constant array", "pub const T: [4]i64 = [_]i64{ 0, 1, 4, 9 };", whole: true
+  fun squares[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      t[i] = i * i
+    t
+
+  T = squares[4]
+
+  sub main()
+    print(T)
+
+code "ctfun hidden constant", "const __rig_ct_0: [3]i64 = [_]i64{ 0, 1, 4 };"
+  fun squares[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      t[i] = i * i
+    t
+
+  print(squares[3], squares[3])
+
+code "ctfun hidden constant read twice", "rig.print(.{ __rig_ct_0, \" \", __rig_ct_0, \"\\n\" });"
+  fun squares[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      t[i] = i * i
+    t
+
+  print(squares[3], squares[3])
+
+code "ctfun array length", "[5]i64"
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  a: [cap[2]]Int = [5 of 0]
+  print(a.len)
+
+code "ctfun generic argument", "Ring(i64, 3)"
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+  r: Ring[Int, cap[1]] = Ring(items: [3 of 0])
+  print(r.items.len)
+
+code "ctfun enum result", "@as(Mode, .loose)"
+  enum Mode
+    loose
+    strict
+
+  fun pick[b: Bool] -> Mode
+    .strict if b else .loose
+
+  m = pick[false]
+  print(m)
+
+# ---- review repros ---------------------------------------------------------
+
+fail "ctfun view of a call outlives it", "a view of the temporary `sq[3]` outlives its statement", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  sub main()
+    v = ?sq[3]
+    print(v[0])
+
+fail "ctfun returned view of a call", "cannot return a view of `sq[3]`, which this function was not lent", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  fun get() -> ?[3]Int
+    ?sq[3]
+  sub main()
+    print(get())
+
+fail "ctfun loop writes a call", "`for x in !xs` writes each element in place; `xs` must be a binding", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  sub main()
+    for x in !sq[3]
+      x += 1
+    print(sq[3])
+
+fail "ctfun element of a call assigned", "cannot assign to a field or element of a temporary", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  sub main()
+    sq[3][0] = 5
+    print(sq[3])
+
+fail "ctfun element of a call updated", "cannot assign to a field or element of a temporary", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  sub main()
+    sq[3][0] += 1
+    print(1)
+
+fail "ctfun call assigned", "cannot assign to this expression", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  sub main()
+    t = [1, 2, 3]
+    t = sq[3]
+    sq[3] = t
+    print(t)
+
+fail "ctfun scalar call assigned", "cannot assign to this expression", errors: 2, whole: true
+  fun cap[n: Int] -> Int
+    n
+  sub main()
+    cap[3] = 5
+    cap[3] += 1
+    print(cap[3])
+
+fail "ctfun write lent to a call", "a view of the temporary `sq[3]` outlives its statement", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  sub main()
+    w = !sq[3]
+    w[0] = 7
+    print(w[0])
+
+fail "ctfun enum methods resolved in order", "`[64]Big` takes 512000000 bytes", errors: 1, whole: true
+  fun g[k: Int] -> Mode2
+    if k > 100 and f[0] == 7
+      return Mode2.x
+    Mode2.y if k == 2 else Mode2.x
+
+  fun f[n: Int] -> Int
+    p = g[n]
+    q = g[2]
+    1 if p == q else 0
+
+  obj Big
+    a: [1000000]Int
+
+  enum Mode2
+    x
+    y
+
+  fun Mode2.many(?@) -> [64]Big
+    [64 of Big(a: [1000000 of 1])]
+
+  sub main()
+    print(f[2])
+    t = Mode2.x.many()
+    print(t[63].a[999999])
+
+test "ctfun enum value from a constant", "6 5 1", whole: true
+  Y = 5
+
+  enum Mode
+    a = Y
+    b = Y + 1
+
+  fun f[m: Mode] -> Int
+    match m
+      .a => 1
+      .b => 2
+
+  sub main()
+    m = Mode.b
+    print(Int(m), Int(Mode.a), f[.a])
+
+test "ctfun enum value from a later constant", "2 6 5", whole: true
+  X = f[.b]
+
+  fun f[m: Mode] -> Int
+    match m
+      .a => 1
+      .b => 2
+
+  enum Mode
+    a = Y
+    b = Y + 1
+
+  Y = 5
+
+  sub main()
+    m = Mode.b
+    print(X, Int(m), Int(Mode.a))
+
+test "ctfun enum converted by its value", "7", whole: true
+  enum Mode
+    a = 3
+    b = 7
+
+  fun v[m: Mode] -> Int
+    Int(m)
+
+  sub main()
+    print(v[.b])
+
+test "ctfun enums ordered", "true", whole: true
+  enum Mode
+    a
+    b
+
+  fun lt[m: Mode] -> Bool
+    m < Mode.b
+
+  sub main()
+    print(lt[.a])
+
+test "ctfun Bool ordered", "true", whole: true
+  fun f[b: Bool] -> Bool
+    b < true
+  sub main()
+    print(f[false])
+
+test "ctfun enum value as index", "0", whole: true
+  enum Mode
+    a
+    b
+  fun f[m: Mode] -> Int
+    [3 of 0][Int(m)]
+  sub main()
+    print(f[.b])
+
+test "ctfun enum converted to U8", "1", whole: true
+  enum Mode
+    a
+    b
+  fun f[m: Mode] -> U8
+    U8(m)
+  sub main()
+    print(f[.b])
+
+test "ctfun long expressions nested in calls", "603000", whole: true
+  fun a[n: Int] -> Int
+    if n == 0
+      return 0
+    a[n - 1] + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n + n
+  sub main()
+    print(a[200])
+
+fail "ctfun nesting limit", "nests more than 20000 expressions and statements in one another", whole: true
+  fun a[n: Int] -> Int
+    if n == 0
+      return 0
+    if n > -1
+      if n > -2
+        if n > -3
+          if n > -4
+            if n > -5
+              if n > -6
+                if n > -7
+                  if n > -8
+                    if n > -9
+                      if n > -10
+                        if n > -11
+                          if n > -12
+                            if n > -13
+                              if n > -14
+                                if n > -15
+                                  if n > -16
+                                    if n > -17
+                                      if n > -18
+                                        if n > -19
+                                          if n > -20
+                                            if n > -21
+                                              if n > -22
+                                                if n > -23
+                                                  if n > -24
+                                                    if n > -25
+                                                      if n > -26
+                                                        if n > -27
+                                                          if n > -28
+                                                            if n > -29
+                                                              if n > -30
+                                                                if n > -31
+                                                                  if n > -32
+                                                                    if n > -33
+                                                                      if n > -34
+                                                                        if n > -35
+                                                                          if n > -36
+                                                                            if n > -37
+                                                                              if n > -38
+                                                                                if n > -39
+                                                                                  if n > -40
+                                                                                    return a[n - 1] + 1
+    n
+  sub main()
+    print(a[255])
+
+fail "ctfun shift in the result type", "compile-time call `sh[8]` shifts by 8, outside 0..7", whole: true
+  fun sh[k: U8] -> U8
+    1 << k
+
+  sub main()
+    print(sh[8])
+
+test "ctfun arrays are values in branches", ''', whole: true
+  1 1 [1, 2] 3
+  1
+'''
+  fun f[n: Int] -> Int
+    b = [1, 2]
+    a = b if n > 0 else b
+    a[0] = 9
+    b[0]
+
+  fun g[n: Int] -> Int
+    b = [1, 2]
+    a = match n
+      0 => b
+      _ => b
+    a[0] = 9
+    b[0]
+
+  fun h[n: Int] -> [2]Int
+    b = [1, 2]
+    a = [b, b]
+    a[0][0] = 9
+    b
+
+  fun k[n: Int] -> Int
+    b = [[1, 2], [3, 4]]
+    for _ in b
+      pass
+    c = b[0]
+    c[1] = 7
+    b[0][0] + b[0][1]
+
+  sub main()
+    print(f[1], g[1], h[1], k[1])
+    b = [1, 2]
+    a = b if 1 > 0 else b
+    a[0] = 9
+    print(b[0])
+
+test "ctfun arrays are values in blocks and loops", "1 [1, 2] 1", whole: true
+  # array-valued if, then mutate the source through the result
+  fun f[n: Int] -> Int
+    b = [1, 2]
+    c = [3, 4]
+    a = if n > 0
+      b
+    else
+      c
+    a[0] = 9
+    b[0]
+
+  fun g[n: Int] -> [2]Int
+    b = [1, 2]
+    a = b
+    b[0] = 5
+    a
+
+  fun w[n: Int] -> Int
+    b = [1, 2]
+    a = while true
+      break b
+    a[0] = 9
+    b[0]
+
+  sub main()
+    print(f[1], g[1], w[1])
+
+test "ctfun discard", "1", whole: true
+  fun f[n: Int] -> Int
+    _ = n * 2
+    n
+
+  sub main()
+    print(f[1])
+
+test "ctfun memory counts what is live", "3000", whole: true
+  fun g[n: Int] -> [n]Int
+    t = [n of 0]
+    for i in 0..n
+      u = t
+      t[i] = u.len
+    t
+  sub main()
+    print(g[3000][0])
+
+test "ctfun loop walks a large array in place", "1000000", whole: true
+  fun f[k: Int] -> Int
+    t = [k of [k of 1]]
+    s = 0
+    for r in t
+      for x in r
+        s += x
+    s
+  sub main()
+    print(f[1000])
+
+fail "ctfun limits ignore earlier calls", "6:17: compile-time call `a[300]` nests more than 256 compile-time calls", whole: true
+  fun a[n: Int] -> Int
+    if n > 0
+      return a[n - 1] + 1
+    n
+  sub main()
+    print(a[255], a[300])
+
+test "ctfun result sized by the caller's parameter", "[1, 1, 1]", whole: true
+  fun sq[n: Int] -> [n]Int
+    [n of 1]
+  fun mine[n: Int] -> [n]Int
+    sq[n]
+  sub main()
+    print(mine[3])
+
+test "ctfun imported, at every use", ''', whole: true
+  [0, 1, 4, 9] [.strict, .loose] [0, 1, 4]
+  [0, 1, 4] [0, 0, 0, 0] .strict [.strict, .loose, .loose] [[true, false], [true, false]]
+  4 16 16 8
+  .loose
+'''
+  use lib
+
+  fun mine[n: Int] -> [n]Int
+    t = [n of 0]
+    t
+
+  fun gen[T](x: T) -> Int
+    s = lib.squares[5]
+    s[4]
+
+  sub main()
+    lib.show()
+    print(lib.squares[3], mine[4], lib.pick[true], lib.modes[3], lib.flags[2])
+    a: [lib.usesN[1]]Int = [4 of 0]
+    print(a.len, gen(1), gen(true), lib.usesN[2])
+    m: lib.Mode = lib.pick[false]
+    print(m)
+
+  file "lib.rig"
+    pub enum Mode
+      loose
+      strict
+
+    pub N = 3
+
+    pub fun squares[n: Int] -> [n]Int
+      t = [n of 0]
+      for i in 0..n
+        t[i] = i * i
+      t
+
+    pub fun pick[b: Bool] -> Mode
+      Mode.strict if b else Mode.loose
+
+    pub fun modes[n: Int] -> [n]Mode
+      m = [n of Mode.loose]
+      m[0] = .strict
+      m
+
+    pub fun flags[n: U8] -> [n][2]Bool
+      [n of [true, false]]
+
+    fun hidden[n: Int] -> Int
+      n
+
+    pub fun usesN[k: Int] -> Int
+      N * k + hidden[k]
+
+    pub sub show()
+      print(squares[4], modes[2], squares[3])
+
+test "ctfun imported call sized by the caller's parameter", "[0, 1, 4]", whole: true
+  use lib
+
+  fun mine[n: Int] -> [n]Int
+    lib.squares[n]
+
+  sub main()
+    print(mine[3])
+
+  file "lib.rig"
+    pub fun squares[n: Int] -> [n]Int
+      t = [n of 0]
+      for i in 0..n
+        t[i] = i * i
+      t
+
+fail "ctfun loop changes what it walks", "cannot reassign `t` while it is lent"
+  fun f[n: Int] -> Int
+    t = [1, 2, 3]
+    s = 0
+    for x in t
+      t = [7, 7, 7]
+      s += x
+    s + n
+
+  print(f[1])
+
+test "ctfun parenthesized length", "5 3"
+  fun cap[n: Int] -> Int
+    n * 2 + 1
+
+  type Y = [(cap[2])]Int
+
+  a: Y = [5 of 0]
+  b: [(cap[1])]Int = [3 of 0]
+  print(a.len, b.len)
+
+test "ctfun table of a million bytes", "7", whole: true
+  fun big[n: Int] -> [n]U8
+    [n of 7]
+  sub main()
+    t = big[1000000]
+    i = 5
+    print(t[i])
+
+test "ctfun table of a million integers", "7", whole: true
+  fun big[n: Int] -> [n]Int
+    [n of 7]
+  sub main()
+    t = big[1000000]
+    i = 5
+    print(t[i])
+
+test "ctfun enum method calls a function over its enum", "1 4", whole: true
+  fun f[m: Mode] -> Int
+    Int(m)
+  enum Mode
+    a = 1
+    b = 2
+  fun Mode.twice(?@) -> Int
+    f[.b] * 2
+  sub main()
+    print(f[.a], Mode.a.twice())
+
+test "ctfun enum methods and drop call a function over the enum", "1 4", whole: true
+  fun f[m: Mode] -> Int
+    Int(m)
+  enum Mode
+    a = 1
+    b = 2
+  fun Mode.twice(?@) -> Int
+    f[.b] * 2
+  sub Mode.drop(!@)
+    print("drop")
+  sub main()
+    print(f[.a], Mode.a.twice())
+
+test "ctfun alias of an enum as a parameter", "1", whole: true
+  type M = Mode
+  enum Mode
+    a
+    b
+  fun f[m: M] -> Int
+    1
+  sub main()
+    print(f[.a])
+
+test "ctfun alias of an enum with constant values as a parameter", "6 10 11", whole: true
+  type M = Mode
+  fun f[m: M] -> Int
+    match m
+      .a => K
+      .b => K + 1
+  enum Mode
+    a = K * 2
+    b
+  K = 5
+  sub main()
+    print(f[.b], Int(Mode.a), Int(Mode.b))
+
+fail "ctfun enum value through an alias needs itself", "enum `Mode` depends on itself (`Mode` → `f` → `Mode`)", errors: 1, whole: true
+  enum Mode
+    a = f[.b]
+    b = 1
+  type M = Mode
+  fun f[m: M] -> Int
+    3
+  sub main()
+    print(f[.a])
+
+test "ctfun alias of an enum as a result", ".b", whole: true
+  type M = Mode
+  enum Mode
+    a
+    b
+  fun f[m: Int] -> M
+    Mode.b
+  sub main()
+    print(f[1])
+
+fail "ctfun enum value needs itself", "enum `Mode` depends on itself (`Mode` → `f` → `Mode`)", errors: 1, whole: true
+  X = f[.b]
+
+  fun f[m: Mode] -> Int
+    match m
+      .a => 1
+      .b => 2
+
+  enum Mode
+    a = f[.b] + 10
+    b = 30
+
+  sub main()
+    print(X, Int(Mode.a))
+
+test "ctfun arrays at the value limit", "8388610 2097152"
+  fun bytes[n: Int] -> Int
+    t = [n of U8(1)]
+    t[n - 1] = 2
+    t.len + Int(t[n - 1])
+
+  fun ints[n: Int] -> Int
+    t = [n of 0]
+    u = t
+    u.len + t.len
+
+  print(bytes[8388608], ints[1048576])
+
+fail "ctfun array past the value limit", "compile-time call `bytes[8388609]` makes an array of 8388609 bytes; a value takes at most 8388608 (8 MiB)"
+  fun bytes[n: Int] -> Int
+    t = [n of U8(1)]
+    t.len
+
+  print(bytes[8388609])

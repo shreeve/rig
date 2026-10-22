@@ -1478,6 +1478,13 @@ reads what holds it until the call returns (§6), so a closure held in
 `x` is not called with `!x`: clone its handle first, `f = +x.f`, then
 `f(!x)`. *(built)*
 
+**A function value is an address.** `fun(A) -> R` or `sub(A)`, as a
+value, is the address of a named function and holds nothing, so it
+moves and shares as an `Int` does and goes to any task. A closure is
+never such a value: a stack closure stays in its binding and is lent
+only as a callable view `?fun`, which no task takes, and an owned
+closure is a `*fun` handle, which goes to no task. *(built)*
+
 ```rig
 obj Checker
   n: Int

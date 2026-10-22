@@ -181,6 +181,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
 | `src/resolve.zig` | the declaration pass: `Cell`, `List`, `Signal` as built-in generics, `^T` as a built-in generic that no name reaches, `Endian` and `Arch` as built-in enums, and the built-in type names (`Int`, `?String`, `String`, ...), symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
+| `src/cteval.zig` | compile-time functions: what each module's calls computed, the check of a body against what runs at compile time, and `Eval`, which runs one ([Compile-time functions](#compile-time-functions)) |
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
@@ -894,7 +895,11 @@ orders the constants so each comes after those its value and its type
 name (`SemContext.const_order`, depth first with an explicit stack);
 the fold (`resolve.foldModuleConsts`) and typecheck take them in that
 order, and a constant that depends on itself is rejected, with its
-cycle, and left out.
+cycle, and left out. The module's compile-time functions are ordered
+with them, each after the constants and functions its declaration
+names, so a constant that calls one is folded after it is checked; a
+cycle of compile-time functions alone is recursion, and one through a
+constant is that constant's cycle (`N` → `f` → `N`).
 
 Every module's `SemContext` is in one shared table, and cross-module
 references go through it: an imported nominal type is
@@ -1410,6 +1415,7 @@ instead of re-deriving it by name:
 | `sliceLendOf(slice)` | what a slice `xs[a..b]` lends of what it slices (`sema.sliceLend`): the elements of an array or a List, a String's bytes through handles and boxes, or nothing of a value that is itself a view; the type checker slices by it, and the ownership checker lends by it |
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
+| `ctCallOf(node)` | for a compile-time call, `(ct_call cap 8)`: the value the checker computed and its type (`cteval.Result`), none in a compile-time function's body ([Compile-time functions](#compile-time-functions)) |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
@@ -2163,6 +2169,68 @@ value, or a write view, is no type argument, [Sema](#sema)), and every
 instance against the requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the
 body's ownership assumptions ([Ownership](#ownership)).
+
+### Compile-time functions
+
+A module-level `fun` with compile-time parameters and no run-time list
+is a compile-time function (`rig.isCtFun`, from the IR alone: the
+Parser wrapper lets the form stand only there, `Parser.ctFunShape`).
+Its call is a node of its own, `(ct_call cap 8)`: once names resolve,
+`cteval.markCalls` makes each `index`, `inst`, or `generic_inst` whose
+callee names one (as `lookupBefore` sees it, so `new cap = ...` hides
+it) a `ct_call`, in place. Every classifier then reads it by its kind,
+as a value made where it is written (`shapeOf`), as an array literal
+is: `?cap[3]` is a view of a temporary, `cap[3][0] = 1` writes into
+one. The function itself is never emitted, and frames, inlining, proof
+summaries, emit, and the oracle skip it; storage and the ownership
+checker check its body as any body.
+
+Sema checks each when the module's constants are folded, in their
+combined order ([Constants](#constants)), which with compile-time
+functions also holds the plain enums: an enum's variants, with their
+values, are resolved there (`resolve.resolveVariantsEarly`), and its
+other members with the rest of the declarations (`TypeResolver.part`).
+`resolve.ensureCtSig` resolves a signature, and `resolve.ensureCtFun`
+checks a body: `cteval.checkNames` holds the names it reads to integer
+constants, plain enums, and integer aliases; `typecheck.checkCtFun`
+types it as any body (`Checker.in_ct_fun`, where a compile-time call
+takes any argument); and `cteval.checkBody` holds every node to the
+positive list `Eval` runs and every value to integers, `Bool`, plain
+enums, and arrays of them. Typing needs the ownership facts of types,
+known only once every declaration is resolved, so the body is typed in
+a window (`sema.beginEarlyContents`) that computes them for the types it
+can reach, which are plain and complete by then; a signature, which may
+name any type, is resolved outside it, and `endEarlyContents` takes
+back everything the window computed. Each function has a stage for its
+signature and one for its body (`cteval.CtFun`), so a signature that
+needs its own value is rejected rather than followed forever.
+
+A call is computed where it is first needed (`cteval.callAt`): where a
+type, a constant, or an enum value is resolved, `ctFoldBy` asks
+`ConstNames.ctCall`, which computes it; in a body, typecheck computes it
+(`Checker.synthCtCall`) and records it (`SemContext.ctCallOf`), which
+`CheckedNames.ctCall`, emit, and the oracle read. Each call written is
+computed alone, from an empty memo of its own (`Eval.memo`), so its
+verdict never depends on what came before; the declaring module keeps
+each call's outcome, failures too (`State.memo`), for the same call
+again. `Eval` runs on a thread with a 512 MiB stack, and counts what it
+nests (`max_nest`) so that stack always holds it; it walks the checked
+IR of the body, reading each node's type from the checker, with the one
+arithmetic core of constant folding (`sema.ctArith`). Arrays are
+values, stored as their types store them: one buffer of packed scalars
+per array, nested arrays row-major, an element of one a view of its row
+(`cteval.Arr`). Each buffer is owned by one binding, element, or result
+(`Held` tells a value read where a local holds it from one of its own),
+and `live` counts the bytes held at once; a loop walks what a local
+holds in place, kept alive while it does (`pins`). The result is checked
+against the declared result type, so emit never writes a value its type
+cannot hold. `callAt` reports a failure at the call, with a note at the
+body's node.
+
+Emit writes a scalar as a literal and an array, at a call in a body, as
+one hidden constant per module per value (`__rig_ct_<i>`,
+`cteval.Hidden`, decided once when the call is recorded); a module
+constant's array is written where the constant is.
 
 ### Diagnostics
 

@@ -443,9 +443,13 @@ pub const Emitter = struct {
         var scan: Scan = .{ .e = self };
         try scan.walk(sexp);
         for (decls) |decl| {
+            // A compile-time function runs in the checker; its calls are
+            // the values it computed.
+            if (rig.isCtFun(decl)) continue;
             try self.w.writeAll("\n");
             try self.emitDecl(decl);
         }
+        try self.emitCtHidden();
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
         if (self.uses_names) try self.emitNamesTable();
@@ -490,6 +494,58 @@ pub const Emitter = struct {
             .@"test" => try self.emitTest(sexp),
             .set => try self.emitConst(sexp),
             else => return self.unsupported(sexp, "this top-level form"),
+        }
+    }
+
+    /// The hidden constants of the module's compile-time array values, each
+    /// written once, however many calls read it (`cteval.recordCall`).
+    fn emitCtHidden(self: *Emitter) Error!void {
+        for (self.facts.ctHidden(), 0..) |h, i| {
+            try self.w.print("\nconst __rig_ct_{d}: ", .{i});
+            try self.emitTypeTy(h.ty);
+            try self.w.writeAll(" = ");
+            try self.writeCtValue(h.value, h.ty);
+            try self.w.writeAll(";\n");
+        }
+    }
+
+    /// A compile-time call's value: the hidden constant that holds an
+    /// array, or the value written out.
+    fn emitCtCall(self: *Emitter, r: facts.CtResult) Error!void {
+        if (r.hidden) |i| return self.w.print("__rig_ct_{d}", .{i});
+        try self.writeCtValue(r.value, r.ty);
+    }
+
+    /// Value `v` of type `ty` as a Zig literal: `@as(i64, 7)`, `true`,
+    /// `@as(Mode, .loose)`, `[_]i64{ 0, 1, 4 }`.
+    fn writeCtValue(self: *Emitter, v: facts.CtVal, ty: TypeId) Error!void {
+        switch (v) {
+            .int => |i| {
+                try self.writeAsOpen(ty);
+                try self.w.print("{d})", .{i});
+            },
+            .boolean => |b| try self.w.writeAll(if (b) "true" else "false"),
+            .variant => |i| {
+                try self.writeAsOpen(ty);
+                try self.w.print(".{f})", .{ident(self.facts.variantName(ty, i))});
+            },
+            .array => |arr| {
+                const elem = self.facts.types.get(ty).array.elem;
+                try self.w.writeAll("[_]");
+                try self.emitTypeTy(elem);
+                try self.w.writeAll("{ ");
+                for (0..arr.len()) |k| {
+                    if (k > 0) try self.w.writeAll(", ");
+                    const e = arr.at(k);
+                    switch (e) {
+                        .int => |n| try self.w.print("{d}", .{n}),
+                        .boolean => |b| try self.w.writeAll(if (b) "true" else "false"),
+                        .variant => |n| try self.w.print(".{f}", .{ident(self.facts.variantName(elem, n))}),
+                        .array => try self.writeCtValue(e, elem),
+                    }
+                }
+                try self.w.writeAll(" }");
+            },
         }
     }
 
@@ -4584,6 +4640,8 @@ pub const Emitter = struct {
                 return self.facts.isConstInt(sym);
             },
             .list => {
+                // A compile-time call's value is a constant.
+                if (self.facts.ctValueOf(e) != null) return true;
                 for (e.items()) |c| if (!self.onlyConstantLeaves(c)) return false;
                 return true;
             },
@@ -5107,6 +5165,7 @@ pub const Emitter = struct {
             // Compile-time arguments are emitted by the call or type that
             // takes them; sema rejects a bracket list as a value.
             .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
+            .ct_call => return self.emitCtCall(self.facts.ctValueOf(sexp) orelse return self.unsupported(sexp, "a compile-time call the checker did not compute")),
             .member, .index => {
                 if (self.facts.instanceOf(sexp) != null) return self.unsupported(sexp, "a bracket list of compile-time arguments as a value");
                 // A field or element holding a write view denotes the
@@ -9074,6 +9133,8 @@ const Scan = struct {
                 try s.put(&s.e.usage.used, s.e.facts.symbols.items[cap].origin);
                 return;
             },
+            // A compile-time function is not emitted.
+            .fun => if (rig.isCtFun(sexp)) return,
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);

@@ -2087,6 +2087,8 @@ const Lowerer = struct {
     fn eval(self: *Lowerer, e: Sexp, how: How, want: ?TypeId) Error!?VarId {
         const pos = self.posOf(e);
         const k = e.kind() orelse return self.leafValue(e, how, want);
+        // A compile-time call is a constant: the checker computed it.
+        if (k == .ct_call) return null;
         switch (k) {
             .member, .index => {
                 if (k == .member and try self.constant(e)) return null;

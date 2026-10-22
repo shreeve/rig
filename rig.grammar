@@ -463,6 +463,7 @@ tokens
     wait                        operand          # `>t`: rewritten by the Parser wrapper to `<t.wait()`'s tree; no pass sees it
     index                       object index
     inst                        object ...args
+    ct_call                     callee ...args @wrapper  # `cap[8]`: a call of a compile-time function, made by sema of the `index`, `inst`, or `generic_inst` that names one (`cteval.markCalls`)
     array                       ...elems
     array_fill                  size value
     tuple                       ...elems         # `(a, b)`: parsed only to be rejected
@@ -891,7 +892,7 @@ thandle  = "*" type:thandle                         → (shared)
 
 tatom    = tname
          | ERROR                                    # `error`: an error of any set
-         | name:tname "[" args:types ![","] "]"      → (generic_inst)
+         | ccall
          | "(" type ")"                             → 2
          | "(" type "," rtypes ![","] ")"           → (results_type 2 ...4)
          | "(" rnamed ![","] ")"                    → (results_type ...2)
@@ -927,8 +928,8 @@ targ     = type
          | cexp
 
 # An array size: an integer, a name (a constant or a compile-time
-# parameter), a module's constant, or arithmetic on them, any of them
-# in parentheses. A negative integer parses, to be reported as out of
+# parameter), a module's constant, a compile-time function's value
+# (`cap[4]`), or arithmetic on them, any of them in parentheses. A negative integer parses, to be reported as out of
 # range.
 dim      = INTEGER
          | "-" operand:INTEGER                      → (neg)
@@ -936,11 +937,19 @@ dim      = INTEGER
          | name
          | "(" name ")"                             → 2
          | object:name "." name:name                → (member)
+         | ccall
+         | "(" ccall ")"                            → 2
          | cexp
+
+# A generic type's instance, or a call of a compile-time function in a
+# type: `Wrap[Int]`, `lib.Wrap[Int]`, `[cap[4]]T`, `[cap[4] * 2]T`.
+ccall    = name:name "[" args:types ![","] "]"       → (generic_inst)
+         | name "." name "[" types ![","] "]"       → (generic_inst (member 1 3) ...5)
 
 # Arithmetic on compile-time integers, with at least one operator, so
 # that a bare name stays a type. Operands are integers, names, module
-# constants, and parenthesized arithmetic.
+# constants, compile-time functions' values, and parenthesized
+# arithmetic.
 cexp     = cmulop
          | caddop
          | "(" cexp ")"                             → 2
@@ -956,6 +965,7 @@ cmul     = cmulop
 cunit    = INTEGER
          | name
          | object:name "." name:name                → (member)
+         | ccall
          | "(" cexp ")"                             → 2
 
 # ==============================================================================

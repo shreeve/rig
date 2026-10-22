@@ -423,6 +423,19 @@ turbofish. The price is that a type argument in an expression must be
 spelled as an expression: `[]Int` and `fun(Int) -> Int` are not, and
 need a `type` alias there.
 
+The rule holds to its end in compile-time functions. A `fun` with
+brackets and no parentheses, `fun cap[n: Int] -> Int`, has no run-time
+parameters and so no run time: its call, `cap[8]`, is a constant, which
+the checker computes, never Zig. That keeps one evaluator and one
+meaning of `a * b` (the checker's constant folding), every failure a
+Rig diagnostic at the call, and a verdict that is the same on every
+machine, since the checker counts steps rather than time. Its body is
+held to a positive list of what runs at compile time, as C++'s
+`constexpr` is, rather than whatever happens to fold, as Zig's
+`comptime` allows: no call with parentheses runs inside it either. No
+keyword is needed, since the missing parentheses already say "nothing
+here runs when the program does".
+
 ### Per-instance checking instead of traits
 
 A generic body is checked once, with `T` unknown, and records what it

@@ -310,7 +310,7 @@ fail "task local tasks given", "`!ts` is lent to a task to write: `!Tasks[Int]` 
   t = more(!ts)&
   >t
 
-fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> Int` views a function, whose captures its type does not show", errors: 1
+fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> Int` views a closure or function lent for a call, whose captures its type does not show", errors: 1
   # A function lent to read could lend what it captures to write, which
   # no two tasks may hold at once, even on one thread.
   fun call(f: ?fun(Int) -> Int) -> Int
@@ -320,7 +320,7 @@ fail "task local function lent", "`?f` is lent to a task to read: `?fun(Int) -> 
   t = call(?f)&
   print(>t)
 
-fail "task closure literal lent", "10:14: this closure is lent to a task to read: `?fun(Int) -> Int` views a function, whose captures its type does not show", errors: 1
+fail "task closure literal lent", "10:14: this closure is lent to a task to read: `?fun(Int) -> Int` views a closure or function lent for a call, whose captures its type does not show", errors: 1
   # A closure literal written in the call is lent to it, as `?f` is: its
   # captures live in the caller's block, which ends before the task does.
   fun apply(n: Int, f: ?fun(Int) -> Int) -> Int
@@ -333,7 +333,7 @@ fail "task closure literal lent", "10:14: this closure is lent to a task to read
   t = apply(3, |+k, x| x + k)&
   print(>t)
 
-fail "task closure literal writes a capture", "this closure is lent to a task to read: `?fun(Int) -> Int` views a function", errors: 1
+fail "task closure literal writes a capture", "this closure is lent to a task to read: `?fun(Int) -> Int` views a closure or function lent for a call", errors: 1
   # Lent to a task, a closure that writes `total` would race the maker's
   # own writes to it.
   fun apply(n: Int, f: ?fun(Int) -> Int) -> Int
@@ -712,4 +712,162 @@ test "task.workers takes effect only before the first task", seeds: 20, '''
   t = one()&
   print(task.workers(2))
   print(task.workers(0))
+  print(>t)
+
+test "task function value given", seeds: 20, "42 9 4"
+  # A function value is a named function's address and holds nothing, so
+  # it goes to a task on any core, alone or inside what is given or lent.
+  fun inc(x: Int) -> Int
+    x + 1
+
+  fun dec(x: Int) -> Int
+    x - 1
+
+  fun use_it(f: fun(Int) -> Int) -> Int
+    f(41)
+
+  obj Box
+    f: fun(Int) -> Int
+
+  fun use_box(b: Box) -> Int
+    b.f(8)
+
+  type F = fun(Int) -> Int
+
+  fun use_all(fs: ?List[F]) -> Int
+    s = 0
+    for f in fs
+      s += f(1)
+    s
+
+  t = use_it(inc)&
+  u = use_box(Box(f: inc))&
+  fs = List[F]()
+  !fs.push(inc)
+  !fs.push(dec)
+  !fs.push(inc)
+  v = use_all(?fs)&
+  print(>t, >u, >v)
+
+code "task function value spawns", ".spawn(use_it, .{"
+  fun inc(x: Int) -> Int
+    x + 1
+
+  fun use_it(f: fun(Int) -> Int) -> Int
+    f(41)
+
+  t = use_it(inc)&
+  print(>t)
+
+test "task function value results and writes", seeds: 20, "4 1 7"
+  # A task gives back a function value, a fallible one crosses, and a
+  # write view of a function local is lent to a task that sets it.
+  fun inc(x: Int) -> Int
+    x + 1
+
+  fun dec(x: Int) -> Int
+    x - 1
+
+  error Bad
+    odd
+
+  fun half(x: Int) -> Int!
+    return Bad.odd if x % 2 == 1
+    x / 2
+
+  fun pick() -> fun(Int) -> Int
+    inc
+
+  fun try_it(f: fun(Int) -> Int!) -> Int!
+    f(8)!
+
+  sub set(f: !fun(Int) -> Int)
+    f = dec
+
+  t = pick()&
+  g = >t
+  u = try_it(half)&
+  h: fun(Int) -> Int = inc
+  w = set(!h)&
+  >w
+  print(g(3), h(2), (>u)! + 3)
+
+test "task function value through a channel", seeds: 20, "10"
+  fun inc(x: Int) -> Int
+    x + 1
+
+  type F = fun(Int) -> Int
+
+  fun worker(ch: *Chan[F]) -> Int!
+    f = (!ch).recv()! ?? inc
+    f(9)
+
+  ch = *Chan[F](1)
+  t = worker(+ch)&
+  !ch.send(inc)!
+  print((>t)!)
+
+fail "task closure binding given", "6:10: closure `g` stays in its binding, so it goes to no task", errors: 1
+  fun call(f: fun(Int) -> Int) -> Int
+    f(1)
+
+  n = 2
+  g: fun(Int) -> Int = |+n, x| x + n
+  t = call(g)&
+  print(>t)
+
+fail "task once callable forwarded", "5:12: `f` is lent to a task to read: `?fun(Int) -> Int` views a closure or function lent for a call", errors: 1
+  fun work(f: ?fun(Int) -> Int) -> Int
+    f(1)
+
+  fun run(f: once ?fun(Int) -> Int) -> Int
+    t = work(f)&
+    >t
+
+  n = 5
+  print(run(|+n, x| x + n))
+
+fail "task callable forwarded from a function", "views a closure or function lent for a call", errors: 1
+  # A `?fun` may view a closure, whatever the caller lent; a named
+  # function goes to a task by value.
+  fun inc(x: Int) -> Int
+    x + 1
+
+  fun work(f: ?fun(Int) -> Int) -> Int
+    f(1)
+
+  fun run(f: ?fun(Int) -> Int) -> Int
+    t = work(f)&
+    >t
+
+  print(run(inc))
+
+fail "task captured closure lent", "views a closure or function lent for a call", errors: 1
+  fun call(f: ?fun(Int) -> Int) -> Int
+    f(1)
+
+  total = 0
+  g: fun(Int) -> Int = |!total, x|
+    total += x
+    total
+  h: fun(Int) -> Int = |?g, y|
+    t = call(g)&
+    >t
+  print(h(1))
+
+fail "task owned closure given", "`<cb` is given to a task: `*fun(Int) -> Int` is an owned closure, whose captures its type does not show", errors: 1
+  fun call(f: *fun(Int) -> Int) -> Int
+    f(1)
+
+  cb: *fun(Int) -> Int = *|x| x + 1
+  t = call(<cb)&
+  print(>t)
+
+fail "task weak closure lent", "an owned closure, whose captures its type does not show", errors: 1
+  fun call(f: ?~fun(Int) -> Int) -> Int
+    1
+
+  cb: *fun(Int) -> Int = *|x| x + 1
+  w = ~cb
+  t = call(?w)&
   print(>t)

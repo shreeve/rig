@@ -56,7 +56,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `src/parser.zig` | generated from `rig.grammar` by `zig build`; not tracked |
 | `src/rig.zig` | the `Lexer` wrapper (layout, line joins, token classes) and the `Parser` wrapper (rewrites the tree into the semantic IR) |
 | `src/modules.zig` | loads `use`d files and checks modules in dependency order |
-| `src/sema.zig`, `resolve.zig`, `typecheck.zig` | names, declarations, types, effects, and the facts table |
+| `src/sema.zig`, `resolve.zig`, `typecheck.zig`, `cteval.zig` | names, declarations, types, effects, the facts table, and compile-time functions |
 | `src/storage.zig` | the hidden storage emit makes, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker: moves, loans, drops |
 | `src/proofs.zig` | the index, byte, and add checks known to pass, which emit omits |

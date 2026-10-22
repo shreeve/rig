@@ -38,6 +38,21 @@ pub fn returnType(fun_or_sub: Sexp) Sexp {
     return if (fun_or_sub.isKind(.fun)) ir.Fun.returns(fun_or_sub) else .nil;
 }
 
+/// A compile-time function: a `fun` with compile-time parameters and no
+/// run-time parameter list, `fun cap[n: Int] -> Int`, which the checker
+/// runs and the program never does. The Parser wrapper lets this form
+/// stand only at module level (`ctFunShape`), so the IR decides it: the
+/// one classifier every pass reads.
+pub fn isCtFun(decl: Sexp) bool {
+    const def = unpub(decl);
+    return def.isKind(.fun) and ir.Fun.params(def) == .nil and ir.Fun.tparams(def) != .nil;
+}
+
+/// A declaration without its `pub`.
+pub fn unpub(decl: Sexp) Sexp {
+    return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+}
+
 /// Whether the function body `body` ends in a panic on every path: its
 /// last statement panics, or is an `if` with an `else` or a `match`
 /// each of whose branches does, and nothing in it returns or passes a
@@ -261,7 +276,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each
@@ -2251,6 +2266,10 @@ pub const Parser = struct {
     /// each as written, `pub` included; the checker says why.
     detached: std.ArrayList(Sexp) = .empty,
 
+    /// How many `obj` or `enum` bodies the node being rewritten is in: a
+    /// function there is a method.
+    type_depth: u32 = 0,
+
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
     pub const max_tree_depth = 1000;
@@ -3092,7 +3111,13 @@ pub const Parser = struct {
             items = copy;
         }
         const walked = try self.allocator().alloc(Sexp, items.len);
+        const in_type = switch (sexp.kind() orelse .module) {
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => true,
+            else => false,
+        };
+        if (in_type) self.type_depth += 1;
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
+        if (in_type) self.type_depth -= 1;
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
         try self.placeRarely(out);
@@ -3426,7 +3451,22 @@ pub const Parser = struct {
         const src = self.base.source;
         const name = ir.get(def, .name);
         const start = self.span(def).start;
+        if (try self.ctFunShape(def)) return;
         // The list goes after the name and its compile-time parameters.
+        const at = self.afterTparams(name);
+        var end = at;
+        while (end < src.len and src[end] != '\n' and src[end] != '#') end += 1;
+        const rest = std.mem.trimEnd(u8, src[at..end], " \t\r");
+        const message = self.format("write `{s}(){s}`: a function's parameter list is always written, even when empty", .{ src[start..at], rest });
+        if (self.failure == null) return self.reject(name, message);
+        const at_name = self.span(name);
+        try self.more_failures.append(self.allocator(), .{ .severity = .@"error", .pos = at_name.start, .end = at_name.end, .message = message });
+    }
+
+    /// Where a definition's header goes on after its name and its
+    /// compile-time parameters, `[...]`.
+    fn afterTparams(self: *Parser, name: Sexp) usize {
+        const src = self.base.source;
         var at: usize = self.span(name).end;
         var probe = at;
         while (probe < src.len and src[probe] == ' ') probe += 1;
@@ -3441,13 +3481,50 @@ pub const Parser = struct {
             }
             at = @min(probe + 1, src.len);
         }
-        var end = at;
-        while (end < src.len and src[end] != '\n' and src[end] != '#') end += 1;
-        const rest = std.mem.trimEnd(u8, src[at..end], " \t\r");
-        const message = self.format("write `{s}(){s}`: a function's parameter list is always written, even when empty", .{ src[start..at], rest });
-        if (self.failure == null) return self.reject(name, message);
-        const at_name = self.span(name);
-        try self.more_failures.append(self.allocator(), .{ .severity = .@"error", .pos = at_name.start, .end = at_name.end, .message = message });
+        return at;
+    }
+
+    /// A `fun` with compile-time parameters and no run-time list is a
+    /// compile-time function (`isCtFun`), declared at module level, whose
+    /// every parameter is a value (`n: Int`) and which gives a value
+    /// (`-> T`). True when `def` takes that form: accepted, or rejected
+    /// here with why. False when it is a run-time function missing its
+    /// list, which the caller's fix-it shows.
+    fn ctFunShape(self: *Parser, def: Sexp) std.mem.Allocator.Error!bool {
+        if (!def.isKind(.fun) and !def.isKind(.sub)) return false;
+        const tparams = ir.get(def, .tparams);
+        if (tparams == .nil or tparams.items().len == 0) return false;
+        for (tparams.items()) |p| if (!p.isKind(.@":")) return false;
+        const src = self.base.source;
+        const name = ir.get(def, .name);
+        const header = src[self.span(name).start..self.afterTparams(name)];
+        if (def.isKind(.sub)) {
+            self.reject(name, self.format("a compile-time function gives a value: write `fun {s} -> T`; a `sub` writes its parameter list: `sub {s}()`", .{ header, header }));
+            return true;
+        }
+        if (!def.isKind(.fun)) return false;
+        if (self.type_depth > 0 or ir.get(def, .owner) != .nil) {
+            self.reject(name, self.format("a compile-time function is declared at module level; a method writes its parameter list: `fun {s}(?@)`", .{header}));
+            return true;
+        }
+        const mark = ir.get(def, .mark);
+        if (mark != .nil) {
+            self.reject(mark, self.format("`{s}` is a compile-time function, which the checker runs, so no call of it is left to mark `{s}`: drop the `{s}`", .{ header, @tagName(mark.kind().?), @tagName(mark.kind().?) }));
+            return true;
+        }
+        if (ir.Fun.returns(def) == .nil) {
+            self.reject(name, self.format("a compile-time function gives a value: write its type, `fun {s} -> T`", .{header}));
+            return true;
+        }
+        if (ir.get(def, .body) == .nil) {
+            self.reject(name, self.format("`{s}` runs in the compiler, which runs only Rig: give it a body", .{header}));
+            return true;
+        }
+        if (ir.get(def, .origins) != .nil or ir.get(def, .keeps) != .nil) {
+            self.reject(name, self.format("`{s}` gives a value made at compile time, which views nothing: drop its `from` and `keeps`", .{header}));
+            return true;
+        }
+        return true;
     }
 
     /// The rejections after the first (`diagnostic()`), in source order.
@@ -3556,10 +3633,6 @@ pub const Parser = struct {
     fn ownerOf(decl: Sexp) Sexp {
         const d = unpub(decl);
         return if (d.isKind(.fun) or d.isKind(.sub)) ir.get(d, .owner) else .nil;
-    }
-
-    fn unpub(decl: Sexp) Sexp {
-        return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
     }
 
     /// The index in `decls` of the `obj` or `enum` named `name`.
