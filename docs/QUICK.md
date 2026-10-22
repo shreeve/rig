@@ -35,7 +35,8 @@ never on the heap or shared unless a sigil says so.
 
 **After a name, `[]` is compile time and `()` is run time.** Indexing is
 the one familiar exception: `max[Float](1, 2)` passes a type, `xs[i]`
-indexes a value.
+indexes a value. A function with only brackets runs at compile time:
+`fun cap[n: Int] -> Int`, called `cap[8]`, is a constant.
 
 **Reading is unmarked; writing is marked.** A bare argument is lent to
 read where its parameter is a read view: `size(v)` is `size(?v)` for

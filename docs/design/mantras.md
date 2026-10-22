@@ -76,7 +76,9 @@ lands, not what it does; a program means the same with every marker
 removed.
 
 **Square brackets after a name mean compile time.** `List[Int]`,
-`push[U32, .big](x)`, `Simd[U8, 16]`; parentheses are run time.
+`push[U32, .big](x)`, `Simd[U8, 16]`; parentheses are run time. So a
+function with only brackets, `fun cap[n: Int] -> Int`, runs at compile
+time, and `cap[8]` is a constant: the rule needed no keyword.
 
 **`$name(…)` asks the compiler about a type; `$name:` is a
 label.** The `$` touches the name, and the name the `(`. Each of Rig's

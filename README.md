@@ -251,7 +251,9 @@ The compiler knows, for every type, whether a value may move to another
 core or be read from two at once, and decides where each task may run.
 A task handed a `*T` handle, whose count is not atomic, runs on the
 thread of the task that makes it, so a GUI program's shared state can
-use `&` too. `Tasks[T]` holds a set of tasks, `*Chan[T](n)` is a
+use `&` too. A function value, `fun(Int) -> Int`, is a named
+function's address and holds nothing, so it goes to a task on any core.
+`Tasks[T]` holds a set of tasks, `*Chan[T](n)` is a
 bounded channel, `task.select` commits exactly one of its arms, and
 `par.map` and `par.each` spread a loop over the cores.
 
@@ -398,7 +400,10 @@ what it does with `T`, the methods it calls on one included:
 bound instead, `fun max[T: Ord](a: T, b: T) -> T`, and a type names
 the built-in APIs it gives a meaning of its own, `obj Version: Ord`
 ([docs/design/apis.md](docs/design/apis.md)). After a name, `[]` is
-compile time and `()` is run time.
+compile time and `()` is run time, so a function with only brackets
+runs in the checker: `fun cap[n: Int] -> Int` makes `cap[8]` a
+constant, in an expression, a module constant, or a type
+(`[cap[4]]U8`), and a failure in it is a Rig error at the call.
 A closure's capture list says how it holds each outer value,
 `|+total, ~clicks| ...`. Rig also has objects, enums with payloads and
 exhaustive `match`, modules of one file or a directory, SIMD vectors

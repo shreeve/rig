@@ -128,6 +128,71 @@ The number is part of the type, so `Recent[Int, 3]` and
 `Recent[Int, 4]` are two types, and one is never assigned to the
 other.
 
+## Functions the compiler runs
+
+Brackets mean compile time, so a function written with brackets alone,
+and no parentheses, runs while the program compiles. Its value is a
+constant wherever it is used, a type included:
+
+```rig
+obj Recent[T, n: Int]
+  items: [n]T
+
+fun slots[n: Int] -> Int
+  if n < 1
+    panic("need at least one slot")
+  size = 1
+  while size < n
+    size *= 2
+  size
+
+fun squares[n: Int] -> [n]Int
+  t = [n of 0]
+  for i in 0..n
+    t[i] = i * i
+  t
+
+SQUARES = squares[8]
+
+sub main()
+  r = Recent[Int, slots[3]](items: [4 of 0])
+  print(slots[3], slots[100], SQUARES[7], r.items.len)
+```
+
+```output
+4 128 49 4
+```
+
+`slots[3]` is 4 before the program runs: the compiled program holds the
+number, not the loop, and `squares[8]` becomes a table of eight numbers.
+A compile-time function takes integers, `Bool`, and plain enums, and
+gives one of those or a fixed array of them. Its body may bind locals,
+do arithmetic, branch, loop, fill arrays, and call compile-time
+functions, itself included; it cannot print, allocate, or call a
+function that runs when the program does.
+
+A mistake in it is found when compiling, and reported where it was
+asked:
+
+```rig reject
+fun slots[n: Int] -> Int
+  if n < 1
+    panic("need at least one slot")
+  n
+
+EMPTY = slots[0]
+
+sub main()
+  print(EMPTY)
+```
+
+```error
+compile-time call `slots[0]` panics: need at least one slot
+```
+
+Overflow, an index out of range, and a loop that never ends are found
+the same way: the compiler stops after ten million steps and says so.
+
 ## What a body may do with a `T`
 
 `largest` compares with `>` and copies with `best = x`. Neither works
@@ -599,6 +664,7 @@ through a function pointer, the one call in this chapter that does.
 | `fun largest[T](xs: []T)` | one body; each type it meets is checked against what the body does |
 | `largest[Float](...)` | the type named; otherwise it is inferred from the arguments |
 | `obj Recent[T, n: Int]` | a value known when compiling, part of the type |
+| `fun slots[n: Int] -> Int`, `slots[3]` | a function the compiler runs; its value is a constant |
 | `s.area()` on a `T` | the instance's own method, a direct call, typed where it stands |
 | `[T: Ord + Copy]` | a bound: the body may use only that, and each call must provide it |
 | `obj Tag: Eq + Hash`, `obj Job: Ord` | `==`, hashing, or order get the type's own meaning, everywhere |
@@ -619,8 +685,9 @@ Shape`. An API object, `?{Shape}`, which holds any value that provides
 the enum and the object of closures above are how one list holds many
 kinds.
 
-A value parameter is an integer. `Bool` and enum values as parameters
-and functions the compiler runs while compiling are on the
+A value parameter of a generic type or function is an integer, and a
+compile-time function cannot yet be called with one: `[slots[n]]T`
+inside a generic body, text parameters, and objects are on the
 [roadmap](../ROADMAP.md).
 
 ## Where to go next
