@@ -91,6 +91,13 @@ decisions, model, checks, and what is left are in
 flight; the next piece (a reading API for renderers, OSC, resize, or
 `std.tty` last) is the owner's choice.
 
+Compile-time functions (`fun cap[n: Int] -> Int`, called `cap[8]`)
+run in the checker (`src/cteval.zig`) over integers, `Bool`, plain
+enums, and fixed arrays of them, and a function value goes to any
+task (SPEC, "Compile-time functions" and §18). The next forms, a call
+over an enclosing generic's parameter (`[cap[n]]T`) and text
+parameters, are in docs/ROADMAP.md.
+
 Learn Rig ([docs/learn/](docs/learn/README.md)) has journeys 01 to 10.
 Journey 07 teaches APIs' Stages 1 and 2 and `xs.reduce(start, f)`;
 rewrite its later sections as Stages 3 and 4 land. Journey 11 is

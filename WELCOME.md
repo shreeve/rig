@@ -224,6 +224,8 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | a type with a value | `obj Ring<T, const N: usize>` | `fn Ring(comptime T: type, comptime n: usize) type` | `obj Ring[T, n: Int]` |
 | its instance | `Ring<i64, 4>` | `Ring(i64, 4)` | `Ring[Int, 4]` |
 | a filled array | `[0; N]` | `@as([n]i64, @splat(0))` | `[n of 0]` |
+| compile-time function | `const fn cap(n: usize) -> usize` | `fn cap(comptime n: i64) i64` | `fun cap[n: Int] -> Int` |
+| its call | `cap(8)` in a `const` | `comptime cap(8)` | `cap[8]`, anywhere a constant goes |
 
 After a name, square brackets give compile-time arguments, types and
 values alike, and parentheses give run-time ones. Indexing is the one
@@ -259,6 +261,7 @@ correspondences:
 | `obj Wrap[T]` | `fn Wrap(comptime T: type) type` |
 | `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
 | `fun f[n: Int](x: Int)`, `f[3](x)` | `fn f(comptime n: i64, x: i64) i64`, `f(3, x)` |
+| `fun cap[n: Int] -> Int`, `cap[8]` | no function: the value the checker computed, as a literal, or a hidden constant for an array |
 | `[n of x]` | `@as([n]T, @splat(x))` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |

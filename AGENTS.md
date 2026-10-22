@@ -18,7 +18,7 @@ the same thing everywhere; words are libraries.
 The six families of sigils are on one page in [docs/QUICK.md](docs/QUICK.md),
 and each is taught in [docs/learn/01-sigils.md](docs/learn/01-sigils.md).
 
-Brackets after a name are compile time (`List[Int]`), parentheses run
+Brackets after a name are compile time (`List[Int]`, `cap[8]`), parentheses run
 time. The whole ownership model is [docs/CORE.md](docs/CORE.md).
 
 ## The North Star: what the compiler must guarantee
