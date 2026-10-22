@@ -1041,6 +1041,7 @@ pub const Facts = struct {
     /// `*Actor(x)` calls (`Checker.actorMake`) and method calls through
     /// an actor's handle (`Checker.actorCall`).
     actor_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    frozen_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// `*Chan[T](n)` calls (`Checker.chanMake`), `task.select` calls
     /// (`Checker.taskSelect`), and their arms, receiving or sending.
     chan_makes: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -2179,6 +2180,9 @@ pub const Requirement = union(enum) {
     /// Printable (`printable`): the body prints a value that holds the
     /// parameter, and a `[]U8` would print as text.
     printable,
+    /// Holds only data that never changes (`frozenBlocker`): the body
+    /// freezes a value that holds the parameter, `*Frozen(x)`.
+    frozen,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -2203,6 +2207,7 @@ pub const Requirement = union(enum) {
             .not_function => "a handle",
             .named => "a type name",
             .printable => "printing",
+            .frozen => "a frozen value",
         };
     }
 };
@@ -2346,6 +2351,7 @@ pub const SemContext = struct {
     /// `Actor[T]`: a value one task at a time changes, behind `*`.
     actor_sym_id: SymbolId = symbol_invalid,
     chan_sym_id: SymbolId = symbol_invalid,
+    frozen_sym_id: SymbolId = symbol_invalid,
     task_sym_id: SymbolId = symbol_invalid,
     tasks_sym_id: SymbolId = symbol_invalid,
     /// The module makes a task (`f(x)&`): the program's root declares
@@ -3501,6 +3507,17 @@ pub const SemContext = struct {
         return self.facts.actor_makes.contains(exprKey(call) orelse return false);
     }
 
+    /// `call` is `Frozen(x)`, under `*`: the runtime makes the frozen value
+    /// behind its first handle.
+    pub fn recordFrozenMake(self: *SemContext, call: Sexp) !void {
+        try self.facts.frozen_makes.put(self.allocator, recordExprKey(call) orelse return, {});
+    }
+
+    /// Whether `call` is `Frozen(x)` (`recordFrozenMake`).
+    pub fn isFrozenMake(self: *const SemContext, call: Sexp) bool {
+        return self.facts.frozen_makes.contains(exprKey(call) orelse return false);
+    }
+
     pub fn recordActorSupervised(self: *SemContext, call: Sexp) !void {
         try self.facts.actor_supervised.put(self.allocator, recordExprKey(call) orelse return, {});
     }
@@ -4553,7 +4570,7 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // A task owns its running call, and its drop waits for it.
     // A table owns its slots' memory, and drops each slot.
     if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id or id == ctx.table_sym_id) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.table_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.table_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.frozen_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -6273,7 +6290,9 @@ const EquatableWalk = struct {
             .float, .float_literal => if (self.hashing) return .float,
             .slice => |sl| if (item.in_decl) return .view else try self.push(i, sl.elem, ""),
             .read_view, .write_view => return .view,
-            .shared => |inner| return if (ctx.types.get(inner) == .function) .closure else .handle,
+            // A frozen value never changes, so its handles compare, and
+            // hash, by what they reach.
+            .shared => |inner| if (frozenValue(ctx, inner)) |value| try self.push(i, value, "") else return if (ctx.types.get(inner) == .function) .closure else .handle,
             .weak => return .handle,
             .function => return .function,
             // A parameter of another module's generic type is always
@@ -6544,7 +6563,9 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;
     while (true) {
         switch (ctx.types.get(id)) {
-            .read_view, .write_view, .shared => |inner| id = inner,
+            .read_view, .write_view => |inner| id = inner,
+            // A frozen value's handle reaches the value it froze.
+            .shared => |inner| id = frozenValue(ctx, inner) orelse inner,
             else => return id,
         }
     }
@@ -6581,7 +6602,7 @@ pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
 /// `Task`, `Tasks`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
-    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
+    return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id or sym == ctx.frozen_sym_id or sym == ctx.task_sym_id or sym == ctx.tasks_sym_id;
 }
 
 /// The value member access on a `ty_id` reaches: through views,
@@ -6846,6 +6867,31 @@ pub fn actorOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
 }
 
+/// The `T` of a `Frozen[T]`, or null for any other type.
+pub fn frozenValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.frozen_sym_id and pn.args.len == 1) pn.args[0] else null,
+        else => null,
+    };
+}
+
+/// The `T` of the frozen value a handle `*Frozen[T]`, or a view of one,
+/// reaches; null for any other type.
+pub fn frozenOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(unwrapViews(ctx, ty))) {
+        .shared => |inner| frozenValue(ctx, inner),
+        else => null,
+    };
+}
+
+/// Whether a `*` handle to `inner` counts its handles atomically, and so
+/// goes to other tasks: a Cell of one word's, an actor's, a channel's, or
+/// a frozen value's. The one test of whether a count is atomic; the
+/// runtime's `synchronized` makes the same choice.
+pub fn atomicHandle(ctx: *const SemContext, inner: TypeId) bool {
+    return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null;
+}
+
 /// Whether `ty` is a `Cell[T]`.
 pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
@@ -7107,7 +7153,8 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // count atomically, and what they reach changes one task at a
         // time. A channel's elements go to any task. A local task reads
         // what another handle reaches on the same thread.
-        .shared => |inner| if (isWordCell(ctx, inner) or actorValue(ctx, inner) != null) null else if (chanValue(ctx, inner)) |t| blockerIn(ctx, t, .moves, false, seen) else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
+        // A frozen value's handle reads, from any task, what never changes.
+        .shared => |inner| if (atomicHandle(ctx, inner)) atomicReach(ctx, inner, seen) else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
         .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
         // A function value is a named function's address and holds
         // nothing (Core §7); a callable view may view a closure's
@@ -7140,6 +7187,100 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         },
         else => null,
     };
+}
+
+/// What a handle counted atomically (`atomicHandle`) to `inner` hands to
+/// other tasks that may keep it from going there: a channel's elements,
+/// which move; a frozen value, which holds only what never changes
+/// (`frozenIn`); nothing of a Cell's or an actor's.
+fn atomicReach(ctx: *const SemContext, inner: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
+    if (chanValue(ctx, inner)) |t| return blockerIn(ctx, t, .moves, false, seen);
+    if (frozenValue(ctx, inner)) |t| return frozenIn(ctx, t, seen);
+    return null;
+}
+
+/// What in `ty` keeps a frozen value from holding it, in `ctx`'s own
+/// table, or null when nothing does: a frozen value holds only data that
+/// never changes and goes to any task, so plain data, owners, `String`s,
+/// `List`s, objects and enums of such, and other frozen values. A generic
+/// parameter with no bound is checked in each instance.
+pub fn frozenBlocker(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
+    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    defer seen.deinit(ctx.allocator);
+    const b = frozenIn(ctx, ty, &seen) orelse return null;
+    return try localized(ctx, b);
+}
+
+fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
+    const here: Blocker = .{ .ctx = ctx, .ty = ty };
+    return switch (ctx.types.get(ty)) {
+        .shared => |inner| if (frozenValue(ctx, inner) != null) null else here,
+        .weak, .callable, .read_view, .write_view, .string_view, .slice => here,
+        // A generic parameter is decided in each instance: a declaration
+        // freezing one requires it (`Requirement.frozen`), and a generic
+        // type's fields stand for its arguments, decided above.
+        .type_var => null,
+        .function => null,
+        .optional, .range => |inner| frozenIn(ctx, inner, seen),
+        .fallible => |inner| frozenIn(ctx, inner.ok, seen),
+        .array => |a| frozenIn(ctx, a.elem, seen),
+        .results => |parts| for (parts) |part| {
+            if (frozenIn(ctx, part, seen)) |b| break b;
+        } else null,
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) break :blk here;
+            for (pn.args) |a| if (frozenIn(ctx, a, seen)) |b| break :blk b;
+            if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
+            break :blk fieldsFrozen(ctx, pn.sym, seen);
+        },
+        .nominal => |sym| fieldsFrozen(ctx, sym, seen),
+        .imported_nominal => blk: {
+            const decl = nominalDecl(ctx, ty) orelse break :blk here;
+            var found = fieldsFrozen(decl.ctx, decl.sym, seen) orelse break :blk null;
+            if (found.module == null) found.module = decl.module_id;
+            break :blk found;
+        },
+        else => null,
+    };
+}
+
+fn fieldsFrozen(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
+    const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
+    if (got.found_existing) return null;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
+        for (dataFields(f)) |d| if (frozenIn(ctx, d.ty, seen)) |b| return b;
+    }
+    return null;
+}
+
+/// A frozen value of `ty`, written at `pos`, holding generic parameters:
+/// each instance's argument must freeze (`Requirement.frozen`).
+pub fn requireFrozen(ctx: *SemContext, ty: TypeId, pos: u32) std.mem.Allocator.Error!void {
+    if (!ctx.typeInfo(ty).has_type_var) return;
+    var held: std.ArrayList(SymbolId) = .empty;
+    defer held.deinit(ctx.allocator);
+    try reachedTypeVars(ctx, ty, &held, ctx.allocator);
+    for (held.items) |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .frozen, .pos = pos, .op = "freezes" });
+}
+
+/// Why a frozen value cannot hold a `ty`, whose part `blocker` changes
+/// (`frozenBlocker`).
+pub fn frozenMessage(ctx: *SemContext, ty: TypeId, blocker: TypeId) std.mem.Allocator.Error![]const u8 {
+    return ctx.arena.allocator().print("a frozen value holds only data that never changes, and {s}", .{try frozenReason(ctx, ty, blocker)});
+}
+
+/// `frozenMessage`'s reason: "`T` holds `B`", or what `T` is.
+pub fn frozenReason(ctx: *SemContext, ty: TypeId, blocker: TypeId) std.mem.Allocator.Error![]const u8 {
+    const a = ctx.arena.allocator();
+    const shown = try formatType(ctx, ty);
+    if (blocker != ty) return a.print("`{s}` holds `{s}`", .{ shown, try formatType(ctx, blocker) });
+    const what: []const u8 = switch (ctx.types.get(ty)) {
+        .read_view, .write_view, .string_view, .slice => "is a view",
+        .callable => "is a closure lent for a call",
+        .shared, .weak => |inner| if (ctx.types.get(inner) == .function) "is an owned closure" else if (atomicHandle(ctx, inner)) "is a handle that changes what it reaches" else "is a `*` handle whose count is not atomic",
+        else => "is a handle that changes what it reaches",
+    };
+    return a.print("`{s}` {s}", .{ shown, what });
 }
 
 /// Whether a value of `ty` holds a task or a set of tasks: in an
@@ -9371,8 +9512,9 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         },
         // A String lends its bytes; never to write.
         .string => return kind == .read and view == types.string_view_id and lend.push(.text),
-        // A `*T` lends the read views of its `T`; `!h` lends the handle.
-        .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and lend.push(.handle) and lendRows(ctx, inner, kind, view, lend),
+        // A `*T` lends the read views of its `T`, and a `*Frozen[T]` those
+        // of the `T` it froze; `!h` lends the handle.
+        .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and lend.push(.handle) and lendRows(ctx, frozenValue(ctx, inner) orelse inner, kind, view, lend),
         else => {
             // A List lends its elements, as an array does.
             if (listElem(ctx, from)) |elem| return lendElems(ctx, elem, kind, view, lend);

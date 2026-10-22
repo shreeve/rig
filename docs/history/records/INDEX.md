@@ -31,6 +31,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Clones across modules, and Map's `+` | its review: a nested generic hid a drop body, fixed | [clone/](2026-10/clone/) |
 | Error data in the runtime (R3a) | its design, and a review with no blocker | [errors-r3a/](2026-10/errors-r3a/) |
 | CORE's "A failure moves its error" | a panel of four, and the final text | [errors-core/](2026-10/errors-core/) |
+| Frozen values (`*Frozen[T]`) | a handle counted atomically for a value no one changes, read by many tasks; Rig's review | [frozen/](2026-10/frozen/) |
 
 ## Every record
 
@@ -58,6 +59,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [review-1.md](2026-10/errors-r2/review-1.md): Review: declared error sets (branch `errsets`, PR #542)
 - [review-1-fixes.md](2026-10/errors-r2/review-1-fixes.md): how each of review 1's findings was fixed
+
+### 2026-10/frozen/
+
+- [design.md](2026-10/frozen/design.md): `*Frozen[T]`: a value many tasks read
+- [review-1.md](2026-10/frozen/review-1.md): Review: `*Frozen[T]` (branch `frozen`), and its fixes
 
 ### 2026-10/functions/
 

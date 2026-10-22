@@ -851,6 +851,9 @@ pub fn eql(a: anytype, b: anytype) bool {
     // other side counts as `some` at that level), and `none` equals only
     // `none`: a `String?` beside a `?String` compares the text.
     if (comptime A == @TypeOf(null) or B == @TypeOf(null)) return nullish(a) and nullish(b);
+    // A frozen value's handles compare what they reach (Rig gives no
+    // other handle `==`).
+    if (comptime isCountedPointer(A) and isCountedPointer(B)) return eql(a.value, b.value);
     // A view held as a pointer compares as the value it reaches.
     if (comptime isValuePointer(A)) return eql(a.*, b);
     if (comptime isValuePointer(B)) return eql(a, b.*);
@@ -881,6 +884,14 @@ pub fn eql(a: anytype, b: anytype) bool {
 fn isValuePointer(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .one and !isString(T) and !isStringView(T) and @typeInfo(p.child) != .@"fn",
+        else => false,
+    };
+}
+
+/// A handle `*T` to a counted allocation (`Counted`).
+fn isCountedPointer(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .one and @typeInfo(p.child) == .@"struct" and @hasDecl(p.child, "__rig_shared"),
         else => false,
     };
 }
@@ -945,6 +956,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
         },
         .pointer => |p| {
             if (comptime isStringView(T)) return std.mem.eql(u8, a, b);
+            if (comptime isCountedPointer(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
             if (comptime isScalar(p.child)) return std.mem.eql(p.child, a, b);
             if (a.len != b.len) return false;
@@ -992,6 +1004,8 @@ pub fn hashAs(comptime T: type, x: T) u64 {
         .null => return hash_none,
         .pointer => |p| {
             if (comptime isStringView(T)) return hashBytes(x);
+            // A frozen value's handle hashes what it reaches.
+            if (comptime isCountedPointer(T)) return hashAs(@FieldType(p.child, "value"), x.value);
             if (p.size == .one) return hashAs(p.child, x.*);
             if (p.size != .slice) @compileError("rig.hash: no `.hash()` of " ++ @typeName(T));
             var h: u64 = hashInt(x.len);
@@ -1197,6 +1211,20 @@ fn synchronized(comptime T: type) bool {
 /// may be on other cores while a weak one is used here; dropping its
 /// value, one word, does nothing.
 pub fn Shared(comptime T: type) type {
+    return Counted(T, false);
+}
+
+/// The allocation behind `*Frozen[T]`: a `T` no one changes again, which
+/// any task reads, so its handles are counted atomically.
+pub fn Frozen(comptime T: type) type {
+    return Counted(T, true);
+}
+
+/// `Shared` and `Frozen`: a counted allocation whose counts are atomic
+/// when it is `always_atomic` (a frozen value's) or its `T` is
+/// `synchronized`. That is decided inside the type, when it is first
+/// used, so a `T` that holds a `*T` is complete by then.
+fn Counted(comptime T: type, comptime always_atomic: bool) type {
     return struct {
         strong: usize,
         weak: usize,
@@ -1206,7 +1234,7 @@ pub fn Shared(comptime T: type) type {
         pub const __rig_shared = {};
 
         const Self = @This();
-        const atomic_count = synchronized(T);
+        const atomic_count = always_atomic or synchronized(T);
 
         pub fn cloneStrong(self: *Self) *Self {
             if (atomic_count) {
@@ -1455,6 +1483,13 @@ pub fn discardAt(ptr: anytype) void {
 /// Allocate a new `*T` holding `value`.
 pub fn shared(value: anytype) *Shared(@TypeOf(value)) {
     const box = create(Shared(@TypeOf(value)));
+    box.* = .{ .strong = 1, .weak = 1, .value = value };
+    return box;
+}
+
+/// `*Frozen(value)`: the first handle to a frozen value.
+pub fn frozen(value: anytype) *Frozen(@TypeOf(value)) {
+    const box = create(Frozen(@TypeOf(value)));
     box.* = .{ .strong = 1, .weak = 1, .value = value };
     return box;
 }

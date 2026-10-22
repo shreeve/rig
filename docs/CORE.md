@@ -725,10 +725,15 @@ you share is a `Cell`, and it changes only by a marked call: `!c.set(5)`.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. A `Cell` of one word may go to
-other tasks, each change landing at once. `Cell`, `Signal`, and owned
-closures are no-loan homes: they hold no view that carries a loan, so
-they keep text only as a `Static`; a `*T` carries the loans of what it
-holds. *(built)*
+other tasks, each change landing at once. A frozen value, `*Frozen(x)`,
+lives only behind `*`: never a local, parameter, element, or type
+argument by value. It holds only data that never changes: no `Cell`,
+`Signal`, task, closure, view, or handle but another frozen value's.
+So nothing it reaches ever changes, its handles are counted atomically
+and go to any task, and `?f` lends the frozen value as a `?T`.
+`Cell`, `Signal`, and owned closures are no-loan homes: they hold no
+view that carries a loan, so they keep text only as a `Static`; a `*T`
+carries the loans of what it holds. *(built)*
 
 ```rig
 sub main()

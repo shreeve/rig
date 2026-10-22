@@ -92,6 +92,11 @@ changed the language since it:
 - **A closure never called is rejected:** alone on a line, discarded
   with `_ =`, or bound and never used, with one message; `_ = |x| ...`
   passed the checker and failed in the Zig it emitted.
+- **Frozen values:** `*Frozen(x)` puts a value that never changes again
+  behind a handle counted atomically, so many tasks read it with no
+  copy (Rust's `Arc`). It holds only data that never changes, reads as
+  the value through its handle, and compares and hashes as the value,
+  so it keys a Map (SPEC §18, "Frozen values").
 - **Owned closures:** `*fun` and `*sub` take and return anything a
   function's signature may hold: write and read views for the call,
   owners, and handles (docs/CORE.md §7). A temporary callee,

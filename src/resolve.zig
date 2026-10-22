@@ -2349,6 +2349,11 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(node, sema.write_view_misplaced, .{try sema.formatType(self.ctx, ty)});
             return true;
         }
+        // A frozen value lives only behind `*`, whose allocation holds it.
+        if (home != .handle and sema.frozenValue(self.ctx, ty) != null) {
+            try self.ctx.errAt(node, "a frozen value lives only behind a shared handle: write `*{s}`", .{try sema.formatType(self.ctx, ty)});
+            return true;
+        }
         switch (home) {
             .field, .handle, .viewed, .type_arg => {},
             .signature, .binding, .element, .optional => try self.checkWhenResolved(.{ .cell_home = .{ .node = node, .ty = ty, .home = home } }),
@@ -3359,6 +3364,8 @@ pub const TypeResolver = struct {
         if (sym.decl_pos == sema.builtin_decl_pos) {
             try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = sym_id, .args = inst.args } });
         }
+        // `*Frozen[T]` of a generic parameter: each instance's must freeze.
+        if (sym_id == self.ctx.frozen_sym_id and inst.args.len == 1) try sema.requireFrozen(self.ctx, inst.args[0], pos);
         if (!sema.containsTypeVar(self.ctx, ty)) {
             if (sym.decl_pos != sema.builtin_decl_pos) try self.checkWhenResolved(.{ .instance_stacking = .{ .pos = pos, .ty = ty } });
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
@@ -3435,6 +3442,10 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
         // callable is only a parameter's, a local's, or a result's.
         if (!sema.holdsCallable(ctx, args[0])) return null;
         return try a.print(sema.held_callable, .{arg});
+    }
+    if (sym_id == ctx.frozen_sym_id) {
+        const blocker = try sema.frozenBlocker(ctx, args[0]) orelse return null;
+        return try sema.frozenMessage(ctx, args[0], blocker);
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isPlainData(ctx, args[0])) return null;
@@ -3672,6 +3683,14 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Actor", &.{"T"});
         ctx.actor_sym_id = g.sym;
+    }
+
+    // Frozen[T]: a value no one changes again, behind `*`: `*Frozen(x)`.
+    // Its handles are counted atomically, so they go to any task, and its
+    // fields and methods are reached through them (`sema.unwrapAccess`).
+    {
+        const g = try addGeneric(ctx, module_scope, module_scope, "Frozen", &.{"T"});
+        ctx.frozen_sym_id = g.sym;
     }
 
     // List[T]: growable buffer that owns its elements.
