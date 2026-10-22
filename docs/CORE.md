@@ -323,7 +323,7 @@ pub obj Bag
   pub items: List[Int]
 ```
 
-```rig pending
+```rig
 use bag
 
 sub main()
