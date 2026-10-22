@@ -5428,6 +5428,9 @@ pub const Checker = struct {
     }
 
     fn applyCapture(self: *Checker, cap: Sexp) Error!Value {
+        // A field path is lent, copied, taken, or held weakly as its
+        // sigil does it in an expression.
+        if (sema.captureValue(cap) != .nil) return self.walk(sema.captureValue(cap));
         const mode = sema.captureModeOf(cap).?;
         const node = sema.captureNameNode(cap).?;
         const pos = node.src.pos;

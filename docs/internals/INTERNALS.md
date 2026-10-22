@@ -444,7 +444,13 @@ wrapper also makes the only rewrites that need to inspect the tree:
 - a module-level binding, written `name = value`, is a constant: its
   `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
-  parameter list, and a capture after a parameter is an error;
+  parameter list, and a capture after a parameter is an error; a
+  capture of a field path, `|?p.a|`, keeps the lend its sigil makes
+  there as its value, `(cap_read ?p.a (read (member p a)))`, under a
+  name whose leaf spans the path from the sigil (`rig.isPathCapture`),
+  and each `p.a` in the body becomes a name that reads as that path, so
+  every later pass reads the body's `p.a` as the capture and checks,
+  lends, and emits the value as the expression it is;
 - a `for` over an iterator, which typecheck finds, is rewritten into
   the `while` it means after the module's first check
   (`Parser.desugarIterLoops`, [Loops over an iterator](#loops-over-an-iterator));

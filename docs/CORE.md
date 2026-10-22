@@ -1452,7 +1452,9 @@ sub main()
 `x` to read for the closure's life, `!x` lends it to write, `<x` moves
 it in, and `+x` captures what `+x` gives, read through a view: a copy
 of a value that copies, a new count of a handle, or a deep copy of an
-owner. Captures are fixed: the body reads them, and writes only
+owner. A capture may name a field path instead, `?p.a` or `!@cache`:
+it is `w = ?p.a`, made with the closure and captured `<w`, and in the
+body the path names `w`; so with every sigil. Captures are fixed: the body reads them, and writes only
 through a captured write view. A closure's life ends at its last use,
 so a closure literal lent to a call lends its captures for that call.
 A stack closure may be lent (`?fun`) but not stored. A closure literal

@@ -352,7 +352,8 @@ const Classifier = struct {
             .lambda => try c.params(ir.Lambda.params(node)),
             // A capture, `+x`, `<x`, `~x`, `?x`, or `!x`.
             .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => {
-                try c.put(ir.get(node, .name), declared(.parameter));
+                // A field path's parts are classified as its lend's are.
+                if (!rig.isPathCapture(ir.get(node, .name))) try c.put(ir.get(node, .name), declared(.parameter));
                 if (!sp.isEmpty()) try c.putAt(sp.start, .{ .kind = .modifier, .need = sigil_cats });
             },
             .@"struct", .generic_struct, .@"enum", .generic_enum, .errors => {

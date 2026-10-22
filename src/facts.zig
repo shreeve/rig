@@ -940,6 +940,7 @@ pub const syntax = struct {
     pub const isHeaderOf = sema.isHeaderOf;
     pub const captureList = sema.captureList;
     pub const captureNameNode = sema.captureNameNode;
+    pub const captureValue = sema.captureValue;
     pub const paramName = sema.paramName;
     pub const paramNameNode = sema.paramNameNode;
     pub const tparamsOf = sema.tparamsOf;

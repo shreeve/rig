@@ -10437,6 +10437,21 @@ pub fn captureNameNode(cap: Sexp) ?Sexp {
     return ir.get(cap, .name);
 }
 
+/// The lend a capture of a field path makes where its closure is made,
+/// `(read (member p a))` for `|?p.a|`; `_` for a capture of a name.
+pub fn captureValue(cap: Sexp) Sexp {
+    _ = captureModeOf(cap) orelse return .nil;
+    return ir.get(cap, .value);
+}
+
+/// Whether place `outer`, a name or a field path (`p`, `p.a`, `@`,
+/// `@template`), holds place `inner` and is not it: `p` holds `p.a`,
+/// `@` holds `@template`, `p.a` holds `p.a.b`.
+pub fn pathHolds(outer: []const u8, inner: []const u8) bool {
+    if (inner.len <= outer.len or !std.mem.startsWith(u8, inner, outer)) return false;
+    return inner[outer.len] == '.' or std.mem.eql(u8, outer, "@");
+}
+
 /// The captures of a closure's `captures` slot (`_` when it has none).
 pub fn captureList(captures: Sexp) []const Sexp {
     if (captures == .nil) return &.{};
@@ -11691,7 +11706,10 @@ const Coverage = struct {
                     }
                 },
                 .lambda => {
-                    for (captureList(ir.Lambda.captures(e))) |cap| self.expectName(captureNameNode(cap).?);
+                    for (captureList(ir.Lambda.captures(e))) |cap| {
+                        self.expectName(captureNameNode(cap).?);
+                        if (captureValue(cap) != .nil) self.expr(captureValue(cap));
+                    }
                     self.expr(ir.Lambda.body(e));
                 },
                 .member => {
