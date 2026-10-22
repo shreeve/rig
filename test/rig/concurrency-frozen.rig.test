@@ -133,7 +133,7 @@ fail "frozen in a type", "a frozen value holds only data that never changes, and
 
   print(1)
 
-fail "frozen in a generic body", "a frozen value holds only data that never changes, and `Node` holds `*Node`"
+fail "frozen in a generic body", "`freeze[Node]` cannot use `T = Node`: the generic body freezes a value that holds a `T`, and `Node` holds `*Node`", errors: 1
   # A generic body freezes each instance's value: one that holds a `*`
   # handle is rejected.
   obj Node

@@ -4204,6 +4204,9 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
                 const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
                 if (gop.found_existing) continue;
                 gop.value_ptr.* = item.site;
+                // A frozen value of a parameter is checked by its requirement
+                // (`requireFrozen`), once for each parameter.
+                if (builtin and inst.sym == ctx.frozen_sym_id) continue;
                 if (builtin) {
                     if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
                         try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
