@@ -99,3 +99,39 @@ fail "a Map of values with no clone has no clone", "has no clone"
       pub id: Int
       drop(!@)
         print("drop", @id)
+
+fail "a Map of Maps of values with no clone has no clone", "has no clone"
+  # The inner Map is the same generic reached again: its arguments are
+  # checked too.
+  obj Res
+    id: Int
+    drop(!@)
+      print("drop", @id)
+
+  m: Map[Int, Map[Int, Res]] = Map()
+  m2 = +m
+  print(m2.len)
+
+fail "a generic of itself over a value with no clone has no clone", "has no clone"
+  obj Res
+    id: Int
+    drop(!@)
+      print("drop", @id)
+
+  obj Wrap[T]
+    item: T
+
+  w = Wrap[Wrap[Res]](item: Wrap[Res](item: Res(id: 1)))
+  w2 = +w
+  print(w2.item.item.id)
+
+test "a recursive generic still clones", "1 2"
+  obj Node[T]
+    v: T
+    next: ^Node[T]?
+
+  n = Node[String](v: String("1"), next: ^Node[String](v: String("2"), next: none))
+  n2 = +n
+  if n2.next as nx
+    print(n2.v, nx.v)
+

@@ -8153,7 +8153,15 @@ fn declaredAt(ctx: *const SemContext, sym: SymbolId) ?CloneSeen {
 /// Whether every part of type `sym`, declared in `ctx`, clones
 /// (`deepCloneable`), and it has no `drop` body.
 fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: []const CloneSeen) bool {
-    for (seen) |t| if (t.ctx == ctx and t.sym == sym) return true;
+    // A type reached again (a box of a recursive type) clones if the rest
+    // of it does, and if each type argument it is reached with clones:
+    // `Map[Int, Map[Int, Res]]` reaches `Map` again with a `Res`, which a
+    // revisit, which walks no field again, would not otherwise check.
+    for (seen) |t| if (t.ctx == ctx and t.sym == sym) {
+        const f = frame orelse return true;
+        for (f.args) |arg| if (!deepCloneable(f.args_ctx, arg, f.parent, seen)) return false;
+        return true;
+    };
     const s = ctx.symbols.items[sym];
     var buf: [33]CloneSeen = undefined;
     @memcpy(buf[0..seen.len], seen);
