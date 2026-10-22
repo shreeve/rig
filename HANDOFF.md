@@ -42,9 +42,10 @@ newest entry summarizes the latest rounds.
   with data (`-> T!E`, `error L = A | B`, `catch |e|` typed by the
   callee's set), from the approved spec (docs/history/records/revamp/r3/errors-panel/).
   Its review found eight programs that check and then fail in Zig or
-  leak; they are being fixed, and a second round of such findings stops
-  it for redesign. Then Trig's build, and the owner's names for std's
-  I/O unions.
+  leak; all are fixed, each with a case (review in
+  docs/history/records/2026-10/errors-r2/), and a second round of such
+  findings stops it for redesign. Then Trig's build, and the owner's
+  names for std's I/O unions.
 - **Map and Set probes without tests:** the checks inside the built-in
   Map and Set, 17% of Trig's check cost, measured first.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads

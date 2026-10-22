@@ -386,11 +386,12 @@ tokens
     module                      ...decls
     use                         name alias:leaf?
     fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
-    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
+    sub                         name:leaf tparams:group? params:group? fails? keeps:group? body:block? owner? owner_params:group? mark:inline|called?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? apis:group? ...members
     enum                        name:leaf apis:group? ...members
     errors                      name:leaf ...members
+    error_join                  name:leaf parts:group ...members
     generic_struct              name:leaf tparams:group unique:tag(unique)? apis:group? ...members
     generic_enum                name:leaf tparams:group apis:group? ...members
     type                        name:leaf type
@@ -438,6 +439,7 @@ tokens
     arm                         pattern guard? body
     alt_pattern                 ...alts
     range_pattern               lo hi inclusive:tag(inclusive)?
+    set_pattern                 name:leaf set
     variant_pattern             name:leaf ...bindings
     enum_lit                    name:leaf
     symbol                      name:leaf
@@ -487,10 +489,11 @@ tokens
     move, read, write, clone, share, weak, box  operand
 
     # Types
-    optional, error_union, read_view, write_view, shared, boxed, slice  type
+    optional, read_view, write_view, shared, boxed, slice  type
+    error_union                 type set?
     generic_inst                name ...args
     array_type                  size type
-    fun_type                    params:group? returns? fails:tag(fails)?
+    fun_type                    params:group? returns? fails?
     results_type                ...types         # `-> (Int, Int)`: a function's results
 
 @display
@@ -522,6 +525,10 @@ tokens
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`", "<<%": "`<<%`"
     ">>": "`>>`", "+": "`+`", "-": "`-`", "*": "`*`", "/": "`/`", "%": "`%`"
     "!": "`!`", "?": "`?`"
+
+# `sub f()!`'s marker in its `fails` role, which holds the declared set
+# instead when there is one (`sub f()!E`).
+@tags fails
 
 @errors
     stmt: "a statement", block: "an indented block", type: "a type"
@@ -715,6 +722,7 @@ mark     = INLINE                                   → (inline)
 fun      = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] body:block → (fun)
 sub      = [mark:mark] SUB name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)
          | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" [keeps:keeps] body:block → (sub fails:fails)  # `sub save(p: Page)!`
+         | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" fails:tname [keeps:keeps] body:block → (sub)  # `sub save(p: Page)!IoError`
 
 # A method declared outside its type's body, in the type's module:
 # `fun Point.norm(?@) -> Float`, `fun Wrap[T].map[U](...)`, with the
@@ -725,8 +733,10 @@ method   = [mark:mark] FUN owner:name [owner_params:tparams] "." name:name [tpar
          | [mark:mark] FUN owner:qowner "." name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] body:block → (fun)
          | [mark:mark] SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)
          | [mark:mark] SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] "!" [keeps:keeps] body:block → (sub fails:fails)
+         | [mark:mark] SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] "!" fails:tname [keeps:keeps] body:block → (sub)
          | [mark:mark] SUB owner:qowner "." name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)
          | [mark:mark] SUB owner:qowner "." name:name [tparams:tparams] [params:params] "!" [keeps:keeps] body:block → (sub fails:fails)
+         | [mark:mark] SUB owner:qowner "." name:name [tparams:tparams] [params:params] "!" fails:tname [keeps:keeps] body:block → (sub)
 
 qowner   = object:name "." name:name                → (member)
 
@@ -793,6 +803,12 @@ enum     = ENUM name:name INDENT members:members OUTDENT     → (enum)
          | ENUM name:name tparams:tparams ":" apis:apis INDENT members:members OUTDENT
                                                     → (generic_enum)
 errors   = ERROR name:name INDENT members:members OUTDENT    → (errors)
+         | ERROR name:name "=" parts:eparts         → (error_join)   # `error L = A | B`
+         | ERROR name:name "=" parts:eparts INDENT members:members OUTDENT → (error_join)   # rejected: a union lists no members
+
+# The sets a union of error sets joins: `A | B | m.C`.
+eparts   = tname                                    → (1)
+         | eparts "|" tname                         → (...1 3)
 struct   = OBJ name:name INDENT members:members OUTDENT   → (struct)
          | OBJ name:name ":" apis:apis INDENT members:members OUTDENT   → (struct)
          | OBJ name:name UNIQUE INDENT members:members OUTDENT
@@ -853,6 +869,7 @@ zconst   = name:name ":" type:type                  → (zig_const)
 zfun     = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] → (fun)
          | [mark:mark] SUB name:name [tparams:tparams] [params:params] [keeps:keeps] → (sub)
          | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" [keeps:keeps] → (sub fails:fails)
+         | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" fails:tname [keeps:keeps] → (sub)
 
 # ==============================================================================
 # TYPES
@@ -878,6 +895,7 @@ ptype    = "[" "]" type:type                        → (slice)
          | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
          | SUB "(" [params:L(type)] ")" "!"         → (fun_type fails:fails)  # `sub(Int)!`
+         | SUB "(" [params:L(type)] ")" "!" fails:tname → (fun_type)  # `sub(Int)!E`
          | "*" type:ptype                           → (shared)     # `*fun(Int) -> Int`
          | "~" operand:ptype                        → (weak)
          | "^" type:ptype                           → (boxed)      # `^[4]Int`
@@ -885,6 +903,7 @@ ptype    = "[" "]" type:type                        → (slice)
 
 tsuffix  = type:tsuffix "?"                         → (optional)
          | type:tsuffix "!"                         → (error_union)
+         | type:tsuffix "!" set:tname               → (error_union)   # `T!E`: fails only with `E`
          | thandle
 
 thandle  = "*" type:thandle                         → (shared)
@@ -1116,6 +1135,7 @@ palts    = pattern "," pattern                      → (1 3)
 pattern  = patatom
          | lo:patatom ".." hi:patatom               → (range_pattern)
          | lo:patatom "..=" hi:patatom              → (range_pattern inclusive:inclusive)
+         | name:name ":" set:tname                  → (set_pattern)   # `g: E =>`: an error of set `E`, as `g`
 
 # A member of an error set is named with its set, `E.name`, or through
 # its module, `m.E.name`. The module's set is its own rule rather than

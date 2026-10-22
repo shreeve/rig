@@ -483,7 +483,10 @@ pub fn Tasks(comptime T: type) type {
         /// What `wait_all` gives: the results, or nothing for tasks that
         /// give none.
         const Results = if (Value == void) void else List(Value);
-        const All = if (fallible) anyerror!Results else Results;
+        /// The set its tasks fail with: `anyerror` for a `T!`, or the set a
+        /// `T!E` declares, which holds `task.Stop`, as every wait's does.
+        const Err = if (fallible) @typeInfo(T).error_union.error_set else void;
+        const All = if (fallible) Err!Results else Results;
 
         /// `!ts.add(t)`: take the task into the set.
         pub fn add(self: *Self, t: Task(T)) void {
@@ -614,7 +617,7 @@ pub fn Tasks(comptime T: type) type {
             const untaken: Untaken = .{ .items = s.items.items, .taken = taken };
             const b = untaken.blocked();
             var left = n;
-            var last: anyerror = undefined;
+            var last: Err = undefined;
             while (true) {
                 const seen = s.wakeup.?.ticks.load(.seq_cst);
                 for (s.items.items, 0..) |*t, i| {

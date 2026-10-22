@@ -26,7 +26,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Memory: List growth slack | exact presizing saves 4% on Linux, nothing on the Mac; not pursued | [memory/](2026-10/memory/) |
-| Declared error sets (R2, #542) | its first review | [errors-r2/](2026-10/errors-r2/) |
+| Declared error sets (R2, #542) | its first review, and its fixes | [errors-r2/](2026-10/errors-r2/) |
 
 ## Every record
 
@@ -39,6 +39,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 ### 2026-10/errors-r2/
 
 - [review-1.md](2026-10/errors-r2/review-1.md): Review: declared error sets (branch `errsets`, PR #542)
+- [review-1-fixes.md](2026-10/errors-r2/review-1-fixes.md): how each of review 1's findings was fixed
 
 ### 2026-10/functions/
 

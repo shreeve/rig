@@ -114,6 +114,8 @@ const SymbolResolver = struct {
             .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
             .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
+            // A union of error sets: a set of its own, with no members.
+            .error_join => _ = try self.declare(ir.get(sexp, .name), .nominal_type, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => {
                 const name_node = ir.get(sexp, .name);
                 _ = try self.declare(name_node, .@"extern", .{});
@@ -821,6 +823,8 @@ const SymbolResolver = struct {
             },
             .list => if (pattern.isKind(.variant_pattern)) {
                 for (ir.VariantPattern.bindings(pattern)) |b| _ = try self.bindFresh(sema.bindingName(b), "pattern binding");
+            } else if (pattern.isKind(.set_pattern)) {
+                _ = try self.bindFresh(ir.SetPattern.name(pattern), "pattern binding");
             },
             else => {},
         }
@@ -846,7 +850,14 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     for (ir.Module.decls(tree)) |decl| {
         if ((if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.errors)) tr.declares_errors = true;
     }
+    // A union of error sets is resolved first, so any type that names it
+    // (a task's `Task[T!L]`) sees the sets it joins, wherever it is
+    // declared.
     for (ir.Module.decls(tree)) |decl| {
+        if (rig.unpub(decl).isKind(.error_join)) try tr.resolveDecl(decl);
+    }
+    for (ir.Module.decls(tree)) |decl| {
+        if (rig.unpub(decl).isKind(.error_join)) continue;
         // A compile-time function is resolved with the constants
         // (`ensureCtFun`), and so are the variants of a plain enum, whose
         // methods are resolved here.
@@ -1529,8 +1540,26 @@ pub const TypeResolver = struct {
                 }
             },
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.resolveNominal(sexp),
+            .error_join => try self.resolveErrorJoin(sexp),
             else => {},
         }
+    }
+
+    /// `error L = A | B`: the sets the union joins, each a set declared
+    /// with `error` or another union (`Symbol.error_parts`).
+    fn resolveErrorJoin(self: *TypeResolver, node: Sexp) Error!void {
+        const sym = self.ctx.symbolOf(ir.get(node, .name)) orelse return;
+        var parts: std.ArrayList(TypeId) = .empty;
+        for (ir.ErrorJoin.parts(node).items()) |part| {
+            const ty = try self.resolveType(part);
+            if (ty == self.ctx.types.invalid_id) continue;
+            if (!sema.isErrorSet(self.ctx, ty)) {
+                try self.ctx.errAt(part, "`{s}` is not an error set: a union joins sets declared with `error`", .{try sema.formatType(self.ctx, ty)});
+                continue;
+            }
+            try parts.append(self.ctx.arena.allocator(), ty);
+        }
+        self.ctx.symbols.items[sym].error_parts = parts.items;
     }
 
     // ---- functions ----------------------------------------------------------
@@ -1562,8 +1591,11 @@ pub const TypeResolver = struct {
             if (p != .src and pid != sema.symbol_invalid) self.ctx.symbols.items[pid].ty = pty;
         }
         const returns = rig.returnType(node);
-        const return_ty = if (rig.subFails(node))
-            try self.ctx.intern(.{ .fallible = self.ctx.types.void_id })
+        const fail_set = if (rig.subFails(node)) try self.resolveFailSet(rig.failSet(ir.Sub.fails(node))) else self.ctx.types.any_error_id;
+        const return_ty = if (fail_set == self.ctx.types.invalid_id)
+            self.ctx.types.invalid_id
+        else if (rig.subFails(node))
+            try self.ctx.intern(.{ .fallible = .{ .ok = self.ctx.types.void_id, .set = fail_set } })
         else if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
         var param_types: std.ArrayList(TypeId) = .empty;
         defer param_types.deinit(self.ctx.allocator);
@@ -1644,6 +1676,19 @@ pub const TypeResolver = struct {
         return names;
     }
 
+    /// The set a `T!E`, `sub f()!E`, or `sub(...)!E` names: a set
+    /// declared with `error`, or a union of sets; `error` for a bare `!`.
+    fn resolveFailSet(self: *TypeResolver, node: Sexp) Error!TypeId {
+        if (node == .nil) return self.ctx.types.any_error_id;
+        const ty = try self.resolveType(node);
+        if (ty == self.ctx.types.invalid_id) return ty;
+        if (!sema.isErrorSet(self.ctx, ty)) {
+            try self.ctx.errAt(node, "`{s}` is not an error set: `T!E` names a set declared with `error`, or a union of sets", .{try sema.formatType(self.ctx, ty)});
+            return self.ctx.types.invalid_id;
+        }
+        return ty;
+    }
+
     /// Only a function's return type may be fallible (`T!`); Zig error
     /// unions with inferred error sets exist only there.
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
@@ -1654,7 +1699,10 @@ pub const TypeResolver = struct {
         if (wrapped.isKind(.results_type)) {
             const inner = try self.resolveResults(wrapped);
             if (self.isPoison(inner)) return inner;
-            return self.ctx.intern(if (node.isKind(.optional)) .{ .optional = inner } else .{ .fallible = inner });
+            if (node.isKind(.optional)) return self.ctx.intern(.{ .optional = inner });
+            const set = try self.resolveFailSet(ir.ErrorUnion.set(node));
+            if (set == self.ctx.types.invalid_id) return set;
+            return self.ctx.intern(.{ .fallible = .{ .ok = inner, .set = set } });
         }
         if (node.isKind(.error_union) and wrapped.isKind(.optional) and ir.Optional.type(wrapped).isKind(.results_type)) {
             try self.ctx.errAt(node, "several results are fallible, `(A, B)!`, or optional, `(A, B)?`, not both", .{});
@@ -1671,7 +1719,9 @@ pub const TypeResolver = struct {
             if (self.ctx.types.get(inner) == .type_var) {
                 try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = self.ctx.types.get(inner).type_var, .req = .not_error, .pos = self.ctx.startOf(node), .op = "`!`" });
             }
-            const ty = try self.ctx.intern(.{ .fallible = inner });
+            const set = try self.resolveFailSet(ir.ErrorUnion.set(node));
+            if (set == self.ctx.types.invalid_id) return set;
+            const ty = try self.ctx.intern(.{ .fallible = .{ .ok = inner, .set = set } });
             if (try self.misplacedAt(node, ty, .signature)) return self.ctx.types.invalid_id;
             return ty;
         }
@@ -2704,7 +2754,7 @@ pub const TypeResolver = struct {
                 switch (head) {
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
-                        const ty = try self.ctx.intern(.{ .fallible = inner });
+                        const ty = try self.ctx.intern(.{ .fallible = .{ .ok = inner } });
                         try self.ctx.errAt(sexp, "a fallible type `{s}` stands only where a call's result is named: a function's return type, or a task's, `Task[T!]`", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
@@ -2772,7 +2822,7 @@ pub const TypeResolver = struct {
                         defer ps.deinit(self.ctx.allocator);
                         for (ir.FunType.params(sexp).items()) |p| try ps.append(self.ctx.allocator, try self.resolveType(p));
                         const ret = if (ir.FunType.fails(sexp) != .nil)
-                            try self.ctx.intern(.{ .fallible = t.void_id })
+                            try self.ctx.intern(.{ .fallible = .{ .ok = t.void_id, .set = try self.resolveFailSet(rig.failSet(ir.FunType.fails(sexp))) } })
                         else
                             try self.resolveReturnType(ir.FunType.returns(sexp));
                         // A function type returning nothing is spelled as a `sub`'s.
@@ -3240,7 +3290,13 @@ pub const TypeResolver = struct {
                 try self.resolveCtInt(a, .{ .arg = .{ .param = tp, .owner = name, .index = i } })
             else if (gives and a.isKind(.error_union)) blk: {
                 const inner = try self.resolveType(ir.ErrorUnion.type(a));
-                break :blk if (sema.containsPoison(self.ctx, inner)) inner else try self.ctx.intern(.{ .fallible = inner });
+                const set = try self.resolveFailSet(ir.ErrorUnion.set(a));
+                if (set != t.invalid_id and !try sema.setHoldsStop(self.ctx, set, self.ctx.arena.allocator())) {
+                    const shown = try sema.formatType(self.ctx, set);
+                    try self.ctx.errAt(a, "waiting for a task also fails with `task.Stop`, and `{s}` does not hold it: join it into the set (`error L = {s} | task.Stop`)", .{ shown, shown });
+                    break :blk t.invalid_id;
+                }
+                break :blk if (sema.containsPoison(self.ctx, inner) or set == t.invalid_id) t.invalid_id else try self.ctx.intern(.{ .fallible = .{ .ok = inner, .set = set } });
             } else if (isValueSpelling(self.ctx.source, a)) blk: {
                 try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
                 break :blk t.invalid_id;
@@ -3601,8 +3657,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         ctx.chan_sym_id = g.sym;
         const t = g.params[0];
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
-        const fails = try ctx.intern(.{ .fallible = ctx.types.void_id });
-        const gets = try ctx.intern(.{ .fallible = try ctx.intern(.{ .optional = t }) });
+        const fails = try ctx.intern(.{ .fallible = .{ .ok = ctx.types.void_id } });
+        const gets = try ctx.intern(.{ .fallible = .{ .ok = try ctx.intern(.{ .optional = t }) } });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "send", .write, &.{ write_self, t }, fails, null),
             try method(ctx, "recv", .write, &.{write_self}, gets, null),

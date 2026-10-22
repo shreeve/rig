@@ -54,7 +54,7 @@ extern zig "time.zig"
   # positive. A fallible waiting point: in a canceled task it fails with
   # `task.Stop.canceled` (std.task), and past a deadline (`within`) with
   # `task.Stop.timeout`, sleeping only until the deadline.
-  pub sub sleep(ns: Int)!
+  pub sub sleep(ns: Int)!task.Stop
 
   # The running task's deadline becomes `ns` from now, unless it has an
   # earlier one; gives the one it had, for `restore_deadline`.
