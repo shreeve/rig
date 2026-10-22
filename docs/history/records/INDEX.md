@@ -29,6 +29,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Audit of #532-#547 | no test or oracle weakened; one memory hole from #532 (a closure literal to an actor's task) and three check-then-fail bugs fixed; headline numbers corrected to measured ranges | [audit/](2026-10/audit/) |
 | Declared error sets (R2, #542) | its first review, and its fixes | [errors-r2/](2026-10/errors-r2/) |
 | Clones across modules, and Map's `+` | its review: a nested generic hid a drop body, fixed | [clone/](2026-10/clone/) |
+| Error data in the runtime (R3a) | its design, and a review with no blocker | [errors-r3a/](2026-10/errors-r3a/) |
 
 ## Every record
 
@@ -41,6 +42,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 ### 2026-10/clone/
 
 - [review-1.md](2026-10/clone/review-1.md): Review: clones across modules, and the fix of its finding
+
+### 2026-10/errors-r3a/
+
+- [design.md](2026-10/errors-r3a/design.md): R3a, the runtime's error-data plumbing
+- [review-1.md](2026-10/errors-r3a/review-1.md): its review, and the resolution
 
 ### 2026-10/errors-r2/
 

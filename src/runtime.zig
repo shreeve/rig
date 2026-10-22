@@ -25,6 +25,7 @@ const tasks = @import("tasks.zig");
 pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
+pub const waitTasksInto = tasks.waitTasksInto;
 pub const taskCheck = tasks.check;
 pub const taskWorkers = tasks.setWorkers;
 pub const taskSleep = tasks.sleep;
@@ -76,6 +77,61 @@ pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f
     return @call(.auto, f, args);
 }
 pub const Stop = tasks.Stop;
+
+// Errors with data. A program in which a member with fields reaches
+// `error` declares `__rig_error_glue` in its root module: the size and
+// alignment of the program's largest member's fields, and functions that
+// drop and print a member's fields given its code. A failure is its Zig
+// error code and an `ErrData`, the bytes of its fields, which the code
+// says how to read. Every place the runtime keeps or discards a Rig
+// failure keeps or drops its data. With no glue, `ErrData` has no bytes
+// and every branch on it is dead at compile time, so a program none of
+// whose errors has fields runs as it would without any of this. The
+// runtime's own tests use `TestErrorGlue`, which counts what it drops.
+
+/// The program's error glue, if a member with fields reaches `error`.
+pub const error_glue: ?type = if (builtin.is_test) TestErrorGlue else if (@hasDecl(root, "__rig_error_glue")) root.__rig_error_glue else null;
+
+/// The bytes of a failure's fields: room for the program's largest
+/// member's, or none.
+pub const ErrData = extern struct {
+    bytes: [if (error_glue) |g| g.size else 0]u8 align(if (error_glue) |g| g.alignment else 1),
+};
+
+/// Where a function that may fail with fields writes them: the hidden
+/// last parameter emit gives it, a slot its catching frame owns.
+pub const ErrSlot = *ErrData;
+
+/// What a wait is given in place of an `ErrSlot` when no one takes the
+/// failure's fields: a compile-time choice, so a plain wait has no slot
+/// code at all, and the fields are dropped.
+pub const NoSlot = struct {};
+pub const no_slot: NoSlot = .{};
+
+/// Drop the fields of failure `code` held in `data`; nothing for a member
+/// without fields.
+pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
+    if (comptime error_glue) |g| g.drop(code, @ptrCast(data));
+}
+
+/// The glue of the runtime's tests: `error.WithData` carries 16 bytes,
+/// and each drop of them is counted.
+pub const TestErrorGlue = struct {
+    pub const size: usize = 16;
+    pub const alignment: usize = 8;
+    /// Counted from any thread: a test's tasks fail on several.
+    pub var drops: std.atomic.Value(usize) = .init(0);
+
+    pub fn drop(code: anyerror, data: *anyopaque) void {
+        _ = data;
+        if (code == error.WithData) _ = drops.fetchAdd(1, .seq_cst);
+    }
+
+    pub fn print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        _ = data;
+        try w.writeAll(@errorName(code));
+    }
+};
 const Control = tasks.Control;
 
 /// How many turns of a loop run between a task's yield checks (`turn`).
@@ -5113,6 +5169,41 @@ pub fn failMain(err: anyerror) noreturn {
     std.process.exit(1);
 }
 
+/// A failure leaving `main` or a test with its fields in `data`: shown as
+/// `error: Set.member(field: value, ...)` (the glue's `print`), then its
+/// fields dropped, before the leak check runs, so the fields are never
+/// reported as leaked. A cancel an interrupt sent shows nothing. Emit
+/// calls it once the failure has left `main`'s body and the body's drops
+/// and defers have run, before the leak check; then `failMainReported`.
+pub fn reportFailure(err: anyerror, data: *ErrData) void {
+    defer dropErrorData(err, data);
+    if (err == error.@"std.task.Stop.canceled") if (interruptedBy() != null) return;
+    lockOutput();
+    defer unlockOutput();
+    flushQuietly();
+    var buf: [256]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    showFailure(err, data, &ls.file_writer.interface);
+}
+
+/// `error: ` and failure `err` with its fields in `data`, as the
+/// program's glue prints them, on a line of `w`.
+fn showFailure(err: anyerror, data: *const ErrData, w: *std.Io.Writer) void {
+    w.writeAll("error: ") catch {};
+    if (error_glue) |g| g.print(err, @ptrCast(data), w) catch {} else w.writeAll(errorShown(err)) catch {};
+    w.writeAll("\n") catch {};
+    w.flush() catch {};
+}
+
+/// A failure `reportFailure` showed leaves the program: exit 1, or end
+/// as the interrupt that canceled `main` does.
+pub fn failMainReported(err: anyerror) noreturn {
+    @branchHint(.cold);
+    if (err == error.@"std.task.Stop.canceled") if (interruptedBy()) |sig| endBy(sig);
+    std.process.exit(1);
+}
+
 // Interrupts. A `main` that can fail declares `__rig_interrupt` in the
 // root module, and an interrupt (SIGINT) or a request to end (SIGTERM)
 // cancels it: it fails with `task.Stop.canceled` at its next fallible
@@ -7093,4 +7184,19 @@ test "index bounds and division" {
     try testing.expectEqual('b', at(@as([]const u8, "abc"), @as(i64, 1)));
     try testing.expectEqual(2.5, div(@as(f64, 5), 2));
     try testing.expectEqual(-2, div(@as(i64, -5), 2));
+}
+
+test "a failure leaving main is shown through the glue, and its fields dropped" {
+    // Compiled here, as R3's emit will call them.
+    _ = &reportFailure;
+    _ = &failMainReported;
+    TestErrorGlue.drops.store(0, .seq_cst);
+    var data: ErrData = undefined;
+    var buf: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    showFailure(error.WithData, &data, &w);
+    try std.testing.expectEqualStrings("error: WithData\n", w.buffered());
+    dropErrorData(error.WithData, &data);
+    dropErrorData(error.Plain, &data);
+    try std.testing.expectEqual(@as(usize, 1), TestErrorGlue.drops.load(.seq_cst));
 }
