@@ -163,6 +163,13 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## Decisions (2026-10-22, the owner: "Approve the defaults")
+
+- Map/Set internal checks wait for the ownership-checker limit (a write view returned `from @`), so `find` can hand back the entry; the probe-proof restructure gained nothing (+0.2%) and was not landed.
+- No LLVM assumption of a List's length bound (`heldLen`): 0.8% fewer instructions, no time, undefined behavior if the invariant broke.
+- The scheduler worker's hot fields get cache-line alignment, in a follow-up PR timed on pup first (yield slowed 6-7 → 9-11 ns on the Mac after #541, from layout).
+- Verified after the merge of #535-#541: Rig full suite from main (9,623), each feature by hand, Trig full suites (1,375, 0 died) and 30 runs byte-identical, pup pingpong 2.0x faster than before #541.
+
 ## RESUME HERE (2026-10-22 ~00:45): what landed 2026-10-21/22, and what is in flight
 
 **Landed on main (f14b86c58)**, all gated (Rig full suite; Trig release build + projects byte-identical):

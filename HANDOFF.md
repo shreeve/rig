@@ -76,7 +76,11 @@ uses about 1.7x less memory. In the owner's order:
    `if !@slots[j] as s` cannot be returned `from @`, though the read
    form can; and an object's field cannot be moved out of it alone (no
    partial moves). Together they keep a Map slot at 40 bytes rather
-   than 24 (backlog, "The Map's entries in its table slots").
+   than 24 (backlog, "The Map's entries in its table slots"). The same
+   first limit keeps `find` from handing back the entry, which is what
+   the rest of Map's and Set's checks wait on: a 1.3-1.9% ceiling on
+   ts-pattern; proving their probe indexes alone gained nothing
+   (docs/history/records/2026-10/safety-checks/len-and-map-notes.md).
 
 Measured and set aside: lazy member tables (symbols are about a tenth
 of Trig's heap), prefault for every heap with tasks (no gain, 8-15%
