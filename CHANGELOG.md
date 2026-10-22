@@ -13,7 +13,9 @@ changed the language since it:
 
 ### Language and compiler
 
-- **A task set of a declared set:** `Tasks[Int!L]()` and `Task[T!E]` parse in an expression, as in a type.
+- **A task set of a declared set:** `Tasks[Int!L]()` and `Task[T!E]`
+  parse in an expression, as in a type.
+
 - **An array element that fails no longer leaks:** an array literal
   whose element leaves (`!`, `?`, or a `catch` that returns, breaks, or
   continues) drops the elements made before it, as a call's arguments,
@@ -33,7 +35,10 @@ changed the language since it:
   `main` or a test that fails with one shows them. Tasks, `task.all`,
   `par`, `isolate`, `supervise`, `time.within`, and actor methods hand
   the fields to the waiter. A program whose errors carry fields is built
-  outside a `rig batch`.
+  outside a `rig batch`. Two errors compare whole only when their set's
+  fields all compare, and two of `error`, of any set, no longer do: a
+  program that wrote `a == b` of two `error` values now matches one, or
+  compares it with a member (`e == E.name`).
 - **Declared error sets:** a function may name the set it fails with,
   `-> T!E` or `sub f()!E`, and `T!` stays any error. `error L = A | B`
   names a union of sets. `catch |e|` gives `e` the callee's set, so a
