@@ -1569,7 +1569,9 @@ receiver (`consumes_receiver`), how it holds each argument
 (`argument_hold`), and whether an argument, an assigned value, or an
 index is pure, staying where it is (`pure_arg`); and for each
 assignment, which of its steps it evaluates into storage in their turn
-(`set_order`, [Assignments](#assignments)); and for each `while`,
+(`set_order`, [Assignments](#assignments)); for each array literal,
+whether it evaluates its elements first (`hoists_args`), and how it
+holds each (`argument_hold`, `pure_arg`); and for each `while`,
 where its step runs (`step_point`, [Loops](#loops)); and for each box and
 binding, whether the fill `[n of x]` it takes is built where its value
 goes (`fills_in_place`: a box's `^[n of x]` in its allocation,
@@ -1713,7 +1715,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `lent` | `__rig_lent` | the value inside an optional a lend reaches | pointer | expression |
 | `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
 | `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
-| `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
+| `argument`, `receiver` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `receiverHold`, `argumentHold`) | owned, copy, or pointer | call |
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
@@ -4028,7 +4030,13 @@ symbols); a query that decides more than that belongs in `Pending`.
   when needed: when binding keyword arguments reorders two with side
   effects, or when an argument may leave (`!`, a `catch` that returns)
   after an owned value was already produced, which the temporary's
-  guarded `defer` then drops.
+  guarded `defer` then drops. Every value built of several parts in
+  order follows the one rule, `storage.leavesAfterOwned`: a call's
+  arguments, an array literal's elements (`emitHoistedArray`, a block
+  that makes each element into `__rig_arg_N_i` and builds the array of
+  them last), and the parts of `return a, b` (`hoistsResults`). The
+  parts of a String are each kept in their statement's slot
+  (`dropsTemp`), which drops them on any way out.
 - **Inlining.** A small `fun` or `sub` is emitted `pub inline fn`.
   `inlining.decide` decides it once for the whole program, after every
   module is checked, and emit reads it as `Facts.isInlined`. LLVM leaves a

@@ -259,15 +259,16 @@ pub fn lentLiteral(ctx: *const SemContext, e: Sexp) bool {
     return e.isKind(.lambda) and ctx.callableOf(e) != null;
 }
 
-/// Whether a call's arguments must be evaluated into temporaries
-/// first: when binding keyword arguments reorders two that have side
-/// effects, or when an argument may leave (`!`, a `catch` that
-/// returns) after an owned value was produced, which would be lost.
+/// Whether a call's arguments, or an array literal's elements, must be
+/// evaluated into temporaries first: when binding keyword arguments
+/// reorders two that have side effects, or when a part may leave after
+/// an owned value was produced (`leavesAfterOwned`), which would be lost.
 pub fn hoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     return decide(ctx, call, .hoists_args);
 }
 
 fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
+    if (call.isKind(.array)) return leavesAfterOwned(ctx, false, ir.Array.elems(call));
     if (!call.isKind(.call) or isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
     // A closure literal lent to the call gets an environment first.
@@ -287,12 +288,23 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     const callee = ctx.calleeOf(call);
     // Zig passes a temporary receiver to a `!@` method as a constant.
     if (receiverOf(ctx, call)) |recv| if (!hasStorage(ctx, recv) and recv.kind() != .move and receiverWrites(ctx, call)) return true;
-    var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or consumedTemporary(ctx, call) != null;
-    for (args) |a| {
+    const owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or consumedTemporary(ctx, call) != null;
+    return leavesAfterOwned(ctx, owned, args);
+}
+
+/// Whether a value built of several parts evaluated in order (a call's
+/// arguments, an array literal's elements, the results of `return a,
+/// b`) has a part that can leave after an earlier part that owns was
+/// made, or after `owned` was: a `!` or `?`, or a `return`, `break`,
+/// or `continue` in a `catch` handler or a branch, leaves the
+/// enclosing block, and Zig, building the value as it goes, would lose
+/// what was made. Such parts are evaluated into storage first, which
+/// drops an owned one on the way out.
+fn leavesAfterOwned(ctx: *const SemContext, owned_before: bool, parts: []const Sexp) bool {
+    var owned = owned_before;
+    for (parts) |a| {
         const v = argValue(a);
-        // A `!` or `?`, or a `return`, `break`, or `continue` in a
-        // `catch` handler or a branch, leaves the enclosing block.
-        if (owned and contains(v, &leave_kinds)) return true;
+        if (owned and setLeaves(v)) return true;
         if (ownsValue(ctx, v)) owned = true;
     }
     return false;
@@ -346,7 +358,8 @@ fn decideReceiverHold(ctx: *const SemContext, call: Sexp) ?ReceiverHold {
 }
 
 /// How a call whose arguments are evaluated first holds an argument
-/// that is not pure (`isPureArg`).
+/// that is not pure (`isPureArg`), and an array literal whose elements
+/// are evaluated first holds such an element.
 pub const ArgumentHold = enum {
     /// A closure literal lent as a callable: its environment, and the
     /// `rig.FnRef` over it.
@@ -1064,14 +1077,7 @@ pub fn setActs(e: Sexp) bool {
 /// tuple Zig builds as it goes would lose on the way out. The storage
 /// drops an owned part on that way, and the return takes each.
 pub fn hoistsResults(ctx: *const SemContext, results: Sexp) bool {
-    var owned = false;
-    for (ir.Results.values(results)) |part| {
-        if (owned and setLeaves(part)) return true;
-        if (typeOf(ctx, part)) |ty| if (owns(ctx, ty)) {
-            owned = true;
-        };
-    }
-    return false;
+    return leavesAfterOwned(ctx, false, ir.Results.values(results));
 }
 
 fn setLeaves(e: Sexp) bool {
@@ -1504,6 +1510,8 @@ const Planner = struct {
                 _ = fillsInPlace(ctx, e);
                 try p.assignment(e);
             },
+            // How an array literal holds its elements, for emit to read.
+            .array => try p.array(e),
             // The call's results, which each target takes in its turn.
             .destructure => try p.record(e, .results, .owned, .statement),
             // The parts of `return a, b`, made first when a later one can
@@ -1709,22 +1717,38 @@ const Planner = struct {
             const recv = if (hold == .consumed) consumedTemporary(ctx, c).? else lentPlace(receiverOf(ctx, c).?);
             try p.record(recv, .receiver, hold.by(hasStorage(ctx, recv)), .call);
         }
-        for (ir.Call.args(c), 0..) |a, ai| {
-            const v = argValue(a);
-            if (isPureArg(ctx, v)) continue;
-            // What the storage holds: a value of its own, a copy, or a
-            // view, as the lend and the parameter say.
-            const by: StorageBy = switch (argumentHold(ctx, v)) {
-                .closure => by: {
-                    try p.record(v, .environment, .owned, .call);
-                    break :by .owned;
-                },
-                .callable => .owned,
-                .lent => .pointer,
-                .value => if (argumentParam(ctx, c, ai)) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
-            };
-            try p.record(v, .argument, by, .call);
+        for (ir.Call.args(c), 0..) |a, ai| try p.argument(argValue(a), argumentParam(ctx, c, ai));
+    }
+
+    /// An array literal whose elements are evaluated first holds each
+    /// as a call holds an argument that fills no parameter.
+    fn array(p: *Planner, arr: Sexp) !void {
+        const ctx = p.ctx;
+        const hoists = hoistsArgs(ctx, arr);
+        for (ir.Array.elems(arr)) |v| {
+            _ = isPureArg(ctx, v);
+            _ = argumentHold(ctx, v);
+            if (hoists) try p.argument(v, null);
         }
+    }
+
+    /// The storage of `v`, a part of a call or an array literal that is
+    /// evaluated first (`hoistsArgs`), filling a parameter of type
+    /// `param` if any: a value of its own, a copy, or a view, as the
+    /// lend and the parameter say.
+    fn argument(p: *Planner, v: Sexp, param: ?TypeId) !void {
+        const ctx = p.ctx;
+        if (isPureArg(ctx, v)) return;
+        const by: StorageBy = switch (argumentHold(ctx, v)) {
+            .closure => by: {
+                try p.record(v, .environment, .owned, .call);
+                break :by .owned;
+            },
+            .callable => .owned,
+            .lent => .pointer,
+            .value => if (param) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
+        };
+        try p.record(v, .argument, by, .call);
     }
 
     fn assignment(p: *Planner, set: Sexp) !void {

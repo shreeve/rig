@@ -13,6 +13,11 @@ changed the language since it:
 
 ### Language and compiler
 
+- **An array element that fails no longer leaks:** an array literal
+  whose element leaves (`!`, `?`, or a `catch` that returns, breaks, or
+  continues) drops the elements made before it, as a call's arguments,
+  an object's fields, and the results of `return a, b` already did.
+
 - **Clones across modules:** `+x` deep-copies an object or enum declared
   in another module, part by part, as it does one of its own, and so a
   `Map` or `Set` (built in, written in Rig) whose keys and values clone.
