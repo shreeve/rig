@@ -31,6 +31,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Clones across modules, and Map's `+` | its review: a nested generic hid a drop body, fixed | [clone/](2026-10/clone/) |
 | Error data in the runtime (R3a) | its design, and a review with no blocker | [errors-r3a/](2026-10/errors-r3a/) |
 | CORE's "A failure moves its error" | a panel of four, and the final text | [errors-core/](2026-10/errors-core/) |
+| Errors that carry fields (R3, #555) | its design, and a review of eight findings, all fixed before it landed | [errors-r3/](2026-10/errors-r3/) |
 | Frozen values (`*Frozen[T]`) | a handle counted atomically for a value no one changes, read by many tasks; Rig's review | [frozen/](2026-10/frozen/) |
 | Fix: `Stop.canceled` after a failed `par.map` | a waiter takes no cancel from the task it waits on; `par.map`, `par.each`, and `http.serve` were affected | [fixes/parmap-cancel.md](2026-10/fixes/parmap-cancel.md) |
 
@@ -55,6 +56,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [design.md](2026-10/errors-r3a/design.md): R3a, the runtime's error-data plumbing
 - [review-1.md](2026-10/errors-r3a/review-1.md): its review, and the resolution
+
+### 2026-10/errors-r3/
+
+- [design-r3-1.md](2026-10/errors-r3/design-r3-1.md): R3, fields on error members: calls, catch, match, print, main
+- [review-1.md](2026-10/errors-r3/review-1.md): Review: errors that carry fields (PR #555), and how each finding was fixed
 
 ### 2026-10/errors-r2/
 
