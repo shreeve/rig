@@ -50,6 +50,10 @@ newest entry summarizes the latest rounds.
   Map and Set, 17% of Trig's check cost, measured first.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test made ts-pattern 3.1% faster.
+- **A worker's fields apart by cache line** (#552, branch
+  `sched-align`): `yield` back below its pre-#541 time on the Mac and
+  pup, nothing else slower (docs/history/records/2026-10/scheduler/align.md);
+  a draft for the owner.
 
 ## Next, in order
 

@@ -91,6 +91,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [pingpong-bisect.md](2026-10/scheduler/pingpong-bisect.md): bench/net pingpong regression on pup (2026-10-21)
 - [wake-fix.md](2026-10/scheduler/wake-fix.md): Fix for the pingpong regression: PR #541 (merged as f14b86c58), rows in PR #543
+- [align.md](2026-10/scheduler/align.md): The worker's fields apart by cache line: yield back below its pre-#541 time on the Mac and pup (2026-10-22)
 
 ### 2026-10/table-slot/
 

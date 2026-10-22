@@ -69,16 +69,21 @@ const After = struct {
 /// A worker: its own stack pointer while a fiber runs, the fiber
 /// running, its ring of ready fibers, its stacks to reuse, and the word it
 /// sleeps on.
+///
+/// Its fields are laid out by who touches them, so the line a worker
+/// reads and writes at every switch lies apart from all that other
+/// threads write (`apart`). Only its own thread touches the fields at
+/// the top, which fill one cache line. Each other field is of a type
+/// that begins a span of its own and fills it, as Zig places a struct's
+/// fields in any order: the ring and the "run next" slot, which thieves
+/// read and take from; the poller, timers, and pinned queue, which
+/// other threads lock; and what other threads read and write as it
+/// sleeps and wakes (`Sleep`). So a worker fills whole spans, and no
+/// span holds two workers' fields.
 const Worker = struct {
     sp: usize = 0,
     current: ?*Fiber = null,
     after: ?After = null,
-    ring: Ring = .{},
-    /// The fiber to run next: the one this worker's fibers last made
-    /// ready, still in cache. This worker takes it, at most `lifo_limit`
-    /// times in a row; a worker with nothing else to steal takes it once
-    /// it has waited there a while (`stealNext`), as Go's `runnext`.
-    lifo: std.atomic.Value(?*Fiber) = .init(null),
     lifo_streak: u8 = 0,
     free: ?*FreeStack = null,
     free_count: u32 = 0,
@@ -90,8 +95,25 @@ const Worker = struct {
     returned: ?*Fiber = null,
     /// Turns since it last looked at the global queue first.
     tick: u32 = 0,
-    /// 1 once woken from its sleep, in its poller (`sleep`).
-    woken: std.atomic.Value(u32) = .init(0),
+    /// When its yield checks last looked at its poller (`serviceBusy`).
+    polled_at: i96 = 0,
+    /// Set while a yield check wakes the fibers its timers and poller
+    /// make ready, which it then yields to (`wake`).
+    servicing: bool = false,
+    searching: bool = false,
+    rng: u32 = 1,
+    /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
+    /// (`printStats`): fibers it ran, of them pinned ones, and fibers it
+    /// stole.
+    ran: u64 = 0,
+    ran_pinned: u64 = 0,
+    stole: u64 = 0,
+    ring: Ring = .{},
+    /// The fiber to run next: the one this worker's fibers last made
+    /// ready, still in cache. This worker takes it, at most `lifo_limit`
+    /// times in a row; a worker with nothing else to steal takes it once
+    /// it has waited there a while (`stealNext`), as Go's `runnext`.
+    lifo: Padded(?*Fiber) = .init(null),
     /// The kernel's queue of events it sleeps in (`Poller`), and the
     /// fibers whose waits have a deadline it set (`Timers`).
     poller: Poller = .{},
@@ -99,34 +121,65 @@ const Worker = struct {
     /// Its pinned fibers that are ready (`Fiber.home`), which only it runs;
     /// other workers and threads add to it.
     pinned: Global = .{},
+    sleep: Sleep = .{},
+};
+
+/// What other threads read and write of a worker as it sleeps and wakes,
+/// and the thread it runs on, which `runMain` starts and joins.
+const Sleep = struct {
+    /// 1 once woken from its sleep, in its poller (`sleep`).
+    woken: std.atomic.Value(u32) align(apart) = .init(0),
     /// 1 while it sleeps, so a thread that adds to `pinned` kicks its
     /// poller.
     idle: std.atomic.Value(u32) = .init(0),
     /// When its sleep in its poller ends: the earliest deadline any
     /// worker held as it went to sleep, `no_due` for none, or `awake`.
     /// A timer set earlier kicks it (`kickForTimer`).
-    sleep_due: std.atomic.Value(i64) = .init(awake),
-    /// When its yield checks last looked at its poller (`serviceBusy`).
-    polled_at: i96 = 0,
-    /// Set while a yield check wakes the fibers its timers and poller
-    /// make ready, which it then yields to (`wake`).
-    servicing: bool = false,
-    /// The next worker asleep (`Sleepers`).
-    next_sleeper: ?*Worker = null,
-    searching: bool = false,
-    rng: u32 = 1,
-    /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
-    /// (`printStats`): fibers it ran, of them pinned ones, fibers it
-    /// stole, and times it slept. The watcher reads `slept` too
-    /// (`watchWanted`).
-    ran: u64 = 0,
-    ran_pinned: u64 = 0,
-    stole: u64 = 0,
+    due: std.atomic.Value(i64) = .init(awake),
+    /// Times it slept, which `RIG_SCHED_STATS=1` prints too, and the
+    /// watcher reads (`watchWanted`).
     slept: std.atomic.Value(u64) = .init(0),
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
+    /// The next worker asleep (`Sleepers`).
+    next: ?*Worker = null,
     thread: ?std.Thread = null,
 };
+
+/// How far apart what two cores write must lie for neither's stores to
+/// slow the other's reads: a cache line (`std.atomic.cache_line`, 128
+/// bytes on x86-64, two of its 64-byte lines, as its prefetcher pairs
+/// them), or 256 bytes on Apple's cores, whose 128-byte lines a store
+/// to its neighbor slows as well (bench/tasks `yield`,
+/// docs/history/records/2026-10/scheduler/align.md).
+const apart = if (builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin()) 2 * std.atomic.cache_line else std.atomic.cache_line;
+
+/// An atomic value alone in its span (`apart`), so what lies beside it
+/// never shares a line with the threads that write it.
+fn Padded(comptime T: type) type {
+    return struct {
+        value: std.atomic.Value(T) align(apart),
+
+        const P = @This();
+        const Order = std.builtin.AtomicOrder;
+
+        fn init(v: T) P {
+            return .{ .value = .init(v) };
+        }
+        pub fn load(p: *const P, comptime order: Order) T {
+            return p.value.load(order);
+        }
+        fn store(p: *P, v: T, comptime order: Order) void {
+            p.value.store(v, order);
+        }
+        fn swap(p: *P, v: T, comptime order: Order) T {
+            return p.value.swap(v, order);
+        }
+        fn cmpxchgStrong(p: *P, expected: T, new: T, comptime success: Order, comptime failure: Order) ?T {
+            return p.value.cmpxchgStrong(expected, new, success, failure);
+        }
+    };
+}
 
 /// The workers, worker 0 first; set by `runMain`.
 var workers: []Worker = &.{};
@@ -152,24 +205,9 @@ var stopping: std.atomic.Value(bool) = .init(false);
 /// goes on running fills its worker's "run next" slot (`wake`); the first
 /// yield check to see it clears it and takes that work (`claimWaiting`), and
 /// a worker that finds no work and sleeps clears it too. A recursive
-/// call only reads it (`rt.tickCall`), on a cache line of its own, so
+/// call only reads it (`rt.tickCall`), in a span of its own, so
 /// what the scheduler writes beside it never slows those reads.
-pub var waiting: Flag = .{};
-
-const Flag = extern struct {
-    value: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
-    _: [std.atomic.cache_line - 4]u8 = undefined,
-
-    pub fn load(f: *const Flag, comptime order: std.builtin.AtomicOrder) u32 {
-        return f.value.load(order);
-    }
-    fn store(f: *Flag, v: u32, comptime order: std.builtin.AtomicOrder) void {
-        f.value.store(v, order);
-    }
-    fn swap(f: *Flag, v: u32, comptime order: std.builtin.AtomicOrder) u32 {
-        return f.value.swap(v, order);
-    }
-};
+pub var waiting: Padded(u32) = .init(0);
 
 /// The fiber running on this thread, or none outside every fiber.
 pub fn current() ?*Fiber {
@@ -223,7 +261,7 @@ fn wakeLast(f: *Fiber) void {
 /// it sleeps in its poller (`sleep`).
 fn wakeHome(f: *Fiber, home: *Worker) void {
     home.pinned.push(f);
-    if (home != me() and home.idle.load(.seq_cst) != 0) home.poller.kick();
+    if (home != me() and home.sleep.idle.load(.seq_cst) != 0) home.poller.kick();
 }
 
 /// Pin the running fiber to its worker, and give the worker to pin a
@@ -594,7 +632,8 @@ fn fireDue() void {
 /// takes its timer back (`cancel`) knows no worker is done with it. In a
 /// deterministic run one set serves the virtual clock (`timers`).
 const Timers = struct {
-    lock: SpinLock = .{},
+    /// It begins a span of its own and fills it (`apart`, `Worker`).
+    lock: SpinLock align(apart) = .{},
     heap: std.ArrayList(*Fiber) = .empty,
     /// Its earliest deadline, which workers read without the lock, or
     /// `no_due`.
@@ -702,7 +741,7 @@ const no_due = std.math.maxInt(i64);
 /// The timers of a deterministic run.
 var timers: Timers = .{};
 
-/// A worker's `sleep_due` while it is not asleep.
+/// A worker's `Sleep.due` while it is not asleep.
 const awake = std.math.minInt(i64);
 
 /// The earliest deadline any worker holds, or `no_due`: when a worker
@@ -723,7 +762,7 @@ fn earliestDue() i64 {
 fn kickForTimer(due: i64) void {
     var late: ?*Worker = null;
     for (workers) |*v| {
-        const until = v.sleep_due.load(.seq_cst);
+        const until = v.sleep.due.load(.seq_cst);
         if (until == awake) continue;
         if (until <= due) return;
         if (late == null) late = v;
@@ -745,7 +784,8 @@ fn kickForTimer(due: i64) void {
 /// sleep polls the others' (`serviceAll`), so a busy worker's
 /// descriptors wait no longer than its next turns.
 const Poller = struct {
-    fd: i32 = -1,
+    /// It begins a span of its own and fills it (`apart`, `Worker`).
+    fd: i32 align(apart) = -1,
     /// Linux: the eventfd that wakes it (`kick`).
     kick_fd: i32 = -1,
     lock: SpinLock = .{},
@@ -928,7 +968,7 @@ const watch_every: i96 = std.time.ns_per_ms;
 fn busyDescriptors(w: ?*Worker) bool {
     for (workers) |*v| {
         if (v == w) continue;
-        if (v.poller.count.load(.monotonic) != 0 and v.idle.load(.seq_cst) == 0) return true;
+        if (v.poller.count.load(.monotonic) != 0 and v.sleep.idle.load(.seq_cst) == 0) return true;
     }
     return false;
 }
@@ -940,7 +980,7 @@ fn watchWanted(w: *Worker) bool {
     if (busyDescriptors(w)) return true;
     for (workers) |*v| {
         if (v == w or v.poller.count.load(.monotonic) == 0) continue;
-        if (v.slept.load(.monotonic) != v.watch_mark.load(.monotonic)) return true;
+        if (v.sleep.slept.load(.monotonic) != v.sleep.watch_mark.load(.monotonic)) return true;
     }
     return false;
 }
@@ -958,7 +998,7 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         const held = watcher.load(.monotonic) == w;
         if (held) watcher.store(null, .seq_cst);
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
-            for (workers) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
+            for (workers) |*v| v.sleep.watch_mark.store(v.sleep.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
             return serviceAll(w);
         }
@@ -1585,7 +1625,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
     printStats();
-    for (workers[1..]) |*w| w.thread.?.join();
+    for (workers[1..]) |*w| w.sleep.thread.?.join();
     timers.clear();
     for (workers) |*w| {
         freeStacks(w);
@@ -1616,7 +1656,7 @@ fn printStats() void {
     if (!std.mem.eql(u8, v, "1")) return;
     var buf: [256]u8 = undefined;
     for (workers, 0..) |*w, i| {
-        const line = std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw }) catch continue;
+        const line = std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.sleep.slept.raw }) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
 }
@@ -1644,7 +1684,7 @@ fn startWorkers() void {
     const n = if (deterministic) 1 else @min(workerCount(), all_workers.len);
     workers = all_workers[0..n];
     for (workers[1..]) |*w| w.poller.open();
-    for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
+    for (workers[1..]) |*w| w.sleep.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
 }
 
 /// How many workers the program asked for (`task.workers`), in place of
@@ -1881,7 +1921,7 @@ fn notify() void {
 }
 
 fn wakeWorker(w: *Worker) void {
-    w.woken.store(1, .seq_cst);
+    w.sleep.woken.store(1, .seq_cst);
     w.poller.kick();
 }
 
@@ -1893,11 +1933,11 @@ fn wakeWorker(w: *Worker) void {
 /// timers come due on any worker, and those its poller's events make
 /// ready, and goes back to running them.
 fn sleep(w: *Worker) void {
-    w.slept.store(w.slept.raw + 1, .monotonic);
+    w.sleep.slept.store(w.sleep.slept.raw + 1, .monotonic);
     if (waiting.load(.monotonic) != 0) waiting.store(0, .monotonic);
-    w.woken.store(0, .seq_cst);
-    w.idle.store(1, .seq_cst);
-    defer w.idle.store(0, .seq_cst);
+    w.sleep.woken.store(0, .seq_cst);
+    w.sleep.idle.store(1, .seq_cst);
+    defer w.sleep.idle.store(0, .seq_cst);
     sleepers.push(w);
     if (stopping.load(.seq_cst)) {
         if (!sleepers.remove(w)) waitWoken(w);
@@ -1921,18 +1961,18 @@ fn sleep(w: *Worker) void {
         const held = watcher.load(.monotonic) == w;
         if (held) watcher.store(null, .seq_cst);
         if (held or w.poller.count.load(.monotonic) != 0) {
-            w.idle.store(0, .seq_cst);
+            w.sleep.idle.store(0, .seq_cst);
             if (held or watcher.load(.seq_cst) == null) passWatch();
         }
     }
-    while (w.woken.load(.seq_cst) == 0) {
+    while (w.sleep.woken.load(.seq_cst) == 0) {
         serviceAll(w);
         if (!hasOwnWork(w)) {
-            w.sleep_due.store(no_due, .seq_cst);
+            w.sleep.due.store(no_due, .seq_cst);
             const due = earliestDue();
-            w.sleep_due.store(due, .seq_cst);
+            w.sleep.due.store(due, .seq_cst);
             sleepIn(w, if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0));
-            w.sleep_due.store(awake, .seq_cst);
+            w.sleep.due.store(awake, .seq_cst);
             if (!hasOwnWork(w)) continue;
         }
         // Fibers made ready here: run them, unless a waker took this
@@ -1943,7 +1983,7 @@ fn sleep(w: *Worker) void {
 }
 
 fn waitWoken(w: *Worker) void {
-    while (w.woken.load(.seq_cst) == 0) _ = w.poller.poll(null);
+    while (w.sleep.woken.load(.seq_cst) == 0) _ = w.poller.poll(null);
 }
 
 fn hasWork() bool {
@@ -1968,9 +2008,12 @@ fn freeStacks(w: *Worker) void {
 /// its owner and thieves take from `head`, by compare-and-swap. A thief
 /// copies the fibers it would take, then claims them by moving `head`
 /// past them; a slot is written again only once `head` has passed it.
+///
+/// The slots begin a span (`apart`), and `head` and `tail` share the
+/// line after them, so the ring fills spans of its own (`Worker`).
 const Ring = struct {
     const size = 256;
-    slots: [size]std.atomic.Value(?*Fiber) = @splat(.init(null)),
+    slots: [size]std.atomic.Value(?*Fiber) align(apart) = @splat(.init(null)),
     head: std.atomic.Value(u32) = .init(0),
     tail: std.atomic.Value(u32) = .init(0),
 
@@ -2035,9 +2078,10 @@ const Ring = struct {
 
 /// The global queue: fibers made outside the workers, and the overflow
 /// of full rings. A spin lock guards it; `count` lets a worker see it is
-/// empty without taking the lock.
+/// empty without taking the lock. It begins a span of its own and fills
+/// it, as a worker's pinned queue does (`apart`, `Worker`).
 const Global = struct {
-    lock: SpinLock = .{},
+    lock: SpinLock align(apart) = .{},
     head: ?*Fiber = null,
     tail: ?*Fiber = null,
     count: std.atomic.Value(u32) = .init(0),
@@ -2079,7 +2123,7 @@ const Sleepers = struct {
     fn push(s: *Sleepers, w: *Worker) void {
         s.lock.lock();
         defer s.lock.unlock();
-        w.next_sleeper = s.top;
+        w.sleep.next = s.top;
         s.top = w;
         _ = s.count.fetchAdd(1, .seq_cst);
     }
@@ -2088,7 +2132,7 @@ const Sleepers = struct {
         s.lock.lock();
         defer s.lock.unlock();
         const w = s.top orelse return null;
-        s.top = w.next_sleeper;
+        s.top = w.sleep.next;
         _ = s.count.fetchSub(1, .seq_cst);
         return w;
     }
@@ -2098,9 +2142,9 @@ const Sleepers = struct {
         s.lock.lock();
         defer s.lock.unlock();
         var at = &s.top;
-        while (at.*) |x| : (at = &x.next_sleeper) {
+        while (at.*) |x| : (at = &x.sleep.next) {
             if (x == w) {
-                at.* = x.next_sleeper;
+                at.* = x.sleep.next;
                 _ = s.count.fetchSub(1, .seq_cst);
                 return true;
             }
@@ -2997,6 +3041,22 @@ pub fn abandon() noreturn {
     const h: *Header = @fieldParentPtr("fiber", f);
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
+}
+
+test "a worker's own fields share one cache line, and every other part fills spans of its own" {
+    const line = std.atomic.cache_line;
+    const info = @typeInfo(Worker).@"struct";
+    const own = @offsetOf(Worker, "sp") / line;
+    inline for (info.field_names, info.field_types) |name, T| {
+        const at = @offsetOf(Worker, name);
+        if (@alignOf(T) >= apart) {
+            try std.testing.expect(at % apart == 0 and @sizeOf(T) % apart == 0);
+        } else {
+            try std.testing.expectEqual(own, at / line);
+            try std.testing.expectEqual(own, (at + @sizeOf(T) - 1) / line);
+        }
+    }
+    try std.testing.expect(own * line % apart == 0 and @sizeOf(Worker) % apart == 0);
 }
 
 test "fibers switch, yield to each other in turn, and finish" {

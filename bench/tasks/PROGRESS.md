@@ -35,6 +35,8 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-21 | #535: interrupts cancel main | rig-fast | 108 ns | 43 ns | 77.7 ms | 6 ns | 86.08 us | 17.1 KiB |
 | 2026-10-22 | main before #541, interleaved | rig-fast | 126 ns | 44 ns | 78.5 ms | 6 ns | 67.51 us | 17.1 KiB |
 | 2026-10-22 | #541: a run-next fill wakes no worker | rig-fast | 142 ns | 45 ns | 80.3 ms | 9 ns | 102.05 us | 17.1 KiB |
+| 2026-10-22 | main before #552, interleaved | rig-fast | 98 ns | 44 ns | 78.5 ms | 8 ns | 78.62 us | 17.0 KiB |
+| 2026-10-22 | #552: the worker's fields apart by cache line | rig-fast | 97 ns | 44 ns | 78.8 ms | 6 ns | 73.71 us | 17.1 KiB |
 
 ## x86-64 (pup)
 
@@ -62,3 +64,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-21 | #535: interrupts cancel main | rig-fast | 194 ns | 92 ns | 93.4 ms | 5 ns | 67.07 us | 5.3 KiB |
 | 2026-10-22 | main before #541, interleaved (pup cores 8,9) | rig-fast | 73 ns | 96 ns | 344.1 ms | 24 ns | 156.09 us | 4.6 KiB |
 | 2026-10-22 | #541: a run-next fill wakes no worker (pup cores 8,9) | rig-fast | 69 ns | 86 ns | 314.3 ms | 27 ns | 133.24 us | 4.6 KiB |
+| 2026-10-22 | main before #552, interleaved (pup cores 8,9) | rig-fast | 69 ns | 86 ns | 309.7 ms | 25 ns | 129.49 us | 4.6 KiB |
+| 2026-10-22 | #552: the worker's fields apart by cache line (pup cores 8,9) | rig-fast | 64 ns | 86 ns | 309.7 ms | 22 ns | 129.76 us | 4.6 KiB |
