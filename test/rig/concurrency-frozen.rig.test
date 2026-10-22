@@ -1,0 +1,226 @@
+# concurrency: tests whose names start `frozen`.
+
+test "frozen reads", '''
+  home 3 4
+  Page(title: "home", hits: 3)
+  home
+'''
+  # `*Frozen(v)` moves a value in behind a handle: fields and read
+  # methods are reached through it, `+p` adds a handle, and it prints as
+  # its value.
+  obj Page
+    title: String
+    hits: Int
+
+  p = *Frozen(Page(title: String("home"), hits: 3))
+  q = +p
+  print(p.title, q.hits, p.title.len)
+  print(p)
+  s = *Frozen(String("home"))
+  print(s)
+
+test "frozen pages from an actor", seeds: 20, '''
+  page a
+  page b
+  page a
+  2
+'''
+  # An actor hands every caller the same frozen page: a handle crosses to
+  # the calling task with one count, and no copy of the page.
+  obj Cache
+    pages: Map[String, *Frozen[String]]
+
+    fun get(!@, name: ?String) -> *Frozen[String]
+      +(!@pages).ensure_with(String(name), |k| *Frozen(String("page ", k)))
+
+    fun size(?@) -> Int
+      @pages.len
+
+  fun visit(c: *Actor[Cache], name: Static) -> *Frozen[String]
+    page = (!c).get(name)
+    for 0..100
+      page = (!c).get(name)
+    page
+
+  c = *Actor(Cache(pages: Map[String, *Frozen[String]]()))
+  a = visit(+c, "a")&
+  b = visit(+c, "b")&
+  a2 = visit(+c, "a")&
+  print(>a)
+  print(>b)
+  print(>a2)
+  print(c.size())
+
+test "frozen in par and channels", seeds: 20, '''
+  [3, 6, 9]
+  3
+'''
+  # A frozen value is read by every task `par.map` starts, through a handle
+  # each closure call shares, and goes through a channel to another task.
+  use std.par
+
+  obj Cfg
+    k: Int
+
+  sub give(ch: *Chan[*Frozen[Cfg]], f: *Frozen[Cfg])!
+    !ch.send(<f)!
+
+  cfg = *Frozen(Cfg(k: 3))
+  print(par.map(?[1, 2, 3], |+cfg, x| x * cfg.k))
+  ch = *Chan[*Frozen[Cfg]](1)
+  t = give(+ch, +cfg)&
+  if (!ch).recv()! as got
+    print(got.k)
+  >t!
+
+test "frozen dropped on another task", seeds: 20, '''
+  read 7
+  drop 7
+  done
+'''
+  # The last handle may drop on any task: here the task that took it,
+  # which runs the value's `drop` there.
+  obj Tok
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  sub take(t: *Frozen[Tok])
+    print("read", t.n)
+
+  f = *Frozen(Tok(n: 7))
+  w = take(<f)&
+  >w
+  print("done")
+
+fail "frozen holds what changes", "a frozen value holds only data that never changes, and `Counter` holds `*Cell[Int]`", "a frozen value holds only data that never changes, and `*Actor[Counter]` is a handle that changes what it reaches", "a frozen value holds only data that never changes, and `Node` holds `*Node`", "a frozen value holds only data that never changes, and `?String` is a view", errors: 4
+  # Nothing reached from a frozen value may change, or count handles that
+  # are not atomic: no Cell, actor, channel, plain `*T` or `~T`, closure,
+  # or view.
+  obj Counter
+    hits: *Cell[Int]
+  obj Node
+    next: *Node?
+
+  a = *Frozen(Counter(hits: *Cell(0)))
+  b = *Frozen(*Actor(Counter(hits: *Cell(0))))
+  c = *Frozen(Node(next: none))
+  s = String("x")
+  d = *Frozen(?s)
+
+fail "frozen lives behind a handle", "a frozen value lives only behind a shared handle: write `*Frozen(x)`"
+  x = Frozen(1)
+
+fail "frozen is never written", "cannot lend to write through a shared handle"
+  obj Box1
+    items: List[Int]
+
+  f = *Frozen(Box1(items: List[Int]()))
+  !f.items.push(1)
+
+fail "frozen has no weak handle", "a frozen value has no weak handle: `+f` shares it"
+  f = *Frozen(1)
+  w = ~f
+
+fail "frozen of a frozen", "`f` is frozen already: `+f` shares it"
+  f = *Frozen(String("x"))
+  g = *Frozen(<f)
+
+fail "frozen in a type", "a frozen value holds only data that never changes, and `*Cell[Int]` is a handle that changes what it reaches"
+  obj Holder
+    f: *Frozen[*Cell[Int]]
+
+  print(1)
+
+fail "frozen in a generic body", "a frozen value holds only data that never changes, and `Node` holds `*Node`"
+  # A generic body freezes each instance's value: one that holds a `*`
+  # handle is rejected.
+  obj Node
+    next: *Node?
+
+  fun freeze[T](x: T) -> *Frozen[T]
+    *Frozen(<x)
+
+  f = freeze(Node(next: none))
+
+fail "frozen lent to a task", "cannot drop `f` while it is lent"
+  # A view of a frozen value lent to a task keeps the handle until the
+  # wait.
+  sub read(s: ?*Frozen[String])
+    print(s)
+
+  f = *Frozen(String("x"))
+  t = read(?f)&
+  <f
+  >t
+
+test "frozen compares and keys a Map", "true false 2 3"
+  # A frozen value never changes, so its handles compare and hash by what
+  # they reach, and key a Map.
+  a = *Frozen(String("x"))
+  b = *Frozen(String("x"))
+  c = *Frozen(String("y"))
+  m = Map[*Frozen[String], Int]()
+  !m.put(+a, 1)
+  !m.put(+b, 2)
+  !m.put(+c, 3)
+  print(a == b, a == c, m.len, m.get(?c) ?? 0)
+
+test "frozen methods, Maps, and lends", '''
+  4 9 9 1
+  1 false 1
+  3 true
+'''
+  # Read methods and indexing reach through the handle; a Map is frozen
+  # whole; `?f` lends the frozen value as a `?T`, so `?a == ?b` compares
+  # what two handles reach.
+  obj C
+    n: Int
+    xs: List[Int]
+
+    fun get(?@) -> Int
+      @n
+
+    fun first(?@) -> Int
+      @xs[0]
+
+  fun size(s: ?String) -> Int
+    s.len
+
+  c = C(n: 4, xs: List[Int]())
+  !c.xs.push(9)
+  f = *Frozen(<c)
+  print(f.get(), f.first(), f.xs[0], f.xs.len)
+  m = Map[String, Int]()
+  !m.put(String("a"), 1)
+  fm = *Frozen(<m)
+  print(fm.get("a") ?? 0, fm.has("b"), fm.len)
+  a = *Frozen(String("abc"))
+  b = *Frozen(String("abc"))
+  print(size(?a), ?a == ?b)
+
+fail "frozen by value", "4:6: a frozen value lives only behind a shared handle: write `*Frozen[Int]`", "6:11: a frozen value lives only behind a shared handle: write `*Frozen[String]`", errors: 2
+  # A frozen value lives only behind `*`: never a field, a parameter, or
+  # a view by value.
+  obj H
+    x: Frozen[Int]
+
+  fun h(s: ?Frozen[String]) -> Int
+    1
+
+fail "frozen as a type argument", "1:11: a frozen value lives only behind a shared handle: write `*Frozen[Int]`"
+  xs = List[Frozen[Int]]()
+
+fail "frozen box", "this value is already `^Int`; `*Frozen` would hold it twice"
+  b = ^5
+  f = *Frozen(<b)
+
+fail "frozen in a generic body only", "`keep[*Cell[Int]]` cannot use `T = *Cell[Int]`: the generic body freezes a value that holds a `T`, and `*Cell[Int]` is a handle that changes what it reaches"
+  # A body that freezes its parameter, with no `Frozen` in its signature,
+  # is checked in each instance.
+  fun keep[T](x: T) -> Int
+    f = *Frozen(<x)
+    1
+
+  print(keep(*Cell(1)))

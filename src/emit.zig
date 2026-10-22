@@ -6554,6 +6554,15 @@ pub const Emitter = struct {
             if (ir.Call.args(inner).len == 1) try self.w.writeAll(", 64");
             return self.w.writeAll(")");
         }
+        // `*Frozen(x)`: the runtime freezes `x` behind its first handle.
+        if (self.facts.isFrozenMake(inner)) {
+            const value = ir.Call.args(inner)[0];
+            const payload = self.facts.frozenValue(self.typeOf(inner) orelse return self.unsupported(inner, "an untyped frozen value")).?;
+            try self.w.writeAll("rig.frozen(");
+            try self.writeAsOpen(payload);
+            try self.emitBare(value);
+            return self.w.writeAll("))");
+        }
         // `*Chan[T](n)`: the runtime makes the channel behind its first
         // handle.
         if (self.facts.isChanMake(inner)) {
@@ -8683,6 +8692,12 @@ pub const Emitter = struct {
                 try self.emitTypeTy(inner);
             },
             .shared, .weak => |inner| {
+                // `*Frozen[T]`: a `T` behind a handle counted atomically.
+                if (ctx.frozenValue(inner)) |value| {
+                    try self.w.writeAll("*rig.Frozen(");
+                    try self.emitTypeTy(value);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll(if (ctx.types.get(ty) == .shared) "*rig.Shared(" else "rig.Weak(");
                 switch (ctx.types.get(inner)) {
                     .function => |f| try self.emitCallableTy("Closure", f),

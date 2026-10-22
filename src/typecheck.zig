@@ -5518,7 +5518,7 @@ const Checker = struct {
         const sym = self.lookupQuiet(e) orelse return null;
         const ty = self.ctx.symbols.items[sym].ty;
         return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
-            .shared => |inner| if (self.ctx.types.get(inner) == .function) null else inner,
+            .shared => |inner| if (self.ctx.types.get(inner) == .function) null else sema.frozenValue(self.ctx, inner) orelse inner,
             else => null,
         };
     }
@@ -6666,7 +6666,14 @@ const Checker = struct {
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
         switch (self.ctx.types.get(inner)) {
-            .shared => |target| return self.ctx.intern(.{ .weak = target }),
+            .shared => |target| {
+                // A frozen value is kept by any handle, from any task.
+                if (sema.frozenValue(self.ctx, target) != null) {
+                    try self.errAt(operand, "a frozen value has no weak handle: `+{s}` shares it", .{self.sourceText(operand)});
+                    return self.t().invalid_id;
+                }
+                return self.ctx.intern(.{ .weak = target });
+            },
             else => {
                 try self.errAt(operand, "`~` weak reference requires a shared handle `*T`; got `{s}`", .{try self.tyName(inner)});
                 return self.t().invalid_id;
@@ -7684,6 +7691,11 @@ const Checker = struct {
                 break :blk if (self.isPoison(inner)) inner else try self.ctx.intern(.{ .fallible = .{ .ok = inner } });
             } else try self.typeArg(g);
             if (self.isPoison(a.*)) bad = true;
+            // A frozen value lives only behind `*`, never as an argument.
+            if (sema.frozenValue(self.ctx, a.*) != null) {
+                try self.errAt(g, "a frozen value lives only behind a shared handle: write `*{s}`", .{try self.tyName(a.*)});
+                bad = true;
+            }
         }
         if (bad) return self.t().invalid_id;
         var ty = try self.instantiate(nt.id, args, self.startOf(e));
@@ -7826,6 +7838,11 @@ const Checker = struct {
         }
         if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, e, stack_signal, .{});
         if (nt.id == self.ctx.chan_sym_id) return self.chanMake(call, e, ty, args);
+        if (nt.id == self.ctx.frozen_sym_id) {
+            const made = try self.frozenMake(call, e, args);
+            if (!self.isPoison(made) and made != ty) return self.badCall(args, e, "`{s}` freezes a `{s}`", .{ try self.tyName(ty), try self.tyName(made) });
+            return made;
+        }
         const subst: TypeSubst = .{ .params = nt.sym.type_params orelse &.{}, .args = self.ctx.types.get(ty).parameterized_nominal.args };
         return self.construct(nt.id, args, self.startOf(e), subst, null);
     }
@@ -8554,6 +8571,7 @@ const Checker = struct {
                     if (sym_id == self.ctx.table_sym_id) return self.badCall(args, callee, "`Table()` needs its type: give it where the value goes (`t: Table[T, n] = Table()`), or name it, `Table[T, n]()`", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     if (sym_id == self.ctx.actor_sym_id) return self.actorMake(node, callee, args);
+                    if (sym_id == self.ctx.frozen_sym_id) return self.frozenMake(node, callee, args);
                     return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
                 },
                 .module => return self.badCall(args, callee, "module `{s}` cannot be called", .{name}),
@@ -12043,6 +12061,32 @@ const Checker = struct {
         return actor;
     }
 
+    /// `*Frozen(x)`: a frozen value of `x`, which it takes, behind its
+    /// first handle; `x` holds only data that never changes
+    /// (`sema.frozenBlocker`). A frozen value is shared, `+f`, never
+    /// frozen again.
+    fn frozenMake(self: *Checker, node: Sexp, callee: Sexp, args: []const Sexp) Error!TypeId {
+        if (!sameNode(node, self.shared_operand)) return self.badCall(args, callee, "a frozen value lives only behind a shared handle: write `*Frozen(x)`", .{});
+        if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, callee, "`Frozen` takes the value it freezes: `*Frozen(String(\"home\"))`", .{});
+        const value = args[0];
+        const ty = self.canonical(try self.argType(value));
+        if (self.isPoison(ty)) return self.skipCall(args);
+        if (sema.frozenOfHandle(self.ctx, ty) != null) {
+            const taken = if (value.isKind(.move)) ir.Move.operand(value) else value;
+            const shown = self.sourceText(taken);
+            return self.badCall(args, value, "`{s}` is frozen already: `+{s}` shares it", .{ shown, shown });
+        }
+        if (try sema.frozenBlocker(self.ctx, ty)) |blocker| return self.badCall(args, value, "{s}", .{try sema.frozenMessage(self.ctx, ty, blocker)});
+        if (sema.heapStacked(self.ctx, ty)) return self.badCall(args, value, "this value is already `{s}`; `*Frozen` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(ty)});
+        try sema.requireFrozen(self.ctx, ty, self.startOf(value));
+        const frozen = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.frozen_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ty}), .returns = frozen, .is_sub = false };
+        try self.noteCallee(call);
+        try self.checkArgs(args, call, .{ .names = &.{"value"} }, "Frozen", self.startOf(callee), .{ .declared = call.params });
+        if (self.current_call) |c| try self.ctx.recordFrozenMake(c);
+        return frozen;
+    }
+
     /// `*Actor.supervised(*|| Rooms(...))`: an actor whose value `make`
     /// makes, first here and again each time a panic ends it, with
     /// `restarts: n, per: ns`, at most `n` times within `ns`
@@ -14281,6 +14325,8 @@ const Checker = struct {
                 if (callee != .src or tt != .parameterized_nominal) return null;
                 const id = self.lookupQuiet(callee) orelse return null;
                 if (id != tt.parameterized_nominal.sym) return null;
+                // `Frozen(x)` takes its type from `x` (`frozenMake`).
+                if (id == self.ctx.frozen_sym_id) return null;
                 _ = try self.useName(callee);
                 if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
                     try self.errAt(callee, stack_signal, .{});
@@ -16544,7 +16590,11 @@ const Checker = struct {
             .cap_read, .cap_write => unreachable,
             .cap_move => outer_ty,
             .cap_weak => switch (self.ctx.types.get(outer_ty)) {
-                .shared => |inner| try self.ctx.intern(.{ .weak = inner }),
+                .shared => |inner| if (sema.frozenValue(self.ctx, inner) != null) {
+                    try self.err(pos, "a frozen value has no weak handle: `|+{s}|` shares it", .{name});
+                    self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+                    return;
+                } else try self.ctx.intern(.{ .weak = inner }),
                 else => null,
             },
             .cap_clone => try self.cloneCapture(outer_ty, outer_sym.flags.closure, pos),
@@ -18062,6 +18112,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                     const what = if (held == arg) "is one" else try ctx.arena.allocator().print("holds `{s}`", .{try sema.formatType(ctx, held)});
                     try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
                 },
+                .frozen => try ctx.err(at, cannot ++ "freezes a value that holds a `{s}`, and {s}", .{ inst, pname, aname, pname, try sema.frozenReason(ctx, arg, (try sema.frozenBlocker(ctx, arg)).?) }),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, (try sema.notHashable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
@@ -18076,6 +18127,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
                 .named => try ctx.noteIn(req.module_id, req.pos, "`$name` here", .{}),
                 .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
+                .frozen => try ctx.noteIn(req.module_id, req.pos, "frozen here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -18241,7 +18293,7 @@ fn apiOf(req: Requirement) ?sema.Api {
         .hashable => .Hash,
         .copies, .no_cleanup => .Copy,
         .printable => .Print,
-        .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .not_function, .named => null,
+        .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .not_function, .named, .frozen => null,
     };
 }
 
@@ -18431,6 +18483,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,
         .named => sema.unnameable(ctx, ty) == null,
+        .frozen => (try sema.frozenBlocker(ctx, ty)) == null,
     };
 }
 

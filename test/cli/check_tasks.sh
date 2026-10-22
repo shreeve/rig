@@ -29,7 +29,13 @@ sub main()
   n = *lib.Node(v: 1)
   p = plain(3)&
   u = keep(+n, 0)&
-  print(>p + >u + lib.peek(+n))
+  # A frozen value's handle goes to any core: its task is not local.
+  f = *Frozen(String("abc"))
+  w = look(+f)&
+  print(>p + >u + >w + lib.peek(+n))
+
+fun look(f: *Frozen[String]) -> Int
+  f.len
 RIG
 "$RIG" check --tasks main.rig >out.txt 2>err.txt || fail "rig check --tasks: $(cat err.txt)"
 [[ ! -s err.txt ]] || fail "rig check --tasks writes to stderr: $(cat err.txt)"
