@@ -69,6 +69,9 @@ pub fn Task(comptime T: type) type {
                     state.deadline = deadline;
                     state.isolate = control.isolate;
                     defer control.finish();
+                    // A call that may fail with fields writes them into
+                    // the task's record.
+                    if (comptime takesSlot(@TypeOf(f))) return @call(.auto, f, a ++ .{&control.err});
                     return @call(.auto, f, a);
                 }
             };
@@ -115,12 +118,23 @@ pub fn Task(comptime T: type) type {
         /// canceled and waited for, and the wait fails with
         /// `task.Stop.timeout`.
         pub fn wait(self: Self) T {
+            return self.waitWith(null);
+        }
+
+        /// `>t` where the waiter catches the task's failure, or passes it
+        /// on, with its fields: they move from the task's record into
+        /// the waiter's slot `out`.
+        pub fn waitInto(self: Self, out: rt.ErrSlot) T {
+            return self.waitWith(out);
+        }
+
+        fn waitWith(self: Self, out: ?rt.ErrSlot) T {
             var t = self;
             defer t.release();
             if (canceledHere()) {
                 var result = t.stop();
                 if (comptime !fallible) return result;
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 return canceled_error;
             }
             var result: T = undefined;
@@ -138,16 +152,16 @@ pub fn Task(comptime T: type) type {
             }
             result = job.taken();
             if (comptime fallible) if (timed_out) {
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 return timeout_error;
             };
             // Canceled while it waited, even when the task ended before
             // the cancel could reach it.
             const passed_on = t.control.canceled.load(.acquire) or (if (mine) |c| c.load(.acquire) else false);
-            if (!passed_on) return result;
+            if (!passed_on) return keepResult(T, result, &t.control.err, out);
             markCanceled();
             if (comptime !fallible) return result;
-            dropElement(T, &result);
+            dropResult(T, &result, &t.control.err);
             return canceled_error;
         }
 
@@ -156,9 +170,19 @@ pub fn Task(comptime T: type) type {
         /// result when it ended first. Only a task that can fail is
         /// canceled; the checker rejects any other.
         pub fn cancel(self: Self) T {
+            return self.cancelWith(null);
+        }
+
+        /// `<t.cancel()` where the caller takes the failure's fields
+        /// into its slot `out`.
+        pub fn cancelInto(self: Self, out: rt.ErrSlot) T {
+            return self.cancelWith(out);
+        }
+
+        fn cancelWith(self: Self, out: ?rt.ErrSlot) T {
             var t = self;
             defer t.release();
-            return t.stop();
+            return keepResult(T, t.stop(), &t.control.err, out);
         }
 
         pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -170,7 +194,7 @@ pub fn Task(comptime T: type) type {
         pub fn __rig_drop(self: *Self) void {
             defer self.release();
             var result = if (fallible or canceledHere()) self.stop() else self.handle.result();
-            dropElement(T, &result);
+            dropResult(T, &result, &self.control.err);
         }
 
         /// Record the cancel, which ends a wait the task is in that a
@@ -184,6 +208,45 @@ pub fn Task(comptime T: type) type {
             self.handle.free();
         }
     };
+}
+
+/// Whether a function of type `F` takes the slot its failure's fields go
+/// in (`rt.ErrSlot`), as its last parameter: one that may fail with
+/// fields, in a program with error glue.
+fn takesSlot(comptime F: type) bool {
+    if (comptime rt.error_glue == null) return false;
+    const info = switch (@typeInfo(F)) {
+        .@"fn" => |f| f,
+        .pointer => |p| switch (@typeInfo(p.child)) {
+            .@"fn" => |f| f,
+            else => return false,
+        },
+        else => return false,
+    };
+    if (info.param_types.len == 0) return false;
+    const last = info.param_types[info.param_types.len - 1] orelse return false;
+    return last == rt.ErrSlot;
+}
+
+/// Drop `result`, a task's: its value, or its failure's fields, which
+/// `data` holds.
+fn dropResult(comptime T: type, result: *T, data: *rt.ErrData) void {
+    if (comptime @typeInfo(T) == .error_union) {
+        if (result.*) |_| {} else |err| return rt.dropErrorData(err, data);
+    }
+    dropElement(T, result);
+}
+
+/// `result`, a task's, as its waiter takes it: a failure's fields, which
+/// `data` holds, move into the waiter's slot `out`, or are dropped where
+/// the waiter has none.
+fn keepResult(comptime T: type, result: T, data: *rt.ErrData, out: ?rt.ErrSlot) T {
+    if (comptime @typeInfo(T) == .error_union) {
+        if (result) |_| {} else |err| {
+            if (out) |o| o.* = data.* else rt.dropErrorData(err, data);
+        }
+    }
+    return result;
 }
 
 /// How a task is held: its fiber's record, which keeps its result once
@@ -218,6 +281,10 @@ fn Handle(comptime T: type) type {
 /// `Wakeup` of what waits on it when it ends. Allocated outside the leak
 /// count, as the backend's own records are.
 pub const Control = struct {
+    /// The fields of the task's failure, which its call writes when it
+    /// takes a slot (`rt.ErrSlot`), until a waiter takes them or the
+    /// task's result is dropped.
+    err: rt.ErrData = undefined,
     canceled: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
     wakeup: std.atomic.Value(?*Wakeup) = .init(null),
@@ -2135,4 +2202,43 @@ test "a task given what crosses cores runs anywhere, and a local task and its ma
     try std.testing.expect(!Run.maker_pinned_before);
     try std.testing.expect(Run.local_pinned);
     try std.testing.expect(Run.maker_pinned_after);
+}
+
+test "a task's failure data moves to the waiter's slot, and is dropped wherever it is discarded" {
+    const builtin = @import("builtin");
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const G = rt.TestErrorGlue;
+    const Run = struct {
+        var kept: u8 = 0;
+        var drops_after_into: usize = 0;
+        var drops_after_wait: usize = 0;
+        var drops_after_cancel: usize = 0;
+        var drops_after_drop: usize = 0;
+        fn fails(out: rt.ErrSlot) anyerror!i64 {
+            out.bytes[0] = 7;
+            return error.WithData;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            G.drops = 0;
+            var slot: rt.ErrData = undefined;
+            const a = Task(anyerror!i64).spawn(fails, .{});
+            if (a.waitInto(&slot)) |_| {} else |_| kept = slot.bytes[0];
+            drops_after_into = G.drops;
+            const b = Task(anyerror!i64).spawn(fails, .{});
+            _ = b.wait() catch {};
+            drops_after_wait = G.drops;
+            const c = Task(anyerror!i64).spawn(fails, .{});
+            _ = c.cancel() catch {};
+            drops_after_cancel = G.drops;
+            var d = Task(anyerror!i64).spawn(fails, .{});
+            d.__rig_drop();
+            drops_after_drop = G.drops;
+        }
+    };
+    rt.sched.runForTest(Run.first, 2);
+    try std.testing.expectEqual(@as(u8, 7), Run.kept);
+    try std.testing.expectEqual(@as(usize, 0), Run.drops_after_into);
+    try std.testing.expectEqual(@as(usize, 1), Run.drops_after_wait);
+    try std.testing.expectEqual(@as(usize, 2), Run.drops_after_cancel);
+    try std.testing.expectEqual(@as(usize, 3), Run.drops_after_drop);
 }

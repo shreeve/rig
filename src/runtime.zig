@@ -76,6 +76,54 @@ pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f
     return @call(.auto, f, args);
 }
 pub const Stop = tasks.Stop;
+
+// Errors with data. A program in which a member with fields reaches
+// `error` declares `__rig_error_glue` in its root module: the size and
+// alignment of the program's largest member's fields, and functions that
+// drop and print a member's fields given its code. A failure is its Zig
+// error code and an `ErrData`, the bytes of its fields, which the code
+// says how to read. Every place the runtime keeps or discards a Rig
+// failure keeps or drops its data. With no glue, `ErrData` has no bytes
+// and every branch on it is dead at compile time, so a program none of
+// whose errors has fields runs as it would without any of this. The
+// runtime's own tests use `TestErrorGlue`, which counts what it drops.
+
+/// The program's error glue, if a member with fields reaches `error`.
+pub const error_glue: ?type = if (builtin.is_test) TestErrorGlue else if (@hasDecl(root, "__rig_error_glue")) root.__rig_error_glue else null;
+
+/// The bytes of a failure's fields: room for the program's largest
+/// member's, or none.
+pub const ErrData = extern struct {
+    bytes: [if (error_glue) |g| g.size else 0]u8 align(if (error_glue) |g| g.alignment else 1),
+};
+
+/// Where a function that may fail with fields writes them: the hidden
+/// last parameter emit gives it, a slot its catching frame owns.
+pub const ErrSlot = *ErrData;
+
+/// Drop the fields of failure `code` held in `data`; nothing for a member
+/// without fields.
+pub inline fn dropErrorData(code: anyerror, data: *ErrData) void {
+    if (comptime error_glue) |g| g.drop(code, @ptrCast(data));
+}
+
+/// The glue of the runtime's tests: `error.WithData` carries 16 bytes,
+/// and each drop of them is counted.
+pub const TestErrorGlue = struct {
+    pub const size: usize = 16;
+    pub const alignment: usize = 8;
+    pub var drops: usize = 0;
+
+    pub fn drop(code: anyerror, data: *anyopaque) void {
+        _ = data;
+        if (code == error.WithData) drops += 1;
+    }
+
+    pub fn print(code: anyerror, data: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        _ = data;
+        try w.writeAll(@errorName(code));
+    }
+};
 const Control = tasks.Control;
 
 /// How many turns of a loop run between a task's yield checks (`turn`).
