@@ -8253,6 +8253,8 @@ pub const Emitter = struct {
     fn capField(self: *Emitter, name: []const u8) Error![]const u8 {
         if (std.mem.eql(u8, name, "@")) return "cap_self";
         if (std.mem.eql(u8, name, "self")) return "@\"cap_self'\"";
+        // A field path, `p.a` or `@template`, is quoted whole.
+        if (std.mem.indexOfAny(u8, name, ".@") != null) return self.fmt("@\"cap_{s}\"", .{name});
         return self.fmt("cap_{s}", .{name});
     }
 
@@ -8263,6 +8265,12 @@ pub const Emitter = struct {
         for (caps, 0..) |c, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             try self.w.print(".{s} = ", .{try self.capField(c.name)});
+            // A field path is the lend its sigil makes there.
+            const value = facts.syntax.captureValue(c.node);
+            if (value != .nil) {
+                try self.emitExpr(value);
+                continue;
+            }
             const outer = c.outer orelse return self.unsupported(c.node, "a capture of a name that is not a local");
             switch (c.mode) {
                 .cap_clone => try self.writeCloneCapture(&outer, c.node),

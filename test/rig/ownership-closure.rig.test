@@ -514,3 +514,112 @@ fail "closure write capture returns no owner", "`s` is a write view the closure 
   grab = |!s|
     s
   print(grab())
+
+fail "closure path capture reaches only its place", "the closure captured `p.a`, not `p`: capture `?p` instead", "the closure captured `p.a`, not `p.b`: capture `?p.b` too", errors: 2
+  # A closure that captures `p.a` reaches `p.a` and below it, never `p`
+  # or another field of `p`.
+
+  obj P
+    a: Int
+    b: Int
+
+  p = P(a: 1, b: 2)
+  f = |?p.a| p.a + p.b
+  g = |?p.a| print(p)
+  print(f())
+  g()
+
+fail "closure path capture overlap", "capture `p` or `p.a`, not both: one holds the other"
+  # Two captures in one list, one inside the other, would lend the same
+  # place twice.
+
+  obj P
+    a: Int
+
+  p = P(a: 1)
+  f = |?p, ?p.a| p.a
+  print(f())
+
+fail "closure path capture of an element", "a capture names a local or a field of one, not an element: lend it first, `x = ?xs[0]`, and capture `?x`"
+  # An index in a capture would read as the live element in the body
+  # while the index was fixed when the closure was made.
+
+  xs = [1, 2]
+  f = |?xs[0]| 1
+  print(f())
+
+fail "closure path capture loan", "8:1: cannot lend `p.a` to write while a read loan is live"
+  # The capture's loan is on its place, for the closure's life.
+
+  obj P
+    a: List[Int]
+
+  p = P(a: List[Int]())
+  f = |?p.a| p.a.len
+  !p.a.push(1)
+  print(f())
+
+fail "closure path capture view in an owned closure", "an owned closure cannot capture a view of `p.a`"
+  # An owned closure holds no view, of a field or of anything else.
+
+  obj P
+    a: List[Int]
+
+  p = P(a: List[Int]())
+  f = *|?p.a| p.a.len
+  print(f())
+
+fail "closure path capture of a call", "a capture names a local or a field of one: bind `p.f()` to a name first, and capture the name"
+  # A capture names a place; a call's result is bound first.
+
+  obj P
+    n: Int
+
+    fun f(?@) -> Int
+      @n
+
+  p = P(n: 1)
+  g = |?p.f()| 1
+  print(g())
+
+fail "closure path capture of a constant", "a capture names a local or a field of one, and `Color` is not a local: use `Color.red` in the closure directly"
+  # A path's root is a local, a parameter, a capture, or self.
+
+  enum Color
+    red
+    blue
+
+  f = |+Color.red| 1
+  print(f())
+
+fail "closure path capture past it to a method", "the closure captured `@a`, not `@`: capture `?@` instead"
+  # A method is called on self, so a closure that calls one captures
+  # self, not a field.
+
+  obj S
+    a: List[Int]
+
+    fun two(?@) -> Int
+      2
+
+    sub go(?@)
+      f = |?@a| @a.len + @two()
+      print(f())
+
+  s = S(a: List[Int]())
+  s.go()
+
+fail "closure path capture on one line", "write `p.q`, the path this closure captures, on one line"
+  # The body names the captured path as it is written in the bars.
+
+  obj Q
+    m: Int
+  obj P
+    q: Q
+
+  p = P(q: Q(m: 3))
+  f = |?p.q|
+    p
+      .q
+      .m
+  print(f())

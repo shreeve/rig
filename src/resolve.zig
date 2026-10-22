@@ -331,9 +331,12 @@ const SymbolResolver = struct {
     }
 
     fn walkLambda(self: *SymbolResolver, node: Sexp) Error!void {
+        const captures = sema.captureList(ir.Lambda.captures(node));
+        // A capture of a field path makes its lend where the closure is
+        // made, in the enclosing scope.
+        for (captures) |cap| if (sema.captureValue(cap) != .nil) try self.walk(sema.captureValue(cap));
         const prev = try self.enter(node, .lambda);
         defer self.scope = prev;
-        const captures = sema.captureList(ir.Lambda.captures(node));
         // A closure may capture self, `|?@|`, but takes no `@`.
         for (ir.Lambda.params(node).items()) |p| if (sema.paramNameNode(p)) |n| if (std.mem.eql(u8, identAt(self.ctx.source, n) orelse "", "@")) {
             try self.ctx.errAt(n, "`@` is a method's self and names nothing else", .{});
@@ -347,10 +350,20 @@ const SymbolResolver = struct {
                 try self.ctx.note(self.ctx.symbols.items[first].decl_pos, "first captured here", .{});
                 continue;
             }
-            // `|!x|` writes the binding it captures, as `!x` does.
-            if (cap.isKind(.cap_write)) try self.markWritten(cap, name_node, .capture);
+            // `|!x|` writes the binding it captures, as `!x` does; a
+            // path's lend, `!p.a`, says so itself.
+            if (cap.isKind(.cap_write) and sema.captureValue(cap) == .nil) try self.markWritten(cap, name_node, .capture);
             _ = try self.declare(name_node, .capture, .{});
         }
+        // Two captures, one a path inside the other, would lend one place
+        // twice: `|?p, ?p.a|`.
+        for (captures, 0..) |cap, i| for (captures[0..i]) |earlier| {
+            const a = identAt(self.ctx.source, sema.captureNameNode(cap) orelse continue) orelse continue;
+            const b = identAt(self.ctx.source, sema.captureNameNode(earlier) orelse continue) orelse continue;
+            const outer, const inner = if (a.len < b.len) .{ a, b } else .{ b, a };
+            if (!sema.pathHolds(outer, inner)) continue;
+            try self.ctx.errAt(sema.captureNameNode(cap).?, "capture `{s}` or `{s}`, not both: one holds the other", .{ outer, inner });
+        };
         try self.bindParams(ir.Lambda.params(node), .run_time, .nil, captures);
         try self.walk(ir.Lambda.body(node));
     }

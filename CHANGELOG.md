@@ -66,6 +66,11 @@ changed the language since it:
 - **Text and lists:** String `reserve`, `push[T, e]`, and List
   `reserve`; a byte order on a one-byte type is rejected; clearing a
   List of plain values sets its length.
+- **Closures capture field paths:** a capture's sigil takes a field
+  path as it does in an expression, `|?@template, k| fill(@template, k)`,
+  lending, copying, taking, or holding weakly that field alone; in the
+  body the path names the capture, and the closure reaches nothing
+  else of the object (SPEC §11).
 - **Owned closures:** `*fun` and `*sub` take and return anything a
   function's signature may hold: write and read views for the call,
   owners, and handles (docs/CORE.md §7). A temporary callee,

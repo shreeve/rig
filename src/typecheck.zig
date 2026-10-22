@@ -4573,7 +4573,7 @@ const Checker = struct {
             return null;
         }
         var sid: ?ScopeId = self.scope;
-        var crossed_lambda = false;
+        var crossed_lambda: ?ScopeId = null;
         while (sid) |s| {
             if (s == sema.scope_invalid or s >= self.ctx.scopes.items.len) break;
             if (self.visibleIn(s, name, leaf.src.pos)) |id| {
@@ -4583,13 +4583,14 @@ const Checker = struct {
                 if (kind == .local and sym.ty == self.t().unknown_id and sym.decl_pos != leaf.src.pos) {
                     try self.errAt(leaf, "`{s}` is used before it has a value", .{name});
                 }
-                if (crossed_lambda and s != self.module_scope and (kind == .local or kind == .param or kind == .capture)) {
+                if (crossed_lambda != null and s != self.module_scope and (kind == .local or kind == .param or kind == .capture)) {
+                    if (try self.pastPathCapture(leaf, name, crossed_lambda.?)) return id;
                     try self.errAt(leaf, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` lends it, `|~{s}|` holds it weakly)", .{ name, name, name, name, name, name });
                 }
                 return id;
             }
             const scope = self.ctx.scopes.items[s];
-            if (scope.kind == .lambda) crossed_lambda = true;
+            if (scope.kind == .lambda and crossed_lambda == null) crossed_lambda = s;
             sid = scope.parent;
         }
         // A generic type's type parameters are in scope only as types; its
@@ -15958,6 +15959,29 @@ const Checker = struct {
         };
     }
 
+    /// When the closure of scope `lambda` captures a field path of `name`
+    /// (`|?p.a|`) and the body reaches `name` outside it (`p`, `p.b`),
+    /// reports so, naming the place to capture, and returns true.
+    fn pastPathCapture(self: *Checker, leaf: Sexp, name: []const u8, lambda: ScopeId) Error!bool {
+        const captured = for (self.ctx.scopes.items[lambda].symbols.items) |id| {
+            const sym = self.ctx.symbols.items[id];
+            if (sym.kind == .capture and sema.pathHolds(name, sym.name)) break sym.name;
+        } else return false;
+        // The place the body names: `name`, the steps after it that it
+        // shares with the captured path, and the step where they part.
+        const src = self.ctx.source;
+        var end: usize = leaf.src.pos + leaf.src.len;
+        while (end - leaf.src.pos < captured.len and end < src.len and src[end] == captured[end - leaf.src.pos]) end += 1;
+        while (end < src.len and (std.ascii.isAlphanumeric(src[end]) or src[end] == '_')) end += 1;
+        const shown = src[leaf.src.pos..end];
+        // `@n()`, a method, is called on the root itself.
+        const call = end < src.len and src[end] == '(';
+        if (std.mem.eql(u8, shown, name) or call) {
+            try self.errAt(leaf, "the closure captured `{s}`, not `{s}`: capture `?{s}` instead", .{ captured, name, name });
+        } else try self.errAt(leaf, "the closure captured `{s}`, not `{s}`: capture `?{s}` too", .{ captured, shown, shown });
+        return true;
+    }
+
     /// Whether looking `name` up from `scope` leaves a closure body
     /// before finding it.
     fn closureBetween(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) bool {
@@ -16017,6 +16041,32 @@ const Checker = struct {
         const name = self.text(name_node);
         const pos = srcPos(name_node, 0);
         const cap_sym = self.ctx.symbolOf(name_node) orelse return;
+
+        // A field path is lent, copied, taken, or held weakly as its
+        // sigil does it in an expression, where the closure is made.
+        const value = sema.captureValue(cap);
+        if (value != .nil) {
+            const inner = self.scope;
+            self.scope = outer;
+            const ty = try self.synthExpr(value);
+            self.scope = inner;
+            var root = ir.get(value, .operand);
+            while (root.isKind(.member)) root = ir.Member.object(root);
+            const root_sym = self.ctx.symbolOf(root);
+            const place = if (root_sym) |r| switch (self.ctx.symbols.items[r].kind) {
+                .local, .param, .capture => self.ctx.symbols.items[r].scope != sema.module_scope,
+                else => false,
+            } else true;
+            if (!place) {
+                try self.err(pos, "a capture names a local or a field of one, and `{s}` is not a local: use `{s}` in the closure directly", .{ self.text(root), name });
+                self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+                return;
+            }
+            self.ctx.symbols.items[cap_sym].ty = ty;
+            if (root_sym) |r| self.ctx.symbols.items[cap_sym].origin = r;
+            try self.ctx.recordType(name_node, ty);
+            return;
+        }
 
         const outer_id = self.lookupAt(outer, name, pos) orelse {
             try self.err(pos, "captured name `{s}` is not in scope", .{name});

@@ -1731,6 +1731,7 @@ names with optional types:
 | `<x` | move `x` in |
 | `?x`, `!x` | lend `x` to read or write |
 | `~x` | hold a shared handle weakly |
+| `?p.a`, `!@cache` | any of these, of one field of `p` or of self |
 | `a`, `a: Int` | a parameter |
 | `\|\|` | an empty list |
 

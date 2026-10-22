@@ -452,9 +452,11 @@ tokens
     block                       ...stmts
 
     # Closures: the Parser wrapper splits a bar list into captures and
-    # parameters
+    # parameters. A capture of a field path keeps the lend it makes,
+    # `(read (member p a))` for `|?p.a|`, as its value, and a name that
+    # spans the path from its sigil (`rig.isPathCapture`).
     captures                    ...caps:cap_clone|cap_move|cap_weak|cap_read|cap_write @wrapper
-    cap_clone, cap_move, cap_weak, cap_read, cap_write  name:leaf
+    cap_clone, cap_move, cap_weak, cap_read, cap_write  name:leaf? value?
 
     # Calls and access
     call                        task:tag(task)? callee ...args
@@ -1150,6 +1152,7 @@ pbind    = name
 # a bare name is a parameter, optionally typed:
 #   |+x| clone (a copy, for a Copy value)   |<x| move   |~x| weak
 #   |?x| lend to read   |!x| lend to write
+#   |?@template| a sigil before a field path captures that field alone
 #   |a, b| a + b      |+v, a: Int| v.set(a)      || print("tick")
 # `*` before the bars makes an owned closure: `*|+v, a| v.set(a)`. The
 # grammar puts every entry in `params`; the Parser wrapper moves the
@@ -1173,13 +1176,16 @@ bars     = BAR_CAPTURE barents ![","] BAR_CAPTURE    → (...2)
 barents  = barent                                   → (1)
          | barents "," barent                       → (...1 3)
 
+# A capture's sigil takes a place: a name, or a field path from one
+# (`|?@template|`, `|!p.a|`). The grammar takes any postfix there; the
+# Parser wrapper keeps a name or a path and rejects the rest.
 barent   = fname
          | name:fname ":" type:type                 → (:)
-         | "+" name:name                            → (cap_clone)
-         | "<" name:name                            → (cap_move)
-         | "~" name:name                            → (cap_weak)
-         | "?" name:name                            → (cap_read)
-         | "!" name:name                            → (cap_write)
+         | "+" value:postfix                        → (cap_clone)
+         | "<" value:postfix                        → (cap_move)
+         | "~" value:postfix                        → (cap_weak)
+         | "?" value:postfix                        → (cap_read)
+         | "!" value:postfix                        → (cap_write)
 
 
 # ==============================================================================

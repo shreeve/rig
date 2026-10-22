@@ -8174,6 +8174,7 @@ closure parameter `n` has the name of the local `n`
 | `\|?x\|` | any | a read view `?T`, as `?x` gives it |
 | `\|!x\|` | any a write view may take | a write view `!T`, as `!x` gives it |
 | `\|~x\|` | `*T` | a weak handle `~T` |
+| `\|?p.a\|`, any sigil | a field, of `p` or of self (`@a`) | what the sigil gives of that field in an expression |
 
 The closure's environment owns what it captured and releases it once,
 when the closure is released, not after each call. The body may use,
@@ -8215,6 +8216,53 @@ sub main()
 ```output
 22
 0
+```
+
+A capture's sigil may take a field path, `|?p.a|` or `|!@cache|`: the
+closure captures that field alone, as the sigil does it in an
+expression (`?p.a` lends the field, `+p.a` copies or clones it, `<p.f`
+takes an optional field, `~p.h` holds a field's handle weakly). The
+lend is on that place, so another field of `p` stays free while the
+closure lives, and in the body the path names the capture. The body
+reaches the path and what is below it (`p.a.len`), never `p` or
+another field of it; two captures in one list, one inside the other
+(`|?p, ?p.a|`), are rejected, and an element (`|?xs[i]|`) is lent to a
+name first.
+
+```rig
+obj RenderState
+  cache: Map[String, String]
+  template: String
+
+  fun render(!@, name: ?String) -> String
+    +(!@cache).ensure_with(String(name), |?@template, k| String(@template, k, "!"))
+
+sub main()
+  s = RenderState(cache: Map[String, String](), template: String("Hello, "))
+  print((!s).render("Ada"))
+  print((!s).render("Ada"))
+  print(s.cache.len)
+```
+
+```output
+Hello, Ada!
+Hello, Ada!
+1
+```
+
+```rig reject
+obj P
+  a: Int
+  b: Int
+
+sub main()
+  p = P(a: 1, b: 2)
+  f = |?p.a| p.a + p.b
+  print(f())
+```
+
+```error
+the closure captured `p.a`, not `p.b`: capture `?p.b` too
 ```
 
 A closure nested in another captures from the scope where it is
