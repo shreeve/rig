@@ -1230,6 +1230,7 @@ postfix  = object:postfix "." name:name             → (member)
          | object:postfix "[" index:expr "]"        → (index)
          | object:postfix "[" index:open "]"        → (index)
          | object:postfix "[" args:targs "]"        → (inst)
+         | object:postfix "[" index:fallarg "]"     → (index)
          | callee:postfix "(" args:args ")"         → (call)
          | callee:postfix "(" args:args ")" TASK_AMP → (call task:task)
          | value:postfix "!"                        → (propagate)
@@ -1254,10 +1255,19 @@ args     = callargs                                 → 1
 # Two or more compile-time arguments (`Pair[Int, String]`); sema reads
 # one (`Vec[Int]`, an `index`) as compile-time arguments or an index by
 # what the object names.
-targs    = expr ","                                 → (1)
-         | expr "," expr                            → (1 3)
-         | expr "," targs                           → (1 ...3)
-         | expr "," tkwarg                          → (1 3)
+targs    = targ1 ","                                → (1)
+         | targ1 "," targ1                          → (1 3)
+         | targ1 "," targs                          → (1 ...3)
+         | targ1 "," tkwarg                         → (1 3)
+
+targ1    = expr
+         | fallarg
+
+# A fallible type argument with its set, `Task[Int!E]` or
+# `Tasks[Int!m.E]`, which no expression spells: inside brackets only,
+# where `]` or `,` follows it.
+fallarg  = type:postfix "!" set:name                → (error_union)
+         | type:postfix "!" set:pqual               → (error_union)
 
 # `inline: n` in `List[T, inline: n]()`.
 tkwarg   = name:name ":" value:expr                 → (kwarg)

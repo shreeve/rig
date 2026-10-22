@@ -13,6 +13,7 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A task set of a declared set:** `Tasks[Int!L]()` and `Task[T!E]` parse in an expression, as in a type.
 - **An array element that fails no longer leaks:** an array literal
   whose element leaves (`!`, `?`, or a `catch` that returns, breaks, or
   continues) drops the elements made before it, as a call's arguments,

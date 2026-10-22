@@ -7839,6 +7839,12 @@ const Checker = struct {
             else if (gives and g.isKind(.propagate)) blk: {
                 const inner = try self.typeArg(ir.Propagate.value(g));
                 break :blk if (self.isPoison(inner)) inner else try self.ctx.intern(.{ .fallible = .{ .ok = inner } });
+            } else if (gives and g.isKind(.error_union)) blk: {
+                // `Task[T!E]`, as a declaration names it.
+                const inner = try self.typeArg(ir.ErrorUnion.type(g));
+                if (self.isPoison(inner)) break :blk inner;
+                var r = self.resolver();
+                break :blk try r.taskResult(g, inner);
             } else try self.typeArg(g);
             if (self.isPoison(a.*)) bad = true;
             // A frozen value lives only behind `*`, never as an argument.
@@ -7900,7 +7906,7 @@ const Checker = struct {
                         else => .{ .optional = inner },
                     });
                 },
-                .propagate => {
+                .propagate, .error_union => {
                     try self.errAt(e, "a fallible type `{s}` stands only where a call's result is named: a function's return type, or a task's, `Task[T!]`", .{self.sourceText(e)});
                     return self.t().invalid_id;
                 },
