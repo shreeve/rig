@@ -3504,7 +3504,16 @@ pub const Emitter = struct {
                 try self.w.writeAll(" => ");
                 const name = ir.SetPattern.name(pattern);
                 const cap = try self.fmt("__rig_set_{d}", .{name.src.pos});
-                prelude.aliases = try self.wholeAlias(name, cap, ir.Arm.body(arm));
+                var buf: Writer.Allocating = .init(self.arena.allocator());
+                {
+                    const saved_w = self.w;
+                    self.w = &buf.writer;
+                    defer self.w = saved_w;
+                    try self.w.writeAll("@as(");
+                    try self.emitTypeTy(self.typeOf(pattern) orelse return self.unsupported(pattern, "an untyped set pattern"));
+                    try self.w.print(", {s})", .{cap});
+                }
+                prelude.aliases = try self.wholeAlias(name, buf.written(), ir.Arm.body(arm));
                 if (prelude.aliases.len > 0) try self.w.print("|{s}| ", .{cap});
             } else {
                 try self.writePatternHead(pattern, info);
@@ -3703,8 +3712,7 @@ pub const Emitter = struct {
         }
         // `g: E =>`: each member of every set `E` stands for.
         if (pattern.isKind(.set_pattern)) {
-            const set = self.typeOf(pattern) orelse return self.unsupported(pattern, "an untyped set pattern");
-            const members = try self.facts.errorSetMembers(set, self.arena.allocator());
+            const members = (try self.facts.setPatternMembers(pattern, self.arena.allocator())) orelse return self.unsupported(pattern, "an unchecked set pattern");
             for (members, 0..) |m, i| {
                 if (i > 0) try self.w.writeAll(", ");
                 try self.w.writeAll("error.");
@@ -3902,6 +3910,24 @@ pub const Emitter = struct {
             if (!self.usesSymbol(guard, sym)) return;
             const aliases = try self.wholeBinding(pattern, subj, info, .nil);
             return self.emitPrelude(.{ .aliases = aliases });
+        }
+        // `g: E if ... =>`: `g` is the subject as an `E`, which the arm's
+        // test checked before the guard.
+        if (pattern.isKind(.set_pattern)) {
+            const name = ir.SetPattern.name(pattern);
+            const sym = self.facts.symbolOf(name) orelse return;
+            if (!self.usesSymbol(guard, sym)) return;
+            const set = self.typeOf(pattern) orelse return;
+            var buf: Writer.Allocating = .init(self.arena.allocator());
+            {
+                const saved_w = self.w;
+                self.w = &buf.writer;
+                defer self.w = saved_w;
+                try self.w.writeAll("@as(");
+                try self.emitTypeTy(set);
+                try self.w.print(", @errorCast({s}))", .{subj});
+            }
+            return self.emitPrelude(.{ .aliases = try self.wholeAlias(name, buf.written(), guard) });
         }
         if (!pattern.isKind(.variant_pattern)) return;
         const vname = self.srcText(ir.VariantPattern.name(pattern));

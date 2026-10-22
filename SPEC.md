@@ -4164,11 +4164,11 @@ equals only `none` and a value compares with an optional as its value;
 arrays and `[]T` slices, element by element; objects, field by field;
 and payload enums, by variant and then payload. A variant literal,
 `.red` or `.dot(at: p)`, takes its enum type from the other operand, on
-either side. A bare `.variant`, or the variant named with its enum
-(`Shape.dot`), tests only which variant a value holds, one with a
-payload too, so it compares with any enum, or optional of one, whatever
-its payloads hold; a payload literal compares the payload too, so the
-enum must have `==`. Floats compare as IEEE numbers wherever they are, so a
+either side. A bare `.variant` tests only which variant a value holds,
+one with a payload too, so it compares with any enum, or optional of
+one, whatever its payloads hold; so does the variant named with its
+enum (`Shape.dot`), beside a value of that enum. A payload literal
+compares the payload too, so the enum must have `==`. Floats compare as IEEE numbers wherever they are, so a
 object holding a NaN is not equal to itself. A viewed operand (`?P`,
 `!P`) compares as the value it reaches. A method named `eq` is never
 called by `==`.

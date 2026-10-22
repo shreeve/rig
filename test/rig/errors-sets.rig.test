@@ -362,3 +362,176 @@ fail "a `Task` type whose set lacks `task.Stop`", "waiting for a task also fails
     0
 
   pass
+
+test "`.name` against a union is the member of its one set", '''
+  -11
+  -12
+  -10
+  1
+'''
+  error A
+    x
+    w
+  error B
+    y
+  error L = A | B
+
+  fun f(n: Int) -> Int!L
+    return A.x if n == 0
+    return A.w if n == 1
+    return B.y if n == 2
+    n
+
+  for n in [0, 1, 2]
+    v = f(n) catch |e|
+      if e == B.y
+        -10
+      else if e == .x
+        -11
+      else
+        -12
+    print(v)
+  ls: List[L] = List()
+  !ls.push(.x)
+  print(ls.len)
+
+test "a set arm after a member of its set, and a guard that reads the set's binding", '''
+  -1
+  -2
+  -5
+  3
+'''
+  error A
+    x
+    w
+  error B
+    y
+  error L = A | B
+
+  fun f(n: Int) -> Int!L
+    return A.x if n == 0
+    return A.w if n == 1
+    return B.y if n == 2
+    n
+
+  for n in [0, 1, 2, 3]
+    v = f(n) catch |e|
+      match e
+        A.x => -1
+        g: A if n > 0 and g == .w => -2
+        _: L => -5
+    print(v)
+
+test "the first result of a set of tasks with a declared set", '''
+  3
+  -2
+'''
+  use std.task
+
+  error Job
+    bad
+  error JS = Job | task.Stop
+
+  fun work(n: Int) -> Int!JS
+    return Job.bad if n < 0
+    n
+
+  fun firstof(n: Int) -> Int!JS
+    ts: Tasks[Int!JS] = Tasks()
+    !ts.add(work(n)&)
+    <ts.wait_first()!
+
+  fun all(n: Int) -> Int!JS
+    ts: Tasks[Int!JS] = Tasks()
+    !ts.add(work(n)&)
+    rs = (>ts)!
+    rs[0]
+
+  print(firstof(3) catch -1)
+  print(all(-1) catch -2)
+
+test "a union declared after the task type that names it", '''
+  3
+'''
+  use std.task
+
+  fun keep(t: Task[Int!JS]) -> Int!JS
+    >t!
+
+  fun work() -> Int!JS
+    3
+
+  error Job
+    bad
+  error JS = Job | task.Stop
+
+  print(keep(work()&) catch -1)
+
+test "a member test of a value made for it drops the value", '''
+  true true false
+'''
+  enum K
+    a(xs: List[Int])
+    b
+
+  fun mk(n: Int) -> K!
+    K.a(List([n]))
+
+  c = true
+  print((K.a(List([1])) if c else K.b) == K.a, (mk(0) catch K.b) == K.a, (mk(0) catch K.b) == K.b)
+
+fail "several results keep their declared set", "`B.y` is not in `A`, the error set `f` declares"
+  error A
+    x
+  error B
+    y
+
+  fun f(n: Int) -> (Int, Int)!A
+    return B.y if n < 0
+    return n, n
+
+  q, r = f(1) catch (0, 0)
+  print(q + r)
+
+fail "a set arm that adds no member", "this arm never runs: the arms before it cover every member of `A`"
+  error A
+    x
+  error B
+    y
+  error L = A | B
+
+  fun f() -> Int!L
+    return A.x
+
+  v = f() catch |e|
+    match e
+      _: L => 1
+      _: A => 2
+  print(v)
+
+fail "`.name` in no set a union joins", "no set `L` joins has a member `.zzz`"
+  error A
+    x
+  error L = A
+
+  fun f() -> Int!L
+    return A.x
+
+  v = f() catch |e|
+    if e == .zzz
+      1
+    else
+      2
+  print(v)
+
+fail "a closure's set, named in a message", "`loose` may fail with any error, and this closure declares `Int!A`"
+  error A
+    x
+
+  fun loose() -> Int!
+    1
+
+  fun run(f: ?fun() -> Int!A) -> Int
+    f() catch -1
+
+  print(run(|| loose()!))

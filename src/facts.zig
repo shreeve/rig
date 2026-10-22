@@ -833,6 +833,18 @@ pub const Facts = struct {
         return out.items;
     }
 
+    /// The members a `g: E =>` pattern covers that no arm before it did
+    /// (`SemContext.recordSetPatternMembers`): what its prong lists.
+    pub fn setPatternMembers(f: Facts, node: Sexp, a: std.mem.Allocator) std.mem.Allocator.Error!?[]const ErrorMember {
+        const members = f.c().setPatternMembers(node) orelse return null;
+        const out = try a.alloc(ErrorMember, members.len);
+        for (members, out) |m, *o| {
+            const d = f.nominalDecl(m.set) orelse return null;
+            o.* = .{ .facts = d.facts, .set = d.symbol().name, .name = m.name };
+        }
+        return out;
+    }
+
     pub fn nominalDecl(f: Facts, ty: TypeId) ?Nominal {
         const d = sema.nominalDecl(f.c(), ty) orelse return null;
         return .{ .facts = of(d.ctx), .sym = d.sym, .module_id = d.module_id };

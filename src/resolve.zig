@@ -836,7 +836,14 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     for (ir.Module.decls(tree)) |decl| {
         if ((if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.errors)) tr.declares_errors = true;
     }
+    // A union of error sets is resolved first, so any type that names it
+    // (a task's `Task[T!L]`) sees the sets it joins, wherever it is
+    // declared.
     for (ir.Module.decls(tree)) |decl| {
+        if (rig.unpub(decl).isKind(.error_join)) try tr.resolveDecl(decl);
+    }
+    for (ir.Module.decls(tree)) |decl| {
+        if (rig.unpub(decl).isKind(.error_join)) continue;
         // A compile-time function is resolved with the constants
         // (`ensureCtFun`), and so are the variants of a plain enum, whose
         // methods are resolved here.
@@ -1678,7 +1685,10 @@ pub const TypeResolver = struct {
         if (wrapped.isKind(.results_type)) {
             const inner = try self.resolveResults(wrapped);
             if (self.isPoison(inner)) return inner;
-            return self.ctx.intern(if (node.isKind(.optional)) .{ .optional = inner } else .{ .fallible = .{ .ok = inner } });
+            if (node.isKind(.optional)) return self.ctx.intern(.{ .optional = inner });
+            const set = try self.resolveFailSet(ir.ErrorUnion.set(node));
+            if (set == self.ctx.types.invalid_id) return set;
+            return self.ctx.intern(.{ .fallible = .{ .ok = inner, .set = set } });
         }
         if (node.isKind(.error_union) and wrapped.isKind(.optional) and ir.Optional.type(wrapped).isKind(.results_type)) {
             try self.ctx.errAt(node, "several results are fallible, `(A, B)!`, or optional, `(A, B)?`, not both", .{});

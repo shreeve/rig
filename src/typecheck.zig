@@ -5331,6 +5331,9 @@ const Checker = struct {
             const ty = try self.synthEqOperand(other);
             const value = sema.unwrapViews(self.ctx, ty);
             if (!self.isPoison(value) and value == try self.namedTypeValue(nt) and (try sema.lookupVariant(self.ctx, value, self.text(ir.Member.name(side)))) != null) {
+                // Read as `x == .name` reads it: a value made here is
+                // dropped by the test, any other owner read in place.
+                if (sema.moves(self.ctx, ty) != .no and self.hands(other).kind != .made) try self.readLeaf(other);
                 try self.ctx.recordType(side, value);
                 try self.ctx.recordMemberTest(e);
                 return self.t().bool_id;
@@ -5796,12 +5799,12 @@ const Checker = struct {
         const ret = self.ctx.types.get(self.body.ret);
         if (ret != .fallible or sema.errorSubset(self.ctx, set, ret.fallible.set)) return;
         const callee = if (operand.isKind(.call)) try self.calleeName(ir.Call.callee(operand)) else try self.plainText(operand);
-        const fname = self.text(self.body.name);
+        const fname = try self.bodyName();
         const declared = try self.tyName(self.body.ret);
         if (set == self.t().any_error_id) {
-            return self.errAt(operand, "`{s}` may fail with any error, and `{s}` declares `{s}`: catch it, or declare `{s}`", .{ callee, fname, declared, try self.anyErrorHeader() });
+            return self.errAt(operand, "`{s}` may fail with any error, and {s} declares `{s}`: catch it, or declare `{s}`", .{ callee, fname, declared, try self.anyErrorHeader() });
         }
-        return self.errAt(operand, "`{s}` may fail with `{s}`, which `{s}`, the error set `{s}` declares, does not hold: catch it, or declare a set that holds both (`error L = {s} | {s}`)", .{ callee, try self.tyName(set), try self.tyName(ret.fallible.set), fname, try self.tyName(ret.fallible.set), try self.tyName(set) });
+        return self.errAt(operand, "`{s}` may fail with `{s}`, which `{s}`, the error set {s} declares, does not hold: catch it, or declare a set that holds both (`error L = {s} | {s}`)", .{ callee, try self.tyName(set), try self.tyName(ret.fallible.set), fname, try self.tyName(ret.fallible.set), try self.tyName(set) });
     }
 
     /// `return err` with `err` of `actual`, an error set or `error`, in
@@ -5809,15 +5812,15 @@ const Checker = struct {
     fn checkReturnedError(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         const declared = self.ctx.types.get(expected).fallible.set;
         if (self.isPoison(actual) or sema.errorSubset(self.ctx, actual, declared)) return;
-        const fname = self.text(self.body.name);
+        const fname = try self.bodyName();
         const shown = try self.plainText(e);
         if (actual == self.t().any_error_id) {
-            return self.errAt(e, "`{s}` may be any error, and `{s}` declares `{s}`: narrow it with a `match` arm (`g: {s} =>`), or declare `{s}`", .{ shown, fname, try self.tyName(expected), try self.tyName(declared), try self.anyErrorHeader() });
+            return self.errAt(e, "`{s}` may be any error, and {s} declares `{s}`: narrow it with a `match` arm (`g: {s} =>`), or declare `{s}`", .{ shown, fname, try self.tyName(expected), try self.tyName(declared), try self.anyErrorHeader() });
         }
         if (self.ctx.isErrorMember(e)) {
-            return self.errAt(e, "`{s}` is not in `{s}`, the error set `{s}` declares", .{ shown, try self.tyName(declared), fname });
+            return self.errAt(e, "`{s}` is not in `{s}`, the error set {s} declares", .{ shown, try self.tyName(declared), fname });
         }
-        return self.errAt(e, "`{s}` is a `{s}` error, which `{s}`, the error set `{s}` declares, does not hold", .{ shown, try self.tyName(actual), try self.tyName(declared), fname });
+        return self.errAt(e, "`{s}` is a `{s}` error, which `{s}`, the error set {s} declares, does not hold", .{ shown, try self.tyName(actual), try self.tyName(declared), fname });
     }
 
     /// The header the function being checked would write to fail with
@@ -12860,7 +12863,7 @@ const Checker = struct {
         const value = if (fails) self.ctx.types.get(each).fallible.ok else each;
         const result = if (first) each else blk: {
             const all = if (value == self.t().void_id) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
-            break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = all } }) else all;
+            break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = all, .set = self.ctx.types.get(each).fallible.set } }) else all;
         };
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{set}), .returns = result, .is_sub = result == self.t().void_id };
         try self.noteCallee(f);
@@ -14099,6 +14102,9 @@ const Checker = struct {
                 // function fails only by naming the error set.
                 const name = ir.EnumLit.name(e);
                 if (target == self.t().any_error_id) return try self.resolveErrorName(name);
+                // Against a union, `.name` is the member of the one set it
+                // joins that has it.
+                if (sema.isErrorUnion(self.ctx, target)) return try self.unionMemberSet(target, name);
                 if (self.ctx.types.get(expected) == .fallible and !self.isPoison(target) and
                     (try sema.lookupVariant(self.ctx, target, self.text(name))) == null)
                 {
@@ -15490,14 +15496,21 @@ const Checker = struct {
         }
         var leaves: std.ArrayList(sema.SetKey) = .empty;
         try sema.errorSetLeaves(self.ctx, set, &leaves, self.ctx.arena.allocator());
+        // The members no arm before covers: the arm's own, which its prong
+        // lists, so no member is listed twice.
+        var fresh: std.ArrayList(sema.SetMember) = .empty;
         for (leaves.items) |leaf| {
             const leaf_ty = try leaf.typeIn(self.ctx);
             for (sema.setMembers(leaf)) |f| {
                 if (!f.is_variant) continue;
                 const key = try self.errorArmKey(subject, leaf_ty, f.name);
-                if (cov.variantAt(key) == null) try cov.variants.put(self.ctx.allocator, key, self.startOf(pattern));
+                if (cov.variantAt(key) != null) continue;
+                try cov.variants.put(self.ctx.allocator, key, self.startOf(pattern));
+                try fresh.append(self.ctx.arena.allocator(), .{ .set = leaf_ty, .name = f.name });
             }
         }
+        if (fresh.items.len == 0) try self.errAt(pattern, "this arm never runs: the arms before it cover every member of `{s}`", .{try self.tyName(set)});
+        try self.ctx.recordSetPatternMembers(pattern, fresh.items);
     }
 
     /// What a pattern for member `name` of error set `set` covers: the

@@ -1100,6 +1100,10 @@ pub const Facts = struct {
     /// enum: a test of which variant `x` holds, comparing no payload
     /// (`SemContext.recordMemberTest`).
     member_tests: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// A `g: E =>` pattern -> the members of `E` it covers that no arm
+    /// before it did: what its Zig prong lists
+    /// (`SemContext.recordSetPatternMembers`).
+    set_pattern_members: std.AutoHashMapUnmanaged(NodeKey, []const SetMember) = .empty,
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -2063,6 +2067,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         },
         // A field a pattern leaves out shows as `-`.
         []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
+        []const SetMember => for (v) |m| try w.print(" {s}.{s}", .{ try formatTypeIn(ctx, a, m.set), m.name }),
         []const ArgSlot => for (v) |slot| switch (slot) {
             .arg => |i| try w.print(" arg{d}", .{i}),
             .default => try w.writeAll(" default"),
@@ -3111,6 +3116,14 @@ pub const SemContext = struct {
     /// module's constant or a value's field.
     pub fn recordErrorMember(self: *SemContext, node: Sexp) !void {
         try self.facts.error_members.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn recordSetPatternMembers(self: *SemContext, node: Sexp, members: []const SetMember) !void {
+        try self.facts.set_pattern_members.put(self.allocator, recordKey(node), members);
+    }
+
+    pub fn setPatternMembers(self: *const SemContext, node: Sexp) ?[]const SetMember {
+        return self.facts.set_pattern_members.get(nodeKey(node) orelse return null);
     }
 
     pub fn recordMemberTest(self: *SemContext, node: Sexp) !void {
@@ -5554,6 +5567,10 @@ pub const SetKey = struct {
         return ctx.intern(.{ .nominal = key.sym });
     }
 };
+
+/// A member of the declared error set `set`, a type of the module that
+/// records it.
+pub const SetMember = struct { set: TypeId, name: []const u8 };
 
 /// The declared error set `ty` names, if it names one rather than a
 /// union.
