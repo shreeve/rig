@@ -353,11 +353,9 @@ first step is on `main` (SPEC §18):
   (`t = f()&; g(); >t`) spreads at `g`'s first yield check. The worker
   watching busy workers' pollers keeps the watch while they wake, so
   they kick no one as they do (`sched.sleepIn`).
-- **A worker's own fields** fill one cache line, and all that other
-  threads write of it (its ring, "run next" slot, poller, timers,
-  pinned queue, and sleep) lies apart from them, 256 bytes on Apple's
-  cores (`sched.Worker`): a yield takes about 6 ns on the Mac and 22
-  on pup's two hyperthreads, 25% and 12% less (bench/tasks).
+- **Each worker on cache lines of its own:** no line holds two
+  workers' fields (`sched.Worker`), so a yield takes about 5 ns on the
+  Mac and 22 on pup's two hyperthreads, 45% and 12% less (bench/tasks).
 - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
   `task.select` commits exactly one of its arms (`tasks.Chan`,
   `selectArms`). `task.supervise(f, restarts:, per:)` runs a
