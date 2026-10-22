@@ -1,0 +1,399 @@
+From c09d19cb6c25e5462f34b66fe8c418c49a4afb5a Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Thu, 22 Oct 2026 01:09:53 -0600
+Subject: [PATCH 1/2] std: a Map's and Set's probes and iterators index with no
+ bounds test
+
+Each probe loop's test bounds its index by both Lists of the table, the
+tags and the entry indexes, which are always the same length, so the
+proof pass proves every read and write of a slot; `place` probes
+itself rather than handing a slot back through `free_slot`. A small
+Map's or Set's scan bounds its index by the entries as well as the
+hashes, and the iterators walk a slice of the entries under a guard
+of both bounds. Only an entry's index read from a slot keeps its
+test. The count of entries grows by a wrapping add, as it never
+passes the entries' length. std.text's Interner probes its table the
+same way. test/cli/std_proofs.sh checks every index in them is proven.
+---
+ CHANGELOG.md                |   5 +-
+ docs/STD.md                 |   5 +-
+ docs/internals/INTERNALS.md |  10 ++++
+ std/__rig_builtin.rig       | 102 ++++++++++++++++++++----------------
+ std/text.rig                |  29 +++++-----
+ test/cli/std_proofs.sh      |  48 +++++++++++++++++
+ 6 files changed, 137 insertions(+), 62 deletions(-)
+ create mode 100644 test/cli/std_proofs.sh
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c779d31e3..a26795b67 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -190,7 +190,10 @@ changed the language since it:
+   adds the calls that held the most, each as a short stack.
+ - **Map and Set:** a key of 8 bytes or fewer keeps no stored hash, so
+   such a Map takes 8 bytes an entry fewer; Trig's ts-pattern peaks at
+-  403 MB rather than 425.
++  403 MB rather than 425. A lookup, an insert, and the iterators make no
++  bounds test but of the entry a slot names: each loop's test bounds its
++  index by every List it reads, so the proof pass covers the reads
++  (std.text's Interner likewise).
+ - **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
+   to 1024) inside the List value itself and allocates only once it
+   holds more, when they all move to the heap, so a short-lived List of
+diff --git a/docs/STD.md b/docs/STD.md
+index 8123a1253..362e29f62 100644
+--- a/docs/STD.md
++++ b/docs/STD.md
+@@ -1123,7 +1123,10 @@ open-addressed and probed linearly, at most four fifths full; each
+ slot holds a one-byte tag, the top seven bits of its key's hash, and
+ the index of its entry, so a probe compares a key only when the tag
+ matches, and a key that is not there is found missing from the tags
+-alone. A Map's entry holds its key and an optional value (for a
++alone. A probe and the iterators make no bounds test of their own: each
++loop's test bounds its index by every List it reads, so the compiler
++proves each read in range (docs/internals/INTERNALS.md, "Proven
++checks"); only the entry a slot names is tested. A Map's entry holds its key and an optional value (for a
+ `Map[U32, U32]`, a `U32` and a `U32?`), and its hash, a `U64`, is kept
+ in a List beside the entries; taking one empties its value in place,
+ and the next growth drops the entry, key and all, keeping the rest in
+diff --git a/docs/internals/INTERNALS.md b/docs/internals/INTERNALS.md
+index 1ec98fc7c..ce9978abe 100644
+--- a/docs/internals/INTERNALS.md
++++ b/docs/internals/INTERNALS.md
+@@ -1926,6 +1926,16 @@ a fact emit and the ownership checker read too:
+ A meet keeps the facts both sides hold, a `below` with the smaller `k`.
+ Every state inside a loop holds `L`, so no fixpoint is needed.
+ 
++**Lists of one length.** Two Lists kept the same length, as a hash
++table's tags and entry indexes (`Table` in std/__rig_builtin.rig,
++`IdTable` in std.text), are both read with no test when a loop's guard
++bounds the index by each: `while 0 <= i and i < ts.len and i < ats.len`
++makes `below(i, 1, len(ts))` and `below(i, 1, len(ats))`. The std's
++probes and iterators are written so (each over slices of the Lists it
++reads); only an entry's index read from a slot keeps its test, valid by
++construction but beyond a fact. `test/cli/std_proofs.sh` checks that
++every other index in them is proven.
++
+ ### Flags
+ 
+ Some tests the facts do not prove would be proven by facts a program
+diff --git a/std/__rig_builtin.rig b/std/__rig_builtin.rig
+index 479e64c2b..2f8a4dd5d 100644
+--- a/std/__rig_builtin.rig
++++ b/std/__rig_builtin.rig
+@@ -42,25 +42,24 @@ obj Table
+   tags: List[U8] = List()
+   at: List[U32] = List()
+ 
+-  # Point a free slot at entry `j`, whose key hashes to `h`. The table
+-  # is never full, so the probe always finds one.
++  # Point the first free slot from the one `h` names at entry `j`,
++  # whose key hashes to `h`. Each pass is a loop whose test is the
++  # bounds test of both Lists, which are always the same length, so a
++  # step reads a tag and fills a slot with no other check. The table is
++  # never full, so the probe always finds one.
+   sub place(!@, j: Int, h: U64)
+-    i = @free_slot(h)
+-    @tags[i] = tag_of(h)
+-    @at[i] = U32(j)
+-
+-  # The first free slot from the one `h` names. Each pass is a loop
+-  # whose test is the bounds test, so a step reads a tag with no other
+-  # check; past both, -1 would fail the caller's bounds check.
+-  fun free_slot(?@, h: U64) -> Int
+-    ts = ?@tags[..]
++    ts = !@tags[..]
++    ats = !@at[..]
+     i = Int(h & U64(ts.len - 1))
+     for _ in 0..2
+-      while 0 <= i and i < ts.len
+-        return i if ts[i] == 0
++      while 0 <= i and i < ts.len and i < ats.len
++        if ts[i] == 0
++          ts[i] = tag_of(h)
++          ats[i] = U32(j)
++          return
+         i += 1
+       i = 0
+-    -1
++    panic("a Map's table is full")
+ 
+   # Empty the table, as `n` free slots.
+   sub reset(!@, n: Int)
+@@ -317,10 +316,11 @@ pub obj Map[K: Hash, V]
+     if @table.tags.len == 0
+       if stores_hashes[K]()
+         hs = ?@hs[..]
++        es = ?@es[..]
+         j = 0
+-        while 0 <= j and j < hs.len
+-          if hs[j] == h and @es[j].value != none
+-            return j if @es[j].key == k
++        while 0 <= j and j < hs.len and j < es.len
++          if hs[j] == h and es[j].value != none
++            return j if es[j].key == k
+           j += 1
+       else
+         es = ?@es[..]
+@@ -331,14 +331,15 @@ pub obj Map[K: Hash, V]
+           j += 1
+       return none
+     ts = ?@table.tags[..]
++    ats = ?@table.at[..]
+     tag = tag_of(h)
+     i = Int(h & U64(ts.len - 1))
+     for _ in 0..2
+-      while 0 <= i and i < ts.len
++      while 0 <= i and i < ts.len and i < ats.len
+         t = ts[i]
+         return none if t == 0
+         if t == tag
+-          j = Int(@table.at[i])
++          j = Int(ats[i])
+           return j if @es[j].key == k
+         i += 1
+       i = 0
+@@ -353,7 +354,8 @@ pub obj Map[K: Hash, V]
+       !@grow()
+     !@es.push(Entry(key: <k, value: <v))
+     !@hs.push(h) if stores_hashes[K]()
+-    @len += 1
++    # At most the entries' length, so it cannot wrap.
++    @len +%= 1
+     !@table.place(@es.len - 1, h) if @table.tags.len > 0
+ 
+   # Make room for one more entry: drop the entries taken, and build the
+@@ -502,26 +504,29 @@ pub obj Set[K: Hash]
+     if @table.tags.len == 0
+       if stores_hashes[K]()
+         hs = ?@hs[..]
++        ks = ?@ks[..]
+         j = 0
+-        while 0 <= j and j < hs.len
++        while 0 <= j and j < hs.len and j < ks.len
+           if hs[j] == h
+-            return j if @ks[j] == k
++            return j if ks[j] == k
+           j += 1
+       else
++        ks = ?@ks[..]
+         j = 0
+-        while 0 <= j and j < @ks.len
+-          return j if @ks[j] == k
++        while 0 <= j and j < ks.len
++          return j if ks[j] == k
+           j += 1
+       return none
+     ts = ?@table.tags[..]
++    ats = ?@table.at[..]
+     tag = tag_of(h)
+     i = Int(h & U64(ts.len - 1))
+     for _ in 0..2
+-      while 0 <= i and i < ts.len
++      while 0 <= i and i < ts.len and i < ats.len
+         t = ts[i]
+         return none if t == 0
+         if t == tag
+-          j = Int(@table.at[i])
++          j = Int(ats[i])
+           return j if @ks[j] == k
+         i += 1
+       i = 0
+@@ -536,7 +541,8 @@ pub obj Set[K: Hash]
+       !@grow()
+     !@ks.push(<k)
+     !@hs.push(h) if stores_hashes[K]()
+-    @len += 1
++    # At most the entries' length, so it cannot wrap.
++    @len +%= 1
+     !@table.place(@ks.len - 1, h) if @table.tags.len > 0
+ 
+   sub grow(!@)
+@@ -620,12 +626,14 @@ pub obj Items[K, V]
+   next_at: Int
+ 
+   pub fun next(!@) -> Item[?K, ?V]?
+-    while @next_at < @map.es.len
+-      j = @next_at
+-      @next_at += 1
+-      v: (?V)? = ?@map.es[j].value
++    es = ?@map.es[..]
++    j = @next_at
++    while 0 <= j and j < es.len
++      @next_at = j + 1
++      v: (?V)? = ?es[j].value
+       if v as vv
+-        return Item(key: ?@map.es[j].key, value: vv)
++        return Item(key: ?es[j].key, value: vv)
++      j += 1
+     none
+ 
+ # The keys of a Map, in order (`Map.keys`).
+@@ -634,10 +642,12 @@ pub obj Keys[K, V]
+   next_at: Int
+ 
+   pub fun next(!@) -> (?K)?
+-    while @next_at < @map.es.len
+-      j = @next_at
+-      @next_at += 1
+-      return ?@map.es[j].key if @map.es[j].value != none
++    es = ?@map.es[..]
++    j = @next_at
++    while 0 <= j and j < es.len
++      @next_at = j + 1
++      return ?es[j].key if es[j].value != none
++      j += 1
+     none
+ 
+ # The values of a Map, in order (`Map.values`).
+@@ -646,12 +656,14 @@ pub obj Values[K, V]
+   next_at: Int
+ 
+   pub fun next(!@) -> (?V)?
+-    while @next_at < @map.es.len
+-      j = @next_at
+-      @next_at += 1
+-      v: (?V)? = ?@map.es[j].value
++    es = ?@map.es[..]
++    j = @next_at
++    while 0 <= j and j < es.len
++      @next_at = j + 1
++      v: (?V)? = ?es[j].value
+       if v as vv
+         return vv
++      j += 1
+     none
+ 
+ # The keys of a Set, in order (`Set.items`).
+@@ -660,10 +672,12 @@ pub obj Members[K]
+   next_at: Int
+ 
+   pub fun next(!@) -> (?K)?
+-    while @next_at < @set.ks.len
+-      j = @next_at
+-      @next_at += 1
+-      k: (?K)? = ?@set.ks[j]
++    ks = ?@set.ks[..]
++    j = @next_at
++    while 0 <= j and j < ks.len
++      @next_at = j + 1
++      k: (?K)? = ?ks[j]
+       if k as kk
+         return kk
++      j += 1
+     none
+diff --git a/std/text.rig b/std/text.rig
+index 8ea1b1be3..24ed5b2d2 100644
+--- a/std/text.rig
++++ b/std/text.rig
+@@ -550,14 +550,15 @@ pub obj Interner
+         j += 1
+       return none
+     ts = ?@table.tags[..]
++    ats = ?@table.at[..]
+     tag = id_tag_of(h)
+     i = Int(h & U64(ts.len - 1))
+     for _ in 0..2
+-      while 0 <= i and i < ts.len
++      while 0 <= i and i < ts.len and i < ats.len
+         t = ts[i]
+         return none if t == 0
+         if t == tag
+-          id = @table.at[i]
++          id = ats[i]
+           return id if @text(id) == s
+         i += 1
+       i = 0
+@@ -578,25 +579,21 @@ obj IdTable
+   tags: List[U8] = List()
+   at: List[U32] = List()
+ 
+-  # Point a free slot at entry `j`, whose key hashes to `h`. The table
+-  # is never full, so the probe always finds one.
++  # Point the first free slot from the one `h` names at entry `j`, as
++  # a Map's table does (`Table.place`).
+   sub place(!@, j: Int, h: U64)
+-    i = @free_slot(h)
+-    @tags[i] = id_tag_of(h)
+-    @at[i] = U32(j)
+-
+-  # The first free slot from the one `h` names. Each pass is a loop
+-  # whose test is the bounds test, so a step reads a tag with no other
+-  # check; past both, -1 would fail the caller's bounds check.
+-  fun free_slot(?@, h: U64) -> Int
+-    ts = ?@tags[..]
++    ts = !@tags[..]
++    ats = !@at[..]
+     i = Int(h & U64(ts.len - 1))
+     for _ in 0..2
+-      while 0 <= i and i < ts.len
+-        return i if ts[i] == 0
++      while 0 <= i and i < ts.len and i < ats.len
++        if ts[i] == 0
++          ts[i] = id_tag_of(h)
++          ats[i] = U32(j)
++          return
+         i += 1
+       i = 0
+-    -1
++    panic("an Interner's table is full")
+ 
+   # Empty the table, as `n` free slots.
+   sub reset(!@, n: Int)
+diff --git a/test/cli/std_proofs.sh b/test/cli/std_proofs.sh
+new file mode 100644
+index 000000000..f4a4dec4e
+--- /dev/null
++++ b/test/cli/std_proofs.sh
+@@ -0,0 +1,48 @@
++# The hash tables of the standard library index their Lists with every
++# test proven (docs/internals/INTERNALS.md, "Proven checks"): in a
++# table's probe (`find`, `place`) and an iterator's `next`, each index
++# by `i` or `j` has both its tests proven, but an entry's own index
++# `@es[j]` or `@ks[j]`, whose `j` comes from the table: valid by
++# construction, and not something a fact can show.
++source "$ROOT/test/cli/_lib.sh"
++
++check_file() {
++    local src=$1
++    local dump
++    dump=$("$RIG" check --facts=proofs "$src" 2>err.txt) || fail "rig check --facts=proofs $src: $(cat err.txt)"
++    local fn= line=0 checked=0
++    while IFS= read -r text; do
++        line=$((line + 1))
++        if [[ $text =~ ^[[:space:]]*(pub\ )?(fun|sub|called\ sub)\ ([a-z_]+) ]]; then
++            fn=${BASH_REMATCH[3]}
++            continue
++        fi
++        case $fn in find | place | next) ;; *) continue ;; esac
++        local uses
++        uses=$(grep -oE '[@a-z_.]+\[[ij]\]' <<<"$text" | grep -vE '^@(es|ks)\[j\]$' | wc -l | tr -d ' ')
++        [[ $uses -gt 0 ]] || continue
++        local proven
++        proven=$(grep -cE "^$line:[0-9]+ index lower upper$" <<<"$dump")
++        [[ $proven -ge $uses ]] || fail "$(basename "$src"):$line ($fn): $uses index(es), $proven proven: $text"
++        checked=$((checked + uses))
++    done <"$src"
++    [[ $checked -ge ${2:-1} ]] || fail "$(basename "$src"): only $checked indexes checked"
++}
++
++check_file "$ROOT/std/__rig_builtin.rig" 20
++
++# std.text's Interner probes its table as a Map does; it binds Zig code,
++# so it is checked in the Zig a program that uses it is given.
++cat >interner.rig <<'EOF'
++use std.text
++
++sub main()
++  names = text.Interner()
++  for i in 0..40
++    _ = !names.intern(String("n", i))
++  print(names.id("n7") ?? 99, names.id("x") ?? 99)
++EOF
++out=$(RIG_OUT_DIR=$PWD/interner "$RIG" run interner.rig 2>&1) || fail "rig run interner.rig: $out"
++expect_eq "$out" "7 99" "the Interner's ids"
++grep -qF 'rig.atProven(ats, i, .both)' interner/__rig_std_text.zig || fail "the Interner's probe reads an id with a test"
++grep -qF 'rig.elemPtrProven(ats, __rig_ix' interner/__rig_std_text.zig || fail "the Interner's table writes an id with a test"
+-- 
+2.55.0
+
