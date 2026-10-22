@@ -36,7 +36,7 @@ inline fn hexPair(s: []const u8, at: i64) ?u32 {
 '''
 
 OLD = "        var c: i64 = rig.rt(self.hex4(src, at + 2));\n"
-NEW = '''        if ((at + 16) <= rig.len(src.len)) {
+NEW = '''        if ((at + 16) <= rig.lenOf(src)) {
             if (hexPair(src, at)) |cd| {
                 const c2: i64 = cd >> 16;
                 const d2: i64 = cd & 0xFFFF;

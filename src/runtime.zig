@@ -1445,7 +1445,7 @@ pub fn Cell(comptime T: type) type {
         }
 
         pub fn listLen(self: *const Self) Int {
-            return len(self.value.len);
+            return lenOf(&self.value);
         }
 
         pub fn listAt(self: *const Self, i: anytype) E {
@@ -1799,12 +1799,14 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         }
 
         /// The out-of-line growth, so `push` stays small enough to inline.
+        /// No List grows past `max_len` elements (`heldLen`): here for a
+        /// zero-bit element, in `allocSlice` and `reallocSlice` for the rest.
         noinline fn grow(self: *Self, want: usize) void {
-            // A zero-bit element takes no memory, so every length fits:
-            // the buffer is made as long as any length can be, and
-            // freeing it frees nothing.
+            // A zero-bit element takes no memory: the buffer is made as
+            // long as a length can be, and freeing it frees nothing.
             if (comptime @sizeOf(T) == 0) {
-                self.buf = self.buf.ptr[0..std.math.maxInt(usize)];
+                if (want > max_len) lenPanic();
+                self.buf = self.buf.ptr[0..comptime @min(max_len, std.math.maxInt(usize))];
                 return;
             }
             if (inline_len > 0 and self.buf.len == 0) {
@@ -2194,9 +2196,9 @@ pub const String = struct {
         return self.list.items;
     }
 
-    /// `t.len`.
+    /// `t.len`, which needs no test (`heldLen`).
     pub fn length(self: String) Int {
-        return @intCast(self.list.items.len);
+        return heldLen(self.list.items.len);
     }
 
     /// `+t`: a new String holding the same bytes.
@@ -3783,9 +3785,47 @@ pub const max_len: u64 = (1 << 62) - 1;
 
 /// A length or count as a Rig `Int`; panics above `max_len`, which a
 /// 64-bit target tests with one compare and a 32-bit one never needs to.
+/// A length read (`lenOf`) tests only what `heldLen` does not cover.
 pub fn len(n: usize) Int {
     if (@as(u64, n) > max_len) lenPanic();
     // Exact: `n <= max_len` here.
+    return @bitCast(@as(u64, n));
+}
+
+/// `x.len` of a List, a slice, or an array (or a pointer to one) as a
+/// Rig `Int`. A List's and a slice's length is at most `max_len` by
+/// construction (`heldLen`), so the read tests nothing; the test stays
+/// only for a slice of zero-bit elements, which no memory bounds, and
+/// for an array, whose length is known at compile time and folds.
+pub inline fn lenOf(x: anytype) Int {
+    const n: usize = x.len;
+    if (comptime lenHeld(@TypeOf(x))) return heldLen(n);
+    return len(n);
+}
+
+/// Whether a length of `P`, a List, a slice, or a pointer to one, is at
+/// most `max_len` by construction.
+fn lenHeld(comptime P: type) bool {
+    const T = switch (@typeInfo(P)) {
+        .pointer => |p| if (p.size == .one) p.child else P,
+        else => P,
+    };
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .slice and @sizeOf(p.child) > 0,
+        .@"struct" => @hasDecl(T, "__rig_list"),
+        else => false,
+    };
+}
+
+/// A length known to be at most `max_len`, as a Rig `Int`, with no test.
+/// It holds for every List, String, and slice of elements of at least a
+/// byte: such a buffer lies in memory, and no target addresses `2^62`
+/// bytes (a 64-bit one at most `2^57`); `allocSlice` and `reallocSlice`
+/// refuse a longer one all the same. A List of zero-bit elements, which
+/// takes no memory, stops at `max_len` where it grows (`ListOf.grow`).
+/// Debug builds verify it.
+pub inline fn heldLen(n: usize) Int {
+    invariant(@as(u64, n) <= max_len);
     return @bitCast(@as(u64, n));
 }
 
@@ -3926,8 +3966,10 @@ pub const fast_alloc = @import("alloc.zig");
 // still reads as poison there.
 const fills = sanitize;
 
-/// `n` new `T`s, their bytes unwritten.
+/// `n` new `T`s, their bytes unwritten. Panics above `max_len`
+/// (`heldLen`).
 pub fn allocSlice(comptime T: type, n: usize) []T {
+    if (@as(u64, n) > max_len) lenPanic();
     if (heap_profile) HeapProfile.owner(T);
     if (fills or n == 0 or @sizeOf(T) == 0) return defaultAllocator().alloc(T, n) catch oom();
     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
@@ -3938,6 +3980,7 @@ pub fn allocSlice(comptime T: type, n: usize) []T {
 /// `old`'s `T`s in a buffer of `n`: grown or shrunk in place when the
 /// allocator can, otherwise copied to a new one.
 pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
+    if (@as(u64, n) > max_len) lenPanic();
     if (heap_profile) HeapProfile.owner(T);
     if (fills or @sizeOf(T) == 0) return defaultAllocator().realloc(old, n) catch oom();
     if (old.len == 0) return allocSlice(T, n);

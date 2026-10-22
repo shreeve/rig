@@ -157,6 +157,11 @@ changed the language since it:
   while they hold, so a record read from consecutive slots or a loop
   whose bound may pass a List's length makes its tests once
   (docs/internals/INTERNALS.md, "Flags").
+- **Lengths:** reading the length of a List, a String, or a slice
+  makes no test: no List grows past `2^62 - 1` elements (growth past
+  it panics, "length out of range"), and no buffer of elements of a
+  byte or more can be that long (docs/internals/INTERNALS.md,
+  `heldLen`).
 - **The stack:** a program runs on a 64 MiB stack the runtime maps
   over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by
   deep recursion or a frame no larger than the guard, stops with

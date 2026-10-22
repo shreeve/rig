@@ -74,7 +74,7 @@ inline fn klCheck(prev: OpV, v: OpV) OpV {
 /// checked; or -1 for the scalar loop to take over from `at`.
 @INLINE@fn utf8Run(s: []const u8, at: i64) i64 {
     var i: i64 = at;
-    const n: i64 = rig.len(s.len);
+    const n: i64 = rig.lenOf(s);
     var prev: OpV = @splat(0);
     var err: OpV = @splat(0);
     while (i + 16 <= n) : (i += 16) {
@@ -99,7 +99,7 @@ PLAIN = r'''
         const self = rig.rt(__rig_in_self);
         const src = rig.rt(__rig_in_src);
         const at = rig.rt(__rig_in_at);
-        const n: i64 = rig.len(src.len);
+        const n: i64 = rig.lenOf(src);
         var i: i64 = at;
         while (true) {
             i = skip_plain_ascii(src, i);
