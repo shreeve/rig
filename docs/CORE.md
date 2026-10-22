@@ -1307,6 +1307,30 @@ sub main()
 1
 ```
 
+**Tables.** A `Table[T, n]` is an owning value, like a List. It holds
+`n` slots from the moment it is made, each `T()` until written. A
+`Slot[n]` is plain data: a number below `n` that only `push`, `of`, and
+literals make. A slot is a place, like a List's element: read in place,
+lent with `?t[s]` or `!t[s]`, and assigned (dropping the old value).
+`!t.push(x)` lends the table to write, assigns slot `len`, and returns
+it. It desugars to the forms above: `t[s]` is the element `s` of an
+array of `n` elements the table owns, and `!t.push(x)` is
+`t[len] = x; len += 1` after a test that `len < n`. No rule here
+changes for it. *(built)*
+
+```rig reject
+sub main()
+  t: Table[Int, 4] = Table()
+  s = (!t).push(1)
+  a = ?t[s]
+  !t.push(2)
+  print(a)
+```
+
+```error
+cannot lend `t` to write while a read loan is live
+```
+
 **A container written in Rig follows its signatures.** `Map[K,
 V]` and `Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns
@@ -1428,7 +1452,9 @@ sub main()
 `x` to read for the closure's life, `!x` lends it to write, `<x` moves
 it in, and `+x` captures what `+x` gives, read through a view: a copy
 of a value that copies, a new count of a handle, or a deep copy of an
-owner. Captures are fixed: the body reads them, and writes only
+owner. A capture may name a field path instead, `?p.a` or `!@cache`:
+it is `w = ?p.a`, made with the closure and captured `<w`, and in the
+body the path names `w`; so with every sigil. Captures are fixed: the body reads them, and writes only
 through a captured write view. A closure's life ends at its last use,
 so a closure literal lent to a call lends its captures for that call.
 A stack closure may be lent (`?fun`) but not stored. A closure literal

@@ -16,8 +16,8 @@
 //! - `below(i, k, b)`: `i + k <= b`, exactly, where the bound `b` is
 //!   `len(s)`, the length of a slice view `s`, or `int(n)`, the value of
 //!   an `Int` binding `n`;
-//! - `fits(s)`: `s.len <= max_len`, which `rig.len` tests where a length
-//!   is read;
+//! - `fits(s)`: `s.len <= max_len`, which holds where a length is read
+//!   (`rig.lenOf`: by construction, or tested);
 //! - `eq(n, s)`: `n == s.len`, after `n = s.len`;
 //! - `upto(d, f, h)`: `0 <= d.f <= h`, after `d = g(...)` where `g`
 //!   bounds the field `f` of its result.
@@ -69,8 +69,8 @@ const NodeKey = sema.NodeKey;
 const Proven = sema.Proven;
 const UnitEvent = sema.UnitEvent;
 
-/// The longest length a length read lets through (`rig.len`): no target
-/// holds more.
+/// The longest length a length read gives (`rig.lenOf`): no List grows
+/// past it, and no target holds more.
 pub const max_len: u64 = (1 << 62) - 1;
 /// The largest constant a fact or a use names, so every sum the pass
 /// reasons about fits in an `Int`.

@@ -382,6 +382,12 @@ pub const Type = union(enum) {
     /// `Simd[T, n]`: a vector of `n` lanes, lowered to `@Vector(n, T)`.
     /// A mask is `Simd[Bool, n]`, what a lane-wise comparison gives.
     simd: SimdType,
+    /// `Slot[n]`: a number below `n`, which names one of the `n` slots of
+    /// any `Table[T, n]`. `n` is a `ct_value` of at least 1, or a
+    /// `ct_param` inside a generic declaration. Only `push`, `of`, and a
+    /// literal below `n` make one; it is plain data, compared, ordered,
+    /// hashed, and printed as its number (`slotLen`).
+    slot: TypeId,
     /// `a..b`: a half-open range of the element integer type. Only valid
     /// as a `for` source.
     range: TypeId,
@@ -1085,6 +1091,12 @@ pub const Facts = struct {
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `t[s]` index nodes of a table that a write reaches: assigned, lent
+    /// to write, written through, or taken from (`Checker.requireAccess`).
+    /// Every other slot is read, and is reached read-only, so a table
+    /// held as it is written never grows for a read
+    /// (`SemContext.recordTableWrite`).
+    table_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
@@ -2111,6 +2123,10 @@ pub const Requirement = union(enum) {
     /// A power of two from 2 to 64: the body uses the value parameter as
     /// a vector's lane count (`Simd[T, n]`).
     lane_count,
+    /// A count from 1 to `max_slot_count`: the body names `Slot[n]` with
+    /// the value parameter, so every slot of the instance is below a
+    /// count that has slots.
+    slot_count,
     /// Holds no vector inline (`holdsVector`): the body takes the size or
     /// alignment of a type that holds the parameter by value.
     sized,
@@ -2151,6 +2167,7 @@ pub const Requirement = union(enum) {
             .no_cleanup => "a value that owns no resource",
             .array_len => "an array length",
             .lane_count => "a lane count",
+            .slot_count => "a slot count",
             .sized => "a size or alignment",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -2310,6 +2327,10 @@ pub const SemContext = struct {
     /// declares `__rig_actors`, so its waits are watched for deadlocks.
     makes_actors: bool = false,
     simd_sym_id: SymbolId = symbol_invalid,
+    /// `Table[T, n]` and `Slot[n]`: a table of `n` slots, and a number
+    /// that names one (`Type.slot`).
+    table_sym_id: SymbolId = symbol_invalid,
+    slot_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
     order_sym_id: SymbolId = symbol_invalid,
@@ -3107,6 +3128,15 @@ pub const SemContext = struct {
 
     pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
         return self.facts.enum_texts.contains(nodeKey(node) orelse return false);
+    }
+
+    pub fn recordTableWrite(self: *SemContext, node: Sexp) !void {
+        try self.facts.table_writes.put(self.allocator, recordKey(node), {});
+    }
+
+    /// Whether `t[s]`, a table's slot, is written (`table_writes`).
+    pub fn isTableWrite(self: *const SemContext, node: Sexp) bool {
+        return self.facts.table_writes.contains(nodeKey(node) orelse return false);
     }
 
     /// The program calls `E.from_text` on plain enum `decl`, so its
@@ -4469,8 +4499,9 @@ fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!void {
     // lives only behind a `*` handle (typecheck rejects one held by
     // value), whose release drops it.
     // A task owns its running call, and its drop waits for it.
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.glue = true;
-    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
+    // A table owns its slots' memory, and drops each slot.
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id or id == ctx.table_sym_id) c.glue = true;
+    if (id == ctx.list_sym_id or id == ctx.box_sym_id or id == ctx.table_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id or id == ctx.actor_sym_id or id == ctx.chan_sym_id or id == ctx.task_sym_id or id == ctx.tasks_sym_id) c.plain = false;
     // A unique value is never copied, so it is not plain data.
     if (ctx.symbols.items[id].flags.unique) c.plain = false;
     ctx.symbols.items[id].contents = c;
@@ -4495,7 +4526,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector, .any_error = info.any_error };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string_view, .static, .symbol, .ct_value, .ct_param => .{ .plain = true },
+        .bool, .int, .float, .string_view, .static, .symbol, .ct_value, .ct_param, .slot => .{ .plain = true },
         .string => .{ .glue = true },
         // An error of any set is owning in every program, whatever the
         // program's sets hold (Core §2, "A failure moves its error").
@@ -4901,7 +4932,7 @@ pub fn swapsTwoPlaces(ctx: *const SemContext, arg: Sexp, ty: ?TypeId) bool {
 /// a `^T` hold a pointer, whatever `T` is. (A `Cell[T]` holds its
 /// `T` inline, and a `Signal[T]` its value and a pending one.)
 fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
-    return sym == ctx.list_sym_id or sym == ctx.box_sym_id;
+    return sym == ctx.list_sym_id or sym == ctx.box_sym_id or sym == ctx.table_sym_id;
 }
 
 /// The declared types a value of `ty` holds inline (not behind a handle,
@@ -4955,6 +4986,7 @@ pub const TypeChildren = struct {
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .simd => |v| if (i == 0) v.elem else if (i == 1) v.len else null,
+            .slot => |n| if (i == 0) n else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             .results => |parts| if (i < parts.len) parts[i] else null,
@@ -5107,8 +5139,8 @@ fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Alloca
         .array => |arr| try out.append(a, arr.elem),
         .simd => |v| try out.append(a, v.elem),
         .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) {
-            // A List and a box are sized without what they hold.
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id or pn.sym == ctx.table_sym_id) {
+            // A List, a table, and a box are sized without what they hold.
         } else if (pn.sym == ctx.signal_sym_id) {
             try out.append(a, pn.args[0]);
         } else try fieldsOf(ctx, a, &out, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
@@ -5129,6 +5161,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .void, .noreturn, .none_literal => 0,
         .bool => 1,
         .symbol => 4,
+        .slot => |n| if (slotCount(ctx, n)) |c| slotBytes(c) else null,
         .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
         .string_view, .static, .slice => 16,
@@ -5163,6 +5196,8 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         // one, a flag, and a List of subscribers.
         .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id)
             24
+        else if (pn.sym == ctx.table_sym_id)
+            16
         else if (pn.sym == ctx.box_sym_id)
             8
         else if (pn.sym == ctx.signal_sym_id) blk: {
@@ -5906,7 +5941,7 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
     if (isText(ctx, ty)) return null;
     switch (ctx.types.get(ty)) {
         .type_var => |sym| return boundLack(ctx, ty, sym, .Ord),
-        .int, .float, .int_literal, .float_literal, .bool => return null,
+        .int, .float, .int_literal, .float_literal, .bool, .slot => return null,
         .read_view, .write_view => |inner| return ordLack(ctx, inner, depth + 1),
         .optional => |inner| return ordLack(ctx, inner, depth + 1),
         .array => |arr| return ordLack(ctx, arr.elem, depth + 1),
@@ -6044,7 +6079,7 @@ const EquatableWalk = struct {
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {
-        .bool, .int, .float, .string_view, .static, .symbol, .int_literal, .float_literal => true,
+        .bool, .int, .float, .string_view, .static, .symbol, .int_literal, .float_literal, .slot => true,
         else => false,
     };
 }
@@ -6364,9 +6399,12 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
-        inline .read_view, .write_view, .shared, .weak, .optional, .fallible, .range, .callable => |inner, tag| {
+        inline .read_view, .write_view, .shared, .weak, .optional, .fallible, .range, .callable, .slot => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
+            // A count with no slots is reported where the instance is made
+            // (`Requirement.slot_count`); the slot type is poison.
+            if (tag == .slot and ctx.types.get(new_inner) == .ct_value and slotCount(ctx, new_inner) == null) return ctx.types.invalid_id;
             return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
         },
         .slice => |s| {
@@ -6464,7 +6502,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 /// an error, or an optional of one of those.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd => true,
+        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd, .slot => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
@@ -7874,7 +7912,9 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) break :blk pn.args.len == 1 and deepCloneable(ctx, pn.args[0], frame, seen);
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id) break :blk false;
+            // A table is never cloned: a copy of a reserved one would
+            // touch every page.
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.table_sym_id) break :blk false;
             const sym = ctx.symbols.items[pn.sym];
             if (sym.kind != .generic_type or isProxy(sym)) break :blk false;
             const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .parent = frame };
@@ -7957,7 +7997,7 @@ pub fn importType(
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
         .invalid, .unknown, .void, .bool, .string_view, .string, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
-        inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
+        inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable, .slot => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
@@ -8562,6 +8602,7 @@ const TypePrinter = struct {
             .slice => |s| try a.print("[]{s}", .{try p.id(s.elem)}),
             .array => |arr| try a.print("[{s}]{s}", .{ try p.id(arr.len), try p.id(arr.elem) }),
             .simd => |v| try a.print("Simd[{s}, {s}]", .{ try p.id(v.elem), try p.id(v.len) }),
+            .slot => |n| try a.print("Slot[{s}]", .{try p.id(n)}),
             .range => |e| try a.print("range of {s}", .{try p.id(e)}),
             .function => |f| if (f.is_sub)
                 try a.print("sub({s}){s}", .{ try p.list(f.params), if (f.returns == ctx.types.void_id) "" else "!" })
@@ -9075,6 +9116,162 @@ pub fn listElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
         .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id and pn.args.len == 1) pn.args[0] else null,
         else => null,
     };
+}
+
+// =============================================================================
+// Tables and slots
+// =============================================================================
+
+/// `T` of a `Table[T, n]`; null for any other type.
+pub fn tableElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.table_sym_id and pn.args.len == 2) pn.args[0] else null,
+        else => null,
+    };
+}
+
+/// The `Slot[n]` that indexes a `Table[T, n]` without a test; null for
+/// any other type.
+pub fn tableSlot(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.table_sym_id and pn.args.len == 2) try ctx.intern(.{ .slot = pn.args[1] }) else null,
+        else => null,
+    };
+}
+
+/// `n` of a `Table[T, n]` or a `Slot[n]` (`n_ty` the type of its count,
+/// `Type.slot`'s operand), when it is a known count; null for a
+/// compile-time parameter.
+pub fn slotCount(ctx: *const SemContext, n_ty: TypeId) ?u64 {
+    return switch (ctx.types.get(n_ty)) {
+        .ct_value => |v| if (v.int < 1 or v.int > max_slot_count) null else @intCast(v.int),
+        else => null,
+    };
+}
+
+/// The largest count of a `Table` or `Slot`: a slot is at most a `U64`
+/// below it, and the count is an `Int`.
+pub const max_slot_count: Wide = std.math.maxInt(i64);
+
+/// The bytes a `Slot[n]` takes: the fewest of 1, 2, 4, and 8 that hold
+/// `n - 1`, so a `Slot[1 << 26]` is four bytes, as a `U32` id is.
+pub fn slotBytes(n: u64) u64 {
+    const top = n -| 1;
+    if (top <= std.math.maxInt(u8)) return 1;
+    if (top <= std.math.maxInt(u16)) return 2;
+    if (top <= std.math.maxInt(u32)) return 4;
+    return 8;
+}
+
+/// How a `Table[T, n]` fills its `n` slots with `T()` (Core §10,
+/// "Tables"): the one decision, which the element rule
+/// (`resolve.builtinElementError`) and emit's lowering both read.
+pub const TableFill = enum {
+    /// `T` is plain data with no `drop`, and `T()` is all zero bytes: the
+    /// slots are reserved, and the system gives each page as zeros when
+    /// it is first touched.
+    zeros,
+    /// `T()` is made in every slot when the table is: `T` owns a
+    /// resource, or its default is not all zeros.
+    made,
+    /// `T` has no default, so no slot can hold one before it is written.
+    none,
+};
+
+/// The most bytes a table fills up front (`TableFill.made`).
+pub const max_made_table_bytes: u128 = 64 << 20;
+
+/// The most bytes a table reserves (`TableFill.zeros`): address space
+/// only, which the system backs as pages are touched.
+pub const max_reserved_table_bytes: u128 = 1 << 46;
+
+/// How a `Table` of `elem` fills its slots. Decided from the type and the
+/// defaults of its fields as written, so it is the same at every pass:
+/// a default is zero only as a literal 0, `false`, a variant whose value
+/// is 0, `T()` of a type whose default is zeros, or `[n of x]` of a zero.
+pub fn tableFill(ctx: *const SemContext, elem: TypeId) TableFill {
+    return fillOf(ctx, elem, 0);
+}
+
+fn fillOf(ctx: *const SemContext, ty: TypeId, depth: u32) TableFill {
+    if (depth > 64) return .none;
+    switch (ctx.types.get(ty)) {
+        .int, .bool, .slot => return .zeros,
+        // A float's default may be `-0.0`, and an optional's none is not
+        // zero bytes: each slot is made.
+        .float, .string, .optional => return .made,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) return .made else if (isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.table_sym_id or pn.sym == ctx.simd_sym_id) return .none,
+        .nominal, .imported_nominal => {},
+        else => return .none,
+    }
+    const decl = nominalDecl(ctx, ty) orelse return .none;
+    return declFillAt(decl.ctx, decl.sym, depth);
+}
+
+/// How a table fills its slots with the object or enum `sym` declares
+/// (`tableFill`), the same for every instance of a generic one: a field
+/// whose type is a parameter is never taken for zeros, so no argument
+/// changes the answer. Emit writes it into the type (`__rig_zeros`).
+pub fn declFill(ctx: *const SemContext, sym: SymbolId) TableFill {
+    return declFillAt(ctx, sym, 0);
+}
+
+fn declFillAt(ctx: *const SemContext, sym_id: SymbolId, depth: u32) TableFill {
+    const sym = ctx.symbols.items[sym_id];
+    // Another module's generic type is decided where it is declared,
+    // whose source its fields' defaults are written in.
+    if (isProxy(sym)) {
+        const foreign = ctx.foreign_semas.get(sym.from.module_id) orelse return .none;
+        return declFillAt(foreign, sym.from.sym, depth + 1);
+    }
+    if (sym.flags.error_set or sym.kind == .type_alias) return .none;
+    const fields = sym.fields orelse return .none;
+    // A type that owns, or is unique, is made in each slot.
+    var zeros = !sym.contents.glue and !sym.flags.unique;
+    for (fields) |f| {
+        if (f.is_variant) return .none;
+        if (f.is_method or f.is_drop_method) continue;
+        const d = f.default orelse return .none;
+        if (zeros and (ctx.types.get(f.ty) == .type_var or !zeroDefault(ctx, d, f.ty, depth))) zeros = false;
+    }
+    return if (zeros) .zeros else .made;
+}
+
+/// Whether default `d`, written in `decl_ctx` for a field of type `fty`,
+/// is all zero bytes (`tableFill`): by the field's type, an integer or a
+/// slot written as a zero literal, `false`, a plain enum's variant whose
+/// value is 0, `T()` of an object that fills with zeros, or `[n of x]`
+/// of one of these. A float is never taken for zeros (`-0.0` is not),
+/// nor an optional (an object's none is kept in a niche, not as zeros).
+fn zeroDefault(decl_ctx: *const SemContext, d: Sexp, fty: TypeId, depth: u32) bool {
+    const src = decl_ctx.source;
+    switch (decl_ctx.types.get(fty)) {
+        .int, .slot => return d == .src and zeroLiteralText(identAt(src, d) orelse return false),
+        .bool => return d == .src and std.mem.eql(u8, identAt(src, d) orelse return false, "false"),
+        .array => |a| return d.isKind(.array_fill) and zeroDefault(decl_ctx, ir.ArrayFill.value(d), a.elem, depth + 1),
+        .nominal, .imported_nominal, .parameterized_nominal => {
+            if (isPlainEnum(decl_ctx, fty)) {
+                if (!d.isKind(.enum_lit)) return false;
+                const name = identAt(src, ir.EnumLit.name(d)) orelse return false;
+                const decl = nominalDecl(decl_ctx, fty) orelse return false;
+                const fields = decl.symbol().fields orelse return false;
+                const i = memberIn(decl.ctx, fields, name, .variant) orelse return false;
+                return fields[i].value != null and fields[i].value.? == 0;
+            }
+            // `T()`: zero when the field's own type fills with zeros.
+            return d.isKind(.call) and ir.Call.args(d).len == 0 and fillOf(decl_ctx, fty, depth + 1) == .zeros;
+        },
+        else => return false,
+    }
+}
+
+/// An integer literal whose value is zero: `0`, `0x0`, `0_000`.
+fn zeroLiteralText(text: []const u8) bool {
+    var digits = text;
+    if (digits.len > 2 and digits[0] == '0' and std.mem.findScalar(u8, "xXbBoO", digits[1]) != null) digits = digits[2..];
+    if (digits.len == 0 or digits[0] != '0') return false;
+    for (digits) |c| if (c != '0' and c != '_') return false;
+    return true;
 }
 
 // =============================================================================
@@ -10240,6 +10437,21 @@ pub fn captureModeOf(cap: Sexp) ?CaptureMode {
 pub fn captureNameNode(cap: Sexp) ?Sexp {
     _ = captureModeOf(cap) orelse return null;
     return ir.get(cap, .name);
+}
+
+/// The lend a capture of a field path makes where its closure is made,
+/// `(read (member p a))` for `|?p.a|`; `_` for a capture of a name.
+pub fn captureValue(cap: Sexp) Sexp {
+    _ = captureModeOf(cap) orelse return .nil;
+    return ir.get(cap, .value);
+}
+
+/// Whether place `outer`, a name or a field path (`p`, `p.a`, `@`,
+/// `@template`), holds place `inner` and is not it: `p` holds `p.a`,
+/// `@` holds `@template`, `p.a` holds `p.a.b`.
+pub fn pathHolds(outer: []const u8, inner: []const u8) bool {
+    if (inner.len <= outer.len or !std.mem.startsWith(u8, inner, outer)) return false;
+    return inner[outer.len] == '.' or std.mem.eql(u8, outer, "@");
 }
 
 /// The captures of a closure's `captures` slot (`_` when it has none).
@@ -11496,7 +11708,10 @@ const Coverage = struct {
                     }
                 },
                 .lambda => {
-                    for (captureList(ir.Lambda.captures(e))) |cap| self.expectName(captureNameNode(cap).?);
+                    for (captureList(ir.Lambda.captures(e))) |cap| {
+                        self.expectName(captureNameNode(cap).?);
+                        if (captureValue(cap) != .nil) self.expr(captureValue(cap));
+                    }
                     self.expr(ir.Lambda.body(e));
                 },
                 .member => {

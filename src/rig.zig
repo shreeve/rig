@@ -1692,6 +1692,29 @@ pub const Lexer = struct {
             // name (`|?@|`).
             if (!isWord(t.cat) and t.cat != .at) return true;
             var sep = probe.next();
+            // A capture's place: `@name`, then `.name` steps, and an
+            // index or call the Parser wrapper rejects (`|?xs[0]|`).
+            if (t.cat == .at and isWord(sep.cat) and sep.pos == t.pos + t.len) sep = probe.next();
+            while (true) switch (sep.cat) {
+                .dot => {
+                    if (!isWord(probe.next().cat)) return true;
+                    sep = probe.next();
+                },
+                .lbracket, .lparen => {
+                    var depth: u32 = 1;
+                    while (depth > 0) {
+                        const b = probe.next();
+                        switch (b.cat) {
+                            .lbracket, .lparen => depth += 1,
+                            .rbracket, .rparen => depth -= 1,
+                            .eof, .newline => return true,
+                            else => {},
+                        }
+                    }
+                    sep = probe.next();
+                },
+                else => break,
+            };
             if (sep.cat == .colon) sep = skipType(&probe) orelse return true;
             switch (sep.cat) {
                 .bar => {
@@ -2056,6 +2079,17 @@ fn byteLeaf(pos: u32, len: u16, value: u8) Sexp {
 /// Leaf ids from here to `hidden_id_base` are bytes (`byteLeaf`).
 const byte_id_base: u16 = 0xFE00;
 
+/// The id of the name of a capture of a field path (`|?p.a|`), whose leaf
+/// spans the path from its sigil, so that it holds a position no other
+/// leaf does (the path's root holds its own), and reads as the path.
+const path_capture_id: u16 = byte_id_base - 1;
+
+/// Whether `leaf` names a capture of a field path, `|?@template|`: the
+/// capture's value is then the lend it makes (`Parser.capturePlace`).
+pub fn isPathCapture(leaf: Sexp) bool {
+    return leaf == .src and leaf.src.id == path_capture_id;
+}
+
 /// Each byte's value in decimal, the text of its leaf.
 const byte_texts = blk: {
     @setEvalBranchQuota(100_000);
@@ -2112,6 +2146,7 @@ pub const Api = enum {
 pub fn leafText(source: []const u8, leaf: parser.Src) []const u8 {
     if (leaf.id >= hidden_id_base) return @as(HiddenName, @enumFromInt(leaf.id - hidden_id_base)).text();
     if (leaf.id >= byte_id_base) return byte_texts[leaf.id - byte_id_base];
+    if (leaf.id == path_capture_id) return diag.textBetween(source, leaf.pos + 1, leafEnd(source, leaf));
     return diag.textBetween(source, leaf.pos, leafEnd(source, leaf));
 }
 
@@ -2160,7 +2195,7 @@ pub fn writeTree(tree: Sexp, source: []const u8, w: *std.Io.Writer) std.Io.Write
         switch (s) {
             .nil => try w.writeAll("_"),
             .tag => |t| try w.writeAll(std.enums.tagName(parser.Tag, t) orelse "?"),
-            .src => |x| {
+            .src => |x| if (x.id == path_capture_id) try w.writeAll(leafText(source, x)) else {
                 try w.writeAll(diag.textBetween(source, x.pos, leafEnd(source, x)));
                 if (x.id != 0) try w.print("#{d}", .{x.id});
             },
@@ -3967,6 +4002,7 @@ pub const Parser = struct {
         const bars = ir.Lambda.params(node);
         var caps: std.ArrayList(Sexp) = .empty;
         var params: std.ArrayList(Sexp) = .empty;
+        var paths: std.ArrayList(Sexp) = .empty;
         for (bars.items()) |e| {
             const is_capture = if (e.kind()) |k| switch (k) {
                 .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => true,
@@ -3977,13 +4013,132 @@ pub const Parser = struct {
                 continue;
             }
             if (params.items.len > 0) self.reject(e, "captures come before parameters in a closure's bar list: `|+v, a| ...`");
-            try caps.append(self.allocator(), e);
+            const cap = try self.capturePlace(e);
+            if (isPathCapture(ir.get(cap, .name))) try paths.append(self.allocator(), cap);
+            try caps.append(self.allocator(), cap);
+        }
+        // In the body, each captured path names its capture.
+        if (paths.items.len > 0) {
+            const at = ir.slot(.lambda, .body);
+            items[at] = try self.namePaths(items[at], paths.items);
         }
         items[ir.slot(.lambda, .captures)] = if (caps.items.len > 0) try self.base.newNode(.captures, caps.items, .{
             .start = self.span(caps.items[0]).start,
             .end = self.span(caps.items[caps.items.len - 1]).end,
         }) else .nil;
         items[ir.slot(.lambda, .params)] = if (params.items.len > 0) .{ .list = parser.List.withId(params.items, bars.list.id) } else .nil;
+    }
+
+    /// A capture as the grammar gives it, `(cap_read _ place)`, as the
+    /// passes read it: a name is the capture's name, `(cap_read x)`; a
+    /// field path keeps the lend its sigil makes there as its value, and
+    /// a name spanning the path from the sigil, `(cap_read ?p.a (read
+    /// (member p a)))`, which the body's paths name (`namePaths`).
+    fn capturePlace(self: *Parser, cap: Sexp) std.mem.Allocator.Error!Sexp {
+        const kind = cap.kind().?;
+        const place = ir.get(cap, .value);
+        const out = try self.allocator().alloc(Sexp, 3);
+        out[0] = .{ .tag = kind };
+        out[ir.slot(.cap_read, .name)] = .nil;
+        out[ir.slot(.cap_read, .value)] = .nil;
+        const node: Sexp = .{ .list = parser.List.withId(out, cap.list.id) };
+        if (place == .src) {
+            out[ir.slot(.cap_read, .name)] = place;
+            return node;
+        }
+        const at = self.span(cap);
+        const text = self.pathText(place) orelse {
+            const shown = diag.textBetween(self.base.source, self.span(place).start, self.span(place).end);
+            self.reject(place, if (place.isKind(.index))
+                std.fmt.allocPrint(self.allocator(), "a capture names a local or a field of one, not an element: lend it first, `x = ?{s}`, and capture `?x`", .{shown}) catch "a capture names a local or a field of one, not an element"
+            else
+                std.fmt.allocPrint(self.allocator(), "a capture names a local or a field of one: bind `{s}` to a name first, and capture the name", .{shown}) catch "a capture names a local or a field of one");
+            return node;
+        };
+        const lend: parser.Tag = switch (kind) {
+            .cap_clone => .clone,
+            .cap_move => .move,
+            .cap_weak => .weak,
+            .cap_read => .read,
+            .cap_write => .write,
+            else => unreachable,
+        };
+        out[ir.slot(.cap_read, .name)] = .{ .src = .{ .pos = at.start, .len = @intCast(text.len + 1), .id = path_capture_id } };
+        out[ir.slot(.cap_read, .value)] = try self.base.newNode(lend, &.{place}, at);
+        return node;
+    }
+
+    /// The source text of `place` when it is a field path written as one
+    /// (`p.a.b`, `@template`): a name, or `@`, then `.field` steps, with
+    /// nothing between them. Null for anything else.
+    fn pathText(self: *const Parser, place: Sexp) ?[]const u8 {
+        if (!place.isKind(.member)) return null;
+        var root = place;
+        while (root.isKind(.member)) root = ir.Member.object(root);
+        if (root != .src) return null;
+        const extent = self.span(place);
+        const text = diag.textBetween(self.base.source, extent.start, extent.end);
+        // The path's own text, spelled from its parts, is the source's.
+        var p = place;
+        var end = text.len;
+        while (p.isKind(.member)) : (p = ir.Member.object(p)) {
+            const field = leafText(self.base.source, ir.Member.name(p).src);
+            if (end < field.len or !std.mem.eql(u8, text[end - field.len .. end], field)) return null;
+            end -= field.len;
+            const self_member = ir.Member.object(p) == .src and std.mem.eql(u8, leafText(self.base.source, ir.Member.object(p).src), "@");
+            if (!self_member) {
+                if (end == 0 or text[end - 1] != '.') return null;
+                end -= 1;
+            }
+        }
+        if (!std.mem.eql(u8, text[0..end], leafText(self.base.source, root.src))) return null;
+        return text;
+    }
+
+    /// Whether member chain `node` names the path `text` (`p.a`,
+    /// `@template`) by its parts, however it is spaced.
+    fn spellsPath(self: *const Parser, node: Sexp, text: []const u8) bool {
+        var rest = text;
+        var p = node;
+        while (p.isKind(.member)) : (p = ir.Member.object(p)) {
+            const field = leafText(self.base.source, ir.Member.name(p).src);
+            if (!std.mem.endsWith(u8, rest, field)) return false;
+            rest = rest[0 .. rest.len - field.len];
+            const at_self = ir.Member.object(p) == .src and std.mem.eql(u8, leafText(self.base.source, ir.Member.object(p).src), "@");
+            if (!at_self) {
+                if (!std.mem.endsWith(u8, rest, ".")) return false;
+                rest = rest[0 .. rest.len - 1];
+            }
+        }
+        return p == .src and std.mem.eql(u8, rest, leafText(self.base.source, p.src));
+    }
+
+    /// `body` with each member chain that spells a captured path in
+    /// `paths` replaced by a name spanning it, which names the capture.
+    fn namePaths(self: *Parser, body: Sexp, paths: []const Sexp) std.mem.Allocator.Error!Sexp {
+        return try self.namePathsIn(body, paths) orelse body;
+    }
+
+    /// `namePaths`, or null when `node` holds no captured path.
+    fn namePathsIn(self: *Parser, node: Sexp, paths: []const Sexp) std.mem.Allocator.Error!?Sexp {
+        if (node != .list) return null;
+        if (node.isKind(.member)) for (paths) |cap| {
+            const path = leafText(self.base.source, ir.get(cap, .name).src);
+            if (!self.spellsPath(node, path)) continue;
+            const text = self.pathText(node) orelse {
+                self.reject(node, std.fmt.allocPrint(self.allocator(), "write `{s}`, the path this closure captures, on one line", .{path}) catch "write the path this closure captures on one line");
+                return null;
+            };
+            return .{ .src = .{ .pos = self.span(node).start, .len = @intCast(text.len), .id = 0 } };
+        };
+        const items = node.items();
+        var copy: ?[]Sexp = null;
+        for (items, 0..) |child, i| {
+            const named = try self.namePathsIn(child, paths) orelse continue;
+            if (copy == null) copy = try self.allocator().dupe(Sexp, items);
+            copy.?[i] = named;
+        }
+        return if (copy) |c| .{ .list = parser.List.withId(c, node.list.id) } else null;
     }
 
     /// A statement `<e` drops what it moves: `(move x)` of a name becomes

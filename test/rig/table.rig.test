@@ -1,0 +1,435 @@
+# Tables: `Table[T, n]`, n slots from the start, and `Slot[n]`, a number
+# below n that only push, `of`, and literals make (SPEC §10, "Table").
+
+test "table push gives slots in order", '''
+  0 1 2
+  10 20 31
+  3
+'''
+  obj Ty
+    flags: U32 = 0
+
+  t: Table[Ty, 8] = Table()
+  a = (!t).push(Ty(flags: 10))
+  b = (!t).push(Ty(flags: 20))
+  c = (!t).push(Ty(flags: 30))
+  t[c].flags += 1
+  print(a, b, c)
+  print(t[a].flags, t[b].flags, t[c].flags)
+  print(t.len)
+
+test "table an unpushed slot reads its default", '''
+  0 0 false
+  1
+'''
+  obj P
+    x: Int = 0
+    on: Bool = false
+
+  t: Table[P, 8] = Table()
+  _ = (!t).push(P(x: 4, on: true))
+  if Slot[8].of(5) as s
+    print(t[s].x, Int(s) - 5, t[s].on)
+    t[s].x = 9
+  print(t.len)
+
+test "table a slot of another table of the same n", '''
+  7 0
+  2
+'''
+  a: Table[Int, 16] = Table()
+  b: Table[Int, 16] = Table()
+  _ = (!a).push(5)
+  _ = (!a).push(6)
+  s = (!a).push(7)
+  print(a[s], b[s])
+  print(Int(s))
+
+test "table literal slots and a nil slot", '''
+  0 3 true
+  42 0
+'''
+  nil: Slot[4] = 0
+  three: Slot[4] = 3
+  t: Table[Int, 4] = Table()
+  first = (!t).push(42)
+  print(nil, three, first == nil)
+  print(t[nil], t[three])
+
+test "table slots key a Map and compare", '''
+  2 1
+  true false true
+  3
+'''
+  t: Table[Int, 64] = Table()
+  a = (!t).push(1)
+  b = (!t).push(2)
+  seen: Map[Slot[64], Int] = Map()
+  !seen.put(b, 2)
+  !seen.put(a, 1)
+  print(seen.get(b) ?? 0, seen.get(a) ?? 0)
+  print(a < b, a == b, a != b)
+  print(3 if a.hash() == a.hash() and Int(b) == 1 else 0)
+
+test "table for covers the pushed slots", '''
+  1
+  2
+  3
+  6
+'''
+  t: Table[Int, 1024] = Table()
+  for i in 1..4
+    _ = (!t).push(i)
+  n = 0
+  for x in t
+    print(x)
+    n += x
+  print(n)
+
+test "table write loop and views", '''
+  [10, 20]
+  20
+'''
+  obj Box
+    v: Int = 0
+
+  t: Table[Box, 8] = Table()
+  _ = (!t).push(Box(v: 1))
+  s = (!t).push(Box(v: 2))
+  for b in !t
+    b.v *= 10
+  out: List[Int] = List()
+  for b in ?t
+    !out.push(b.v)
+  print(out)
+  w = ?t[s]
+  print(w.v)
+
+test "table index by Int", '''
+  5 0
+'''
+  t: Table[Int, 4] = Table()
+  _ = (!t).push(5)
+  i = 0
+  j = 3
+  print(t[i], t[j])
+
+test "table of Strings drops every slot", '''
+  a b
+  2
+  far
+'''
+  t: Table[String, 4] = Table()
+  a = (!t).push(String("a"))
+  b = (!t).push(String("b"))
+  print(t[a], t[b])
+  print(t.len)
+  if Slot[4].of(3) as far
+    t[far] = String("far")
+    print(t[far])
+  t[a] = String("again")
+
+test "table of Lists pushes and drops", '''
+  [1, 2] []
+'''
+  t: Table[List[Int], 3] = Table()
+  s = (!t).push(List([1]))
+  !t[s].push(2)
+  if Slot[3].of(2) as e
+    print(t[s], t[e])
+
+test "table moves into a task", seeds: 20, '''
+  10
+'''
+  fun total(t: Table[Int, 16]) -> Int
+    n = 0
+    for x in t
+      n += x
+    n
+
+  t: Table[Int, 16] = Table()
+  for i in 0..5
+    _ = (!t).push(i)
+  job = total(<t)&
+  print(>job)
+
+test "table read views share with tasks", seeds: 20, '''
+  6 6
+'''
+  fun total(t: ?Table[Int, 8]) -> Int
+    n = 0
+    for x in t
+      n += x
+    n
+
+  t: Table[Int, 8] = Table()
+  for i in 1..4
+    _ = (!t).push(i)
+  a = total(?t)&
+  b = total(?t)&
+  print(>a, >b)
+
+test "table in an object and a large reserved table", '''
+  1 7
+  0
+'''
+  enum Kind
+    None = 0
+    Named = 1
+
+  obj Ty
+    kind: Kind = .None
+    flags: U32 = 0
+    data: U32 = 0
+
+  TYPES = 1 << 26
+
+  type TypeId = Slot[TYPES]
+
+  obj Store
+    types: Table[Ty, TYPES]
+
+  sub main()
+    st = Store(types: Table())
+    t: TypeId = (!st.types).push(Ty(kind: .Named, flags: 7))
+    far: TypeId = 12345
+    print(st.types.len, st.types[t].flags)
+    print(st.types[far].flags + st.types[far].data)
+
+test "table slot of any value below n", '''
+  none 3 none
+'''
+  print(Slot[4].of(-1), Slot[4].of(3), Slot[4].of(4))
+
+bomb "table push into a full table", "a table of 2 slots is full"
+  t: Table[Int, 2] = Table()
+  _ = (!t).push(1)
+  _ = (!t).push(2)
+  _ = (!t).push(3)
+
+bomb "table index by Int past n", "index out of bounds"
+  t: Table[Int, 4] = Table()
+  i = 4
+  print(t[i])
+
+fail "table a slot is not made from a number", "a `Slot[8]` is made by `push`, by `Slot[8].of(i)`, or by a literal below 8"
+  s = Slot[8](3)
+  print(s)
+
+fail "table a literal past n", "integer value `9` does not fit in `Slot[8]`"
+  s: Slot[8] = 9
+  print(s)
+
+fail "table a large eager table", "a `Table[P, 67108864]` makes every slot up front"
+  obj P
+    x: Int = 1
+
+  N = 1 << 26
+
+  sub main()
+    t: Table[P, N] = Table()
+    print(t.len)
+
+fail "table a view element", "a `Table` holds values; a view cannot be one"
+  t: Table[?String, 4] = Table()
+  print(t.len)
+
+fail "table no slots", "a `Slot` names one of `n` slots; `n` is at least 1"
+  s: Slot[0] = 0
+  print(s)
+
+fail "table no slots in a table", "a `Table` has `n` slots; `n` is at least 1"
+  t: Table[Int, 0] = Table()
+  print(t.len)
+
+fail "table push while a slot is viewed", "cannot lend `t` to write while a read loan is live"
+  t: Table[Int, 4] = Table()
+  s = (!t).push(1)
+  a = ?t[s]
+  _ = (!t).push(2)
+  print(a)
+
+fail "table slot of another n", "expected `Slot[16]`, got `Slot[8]`"
+  t: Table[Int, 16] = Table()
+  if Slot[8].of(1) as s
+    print(t[s])
+
+fail "table no arithmetic on a slot", "Slot"
+  t: Table[Int, 4] = Table()
+  s = (!t).push(1)
+  print(t[s + 1])
+
+fail "table no element without a default", "a `Table[P, 4]` fills its slots with `P()`"
+  obj P
+    x: Int
+
+  t: Table[P, 4] = Table()
+  print(t.len)
+
+fail "table no slicing", "cannot slice"
+  t: Table[Int, 4] = Table()
+  print(?t[0..2])
+
+code "table a slot index has no test", "t.slot(s).*", "t.at(s)", /^(?![\s\S]*Int\()/
+  t: Table[Int, 64] = Table()
+  s = (!t).push(3)
+  t[s] += 1
+  print(t[s])
+
+code "table an Int index has a test", "t.atInt(i)"
+  t: Table[Int, 64] = Table()
+  i = 2
+  print(t[i])
+
+test "table an element whose default is not zeros is made", '''
+  none 2 7 true
+'''
+  # An optional's none, an enum whose default variant is not 0, and a
+  # float, which may be `-0.0`, are not zero bytes: each slot is made.
+  enum K
+    a = 1
+    b = 2
+
+  obj P
+    k: K = .b
+    o: Int? = none
+    f: Float = -0.0
+    n: Int = 7
+
+  t: Table[P, 1000] = Table()
+  if Slot[1000].of(999) as s
+    print(t[s].o, Int(t[s].k), t[s].n, t[s].f == 0.0)
+
+test "table an optional table", '''
+  true
+  1
+'''
+  o: Table[Int, 4]? = none
+  print(o == none)
+  o = Table()
+  if !o as t
+    _ = (!t).push(5)
+  if ?o as t
+    print(t.len)
+
+test "table a write view of a slot", '''
+  [3]
+'''
+  sub bump(x: !Int)
+    x += 2
+
+  t: Table[Int, 8] = Table()
+  s = (!t).push(1)
+  bump(!t[s])
+  print(t)
+
+fail "table no table is a field's default", "a table is made as the program runs, so it is no field's default"
+  obj S
+    t: Table[Int, 8] = Table()
+
+  s = S()
+  print(s.t.len)
+
+fail "table no table of no slots in a generic instance", "`Box[0]` instantiates `Table[Int, 0]`"
+  obj Box[n: Int]
+    t: Table[Int, n]
+
+  b = Box[0](t: Table())
+  print(b.t.len)
+
+fail "table no slot literal where n is a parameter", "a literal is a `Slot[n]` only where `n` is known"
+  fun mk[n: Int]() -> Slot[n]
+    0
+
+  print(mk[8]())
+
+fail "table no slot from an alias call", "a `Slot[8]` is made by `push`, by `Slot[8].of(i)`, or by a literal below 8"
+  type TypeId = Slot[8]
+
+  s = TypeId(3)
+  print(s)
+
+fail "table no slot from an integer", "expected `Slot[8]`, got `Int`"
+  i = 3
+  s: Slot[8] = i
+  print(s)
+
+fail "table no wrapping count on a slot", "`+%=` requires an integer target"
+  t: Table[Int, 8] = Table()
+  s = (!t).push(1)
+  s +%= 1
+  print(s)
+
+fail "table no slot read from bytes", "`read` reads an integer or float type"
+  b = [U8(1), 0, 0, 0]
+  x = b.read[Slot[8], .little](0)
+  print(x)
+
+fail "table no clone of a table", "`+x` cannot clone a `Table[String, 4]`: a table has no clone"
+  t: Table[String, 4] = Table()
+  u = +t
+  print(u.len)
+
+fail "table every literal a slot takes is checked", "2:12: integer value `300` does not fit in `Slot[8]`", "3:16: `301`", "5:13: `302`", "14:16: `300`", "`303`", "`304`", "`305`", "`306`", errors: 8
+  fun pick(c: Bool, o: Slot[8]?) -> Slot[8]
+    x = o ?? 300
+    y: Slot[8] = 301 if c else 1
+    z: Slot[8] = match c
+      true => 302
+      false => 2
+    x if y == z else y
+
+  enum E
+    a(v: Slot[8])
+    b
+
+  obj Q
+    v: Slot[8] = 300
+
+  e = E.a(v: 303)
+  arr: [2]Slot[8] = [1, 304]
+  fill: [3]Slot[8] = [3 of 305]
+  l = List[Slot[8]]([1, 306])
+  print(pick(true, none), arr, fill, l, Q().v, e)
+
+test "table in a generic object holds its instance's element", '''
+  0 7
+  0 0
+'''
+  # Each instance's table is held as its element says: a table of `Int`
+  # is reserved, one of `P` (whose default is 7) made.
+  obj Store[T]
+    items: Table[T, 1024]
+
+  obj P
+    x: Int = 7
+
+  obj Wrap[T]
+    n: Int = 0
+    items: List[T] = List()
+
+  a = Store[Int](items: Table())
+  b = Store[P](items: Table())
+  print(a.items[500], b.items[500].x)
+  w: Table[Wrap[String], 4] = Table()
+  print(w[3].n, w[3].items.len)
+
+fail "table no slot of no slots through a generic element", "`z[0]` cannot use `n = 0`: the generic body names `Slot[n]`"
+  # Every `Slot[n]` is below `n`: a count with no slots is rejected
+  # wherever an instance names it, here in a table's element.
+  fun z[n: Int]() -> Int
+    t = Table[Slot[n], 4]()
+    s: Slot[4] = 2
+    Int(t[s])
+
+  print(z[0]())
+
+code "table a match subject is reached read-only", "w.constSlot(ws)", /^(?![\s\S]*w\.slot\()/
+  # Only a slot a write reaches is reached to write (`slot`): a table
+  # held as it is written never grows for a read.
+  w: Table[String, 4] = Table()
+  ws = (!w).push(String("ab"))
+  c = match w[ws]
+    "ab" => 1
+    x => x.len
+  print(c)

@@ -444,7 +444,13 @@ wrapper also makes the only rewrites that need to inspect the tree:
 - a module-level binding, written `name = value`, is a constant: its
   `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
-  parameter list, and a capture after a parameter is an error;
+  parameter list, and a capture after a parameter is an error; a
+  capture of a field path, `|?p.a|`, keeps the lend its sigil makes
+  there as its value, `(cap_read ?p.a (read (member p a)))`, under a
+  name whose leaf spans the path from the sigil (`rig.isPathCapture`),
+  and each `p.a` in the body becomes a name that reads as that path, so
+  every later pass reads the body's `p.a` as the capture and checks,
+  lends, and emits the value as the expression it is;
 - a `for` over an iterator, which typecheck finds, is rewritten into
   the `while` it means after the module's first check
   (`Parser.desugarIterLoops`, [Loops over an iterator](#loops-over-an-iterator));
@@ -1839,7 +1845,7 @@ and then what the store makes.
 
 | Unit | Makes, on its exit |
 |---|---|
-| a guard part, on its true edge | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; each either way round. `b` is written `s.len` (which also gives `fits(s)`: the length was read through `rig.len`, which tests the margin) or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
+| a guard part, on its true edge | `i < b`: `below(i, 1, b)`; `i <= b`: `below(i, 0, b)`; `i + k < b` or `k + i < b`: `below(i, k + 1, b)`; `i + k <= b`: `below(i, k, b)`; `0 <= i` or `0 < i`: `nonneg(i)`; each either way round. `b` is written `s.len` (which also gives `fits(s)`: a length read, `rig.lenOf`, is at most `max_len`) or `n`, `k` is an integer literal, and the `+` is checked (`+%` is another operator) |
 | `x = s[i]`, `x = s.read[T, e](i)`, or the statement `!s.write[T, e](i, v)`, `T` concrete: the check ran | `nonneg(i)`, `below(i, width, len(s))`, before the store |
 | `x = s[i + c]`, `c` a literal: the check ran | `below(i, c + 1, len(s))`, before the store |
 | `i = c` with a literal `c`, `i = j` with `nonneg(j)`, `i = Int(u)` of an unsigned `u` | `nonneg(i)`, after the store |
@@ -2425,6 +2431,54 @@ loop is `cmeq`, `orr`, `shrn`, `fmov`, `cbz`.
 The `simd` cases of `test/rig/types-simd.rig.test` hold the
 behavior and rejections, including every block offset from 0 to 130
 against a scan byte by byte.
+
+### Tables
+
+`Table[T, n]` and `Slot[n]` (SPEC §10, "Table"; Core §5, "Tables") are
+registered by `resolve.registerBuiltins`, after `Simd`, with an `Int`
+parameter `n`, and neither name is reserved: a module's own declaration
+hides the built-in one, as its `Order` does. A table is a generic
+instance, `parameterized_nominal` of `table_sym_id` over `[T, n]`; its
+one member is `push(!@, T) -> Slot[n]`, and typing knows `len`, `t[s]`
+(`Checker.tableIndex`), `for`, and `Table()`
+(`Checker.checkTableConstruction`). A slot is a type of its own kind,
+`Type.slot`, whose operand is the count (`ct_value`, or `ct_param` in a
+generic body), made by `resolve.slotInstance` wherever `Slot[n]` is
+written, which checks a known count and records `Requirement.slot_count`
+for a parameter, so every instance's slots are below a count of at least
+1 (a substitution to a count out of range is poison); `holdsIn` gives it `plain`, `isCopyPrimitive` and
+`copiedByReadView` take it, and `ordLack` orders it, so it copies,
+compares, hashes, and prints as an integer with no rule of its own. It
+is not numeric (`sema.isNumeric`): no arithmetic, no conversion to it,
+no lane, no bytes. A literal meets it (`meets`) and is checked below
+`n` (`Checker.checkLiteralFits`, which rejects one where `n` is a
+parameter); `Slot[n].of(i)` is `Checker.slotTypeCall`, recorded as an
+`ElemCall` `.from_int` whose `num` is the slot type.
+
+The element rule is `resolve.tableElementError`, run where the instance
+is written and at each generic instantiation (`expandInstantiations`):
+`n` at least 1, no view, a default (`sema.tableFill` is not `.none`),
+and a size under the limit of how it is held. `sema.tableFill` is the
+one classifier of how a table holds its slots: `.zeros` for plain data
+whose default is all zero bytes, decided from the type and its fields'
+defaults as written (integers and slots written `0`, `false`, a plain
+enum's variant of value 0, `T()` of such an object, `[n of x]` of
+these; never a float or an optional), and `.made` otherwise. Emit
+writes `pub const __rig_zeros = true;` into each object it fills with
+zeros (`emitRigName`), which `table.zig`'s `fillsWithZeros` reads, so a
+generic body's `Table[T, n]` is held as its instance's `T` says.
+
+The table owns its slots' memory (`symbolContents` gives it glue,
+`isHeapBuiltin` puts its slots behind it), so its slots are places
+behind the table as a List's elements are, and `push` is a write call
+on it. Which slots are written is a fact: `Checker.requireAccess`, which
+every write of a place passes, records each table index on the written
+place's path (`recordTableWrite`), and emit reaches those with `slot` and
+every other slot with `constSlot` or `at` (`Facts.isTableWrite`), so a
+table held as it is written never grows for a read. It is not cloned
+(`deepCloneable`), and it is no field's default
+(`Checker.checkDefaultValue`): a Zig field default is a constant, and a
+table is made as the program runs.
 
 ## Ownership
 
@@ -4427,6 +4481,7 @@ reviewed.
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `$name(T)` of a type that holds a type parameter. Emit writes such a `$name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which the case `type names` of `test/rig/types-misc-2.rig.test` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `Table(T, n)`, `SlotOf(n)`, `slotOf` (`table.zig`) | `Table[T, n]` and `Slot[n]` ([Tables](#tables)): `init` reserves the slots (`MAP_NORESERVE`, `MADV_NOHUGEPAGE` on Linux, its own mapping, never one of `alloc.zig`'s blocks) or makes them, by `fillsWithZeros`, the mirror of `sema.tableFill`; `at`, `slot`, and `constSlot` take a slot with no test (asserted in a debug build, as a proven test is), and `atInt`, `slotInt`, `constSlotInt` test an integer against `n`; `push` panics when all `n` are pushed; dropping a made table drops all `n` slots. Where the system gives no lazily zeroed pages, or under `RIG_TABLE_FALLBACK`, a reserved table is committed as it is written, and a read past what is held reads a zero `T` |
 | `InlineList(T, n)` | `List[T, inline: n]`: the same List (`ListOf(T, n)`, of which `List(T)` is `ListOf(T, 0)`), whose first `n` elements live in its own `inline_buf`, with `buf` empty, until a push past them moves them all to the heap. Every member reaches the elements through `mem` (`memConst` through a `*const`), so a List with no inline room compiles as it did; `items` through a `*const` gives `[]const T` for an inline List, since its elements are then in the value. The checker keeps `inline_len` in the instance type (`sema.ParamNominal`), a type of its own, and keeps the instance a call names as the type of the List it makes (`typecheck.inlineResult`) |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` take the pieces `print` does (below), with no separators: each run of text is appended once, by the one writer of its length, a `?String` or a String as its bytes, and each other value by the one writer of its type, `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
@@ -4444,7 +4499,7 @@ reviewed.
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `atIf`, `elemPtrIf`, `addIf`, `okNonneg`, `okBelow`, and a List's `atProven`, `slotProven`, `constSlotProven`, `atIf`, `slotIf`, `constSlotIf` | the same for a List, and with a flag ([Flags](#flags)): `okNonneg` and `okBelow` are a flag's tests, and an `If` operation omits the tests its `q` names too while the flag it is given is true, and otherwise makes them where it is, as the plain operation does |
-| `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |
+| `lenOf`, `heldLen`, `len`, `max_len` | a length as an `Int`, at most `max_len`, `2^62 - 1`, so `i + c` is known to fit where `i` is below a length. `lenOf(x)` is every `x.len` of a List, slice, or array emit writes. A List's and a slice's length is at most `max_len` by construction, and `heldLen` converts it with no test (a debug build asserts it): a buffer of elements of a byte or more lies in memory, which no target has `2^62` bytes of, and `allocSlice` and `reallocSlice` refuse a longer one all the same; a List of zero-bit elements, which takes no memory, panics where it would grow past `max_len` (`ListOf.grow`, "length out of range"). `String.length` is `heldLen` too. `len` tests the margin and panics above it, for an array, whose length is a constant that folds, and a slice of zero-bit elements, which nothing in memory bounds |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |

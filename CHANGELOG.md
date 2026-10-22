@@ -66,6 +66,11 @@ changed the language since it:
 - **Text and lists:** String `reserve`, `push[T, e]`, and List
   `reserve`; a byte order on a one-byte type is rejected; clearing a
   List of plain values sets its length.
+- **Closures capture field paths:** a capture's sigil takes a field
+  path as it does in an expression, `|?@template, k| fill(@template, k)`,
+  lending, copying, taking, or holding weakly that field alone; in the
+  body the path names the capture, and the closure reaches nothing
+  else of the object (SPEC §11).
 - **A closure never called is rejected:** alone on a line, discarded
   with `_ =`, or bound and never used, with one message; `_ = |x| ...`
   passed the checker and failed in the Zig it emitted.
@@ -160,6 +165,11 @@ changed the language since it:
   while they hold, so a record read from consecutive slots or a loop
   whose bound may pass a List's length makes its tests once
   (docs/internals/INTERNALS.md, "Flags").
+- **Lengths:** reading the length of a List, a String, or a slice
+  makes no test: no List grows past `2^62 - 1` elements (growth past
+  it panics, "length out of range"), and no buffer of elements of a
+  byte or more can be that long (docs/internals/INTERNALS.md,
+  `heldLen`).
 - **The stack:** a program runs on a 64 MiB stack the runtime maps
   over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by
   deep recursion or a frame no larger than the guard, stops with
@@ -195,6 +205,16 @@ changed the language since it:
   works in a generic body on a `[]T` through the APIs a type gives, and
   a closure written at the call is inlined in a release build, as fast
   as the loop written out (docs/STD.md, "reduce").
+- **Tables:** `Table[T, n]` holds `n` slots from the moment it is made,
+  each `T()` until written, and a `Slot[n]` is a number below `n` that
+  only `push`, `Slot[n].of(i)`, and a literal below `n` make, so `t[s]`
+  reads or writes its slot with no bounds test, whichever table gave
+  `s`. A table of plain data whose default is all zero bytes reserves its
+  slots with its own `mmap`, so untouched slots take no memory and the
+  table never copies as it grows; other elements are made in every slot,
+  up to 64 MiB. `Table()` is no field's default: a table is made where its
+  owner is. On Trig's stores, the same reads without a test made
+  ts-pattern 3.1% faster (docs/STD.md, "Table and Slot").
 - **Compile-time functions:** a `fun` with only a bracket parameter
   list, `fun cap[n: Int] -> Int`, runs in the checker, and its call
   `cap[8]` is a constant wherever one may stand: an expression, a module

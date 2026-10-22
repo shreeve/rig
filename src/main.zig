@@ -149,6 +149,10 @@ const usage =
     \\                   Set to 1 when building with --release to make
     \\                   the tests the compiler proved, and omits, as
     \\                   assertions, as every debug build does
+    \\  RIG_TABLE_FALLBACK
+    \\                   Set to 1 when building to hold each table of
+    \\                   zeros as targets with no lazily zeroed pages do:
+    \\                   committed as it is written, with a test
     \\  RIG_STRICT_OPTIONALS
     \\                   Set to 1 to hold every object's optional as a
     \\                   tagged struct, so a program compiles only if the
@@ -240,6 +244,12 @@ const Env = struct {
         return env.flag("RIG_VERIFY_PROOFS");
     }
 
+    /// `RIG_TABLE_FALLBACK`: a reserved table is committed as it is
+    /// written, as on a target with no lazily zeroed pages (`table.zig`).
+    fn tableFallback(env: Env) bool {
+        return env.flag("RIG_TABLE_FALLBACK");
+    }
+
     /// Set, and not to `0`.
     fn flag(env: Env, name: []const u8) bool {
         const value = env.get(name) orelse return false;
@@ -262,6 +272,7 @@ const Env = struct {
         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
+        if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
     }
 };
@@ -1041,6 +1052,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         .{ .path = emit.sched_filename, .contents = emit.sched_source },
         .{ .path = emit.net_filename, .contents = emit.net_source },
         .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
+        .{ .path = emit.table_filename, .contents = emit.table_source },
         .{ .path = "main.zig", .contents = root.written() },
     } });
     try writePackage(allocator, io, dir, &.{.{ .path = "programs", .contents = list.written() }});
@@ -1579,6 +1591,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
         try files.append(allocator, .{ .path = emit.net_filename, .contents = emit.net_source });
         try files.append(allocator, .{ .path = emit.alloc_filename, .contents = emit.alloc_source });
+        try files.append(allocator, .{ .path = emit.table_filename, .contents = emit.table_source });
     }
 
     var root_source: []const u8 = "";
@@ -1612,7 +1625,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or hook or tasks)) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks)) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
         }

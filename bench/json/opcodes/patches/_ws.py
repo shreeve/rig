@@ -12,7 +12,7 @@ pub inline fn skip_space(__rig_in_s: []const u8, __rig_in_at: i64) i64 {
     if (at < 0) {
         return at;
     }
-    if ((at < rig.len(s.len)) and (rig.at(s, at) > SPACE)) {
+    if ((at < rig.lenOf(s)) and (rig.at(s, at) > SPACE)) {
         return at;
     }
     return skip_space_run(s, at);
@@ -23,13 +23,13 @@ SCALAR_RUN = r'''
 @NOINLINE@fn skip_space_run(s: []const u8, at: i64) i64 {
     var i: i64 = at;
     while (true) {
-        if (!(i < rig.len(s.len))) break;
+        if (!(i < rig.lenOf(s))) break;
         {
             const c: u8 = rig.at(s, i);
             if (c > SPACE) {
                 return i;
             }
-            if (((c == SPACE) and ((i + 8) <= rig.len(s.len))) and (rig.readInt(u64, s, i, .little) == SPACES)) {
+            if (((c == SPACE) and ((i + 8) <= rig.lenOf(s))) and (rig.readInt(u64, s, i, .little) == SPACES)) {
                 i += 8;
             } else if ((((c == SPACE) or (c == LF)) or (c == CR)) or (c == TAB)) {
                 i += 1;
@@ -48,7 +48,7 @@ inline fn wsMask(v: @Vector(16, u8)) @Vector(16, bool) {
 }
 @NOINLINE@fn skip_space_run(s: []const u8, at: i64) i64 {
     var i: i64 = at;
-    const n: i64 = rig.len(s.len);
+    const n: i64 = rig.lenOf(s);
     while (i + 16 <= n) : (i += 16) {
         if (rig.maskFirst(!wsMask(rig.simdRead(@Vector(16, u8), s, i, rig.Endian.little)))) |k| {
             return i + k;
@@ -96,15 +96,15 @@ pub inline fn skip_space(__rig_in_s: []const u8, __rig_in_at: i64) i64 {
     }
     var i: i64 = at;
     while (true) {
-        if (!(i < rig.len(s.len))) break;
+        if (!(i < rig.lenOf(s))) break;
         {
             const c: u8 = rig.at(s, i);
             if (c > SPACE) {
                 return i;
             }
-            if ((c == SPACE) and ((i + 16) <= rig.len(s.len)) and rig.maskAll(wsMask(rig.simdRead(@Vector(16, u8), s, i, rig.Endian.little)))) {
+            if ((c == SPACE) and ((i + 16) <= rig.lenOf(s)) and rig.maskAll(wsMask(rig.simdRead(@Vector(16, u8), s, i, rig.Endian.little)))) {
                 i += 16;
-            } else if (((c == SPACE) and ((i + 8) <= rig.len(s.len))) and (rig.readInt(u64, s, i, .little) == SPACES)) {
+            } else if (((c == SPACE) and ((i + 8) <= rig.lenOf(s))) and (rig.readInt(u64, s, i, .little) == SPACES)) {
                 i += 8;
             } else if ((((c == SPACE) or (c == LF)) or (c == CR)) or (c == TAB)) {
                 i += 1;
