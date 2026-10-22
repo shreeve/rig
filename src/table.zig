@@ -77,7 +77,7 @@ fn defaultOf(comptime T: type) T {
         .int, .float => 0,
         .bool => false,
         .optional => null,
-        .@"struct" => if (comptime @hasDecl(T, "empty")) T.empty else T{},
+        .@"struct" => if (comptime @hasDecl(T, "__rig_default")) T.__rig_default else T{},
         else => @compileError("rig.Table: no default for " ++ @typeName(T)),
     };
 }

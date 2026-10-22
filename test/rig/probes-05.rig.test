@@ -2977,6 +2977,13 @@ fail "audit-ownership-f08 closure returns capture view", "`f` is a closure that 
   f: fun() -> ?Tok = || ?Tok(n: 1)
   print("x")
 
+fail "audit-ownership-f08b closure returns a view of a temporary, called", "4:24: cannot return a view of `Tok(n: 1)`, which this function was not lent", errors: 1
+  obj Tok
+    n: Int
+
+  f: fun() -> ?Tok = || ?Tok(n: 1)
+  print(f().n)
+
 fail "audit-ownership-f09 closure returns view of local", "cannot drop `x` while it is lent"
   obj Tok
     n: Int

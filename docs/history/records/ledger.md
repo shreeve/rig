@@ -163,16 +163,20 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## Audit of #532-#547 (2026-10-22)
+
+Two independent reviews (soundness; process and measurement). No test, oracle line, or coverage was weakened; every measurement was interleaved with byte-identical output. Fixed in the audit PR: D1, a closure literal given to an actor method in a task call was accepted and its captures dangled (from #532, where `crossCheck` alone retyped a literal; now one classifier, `crossingTypeOf`, for tasks and actors, and a synchronous actor call is rejected as in 0.2.9); D2, a Table of an object with a method `empty` failed in Zig (the runtime's default marker is now `__rig_default`); D3, `h: *fun(...) = *g` of a function failed in Zig (from 0.2.9; rejected now); D4, SPEC and INTERNALS still said functions declare no error sets. Headline numbers were corrected to the measured ranges. #542 merged on the owner's approval to the fork ("Approve to land PR #542") after its first review's eight fixes, with no second review; the audit's ~50 probes found it sound.
+
 ## Decisions (2026-10-22, the owner: "Approve the defaults")
 
-- Map/Set internal checks wait for the ownership-checker limit (a write view returned `from @`), so `find` can hand back the entry; the probe-proof restructure gained nothing (+0.2%) and was not landed.
+- Map/Set internal checks wait for the ownership-checker limit (a write view returned `from @`), so `find` can hand back the entry; the probe-proof restructure gained nothing (0.2% slower) and was not landed.
 - No LLVM assumption of a List's length bound (`heldLen`): 0.8% fewer instructions, no time, undefined behavior if the invariant broke.
 - The scheduler worker's hot fields get cache-line alignment, in a follow-up PR timed on pup first (yield slowed 6-7 → 9-11 ns on the Mac after #541, from layout).
-- Verified after the merge of #535-#541: Rig full suite from main (9,623), each feature by hand, Trig full suites (1,375, 0 died) and 30 runs byte-identical, pup pingpong 2.0x faster than before #541.
+- Verified after the merge of #535-#541: Rig full suite from main (9,623), each feature by hand, Trig full suites (1,375, 0 died) and 30 runs byte-identical, pup pingpong 1.4-2.2x faster than before #541 depending on load (bench row 1.42x; under Trig's load 1.84-1.96x; a quiet moment 2.15x). #541 itself merged with its pup unit tests and bench rows still pending; both passed or landed afterwards (#543).
 
 ## RESUME HERE (2026-10-22 ~00:45): what landed 2026-10-21/22, and what is in flight
 
-**Landed on main (f14b86c58)**, all gated (Rig full suite; Trig release build + projects byte-identical):
+**Landed on main (f14b86c58).** Each PR passed Rig's full suite before merging, and the combined batch #536-#541 passed it as one commit (9,623). Trig's light gate ran before merging for #532; the batch #536-#541 was merged before Trig's gate on the combined commit, on the owner's order ("Please land PR #535-#541 now"), and Trig verified it after the merge (green). #535 merged on the owner's approval after Trig's build and comparisons, its full suites finishing later (green):
 - #531 heap profile `RIG_HEAP_PROFILE=sites`.
 - #532 function values cross between tasks (capture-free functions; no syntax) + compile-time functions `fun cap[n: Int] -> Int`, `cap[8]` (no keyword; checker evaluates, src/cteval.zig). Panel: capture-free, comptime, syntax/cost; two review rounds.
 - #533 docs across guides for #532.
@@ -180,7 +184,7 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - #535 (fork) Ctrl-C: SIGINT/SIGTERM cancel a fallible main; exit 130/143; design revamp/r3/ctrlc-proposal.md (approved 2026-10-21).
 - #536 Table[T, n]/Slot[n]: indexes with no bounds test; design 2026-10/table-slot/design-expert-A.md (Expert A option B, owner: "Build Table/Slot with Expert A's defaults!"); 9-hole adversarial review fixed; measured 3.1% on Trig ts-pattern when its stores migrate (Trig's job, next).
 - #537 match on an element compiles (pre-existing North Star 1 bug).
-- #538 length reads make no test (List length < 2^62 by construction): Trig 1.4–2.9% faster.
+- #538 length reads make no test (List length < 2^62 by construction): Trig 0.8–2.9% faster across two runs (1.4–2.9% in the first, 0.8–1.9% in the second).
 - #539 (fork 2) closures capture field paths `|?@template|`; design 2026-10/functions/closure-path-captures.approved.md; owner: "Approve the six defaults in the closure field-path capture note."
 - #540 (fork 2) a closure never called is rejected (`_ = |...|` used to fail in emit).
 - #541 scheduler: filling run-next wakes no worker (pingpong regression from #451/a9111f86d, 2026-10/scheduler/pingpong-bisect.md).

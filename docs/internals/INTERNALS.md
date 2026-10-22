@@ -1257,8 +1257,9 @@ a branch leaf of a `return` operand (`Checker.isReturnLeaf`, checked in
 `checkExpr`), so failing is always written. A bare `.name`
 where a `T!` is expected is checked as a variant of `T`
 (`checkContextual`), so an error value there always has its set's type.
-The error a `catch |err|` names has the type `error`: any error, since
-functions do not declare which errors they fail with. `error` is also
+The error a `catch |err|` names has the type of the set its callee
+declares (`sema.Fallible.set`), or `error`, any error, for a callee
+declared `T!`. `error` is also
 written as a type (the grammar's `tatom` takes the keyword), and a
 member of any set meets it (`meets`). It is owning in every program:
 `TypeInfo.any_error` marks it and every type that holds it inline, and

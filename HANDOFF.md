@@ -33,8 +33,11 @@ newest entry summarizes the latest rounds.
 - **Health:** the bar for landing is a green full run on `main`: the
   full suite (`swarm test/rig.rip all`, with the doc examples, their
   pending examples the planned Core rules), `test/matrix.py`, the unit
-  tests, and the oracle floors in `test/oracle/coverage`. No case is
-  marked `known: true`: no bug is open.
+  tests, and the oracle floors in `test/oracle/coverage`. A change to
+  the compiler, the runtime, or std also passes Trig's light gate before
+  it merges: Trig's release build, and its six projects run five ways,
+  byte-identical to `main`; Trig's full suites run on `main` every few
+  hours or on demand. No case is marked `known: true`: no bug is open.
 
 ## In flight
 
@@ -45,9 +48,11 @@ newest entry summarizes the latest rounds.
   behavior), the Core paragraph, R3 (fields), R4 (std.json), and R2.5
   (generic sets).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
-  without a test made ts-pattern 3.1% faster.
+  without a test, measured in a stand-in build, made ts-pattern about 3%
+  faster.
 - **The scheduler worker's layout:** its hot fields aligned to cache
-  lines, to win back `yield`'s few nanoseconds lost in #541; timed on pup
+  lines, to win back what #541's two new fields cost: on the Mac `yield`
+  is 50% slower and `spawn` 13% slower, on pup `yield` 12% slower; timed on pup
   before it lands.
 
 ## Next, in order
