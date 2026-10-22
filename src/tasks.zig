@@ -156,10 +156,11 @@ pub fn Task(comptime T: type) type {
                 return timeout_error;
             };
             // Canceled while it waited, even when the task ended before
-            // the cancel could reach it.
-            const passed_on = t.control.canceled.load(.acquire) or (if (mine) |c| c.load(.acquire) else false);
-            if (!passed_on) return keepResult(T, result, &t.control.err, out);
-            markCanceled();
+            // the cancel could reach it. Only the waiter's own cancel
+            // counts: a task its owner canceled, as `par.map` cancels its
+            // helpers after a failure, leaves the owner as it was.
+            const canceled = if (mine) |c| c.load(.acquire) else false;
+            if (!canceled) return keepResult(T, result, &t.control.err, out);
             if (comptime !fallible) return result;
             dropResult(T, &result, &t.control.err);
             return canceled_error;
@@ -282,10 +283,12 @@ fn Handle(comptime T: type) type {
 }
 
 /// What a task and its owner share: whether the task is canceled, and
-/// whether it has ended. Its owner records a cancel (`cancel`), and the
-/// task records one that reaches it through a wait (`Task.wait`). A task in a set, or in `task.all`, also tells the
-/// `Wakeup` of what waits on it when it ends. Allocated outside the leak
-/// count, as the backend's own records are.
+/// whether it has ended. A cancel is recorded only by what cancels the
+/// task (`cancel`): its owner, an isolate stopping, or an interrupt. A
+/// task never takes one from a task it waits on, or from one it cancels.
+/// A task in a set, or in `task.all`, also tells the `Wakeup` of what
+/// waits on it when it ends. Allocated outside the leak count, as the
+/// backend's own records are.
 pub const Control = struct {
     /// The fields of the task's failure, which its call writes when it
     /// takes a slot (`rt.ErrSlot`), until a waiter takes them or the
@@ -2229,11 +2232,6 @@ const canceled_error = error.@"std.task.Stop.canceled";
 fn canceledHere() bool {
     const control = task().control orelse return false;
     return control.canceled.load(.seq_cst);
-}
-
-/// Record that the running task is canceled.
-fn markCanceled() void {
-    if (task().control) |control| control.canceled.store(true, .seq_cst);
 }
 
 /// `task.workers(n)`: run tasks on `n` workers (1 to 64), in place of

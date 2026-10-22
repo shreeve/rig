@@ -317,6 +317,10 @@ first step is on `main` (SPEC §18):
   result; a task is never left running past its scope.
 - **Cancellation:** `<t.cancel()`, a cancel that sticks, `std.task`
   (`Stop`, `check`), and a fallible `time.sleep`.
+- **A cancel passes only down:** a task that cancels the tasks it owns
+  is not canceled itself. A failed `par.map` or `par.each`, and
+  `http.serve` closing its connections, no longer left the calling task
+  canceled, failing its next wait with `task.Stop.canceled`.
 - **Interrupts:** Ctrl-C (SIGINT) or SIGTERM cancels a `main` that can
   fail: its defers and drops run, the tasks it owns are canceled, and
   the program ends with status 130 or 143, showing no error. A second

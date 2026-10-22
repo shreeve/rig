@@ -120,6 +120,9 @@ so the fiber goes straight back on a queue, and a stale waker finds a
 later number and does nothing. A cancel ends only a wait a cancel may
 end, and a task waiting on another passes its cancel on itself, hand
 over hand, so no cancel reaches a task through a chain another may free.
+A cancel passes only down: a waiter takes none from the task it waits
+on, so canceling the tasks it owns (`par.map`'s helpers after a
+failure) leaves its own `Control` as it was.
 
 A cancel is a handshake of two steps on each side: the canceler sets the
 task's flag and then looks at its wait, and the waiting fiber begins its

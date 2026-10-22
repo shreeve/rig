@@ -333,7 +333,9 @@ holds off the cancel, not deadlines: cleanup runs under a grace deadline
 that the runtime sets and a program may change.
 
 **It follows ownership.** Canceling a task cancels the tasks it owns,
-through the same drops. There is no token to pass along.
+through the same drops. There is no token to pass along. It passes
+only down: a task that cancels the tasks it owns, as a failed
+`par.map` does, is not canceled itself.
 
 **Yielding.** A task that computes without waiting would hold its core,
 and would make its owner's drop wait. So the compiler counts iterations
