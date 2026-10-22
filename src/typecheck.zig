@@ -615,6 +615,9 @@ const Checker = struct {
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
     const discard_read = "`_` discards a value; it cannot be read";
+    /// A stack closure made and never called, alone on a line or
+    /// discarded (`_ = |x| ...`): its body never runs.
+    const never_called = "this closure is never called: bind it and call it (`f = |...| ...`, then `f()`), or remove it";
     const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(...)`";
 
     /// A `struct`, `enum`, `errors`, `generic_struct`, or `generic_enum`.
@@ -1013,6 +1016,11 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
+        // A closure runs only when called.
+        if (stmt.isKind(.lambda)) {
+            _ = try self.synthExpr(stmt);
+            return self.errAt(stmt, never_called, .{});
+        }
         // A task as a statement is dropped at the statement's end, which
         // cancels it and waits for it: it would never run concurrently.
         if (stmt.isKind(.call) and ir.Call.task(stmt) != .nil) {
@@ -1472,6 +1480,7 @@ const Checker = struct {
             defer self.results_ok = saved_ok;
             self.results_ok = resultCall(rhs) orelse .nil;
             _ = try self.synthExpr(rhs);
+            if (rhs.isKind(.lambda)) try self.errAt(rhs, never_called, .{});
             return;
         }
         // A compound assignment names an existing binding.

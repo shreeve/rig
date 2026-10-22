@@ -552,3 +552,12 @@ test "closure path capture nested", "4 7"
     inner = |+p.q.m| p.q.m
     inner()
   print(outer(), deeper())
+
+fail "closure never called", "4:1: this closure is never called: bind it and call it (`f = |...| ...`, then `f()`), or remove it", "5:5: this closure is never called: bind it and call it (`f = |...| ...`, then `f()`), or remove it", "6:5: this closure is never called", "7:1: `g` is a closure that is never called: call it, or remove it", errors: 4
+  # A closure made and never called does nothing: alone on a line,
+  # discarded, or bound and never used.
+  x = 3
+  || 1
+  _ = || 1
+  _ = |?x, k: Int| x + k
+  g = |+x| x
