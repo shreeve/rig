@@ -11093,6 +11093,7 @@ thread.
 | `!T` | when `T` moves | never |
 | `Task[T]` | when `T` moves | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
+| `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
 | any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`; a callable view `?fun`; an owned closure `*fun` or `~fun` | never | never |
 
@@ -11482,6 +11483,66 @@ sub main()!
 ```output
 10
 true
+```
+
+### Frozen values
+
+`*Frozen(x)` moves `x` behind a shared handle counted atomically, as
+an actor's is, and freezes it: nothing changes it again. Many tasks
+read one value this way with no copy, where a plain `*T` stays with its
+task and a value given to each task is copied for each. What a frozen
+value holds never changes, so it holds plain data, owners, `String`s,
+`List`s, objects and enums of such, and other frozen values, but no
+`Cell`, `Signal`, `*Actor`, `*Chan`, other `*T` or `~T`, task,
+closure, or view. `Frozen[T]` is checked where it is written, and a
+generic parameter in each instance that freezes it. A frozen value
+lives only behind `*`: `Frozen[T]` is never a field, parameter,
+element, or type argument by value.
+
+- Fields, read methods, and elements are reached through the handle,
+  `f.title`, `f.get()`, `f[0]`, as through any `*T`, and nothing writes
+  through it; `?f` lends the frozen value as a `?T`.
+- `+f` adds a handle, in one atomic step; the last one dropped, on
+  whichever task drops it, drops the value.
+- The handles move and share: they go to any task, by value, through a
+  view, in a field, or through a channel, and never make a task local.
+- They compare and hash as the value they reach, so `*Frozen[String]`
+  keys a Map; no other handle has `==`.
+- A frozen value has no weak handle, and is never frozen again: `+f`
+  shares it.
+
+```rig
+obj Page
+  title: String
+  hits: Int
+
+fun title_len(p: *Frozen[Page]) -> Int
+  p.title.len
+
+sub main()
+  p = *Frozen(Page(title: String("home"), hits: 3))
+  a = title_len(+p)&
+  b = title_len(+p)&
+  print(>a + >b, p.hits)
+  q = *Frozen(Page(title: String("home"), hits: 3))
+  print(p == q)
+```
+
+```output
+8 3
+true
+```
+
+```rig reject
+obj Counter
+  hits: *Cell[Int]
+
+sub main()
+  c = *Frozen(Counter(hits: *Cell(0)))
+```
+
+```error
+a frozen value holds only data that never changes, and `Counter` holds `*Cell[Int]`
 ```
 
 ### Each element on several tasks

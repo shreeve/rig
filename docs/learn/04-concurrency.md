@@ -260,6 +260,40 @@ Apple M5, against 3.5 ns for a Go mutex and 135 ns for the usual Tokio
 actor. Rig has no `Mutex` type: an idle actor already is one, and its
 state can be reached no other way.
 
+## A value many tasks read
+
+Some data never changes once it is made: a page a cache built, the
+settings a server read at start. Many tasks should read it, with no
+copy each and no call through an actor. Freeze it:
+
+```rig
+obj Settings
+  name: String
+  limit: Int
+
+fun check(s: *Frozen[Settings], n: Int) -> Bool
+  n <= s.limit
+
+sub main()
+  s = *Frozen(Settings(name: String("prod"), limit: 3))
+  ts = Tasks[Bool]()
+  for n in 1..6
+    !ts.add(check(+s, n)&)
+  oks = >ts
+  print(s.name, oks)
+```
+
+```output
+prod [true, true, true, false, false]
+```
+
+`*Frozen(x)` moves a value behind a handle counted atomically, so `+s`
+goes to any task, and each reads `s.limit` as through any `*T`. Nothing
+changes a frozen value again, so it holds only what never changes: no
+`Cell`, actor, channel, plain `*T`, closure, or view. Freezing one is
+checked where it happens; a value that cannot be frozen is a compile
+error, never a race.
+
 ## Channels
 
 Tasks that hand values along a line use a channel. `*Chan[T](n)` holds
@@ -677,6 +711,7 @@ to find a race with one seed and replay it.
 | take the first success | `<ts.wait_first()` |
 | count across tasks | `*Cell(0)`, `!c.add(1)` |
 | share larger state | `*Actor(x)`, `!a.method()` |
+| share what never changes | `*Frozen(x)`, `+f` to any task |
 | pass values along | `*Chan[T](n)`, `!ch.send(<v)!`, `(!ch).recv()!`, `task.select` |
 | stop a bug at a boundary | `task.isolate(f)`, `*Actor.supervised(make)` |
 | stop a task | `<t.cancel()` |

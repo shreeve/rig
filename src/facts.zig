@@ -120,6 +120,7 @@ pub const Facts = struct {
     signal_sym_id: SymbolId,
     actor_sym_id: SymbolId,
     chan_sym_id: SymbolId,
+    frozen_sym_id: SymbolId,
     task_sym_id: SymbolId,
     tasks_sym_id: SymbolId,
     box_sym_id: SymbolId,
@@ -146,6 +147,7 @@ pub const Facts = struct {
             .signal_sym_id = ctx.signal_sym_id,
             .actor_sym_id = ctx.actor_sym_id,
             .chan_sym_id = ctx.chan_sym_id,
+            .frozen_sym_id = ctx.frozen_sym_id,
             .task_sym_id = ctx.task_sym_id,
             .tasks_sym_id = ctx.tasks_sym_id,
             .box_sym_id = ctx.box_sym_id,
@@ -363,6 +365,10 @@ pub const Facts = struct {
     }
     pub fn isActorMake(f: Facts, call: Sexp) bool {
         return f.c().isActorMake(call);
+    }
+
+    pub fn isFrozenMake(f: Facts, call: Sexp) bool {
+        return f.c().isFrozenMake(call);
     }
     pub fn isActorCall(f: Facts, call: Sexp) bool {
         return f.c().isActorCall(call);
@@ -794,6 +800,9 @@ pub const Facts = struct {
     /// `T` of a `Table[T, n]`; null for any other type.
     pub fn tableElem(f: Facts, ty: TypeId) ?TypeId {
         return sema.tableElem(f.c(), ty);
+    }
+    pub fn frozenValue(f: Facts, ty: TypeId) ?TypeId {
+        return sema.frozenValue(f.c(), ty);
     }
     pub fn isPlainEnum(f: Facts, ty: TypeId) bool {
         return sema.isPlainEnum(f.c(), ty);
