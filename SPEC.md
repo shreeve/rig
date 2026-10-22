@@ -5664,13 +5664,13 @@ fun first(o: Int?) -> Int?
 ### Clone
 
 `+x` makes a new owner. For a shared or weak handle it bumps the
-count; for plain data it copies; for a String, a List, a box, an
-optional, an array, or an object or enum declared in the module that
-holds them, it clones each part the same way: a String's bytes and a
-List's elements are copied, a box's value is boxed again, and a handle
-inside is counted again (a deep copy). A type with a `drop` body, a
-unique type (one holding a `Cell`, or declared `unique`), a `Signal`,
-and a type imported from another module have no clone. `+p.a` clones
+count; for plain data it copies; for a String, a List, a Map, a Set, a
+box, an optional, an array, or an object or enum of any module, it
+clones each part the same way: a String's bytes and a List's elements
+are copied, a box's value is boxed again, and a handle inside is
+counted again (a deep copy). A type with a `drop` body, a unique type
+(one holding a `Cell`, or declared `unique`), and a `Signal` have no
+clone. `+p.a` clones
 the value in a field, and `+v[i]` an element.
 `+e` only reads `e`: a value made there (`+make()`) is a temporary its
 statement drops, and `+(a if c else b)` reads `a` or `b` where it is.

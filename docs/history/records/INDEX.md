@@ -27,6 +27,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Memory: List growth slack | exact presizing saves 4% on Linux, nothing on the Mac; not pursued | [memory/](2026-10/memory/) |
 | Declared error sets (R2, #542) | its first review, and its fixes | [errors-r2/](2026-10/errors-r2/) |
+| Clones across modules, and Map's `+` | its review: a nested generic hid a drop body, fixed | [clone/](2026-10/clone/) |
 
 ## Every record
 
@@ -35,6 +36,10 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [ab-pf.txt](2026-10/allocator-g9/ab-pf.txt)
 - [prefault-benches.log](2026-10/allocator-g9/prefault-benches.log)
 - [scale-e.txt](2026-10/allocator-g9/scale-e.txt)
+
+### 2026-10/clone/
+
+- [review-1.md](2026-10/clone/review-1.md): Review: clones across modules, and the fix of its finding
 
 ### 2026-10/errors-r2/
 

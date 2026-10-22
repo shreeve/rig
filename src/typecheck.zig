@@ -6704,7 +6704,7 @@ const Checker = struct {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a unique value, which a copy would duplicate; move it with `<x`, or lend it", .{shown});
                 } else if (sema.containsTypeVar(self.ctx, value)) {
                     try self.errAt(operand, "`+x` cannot clone a `{s}`: a type parameter has no deep clone in a generic body; move it with `<x`, or lend it", .{shown});
-                } else try self.errAt(operand, "`+x` cannot clone a `{s}`: a value with a `drop` body, or holding a Signal, a write view, or a type from another module, has no clone; move it with `<x`, or lend it", .{shown});
+                } else try self.errAt(operand, "`+x` cannot clone a `{s}`: a value with a `drop` body, or holding a Signal or a write view, has no clone; move it with `<x`, or lend it", .{shown});
                 return self.t().invalid_id;
             },
         }

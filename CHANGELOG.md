@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Clones across modules:** `+x` deep-copies an object or enum declared
+  in another module, part by part, as it does one of its own, and so a
+  `Map` or `Set` (built in, written in Rig) whose keys and values clone.
+  A type with a `drop` body, a unique type, and a `Signal` still have no
+  clone.
+
 - **Declared error sets:** a function may name the set it fails with,
   `-> T!E` or `sub f()!E`, and `T!` stays any error. `error L = A | B`
   names a union of sets. `catch |e|` gives `e` the callee's set, so a
