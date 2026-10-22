@@ -61,6 +61,21 @@ Each entry point R3's emit calls with a slot is a new function beside
 today's (`waitInto` beside `wait`), which stays as it is, so no emitted
 call changes in R3a.
 
+## What R3a builds, and what waits for R3
+
+R3a builds the sites where the runtime holds a failure itself: a task's
+record (`Task`), a set of tasks (`Tasks`), `task.all`, `par`'s shared
+state (`ParState`: the first chunk's failure kept, a later one's
+dropped), and leaving `main` or a test.
+
+The other rows receive a failure through a function value (`rig.FnRef`):
+`par`'s bodies, a `select` arm, `supervise`'s and `isolate`'s `f`, a
+`time.within` closure, and an actor's method. How a function value
+passes its slot (spec §7.1: every function-value type takes one once a
+member with fields reaches `error`) is emit's and `FnRef`'s together,
+so those rows are built in R3, with the emit they depend on and the
+programs that test them. Until then nothing can make such a failure.
+
 ## What shows it is unchanged
 
 - R3a changes no emitted program: `emit.zig` is untouched.

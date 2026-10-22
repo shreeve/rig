@@ -5156,6 +5156,41 @@ pub fn failMain(err: anyerror) noreturn {
     std.process.exit(1);
 }
 
+/// A failure leaving `main` or a test with its fields in `data`: shown as
+/// `error: Set.member(field: value, ...)` (the glue's `print`), then its
+/// fields dropped, before the leak check runs, so the fields are never
+/// reported as leaked. A cancel an interrupt sent shows nothing. Emit
+/// calls it where the failure leaves the body, then `failMainReported`
+/// once the body's drops and the leak check have run.
+pub fn reportFailure(err: anyerror, data: *ErrData) void {
+    defer dropErrorData(err, data);
+    if (err == error.@"std.task.Stop.canceled") if (interruptedBy() != null) return;
+    lockOutput();
+    defer unlockOutput();
+    flushQuietly();
+    var buf: [256]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    showFailure(err, data, &ls.file_writer.interface);
+}
+
+/// `error: ` and failure `err` with its fields in `data`, as the
+/// program's glue prints them, on a line of `w`.
+fn showFailure(err: anyerror, data: *const ErrData, w: *std.Io.Writer) void {
+    w.writeAll("error: ") catch {};
+    if (error_glue) |g| g.print(err, @ptrCast(data), w) catch {} else w.writeAll(errorShown(err)) catch {};
+    w.writeAll("\n") catch {};
+    w.flush() catch {};
+}
+
+/// A failure `reportFailure` showed leaves the program: exit 1, or end
+/// as the interrupt that canceled `main` does.
+pub fn failMainReported(err: anyerror) noreturn {
+    @branchHint(.cold);
+    if (err == error.@"std.task.Stop.canceled") if (interruptedBy()) |sig| endBy(sig);
+    std.process.exit(1);
+}
+
 // Interrupts. A `main` that can fail declares `__rig_interrupt` in the
 // root module, and an interrupt (SIGINT) or a request to end (SIGTERM)
 // cancels it: it fails with `task.Stop.canceled` at its next fallible
@@ -7136,4 +7171,19 @@ test "index bounds and division" {
     try testing.expectEqual('b', at(@as([]const u8, "abc"), @as(i64, 1)));
     try testing.expectEqual(2.5, div(@as(f64, 5), 2));
     try testing.expectEqual(-2, div(@as(i64, -5), 2));
+}
+
+test "a failure leaving main is shown through the glue, and its fields dropped" {
+    // Compiled here, as R3's emit will call them.
+    _ = &reportFailure;
+    _ = &failMainReported;
+    TestErrorGlue.drops = 0;
+    var data: ErrData = undefined;
+    var buf: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    showFailure(error.WithData, &data, &w);
+    try std.testing.expectEqualStrings("error: WithData\n", w.buffered());
+    dropErrorData(error.WithData, &data);
+    dropErrorData(error.Plain, &data);
+    try std.testing.expectEqual(@as(usize, 1), TestErrorGlue.drops);
 }
