@@ -13,6 +13,18 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Declared error sets:** a function may name the set it fails with,
+  `-> T!E` or `sub f()!E`, and `T!` stays any error. `error L = A | B`
+  names a union of sets. `catch |e|` gives `e` the callee's set, so a
+  `match` on it names every member and needs no `_`, and `g: E =>`
+  narrows an `error` or a union to a set. `!` and a failing `return`
+  keep to the declared set. A task's set holds `task.Stop`, which
+  `task.check` and `time.sleep` now declare. A program that ignored a
+  typed binding (`catch |e| 0` on a `T!E` call) now names it `_`.
+- **Member tests:** `x == K.name` tests which variant `x` holds, as
+  `x == .name` does, one with a payload too, and needs no `==` on the
+  payloads.
+
 - **Renames:** `Box[T]` is `^T`, `Vec` is `List`, the owned `Text` is
   `String` and its read view is `?String`, and `Static` is the type of
   literal text.

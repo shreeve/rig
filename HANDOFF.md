@@ -35,7 +35,11 @@ planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## In flight
 
-Nothing is on a branch: `main` is the only one.
+- **Errors with data, round R2** (PR #542, branch `errsets`): declared
+  error sets, unions, the typed `catch` binding, narrowing, and the
+  `task.Stop` rule for tasks. The approved design and its rounds are in
+  `.git/revamp/r3/errors-panel/errors-spec.md` (§14 the plan, §15 the
+  decisions); R3 (fields) follows a round for cross-module clones.
 
 ## Next, in order
 

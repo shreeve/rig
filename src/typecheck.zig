@@ -5319,14 +5319,18 @@ const Checker = struct {
         // `x == K.name`, a variant named with its enum, one with a payload
         // too: a test of which variant `x` holds (SPEC §5, "Comparing").
         for ([2]Sexp{ l, r }, 0..) |side, i| {
-            if (!side.isKind(.member) or ir.Member.object(side) != .src) continue;
-            const obj_sym = self.ctx.symbolOf(ir.Member.object(side)) orelse continue;
-            const sym = self.ctx.symbols.items[obj_sym];
-            if (sym.kind != .nominal_type or sym.flags.error_set) continue;
+            if (!side.isKind(.member)) continue;
+            const nt = (try self.namedType(ir.Member.object(side))) orelse continue;
+            if (nt.sym.flags.error_set or nt.sym.kind != .nominal_type) continue;
+            // A plain enum's values compare as they are.
+            const payloads = for (nt.sym.fields orelse &.{}) |f| {
+                if (f.is_variant and f.payload != null and f.payload.?.len > 0) break true;
+            } else false;
+            if (!payloads) continue;
             const other = if (i == 0) r else l;
             const ty = try self.synthEqOperand(other);
             const value = sema.unwrapViews(self.ctx, ty);
-            if (!self.isPoison(value) and sema.enumVariantCount(self.ctx, value) != null and (try sema.lookupVariant(self.ctx, value, self.text(ir.Member.name(side)))) != null and std.mem.eql(u8, sym.name, try self.tyName(value))) {
+            if (!self.isPoison(value) and value == try self.namedTypeValue(nt) and (try sema.lookupVariant(self.ctx, value, self.text(ir.Member.name(side)))) != null) {
                 try self.ctx.recordType(side, value);
                 try self.ctx.recordMemberTest(e);
                 return self.t().bool_id;

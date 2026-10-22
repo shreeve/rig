@@ -156,6 +156,25 @@ test "a task's set holds `task.Stop`", '''
       task.Stop.panicked => -5
   print(v)
 
+test "a bare member tests the variant, comparing no payload", '''
+  false false false true
+  true
+'''
+  # `x == .name` and `x == K.name` test which variant `x` holds, so they
+  # need no `==` on the payloads, which a `List` lacks (SPEC §13).
+  enum K
+    a(xs: List[Int])
+    b
+
+  enum Color
+    red
+    blue
+
+  k = K.a(List())
+  print(k == .b, k != .a, k == K.b, k == K.a)
+  c = Color.red
+  print(c == Color.red)
+
 code "a declared set is the Zig set the function fails with", "GlobError!i64"
   error GlobError
     star_star
