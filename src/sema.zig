@@ -8082,25 +8082,30 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
     };
 }
 
-/// The type arguments a generic type's field types are read with, and
-/// the frame those arguments are read in.
-const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, parent: ?*const CloneFrame };
+/// The type arguments a generic type's field types are read with, the
+/// module whose types they are, and the frame those arguments are read
+/// in.
+const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, args_ctx: *const SemContext, parent: ?*const CloneFrame };
+
+/// A declared type being checked for a clone: its symbol in the module
+/// that declares it.
+const CloneSeen = struct { ctx: *const SemContext, sym: SymbolId };
 
 /// Whether `+x` can make a new owner of a `ty` part by part (Core
 /// sentence 2): a String, a List, a box, an optional, an array, or a
-/// struct or enum declared in this module, of parts that clone; a
+/// struct or enum, of this module or another, of parts that clone; a
 /// handle, counted again; plain data and read views, copied. A type with
 /// a `drop` body has no clone, and neither has a unique type, a Cell, a
 /// Signal, a write view, or a type parameter. `seen` holds the declared
 /// types being checked: one reached again (a box of a recursive type)
 /// clones if the rest of it does.
-fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: []const SymbolId) bool {
+fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: []const CloneSeen) bool {
     if (seen.len > 32) return false;
     switch (ctx.types.get(ty)) {
         .type_var => |sym| {
             const f = frame orelse return false;
             const i = std.mem.findScalar(SymbolId, f.params, sym) orelse return false;
-            return deepCloneable(ctx, f.args[i], f.parent, seen);
+            return deepCloneable(f.args_ctx, f.args[i], f.parent, seen);
         },
         else => {},
     }
@@ -8116,25 +8121,43 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
             // A table is never cloned: a copy of a reserved one would
             // touch every page.
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.table_sym_id) break :blk false;
-            const sym = ctx.symbols.items[pn.sym];
-            if (sym.kind != .generic_type or isProxy(sym)) break :blk false;
-            const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .parent = frame };
-            break :blk fieldsCloneable(ctx, pn.sym, &inner, seen);
+            const decl = declaredAt(ctx, pn.sym) orelse break :blk false;
+            const sym = decl.ctx.symbols.items[decl.sym];
+            if (sym.kind != .generic_type) break :blk false;
+            const inner: CloneFrame = .{ .params = sym.type_params orelse &.{}, .args = pn.args, .args_ctx = ctx, .parent = frame };
+            break :blk fieldsCloneable(decl.ctx, decl.sym, &inner, seen);
         },
-        .nominal => |sym| fieldsCloneable(ctx, sym, null, seen),
+        .nominal => |sym| blk: {
+            const decl = declaredAt(ctx, sym) orelse break :blk false;
+            break :blk fieldsCloneable(decl.ctx, decl.sym, null, seen);
+        },
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
+            if (in.sym_id >= foreign.symbols.items.len) break :blk false;
+            break :blk fieldsCloneable(foreign, in.sym_id, null, seen);
+        },
         else => false,
     };
 }
 
-/// Whether every part of declared type `sym` clones (`deepCloneable`),
-/// and it has no `drop` body.
-fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: []const SymbolId) bool {
-    if (std.mem.findScalar(SymbolId, seen, sym) != null) return true;
+/// Symbol `sym` of `ctx` as the module that declares it: itself, or, for
+/// a proxy of another module's declaration, that declaration.
+fn declaredAt(ctx: *const SemContext, sym: SymbolId) ?CloneSeen {
     const s = ctx.symbols.items[sym];
-    if (isProxy(s)) return false;
-    var buf: [33]SymbolId = undefined;
+    if (!isProxy(s)) return .{ .ctx = ctx, .sym = sym };
+    const foreign = ctx.foreign_semas.get(s.from.module_id) orelse return null;
+    if (s.from.sym >= foreign.symbols.items.len) return null;
+    return .{ .ctx = foreign, .sym = s.from.sym };
+}
+
+/// Whether every part of type `sym`, declared in `ctx`, clones
+/// (`deepCloneable`), and it has no `drop` body.
+fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: []const CloneSeen) bool {
+    for (seen) |t| if (t.ctx == ctx and t.sym == sym) return true;
+    const s = ctx.symbols.items[sym];
+    var buf: [33]CloneSeen = undefined;
     @memcpy(buf[0..seen.len], seen);
-    buf[seen.len] = sym;
+    buf[seen.len] = .{ .ctx = ctx, .sym = sym };
     const inner = buf[0 .. seen.len + 1];
     for (s.fields orelse &.{}) |*f| {
         if (f.is_drop_method) return false;
