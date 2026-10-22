@@ -2631,6 +2631,15 @@ const Lowerer = struct {
             const leaf = sema.captureNameNode(cap) orelse return abstain("an unusual capture");
             const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
             const sym = self.ctx.symbols.items[sym_id];
+            // A field path is what its sigil makes of it in an
+            // expression (Core §7): `|?p.a|` lends `p.a` alone.
+            const value = sema.captureValue(cap);
+            if (value != .nil) {
+                const v = try self.eval(value, .take, null) orelse return abstain("a capture of a constant");
+                if (self.f.vars.items[v].drop_reads) return abstain("a closure holding a value with a `drop` body");
+                try parts.append(self.a, v);
+                continue;
+            }
             const outer = self.vars.get(sym.origin) orelse return abstain("a capture of a name the lowering did not bind");
             const p = self.rootPlace(outer);
             const v = switch (sema.captureModeOf(cap).?) {

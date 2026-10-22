@@ -499,3 +499,33 @@ code "match on text tests each string's bytes in order", "if (rig.textIs(p, \"/\
       _ => 0
 
   print(route("/"))
+
+test "match an element whose arms read no subject", '''
+  1 2 3
+  4
+'''
+  # The subject is held once, by its address, and read by no arm: it is
+  # still evaluated, for its index's test, and Zig is not left an unused
+  # constant.
+  obj P
+    xs: List[String]
+
+  v = List[String]()
+  !v.push(String("a"))
+  a = match v[0]
+    _ => 1
+  b = match !v[0]
+    _ => 2
+  p = P(xs: List())
+  !p.xs.push(String("b"))
+  c = match p.xs[0]
+    _ => 3
+  print(a, b, c)
+  match v[0]
+    _ => print(4)
+
+bomb "match an element past the end whose arms read no subject", "index out of bounds"
+  v = List[String]()
+  m = match v[3]
+    _ => 1
+  print(m)

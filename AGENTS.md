@@ -92,6 +92,7 @@ Which document answers which question:
 | Which Zig 0.17 APIs does Rig use? | docs/internals/zig-0.17.md |
 | What is decided but not started? | docs/ROADMAP.md, docs/internals/backlog.md |
 | What problems have the docs found in the compiler? | the end of docs/internals/backlog.md |
+| Why was it decided so, and what was measured? | docs/history/records/INDEX.md, and its ledger |
 | What are APIs (`api Shape`), and which stage is built? | docs/design/apis.md |
 | How is a Learn Rig journey written, and which remain? | docs/internals/journeys.md |
 

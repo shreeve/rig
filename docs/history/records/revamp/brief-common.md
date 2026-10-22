@@ -1,0 +1,21 @@
+# Common brief for revamp implementers (phase B)
+
+Project: Rig, at /Users/shreeve/Data/Code/rig: an indentation-sensitive systems language whose compiler (Zig 0.16) emits Zig.
+You work in your own git worktree. Expected base SHA: fa4c583fbfc8b8dd5f5941404af94850f6d5be71. First run `git rev-parse HEAD`; if it differs, `git reset --hard fa4c583fbfc8b8dd5f5941404af94850f6d5be71`. Commit on your worktree branch.
+
+Read AGENTS.md first (short, binding). Never edit src/parser.zig by hand: edit rig.grammar and run `zig build parser` (Nexus is at /Users/shreeve/Data/Code/nexus/bin/nexus and is found automatically from a parent directory; otherwise pass -Dnexus=... and NEXUS=... ./test/run). Commit messages: short, imperative, say what and why; NO AI attribution lines. Comments explain the code as it is (no history).
+
+North Star: Rig compiles to Zig; a small algebra of sigils (<x move, ?x read borrow, !x write borrow, +x clone, -x drop, *x shared, ~x weak, e! propagate, T? optional) makes ownership visible where it happens. No GC, no hidden allocation, no hidden refcount traffic, no silent control flow. "Accept means correct": if `rig check` accepts a program, the emitted Zig compiles, runs, and does what the source says; anything else is rejected in sema with a file:line:col diagnostic. Safe code cannot corrupt memory or leak (except strong *T cycles). Every sigil stays a named IR node. The rule that mutating an owned value needs an explicit write borrow `(!xs).push(i)` is fixed by the user.
+
+Audit reports with the full finding rows (file:line, evidence, repro programs, proposed fix) are in /Users/shreeve/Data/Code/rig/.git/revamp/: audit-frontend.md (F*), audit-sema.md (S*), audit-typecheck.md (T*), audit-ownership.md (O*), audit-emit.md (EM-*), audit-fuzz.md (fuzz F*, called FZ-F* below), audit-docs.md (D*), audit-gaps.md. Repro programs live under /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/2da6db25-40f6-400b-889b-321dc5a34c57/scratchpad/{audit-*,fuzz}/. The line numbers in the audits refer to commit 206ea77; since then `effects.zig` was folded into typecheck.zig, reserved syntax (pin, pre expr/block, try blocks, zig "...", for *x, string/float patterns) was removed from the grammar and passes, and BindingKind is derived by name. Re-locate code by searching, not by line number. Verify each finding still reproduces before fixing it; if it doesn't, say so.
+
+Build: `zig build` (writes bin/rig). Test: `./test/run` (full suite, 840 tests at base, must be green before every commit; `./test/run <filter>` for a subset). Write repro and scratch programs under your own scratch dir and set RIG_OUT_DIR there.
+
+Rules:
+- You own ONLY the files listed in your brief. If a fix needs a change in a file you don't own, don't make it: list it in your report as a hand-off, with the exact change. (Adding NEW test files under test/ is always allowed; give them distinctive names. Editing SPEC.md is allowed only for the minimal lines needed to keep a doc example passing or to state a rule you changed; list every SPEC edit in your report.)
+- Fixing a bug starts with a failing test that reproduces it (test/behavior/<area>/ with `# expect:` or test/reject/<area>/ with `# error:`; see test/README.md). Every bug fixed gets a test.
+- Small themed commits, each building and passing ./test/run. Never delete or weaken a test to make it pass; change a test only when it is wrong or asserts a restriction you deliberately removed, and say so in the commit.
+- Prefer deletion and simplification: the source should get smaller. No abstraction layers or knobs that don't pay for themselves. No commented-out code. Don't reformat code you aren't otherwise changing (run `zig fmt` on files you edit and check the diff is only your change).
+- Rejecting a program is fine when lowering it correctly is disproportionate; a clear diagnostic that says what to write instead is the bar.
+
+Report back (keep it under ~80 lines): commits (sha + subject); findings fixed; findings not fixed or rejected, and why; hand-offs for other files with exact proposed changes; SPEC/doc changes needed (behavior changes users must know about); net LOC change for your source files; the ./test/run summary line.

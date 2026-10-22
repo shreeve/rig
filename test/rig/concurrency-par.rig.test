@@ -198,3 +198,21 @@ test "par limit before closure", seeds: 20, '''
   )
   print(xs)
   print(par.map(?xs, limit: 2, |x| x * 2))
+
+test "par path capture", seeds: 20, '''
+  [3, 6, 9]
+  [4, 8, 12]
+'''
+  # Every task reads the field a closure captures, `|?cfg.k|` or `|+cfg.k|`,
+  # while `cfg`'s other field stays the method's to write.
+  use std.par
+
+  obj Cfg
+    k: Int
+    log: List[Int]
+
+  cfg = Cfg(k: 3, log: List[Int]())
+  print(par.map(?[1, 2, 3], |?cfg.k, x| x * cfg.k))
+  !cfg.log.push(1)
+  cfg.k = 4
+  print(par.map(?[1, 2, 3], |+cfg.k, x| x * cfg.k))

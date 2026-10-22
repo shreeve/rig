@@ -1,0 +1,220 @@
+diff -ru a/src/emit.zig rig/src/emit.zig
+--- a/src/emit.zig	2026-10-21 20:12:00.510428745 -0600
++++ rig/src/emit.zig	2026-10-21 20:12:00.554555446 -0600
+@@ -377,6 +377,9 @@
+     /// Write every test, ignoring which are known to pass (`provenOf`):
+     /// `RIG_NO_PROOFS`, for the differential run of the proofs.
+     no_proofs: bool = false,
++    /// MEASURING ONLY (`RIG_MEASURE_UNCHECKED` has `index`): every Int
++    /// index is treated as proven in both directions.
++    measure_index: bool = false,
+     /// The Zig name of each flag written (`emitFlag`), by the statement
+     /// it is made before; a test proven while a flag holds is written so
+     /// only once its flag is (`provenIf`).
+@@ -9023,6 +9026,15 @@
+ 
+     /// The tests of `node` known to pass, which emit omits.
+     fn provenOf(self: *Emitter, node: Sexp) facts.Proven {
++        if (self.measure_index and node.isKind(.index)) {
++            const ix = ir.Index.index(node);
++            if (!ix.isKind(.@"..")) if (self.typeOf(ix)) |t| if (self.peelViews(t) == self.facts.types.int_id) {
++                var p: facts.Proven = if (self.no_proofs) .{} else self.facts.provenOf(node);
++                p.lower = true;
++                p.upper = true;
++                return p;
++            };
++        }
+         if (self.no_proofs) return .{};
+         return self.facts.provenOf(node);
+     }
+@@ -9031,6 +9043,7 @@
+     /// flag's Zig name: null unless the flag is written (`emitFlag`).
+     fn provenIf(self: *Emitter, node: Sexp) ?struct { tests: facts.Proven, flag: []const u8 } {
+         if (self.no_proofs) return null;
++        if (self.measure_index and node.isKind(.index) and self.provenOf(node).lower and self.provenOf(node).upper) return null;
+         const p = self.facts.provenIfOf(node) orelse return null;
+         return .{ .tests = p.tests, .flag = self.flag_names.get(p.flag) orelse return null };
+     }
+diff -ru a/src/main.zig rig/src/main.zig
+--- a/src/main.zig	2026-10-21 20:12:00.514084192 -0600
++++ rig/src/main.zig	2026-10-21 20:18:30.702147474 -0600
+@@ -262,6 +262,7 @@
+         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
+         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
+         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
++        if (env.get("RIG_MEASURE_UNCHECKED")) |kinds| try w.print("pub const __rig_measure_unchecked = \",{s},\";\n", .{kinds});
+         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
+     }
+ };
+@@ -1579,6 +1580,7 @@
+         defer em.deinit();
+         em.poison = env.sanitize();
+         em.no_proofs = env.flag("RIG_NO_PROOFS");
++        em.measure_index = if (env.get("RIG_MEASURE_UNCHECKED")) |kinds| std.mem.indexOf(u8, kinds, "index") != null else false;
+         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
+         em.yield_checks = tasks;
+         em.runtime_import = runtime_import;
+@@ -1599,7 +1601,7 @@
+         }
+         links_libc = links_libc or em.links_libc;
+         uses_symbols = uses_symbols or em.uses_symbols;
+-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or hook or tasks)) {
++        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or env.get("RIG_MEASURE_UNCHECKED") != null or hook or tasks)) {
+             try file_buffer.writer.writeAll("\n");
+             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
+         }
+diff -ru a/src/runtime.zig rig/src/runtime.zig
+--- a/src/runtime.zig	2026-10-21 20:12:00.515801331 -0600
++++ rig/src/runtime.zig	2026-10-21 20:12:17.342542720 -0600
+@@ -3754,6 +3754,7 @@
+ 
+ fn slicePanic() noreturn {
+     @branchHint(.cold);
++    if (comptime measured("index")) { @setRuntimeSafety(false); unreachable; }
+     @panic("slice bounds out of range");
+ }
+ 
+@@ -3793,11 +3794,13 @@
+ /// compare and a branch.
+ noinline fn lenPanic() noreturn {
+     @branchHint(.cold);
++    if (comptime measured("cast")) { @setRuntimeSafety(false); unreachable; }
+     @panic("length out of range");
+ }
+ 
+ fn indexPanic() noreturn {
+     @branchHint(.cold);
++    if (comptime measured("index")) { @setRuntimeSafety(false); unreachable; }
+     @panic("index out of bounds");
+ }
+ 
+@@ -5275,7 +5278,128 @@
+ /// stderr after everything `print` has buffered, with Zig's stack trace
+ /// in a debug build, then the end of the program by `abort` (status
+ /// 134). It is the same event as a `panic(...)` (`fail`).
+-pub const panic = std.debug.FullPanic(panicAfterFlush);
++pub const panic = if (@hasDecl(root, "__rig_measure_unchecked")) MeasurePanic else std.debug.FullPanic(panicAfterFlush);
++
++/// MEASURING ONLY (`RIG_MEASURE_UNCHECKED=kind,...`): each safety-check
++/// handler of a kind named is unreachable, so LLVM deletes the check that
++/// calls it, as `-OReleaseFast` never makes it.
++fn measured(comptime kind: []const u8) bool {
++    if (!@hasDecl(root, "__rig_measure_unchecked")) return false;
++    return comptime std.mem.indexOf(u8, root.__rig_measure_unchecked, "," ++ kind ++ ",") != null;
++}
++
++const MeasurePanic = struct {
++    const F = std.debug.FullPanic(panicAfterFlush);
++    pub const call = F.call;
++    pub fn sentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
++        if (comptime measured("bounds")) { @setRuntimeSafety(false); unreachable; }
++        F.sentinelMismatch(expected, found);
++    }
++    pub fn unwrapError(err: anyerror) noreturn {
++        if (comptime measured("unwrap")) { @setRuntimeSafety(false); unreachable; }
++        F.unwrapError(err);
++    }
++    pub fn outOfBounds(index_: usize, len_: usize) noreturn {
++        if (comptime measured("bounds")) { @setRuntimeSafety(false); unreachable; }
++        F.outOfBounds(index_, len_);
++    }
++    pub fn startGreaterThanEnd(start_: usize, end_: usize) noreturn {
++        if (comptime measured("bounds")) { @setRuntimeSafety(false); unreachable; }
++        F.startGreaterThanEnd(start_, end_);
++    }
++    pub fn inactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
++        if (comptime measured("union")) { @setRuntimeSafety(false); unreachable; }
++        F.inactiveUnionField(active, accessed);
++    }
++    pub fn sliceCastLenRemainder(src_len: usize) noreturn {
++        if (comptime measured("bounds")) { @setRuntimeSafety(false); unreachable; }
++        F.sliceCastLenRemainder(src_len);
++    }
++    pub fn reachedUnreachable() noreturn {
++        if (comptime measured("other")) { @setRuntimeSafety(false); unreachable; }
++        F.reachedUnreachable();
++    }
++    pub fn unwrapNull() noreturn {
++        if (comptime measured("unwrap")) { @setRuntimeSafety(false); unreachable; }
++        F.unwrapNull();
++    }
++    pub fn castToNull() noreturn {
++        if (comptime measured("cast")) { @setRuntimeSafety(false); unreachable; }
++        F.castToNull();
++    }
++    pub fn incorrectAlignment() noreturn {
++        if (comptime measured("other")) { @setRuntimeSafety(false); unreachable; }
++        F.incorrectAlignment();
++    }
++    pub fn invalidErrorCode() noreturn {
++        if (comptime measured("unwrap")) { @setRuntimeSafety(false); unreachable; }
++        F.invalidErrorCode();
++    }
++    pub fn unexpectedErrorCode(err: anyerror) noreturn {
++        if (comptime measured("unwrap")) { @setRuntimeSafety(false); unreachable; }
++        F.unexpectedErrorCode(err);
++    }
++    pub fn integerOutOfBounds() noreturn {
++        if (comptime measured("cast")) { @setRuntimeSafety(false); unreachable; }
++        F.integerOutOfBounds();
++    }
++    pub fn integerOverflow() noreturn {
++        if (comptime measured("overflow")) { @setRuntimeSafety(false); unreachable; }
++        F.integerOverflow();
++    }
++    pub fn shlOverflow() noreturn {
++        if (comptime measured("overflow")) { @setRuntimeSafety(false); unreachable; }
++        F.shlOverflow();
++    }
++    pub fn shrOverflow() noreturn {
++        if (comptime measured("overflow")) { @setRuntimeSafety(false); unreachable; }
++        F.shrOverflow();
++    }
++    pub fn divideByZero() noreturn {
++        if (comptime measured("other")) { @setRuntimeSafety(false); unreachable; }
++        F.divideByZero();
++    }
++    pub fn exactDivisionRemainder() noreturn {
++        if (comptime measured("other")) { @setRuntimeSafety(false); unreachable; }
++        F.exactDivisionRemainder();
++    }
++    pub fn integerPartOutOfBounds() noreturn {
++        if (comptime measured("cast")) { @setRuntimeSafety(false); unreachable; }
++        F.integerPartOutOfBounds();
++    }
++    pub fn corruptSwitch() noreturn {
++        if (comptime measured("union")) { @setRuntimeSafety(false); unreachable; }
++        F.corruptSwitch();
++    }
++    pub fn shiftRhsTooBig() noreturn {
++        if (comptime measured("overflow")) { @setRuntimeSafety(false); unreachable; }
++        F.shiftRhsTooBig();
++    }
++    pub fn invalidEnumValue() noreturn {
++        if (comptime measured("cast")) { @setRuntimeSafety(false); unreachable; }
++        F.invalidEnumValue();
++    }
++    pub fn forLenMismatch() noreturn {
++        if (comptime measured("bounds")) { @setRuntimeSafety(false); unreachable; }
++        F.forLenMismatch();
++    }
++    pub fn copyLenMismatch() noreturn {
++        if (comptime measured("bounds")) { @setRuntimeSafety(false); unreachable; }
++        F.copyLenMismatch();
++    }
++    pub fn memcpyAlias() noreturn {
++        if (comptime measured("other")) { @setRuntimeSafety(false); unreachable; }
++        F.memcpyAlias();
++    }
++    pub fn noreturnReturned() noreturn {
++        if (comptime measured("other")) { @setRuntimeSafety(false); unreachable; }
++        F.noreturnReturned();
++    }
++    pub fn loadUninstantiableType() noreturn {
++        if (comptime measured("other")) { @setRuntimeSafety(false); unreachable; }
++        F.loadUninstantiableType();
++    }
++};
+ 
+ /// How far into a panic the program is: 0 before one, 1 while it is
+ /// reported, 2 once a panic came while reporting it.

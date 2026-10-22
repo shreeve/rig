@@ -155,8 +155,16 @@ fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) rig.Stop!void {
         if (left <= 0) return timeout;
         ms = @intCast(@min(@divTrunc(left + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32)));
     }
-    const n = posix.poll(&fds, ms) catch return;
-    if (n == 0) return timeout;
+    // An interrupt ends the poll (EINTR) to cancel `main`
+    // (`rig.cancelOnInterrupt`), which Zig's `poll` would only restart.
+    while (true) {
+        const rc = sys.poll(&fds, fds.len, ms);
+        switch (posix.errno(rc)) {
+            .SUCCESS => return if (rc == 0) timeout else {},
+            .INTR => try stopped(),
+            else => return,
+        }
+    }
 }
 
 pub fn listen_on(addr: []const u8) Error!i64 {
@@ -218,7 +226,8 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
                 return c;
             },
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, .{}),
-            .INTR, .CONNABORTED => {},
+            .CONNABORTED => {},
+            .INTR => try stopped(),
             .MFILE, .NFILE, .NOBUFS, .NOMEM => return null,
             else => |e| return failure(e),
         }
@@ -251,7 +260,7 @@ fn readSome(s: i32, reg: i64, dest: []u8, limit: Limit) Error!usize {
         switch (posix.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, limit),
-            .INTR => {},
+            .INTR => try stopped(),
             else => |e| return failure(e),
         }
     }
@@ -270,7 +279,7 @@ fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable, limit),
-            .INTR => {},
+            .INTR => try stopped(),
             else => |e| return failure(e),
         }
     }
@@ -388,7 +397,7 @@ fn takeBack(token: u64) void {
     if (claim(token)) |fd| _ = sys.close(fd);
 }
 
-fn readLent(token: u64, want: usize) FileError!rig.String {
+fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";
     defer _ = sys.close(fd);
     var s: rig.String = .empty;
@@ -400,7 +409,10 @@ fn readLent(token: u64, want: usize) FileError!rig.String {
                 s.list.items.len = @intCast(rc);
                 return s;
             },
-            .INTR => {},
+            .INTR => stopped() catch |err| {
+                rig.dropElement(rig.String, &s);
+                return err;
+            },
             else => |e| {
                 rig.dropElement(rig.String, &s);
                 return fileFailure(e);
@@ -409,7 +421,7 @@ fn readLent(token: u64, want: usize) FileError!rig.String {
     }
 }
 
-fn writeLent(token: u64, bytes: []const u8) FileError!void {
+fn writeLent(token: u64, bytes: []const u8) (rig.Stop || FileError)!void {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";
     defer _ = sys.close(fd);
     var at: usize = 0;
@@ -417,7 +429,7 @@ fn writeLent(token: u64, bytes: []const u8) FileError!void {
         const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
-            .INTR => {},
+            .INTR => try stopped(),
             else => |e| return fileFailure(e),
         }
     }

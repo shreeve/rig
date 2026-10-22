@@ -41,18 +41,23 @@ a program that makes none starts no workers.
   waking is one compare-and-swap, and a task is queued at most once.
 - **Queues.** Each worker owns a ring of 256 ready tasks, pushed with
   one store; other workers steal half with one compare-and-swap. A "run
-  next" slot keeps a just-woken task in cache, at most 3 in a row. A
-  worker with nothing else to steal takes a task left in another's slot
-  3 µs (`sched.stealNext`), as Go takes a `runnext`: long enough that a
-  task made and waited for at once still runs by handoff on its maker's
-  worker, and a task made while its maker computes runs beside it.
-  Filling the slot wakes a sleeping worker when none is looking, until
-  a worker so woken finds the slot emptied by its owner first, as when
-  each task made is waited for at once: from then, until a worker takes
-  one, filling the slot sets `sched.waiting` instead, and the maker's
-  next yield check hands the task on (`sched.next_quiet`), so a chain of
-  tasks pays no system call to wake a worker that finds nothing. A
-  global queue takes overflow and work from outside the workers.
+  next" slot keeps a just-woken task in cache, at most 3 in a row.
+  Filling the slot wakes no worker (`sched.wake`); the task it pushes
+  out to the ring does, when none is looking. A worker runs the task
+  next when it woke the task itself: from its poller or a timer as it
+  looks for work, at a task's end, or at a yield check, which then
+  yields to it. A task that wakes another and goes on running either
+  stops soon, as one that sends and waits for the answer does, or
+  reaches a yield check, loop or recursive, which hands the woken task
+  on (`sched.waiting`). So two tasks that answer each other, over a
+  socket or a channel, stay on one worker with no system call to wake
+  another; a chain of tasks each made and waited for at once runs by
+  handoff on its maker's worker; and fork-join (`t = f()&; g(); >t`)
+  spreads at `g`'s first yield check, where `g` yields to `f` and a
+  worker woken for `g` takes it. A worker with nothing else to steal
+  also takes a task left in another's slot 3 µs (`sched.stealNext`), as
+  Go takes a `runnext`. A global queue takes overflow and work from
+  outside the workers.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
   is next on its worker hands the worker straight to it, on the task's
@@ -125,6 +130,23 @@ descriptor (`sched.waitReady`), and a handoff to the task waited on.
 A poller that wakes a fiber waiting on a descriptor holds that waiter
 until it is done (`Registration.Waiter`), so the fiber, which takes
 itself back only after, never goes on and ends under it.
+
+An interrupt is a cancel whose canceler is a signal handler, which may
+run between any two instructions of any thread and so may not wake a
+fiber. A `main` that can fail has a `Control` of its own
+(`rt.cancelOnInterrupt`); the handler sets its flag, which is the
+first half of the handshake, sets `rt.interrupt_pending`, and kicks
+every worker's poller, one system call each. The worker that next
+services its poller and timers, awake or woken by the kick, takes the
+pending flag and ends `main`'s wait (`sched.deliverInterrupt`), the
+second half. A program without the scheduler has one thread: its
+handler is installed without `SA_RESTART`, so the system call `main`
+blocks in fails with EINTR, and the waiting points that make their own
+calls (`tasks.sleepHere`, `net.waitFor` and its reads and writes) look
+at the flag then; Zig's own calls would only restart. The second
+signal, or a failure out of `main` with the cancel it sent, ends the
+process by the signal itself, its default put back (`rt.endBy`), so a
+shell sees it end as by the signal.
 
 ## Yield checks
 
@@ -262,10 +284,14 @@ every time; the suite runs each concurrency case again under seeds 1 to
     sleep notes that it may sleep for good, then reads the deadlines,
     all sequentially consistent, so one of the two sees the other.
 
-11. **Fork-join in parallel**: every loop's turns count toward a yield
-    check, and a task left in a busy worker's run-next slot is taken by
-    an idle worker, so `t = f()&; g(); >t` runs `f` and `g` at once
-    (`test/cli/sched_forkjoin.sh`).
+11. **Fork-join in parallel, and partners on one worker**: every loop's
+    turns count toward a yield check, and a task left in a busy worker's
+    run-next slot is handed on at its maker's next yield check, so
+    `t = f()&; g(); >t` runs `f` and `g` at once
+    (`test/cli/sched_forkjoin.sh`); filling the slot wakes no worker, so
+    two tasks that answer each other over a socket stay on one worker
+    (the unit test "two tasks that answer each other over a socket stay
+    on one worker").
 
 12. **Every poller watched, and the pool's threads counted**: while a
     worker that does not sleep holds descriptors, one sleeping worker at
@@ -273,8 +299,13 @@ every time; the suite runs each concurrency case again under seeds 1 to
     1 ms, and as it wakes looks at every worker's poller, so a busy
     worker's sockets wait no longer than that even when its own yield
     checks do not come (in recursion, say), and it passes the watch on
-    as it goes back to work. A look at another worker's poller leaves the
-    kick it finds there, which that worker, about to sleep, needs. The
+    as it goes back to work. It keeps the watch from one look to the next
+    while such a worker is awake or has slept since the watch began, and
+    lets it go only once every one has slept through a whole watch, so a
+    worker that sleeps and wakes many times a millisecond, as one
+    answering a socket does, finds the watch held and kicks no one. A
+    look at another worker's poller leaves the kick it finds there, which
+    that worker, about to sleep, needs. The
     blocking pool counts a thread busy as it hands it a call, starts
     threads outside its lock, up to `RIG_BLOCKING_THREADS` (64 by
     default), and ends a thread idle 10 s; a cancel or a deadline ends a

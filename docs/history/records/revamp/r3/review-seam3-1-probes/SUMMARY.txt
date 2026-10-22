@@ -1,0 +1,95 @@
+=== a01_box_ret_param head=rej base=rej | oracle: wrap prod=accept ref=accept;main prod=reject ref=reject C4 8;
+=== a02_box_ret_drop head=rej base=rej | oracle: wrap prod=accept ref=accept;main prod=reject ref=reject C4 8;
+=== a03_box_ret_local head=rej base=rej | oracle: wrap prod=reject ref=reject C5 4;main prod=accept ref=accept;
+=== a04_generic_ret_local head=rej base=rej | oracle: same prod=accept ref=accept;mk prod=reject ref=unknown ;main prod=accept ref=accept;
+=== a05_box_ret_two_params head=rej base=rej | oracle: pick prod=accept ref=accept;main prod=reject ref=reject C4 9;
+=== a06_box_generic_ret head=rej base=rej | oracle: boxit prod=accept ref=accept;main prod=reject ref=unknown ;
+=== a07_box_generic_ret_ok head=ACC base=rej debug=0 release=0 | oracle: boxit prod=accept ref=accept;main prod=accept ref=unknown ;
+=== a08_struct_field_box head=rej base=rej | oracle: main prod=reject ref=reject C4 8;
+=== a09_struct_field_box_drop head=rej base=rej | oracle: main prod=reject ref=reject C4 8;
+=== a10_vec_of_box_push_later head=rej base=rej | oracle: main prod=reject ref=reject C4 6;
+=== b01_handle_clone_box head=rej base=rej | oracle: main prod=reject ref=reject C4 7;
+=== b02_handle_push_alias head=rej base=rej | oracle: 
+=== b03_handle_stack_alias head=rej base=rej | oracle: 
+=== b04_handle_put_fn head=rej base=rej | oracle: 
+=== b05_handle_put_generic head=rej base=rej | oracle: 
+=== b06_handle_loop_scope head=rej base=rej | oracle: main prod=reject ref=reject C4 5;
+=== b07_handle_set_box head=rej base=rej | oracle: 
+=== b08_weak_upgrade head=rej base=rej | oracle: main prod=reject ref=unknown ;
+=== b09_handle_ret_clone head=rej base=rej | oracle: share prod=accept ref=accept;main prod=reject ref=reject C4 10;
+=== b10_handle_assign_outer head=rej base=rej | oracle: main prod=reject ref=reject C5 4;
+=== b11_weak_upgrade_strong head=rej base=rej | oracle: main prod=reject ref=unknown ;
+=== c01_closure_lend_box head=rej base=rej | oracle: main prod=reject ref=reject C4 6;
+=== c02_closure_move_box head=rej base=rej | oracle: main prod=reject ref=reject C4 6;
+=== c03_owned_closure_handle head=rej base=rej | oracle: main prod=reject ref=reject C8 5;
+=== c04_owned_closure_box head=rej base=rej | oracle: main prod=reject ref=reject C8 5;
+=== c05_closure_copy_view head=rej base=rej | oracle: 
+=== c06_generic_closure_return head=rej base=rej | oracle: mk prod=accept ref=accept;main prod=reject ref=unknown ;
+=== c07_closure_lend_ok head=ACC base=rej debug=0 release=0 | oracle: main prod=accept ref=accept;
+=== d01_gen_cell_box head=rej base=rej | oracle: 
+=== d02_gen_closure_box head=rej base=rej | oracle: mk prod=accept ref=accept;main prod=reject ref=unknown ;
+=== d03_gen_transitive_closure head=rej base=rej | oracle: inner prod=accept ref=accept;outer prod=accept ref=accept;main prod=reject ref=unknown ;
+=== d04_gen_struct_closure head=rej base=rej | oracle: mk prod=accept ref=accept;main prod=reject ref=unknown ;
+=== d05_gen_method_closure head=rej base=rej | oracle: Hold.later prod=accept ref=accept;main prod=reject ref=unknown ;
+=== d06_gen_closure_getter head=rej base=rej | oracle: 
+=== d07_gen_vec_closure head=ACC base=rej debug=0 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== d08_gen_opt_closure head=rej base=rej | oracle: mk prod=accept ref=accept;main prod=reject ref=unknown ;
+=== d09_gen_signal head=rej base=rej | oracle: 
+=== d10_gen_type_cell_field head=rej base=rej | oracle: 
+=== e01_gen_vec_closure_print head=ACC base=rej debug=0 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e02_gen_vec_cell_replace head=ACC base=rej debug=134 release=134 | oracle: keep prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e03_gen_vec_closure_ret head=rej base=rej | oracle: 
+=== e04_gen_vec_closure_text head=ACC base=rej debug=0 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e05_gen_shared_closure head=ACC base=rej debug=0 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e06_gen_shared_cell head=rej base=rej | oracle: 
+=== e07_nongeneric_cell_vec head=rej base=rej | oracle: main prod=reject ref=unknown ;
+=== e08_gen_vec_cell_text head=ACC base=rej debug=0 release=0 | oracle: keep prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e09_gen_vec_cell_live_ok head=ACC base=rej debug=0 release=0 | oracle: keep prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e10_gen_vec_cell_box_owner head=ACC base=rej debug=134 release=0 | oracle: keep prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e11_gen_vec_closure_box_owner head=ACC base=rej debug=134 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e12_gen_vec_cell_string_base head=ACC base=ACC debug=134 release=0 | oracle: keep prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e13_gen_vec_closure_string_base head=ACC base=ACC debug=134 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e14_gen_shared_closure_string_base head=ACC base=ACC debug=134 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e15_gen_shared_closure_box_owner head=ACC base=rej debug=134 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== e16_gen_weak_closure head=ACC base=rej debug=134 release=0 | oracle: mk prod=accept ref=accept;main prod=accept ref=unknown ;
+=== f01_ifas_payload_live head=rej base=rej | oracle: main prod=reject ref=reject C4 6;
+=== f02_match_enum_payload head=rej base=rej | oracle: main prod=reject ref=unknown ;
+=== f03_nested_box head=rej base=rej | oracle: main prod=reject ref=reject C4 5;
+=== f04_nested_box_ok head=ACC base=rej debug=0 release=0 | oracle: main prod=accept ref=accept;
+=== f05_opt_opt head=rej base=rej | oracle: 
+=== f05b_opt_opt head=rej base=rej | oracle: main prod=reject ref=reject C4 5;
+=== f06_moved_holder head=rej base=rej | oracle: main prod=reject ref=reject C4 6;
+=== f07_moved_into_vec head=rej base=rej | oracle: main prod=reject ref=reject C4 7;
+=== f08_get_after_holder_dies head=rej base=rej | oracle: Hold.get prod=accept ref=accept;main prod=reject ref=unknown ;
+=== f09_get_from_box_deref head=rej base=rej | oracle: Hold.get prod=accept ref=accept;main prod=reject ref=unknown ;
+=== f10_get_copy_view head=rej base=rej | oracle: 
+=== g01_emit_match_box_enum head=ACC base=rej debug=0 release=0 | oracle: main prod=accept ref=accept;
+=== g02_emit_text_calls head=ACC base=rej debug=0 release=0 | oracle: main prod=accept ref=accept;
+=== g03_emit_field_methods head=ACC base=rej debug=0 release=0 | oracle: P.sum prod=accept ref=accept;main prod=accept ref=accept;
+=== g04_emit_vec_index head=rej base=rej | oracle: 
+=== g05_emit_box_param head=ACC base=rej debug=0 release=0 | oracle: f prod=accept ref=accept;g prod=accept ref=accept;main prod=accept ref=accept;
+=== g06_emit_opt_box head=ACC base=rej debug=0 release=0 | oracle: main prod=accept ref=accept;
+=== g07_emit_box_of_opt_view head=rej base=rej | oracle: 
+=== g08_emit_box_view_eq head=ACC base=rej debug=0 release=0 | oracle: main prod=accept ref=accept;
+=== g09_emit_generic_box head=rej base=rej | oracle: 
+=== g10_emit_struct_field_box_match head=ACC base=rej debug=0 release=0 | oracle: main prod=accept ref=accept;
+=== h01_gen_method_store_receiver_in_vec head=rej base=rej | oracle: Stack.push prod=accept ref=accept;main prod=reject ref=unknown ;
+=== h02_gen_method_store_field_receiver head=rej base=rej | oracle: Stack.push prod=accept ref=accept;main prod=reject ref=unknown ;
+=== h03_gen_method_via_param head=rej base=rej | oracle: Stack.push prod=accept ref=accept;fill prod=accept ref=unknown ;main prod=reject ref=unknown ;
+=== h04_gen_fn_store_param head=rej base=rej | oracle: put prod=accept ref=accept;main prod=reject ref=unknown ;
+=== h05_gen_method_set_opt head=rej base=rej | oracle: Slot.set prod=accept ref=accept;main prod=reject ref=unknown ;
+=== h06_gen_swap_out head=rej base=rej | oracle: Slot.take prod=accept ref=accept;main prod=reject ref=unknown ;
+=== h07_gen_ret_param_two head=rej base=rej | oracle: first prod=accept ref=accept;main prod=reject ref=unknown ;
+=== h08_gen_slot_replace head=rej base=rej | oracle: Slot.swap prod=reject ref=reject C3 5;main prod=reject ref=unknown ;
+=== i01_loop_elem_box head=rej base=rej | oracle: main prod=reject ref=reject C4 7;
+=== i02_field_box head=rej base=rej | oracle: main prod=reject ref=reject C4 8;
+=== i03_slice_box head=rej base=rej | oracle: main prod=reject ref=reject C4 5;
+=== i04_gen_slice head=rej base=rej | oracle: same prod=accept ref=accept;main prod=reject ref=unknown ;
+=== i05_box_reassign head=rej base=rej | oracle: main prod=reject ref=reject C4 7;
+=== i06_ret_box_of_box_param head=rej base=rej | oracle: 
+=== i07_cond_holder head=rej base=rej | oracle: main prod=reject ref=reject C4 6;
+=== i08_holder_in_tuple_array head=rej base=rej | oracle: main prod=reject ref=reject C4 5;
+=== i09_handle_of_hold_returned head=rej base=rej | oracle: share prod=accept ref=unknown ;main prod=reject ref=unknown ;
+=== i10_gen_identity_box_chain head=rej base=rej | oracle: same prod=accept ref=accept;main prod=reject ref=unknown ;
+=== j01_gen_type_vec_self_closure head=ACC base=rej debug=134 release=0 | oracle: Stack.later prod=accept ref=accept;main prod=accept ref=unknown ;
+=== j02_gen_cell_set_vec head=ACC base=rej debug=134 release=0 | oracle: stash prod=accept ref=accept;main prod=accept ref=unknown ;

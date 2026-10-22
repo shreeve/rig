@@ -1,0 +1,102 @@
+From 04efd55c6292f7060e17e777500e9b4ec8d90d1f Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Sun, 4 Oct 2026 18:39:30 -0600
+Subject: [PATCH 3/3] Release a view field's old loans when it is pointed
+ elsewhere
+
+When the field re-pointed is the one field of a local's struct that may hold a view, the local's loans were that field's, so they are replaced, not added to. Held: the reference oracle keeps the old loan (its hard gate fires on audit-ownership-g19_struct_view_field_reassign_outer).
+---
+ src/ownership.zig                             | 34 ++++++++++++++++++-
+ .../ownership/field_repoint_releases.rig      | 25 ++++++++++++++
+ 2 files changed, 58 insertions(+), 1 deletion(-)
+ create mode 100644 test/behavior/ownership/field_repoint_releases.rig
+
+diff --git a/src/ownership.zig b/src/ownership.zig
+index a598c1c4..630d357a 100644
+--- a/src/ownership.zig
++++ b/src/ownership.zig
+@@ -2874,10 +2874,16 @@ pub const Checker = struct {
+             if (loans.len > 0) try self.err(pos, "cannot store a borrow of `{s}` in a `Cell`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{self.vars.items[loans[0].root].name});
+             return;
+         }
+-        if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
+         // A value stored through a `!T` field or element lands in what
+         // the field borrows, which `v` holds a write loan on.
+         const through = if (self.sema) |ctx| ctx.writesThrough(target) else false;
++        // A view pointed elsewhere in the one field of a local that may
++        // hold one: the local's loans were that field's, and are now the
++        // view's.
++        if (!through and self.onlyViewField(target, place)) {
++            return self.setFlow(id, .{ .loans = (try self.viewLoans(self.exprType(target), value)).loans });
++        }
++        if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
+         if (through) return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, self.placeDepth(target, true));
+         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
+         if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
+@@ -2902,6 +2908,32 @@ pub const Checker = struct {
+         try self.setFlow(id, f);
+     }
+ 
++    /// Whether `target` is `x.f` of a local `x` that owns its value, of a
++    /// struct declared in this module whose only field that may hold a
++    /// view is `f`: then every loan `x` holds is `f`'s.
++    fn onlyViewField(self: *const Checker, target: Sexp, place: Place) bool {
++        const ctx = self.sema orelse return false;
++        if (!target.isKind(.member) or ir.Member.object(target) != .src) return false;
++        if (place.through_shared or place.through_borrow) return false;
++        const v = self.vars.items[place.root];
++        if (v.kind != .local or v.ref != .none or v.alias_of != null or self.isGlobal(place.root)) return false;
++        const ty = v.ty orelse return false;
++        const sym = switch (ctx.types.get(ty)) {
++            .nominal => |n| n,
++            else => return false,
++        };
++        const fields = ctx.symbols.items[sym].fields orelse return false;
++        const name = self.text(ir.Member.name(target));
++        var found = false;
++        for (fields) |f| {
++            if (f.is_method or f.is_variant or f.is_drop_method) continue;
++            if (!sema.mayHoldView(ctx, f.ty)) continue;
++            if (!std.mem.eql(u8, f.name, name)) return false;
++            found = true;
++        }
++        return found;
++    }
++
+     /// `value`, which carries only loans the caller handed in, was stored
+     /// into what var `id` reaches through a borrow: a parameter's value,
+     /// or the value a loop or pattern binding writes through. Whatever
+diff --git a/test/behavior/ownership/field_repoint_releases.rig b/test/behavior/ownership/field_repoint_releases.rig
+new file mode 100644
+index 00000000..8029c8f2
+--- /dev/null
++++ b/test/behavior/ownership/field_repoint_releases.rig
+@@ -0,0 +1,25 @@
++# A view field pointed elsewhere, the one field of its local that may
++# hold a view, releases what it viewed before.
++
++struct H
++  w: !Int
++
++struct View
++  r: ?Int
++
++sub main
++  m = 1
++  n = 2
++  h = H(w: !m)
++  h.w = !n
++  m = 10
++  h.w = 3
++  x = 1
++  y = 2
++  vw = View(r: ?x)
++  vw.r = ?y
++  x = 5
++  print(m, n, vw.r, x)
++
++# expect:
++# 10 3 2 5
+-- 
+2.55.0
+

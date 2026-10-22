@@ -1,0 +1,90 @@
+sites by kind:
+  index              73700
+  cast               36679
+  overflow           21433
+  other              6670
+  bounds             3253
+  union              1620
+  unwrap             144
+  panic(explicit)    85
+  total 143584
+
+sites by handler (call instructions in parentheses):
+  indexPanic               71355  (3192)
+  integerOverflow          21410  (2553)
+  integerOutOfBounds       18366  (1459)
+  lenPanic                 17976  (1879)
+  memcpyAlias              5123  (930)
+  outOfBounds              2971  (1615)
+  slicePanic               2345  (697)
+  corruptSwitch            1580  (820)
+  incorrectAlignment       816  (514)
+  reachedUnreachable       695  (300)
+  startGreaterThanEnd      247  (169)
+  integerPartOutOfBounds   201  (51)
+  castToNull               135  (118)
+  unwrapNull               79  (28)
+  unwrapError              49  (38)
+  inactiveUnionField       40  (26)
+  divideByZero             35  (18)
+  panic: negative size     28  (12)
+  panic: integer part of floating point value out of bounds 26  (6)
+  shlOverflow              23  (10)
+  panic: None              18  (18)
+  sliceCastLenRemainder    16  (12)
+  unexpectedErrorCode      15  (5)
+  copyLenMismatch          9  (5)
+  sentinelMismatch         8  (8)
+  panic: rig: a thread used another thread's heap 6  (2)
+  forLenMismatch           2  (1)
+  panic: TODO implement netInterfaceName for linux 2  (1)
+  exactDivisionRemainder   1  (1)
+  invalidErrorCode         1  (1)
+  panic: TODO implement netConnectIpPosix with timeout 1  (1)
+  panic: bigint.pow: the power is negative 1  (1)
+  invalidEnumValue         1  (1)
+  panic: TODO implement dirSetFileOwner 1  (1)
+  panic: out of memory     1  (1)
+  panic: bigint: the shift is negative 1  (1)
+
+top 40 functions by sites (source frame):
+  13387  ast.Ast.new_node   {'cast': 13387}
+   5784  ast.Ast.word_node   {'index': 4012, 'overflow': 1687, 'bounds': 85}
+   4726  checker.Ids.local_sym   {'index': 1601, 'overflow': 3125}
+   3401  ast.Ast.add_list   {'cast': 3401}
+   3324  ast.Ast.add_text   {'cast': 2876, 'other': 448}
+   2791  checker.Checker.checker_symbol   {'overflow': 2791}
+   2673  ast.Ast.word_list   {'index': 1835, 'overflow': 834, 'bounds': 4}
+   2515  ast.Ast.kind   {'index': 2515}
+   2257  checker.Ids.sym_file_of   {'index': 2257}
+   2227  ast.Ast.nodes   {'index': 1440, 'overflow': 787}
+   1768  ast.Ast.finish_node   {'index': 790, 'cast': 978}
+   1710  checker.Checker.symbol_declaration   {'index': 1710}
+   1580  ast.Ast.binary_expression   {'index': 1580}
+   1533  __rig_std___rig_builtin.Map(u32,printer.EmitNode).get   {'index': 1533}
+   1226  parser.Parser.report   {'overflow': 582, 'cast': 644}
+   1190  checker.Checker.type_flags   {'index': 1190}
+   1145  checker.Checker.data_place   {'index': 1145}
+   1142  ast.Ast.update_node   {'index': 1142}
+   1059  checker.Checker.symbol_flags   {'index': 1059}
+   1025  checker.Checker.symbol_declaration_count   {'index': 755, 'cast': 270}
+    993  checker.Ids.node_id   {'index': 583, 'overflow': 410}
+    968  checker.Checker.new_type_list   {'cast': 968}
+    898  checker.node_ref   {'cast': 791, 'overflow': 107}
+    891  __rig_std_text.Interner.text   {'index': 891}
+    817  __rig_std___rig_builtin.Map(u32,printer.EmitNode).replace   {'index': 817}
+    763  __rig_std___rig_builtin.Table.place   {'index': 507, 'cast': 256}
+    707  ast.Ast.name   {'index': 707}
+    704  checker.Ids.sym   {'overflow': 524, 'index': 180}
+    671  ast.Ast.pos   {'index': 671}
+    635  ast.Ast.parent   {'index': 635}
+    631  checker.Checker.type_at   {'index': 597, 'overflow': 32, 'cast': 2}
+    629  ast.Ast.jsdoc_parameter_or_property_tag   {'index': 629}
+    591  ast.as_node   {'index': 388, 'bounds': 203}
+    590  checker.Checker.symbol_name   {'index': 590}
+    562  checker.Checker.new_type   {'cast': 421, 'overflow': 141}
+    520  declarations.DeclarationTransformer.keep   {'index': 255, 'overflow': 85, 'cast': 180}
+    492  ast.Ast.parameter_declaration   {'index': 492}
+    485  __rig_std___rig_builtin.Map(u32,u32).get   {'index': 485}
+    475  ast.Ast.set_loc   {'index': 437, 'cast': 38}
+    457  checker.Checker.type_object_flags   {'index': 457}

@@ -1,0 +1,68 @@
+main-41ea93eab build 0
+prefault build 0
+== tasks main-41ea93eab
+        rig-fast          vs rig-fast
+spawn   179 ns/task       
+chain   93 ns/task        
+fanout  103.1 ms/run      
+yield   5 ns/yield        
+hog     62.55 us/step     
+memory  5.3 KiB/task      
+== tasks prefault
+bench-tasks: recorded in /zfs/worktrees/rig/prefault/bench/tasks/PROGRESS.md
+        rig-fast          vs rig-fast
+spawn   181 ns/task       
+chain   86 ns/task        
+fanout  109.4 ms/run      
+yield   6 ns/yield        
+hog     74.80 us/step     
+memory  5.4 KiB/task      
+== actors main-41ea93eab
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  33 ns/call  
+spread   1.7 ns/call 
+== actors prefault
+bench-actors: recorded in /zfs/worktrees/rig/prefault/bench/actors/PROGRESS.md
+         rig-fast    vs rig-fast
+solo     14 ns/call  
+contend  31 ns/call  
+spread   4.8 ns/call 
+== net main-41ea93eab
+         rig-fast      vs rig-fast
+pingpong 11.45 us/trip 
+echo     1.08 us/trip  
+connect  25.48 us/conn 
+== net prefault
+bench-net: recorded in /zfs/worktrees/rig/prefault/bench/net/PROGRESS.md
+         rig-fast      vs rig-fast
+pingpong 13.12 us/trip 
+echo     976 ns/trip   
+connect  27.37 us/conn 
+== http main-41ea93eab
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1990, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'go'
+== http prefault
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1990, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'go'
+ 06:31:38 up 25 days, 39 min,  4 users,  load average: 3.12, 2.49, 2.81

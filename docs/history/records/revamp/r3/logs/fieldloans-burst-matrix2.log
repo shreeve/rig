@@ -1,0 +1,5 @@
+cpuq: --spill-to burst; running rig:fieldloans on burst
+
+11881 programs (11801 cells where the form cannot stand): 7225 ran clean (0 carried over), 4656 rejected, 0 failed
+burst/spill     250G   36G  215G  15% /home/shreeve/cpuq-spill
+matrix rc=0

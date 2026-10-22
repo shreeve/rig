@@ -58,6 +58,9 @@ pub const alloc_source = @embedFile("alloc.zig");
 /// Sockets and the HTTP server (`src/net.zig`), written beside the runtime too.
 pub const net_filename = "rig/net.zig";
 pub const net_source = @embedFile("net.zig");
+/// Tables (`src/table.zig`), written beside the runtime.
+pub const table_filename = "rig/table.zig";
+pub const table_source = @embedFile("table.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
 /// `__rig_sym`.
@@ -947,6 +950,12 @@ pub const Emitter = struct {
         try self.w.print("pub const __rig_name = .{{ .module = \"{s}\", .name = ", .{nameModule(self.facts)});
         try self.writeSpelling(spelling, .parts, null);
         try self.w.writeAll(" };\n");
+        // A table of the type reserves its slots, which the system gives
+        // as zeros (`sema.tableFill`, `rig.Table`).
+        if (self.facts.declFill(sym) == .zeros) {
+            try self.writeIndent(depth);
+            try self.w.writeAll("pub const __rig_zeros = true;\n");
+        }
     }
 
     fn emitFields(self: *Emitter, depth: u32) Error!void {
@@ -1053,6 +1062,9 @@ pub const Emitter = struct {
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
+        // A `main` that can fail is canceled by an interrupt or SIGTERM
+        // (`rig.cancelOnInterrupt`); one that cannot keeps their default.
+        if (main_fails) try self.w.writeAll("pub const __rig_interrupt = true;\n\n");
         // `main` is the body of a Zig `main` that runs it on the stack the
         // runtime maps (`rig.onOwnStack`), then reports a failure as Rig
         // shows errors (`rig.failMain`) or sets the exit status
@@ -3174,7 +3186,7 @@ pub const Emitter = struct {
         if (source.isKind(.@"..")) return self.emitRangeFor(sexp, lp);
 
         const src_ty = self.typeOf(source);
-        const is_list = src_ty != null and self.isListTy(src_ty.?);
+        const is_list = src_ty != null and (self.isListTy(src_ty.?) or self.facts.tableElem(self.peelViews(src_ty.?)) != null);
         // A List or an array of values that move, which the loop takes or
         // its source makes, hands its elements over one at a time.
         if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_list);
@@ -3580,7 +3592,10 @@ pub const Emitter = struct {
         const name = try self.hiddenStorage(info.match, .subject, by, .next);
         const value = if (info.subject.isKind(.move)) ir.Move.operand(info.subject) else info.subject;
         if ((try self.hasStorage(value)) and !info.subject.isKind(.move) and !self.hasTemps(value)) {
-            try self.line("const {s} = &{s};", .{ name, try self.placeText(info.*) });
+            // Read by no arm (`_ => 1`), the subject is still evaluated
+            // once, for its index's test: the discard keeps Zig from
+            // rejecting an unused constant.
+            try self.line("const {s} = &{s}; _ = &{s};", .{ name, try self.placeText(info.*), name });
             info.reread = try self.fmt("{s}.*", .{name});
             return;
         }
@@ -3597,7 +3612,7 @@ pub const Emitter = struct {
                 try self.emitWriteViewPtr(value);
                 try self.closeHeader(h);
             }
-            try self.w.writeAll(";\n");
+            try self.w.print("; _ = &{s};\n", .{name});
             var buf: Writer.Allocating = .init(self.arena.allocator());
             {
                 const saved_w = self.w;
@@ -5708,6 +5723,20 @@ pub const Emitter = struct {
         // An element that is not copied (`readsInPlace`) is reached
         // where it is, as a field is: never a copy of its bits.
         const in_place = as_place or self.elemInPlace(sexp);
+        // A table's slot: by a `Slot[n]`, with no test, unless every test
+        // is made (`no_proofs`); by an integer, tested against `n`.
+        if (held_ty != null and self.facts.tableElem(self.peelViews(held_ty.?)) != null) {
+            try self.emitIndexBase(base, base_ty, .expr);
+            // A slot a write reaches is reached to write; every other is
+            // read-only, so a table held as written never grows for a read.
+            const method = if (!in_place) "at" else if (self.facts.isTableWrite(sexp)) "slot" else "constSlot";
+            const by_slot = if (self.typeOf(index)) |t| self.facts.types.get(t) == .slot else false;
+            try self.w.print(".{s}{s}(", .{ method, if (by_slot and !self.no_proofs) "" else "Int" });
+            self.place_chain = false;
+            try self.emitBare(index);
+            try self.w.writeAll(if (in_place) ").*" else ")");
+            return;
+        }
         if (held_ty != null and self.isListTy(held_ty.?)) {
             try self.emitIndexBase(base, base_ty, .expr);
             const method = if (!in_place) "at" else if (self.read_place or !as_place or self.throughReadView(base)) "constSlot" else "slot";
@@ -5835,7 +5864,7 @@ pub const Emitter = struct {
         var t = self.peelViews(self.typeOf(part) orelse return false);
         while (true) switch (self.facts.types.get(t)) {
             .optional => |inner| t = inner,
-            .int, .float, .int_literal, .float_literal, .bool => return true,
+            .int, .float, .int_literal, .float_literal, .bool, .slot => return true,
             else => return false,
         };
     }
@@ -5982,19 +6011,19 @@ pub const Emitter = struct {
             try self.writeReach(obj_ty.?);
             return self.w.writeAll(".length()");
         }
+        // The length of a List, a slice, or an array (`rig.lenOf`, which
+        // tests it only where it is not held below `max_len`).
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
-            try self.w.writeAll("rig.len(");
+            try self.w.writeAll("rig.lenOf(");
             try self.emitMemberBase(obj, obj_ty);
-            try self.w.writeAll(".len)");
-            return;
+            return self.w.writeAll(")");
         }
         // The length of an array or List in a box.
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.boxedType(self.facts.unwrapReadAccess(obj_ty.?)) != null and self.hasLen(self.facts.unwrapAccess(obj_ty.?))) {
-            try self.w.writeAll("rig.len(");
+            try self.w.writeAll("rig.lenOf(");
             try self.emitMemberBase(obj, obj_ty);
             try self.writeReach(obj_ty.?);
-            try self.w.writeAll(".len)");
-            return;
+            return self.w.writeAll(")");
         }
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
@@ -7046,8 +7075,14 @@ pub const Emitter = struct {
                 try self.emitArgs(call);
                 return self.w.writeAll(")");
             },
-            // `rig.enumFromInt(E, n)`.
-            .from_int => {
+            // `rig.slotOf(n, i)`: `Slot[n].of(i)`.
+            .from_int => if (self.facts.types.get(ec.num) == .slot) {
+                try self.w.writeAll("rig.slotOf(");
+                try self.emitTypeTy(self.facts.types.get(ec.num).slot);
+                try self.w.writeAll(", ");
+                try self.emitBare(args[0]);
+                return self.w.writeAll(")");
+            } else {
                 try self.w.writeAll("rig.enumFromInt(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
@@ -7263,6 +7298,7 @@ pub const Emitter = struct {
             };
             if (self.facts.symbolOf(callee)) |sym_id| {
                 if (sym_id == self.facts.list_sym_id) return self.emitListConstruction(sexp);
+                if (sym_id == self.facts.table_sym_id) return self.emitTableConstruction(sexp);
                 if (sym_id == self.facts.signal_sym_id) return self.emitSignalConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
@@ -7540,6 +7576,13 @@ pub const Emitter = struct {
             try self.w.writeAll("@intCast(@backingInt(rig.rt(");
             try self.emitBare(arg);
             return self.w.writeAll("))))");
+        }
+        // A slot's number, which Zig checks fits a narrower type.
+        if (self.facts.types.get(self.peelViews(arg_ty)) == .slot) {
+            try self.writeAsOpen(target);
+            try self.w.writeAll(if (self.facts.types.get(target) == .int) "@intCast(rig.rt(" else "@floatFromInt(rig.rt(");
+            try self.emitBare(arg);
+            return self.w.writeAll(")))");
         }
         const from = switch (self.facts.types.get(self.peelViews(arg_ty))) {
             .int, .float => self.peelViews(arg_ty),
@@ -8108,6 +8151,12 @@ pub const Emitter = struct {
         try self.w.writeAll(".empty");
     }
 
+    /// `Table()`: its `n` slots reserved or made as it runs (`rig.Table`).
+    fn emitTableConstruction(self: *Emitter, call: Sexp) Error!void {
+        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Table construction"));
+        try self.w.writeAll(".init()");
+    }
+
     /// `Signal(v)`.
     fn emitSignalConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
@@ -8353,6 +8402,8 @@ pub const Emitter = struct {
     fn capField(self: *Emitter, name: []const u8) Error![]const u8 {
         if (std.mem.eql(u8, name, "@")) return "cap_self";
         if (std.mem.eql(u8, name, "self")) return "@\"cap_self'\"";
+        // A field path, `p.a` or `@template`, is quoted whole.
+        if (std.mem.indexOfAny(u8, name, ".@") != null) return self.fmt("@\"cap_{s}\"", .{name});
         return self.fmt("cap_{s}", .{name});
     }
 
@@ -8363,6 +8414,12 @@ pub const Emitter = struct {
         for (caps, 0..) |c, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             try self.w.print(".{s} = ", .{try self.capField(c.name)});
+            // A field path is the lend its sigil makes there.
+            const value = facts.syntax.captureValue(c.node);
+            if (value != .nil) {
+                try self.emitExpr(value);
+                continue;
+            }
             const outer = c.outer orelse return self.unsupported(c.node, "a capture of a name that is not a local");
             switch (c.mode) {
                 .cap_clone => try self.writeCloneCapture(&outer, c.node),
@@ -8655,6 +8712,12 @@ pub const Emitter = struct {
                 try self.emitTypeTy(v.elem);
                 try self.w.writeAll(")");
             },
+            // `Slot[n]`: the runtime's smallest unsigned that holds `n - 1`.
+            .slot => |n| {
+                try self.w.writeAll("rig.SlotOf(");
+                try self.emitTypeTy(n);
+                try self.w.writeAll(")");
+            },
             // An array length or a generic type's value argument.
             .ct_value => |v| try self.w.print("{d}", .{v.int}),
             .ct_param => |sym_id| try self.writeTypeParam(sym_id),
@@ -8871,7 +8934,7 @@ pub const Emitter = struct {
         return switch (self.facts.types.get(t)) {
             .array => |a| a.elem,
             .slice => |sl| sl.elem,
-            .parameterized_nominal => |pn| if (self.isListTy(t)) pn.args[0] else null,
+            .parameterized_nominal => |pn| if (self.isListTy(t) or self.facts.tableElem(t) != null) pn.args[0] else null,
             else => null,
         };
     }
@@ -8887,7 +8950,7 @@ pub const Emitter = struct {
         const peeled = self.peelViews(ty);
         return switch (self.facts.types.get(peeled)) {
             .array, .slice, .string_view, .static => true,
-            else => self.isListTy(peeled),
+            else => self.isListTy(peeled) or self.facts.tableElem(peeled) != null,
         };
     }
 
@@ -8897,7 +8960,7 @@ pub const Emitter = struct {
     /// not a pointer to one.
     fn isPlainTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string_view, .static, .function => true,
+            .int, .float, .int_literal, .float_literal, .bool, .string_view, .static, .function, .slot => true,
             .optional => |inner| self.isPlainTy(inner),
             else => false,
         };
@@ -8972,7 +9035,7 @@ pub const Emitter = struct {
     /// A number, Bool, plain enum, or error: Zig's `==` compares it.
     fn isScalarTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
-            .int, .float, .bool, .symbol, .int_literal, .float_literal, .any_error => true,
+            .int, .float, .bool, .symbol, .int_literal, .float_literal, .any_error, .slot => true,
             .nominal, .imported_nominal => self.facts.isPlainEnum(ty) or self.facts.isErrorSet(ty),
             else => false,
         };

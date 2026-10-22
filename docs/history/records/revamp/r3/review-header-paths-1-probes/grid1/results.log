@@ -1,0 +1,546 @@
+=== g_as.lendr_o.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.holder.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.holder.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.lendr_o.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.local.rig f prod=accept ref=reject C2 58:8 a bare write view would be copied; 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.local.rig f prod=accept ref=reject C2 58:8 a bare write view would be copied; 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.lendr_o.vec
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.vec.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied; wr
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.vec.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied; wr
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.lendr_o.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.wparam.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.lendr_o.wparam.rig f prod=accept ref=reject C2 56:8 a bare write view would be copied;
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.lendw_o.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.lendw_o.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.lendw_o.vec
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.lendw_o.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_as.meth_go.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.holder.rig:60:9: error: cannot assign to `h1.w.o` while `h1` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.holder.rig:60:9: error: cannot assign 
+  oracle-new: f prod=reject ref=reject C4 60:9 cannot write `h1` while a read loan of it is live (L0, carried by `s`#16)
+  oracle-old: f prod=reject ref=reject C4 60:9 cannot write `h1` while a read loan of it is live (L0, carried by `s`#16)
+=== g_as.meth_go.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.local.rig:62:9: error: cannot assign to `a.o` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.local.rig:62:9: error: cannot assign t
+  oracle-new: f prod=reject ref=reject C4 62:9 cannot write `a` while a read loan of it is live (L2, carried by `s`#20)
+  oracle-old: f prod=reject ref=reject C4 62:9 cannot write `a` while a read loan of it is live (L2, carried by `s`#20)
+=== g_as.meth_go.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.vec.rig:60:9: error: cannot assign to `a[...].o` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.vec.rig:60:9: error: cannot assign to 
+  oracle-new: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#17)
+  oracle-old: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#17)
+=== g_as.meth_go.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.wparam.rig:60:9: error: cannot assign to `a.o` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.meth_go.wparam.rig:60:9: error: cannot assign 
+  oracle-new: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#16)
+  oracle-old: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#16)
+=== g_as.optq_o.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.holder.rig:56:6: error: `as` binds the value inside a place or takes one made here: bind this `E?` 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.holder.rig:56:6: error: `as` binds the 
+=== g_as.optq_o.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.local.rig:58:6: error: `as` binds the value inside a place or takes one made here: bind this `E?` t
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.local.rig:58:6: error: `as` binds the v
+=== g_as.optq_o.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.vec.rig:56:6: error: `as` binds the value inside a place or takes one made here: bind this `E?` to 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.vec.rig:56:6: error: `as` binds the val
+=== g_as.optq_o.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.wparam.rig:56:6: error: `as` binds the value inside a place or takes one made here: bind this `E?` 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.optq_o.wparam.rig:56:6: error: `as` binds the 
+=== g_as.path_o.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.holder.rig:56:7: error: this `as` reads `h1.w`, which holds a write view, through a branch, and wou
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.holder.rig f prod=accept ref=reject C2 56:7 a bare write view would be copied; 
+=== g_as.path_o.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.local.rig:58:7: error: this `as` reads `a`, which holds a write view, through a branch, and would c
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.local.rig f prod=accept ref=reject C2 58:7 a bare write view would be copied; w
+=== g_as.path_o.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.vec.rig:56:7: error: this `as` reads `a`, which holds a write view, through a branch, and would cop
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.vec.rig f prod=accept ref=reject C2 56:7 a bare write view would be copied; wri
+=== g_as.path_o.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.wparam.rig:56:7: error: this `as` reads `a`, which holds a write view, through a branch, and would 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_as.path_o.wparam.rig f prod=accept ref=reject C2 56:7 a bare write view would be copied; 
+=== g_for.generic_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.holder.rig:57:12: error: `id[!W]` cannot use `T = !W`: a generic function is checked for a `T` 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.holder.rig:57:12: error: `id[!W]` c
+  oracle-new: f prod=reject ref=unknown (a generic instance at a view)
+  oracle-old: f prod=reject ref=unknown (a generic instance at a view)
+=== g_for.generic_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.local.rig:59:12: error: `id[!W]` cannot use `T = !W`: a generic function is checked for a `T` t
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.local.rig:59:12: error: `id[!W]` ca
+  oracle-new: f prod=reject ref=unknown (a generic instance at a view)
+  oracle-old: f prod=reject ref=unknown (a generic instance at a view)
+=== g_for.generic_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.vec.rig:57:15: error: bare use of `W` value `a if c else b[...]` in call argument would alias a
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.vec.rig:57:15: error: bare use of `
+  oracle-new: f prod=reject ref=reject C2 57:15 a bare `(a if c else b)[0]` owns a resource and would be copied; write `<` or `+`
+  oracle-old: f prod=reject ref=reject C2 57:15 a bare `(a if c else b)[0]` owns a resource and would be copied; write `<` or `+`
+=== g_for.generic_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.wparam.rig:57:12: error: `id[!W]` cannot use `T = !W`: a generic function is checked for a `T` 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.generic_v.wparam.rig:57:12: error: `id[!W]` c
+  oracle-new: f prod=reject ref=unknown (a generic instance at a view)
+  oracle-old: f prod=reject ref=unknown (a generic instance at a view)
+=== g_for.lendr_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.holder.rig:57:14: error: this `for` reads `h1.w`, which holds a write view, through a branch, and
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.holder.rig f prod=accept ref=reject C4 59:8 cannot write `h1` while a read lo
+=== g_for.lendr_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.local.rig:59:14: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.local.rig f prod=accept ref=reject C4 61:8 cannot write `a` while a read loan
+=== g_for.lendr_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.vec.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and would
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.vec.rig f prod=accept ref=reject C4 59:8 cannot write `a` while a read loan o
+=== g_for.lendr_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.wparam.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendr_v.wparam.rig f prod=accept ref=reject C4 59:8 cannot write `a` while a read loa
+=== g_for.lendw_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.holder.rig:57:14: error: this `for` reads `h1.w`, which holds a write view, through a branch, and
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.holder.rig:57:13: error: `for x in !x
+=== g_for.lendw_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.local.rig:59:14: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.local.rig:59:13: error: `for x in !xs
+=== g_for.lendw_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.vec.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and would
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.vec.rig:57:13: error: `for x in !xs` 
+=== g_for.lendw_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.wparam.rig:57:14: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.lendw_v.wparam.rig:57:13: error: `for x in !x
+=== g_for.meth_gv.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.holder.rig:59:7: error: cannot lend `h1` to write while a read loan is live
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.holder.rig:59:7: error: cannot lend `
+  oracle-new: f prod=reject ref=reject C4 59:8 cannot write `h1` while a read loan of it is live (L0, carried by `the `for` source`#11)
+  oracle-old: f prod=reject ref=reject C4 59:8 cannot write `h1` while a read loan of it is live (L0, carried by `the `for` source`#11)
+=== g_for.meth_gv.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.local.rig:61:7: error: cannot lend `a` to write while a read loan is live
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.local.rig:61:7: error: cannot lend `a
+  oracle-new: f prod=reject ref=reject C4 61:8 cannot write `a` while a read loan of it is live (L2, carried by `the `for` source`#15)
+  oracle-old: f prod=reject ref=reject C4 61:8 cannot write `a` while a read loan of it is live (L2, carried by `the `for` source`#15)
+=== g_for.meth_gv.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.vec.rig:59:7: error: cannot lend `a` to write while a read loan is live
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.vec.rig:59:7: error: cannot lend `a` 
+  oracle-new: f prod=reject ref=reject C4 59:8 cannot write `a` while a read loan of it is live (L0, carried by `the `for` source`#12)
+  oracle-old: f prod=reject ref=reject C4 59:8 cannot write `a` while a read loan of it is live (L0, carried by `the `for` source`#12)
+=== g_for.meth_gv.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.wparam.rig:59:7: error: cannot lend `a` to write while a read loan is live
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gv.wparam.rig:59:7: error: cannot lend `
+  oracle-new: f prod=reject ref=reject C4 59:8 cannot write `a` while a read loan of it is live (L0, carried by `the `for` source`#11)
+  oracle-old: f prod=reject ref=reject C4 59:8 cannot write `a` while a read loan of it is live (L0, carried by `the `for` source`#11)
+=== g_for.meth_gvw.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_for.meth_gvw.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_for.meth_gvw.vec
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gvw.vec.rig f prod=accept ref=reject C4 59:8 cannot write `a` while a read loan 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.meth_gvw.vec.rig f prod=accept ref=reject C4 59:8 cannot write `a` while a read loan 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_for.meth_gvw.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_for.nestbr_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.holder.rig:57:13: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[I
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.holder.rig:57:13: error: a `for` wal
+=== g_for.nestbr_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.local.rig:59:13: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[In
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.local.rig:59:13: error: a `for` walk
+=== g_for.nestbr_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.vec.rig:57:13: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.vec.rig:57:13: error: a `for` walks 
+=== g_for.nestbr_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.wparam.rig:57:13: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[I
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.nestbr_v.wparam.rig:57:13: error: a `for` wal
+=== g_for.optq_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.holder.rig:57:12: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.holder.rig:57:12: error: a `for` walks
+=== g_for.optq_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.local.rig:59:12: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.local.rig:59:12: error: a `for` walks 
+=== g_for.optq_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.vec.rig:57:12: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int]` 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.vec.rig:57:12: error: a `for` walks a 
+=== g_for.optq_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.wparam.rig:57:12: error: a `for` walks a Vec held in a place or made by a call: bind this `Vec[Int
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.optq_v.wparam.rig:57:12: error: a `for` walks
+=== g_for.paren2_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.holder.rig:57:15: error: this `for` reads `h1.w`, which holds a write view, through a branch, an
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.holder.rig f prod=accept ref=reject C2 57:15 a bare write view would be copi
+=== g_for.paren2_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.local.rig:59:15: error: this `for` reads `a`, which holds a write view, through a branch, and wo
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.local.rig f prod=accept ref=reject C2 59:15 a bare write view would be copie
+=== g_for.paren2_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.vec.rig:57:15: error: this `for` reads `a`, which holds a write view, through a branch, and woul
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.vec.rig f prod=accept ref=reject C2 57:15 a bare write view would be copied;
+=== g_for.paren2_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.wparam.rig:57:15: error: this `for` reads `a`, which holds a write view, through a branch, and w
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.paren2_v.wparam.rig f prod=accept ref=reject C2 57:15 a bare write view would be copi
+=== g_for.path_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.holder.rig:57:13: error: this `for` reads `h1.w`, which holds a write view, through a branch, and 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.holder.rig f prod=accept ref=reject C2 57:13 a bare write view would be copied
+=== g_for.path_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.local.rig:59:13: error: this `for` reads `a`, which holds a write view, through a branch, and woul
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.local.rig f prod=accept ref=reject C2 59:13 a bare write view would be copied;
+=== g_for.path_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.vec.rig:57:13: error: this `for` reads `a`, which holds a write view, through a branch, and would 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.vec.rig f prod=accept ref=reject C2 57:13 a bare write view would be copied; w
+=== g_for.path_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.wparam.rig:57:13: error: this `for` reads `a`, which holds a write view, through a branch, and wou
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.path_v.wparam.rig f prod=accept ref=reject C2 57:13 a bare write view would be copied
+=== g_for.slice_v.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.holder.rig:57:14: error: cannot lend `h1.w if c else h2.w`: it may be `h1.w`, a value a name hold
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.holder.rig:57:14: error: cannot lend 
+=== g_for.slice_v.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.local.rig:59:14: error: cannot lend `a if c else b`: it may be `a`, a value a name holds, which l
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.local.rig:59:14: error: cannot lend `
+=== g_for.slice_v.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.vec.rig:57:14: error: cannot lend `a if c else b`: it may be `a`, a value a name holds, which len
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.vec.rig:57:14: error: cannot lend `a 
+=== g_for.slice_v.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.wparam.rig:57:14: error: cannot lend `a if c else b`: it may be `a`, a value a name holds, which 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_for.slice_v.wparam.rig:57:14: error: cannot lend 
+=== g_match.coal_o.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.holder.rig:56:37: error: this header binds a copy of its subject, since a temporary it makes end
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.holder.rig:56:37: error: this header
+=== g_match.coal_o.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.local.rig:58:31: error: this header binds a copy of its subject, since a temporary it makes ends
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.local.rig:58:31: error: this header 
+=== g_match.coal_o.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.vec.rig:56:34: error: this header binds a copy of its subject, since a temporary it makes ends w
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.vec.rig:56:34: error: this header bi
+=== g_match.coal_o.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.wparam.rig:56:31: error: this header binds a copy of its subject, since a temporary it makes end
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.coal_o.wparam.rig:56:31: error: this header
+=== g_match.generic_e.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.holder.rig:56:9: error: `id[!W]` cannot use `T = !W`: a generic function is checked for a `T`
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.holder.rig:56:9: error: `id[!W]` 
+  oracle-new: f prod=reject ref=unknown (a generic instance at a view)
+  oracle-old: f prod=reject ref=unknown (a generic instance at a view)
+=== g_match.generic_e.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.local.rig:58:9: error: `id[!W]` cannot use `T = !W`: a generic function is checked for a `T` 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.local.rig:58:9: error: `id[!W]` c
+  oracle-new: f prod=reject ref=unknown (a generic instance at a view)
+  oracle-old: f prod=reject ref=unknown (a generic instance at a view)
+=== g_match.generic_e.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.vec.rig:56:12: error: bare use of `W` value `a if c else b[...]` in call argument would alias
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.vec.rig:56:12: error: bare use of
+  oracle-new: f prod=reject ref=reject C2 56:12 a bare `(a if c else b)[0]` owns a resource and would be copied; write `<` or `+`
+  oracle-old: f prod=reject ref=reject C2 56:12 a bare `(a if c else b)[0]` owns a resource and would be copied; write `<` or `+`
+=== g_match.generic_e.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.wparam.rig:56:9: error: `id[!W]` cannot use `T = !W`: a generic function is checked for a `T`
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.generic_e.wparam.rig:56:9: error: `id[!W]` 
+  oracle-new: f prod=reject ref=unknown (a generic instance at a view)
+  oracle-old: f prod=reject ref=unknown (a generic instance at a view)
+=== g_match.lendr_e.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendr_e.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be copi
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be copi
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendr_e.vec
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.vec.rig f prod=accept ref=reject C2 56:11 a bare write view would be copied
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.vec.rig f prod=accept ref=reject C2 56:11 a bare write view would be copied
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendr_e.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_e.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendr_q_e.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.holder.rig:56:10: error: cannot lend `(h1.w if c else h2.w).q?`: it may be `(h1.w if c else h
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.holder.rig:56:10: error: cannot l
+=== g_match.lendr_q_e.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.local.rig:58:10: error: cannot lend `(a if c else b).q?`: it may be `(a if c else b).q`, a va
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.local.rig:58:10: error: cannot le
+=== g_match.lendr_q_e.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.vec.rig:56:10: error: cannot lend `(a if c else b)[0].q?`: it may be `(a if c else b)[0].q`, 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.vec.rig:56:10: error: cannot lend
+=== g_match.lendr_q_e.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.wparam.rig:56:10: error: cannot lend `(a if c else b).q?`: it may be `(a if c else b).q`, a v
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendr_q_e.wparam.rig:56:10: error: cannot l
+=== g_match.lendw_e.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendw_e.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendw_e.vec
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendw_e.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_match.lendw_q_e.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.holder.rig:56:10: error: cannot lend `(h1.w if c else h2.w).q?` to write: it may be `(h1.w if
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.holder.rig:56:10: error: cannot l
+=== g_match.lendw_q_e.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.local.rig:58:10: error: cannot lend `(a if c else b).q?` to write: it may be `(a if c else b)
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.local.rig:58:10: error: cannot le
+=== g_match.lendw_q_e.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.vec.rig:56:10: error: cannot lend `(a if c else b)[0].q?` to write: it may be `(a if c else b
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.vec.rig:56:10: error: cannot lend
+=== g_match.lendw_q_e.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.wparam.rig:56:10: error: cannot lend `(a if c else b).q?` to write: it may be `(a if c else b
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.lendw_q_e.wparam.rig:56:10: error: cannot l
+=== g_match.meth_ge.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.holder.rig:59:7: error: cannot assign to `h1.w.e` while `h1` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.holder.rig:59:7: error: cannot assi
+  oracle-new: f prod=reject ref=reject C4 59:7 cannot write `h1` while a read loan of it is live (L0, carried by `s`#13)
+  oracle-old: f prod=reject ref=reject C4 59:7 cannot write `h1` while a read loan of it is live (L0, carried by `s`#13)
+=== g_match.meth_ge.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.local.rig:61:7: error: cannot assign to `a.e` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.local.rig:61:7: error: cannot assig
+  oracle-new: f prod=reject ref=reject C4 61:7 cannot write `a` while a read loan of it is live (L2, carried by `s`#17)
+  oracle-old: f prod=reject ref=reject C4 61:7 cannot write `a` while a read loan of it is live (L2, carried by `s`#17)
+=== g_match.meth_ge.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.vec.rig:59:7: error: cannot assign to `a[...].e` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.vec.rig:59:7: error: cannot assign 
+  oracle-new: f prod=reject ref=reject C4 59:7 cannot write `a` while a read loan of it is live (L0, carried by `s`#14)
+  oracle-old: f prod=reject ref=reject C4 59:7 cannot write `a` while a read loan of it is live (L0, carried by `s`#14)
+=== g_match.meth_ge.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.wparam.rig:59:7: error: cannot assign to `a.e` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_ge.wparam.rig:59:7: error: cannot assi
+  oracle-new: f prod=reject ref=reject C4 59:7 cannot write `a` while a read loan of it is live (L0, carried by `s`#13)
+  oracle-old: f prod=reject ref=reject C4 59:7 cannot write `a` while a read loan of it is live (L0, carried by `s`#13)
+=== g_match.meth_gew.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.holder.rig:59:7: error: cannot assign to `h1.w.e` while `h1` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.holder.rig:59:7: error: cannot ass
+  oracle-new: f prod=reject ref=unknown (a write lend of a branching value that may be a name's)
+  oracle-old: f prod=reject ref=unknown (a write lend of a branching value that may be a name's)
+=== g_match.meth_gew.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.local.rig:61:7: error: cannot assign to `a.e` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.local.rig:61:7: error: cannot assi
+  oracle-new: f prod=reject ref=unknown (a write lend of a branching value that may be a name's)
+  oracle-old: f prod=reject ref=unknown (a write lend of a branching value that may be a name's)
+=== g_match.meth_gew.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.vec.rig:59:7: error: cannot assign to `a[...].e` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.vec.rig:59:7: error: cannot assign
+  oracle-new: f prod=reject ref=reject C4 59:7 cannot write `a` while a read loan of it is live (L0, carried by `s`#14)
+  oracle-old: f prod=reject ref=reject C4 59:7 cannot write `a` while a read loan of it is live (L0, carried by `s`#14)
+=== g_match.meth_gew.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.wparam.rig:59:7: error: cannot assign to `a.e` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.meth_gew.wparam.rig:59:7: error: cannot ass
+  oracle-new: f prod=reject ref=unknown (a write lend of a branching value that may be a name's)
+  oracle-old: f prod=reject ref=unknown (a write lend of a branching value that may be a name's)
+=== g_match.nestbr_e.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.holder.rig:56:10: error: a `match` reads a place or takes a call's result; bind this `E` to a 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.holder.rig:56:10: error: a `match`
+=== g_match.nestbr_e.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.local.rig:58:10: error: a `match` reads a place or takes a call's result; bind this `E` to a n
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.local.rig:58:10: error: a `match` 
+=== g_match.nestbr_e.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.vec.rig:56:10: error: a `match` reads a place or takes a call's result; bind this `E` to a nam
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.vec.rig:56:10: error: a `match` re
+=== g_match.nestbr_e.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.wparam.rig:56:10: error: a `match` reads a place or takes a call's result; bind this `E` to a 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.nestbr_e.wparam.rig:56:10: error: a `match`
+=== g_match.optq_e.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.holder.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a nam
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.holder.rig:56:9: error: a `match` re
+=== g_match.optq_e.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.local.rig:58:9: error: a `match` reads a place or takes a call's result; bind this `E` to a name
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.local.rig:58:9: error: a `match` rea
+=== g_match.optq_e.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.vec.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a name f
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.vec.rig:56:9: error: a `match` reads
+=== g_match.optq_e.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.wparam.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a nam
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_e.wparam.rig:56:9: error: a `match` re
+=== g_match.optq_ou.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.holder.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a na
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.holder.rig:56:9: error: a `match` r
+=== g_match.optq_ou.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.local.rig:58:9: error: a `match` reads a place or takes a call's result; bind this `E` to a nam
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.local.rig:58:9: error: a `match` re
+=== g_match.optq_ou.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.vec.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a name 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.vec.rig:56:9: error: a `match` read
+=== g_match.optq_ou.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.wparam.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a na
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.optq_ou.wparam.rig:56:9: error: a `match` r
+=== g_match.paren2_e.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.holder.rig:56:12: error: this `match` reads `h1.w`, which holds a write view, through a branch
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.holder.rig f prod=accept ref=reject C2 56:12 a bare write view would be co
+=== g_match.paren2_e.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.local.rig:58:12: error: this `match` reads `a`, which holds a write view, through a branch, an
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.local.rig f prod=accept ref=reject C2 58:12 a bare write view would be cop
+=== g_match.paren2_e.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.vec.rig:56:12: error: this `match` reads `a`, which holds a write view, through a branch, and 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.vec.rig f prod=accept ref=reject C2 56:12 a bare write view would be copie
+=== g_match.paren2_e.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.wparam.rig:56:12: error: this `match` reads `a`, which holds a write view, through a branch, a
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.paren2_e.wparam.rig f prod=accept ref=reject C2 56:12 a bare write view would be co
+=== g_match.path_e.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.holder.rig:56:10: error: this `match` reads `h1.w`, which holds a write view, through a branch, 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.holder.rig f prod=accept ref=reject C2 56:10 a bare write view would be copi
+=== g_match.path_e.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.local.rig:58:10: error: this `match` reads `a`, which holds a write view, through a branch, and 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.local.rig f prod=accept ref=reject C2 58:10 a bare write view would be copie
+=== g_match.path_e.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.vec.rig:56:10: error: this `match` reads `a`, which holds a write view, through a branch, and wo
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.vec.rig f prod=accept ref=reject C2 56:10 a bare write view would be copied;
+=== g_match.path_e.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.wparam.rig:56:10: error: this `match` reads `a`, which holds a write view, through a branch, and
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.path_e.wparam.rig f prod=accept ref=reject C2 56:10 a bare write view would be copi
+=== g_match.unwrap_o.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.holder.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a n
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.holder.rig:56:9: error: a `match` 
+=== g_match.unwrap_o.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.local.rig:58:9: error: a `match` reads a place or takes a call's result; bind this `E` to a na
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.local.rig:58:9: error: a `match` r
+=== g_match.unwrap_o.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.vec.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a name
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.vec.rig:56:9: error: a `match` rea
+=== g_match.unwrap_o.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.wparam.rig:56:9: error: a `match` reads a place or takes a call's result; bind this `E` to a n
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_match.unwrap_o.wparam.rig:56:9: error: a `match` 
+=== g_while_as.lendr_o.holder
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.holder.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.lendr_o.local
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be c
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.local.rig f prod=accept ref=reject C2 58:11 a bare write view would be c
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.lendr_o.vec
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.vec.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.vec.rig f prod=accept ref=reject C2 56:11 a bare write view would be cop
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.lendr_o.wparam
+  new: ACCEPT
+  old: ACCEPT
+  oracle-new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.lendr_o.wparam.rig f prod=accept ref=reject C2 56:11 a bare write view would be 
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.lendw_o.holder
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.lendw_o.local
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.lendw_o.vec
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.lendw_o.wparam
+  new: ACCEPT
+  old: ACCEPT
+  run:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+=== g_while_as.meth_go.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.holder.rig:60:9: error: cannot assign to `h1.w.o` while `h1` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.holder.rig:60:9: error: cannot a
+  oracle-new: f prod=reject ref=reject C4 60:9 cannot write `h1` while a read loan of it is live (L0, carried by `s`#16)
+  oracle-old: f prod=reject ref=reject C4 60:9 cannot write `h1` while a read loan of it is live (L0, carried by `s`#16)
+=== g_while_as.meth_go.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.local.rig:62:9: error: cannot assign to `a.o` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.local.rig:62:9: error: cannot as
+  oracle-new: f prod=reject ref=reject C4 62:9 cannot write `a` while a read loan of it is live (L2, carried by `s`#20)
+  oracle-old: f prod=reject ref=reject C4 62:9 cannot write `a` while a read loan of it is live (L2, carried by `s`#20)
+=== g_while_as.meth_go.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.vec.rig:60:9: error: cannot assign to `a[...].o` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.vec.rig:60:9: error: cannot assi
+  oracle-new: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#17)
+  oracle-old: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#17)
+=== g_while_as.meth_go.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.wparam.rig:60:9: error: cannot assign to `a.o` while `a` is lent
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.meth_go.wparam.rig:60:9: error: cannot a
+  oracle-new: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#16)
+  oracle-old: f prod=reject ref=reject C4 60:9 cannot write `a` while a read loan of it is live (L0, carried by `s`#16)
+=== g_while_as.optq_o.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.holder.rig:56:9: error: `as` binds the value inside a place or takes one made here: bind this
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.holder.rig:56:9: error: `as` bind
+=== g_while_as.optq_o.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.local.rig:58:9: error: `as` binds the value inside a place or takes one made here: bind this 
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.local.rig:58:9: error: `as` binds
+=== g_while_as.optq_o.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.vec.rig:56:9: error: `as` binds the value inside a place or takes one made here: bind this `E
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.vec.rig:56:9: error: `as` binds t
+=== g_while_as.optq_o.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.wparam.rig:56:9: error: `as` binds the value inside a place or takes one made here: bind this
+  old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.optq_o.wparam.rig:56:9: error: `as` bind
+=== g_while_as.path_o.holder
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.holder.rig:56:10: error: this `as` reads `h1.w`, which holds a write view, through a branch, 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.holder.rig f prod=accept ref=reject C2 56:10 a bare write view would be c
+=== g_while_as.path_o.local
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.local.rig:58:10: error: this `as` reads `a`, which holds a write view, through a branch, and 
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.local.rig f prod=accept ref=reject C2 58:10 a bare write view would be co
+=== g_while_as.path_o.vec
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.vec.rig:56:10: error: this `as` reads `a`, which holds a write view, through a branch, and wo
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.vec.rig f prod=accept ref=reject C2 56:10 a bare write view would be copi
+=== g_while_as.path_o.wparam
+  new: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.wparam.rig:56:10: error: this `as` reads `a`, which holds a write view, through a branch, and
+  old: ACCEPT
+  oracle-old: /private/tmp/claude-501/-Users-shreeve-Data-Code-rig/6111da4f-b659-4a9c-9353-65e429d1d5f8/scratchpad/hp1/gen/g_while_as.path_o.wparam.rig f prod=accept ref=reject C2 56:10 a bare write view would be c

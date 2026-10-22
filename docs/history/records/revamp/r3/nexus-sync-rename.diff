@@ -1,0 +1,183 @@
+diff --git a/rig.grammar b/rig.grammar
+index 6f28b85e..7c21ab1a 100644
+--- a/rig.grammar
++++ b/rig.grammar
+@@ -363,12 +363,12 @@ tokens
+     ".."                        left? right?
+     neg, not                    operand
+ 
+-    # Ownership sigils (`~T`, `?T`, `!T`, `*T` in type position are the
+-    # type kinds below, except `weak`, which is both)
+-    move, read, write, clone, share, weak  operand
++    # Ownership sigils (`~T`, `?T`, `!T`, `*T`, `^T` in type position are
++    # the type kinds below, except `weak`, which is both)
++    move, read, write, clone, share, weak, box  operand
+ 
+     # Types
+-    optional, error_union, read_view, write_view, shared, slice  type
++    optional, error_union, read_view, write_view, shared, boxed, slice  type
+     generic_inst                name ...args
+     array_type                  size type
+     fun_type                    params:group? returns? fails:tag(fails)?
+@@ -585,9 +585,10 @@ zfun     = FUN name:name [tparams:tparams] [params:params] [returns:returns] [or
+ # TYPES
+ # ==============================================================================
+ #
+-# The handle sigils `*` and `~` bind to the type after them, tighter than
+-# the suffixes: `*User?` is an optional shared handle, and a handle to an
+-# optional is `*(User?)`. A view sigil applies to the whole type after
++# The holding sigils `^`, `*` and `~` bind to the type after them,
++# tighter than the suffixes: `^Node?` is an optional box, `*User?` an
++# optional shared handle, and a box or handle of an optional is `^(T?)`,
++# `*(User?)`. A view sigil applies to the whole type after
+ # it, suffixes included: `?User?` is a read view of an optional User. The
+ # element of a slice or array takes the suffixes too (`[]Int?`), and a
+ # function type takes none, so an optional of one is written in
+@@ -606,6 +607,8 @@ ptype    = "[" "]" type:type                        → (slice)
+          | SUB "(" [params:L(type)] ")" "!"         → (fun_type fails:fails)  # `sub(Int)!`
+          | "*" type:ptype                           → (shared)     # `*fun(Int) -> Int`
+          | "~" operand:ptype                        → (weak)
++         | "^" type:ptype                           → (boxed)      # `^[4]Int`
++         | "^" "?" type                             → (boxed type:(read_view type:3))  # `^?T`
+ 
+ tsuffix  = type:tsuffix "?"                         → (optional)
+          | type:tsuffix "!"                         → (error_union)
+@@ -613,6 +616,7 @@ tsuffix  = type:tsuffix "?"                         → (optional)
+ 
+ thandle  = "*" type:thandle                         → (shared)
+          | "~" operand:thandle                      → (weak)
++         | "^" type:thandle                         → (boxed)
+          | tatom
+ 
+ tatom    = tname
+@@ -846,6 +850,7 @@ unary    = "-" operand:unary                        → (neg)
+          | "!" operand:unary                        → (write)
+          | "*" operand:unary                        → (share)
+          | "~" operand:unary                        → (weak)
++         | "^" operand:unary                        → (box)
+          | postfix
+ 
+ postfix  = object:postfix "." name:name             → (member)
+diff --git a/src/rig.zig b/src/rig.zig
+index c8e412c5..c4df3d1a 100644
+--- a/src/rig.zig
++++ b/src/rig.zig
+@@ -360,7 +360,7 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
+ //   After a function's result type, on its header's line, `from` says
+ //   what the result views (`-> ?Item from a, b`), and `static` right
+ //   after it says the result views only what lives for the whole
+-//   program (`-> String from static`). Elsewhere each is a name.
++//   program (`-> ?String from static`). Elsewhere each is a name.
+ //
+ // `..`
+ //   Before `]` (past any line break, which is whitespace inside
+@@ -1046,7 +1046,7 @@ pub const Lexer = struct {
+                     depth -= 1;
+                 },
+                 .comma, .bar => if (depth == 0) return t,
+-                .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .arrow => {},
++                .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .caret, .arrow => {},
+                 // Arithmetic in an array size: `[N + 1]Int`.
+                 .plus, .minus, .slash, .percent => if (depth == 0) return null,
+                 else => return null,
+@@ -1200,7 +1200,7 @@ fn isValue(cat: TokenCat) bool {
+ /// The characters that start an operand as a prefix sigil.
+ fn isSigil(cat: TokenCat) bool {
+     return switch (cat) {
+-        .minus, .lt, .plus, .star, .question, .not_sym, .tilde => true,
++        .minus, .lt, .plus, .star, .question, .not_sym, .tilde, .caret => true,
+         else => false,
+     };
+ }
+@@ -1771,9 +1771,9 @@ pub const Parser = struct {
+     }
+ 
+     /// Compile-time parameters and arguments written where Rig does not
+-    /// take them: in parentheses (`struct Wrap(T)`, `Vec(Int)` in a type,
++    /// take them: in parentheses (`struct Wrap(T)`, `List(Int)` in a type,
+     /// `pre n: Int`), on a type alias, or as a type an expression cannot
+-    /// spell (`Vec[[]Int]()`). Also a struct declared with `type`.
++    /// spell (`List[[]Int]()`). Also a struct declared with `type`.
+     fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
+         const src = self.base.source;
+         const before = std.mem.trimEnd(u8, src[0..tok.pos], if (tok.cat == .indent) " \r\n" else " ");
+@@ -1805,7 +1805,7 @@ pub const Parser = struct {
+                 return "an error set takes no type parameters";
+             },
+             .rbracket => if (before.len > 0 and before[before.len - 1] == '[') {
+-                return "empty brackets: give the compile-time arguments, as in `Vec[Int]()`";
++                return "empty brackets: give the compile-time arguments, as in `List[Int]()`";
+             },
+             .fun, .sub => if (self.base.lexer.nesting > 0 and src[self.base.lexer.brackets[self.base.lexer.nesting - 1]] == '[') {
+                 return "a function type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
+@@ -1905,7 +1905,7 @@ pub const Parser = struct {
+         } else return null;
+         if (!endsWithWord(src[0..open], "sub") and !endsWithWord(src[0..open], "fun")) return null;
+         var start = open - 3;
+-        while (start > 0 and (src[start - 1] == '*' or src[start - 1] == '~')) start -= 1;
++        while (start > 0 and (src[start - 1] == '*' or src[start - 1] == '~' or src[start - 1] == '^')) start -= 1;
+         return self.format("a function type takes no suffix; write `({s}){c}`", .{ src[start..tok.pos], src[tok.pos] });
+     }
+ 
+@@ -2011,12 +2011,12 @@ pub const Parser = struct {
+             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
+             .@"??" => return self.nearestFallback(out),
+             .read, .write, .move => return self.receiverSigil(out),
+-            .share => try self.noteParenSuffix(out),
++            .share, .box => try self.noteParenSuffix(out),
+             .weak => {
+                 self.touchesOperand(out);
+                 try self.noteParenSuffix(out);
+             },
+-            .read_view, .write_view, .shared => self.touchesOperand(out),
++            .read_view, .write_view, .shared, .boxed => self.touchesOperand(out),
+             // The body's value is returned.
+             .fun => {
+                 try self.paramList(out);
+@@ -2160,13 +2160,13 @@ pub const Parser = struct {
+         while (true) {
+             const at = self.afterSigil(e);
+             var op = ir.get(e, .operand);
+-            if (op.isKind(.share) or op.isKind(.weak)) {
++            if (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) {
+                 if (self.span(op).start == at) {
+                     e = op;
+                     continue;
+                 }
+                 // `*(~T?)`: a parenthesized handle with a suffix of its own.
+-                while (op.isKind(.share) or op.isKind(.weak)) op = ir.get(op, .operand);
++                while (op.isKind(.share) or op.isKind(.weak) or op.isKind(.box)) op = ir.get(op, .operand);
+                 if (op.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
+                 return;
+             }
+@@ -2183,6 +2183,9 @@ pub const Parser = struct {
+     fn touchesOperand(self: *Parser, node: Sexp) void {
+         const at = self.span(node).start;
+         const src = self.base.source;
++        // The view inside `^?T` has no sigil of its own: the box's `^?` is
++        // checked as one token pair.
++        if (at >= src.len or std.mem.findScalar(u8, "<+-?!*~^", src[at]) == null) return;
+         if (!isSpace(if (at + 1 < src.len) src[at + 1] else 0) or self.failure != null) return;
+         self.failure = .{ .severity = .@"error", .pos = at, .end = at + 1, .message = self.detachedPrefix(.{ .cat = .err, .pre = 0, .pos = at, .len = 1 }) };
+     }
+@@ -2546,9 +2549,9 @@ test "`unique` is a keyword only after a struct header's name or type parameters
+ test "`from` and `static` are keywords only after a function's result type" {
+     try testing.expect(keyword("from") == null and keyword("static") == null);
+     try expectCats("fun f(a: ?T) -> ?T from a", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .question, .ident, .rparen, .arrow, .question, .ident, .from, .ident });
+-    try expectCats("pub fun f() -> String from static", &.{ .@"pub", .fun, .ident, .lparen, .rparen, .arrow, .ident, .from, .static });
++    try expectCats("pub fun f() -> ?String from static", &.{ .@"pub", .fun, .ident, .lparen, .rparen, .arrow, .question, .ident, .from, .static });
+     try expectCats("fun f() -> T? from a, b", &.{ .fun, .ident, .lparen, .rparen, .arrow, .ident, .question, .from, .ident, .comma, .ident });
+-    try expectCats("extern fun f(s: String) -> String from s", &.{ .@"extern", .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident, .from, .ident });
++    try expectCats("extern fun f(s: ?String) -> ?String from s", &.{ .@"extern", .fun, .ident, .lparen, .kwarg_name, .colon, .question, .ident, .rparen, .arrow, .question, .ident, .from, .ident });
+     try expectCats("fun span(from: Int) -> Int", &.{ .fun, .ident, .lparen, .kwarg_name, .colon, .ident, .rparen, .arrow, .ident });
+     try expectCats("from = static", &.{ .ident, .assign, .ident });
+     try expectCats("f = |x: Int| x\nfrom = 1", &.{ .ident, .assign, .bar_capture, .ident, .colon, .ident, .bar_capture, .ident, .newline, .ident });
+@@ -2867,7 +2870,7 @@ test "parser: every form parses" {
+         \\  n2: *sub(Int, ?Wrap[Int]) = h
+         \\  n3: sub() = i
+         \\  o2: *Wrap[Int]? = none
+-        \\  p2 = Pair[Int, String].make(f[3](1), v[0])
++        \\  p2 = Pair[Int, ?String].make(f[3](1), v[0])
+         \\  o3: []~Int = o
+         \\  return x
+         \\

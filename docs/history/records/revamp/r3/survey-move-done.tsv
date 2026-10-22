@@ -1,0 +1,14 @@
+test/behavior/ownership/copy_field_move.rig	0	SURVEY|15|8|field|int|-|p.n|  m = <p.n
+test/behavior/ownership/move_copies_plain_element.rig	0	SURVEY|13|8|elem|nominal|parameterized_nominal|v[0]|  eat(<v[0])
+test/behavior/ownership/move_copies_plain_field.rig	0	SURVEY|13|8|field|nominal|-|s.p|  q = <s.p
+test/behavior/ownership/move_copies_plain_field.rig	0	SURVEY|14|8|field|int|-|s.n|  m = <s.n
+test/behavior/ownership/move_ends_copy_value.rig	0	SURVEY|21|8|field|int|-|p.n|  m = <p.n
+test/behavior/ownership/take_through_lend.rig	0	SURVEY|16|8|via|int|-|(!s).n|  n = <(!s).n
+test/behavior/syntax/sigils_before_calls.rig	0	SURVEY|43|11|field|string|-|pair.name|  name = <pair.name
+test/corpus/audit-fuzz-pf1-accepted-ef0d28d8d2.rig	0	SURVEY|44|11|field|string|-|pair.name|  name = <pair.name
+test/corpus/audit-ownership-l07_defer_nested_scope_return.rig	0	SURVEY|31|13|handle|int|-|b.n|    return <b.n
+test/corpus/review-place-b6-u012_mod_const_take/main.rig	1	SURVEY|4|8|other|int|array|geo.KP[0]|  x = <geo.KP[0]
+test/corpus/review-seam2-c12_move_elem.rig	1	SURVEY|44|8|via|int|-|(!mk(3)).n|  y = <(!mk(3)).n
+test/corpus/t-mv1.rig	0	SURVEY|7|8|elem|string|parameterized_nominal|v[0]|  eat(<v[0])
+test/corpus/t-mv2.rig	0	SURVEY|7|8|elem|int|parameterized_nominal|v[0]|  eat(<v[0])
+test/corpus/t-mv4.rig	0	SURVEY|10|8|elem|nominal|parameterized_nominal|v[0]|  eat(<v[0])

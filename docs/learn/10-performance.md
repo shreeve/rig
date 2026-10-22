@@ -171,7 +171,7 @@ sub main()
 The two functions index the same string, and become two reads:
 
 ```zig
-return @as(u8, if ((i >= 0) and (i < rig.len(s.len))) rig.atProven(s, i, .both) else 0);
+return @as(u8, if ((i >= 0) and (i < rig.lenOf(s))) rig.atProven(s, i, .both) else 0);
 // ...
 return rig.at(s, i);
 ```

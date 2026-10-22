@@ -149,6 +149,10 @@ const usage =
     \\                   Set to 1 when building with --release to make
     \\                   the tests the compiler proved, and omits, as
     \\                   assertions, as every debug build does
+    \\  RIG_TABLE_FALLBACK
+    \\                   Set to 1 when building to hold each table of
+    \\                   zeros as targets with no lazily zeroed pages do:
+    \\                   committed as it is written, with a test
     \\  RIG_STRICT_OPTIONALS
     \\                   Set to 1 to hold every object's optional as a
     \\                   tagged struct, so a program compiles only if the
@@ -240,6 +244,12 @@ const Env = struct {
         return env.flag("RIG_VERIFY_PROOFS");
     }
 
+    /// `RIG_TABLE_FALLBACK`: a reserved table is committed as it is
+    /// written, as on a target with no lazily zeroed pages (`table.zig`).
+    fn tableFallback(env: Env) bool {
+        return env.flag("RIG_TABLE_FALLBACK");
+    }
+
     /// Set, and not to `0`.
     fn flag(env: Env, name: []const u8) bool {
         const value = env.get(name) orelse return false;
@@ -262,6 +272,7 @@ const Env = struct {
         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
+        if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
         if (hook) try w.writeAll("pub const __rig_run_started = \"" ++ program_started_var ++ "\";\n");
     }
 };
@@ -894,8 +905,9 @@ fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.
         if (ran) {
             if (env.get(run_started_var)) |path| try writeFile(io, path, "");
             // A status above 128 may be the program's own; this says a
-            // signal ended it (a Rig panic aborts, after its report).
-            if (ended.signal) |sig| std.debug.print("error: rig: the program was killed by signal {d}\n", .{sig});
+            // signal ended it (a Rig panic aborts, after its report), but
+            // an interrupt, which whoever pressed Ctrl-C knows of.
+            if (ended.signal) |sig| if (sig != @backingInt(std.posix.SIG.INT)) std.debug.print("error: rig: the program was killed by signal {d}\n", .{sig});
             if (code == 0) return;
             std.process.exit(code);
         }
@@ -1040,6 +1052,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         .{ .path = emit.sched_filename, .contents = emit.sched_source },
         .{ .path = emit.net_filename, .contents = emit.net_source },
         .{ .path = emit.alloc_filename, .contents = emit.alloc_source },
+        .{ .path = emit.table_filename, .contents = emit.table_source },
         .{ .path = "main.zig", .contents = root.written() },
     } });
     try writePackage(allocator, io, dir, &.{.{ .path = "programs", .contents = list.written() }});
@@ -1340,7 +1353,10 @@ const Ended = struct { code: u8, signal: ?u8 = null };
 /// time limit sends one, passes on to the process `runZigReport` runs,
 /// which would otherwise run on with no parent, and this process then
 /// ends as the child does. One that comes before the child has started
-/// reaches it as it starts.
+/// reaches it as it starts. An interrupt (Ctrl-C) reaches the child from
+/// the terminal, as it does this process: this process waits for the
+/// child to end, which a program whose `main` can fail does by
+/// canceling `main`, and is not ended by it first.
 const Ending = struct {
     const signals = [_]std.posix.SIG{ .TERM, .HUP };
     var child: std.atomic.Value(std.posix.pid_t) = .init(0);
@@ -1354,7 +1370,16 @@ const Ending = struct {
             .flags = 0,
         };
         for (signals) |sig| std.posix.sigaction(sig, &act, null);
+        // A handler, unlike ignoring it, is reset in the child.
+        const wait: std.posix.Sigaction = .{
+            .handler = .{ .handler = waitForChild },
+            .mask = std.posix.sigemptyset(),
+            .flags = std.posix.SA.RESTART,
+        };
+        std.posix.sigaction(.INT, &wait, null);
     }
+
+    fn waitForChild(_: std.posix.SIG) callconv(.c) void {}
 
     fn started(pid: std.posix.pid_t) void {
         child.store(pid, .seq_cst);
@@ -1566,6 +1591,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
         try files.append(allocator, .{ .path = emit.net_filename, .contents = emit.net_source });
         try files.append(allocator, .{ .path = emit.alloc_filename, .contents = emit.alloc_source });
+        try files.append(allocator, .{ .path = emit.table_filename, .contents = emit.table_source });
     }
 
     var root_source: []const u8 = "";
@@ -1599,7 +1625,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or hook or tasks)) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks)) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
         }

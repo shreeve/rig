@@ -1,0 +1,87 @@
+sites by kind:
+  cast               36661
+  overflow           22303
+  other              6685
+  bounds             2380
+  union              1614
+  unwrap             144
+  panic(explicit)    85
+  total 69872
+
+sites by handler (call instructions in parentheses):
+  integerOverflow          22280  (2547)
+  integerOutOfBounds       18367  (1459)
+  lenPanic                 17956  (1872)
+  memcpyAlias              5142  (925)
+  outOfBounds              2086  (1233)
+  corruptSwitch            1574  (827)
+  incorrectAlignment       812  (510)
+  reachedUnreachable       696  (301)
+  startGreaterThanEnd      259  (180)
+  integerPartOutOfBounds   202  (50)
+  castToNull               135  (118)
+  unwrapNull               79  (28)
+  unwrapError              49  (38)
+  inactiveUnionField       40  (26)
+  divideByZero             34  (18)
+  panic: negative size     28  (12)
+  panic: integer part of floating point value out of bounds 26  (5)
+  shlOverflow              23  (10)
+  panic: None              18  (18)
+  sliceCastLenRemainder    16  (12)
+  unexpectedErrorCode      15  (5)
+  copyLenMismatch          9  (5)
+  sentinelMismatch         8  (8)
+  panic: rig: a thread used another thread's heap 6  (2)
+  forLenMismatch           2  (1)
+  panic: TODO implement netInterfaceName for linux 2  (1)
+  exactDivisionRemainder   1  (1)
+  invalidErrorCode         1  (1)
+  panic: TODO implement netConnectIpPosix with timeout 1  (1)
+  panic: bigint.pow: the power is negative 1  (1)
+  invalidEnumValue         1  (1)
+  panic: TODO implement dirSetFileOwner 1  (1)
+  panic: out of memory     1  (1)
+  panic: bigint: the shift is negative 1  (1)
+
+top 40 functions by sites (source frame):
+  13301  ast.Ast.new_node   {'cast': 13301}
+   3397  ast.Ast.add_list   {'cast': 3397}
+   3330  ast.Ast.add_text   {'cast': 2881, 'other': 449}
+   3310  checker.Ids.local_sym   {'overflow': 3310}
+   2874  checker.Checker.checker_symbol   {'overflow': 2874}
+   1611  ast.Ast.word_node   {'overflow': 1611}
+   1226  parser.Parser.report   {'overflow': 582, 'cast': 644}
+    969  checker.Checker.new_type_list   {'cast': 969}
+    963  ast.Ast.finish_node   {'cast': 963}
+    903  checker.node_ref   {'cast': 797, 'overflow': 106}
+    833  ast.Ast.word_list   {'overflow': 833}
+    796  ast.Ast.nodes   {'overflow': 796}
+    548  checker.Checker.new_type   {'cast': 411, 'overflow': 137}
+    515  checker.Ids.sym   {'overflow': 515}
+    451  declarations.DeclarationTransformer.set_original   {'overflow': 153, 'cast': 298}
+    428  parser.Parser.rewind   {'overflow': 428}
+    416  checker.Ids.node_id   {'overflow': 416}
+    404  sort.block.block__func_472   {'overflow': 236, 'bounds': 147, 'other': 20, 'cast': 1}
+    394  sort.block.block__func_500   {'overflow': 234, 'bounds': 139, 'other': 20, 'cast': 1}
+    391  parser.Parser.mark   {'cast': 391}
+    386  checker.Checker.new_symbol   {'overflow': 130, 'cast': 256}
+    357  checker.Checker.alloc_mapper   {'cast': 357}
+    347  checker.Store.value_symbol_links_ensure   {'cast': 269, 'overflow': 78}
+    342  sort.block.block__func_8499   {'bounds': 95, 'other': 45, 'overflow': 201, 'cast': 1}
+    339  parser.Parser.take_scan_errors   {'overflow': 172, 'cast': 112, 'other': 55}
+    330  __rig_std_text.starts_with   {'cast': 329, 'bounds': 1}
+    324  parser.format_message   {'other': 208, 'cast': 116}
+    278  collections.OrderedMap(rig.runtime.String,tsoptions.CompilerOptionsValue).place   {'cast': 278}
+    273  ast.SymbolRec.declaration_count   {'cast': 273}
+    270  checker.Checker.symbol_declaration_count   {'cast': 270}
+    265  declarations.DeclarationTransformer.keep   {'overflow': 85, 'cast': 180}
+    256  __rig_std___rig_builtin.Table.place   {'cast': 256}
+    248  checker.Checker.checker_table   {'overflow': 248}
+    215  collections.OrderedMap(rig.runtime.String,tsoptions.CompilerOptionsValue).insert   {'cast': 147, 'overflow': 68}
+    208  checker.Checker.synthetic_index   {'cast': 208}
+    205  debug.writeCurrentStackTrace   {'union': 26, 'unwrap': 11, 'bounds': 37, 'other': 36, 'cast': 4, 'overflow': 91}
+    200  debug.Dwarf.Unwind.prepare   {'bounds': 97, 'overflow': 67, 'other': 34, 'union': 1, 'unwrap': 1}
+    200  checker.Checker.push_diag   {'cast': 200}
+    196  checker.Ids.local_tab   {'overflow': 196}
+    195  checker.Checker.alloc_literals   {'cast': 195}

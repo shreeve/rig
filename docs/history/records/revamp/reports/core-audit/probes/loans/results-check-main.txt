@@ -1,0 +1,80 @@
+REJECT a01_int_read_then_write.rig :: cannot reassign `n` while borrows are live
+REJECT a02_int_write_then_read.rig :: use of `n` while a write borrow is live
+REJECT a03_int_field_read_then_write.rig :: cannot assign to `p.x` while `p` is borrowed
+REJECT a04_vec_int_elem_borrow_then_push.rig :: cannot write-borrow `v` while a read borrow is live
+REJECT a05_int_closure_read_then_write.rig :: cannot reassign `n` while borrows are live
+REJECT a06_vec_of_borrows.rig :: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `?Int`
+REJECT a07_optional_of_borrow.rig :: cannot reassign `n` while borrows are live
+ACCEPT a08_result_of_borrow.rig
+REJECT a09_match_binding_of_borrow.rig :: cannot reassign `n` while borrows are live
+REJECT a10_loop_var_of_borrows.rig :: cannot reassign `a` while borrows are live
+ACCEPT a11_fallible_result_borrow.rig
+REJECT a12_write_loan_number_twice.rig :: cannot take a second write borrow on `n`
+REJECT a13_fallible_view_result.rig :: cannot drop `x` while borrows are live
+ACCEPT c01_share_struct_with_view.rig
+REJECT c02_share_escapes_scope.rig :: `a` does not live long enough
+REJECT c03_cell_value_with_view.rig :: `Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `V`
+REJECT c04_cell_none_then_set.rig :: `Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `V?`
+ACCEPT c05_cell_generic_put.rig
+REJECT c06_owned_closure_captures_view_holder.rig :: an owned closure cannot capture `vv`, which holds a borrow of `a`; capture an owned value, or use a stack closure (`|...|`)
+ACCEPT c07_owned_closure_literal_string.rig
+REJECT c08_signal_value_with_view.rig :: `Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String) or plain data (a struct, enum, optional, or array that owns nothing); got `V?`
+REJECT c09_cell_in_shared_set_through_handle.rig :: `Cell[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `V?`
+ACCEPT c10_vec_of_views_in_shared.rig
+ACCEPT c10b_shared_int_array_index.rig
+REJECT c11_shared_view_into_cell.rig :: cannot store a borrow of `a` in a `Cell`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one
+REJECT c12_shared_view_weak_upgrade.rig :: `a` does not live long enough
+REJECT c13_shared_view_in_vec.rig :: indexing a `Vec[*V]` would copy an owning element out of the Vec; iterate with `for x in ?v` instead
+REJECT c14_owned_closure_captures_shared_view.rig :: an owned closure cannot capture `h`, which holds a borrow of `a`; capture an owned value, or use a stack closure (`|...|`)
+REJECT c15_weak_of_shared_view_into_cell.rig :: cannot store a borrow of `a` in a `Cell`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one
+REJECT c16_shared_view_through_fn.rig :: `a` does not live long enough
+REJECT f01_coalesce_return_keeps_loan.rig :: cannot drop `r` while borrows are live
+REJECT f02_labeled_break_stores_inner_borrow.rig :: `inner` does not live long enough
+REJECT f03_continue_stores_body_borrow.rig :: `inner` does not live long enough
+REJECT f04_catch_handler_borrow.rig :: `err` is bound but never read; name it `_` to ignore the value
+REJECT f07_while_as_borrow_escapes.rig :: `r` does not live long enough
+REJECT f08_defer_stores_later_local.rig :: `a` does not live long enough
+ACCEPT f09_defer_revives_at_propagate.rig
+ACCEPT f10_errdefer_revives_at_propagate.rig
+ACCEPT f11_defer_revives_at_none.rig
+ACCEPT f12_and_rhs_move.rig
+ACCEPT g01_return_borrow_of_module_const.rig
+REJECT m01_match_write_copy_payload.rig :: cannot reassign `h` while borrows are live
+REJECT m02_if_write_as_copy.rig :: cannot reassign `o` while borrows are live
+ACCEPT m03_match_read_string_payload.rig
+ACCEPT m04_match_read_int_payload.rig
+REJECT m05_for_read_int_elem.rig :: cannot assign to `xs[...]` while `xs` is borrowed
+REJECT o01_plain_read_through_then_grow.rig :: type mismatch: expected `P`, got `?P`; only a number, `Bool`, `String`, or plain enum is copied out of a borrow: take the borrow where it goes (`?P` or `!P`)
+REJECT p01_unscoped_branch_binding.rig :: use of unbound name `r`
+REJECT r01_overborrow_key.rig :: cannot assign to `k.id` while `k` is borrowed
+REJECT r02_overborrow_int_param.rig :: cannot reassign `i` while borrows are live
+REJECT r03_overborrow_method_arg.rig :: cannot assign to `p.which` while `p` is borrowed
+REJECT r04_overborrow_write_arg.rig :: use of `n` while a write borrow is live
+REJECT s01_replace_view.rig :: `replace` moves values that hold no borrow; `V` may hold one
+REJECT s02_swap_views.rig :: `swap` moves values that hold no borrow; `V` may hold one
+REJECT s03_replace_field_view.rig :: cannot write-borrow through a read borrow `?R`
+ACCEPT t01_holder_string_generic.rig
+ACCEPT t02_cell_string_literal.rig
+ACCEPT t03_generic_fn_string.rig
+ACCEPT t04_closure_captures_module_const.rig
+REJECT t05_cell_string_from_text.rig :: use of unbound name `Text`
+ACCEPT t06_holder_cell_string.rig
+ACCEPT t07_param_string_into_cell.rig
+ACCEPT t08_args_into_cell.rig
+ACCEPT t09_owned_closure_param_string.rig
+ACCEPT t10_const_string_into_cell.rig
+ACCEPT t11_owned_closure_args.rig
+ACCEPT u01_defer_revives_vec_at_propagate.rig
+ACCEPT u02_defer_ends_loan_at_propagate.rig
+ACCEPT u03_errdefer_effect_leaks_to_success_exit.rig
+ACCEPT u04_errdefer_tail_error_value.rig
+REJECT text/st01_branch_view_escapes.rig :: use of unbound name `Text`
+REJECT text/st02_loop_view_into_vec.rig :: use of unbound name `Text`
+REJECT text/st03_payload_copy_keeps_loan.rig :: use of unbound name `Text`
+REJECT text/st04_closure_view_then_mutate.rig :: use of unbound name `Text`
+REJECT text/st05_over_borrow_key.rig :: use of unbound name `Text`
+REJECT text/st06_view_or_static_into_cell.rig :: use of unbound name `Text`
+REJECT text/st07_defer_view_at_propagate.rig :: use of unbound name `Text`
+REJECT text/st08_for_view_elems_push.rig :: use of unbound name `Text`
+REJECT text/st09_optional_view_coalesce.rig :: use of unbound name `Text`
+REJECT text/st10_match_temp_view.rig :: use of unbound type `Text`

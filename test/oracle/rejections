@@ -3189,6 +3189,8 @@ test/reject/ownership/closure_capture_view_rules_ownership.rig go
 test/reject/ownership/closure_capture_view_rules_ownership.rig main
 test/reject/ownership/closure_holds_view.rig main
 test/reject/ownership/closure_param_stored_through_capture.rig main
+test/reject/ownership/closure_path_capture_loan.rig main
+test/reject/ownership/closure_path_capture_view_in_an_owned_closure.rig main
 test/reject/ownership/closure_reassign.rig main
 test/reject/ownership/closure_result_views_captured_view.rig main
 test/reject/ownership/closure_return.rig make
@@ -4815,3 +4817,5 @@ test/reject/probes/review258-p134_summary_method.rig Bag.set
 test/reject/probes/review258-p140_callable_summary.rig go
 test/reject/probes/review258-p30_gbody_int.rig setit
 test/reject/probes/review258-p90_view_param_into_local_ok.rig put
+doc/CORE/f1979318878b main
+test/reject/table/table_push_while_a_slot_is_viewed.rig main

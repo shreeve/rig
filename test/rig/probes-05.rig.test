@@ -2955,7 +2955,7 @@ fail "audit-ownership-f07 lent closure stores", "`y` does not live long enough"
     run(|!vw, ?y| vw.b = y)
   print(vw.b.n)
 
-fail "audit-ownership-f08 closure returns capture view", "`f` is assigned but never read; use it, or discard the value with `_ = ...`"
+fail "audit-ownership-f08 closure returns capture view", "`f` is a closure that is never called: call it, or remove it"
   obj Tok
     n: Int
 

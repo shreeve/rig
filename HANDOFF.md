@@ -4,7 +4,10 @@ This is the resume point for anyone, human or agent, picking up Rig
 work. Read it first, then [AGENTS.md](AGENTS.md) (the rules) and
 [docs/CORE.md](docs/CORE.md) (the ownership model every rule derives
 from). What changed is in [CHANGELOG.md](CHANGELOG.md), and what is
-planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
+planned is in [docs/ROADMAP.md](docs/ROADMAP.md). Why it was decided,
+and what was measured, is in the records,
+[docs/history/records/](docs/history/records/INDEX.md), whose ledger's
+newest entry summarizes the latest rounds.
 
 ## Current state
 
@@ -35,32 +38,51 @@ planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## In flight
 
-- **Errors with data, round R2** (PR #542, branch `errsets`): declared
-  error sets, unions, the typed `catch` binding, narrowing, and the
-  `task.Stop` rule for tasks. The approved design and its rounds are in
-  `.git/revamp/r3/errors-panel/errors-spec.md` (§14 the plan, §15 the
-  decisions); R3 (fields) follows a round for cross-module clones.
+- **Declared error sets** (#542, branch `errsets`): round R2 of errors
+  with data (`-> T!E`, `error L = A | B`, `catch |e|` typed by the
+  callee's set), from the approved spec (docs/history/records/revamp/r3/errors-panel/).
+  Its review found eight programs that check and then fail in Zig or
+  leak; all are fixed, each with a case (review in
+  docs/history/records/2026-10/errors-r2/), and a second round of such
+  findings stops it for redesign. Then Trig's build, and the owner's
+  names for std's I/O unions.
+- **Map and Set probes without tests:** the checks inside the built-in
+  Map and Set, 17% of Trig's check cost, measured first.
+- **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
+  without a test made ts-pattern 3.1% faster.
 
 ## Next, in order
 
-Three areas, worked one at a time, each measured on Trig before it lands:
+Trig checks with several checkers in tasks, and its output equals tsc's
+at each count. tsrs leads it by 1.69x on one checker on ts-pattern and
+uses about 1.7x less memory. In the owner's order:
 
-1. **Memory.** Trig peaks at about 425 MB on ts-pattern, tsrs at 215 MB.
-   Inline Lists (`List[T, inline: n]`) for Trig's short temporaries are
-   Trig's to adopt. On Rig's side: Lists that grow by copying are a
-   quarter of Trig's first touches of memory (its page-fault sampling);
-   4-byte stored hashes in Map and Set (measured as fast, 4 bytes an
-   entry fewer; backlog); then the waste of the allocator's size
-   classes, up to a fifth of a block.
-2. **Build speed.** `rig build` reuses no cached work (ROADMAP, "Cached
-   `rig build`"), and debug code pays round trips such as
-   `rig.lend(&rig.elemPtr(xs, j).*)` (ROADMAP, "Tighter generated code").
-3. **Two limits of the ownership checker** that make std code clumsy,
+1. **Single-thread speed of the checker and of Map/Set,** which carries
+   into every checker. With every safety check removed, ts-pattern runs
+   11.2% faster (index tests 8.0%, conversions 2.9%, Zig's bounds 1.7%,
+   overflow 1.2%; docs/history/records/2026-10/safety-checks/measurement.md). By
+   share of that cost: the stores (`Table`/`Slot`), Trig's symbol and id
+   accessors, the std Map/Set probes, and Trig's AST records. Map and
+   Set code is 18.8% of ts-pattern's samples, beyond its checks.
+2. **Doing less.** Trig allocates about 6.4x what tsrs does. Its memory
+   is live data, not List slack (exact presizing saved 4% on Linux): the
+   stores' contents, Map entries, and about 200,000 small `u32` lists.
+   The heap profile (`RIG_HEAP_PROFILE=sites`) names their owners.
+3. **Build speed.** `rig build` reuses no cached work (ROADMAP, "Cached
+   `rig build`"), and a Trig release build takes about 9 minutes and
+   about 9 GB on pup.
+4. **Two limits of the ownership checker** that make std code clumsy,
    each a Core question for the owner first: a write view bound by
    `if !@slots[j] as s` cannot be returned `from @`, though the read
    form can; and an object's field cannot be moved out of it alone (no
    partial moves). Together they keep a Map slot at 40 bytes rather
    than 24 (backlog, "The Map's entries in its table slots").
+
+Measured and set aside: lazy member tables (symbols are about a tenth
+of Trig's heap), prefault for every heap with tasks (no gain, 8-15%
+more memory), sharing global types across checkers (a low ceiling, and
+tsc's ids per checker could not be matched), and a parallel parse and
+bind (about 1.5% of ts-pattern).
 
 APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
 built in stages. Stage 1, method calls on a type parameter, and Stage 2,

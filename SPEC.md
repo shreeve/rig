@@ -7284,6 +7284,10 @@ their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
 names are not reserved: a module that declares a type of its own of one
 of these names hides the built-in one.
 
+`Table[T, n]` and `Slot[n]` ([Table](#table)) are built into the
+compiler, as a List is, but their names are not reserved either: a
+module's own `Table` or `Slot` hides the built-in one.
+
 ### Cell
 
 `Cell[T]` holds one value that can be replaced through any handle to it,
@@ -7507,7 +7511,7 @@ owns one), and read views.
 | `List(a)`, `List[T](a)` | a new List holding a copy of each element of the array or slice `a`, in one allocation of exactly their count, as `String("abc")` copies text: `List([1, 2, 3])`; typed by `a`, by context, or by brackets; the elements are plain data that carry no loan |
 | `List.filled(n, x)`, `List[T].filled(n, x)` | a List of `n` copies of `x` (typed by `x`, by context, or by brackets); `x` must copy (below); panics when `n` is negative |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
-| `v.len` | the number of elements |
+| `v.len` | the number of elements, at most `2^62 - 1`: a List never grows past it, and growth that would panics ("length out of range"), so reading the length makes no test |
 | `v.is_empty()` | `v.len == 0`; it only reads, so `!v.is_empty()` is rejected (negate with `not`) |
 | `v[i]`, `v[i] = x` | the element at `i`, a place as a field is: read in place, lent with `?v[i]` or `!v[i]`, taken with `<v[i]` when `T` is optional, and assigned, which drops the old value (bounds-checked) |
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
@@ -7717,6 +7721,107 @@ drop 2
 left 1
 drop 1
 ```
+
+### Table
+
+`Table[T, n]` holds `n` slots from the moment it is made, each `T()`
+until it is written, and `Slot[n]` is a number below `n` that names one
+of them. Only the table's `push`, `Slot[n].of(i)`, and a literal below
+`n` make a slot, so a `Slot[n]` is in range of every `Table[_, n]`: `t[s]`
+reads or writes its slot with no test, whichever table gave `s`. A
+table is an owning value whose slots are places, as a List's elements
+are; a slot is plain data.
+
+| Member | Meaning |
+|---|---|
+| `Table()`, `Table[T, n]()` | a table of `n` slots, each `T()` (typed by context or by brackets); made as the program runs, so it is never a field's default |
+| `(!t).push(x)`, `!t.push(x)` | write slot `len`, add one to `len`, and give that slot as a `Slot[n]`; panics with "a table of `n` slots is full" when all `n` are pushed |
+| `t.len` | the number of slots pushed |
+| `t[s]`, `t[s] = x` | slot `s`, a `Slot[n]`, a place as a List's element is: read in place, lent with `?t[s]` or `!t[s]`, and assigned, which drops the old value; no test |
+| `t[i]` | with an integer `i`, the slot tested `0 <= i < n` (not `len`) |
+| `for x in t`, `?t`, `!t` | the pushed slots, `0..len`; a loop takes no slot out |
+| `Slot[n].of(i)` | `Slot[n]?`: the slot `i` names when `0 <= i < n`, else `none` |
+| `Int(s)` | the slot's number (any integer type: `U32(s)`) |
+| a literal `k` | a `Slot[n]` where `0 <= k < n`, checked at compile time; inside a generic body, where `n` is a parameter, write `Slot[n].of(k)` |
+
+A slot copies, compares with `==` and `<`, hashes, and prints as its
+number, so it keys a `Map`. It has no arithmetic, and nothing converts
+another value to it but `of`: `Slot[8](3)`, `s + 1`, and an `Int` where a
+`Slot[8]` goes are rejected. A slot of one `n` indexes only a table of
+the same `n`; convert with `Slot[m].of(Int(s))`. Its value is the
+smallest of `U8`, `U16`, `U32`, and `U64` that holds `n - 1`.
+
+```rig
+obj Ty
+  flags: U32 = 0
+
+sub main()
+  t: Table[Ty, 1024] = Table()
+  a = (!t).push(Ty(flags: 1))
+  b = (!t).push(Ty(flags: 2))
+  t[b].flags += 40
+  print(a, b, t[b].flags, t.len)
+  far: Slot[1024] = 1000
+  print(t[far].flags)
+  if Slot[1024].of(Int(b) + 1) as next
+    print(next, t[next].flags)
+```
+
+```output
+0 1 42 2
+0
+2 0
+```
+
+**Every slot holds a value.** `T` has a default, `T()`: a number,
+`Bool`, `Slot`, String, List, optional, or object whose every field has
+one. A view is no element (a slot holds a value before it is written).
+How the slots are held follows from `T`:
+
+- When `T` is plain data whose default is all zero bytes (integers,
+  `Bool`, slots, a plain enum's variant whose value is 0, and objects
+  and arrays of these), the table **reserves** `n * $size(T)` bytes of
+  address space, and the system gives each page as zeros when it is
+  first touched: a slot never written takes no memory. Up to 64 TiB.
+- Otherwise (a float, which may be `-0.0`; an optional; a value that
+  owns; any other default), every slot is **made** with the table, up to
+  64 MiB, and dropping the table drops all `n` slots.
+
+A table past its limit is rejected. On a target whose system gives no
+lazily zeroed pages (wasm32, Windows), a reserved table holds the slots
+it has been written up to and tests each slot against them, with the
+same meaning. A system that refuses the reservation (`ulimit -v`,
+strict overcommit) makes `Table()` panic; a table is never smaller than
+`n`.
+
+```rig reject
+obj File
+  name: String = String()
+
+sub main()
+  files: Table[File, 4194304] = Table()
+  print(files.len)
+```
+
+```error
+a `Table[File, 4194304]` makes every slot up front; `File` owns what it holds, so its 4194304 slots would take 96 MiB
+```
+
+```rig reject
+sub main()
+  t: Table[Int, 8] = Table()
+  i = 3
+  s: Slot[8] = i
+  print(t[s])
+```
+
+```error
+type mismatch: expected `Slot[8]`, got `Int`
+```
+
+A table grows only by `push` and never shrinks: it has no `pop`,
+`clear`, or `keep`, and no clone (`+t`). An id read from data enters
+with `of`, its one test.
 
 ### Boxes, `^T`
 
@@ -8178,6 +8283,7 @@ closure parameter `n` has the name of the local `n`
 | `\|?x\|` | any | a read view `?T`, as `?x` gives it |
 | `\|!x\|` | any a write view may take | a write view `!T`, as `!x` gives it |
 | `\|~x\|` | `*T` | a weak handle `~T` |
+| `\|?p.a\|`, any sigil | a field, of `p` or of self (`@a`) | what the sigil gives of that field in an expression |
 
 The closure's environment owns what it captured and releases it once,
 when the closure is released, not after each call. The body may use,
@@ -8219,6 +8325,53 @@ sub main()
 ```output
 22
 0
+```
+
+A capture's sigil may take a field path, `|?p.a|` or `|!@cache|`: the
+closure captures that field alone, as the sigil does it in an
+expression (`?p.a` lends the field, `+p.a` copies or clones it, `<p.f`
+takes an optional field, `~p.h` holds a field's handle weakly). The
+lend is on that place, so another field of `p` stays free while the
+closure lives, and in the body the path names the capture. The body
+reaches the path and what is below it (`p.a.len`), never `p` or
+another field of it; two captures in one list, one inside the other
+(`|?p, ?p.a|`), are rejected, and an element (`|?xs[i]|`) is lent to a
+name first.
+
+```rig
+obj RenderState
+  cache: Map[String, String]
+  template: String
+
+  fun render(!@, name: ?String) -> String
+    +(!@cache).ensure_with(String(name), |?@template, k| String(@template, k, "!"))
+
+sub main()
+  s = RenderState(cache: Map[String, String](), template: String("Hello, "))
+  print((!s).render("Ada"))
+  print((!s).render("Ada"))
+  print(s.cache.len)
+```
+
+```output
+Hello, Ada!
+Hello, Ada!
+1
+```
+
+```rig reject
+obj P
+  a: Int
+  b: Int
+
+sub main()
+  p = P(a: 1, b: 2)
+  f = |?p.a| p.a + p.b
+  print(f())
+```
+
+```error
+the closure captured `p.a`, not `p.b`: capture `?p.b` too
 ```
 
 A closure nested in another captures from the scope where it is
@@ -8369,6 +8522,20 @@ fun make() -> fun() -> Int
 
 ```error
 closures cannot escape their defining scope
+```
+
+A closure's body runs only when the closure is called, so one that is
+never called is rejected: alone on a line, discarded with `_ =`, or
+bound and never used.
+
+```rig reject
+sub main()
+  n = 1
+  _ = |+n| print(n)
+```
+
+```error
+this closure is never called: bind it and call it (`f = |...| ...`, then `f()`), or remove it
 ```
 
 ### Callable views
@@ -10818,6 +10985,21 @@ sub main()
 ```error
 `Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `>t`
 ```
+
+**An interrupt cancels `main`.** An interrupt (Ctrl-C, SIGINT) or a
+request to end (SIGTERM) cancels `main` when `main` can fail, as a
+cancel reaches any task: `main` fails with `Stop.canceled` at its next
+waiting point (a socket's `accept`, `read`, and `write` among them),
+its `defer`s and drops run, and the tasks it owns are canceled as they
+drop. The program then ends as the signal ends one, with status 130 or
+143, and shows no error. A `main` that catches the cancel and returns
+keeps its own status. A second signal while the first is unwinding ends
+the program at once, so a `main` in a loop that reaches no waiting
+point can still be stopped. A `main` that cannot fail is never
+canceled, and the signals end it as they end any program; a program
+started with a signal ignored (`nohup`) keeps ignoring it. `rig run`
+waits for its program to end: one that catches the cancel and runs on
+keeps it waiting, until the program ends or a second interrupt ends it.
 
 ### Sets of tasks
 

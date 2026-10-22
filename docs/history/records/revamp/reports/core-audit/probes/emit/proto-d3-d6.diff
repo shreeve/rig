@@ -1,0 +1,77 @@
+diff --git 1/src/typecheck.zig 2/private/tmp/claude-501/-Users-shreeve-Data-Code-rig/cd00b9f1-8a48-4d11-9781-761746a24702/scratchpad/proto/src/typecheck.zig
+index 716dc4cb..b64b9f35 100644
+--- 1/src/typecheck.zig
++++ 2/private/tmp/claude-501/-Users-shreeve-Data-Code-rig/cd00b9f1-8a48-4d11-9781-761746a24702/scratchpad/proto/src/typecheck.zig
+@@ -115,6 +115,8 @@ const Checker = struct {
+     /// The `!x` being checked where a write borrow is expected, the one
+     /// place a write borrow of a `Bool` is not read as its value.
+     lent_write: Sexp = .nil,
++    /// PROTOTYPE (decision 6): the expression statement being checked.
++    stmt_expr: Sexp = .nil,
+     /// The argument being checked, when the call keeps no borrow of its
+     /// arguments: a temporary array there may be lent as a `[]T`.
+     lent_temp: Sexp = .nil,
+@@ -629,6 +631,9 @@ const Checker = struct {
+             try self.errAt(stmt, "only a binding is dropped with `-x`; `{s}` is dropped with what holds it, or replaced by assigning to it", .{self.sourceText(ir.Neg.operand(stmt))});
+             return;
+         }
++        const saved_stmt = self.stmt_expr;
++        self.stmt_expr = stmt;
++        defer self.stmt_expr = saved_stmt;
+         const ty = try self.synthExpr(stmt);
+         // A closure literal alone is reported by the ownership checker.
+         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
+@@ -679,6 +684,9 @@ const Checker = struct {
+             } else try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
+             return;
+         }
++        const saved_allow = allow_error_value;
++        allow_error_value = true;
++        defer allow_error_value = saved_allow;
+         try self.checkExpr(value, ret);
+     }
+ 
+@@ -6594,7 +6602,8 @@ const Checker = struct {
+             .write => {
+                 const result = self.ctx.types.get(returns);
+                 const value = if (result == .fallible) result.fallible else returns;
+-                if (value != self.t().bool_id or !self.startsNegationOperand(recv)) return false;
++                if (value != self.t().bool_id) return false;
++                if (self.stmt_expr != .nil and self.ctx.span(self.stmt_expr).start == self.ctx.span(recv).start) return false;
+                 try self.errAt(recv, "a write-borrowing call that returns `Bool` is written `(!{s}).{s}(...)`, so it is never read as negation", .{ name, method });
+             },
+             else => if (returns == self.t().bool_id) {
+@@ -7674,7 +7683,13 @@ const Checker = struct {
+                 }
+                 continue;
+             };
+-            if (!compatible(self.ctx, ty, ret)) {
++            const ok_ret = blk: {
++                const saved_allow = allow_error_value;
++                allow_error_value = true;
++                defer allow_error_value = saved_allow;
++                break :blk compatible(self.ctx, ty, ret);
++            };
++            if (!ok_ret) {
+                 // A generic call only literals typed would take the type.
+                 const hint = if (self.literalResult(ir.Return.value(site.node)) != null and sema.isNumeric(self.ctx, ret))
+                     try std.fmt.allocPrint(self.ctx.arena.allocator(), "; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})
+@@ -7897,6 +7912,9 @@ fn isBorrow(ctx: *const SemContext, ty: TypeId) bool {
+     };
+ }
+ 
++/// PROTOTYPE (decision 3): an error value meets a `T!` only as the value of `return`.
++var allow_error_value: bool = false;
++
+ /// Can a value of type `actual` be used where `expected` is required?
+ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+     if (actual == expected) return true;
+@@ -7911,7 +7929,7 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+             return compatible(ctx, actual, inner);
+         },
+         // A `T!` holds a `T`, or the error it failed with.
+-        .fallible => |inner| return compatible(ctx, actual, inner) or sema.isErrorValue(ctx, actual),
++        .fallible => |inner| return compatible(ctx, actual, inner) or (allow_error_value and sema.isErrorValue(ctx, actual)),
+         .borrow_read => |inner| if (a == .borrow_write) return a.borrow_write == inner,
+         // A `![]T` (or a `?[]T`) reads as the `[]T` it borrows.
+         .slice => switch (a) {

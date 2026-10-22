@@ -45,7 +45,7 @@ inline fn sixteenDigits(d: OpV) u64 {
 
 LOOP = r'''
     while (true) {
-        if (!((i + 16) <= rig.len(s.len))) break;
+        if (!((i + 16) <= rig.lenOf(s))) break;
         const d = rig.simdRead(OpV, s, i, rig.Endian.little) -% @as(OpV, @splat(0x30));
         if (rig.maskFirst(@NONDIGIT@)) |k| {
             if (k > 0) {

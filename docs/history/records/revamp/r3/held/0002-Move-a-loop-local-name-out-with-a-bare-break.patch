@@ -1,0 +1,206 @@
+From 3acb07a95d8047451a7f012f6458bb8cb09a4594 Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Sun, 4 Oct 2026 18:39:07 -0600
+Subject: [PATCH 2/3] Move a loop-local name out with a bare break
+
+break x of an owning name declared in the loop moves it, as return x does, before the jump runs the defers of the scopes it leaves (Core sentence 1); an outer name still takes <x. Held: the reference oracle does not model it yet (its hard gate fires on r3-s36-reads-t02_break_bare and this test).
+---
+ SPEC.md                                       |  9 +++--
+ docs/CORE.md                                  | 14 ++++---
+ src/emit.zig                                  |  2 +
+ src/ownership.zig                             | 22 ++++++++++-
+ .../ownership/break_moves_loop_local.rig      | 37 +++++++++++++++++++
+ test/reject/ownership/break_outer_name.rig    | 32 ++++++++++++++++
+ 6 files changed, 106 insertions(+), 10 deletions(-)
+ create mode 100644 test/behavior/ownership/break_moves_loop_local.rig
+ create mode 100644 test/reject/ownership/break_outer_name.rig
+
+diff --git a/SPEC.md b/SPEC.md
+index ad4b51dd..6aa5424e 100644
+--- a/SPEC.md
++++ b/SPEC.md
+@@ -2295,7 +2295,8 @@ from an inner loop) is an expression. Its value is the value of the
+ of its `else` block, which it therefore needs (only `while true` can do
+ without). Every `break` leaving it carries a value, and they and the
+ `else` value meet in one type. A `break` value is consumed like a
+-returned value: an owning binding is moved out with `<x`, and a borrow
++returned value: a name declared in the loop moves out bare (`break
++x`), an owning binding from outside the loop with `<x`, and a borrow
+ may not outlive what it borrows. The value must be used; a `break`
+ cannot carry a value out of a loop whose value is not.
+ 
+@@ -2581,8 +2582,10 @@ use of `n` after move
+ 
+ A value moves when it is passed to a parameter of owning type, bound to
+ another name, stored in a field, or returned. The move is written
+-`<x`; only a bare name returned directly (`return x`, or `x` as the
+-last expression) moves without it. After a move the name cannot be
++`<x`; only a bare name whose own scope ends with that use moves
++without it: one returned (`return x`, or `x` as a function's last
++expression), one declared in a block at the block's last value, and
++one declared in a loop that `break x` leaves with. After a move the name cannot be
+ used until it is reassigned.
+ 
+ ```rig
+diff --git a/docs/CORE.md b/docs/CORE.md
+index c6e9984f..ebe5e455 100644
+--- a/docs/CORE.md
++++ b/docs/CORE.md
+@@ -120,12 +120,14 @@ use `<c`
+ **1. A bare name only reads.** It copies plain data and read views, and
+ reads owners and handles in place. It never clones, writes, or drops,
+ and it moves only where the value leaves for good: `return x`, `break
+-x`, or `x` as the last value of a function or block. *(built* for copies,
+-`return x`, a function's last value, and reading in place: an argument
+-where a view is expected (`size(v)` for a `?Vec[Int]` parameter), and a
+-header's subject (a `for` over a `Vec`, `if o as x`, a `match` on a
+-`Box`, whose payload views are usable within their arm only, for now);
+-*planned:* a block's last value and `break x`, which take `<x` today.*)*
++x`, or `x` as the last value of a function or block. *(built:* a name
++moves bare only where its own scope ends with that use, so `return x`,
++a function's last value, a block's last value declared in the block,
++and `break x` of a name declared in the loop; an outer name takes
++`<x`. Reading in place: an argument where a view is expected
++(`size(v)` for a `?Vec[Int]` parameter), and a header's subject (a
++`for` over a `Vec`, `if o as x`, a `match` on a `Box`, whose payload
++views are usable within their arm only, for now).*)*
+ 
+ ```rig
+ fun make -> Vec[Int]
+diff --git a/src/emit.zig b/src/emit.zig
+index 1f4ba17c..d732b5b8 100644
+--- a/src/emit.zig
++++ b/src/emit.zig
+@@ -5974,6 +5974,8 @@ const Scan = struct {
+             .move => try s.consume(ir.Move.operand(sexp)),
+             .drop => try s.consume(ir.Drop.name(sexp)),
+             .@"return" => try s.consumeTail(ir.Return.value(sexp)),
++            // A loop's value leaves through its `break`s.
++            .@"break" => if (ir.Break.value(sexp) != .nil) try s.consumeTail(ir.Break.value(sexp)),
+             .@"for" => {
+                 if (ir.For.mode(sexp).tag == .move) try s.consume(ir.For.source(sexp));
+                 try s.consumeTail(sexp);
+diff --git a/src/ownership.zig b/src/ownership.zig
+index 9299a75f..a598c1c4 100644
+--- a/src/ownership.zig
++++ b/src/ownership.zig
+@@ -4263,7 +4263,14 @@ pub const Checker = struct {
+         // function: it is consumed, and it may not borrow what the loop
+         // declared.
+         if (target) |t| self.value_reads = t.reads;
+-        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
++        // A name declared inside the loop leaves its scope with the
++        // value: `break x` moves it, as `return x` does, before the
++        // scopes the jump leaves run their defers. Any other name is
++        // only read, so one that owns is written `<x`.
++        const v: Value = if (value == .nil) .{} else if (target != null and try self.breakMovesName(value, target.?.point.vars))
++            try self.moveVar(self.find(self.text(value)).?, value.src.pos, .move)
++        else
++            try self.walkConsumed(value, .brk);
+         self.value_reads = false;
+         const word = if (jump == .brk) "break" else "continue";
+         const at = self.stmtSpan(node);
+@@ -4288,6 +4295,19 @@ pub const Checker = struct {
+         self.reachable = false;
+     }
+ 
++    /// Whether `break value` moves the bare name `value` out of its
++    /// binding: one that owns, declared since the loop's entry
++    /// (`vars`), so its scope ends at this `break`.
++    fn breakMovesName(self: *Checker, value: Sexp, vars: u32) Error!bool {
++        if (value != .src) return false;
++        const id = self.boundVar(value) orelse return false;
++        if (id < vars) return false;
++        const v = self.vars.items[id];
++        if (v.closure or v.loop_borrow or v.capture_resource or v.alias_of != null or self.owningKind(v.ty) == null) return false;
++        try self.checkNoImplicitCopy(value, .brk, true);
++        return true;
++    }
++
+     /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
+     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
+         const v = try self.walk(ir.get(node, .value));
+diff --git a/test/behavior/ownership/break_moves_loop_local.rig b/test/behavior/ownership/break_moves_loop_local.rig
+new file mode 100644
+index 00000000..71b9d466
+--- /dev/null
++++ b/test/behavior/ownership/break_moves_loop_local.rig
+@@ -0,0 +1,37 @@
++# `break x` of a name declared in the loop moves it out of the loop, as
++# `return x` moves a local out of its function.
++
++struct R
++  n: Int
++
++  drop(!self)
++    print("drop", self.n)
++
++sub main
++  i = 0
++  x = while i < 3
++    r = R(n: i)
++    i += 1
++    if i == 2
++      s = R(n: 7)
++      break r
++  else
++    R(n: 99)
++  print(x.n)
++  v: Vec[R] = Vec()
++  !v.push(R(n: 10))
++  !v.push(R(n: 11))
++  y = for e in <v
++    break e if e.n == 10
++  else
++    R(n: 0)
++  print(y.n)
++
++# expect:
++# drop 0
++# drop 7
++# 1
++# drop 11
++# 10
++# drop 10
++# drop 1
+diff --git a/test/reject/ownership/break_outer_name.rig b/test/reject/ownership/break_outer_name.rig
+new file mode 100644
+index 00000000..d04c60fe
+--- /dev/null
++++ b/test/reject/ownership/break_outer_name.rig
+@@ -0,0 +1,32 @@
++# A bare `break x` moves only a name declared in the loop it leaves; a
++# name from outside it, or from an outer loop, is moved with `<x`, and a
++# `defer` that reads the name runs after it moved.
++
++struct R
++  n: Int
++
++  drop(!self)
++    print("drop", self.n)
++
++sub main
++  x = for _ in 0..2
++    r = R(n: 10)
++    y = for _ in 0..2
++      break r
++    else
++      R(n: 0)
++    break y
++  else
++    R(n: 1)
++  i = 0
++  z = while i < 3
++    q = R(n: i)
++    defer print("defer", q.n)
++    i += 1
++    break q if i == 2
++  else
++    R(n: 99)
++  print(x.n, z.n)
++
++# error: 15:13: bare use of `R` value `r` in `break` value would alias an owning value
++# error: 24:26: use of `q` after move
+-- 
+2.55.0
+
