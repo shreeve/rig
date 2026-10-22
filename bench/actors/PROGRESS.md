@@ -17,6 +17,7 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-20 | #391: actor failure | rig-fast | 5.9 ns | 42 ns | 1.3 ns |
 | 2026-10-20 | #392: supervised actors | rig-fast | 5.0 ns | 33 ns | 1.0 ns |
 | 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 5.0 ns | 34 ns | 0.9 ns |
+| 2026-10-21 | #535: interrupts cancel main | rig-fast | 5.0 ns | 29 ns | 0.9 ns |
 
 ## x86-64 (pup)
 
@@ -32,3 +33,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-20 | #391: actor failure | rig-fast | 12 ns | 31 ns | 1.8 ns |
 | 2026-10-20 | #392: supervised actors | rig-fast | 14 ns | 34 ns | 2.3 ns |
 | 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 17 ns | 38 ns | 2.2 ns |
+| 2026-10-21 | #535: interrupts cancel main | rig-fast | 14 ns | 30 ns | 1.8 ns |
