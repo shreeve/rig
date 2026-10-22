@@ -205,6 +205,9 @@ changed the language since it:
   works in a generic body on a `[]T` through the APIs a type gives, and
   a closure written at the call is inlined in a release build, as fast
   as the loop written out (docs/STD.md, "reduce").
+- **A match on an element:** `match v[0]` with an arm that reads no
+  binding, such as `_ => 1`, compiles for Lists and Tables, as a value
+  and as a statement; it failed in the Zig it emitted.
 - **Tables:** `Table[T, n]` holds `n` slots from the moment it is made,
   each `T()` until written, and a `Slot[n]` is a number below `n` that
   only `push`, `Slot[n].of(i)`, and a literal below `n` make, so `t[s]`
