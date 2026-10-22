@@ -331,6 +331,13 @@ first step is on `main` (SPEC §18):
   16 MiB with 413, closes a connection idle 60 s or a request head
   slower than 10 s, and pauses accepting when out of descriptors
   (docs/STD.md, std.http).
+- **Waking a task wakes no other worker** when the worker that woke it
+  runs it next, or the waker's next yield check hands it on
+  (`sched.wake`): two tasks that answer each other over a socket stay
+  on one worker, with no system call to wake another, and fork-join
+  (`t = f()&; g(); >t`) spreads at `g`'s first yield check. The worker
+  watching busy workers' pollers keeps the watch while they wake, so
+  they kick no one as they do (`sched.sleepIn`).
 - **Channels:** `*Chan[T](n)` sends and receives between tasks, and
   `task.select` commits exactly one of its arms (`tasks.Chan`,
   `selectArms`). `task.supervise(f, restarts:, per:)` runs a
