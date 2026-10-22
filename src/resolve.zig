@@ -3332,9 +3332,9 @@ pub fn simdInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!Type
 
 /// `Slot[n]`, spelled at `pos`: a number below `n`, a type of its own
 /// kind (`Type.slot`), not a generic instance. A known `n` is at least 1;
-/// a compile-time parameter `n` makes a type whose values only a table
-/// of `n` slots, which each instance checks, or `of`, makes. Poison
-/// after a diagnostic.
+/// a compile-time parameter `n` is checked at each instance
+/// (`Requirement.slot_count`), so every slot is below a count that has
+/// slots. Poison after a diagnostic.
 pub fn slotInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!TypeId {
     if (args.len != 1 or sema.containsPoison(ctx, args[0])) return ctx.types.invalid_id;
     switch (ctx.types.get(args[0])) {
@@ -3342,7 +3342,7 @@ pub fn slotInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!Type
             try ctx.err(pos, "a `Slot` names one of `n` slots; `n` is at least 1 and at most {d}; got {d}", .{ sema.max_slot_count, v.int });
             return ctx.types.invalid_id;
         },
-        .ct_param => {},
+        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .slot_count, .pos = pos, .op = "a slot count" }),
         else => return ctx.types.invalid_id,
     }
     return ctx.intern(.{ .slot = args[0] });
@@ -3383,6 +3383,8 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
 /// each instantiation.
 fn tableElementError(ctx: *SemContext, args: []const TypeId) Error!?[]const u8 {
     if (args.len != 2 or sema.containsTypeVar(ctx, args[0]) or sema.containsTypeVar(ctx, args[1])) return null;
+    // A poison argument was reported where it was made.
+    if (sema.containsPoison(ctx, args[0]) or sema.containsPoison(ctx, args[1])) return null;
     const a = ctx.arena.allocator();
     const n: u64 = switch (ctx.types.get(args[1])) {
         .ct_value => |v| if (v.int < 1 or v.int > sema.max_slot_count)

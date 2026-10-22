@@ -1091,6 +1091,12 @@ pub const Facts = struct {
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `t[s]` index nodes of a table that a write reaches: assigned, lent
+    /// to write, written through, or taken from (`Checker.requireAccess`).
+    /// Every other slot is read, and is reached read-only, so a table
+    /// held as it is written never grows for a read
+    /// (`SemContext.recordTableWrite`).
+    table_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
@@ -2117,6 +2123,10 @@ pub const Requirement = union(enum) {
     /// A power of two from 2 to 64: the body uses the value parameter as
     /// a vector's lane count (`Simd[T, n]`).
     lane_count,
+    /// A count from 1 to `max_slot_count`: the body names `Slot[n]` with
+    /// the value parameter, so every slot of the instance is below a
+    /// count that has slots.
+    slot_count,
     /// Holds no vector inline (`holdsVector`): the body takes the size or
     /// alignment of a type that holds the parameter by value.
     sized,
@@ -2157,6 +2167,7 @@ pub const Requirement = union(enum) {
             .no_cleanup => "a value that owns no resource",
             .array_len => "an array length",
             .lane_count => "a lane count",
+            .slot_count => "a slot count",
             .sized => "a size or alignment",
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
@@ -3117,6 +3128,15 @@ pub const SemContext = struct {
 
     pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
         return self.facts.enum_texts.contains(nodeKey(node) orelse return false);
+    }
+
+    pub fn recordTableWrite(self: *SemContext, node: Sexp) !void {
+        try self.facts.table_writes.put(self.allocator, recordKey(node), {});
+    }
+
+    /// Whether `t[s]`, a table's slot, is written (`table_writes`).
+    pub fn isTableWrite(self: *const SemContext, node: Sexp) bool {
+        return self.facts.table_writes.contains(nodeKey(node) orelse return false);
     }
 
     /// The program calls `E.from_text` on plain enum `decl`, so its
@@ -6380,6 +6400,9 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
         inline .read_view, .write_view, .shared, .weak, .optional, .fallible, .range, .callable, .slot => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
+            // A count with no slots is reported where the instance is made
+            // (`Requirement.slot_count`); the slot type is poison.
+            if (tag == .slot and ctx.types.get(new_inner) == .ct_value and slotCount(ctx, new_inner) == null) return ctx.types.invalid_id;
             return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
         },
         .slice => |s| {

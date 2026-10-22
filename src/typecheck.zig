@@ -2079,6 +2079,7 @@ const Checker = struct {
     /// from must be one that may change (`requireBinding`). A diagnostic
     /// with no better position is at `at`. False after a diagnostic.
     fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
+        try self.recordTableWrites(place.node);
         const verb = access.verb();
         if (place.blocked) |b| {
             const through: Verb = if (access == .assign) .{ .head = "assign" } else verb;
@@ -2137,6 +2138,18 @@ const Checker = struct {
         // so the binding that holds it need not be writable.
         if (access == .lend_write and self.handle_exempt and place.steps == 0 and self.lendsHandle(place)) return true;
         return self.requireBinding(place, access);
+    }
+
+    /// Every slot of a table on the path of place `e`, which a write
+    /// reaches: reached to write (`SemContext.recordTableWrite`), where any
+    /// other slot is reached read-only.
+    fn recordTableWrites(self: *Checker, e: Sexp) Error!void {
+        var p = stripSigil(e);
+        while (p.isKind(.member) or p.isKind(.index)) : (p = ir.get(p, .object)) {
+            if (!p.isKind(.index)) continue;
+            const ty = self.ctx.typeOf(ir.get(p, .object)) orelse continue;
+            if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, ty)) != null) try self.ctx.recordTableWrite(p);
+        }
     }
 
     /// Whether the binding `place` starts from may be written: a
@@ -17687,6 +17700,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
                 .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
                 .lane_count => try ctx.err(at, cannot ++ "uses `{s}` as a lane count, a power of two from 2 to 64", .{ inst, pname, aname, pname }),
+                .slot_count => try ctx.err(at, cannot ++ "names `Slot[{s}]`, and a slot names one of `n` slots, `n` at least 1", .{ inst, pname, aname, pname }),
                 .sized => try ctx.err(at, cannot ++ "takes `${s}` of a type that holds a `{s}`, and `{s}` holds a vector, whose size and alignment differ from target to target", .{ inst, pname, aname, req.op, pname, aname }),
                 .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
@@ -17709,6 +17723,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .copies, .no_cleanup => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .lane_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a lane count here", .{pname}),
+                .slot_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a slot count here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
@@ -17879,7 +17894,7 @@ fn apiOf(req: Requirement) ?sema.Api {
         .hashable => .Hash,
         .copies, .no_cleanup => .Copy,
         .printable => .Print,
-        .float, .fits, .shift, .array_len, .lane_count, .sized, .not_error, .not_function, .named => null,
+        .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .not_function, .named => null,
     };
 }
 
@@ -18056,6 +18071,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             .ct_value => |v| sema.lanesInRange(v.int),
             else => false,
         },
+        .slot_count => sema.slotCount(ctx, ty) != null,
         .sized => !sema.holdsVector(ctx, ty),
         .array_len => switch (ctx.types.get(ty)) {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,

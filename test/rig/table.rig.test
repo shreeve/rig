@@ -413,3 +413,23 @@ test "table in a generic object holds its instance's element", '''
   print(a.items[500], b.items[500].x)
   w: Table[Wrap[String], 4] = Table()
   print(w[3].n, w[3].items.len)
+
+fail "table no slot of no slots through a generic element", "`z[0]` cannot use `n = 0`: the generic body names `Slot[n]`"
+  # Every `Slot[n]` is below `n`: a count with no slots is rejected
+  # wherever an instance names it, here in a table's element.
+  fun z[n: Int]() -> Int
+    t = Table[Slot[n], 4]()
+    s: Slot[4] = 2
+    Int(t[s])
+
+  print(z[0]())
+
+code "table a match subject is reached read-only", "w.constSlot(ws)", /^(?![\s\S]*w\.slot\()/
+  # Only a slot a write reaches is reached to write (`slot`): a table
+  # held as it is written never grows for a read.
+  w: Table[String, 4] = Table()
+  ws = (!w).push(String("ab"))
+  c = match w[ws]
+    "ab" => 1
+    x => x.len
+  print(c)

@@ -438,6 +438,11 @@ pub const Facts = struct {
     pub fn isErrorMember(f: Facts, node: Sexp) bool {
         return f.c().isErrorMember(node);
     }
+    /// Whether a table's slot `t[s]` is written, so reached to write
+    /// (`slot`), not read-only (`constSlot`).
+    pub fn isTableWrite(f: Facts, node: Sexp) bool {
+        return f.c().isTableWrite(node);
+    }
     pub fn isEnumText(f: Facts, node: Sexp) bool {
         return f.c().isEnumText(node);
     }

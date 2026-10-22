@@ -58,6 +58,27 @@ expect_eq "$got" "$want" "a reserved table"
 got=$(RIG_TABLE_FALLBACK=1 rig run same.rig 2>&1) || fail "same, committed: $got"
 expect_eq "$got" "$want" "a committed table"
 
+cat >matched.rig <<'EOF2'
+sub main()
+  t: Table[Int, 100000] = Table()
+  s = (!t).push(4)
+  w: Table[String, 4] = Table()
+  ws = (!w).push(String("ab"))
+  if Slot[100000].of(99999) as far
+    a = match t[far]
+      0 => 10
+      n => n
+    b = match t[s]
+      4 => 40
+      n => n
+    c = match w[ws]
+      "ab" => 1
+      x => x.len
+    print(a, b, c, t.len)
+EOF2
+got=$(RIG_TABLE_FALLBACK=1 rig run matched.rig 2>&1) || fail "matched, committed: $got"
+expect_eq "$got" "10 40 1 1" "a match on a committed table's slots"
+
 cat >noproofs.rig <<'EOF2'
 sub main()
   t: Table[Int, 64] = Table()

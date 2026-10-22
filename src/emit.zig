@@ -5621,7 +5621,9 @@ pub const Emitter = struct {
         // is made (`no_proofs`); by an integer, tested against `n`.
         if (held_ty != null and self.facts.tableElem(self.peelViews(held_ty.?)) != null) {
             try self.emitIndexBase(base, base_ty, .expr);
-            const method = if (!in_place) "at" else if (self.read_place or !as_place or self.throughReadView(base)) "constSlot" else "slot";
+            // A slot a write reaches is reached to write; every other is
+            // read-only, so a table held as written never grows for a read.
+            const method = if (!in_place) "at" else if (self.facts.isTableWrite(sexp)) "slot" else "constSlot";
             const by_slot = if (self.typeOf(index)) |t| self.facts.types.get(t) == .slot else false;
             try self.w.print(".{s}{s}(", .{ method, if (by_slot and !self.no_proofs) "" else "Int" });
             self.place_chain = false;

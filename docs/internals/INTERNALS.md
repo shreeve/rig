@@ -2438,7 +2438,9 @@ one member is `push(!@, T) -> Slot[n]`, and typing knows `len`, `t[s]`
 (`Checker.checkTableConstruction`). A slot is a type of its own kind,
 `Type.slot`, whose operand is the count (`ct_value`, or `ct_param` in a
 generic body), made by `resolve.slotInstance` wherever `Slot[n]` is
-written; `holdsIn` gives it `plain`, `isCopyPrimitive` and
+written, which checks a known count and records `Requirement.slot_count`
+for a parameter, so every instance's slots are below a count of at least
+1 (a substitution to a count out of range is poison); `holdsIn` gives it `plain`, `isCopyPrimitive` and
 `copiedByReadView` take it, and `ordLack` orders it, so it copies,
 compares, hashes, and prints as an integer with no rule of its own. It
 is not numeric (`sema.isNumeric`): no arithmetic, no conversion to it,
@@ -2463,7 +2465,12 @@ generic body's `Table[T, n]` is held as its instance's `T` says.
 The table owns its slots' memory (`symbolContents` gives it glue,
 `isHeapBuiltin` puts its slots behind it), so its slots are places
 behind the table as a List's elements are, and `push` is a write call
-on it. It is not cloned (`deepCloneable`), and it is no field's default
+on it. Which slots are written is a fact: `Checker.requireAccess`, which
+every write of a place passes, records each table index on the written
+place's path (`recordTableWrite`), and emit reaches those with `slot` and
+every other slot with `constSlot` or `at` (`Facts.isTableWrite`), so a
+table held as it is written never grows for a read. It is not cloned
+(`deepCloneable`), and it is no field's default
 (`Checker.checkDefaultValue`): a Zig field default is a constant, and a
 table is made as the program runs.
 
