@@ -18,6 +18,8 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-20 | #392: supervised actors | rig-fast | 5.0 ns | 33 ns | 1.0 ns |
 | 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 5.0 ns | 34 ns | 0.9 ns |
 | 2026-10-21 | #535: interrupts cancel main | rig-fast | 5.0 ns | 29 ns | 0.9 ns |
+| 2026-10-22 | main before #541, interleaved | rig-fast | 5.1 ns | 30 ns | 0.9 ns |
+| 2026-10-22 | #541: a run-next fill wakes no worker | rig-fast | 5.0 ns | 33 ns | 1.0 ns |
 
 ## x86-64 (pup)
 
@@ -34,3 +36,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-20 | #392: supervised actors | rig-fast | 14 ns | 34 ns | 2.3 ns |
 | 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 17 ns | 38 ns | 2.2 ns |
 | 2026-10-21 | #535: interrupts cancel main | rig-fast | 14 ns | 30 ns | 1.8 ns |
+| 2026-10-22 | main before #541, interleaved (pup cores 8,9) | rig-fast | 13 ns | 17 ns | 12 ns |
+| 2026-10-22 | #541: a run-next fill wakes no worker (pup cores 8,9) | rig-fast | 11 ns | 14 ns | 10 ns |

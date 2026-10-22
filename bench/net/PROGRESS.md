@@ -13,6 +13,8 @@ moves up into its table).
 | 2026-10-20 | reference | go | 16.01 us | 5.68 us | 58.58 us |
 | 2026-10-20 | #396: std.net | rig-fast | 14.79 us | 5.98 us | 57.29 us |
 | 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 14.55 us | 5.71 us | 52.38 us |
+| 2026-10-22 | main before #541, interleaved | rig-fast | 19.71 us | 5.85 us | 51.37 us |
+| 2026-10-22 | #541: a run-next fill wakes no worker | rig-fast | 16.17 us | 5.97 us | 56.74 us |
 
 ## x86-64 (pup)
 
@@ -25,3 +27,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-20 | reference | go | 5.90 us | 949 ns | 49.63 us |
 | 2026-10-20 | #396: std.net | rig-fast | 4.81 us | 1.10 us | 25.86 us |
 | 2026-10-20 | #405: free tasks run on any worker again | rig-fast | 4.82 us | 1.01 us | 25.51 us |
+| 2026-10-22 | main before #541, interleaved (pup cores 8,9) | rig-fast | 6.98 us | 3.97 us | 31.04 us |
+| 2026-10-22 | #541: a run-next fill wakes no worker (pup cores 8,9) | rig-fast | 4.92 us | 3.94 us | 29.60 us |
