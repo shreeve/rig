@@ -488,6 +488,7 @@ pub const Emitter = struct {
             .@"struct" => try self.emitStruct(sexp),
             .@"enum" => try self.emitEnum(sexp),
             .errors => try self.emitErrorSet(sexp),
+            .error_join => try self.emitErrorJoin(sexp),
             .generic_struct => try self.emitGenericStruct(sexp),
             .generic_enum => try self.emitGenericEnum(sexp),
             .type => try self.emitTypeAlias(sexp),
@@ -849,6 +850,19 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
         };
         try self.w.writeAll("};\n");
+    }
+
+    /// `error L = A | B`: the Zig sets merged, `A || B`.
+    fn emitErrorJoin(self: *Emitter, node: Sexp) Error!void {
+        const sym = self.facts.symbolOf(ir.ErrorJoin.name(node)) orelse return self.unsupported(node, "an unresolved union of error sets");
+        try self.w.print("pub const {f} = ", .{ident(self.srcText(ir.ErrorJoin.name(node)))});
+        const parts = self.facts.symbols.items[sym].error_parts orelse &.{};
+        if (parts.len == 0) try self.w.writeAll("error{}");
+        for (parts, 0..) |part, i| {
+            if (i > 0) try self.w.writeAll(" || ");
+            try self.emitTypeTy(part);
+        }
+        try self.w.writeAll(";\n");
     }
 
     /// Member `name` of error set `set` as a Zig error value.
@@ -3483,6 +3497,15 @@ pub const Emitter = struct {
                         prelude = try self.ownedParts(&.{if (named) pattern else .nil}, &.{.{ .expr = whole }}, .nil);
                     },
                 }
+            } else if (pattern.isKind(.set_pattern)) {
+                // `g: E =>`: `g` is the prong's capture, which Zig gives
+                // the set of the members the prong lists, a subset of `E`.
+                try self.writePatternHead(pattern, info);
+                try self.w.writeAll(" => ");
+                const name = ir.SetPattern.name(pattern);
+                const cap = try self.fmt("__rig_set_{d}", .{name.src.pos});
+                prelude.aliases = try self.wholeAlias(name, cap, ir.Arm.body(arm));
+                if (prelude.aliases.len > 0) try self.w.print("|{s}| ", .{cap});
             } else {
                 try self.writePatternHead(pattern, info);
                 try self.w.writeAll(" => ");
@@ -3678,6 +3701,17 @@ pub const Emitter = struct {
             }
             return;
         }
+        // `g: E =>`: each member of every set `E` stands for.
+        if (pattern.isKind(.set_pattern)) {
+            const set = self.typeOf(pattern) orelse return self.unsupported(pattern, "an untyped set pattern");
+            const members = try self.facts.errorSetMembers(set, self.arena.allocator());
+            for (members, 0..) |m, i| {
+                if (i > 0) try self.w.writeAll(", ");
+                try self.w.writeAll("error.");
+                try writeErrorName(self.w, m.facts, m.set, m.name);
+            }
+            return;
+        }
         if (pattern.isKind(.enum_lit) and info.error_set) {
             // Sema gave `.name` against an error the type of its set.
             return self.writeError(self.typeOf(pattern) orelse return self.unsupported(pattern, "an untyped error"), self.srcText(ir.EnumLit.name(pattern)), pattern);
@@ -3838,6 +3872,18 @@ pub const Emitter = struct {
             const b = try self.rangeBounds(pattern);
             return self.w.print("({s} >= {d} and {s} <= {d})", .{ subj, b[0], subj, b[1] });
         }
+        if (pattern.isKind(.set_pattern)) {
+            const set = self.typeOf(pattern) orelse return self.unsupported(pattern, "an untyped set pattern");
+            const members = try self.facts.errorSetMembers(set, self.arena.allocator());
+            if (members.len == 0) return self.w.writeAll("false");
+            try self.w.writeAll("(");
+            for (members, 0..) |m, i| {
+                if (i > 0) try self.w.writeAll(" or ");
+                try self.w.print("{s} == error.", .{subj});
+                try writeErrorName(self.w, m.facts, m.set, m.name);
+            }
+            return self.w.writeAll(")");
+        }
         // A string compares with the subject's bytes.
         if (pattern == .src and facts.syntax.isStringLiteralText(self.srcText(pattern))) {
             try self.w.print("rig.textIs({s}, ", .{subj});
@@ -3905,6 +3951,19 @@ pub const Emitter = struct {
             if (std.mem.eql(u8, self.srcText(pattern), "_")) return .{};
             return .{ .aliases = try self.wholeBinding(pattern, subj, info, body) };
         }
+        // `g: E =>`: `g` is the subject as an `E`, which the arm's test
+        // checked it is.
+        if (pattern.isKind(.set_pattern)) {
+            const set = self.typeOf(pattern) orelse return .{};
+            var buf: Writer.Allocating = .init(self.arena.allocator());
+            const saved_w = self.w;
+            self.w = &buf.writer;
+            defer self.w = saved_w;
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(set);
+            try self.w.print(", @errorCast({s}))", .{subj});
+            return .{ .aliases = try self.wholeAlias(ir.SetPattern.name(pattern), buf.written(), body) };
+        }
         if (!pattern.isKind(.variant_pattern)) return .{};
         const vname = self.srcText(ir.VariantPattern.name(pattern));
         const captures = self.facts.payloadBindings(pattern) orelse return .{};
@@ -3966,7 +4025,7 @@ pub const Emitter = struct {
         optional: ?OptionalBinding = null,
         lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
-        err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
+        err_capture: ?struct { zig_name: []const u8, tmp: []const u8, ty: TypeId } = null,
         /// The results `if f() as a, b` captures as `tmp`, which its names
         /// take (`emitResultsHead`).
         results: ?struct { cond: Sexp, tmp: []const u8 } = null,
@@ -4075,7 +4134,13 @@ pub const Emitter = struct {
         }
         if (prelude.optional) |o| try self.bindOptionalResource(o);
         if (prelude.lent) |o| try self.bindOptionalView(o);
-        if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
+        // The callee's set: `anyerror` for a `T!`, the set a `T!E` names.
+        if (prelude.err_capture) |c| {
+            try self.writeIndent(self.indent);
+            try self.w.print("const {s}: ", .{c.zig_name});
+            try self.emitTypeTy(c.ty);
+            try self.w.print(" = {s};\n", .{c.tmp});
+        }
         if (prelude.results) |r| try self.bindResults(r.cond, r.tmp);
     }
 
@@ -4929,7 +4994,7 @@ pub const Emitter = struct {
     /// The type a fallible `ty` succeeds with; any other type itself.
     fn unwrapFallible(self: *Emitter, ty: TypeId) TypeId {
         return switch (self.facts.types.get(ty)) {
-            .fallible => |inner| inner,
+            .fallible => |inner| inner.ok,
             else => ty,
         };
     }
@@ -5299,8 +5364,8 @@ pub const Emitter = struct {
             },
             .@"catch" => {
                 // `(catch expr name? handler)`: the handler replaces the
-                // value. A named error is held as `anyerror`, so it
-                // compares and matches with any error value.
+                // value. A named error is held as the callee's set:
+                // `anyerror` for a `T!`.
                 const handler = ir.Catch.handler(sexp);
                 if (self.catchGivesNothing(sexp)) return self.emitCatchStatement(sexp);
                 // Where the handler is a `T?` and the value a `T!`, the
@@ -5322,9 +5387,9 @@ pub const Emitter = struct {
                     const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
-                    const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
+                    const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id }, self.srcText(name));
                     if (some_handler) try self.w.writeAll("rig.some(");
-                    try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } }, self.typeOf(sexp));
+                    try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id } }, self.typeOf(sexp));
                     if (some_handler) try self.w.writeAll(")");
                     try self.popScope();
                 } else {
@@ -5369,7 +5434,7 @@ pub const Emitter = struct {
         if (self.typeOf(sexp) != self.facts.types.void_id) return false;
         const value_ty = self.typeOf(ir.Catch.value(sexp)) orelse return false;
         return switch (self.facts.types.get(value_ty)) {
-            .fallible => |inner| inner != self.facts.types.void_id,
+            .fallible => |inner| inner.ok != self.facts.types.void_id,
             else => false,
         };
     }
@@ -5390,8 +5455,8 @@ pub const Emitter = struct {
             const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
             try self.pushScope();
-            const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
-            try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } }, self.facts.types.void_id);
+            const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id }, self.srcText(name));
+            try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id } }, self.facts.types.void_id);
             try self.popScope();
         } else {
             try self.w.writeAll("|_| ");
@@ -5483,6 +5548,15 @@ pub const Emitter = struct {
             try self.emitExpr(operands[i]);
             return self.w.writeAll(")");
         };
+        // `x == K.name`, a member test: which variant `x` holds.
+        if (is_eq and self.facts.isMemberTest(sexp)) {
+            const i: usize = if (operands[1].isKind(.member)) 1 else 0;
+            const temp = try self.dropsWhenTested(operands[1 - i]);
+            if (kind == .@"!=") try self.w.writeAll("!");
+            try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
+            try self.emitExpr(operands[1 - i]);
+            return self.w.print(", .{f})", .{ident(self.srcText(ir.Member.name(operands[i])))});
+        }
         if (is_eq and self.comparesStructurally(operands)) {
             if (kind == .@"!=") try self.w.writeAll("!");
             return self.emitCall2("rig.eql(", operands, ")");
@@ -6068,8 +6142,8 @@ pub const Emitter = struct {
                     const tmp = try self.hiddenStorage(e, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
-                    const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
-                    try self.emitYieldBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } }, ty, .leaf_ptr);
+                    const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id }, self.srcText(name));
+                    try self.emitYieldBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = self.symType(sym.?) orelse self.facts.types.any_error_id } }, ty, .leaf_ptr);
                     try self.popScope();
                 } else {
                     try self.w.writeAll("|_| ");
@@ -6163,7 +6237,7 @@ pub const Emitter = struct {
         // A payload copied out of the view it is gives the value it views.
         if (self.facts.copiesPayload(e)) return if (self.facts.payloadViewed(held) == inner) result else null;
         return switch (self.facts.types.get(held)) {
-            .fallible => |payload| if (payload == inner) result else null,
+            .fallible => |payload| if (payload.ok == inner) result else null,
             else => null,
         };
     }
@@ -7541,7 +7615,7 @@ pub const Emitter = struct {
             self.lifting = e;
             const levels = if (lift.from == decl.types.none_id) 1 else optionalDepth(decl.types, lift.into) -| optionalDepth(decl.types, lift.from);
             var into = target;
-            while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible;
+            while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible.ok;
             const opened = try self.openPacks(into, levels);
             try self.emitDefault(decl, e, target);
             for (0..opened) |_| try self.w.writeAll(")");
@@ -8498,10 +8572,13 @@ pub const Emitter = struct {
                 try self.w.writeAll("?");
                 try self.emitTypeTy(inner);
             },
-            // Rig functions do not declare their errors.
-            .fallible => |inner| {
-                try self.w.writeAll("anyerror!");
-                try self.emitTypeTy(inner);
+            // `T!` is any error; `T!E` the Zig set `E` names.
+            .fallible => |f| {
+                if (f.set == self.facts.types.any_error_id) try self.w.writeAll("anyerror!") else {
+                    try self.emitTypeTy(f.set);
+                    try self.w.writeAll("!");
+                }
+                try self.emitTypeTy(f.ok);
             },
             .read_view => |inner| {
                 if (ctx.callableFn(ty)) |f| return self.emitCallableTy("FnRef", f);

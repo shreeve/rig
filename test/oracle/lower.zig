@@ -476,7 +476,8 @@ const Lowerer = struct {
         if (self.ctx.types.get(inner) == .slice) return ty;
         var value = result;
         while (true) switch (self.ctx.types.get(value)) {
-            .optional, .fallible => |i| value = i,
+            .optional => |i| value = i,
+            .fallible => |i| value = i.ok,
             else => break,
         };
         if (self.isRef(value) or self.ctx.types.get(value) == .slice) return ty;
@@ -2601,7 +2602,8 @@ const Lowerer = struct {
     fn holdsCallable(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
             .function, .callable => true,
-            .optional, .fallible, .read_view, .write_view, .shared, .weak => |inner| self.holdsCallable(inner),
+            .optional, .read_view, .write_view, .shared, .weak => |inner| self.holdsCallable(inner),
+            .fallible => |inner| self.holdsCallable(inner.ok),
             else => false,
         };
     }
@@ -3615,7 +3617,8 @@ const Lowerer = struct {
     /// any other type passes.
     fn plainInstance(self: *Lowerer, ty: TypeId) Error!void {
         switch (self.ctx.types.get(ty)) {
-            .read_view, .write_view, .shared, .weak, .optional, .fallible => |inner| return self.plainInstance(inner),
+            .read_view, .write_view, .shared, .weak, .optional => |inner| return self.plainInstance(inner),
+            .fallible => |inner| return self.plainInstance(inner.ok),
             .results => |rs| for (rs) |r| try self.plainInstance(r),
             .parameterized_nominal => |pn| {
                 if (sema.isBuiltinGeneric(self.ctx, pn.sym)) {

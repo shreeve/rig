@@ -261,9 +261,11 @@ has it, here `Config`. An error from another module is named through
 the module, `text.ParseError.invalid`. An error belongs to its set, so
 `Config.missing` and another set's `missing` are different errors.
 
-The `_` arm is required. A function does not declare which sets it
-fails with, so `e` may be any error, and no list of arms names them
-all:
+The `_` arm is required here. `value_of` is declared `-> Int!`, which
+may fail with any error, so `e` may be any error, and no list of arms
+names them all. A function that names its set, `-> Int!Config`, gives
+`e` that set, and a `match` that names every member needs no `_`
+([SPEC §13](../../SPEC.md), "Declared sets and fields"):
 
 ```rig reject
 error Config

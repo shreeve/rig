@@ -500,6 +500,7 @@ const Checker = struct {
                 try self.checkFunction(sexp, fn_ty);
             },
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.checkNominal(sexp),
+            .error_join => try self.checkErrorJoin(sexp),
             .@"test" => {
                 try self.checkEscapes(ir.Test.name(sexp));
                 const prev_scope = self.enter(sexp);
@@ -614,6 +615,44 @@ const Checker = struct {
     }
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
+
+    /// `error L = A | B`: no part joins `L` again, directly or through
+    /// another union, so `L` stands for a finite list of sets.
+    fn checkErrorJoin(self: *Checker, node: Sexp) Error!void {
+        const name = ir.ErrorJoin.name(node);
+        const sym = self.ctx.symbolOf(name) orelse return;
+        const self_ty = try self.ctx.intern(.{ .nominal = sym });
+        for (ir.ErrorJoin.members(node)) |m| {
+            const shown = if (m == .src) self.text(m) else try self.plainText(m);
+            try self.errAt(m, "a union of error sets lists no members of its own; declare a set for `{s}` and join it", .{shown});
+        }
+        const parts = self.ctx.symbols.items[sym].error_parts orelse return;
+        for (ir.ErrorJoin.parts(node).items(), 0..) |part_node, i| {
+            if (i >= parts.len) break;
+            const part = parts[i];
+            if (part == self_ty) {
+                try self.errAt(part_node, "`{s}` joins itself: a union joins other sets", .{self.text(name)});
+                continue;
+            }
+            if (sema.isErrorUnion(self.ctx, part) and try self.unionReaches(part, sym, 0)) {
+                try self.errAt(part_node, "`{s}` joins itself through `{s}`: a union joins other sets", .{ self.text(name), try self.tyName(part) });
+            }
+        }
+    }
+
+    /// Whether union `ty` joins union `target` of this module, at any
+    /// depth.
+    fn unionReaches(self: *Checker, ty: TypeId, target: SymbolId, depth: u32) Error!bool {
+        if (depth > 32) return true;
+        const d = sema.nominalDecl(self.ctx, ty) orelse return false;
+        const parts = d.symbol().error_parts orelse return false;
+        for (parts) |part| {
+            const pd = sema.nominalDecl(d.ctx, part) orelse continue;
+            if (pd.ctx == self.ctx and pd.sym == target) return true;
+            if (pd.symbol().error_parts != null and pd.ctx == self.ctx and try self.unionReaches(part, target, depth + 1)) return true;
+        }
+        return false;
+    }
     const discard_read = "`_` discards a value; it cannot be read";
     const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(...)`";
 
@@ -662,7 +701,7 @@ const Checker = struct {
         const is_main = self.ctx.is_root and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
         // It returns nothing, or the process's exit status (`-> Int`, or
         // `-> Int!`).
-        const status = ret == self.t().int_id or (self.ctx.types.get(ret) == .fallible and self.ctx.types.get(ret).fallible == self.t().int_id);
+        const status = ret == self.t().int_id or (self.ctx.types.get(ret) == .fallible and self.ctx.types.get(ret).fallible.ok == self.t().int_id);
         if (is_main and ((!is_sub and !status) or ir.get(node, .params).items().len > 0 or sema.tparamsOf(node).items().len > 0)) {
             try self.errAt(name, "`main` must be `sub main()`, or `fun main() -> Int` returning the exit status (`-> Int!` if it may fail): the program's entry point takes no parameters", .{});
         }
@@ -689,7 +728,7 @@ const Checker = struct {
         const r = self.ctx.types.get(ret);
         if (ret == self.t().void_id) {
             try self.errAt(returns, "a `fun` returning nothing is a `sub`: `sub {s}(...)`", .{name});
-        } else if (r == .fallible and r.fallible == self.t().void_id) {
+        } else if (r == .fallible and r.fallible.ok == self.t().void_id) {
             try self.errAt(returns, "a `fun` that returns nothing but may fail is a fallible `sub`: `sub {s}(...)!`", .{name});
         }
     }
@@ -811,7 +850,7 @@ const Checker = struct {
         // A `Void!` function has no value to end with: its last statement
         // may be any statement.
         const ends_void = switch (self.ctx.types.get(ret)) {
-            .fallible => |inner| inner == self.t().void_id,
+            .fallible => |inner| inner.ok == self.t().void_id,
             else => false,
         };
         for (stmts, 0..) |s, i| {
@@ -984,7 +1023,7 @@ const Checker = struct {
                 defer self.body.loops = frame.parent;
                 try self.checkStmt(inner);
             },
-            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .@"test", .@"pub" => {
+            .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
             },
             else => try self.checkExprStmt(stmt),
@@ -2417,7 +2456,7 @@ const Checker = struct {
             if (callee.isKind(.member) and sameNode(ir.Member.object(callee), recv)) return true;
         };
         const result = self.ctx.types.get(returns);
-        const value = if (result == .fallible) result.fallible else returns;
+        const value = if (result == .fallible) result.fallible.ok else returns;
         return value != self.t().void_id and !self.isDiscardedCall(recv);
     }
 
@@ -2619,7 +2658,7 @@ const Checker = struct {
             const saved_matching = self.matching;
             defer self.matching = saved_matching;
             self.matching = node;
-            var cov: MatchCoverage = .{ .variant_total = sema.enumVariantCount(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) };
+            var cov: MatchCoverage = .{ .variant_total = try self.variantTotal(sema.unwrapViews(self.ctx, scrutinee)) };
             defer cov.deinit(self.ctx.allocator);
             try self.checkPattern(pattern, scrutinee, &cov, mode);
         }
@@ -3453,7 +3492,7 @@ const Checker = struct {
         if (scrutinee == self.t().int_literal_id) try self.defaultIntLiteral(subject);
         const matchable = isText(self.ctx, scrutinee) or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
             .int, .int_literal, .bool, .symbol, .invalid, .unknown, .any_error => true,
-            .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null,
+            .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null or sema.isErrorUnion(self.ctx, sema.unwrapViews(self.ctx, scrutinee)),
             else => false,
         };
         return .{ .mode = mode, .scrutinee = scrutinee, .hands = subject_hands, .pos = scrut_pos, .matchable = matchable };
@@ -3486,7 +3525,7 @@ const Checker = struct {
         const saved_matching = self.matching;
         defer self.matching = saved_matching;
         self.matching = node;
-        var cov: MatchCoverage = .{ .variant_total = sema.enumVariantCount(self.ctx, sema.unwrapViews(self.ctx, scrutinee)) };
+        var cov: MatchCoverage = .{ .variant_total = try self.variantTotal(sema.unwrapViews(self.ctx, scrutinee)) };
         var arm_values: std.ArrayList(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
         defer cov.deinit(self.ctx.allocator);
@@ -4035,6 +4074,16 @@ const Checker = struct {
                         const name = ir.EnumLit.name(pattern);
                         // Against any error, `.name` is the member of the
                         // one error set that has it.
+                        if (sema.isErrorUnion(self.ctx, sema.unwrapViews(self.ctx, scrutinee))) {
+                            const union_ty = sema.unwrapViews(self.ctx, scrutinee);
+                            const set = try self.unionMemberSet(union_ty, name);
+                            try self.ctx.recordType(pattern, set);
+                            if (self.isPoison(set)) {
+                                cov.rejected = true;
+                                return;
+                            }
+                            return self.recordCovered(try self.errorArmKey(union_ty, set, self.text(name)), self.startOf(pattern), cov);
+                        }
                         if (sema.unwrapViews(self.ctx, scrutinee) == self.t().any_error_id) {
                             const set = try self.resolveErrorName(name);
                             try self.ctx.recordType(pattern, set);
@@ -4060,6 +4109,7 @@ const Checker = struct {
                     .member => try self.checkQualifiedPattern(pattern, scrutinee, cov),
                     .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, cov, mode),
                     .range_pattern => try self.checkRangePattern(pattern, scrutinee, cov),
+                    .set_pattern => try self.checkSetPattern(pattern, scrutinee, cov),
                     else => {
                         try self.checkExpr(pattern, scrutinee);
                         if (self.constInt(pattern)) |v| try self.coverInts(cov, v, v, self.startOf(pattern));
@@ -5248,12 +5298,43 @@ const Checker = struct {
             const owns = !self.isPoison(ty) and sema.moves(self.ctx, ty) != .no;
             if (owns and (lit.isKind(.call) or self.hands(other).kind != .made)) try self.readLeaf(other);
             const reached = try self.readThrough(other, ty, sema.unwrapViews(self.ctx, ty));
+            // A bare `.name` tests which variant the value holds, one
+            // with a payload too (SPEC §5, "Comparing").
+            if (lit.isKind(.enum_lit) and !self.isPoison(reached)) {
+                const subject = sema.unwrapViews(self.ctx, if (self.ctx.types.get(reached) == .optional) self.ctx.types.get(reached).optional else reached);
+                if (sema.enumVariantCount(self.ctx, subject) != null and !sema.isErrorSet(self.ctx, subject)) {
+                    if (try sema.lookupVariant(self.ctx, subject, self.text(ir.EnumLit.name(lit)))) |_| {
+                        try self.ctx.recordType(lit, reached);
+                        return self.t().bool_id;
+                    }
+                }
+            }
             try self.checkExpr(lit, reached);
             if (lit.isKind(.call)) {
                 try self.checkEquatable(reached, l, op);
                 if (self.ctx.typeOf(lit)) |lit_ty| if (!self.isPoison(lit_ty) and sema.moves(self.ctx, lit_ty) != .no) try self.readLeaf(lit);
             }
             return self.t().bool_id;
+        }
+        // `x == K.name`, a variant named with its enum, one with a payload
+        // too: a test of which variant `x` holds (SPEC §5, "Comparing").
+        for ([2]Sexp{ l, r }, 0..) |side, i| {
+            if (!side.isKind(.member) or ir.Member.object(side) != .src) continue;
+            const obj_sym = self.ctx.symbolOf(ir.Member.object(side)) orelse continue;
+            const sym = self.ctx.symbols.items[obj_sym];
+            if (sym.kind != .nominal_type or sym.flags.error_set) continue;
+            const other = if (i == 0) r else l;
+            const ty = try self.synthEqOperand(other);
+            const value = sema.unwrapViews(self.ctx, ty);
+            if (!self.isPoison(value) and sema.enumVariantCount(self.ctx, value) != null and (try sema.lookupVariant(self.ctx, value, self.text(ir.Member.name(side)))) != null and std.mem.eql(u8, sym.name, try self.tyName(value))) {
+                try self.ctx.recordType(side, value);
+                try self.ctx.recordMemberTest(e);
+                return self.t().bool_id;
+            }
+            const side_ty = try self.synthEqOperand(side);
+            if (self.isPoison(ty) or self.isPoison(side_ty)) return self.t().bool_id;
+            const a, const b = if (i == 0) .{ side_ty, ty } else .{ ty, side_ty };
+            return self.finishEquality(e, l, r, a, b, op);
         }
         // A viewed operand compares as the value it reaches, and an
         // array literal beside an array takes its type.
@@ -5280,6 +5361,11 @@ const Checker = struct {
             b = try self.synthEqOperand(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        return self.finishEquality(e, l, r, a, b, op);
+    }
+
+    /// `l == r` once both operands are typed, `a` and `b`.
+    fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a: TypeId, b: TypeId, op: []const u8) Error!TypeId {
         if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
         // Lane by lane: a mask. (An optional vector has no `==`, which
         // the optional's comparison reports.)
@@ -5322,9 +5408,11 @@ const Checker = struct {
             if (ta == .type_var) try self.requireHoldsLiteral(tv, b, r, self.startOf(l), op) else try self.requireHoldsLiteral(tv, a, l, self.startOf(l), op);
             return self.t().bool_id;
         }
-        // Any error compares with a member of any error set.
+        // Any error compares with a member of any error set, and a union
+        // with a member of a set it joins.
         const any_err = self.t().any_error_id;
         if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
+        if (sema.isErrorSet(self.ctx, a) and sema.isErrorSet(self.ctx, b) and (sema.errorSubset(self.ctx, a, b) or sema.errorSubset(self.ctx, b, a))) return self.t().bool_id;
         // A String, boxed or not, compares with a `?String` or a String by
         // content.
         const string_ty = self.t().string_id;
@@ -5342,8 +5430,25 @@ const Checker = struct {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
         }
+        // `x == K.name` tests which variant `x` holds, comparing no
+        // payload, so it needs no `==` on the payloads.
+        if (try self.namesVariantOf(l, a) or try self.namesVariantOf(r, a)) {
+            try self.ctx.recordMemberTest(e);
+            return self.t().bool_id;
+        }
         try self.checkEquatable(a, l, op);
         return self.t().bool_id;
+    }
+
+    /// Whether `operand` is `K.name`, naming a variant of `ty`, an enum
+    /// with a payload variant (an enum of plain variants compares by
+    /// value already).
+    fn namesVariantOf(self: *Checker, operand: Sexp, ty: TypeId) Error!bool {
+        if (!operand.isKind(.member) or sema.isErrorSet(self.ctx, ty)) return false;
+        const obj = ir.Member.object(operand);
+        if (obj != .src or self.ctx.typeOf(obj) != null) return false;
+        if (sema.enumVariantCount(self.ctx, ty) == null or (try sema.notEquatable(self.ctx, ty, null)) == null) return false;
+        return (try sema.lookupVariant(self.ctx, ty, self.text(ir.Member.name(operand)))) != null;
     }
 
     /// An operand of `==`, as the value it reaches. A shared handle has
@@ -5509,7 +5614,8 @@ const Checker = struct {
     /// view.
     fn fallbackCopy(self: *Checker, e: Sexp, holder: Sexp, holder_ty: TypeId, view_result: TypeId, fallback: Sexp, expected: ?TypeId) Error!?TypeId {
         const view = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, holder_ty))) {
-            .optional, .fallible => |inner| inner,
+            .optional => |inner| inner,
+            .fallible => |inner| inner.ok,
             else => return null,
         };
         // A `?String` views a `String`, which never copies: reported.
@@ -5601,9 +5707,11 @@ const Checker = struct {
         defer self.scope = prev;
         if (name != .nil) {
             _ = self.enter(e);
+            // The callee's set: `error` for a `T!`, or the set it declares.
+            const set = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.set else self.t().any_error_id;
             if (self.ctx.symbolOf(name)) |sym| {
-                self.ctx.symbols.items[sym].ty = self.t().any_error_id;
-                try self.ctx.recordType(name, self.t().any_error_id);
+                self.ctx.symbols.items[sym].ty = set;
+                try self.ctx.recordType(name, set);
             }
         }
         if (self.isPoison(ty)) {
@@ -5611,7 +5719,7 @@ const Checker = struct {
             return ty;
         }
         const inner = switch (self.ctx.types.get(ty)) {
-            .fallible => |i| i,
+            .fallible => |i| i.ok,
             else => {
                 try self.errAt(value, "`catch` needs a fallible expression; this expression has type `{s}` and cannot fail", .{try self.tyName(ty)});
                 _ = try self.synthExpr(handler);
@@ -5665,13 +5773,67 @@ const Checker = struct {
         }
         const ty = try self.synthHandled(operand);
         return switch (self.ctx.types.get(ty)) {
-            .fallible => |inner| inner,
+            .fallible => |f| {
+                try self.checkFailsInto(operand, f.set);
+                return f.ok;
+            },
             .unknown, .invalid => ty,
             else => {
                 try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try self.tyName(self.canonical(ty))});
                 return ty;
             },
         };
+    }
+
+    /// A failure with an error of `set` passes out of the function being
+    /// checked, by `x!`: the set the function declares must hold it.
+    fn checkFailsInto(self: *Checker, operand: Sexp, set: TypeId) Error!void {
+        if (self.body.fail_to != .caller or self.isPoison(set)) return;
+        const ret = self.ctx.types.get(self.body.ret);
+        if (ret != .fallible or sema.errorSubset(self.ctx, set, ret.fallible.set)) return;
+        const callee = if (operand.isKind(.call)) try self.calleeName(ir.Call.callee(operand)) else try self.plainText(operand);
+        const fname = self.text(self.body.name);
+        const declared = try self.tyName(self.body.ret);
+        if (set == self.t().any_error_id) {
+            return self.errAt(operand, "`{s}` may fail with any error, and `{s}` declares `{s}`: catch it, or declare `{s}`", .{ callee, fname, declared, try self.anyErrorHeader() });
+        }
+        return self.errAt(operand, "`{s}` may fail with `{s}`, which `{s}`, the error set `{s}` declares, does not hold: catch it, or declare a set that holds both (`error L = {s} | {s}`)", .{ callee, try self.tyName(set), try self.tyName(ret.fallible.set), fname, try self.tyName(ret.fallible.set), try self.tyName(set) });
+    }
+
+    /// `return err` with `err` of `actual`, an error set or `error`, in
+    /// a function returning `expected`, a `T!E`: `E` must hold it.
+    fn checkReturnedError(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        const declared = self.ctx.types.get(expected).fallible.set;
+        if (self.isPoison(actual) or sema.errorSubset(self.ctx, actual, declared)) return;
+        const fname = self.text(self.body.name);
+        const shown = try self.plainText(e);
+        if (actual == self.t().any_error_id) {
+            return self.errAt(e, "`{s}` may be any error, and `{s}` declares `{s}`: narrow it with a `match` arm (`g: {s} =>`), or declare `{s}`", .{ shown, fname, try self.tyName(expected), try self.tyName(declared), try self.anyErrorHeader() });
+        }
+        if (self.ctx.isErrorMember(e)) {
+            return self.errAt(e, "`{s}` is not in `{s}`, the error set `{s}` declares", .{ shown, try self.tyName(declared), fname });
+        }
+        return self.errAt(e, "`{s}` is a `{s}` error, which `{s}`, the error set `{s}` declares, does not hold", .{ shown, try self.tyName(actual), try self.tyName(declared), fname });
+    }
+
+    /// The header the function being checked would write to fail with
+    /// any error: `-> T!`, or `sub f()!`.
+    fn anyErrorHeader(self: *Checker) Error![]const u8 {
+        const ret = self.ctx.types.get(self.body.ret);
+        if (self.body.is_sub) return self.ctx.arena.allocator().print("sub {s}(...)!", .{self.text(self.body.name)});
+        return self.ctx.arena.allocator().print("-> {s}!", .{try self.tyName(if (ret == .fallible) ret.fallible.ok else self.body.ret)});
+    }
+
+    /// A task's result, or a result an actor's method gives through a
+    /// handle, `ty`: waiting for it also fails with `task.Stop`, so a set
+    /// it declares must hold `Stop`. False once that is reported.
+    fn waitHoldsStop(self: *Checker, pos: u32, ty: TypeId, name: []const u8) Error!bool {
+        const got = self.ctx.types.get(ty);
+        if (got != .fallible or self.isPoison(got.fallible.set)) return true;
+        if (try sema.setHoldsStop(self.ctx, got.fallible.set, self.ctx.arena.allocator())) return true;
+        const set = try self.tyName(got.fallible.set);
+        try self.err(pos, "`{s}` fails with `{s}`, and waiting for it also fails with `task.Stop`: join it into the set (`error L = {s} | task.Stop`)", .{ name, set, set });
+        return false;
     }
 
     /// `e?`: the value inside optional `e`; when `e` is `none`, the
@@ -5685,7 +5847,7 @@ const Checker = struct {
         if (self.ctx.types.get(ty) == .fallible) {
             const shown = try self.plainText(operand);
             try self.errAt(operand, "`?` propagates `none`, and `{s}` fails with an error instead: propagate the failure with `{s}!`, or handle it with `catch`", .{ shown, shown });
-            return self.ctx.types.get(ty).fallible;
+            return self.ctx.types.get(ty).fallible.ok;
         }
         const inner = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .optional => |i| i,
@@ -5758,7 +5920,7 @@ const Checker = struct {
         if (self.isPoison(ret)) return true;
         return switch (self.ctx.types.get(ret)) {
             .optional => true,
-            .fallible => |inner| self.ctx.types.get(inner) == .optional,
+            .fallible => |inner| self.ctx.types.get(inner.ok) == .optional,
             else => false,
         };
     }
@@ -6748,7 +6910,7 @@ const Checker = struct {
             if (self.isPoison(ty) or sema.isReadOrWriteView(self.ctx, ty)) continue;
             // A fallible value's temporary holds what it gives on success.
             const held = switch (self.ctx.types.get(ty)) {
-                .fallible => |inner| inner,
+                .fallible => |inner| inner.ok,
                 else => ty,
             };
             if (try self.needsCleanup(held, self.startOf(leaf), "leaves a temporary")) try self.ctx.recordTempDrop(leaf);
@@ -7130,7 +7292,9 @@ const Checker = struct {
     fn typeMember(self: *Checker, nt: NamedType, field: []const u8, pos: u32) Error!TypeId {
         const tname = try self.namedTypeName(nt);
         const members = nt.sym.fields orelse {
-            try self.err(pos, "opaque type `{s}` has no members", .{tname});
+            if (nt.sym.error_parts != null) {
+                try self.err(pos, "`{s}` is a union of error sets, which lists no members of its own: name the member with its set (`E.{s}`)", .{ tname, field });
+            } else try self.err(pos, "opaque type `{s}` has no members", .{tname});
             return self.t().invalid_id;
         };
         // The first member of that name decides.
@@ -7466,7 +7630,7 @@ const Checker = struct {
                 (try self.ctIntArg(g, tp, i, nt.sym.name)) orelse self.t().invalid_id
             else if (gives and g.isKind(.propagate)) blk: {
                 const inner = try self.typeArg(ir.Propagate.value(g));
-                break :blk if (self.isPoison(inner)) inner else try self.ctx.intern(.{ .fallible = inner });
+                break :blk if (self.isPoison(inner)) inner else try self.ctx.intern(.{ .fallible = .{ .ok = inner } });
             } else try self.typeArg(g);
             if (self.isPoison(a.*)) bad = true;
         }
@@ -8107,6 +8271,7 @@ const Checker = struct {
             try self.errAt(callee, "a task runs a call of a function or a method: `f(x)&`, `(!v).m(x)&`", .{});
             return self.t().invalid_id;
         }
+        if (!try self.waitHoldsStop(self.startOf(callee), ty, try self.calleeName(callee))) return self.t().invalid_id;
         var parts: std.ArrayList(Sexp) = .empty;
         // A method's self, `@`, is passed as the method takes it.
         var self_mode: sema.MethodReceiver = .none;
@@ -8141,7 +8306,7 @@ const Checker = struct {
         // values and an actor call's do); a local task's stays on this
         // thread.
         if (!self.ctx.isLocalTask(node)) {
-            const result = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
+            const result = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.ok else ty;
             if (try sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
                 try self.errAt(callee, "`{s}` may run on another core, so what it gives must move to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
                 return self.t().invalid_id;
@@ -10398,9 +10563,9 @@ const Checker = struct {
             const p = self.ctx.types.get(out.pattern);
             const e = self.ctx.types.get(out.expected);
             if (p == .fallible and e != .fallible) {
-                out.pattern = p.fallible;
+                out.pattern = p.fallible.ok;
             } else if (p != .fallible and e == .fallible) {
-                out.expected = e.fallible;
+                out.expected = e.fallible.ok;
             } else if (p != .optional and p != .fallible and e == .optional) {
                 out.expected = e.optional;
             } else return out;
@@ -10619,7 +10784,7 @@ const Checker = struct {
         _ = self.literal_results.remove(id);
         _ = self.result_hints.remove(id);
         const path: ResultPath, const value = switch (self.ctx.types.get(f.returns)) {
-            .fallible => |inner| .{ .propagate, inner },
+            .fallible => |inner| .{ .propagate, inner.ok },
             .optional => |inner| .{ .propagate_none, inner },
             else => .{ .direct, f.returns },
         };
@@ -10758,7 +10923,7 @@ const Checker = struct {
                     else => actual,
                 }, arg, depth + 1);
             },
-            .fallible => |p| if (at == .fallible) try self.bindArg(inf, p, at.fallible, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            .fallible => |p| if (at == .fallible) try self.bindArg(inf, p.ok, at.fallible.ok, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .shared => |p| if (at == .shared) {
                 inf.exact += 1;
                 defer inf.exact -= 1;
@@ -10837,8 +11002,8 @@ const Checker = struct {
         var p = pattern;
         var a = actual;
         if (self.ctx.types.get(p) == .fallible and self.ctx.types.get(a) == .fallible) {
-            p = self.ctx.types.get(p).fallible;
-            a = self.ctx.types.get(a).fallible;
+            p = self.ctx.types.get(p).fallible.ok;
+            a = self.ctx.types.get(a).fallible.ok;
         }
         if (a != self.t().void_id) return self.bindArg(inf, pattern, actual, arg, depth);
         const tv = switch (self.ctx.types.get(p)) {
@@ -11669,8 +11834,8 @@ const Checker = struct {
         if (sameNode(value, call)) return ty;
         const kind = value.kind() orelse return null;
         return switch (kind) {
-            .propagate => try self.wrapResult(ir.Propagate.value(value), call, try self.ctx.intern(.{ .fallible = ty })),
-            .@"catch" => try self.wrapResult(ir.Catch.value(value), call, try self.ctx.intern(.{ .fallible = ty })),
+            .propagate => try self.wrapResult(ir.Propagate.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ty } })),
+            .@"catch" => try self.wrapResult(ir.Catch.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ty } })),
             .propagate_none => try self.wrapResult(ir.PropagateNone.value(value), call, try self.ctx.intern(.{ .optional = ty })),
             .@"??" => try self.wrapResult(ir.@"??".left(value), call, try self.ctx.intern(.{ .optional = ty })),
             else => null,
@@ -11845,7 +12010,8 @@ const Checker = struct {
                 return self.t().invalid_id;
             }
         }
-        const result = if (self.ctx.types.get(f.returns) == .fallible) self.ctx.types.get(f.returns).fallible else f.returns;
+        if (!try self.waitHoldsStop(pos, f.returns, method)) return self.t().invalid_id;
+        const result = if (self.ctx.types.get(f.returns) == .fallible) self.ctx.types.get(f.returns).fallible.ok else f.returns;
         if (sema.mayHoldView(self.ctx, result)) {
             try self.err(pos, "`{s}` gives a `{s}`, which may view the actor's state; a method called through a handle gives a value", .{ method, try self.tyName(result) });
             return self.t().invalid_id;
@@ -11907,7 +12073,7 @@ const Checker = struct {
         const s = sigil orelse return ty;
         const what = if ((try self.moduleNamed(place)) != null) "a module" else "a type";
         const shown = try self.plainText(place);
-        const value = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible else ty;
+        const value = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.ok else ty;
         const call = try self.callWith(s, shown, method);
         if (value == self.t().bool_id) {
             try self.errAt(s, "`!` here reaches `{s}`, {s}, and `{s}` makes a `Bool`; for negation use `not`", .{ shown, what, call });
@@ -12011,7 +12177,7 @@ const Checker = struct {
         const each = try self.ctx.intern(.{ .read_view = elem });
         const fn_ty = (try self.reduceFunction(args[1], acc, each)) orelse return try self.skipCall(args);
         const fails = self.ctx.types.get(self.ctx.types.get(fn_ty).function.returns) == .fallible;
-        const result = if (fails) try self.ctx.intern(.{ .fallible = acc }) else acc;
+        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = acc } }) else acc;
         const recv = try self.ctx.intern(.{ .read_view = peeled });
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ recv, acc, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = false };
         try self.noteCallee(f);
@@ -12030,7 +12196,7 @@ const Checker = struct {
     fn reduceFunction(self: *Checker, f: Sexp, acc: TypeId, each: TypeId) Error!?TypeId {
         const plain = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = acc, .is_sub = false } });
         if (f.isKind(.lambda)) {
-            const failing = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = acc }), .is_sub = false } });
+            const failing = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = .{ .ok = acc } }), .is_sub = false } });
             if (try self.lambdaChecksQuietly(f, plain)) return plain;
             if (try self.lambdaChecksQuietly(f, failing)) return failing;
             return plain;
@@ -12043,7 +12209,7 @@ const Checker = struct {
             return null;
         };
         const returns = self.ctx.types.get(fn_ty).function.returns;
-        return if (self.ctx.types.get(returns) == .fallible) try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = acc }), .is_sub = false } }) else plain;
+        return if (self.ctx.types.get(returns) == .fallible) try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = .{ .ok = acc } }), .is_sub = false } }) else plain;
     }
 
     /// Whether closure literal `f` checks against function type `want`
@@ -12229,14 +12395,14 @@ const Checker = struct {
             if (!sema.isTask(self.ctx, ty)) return try self.badCall(args, arg, "`task.{s}` waits for tasks, and `{s}` is a `{s}`: make the call a task, `f(x)&`", .{ name, self.sourceText(arg), try self.tyName(ty) });
             const gives = sema.taskResult(self.ctx, ty).?;
             const can_fail = self.ctx.types.get(gives) == .fallible;
-            const value = if (can_fail) self.ctx.types.get(gives).fallible else gives;
+            const value = if (can_fail) self.ctx.types.get(gives).fallible.ok else gives;
             if (value == self.t().void_id) return try self.badCall(args, arg, "`task.{s}` gives each task's value, and `{s}` gives none: wait for it on its own, `>t`", .{ name, self.sourceText(arg) });
             fails = fails or can_fail;
             p.* = ty;
             part.* = value;
         }
         const results = try self.ctx.intern(.{ .results = try self.ctx.dupeIds(parts) });
-        const result = if (fails) try self.ctx.intern(.{ .fallible = results }) else results;
+        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = results } }) else results;
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = false };
         try self.noteCallee(f);
         try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
@@ -12293,18 +12459,18 @@ const Checker = struct {
         const fails = self.ctx.types.get(returns) == .fallible;
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
-        const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible else returns);
+        const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
         if (kind == .map and f.isKind(.lambda)) {
-            const gives = if (fails) try self.ctx.intern(.{ .fallible = value }) else value;
+            const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{each_param}), .returns = gives, .is_sub = false } });
         }
         const result = switch (kind) {
             .map => blk: {
                 if (value == self.t().void_id) return try self.badCall(args, f, "`par.map` gives each call's value, and `{s}` gives none: to call it on each element, `par.each(!xs, ...)`", .{self.sourceText(f)});
                 const list = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
-                break :blk if (fails) try self.ctx.intern(.{ .fallible = list }) else list;
+                break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = list } }) else list;
             },
-            .each => if (fails) try self.ctx.intern(.{ .fallible = self.t().void_id }) else self.t().void_id,
+            .each => if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id,
         };
         const params: []const TypeId = &.{ xs_param, try sema.callableOfFn(self.ctx, fn_ty), self.t().int_id };
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = result, .is_sub = kind == .each };
@@ -12376,15 +12542,15 @@ const Checker = struct {
         }
         const returns = self.ctx.types.get(fn_ty).function.returns;
         const fails = self.ctx.types.get(returns) == .fallible;
-        const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible else returns);
+        const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
         if (f.isKind(.lambda)) {
-            const gives = if (fails) try self.ctx.intern(.{ .fallible = value }) else value;
+            const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = &.{}, .returns = gives, .is_sub = sema.returnsNothing(self.ctx, gives) } });
         }
         if (sema.holdsTask(self.ctx, value)) {
             return try self.badCall(args, f, "a task started in `{s}` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ shown, self.sourceText(f), try self.tyName(value) });
         }
-        const result = try self.ctx.intern(.{ .fallible = value });
+        const result = try self.ctx.intern(.{ .fallible = .{ .ok = value } });
         // The function, then each option given, in the order written.
         const a = self.ctx.arena.allocator();
         const params = try a.alloc(TypeId, args.len);
@@ -12480,8 +12646,8 @@ const Checker = struct {
         const r = result.?;
         if (saved_call) |c| try self.ctx.recordSelect(c);
         self.ctx.makes_tasks = true;
-        const value = if (self.ctx.types.get(r) == .fallible) self.ctx.types.get(r).fallible else r;
-        return try self.ctx.intern(.{ .fallible = value });
+        const value = if (self.ctx.types.get(r) == .fallible) self.ctx.types.get(r).fallible.ok else r;
+        return try self.ctx.intern(.{ .fallible = .{ .ok = value } });
     }
 
     /// What the first arm's function `f`, given `params`, gives: a closure
@@ -12535,7 +12701,7 @@ const Checker = struct {
         if (!self.namesForeignType(listener, "std.net", "Listener")) return try self.badCall(args, args[0], "`http.serve` takes connections on a `net.Listener`, which it takes: `http.serve(<l, ...)`; `{s}` is a `{s}`", .{ self.sourceText(args[0]), try self.tyName(listener) });
         const f = args[1];
         const fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = req })}), .returns = resp, .is_sub = false } });
-        const result = try self.ctx.intern(.{ .fallible = self.t().void_id });
+        const result = try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } });
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ listener, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = true };
         try self.noteCallee(call);
         try self.checkArgs(args, call, .{ .names = &.{ "listener", "f" } }, "http.serve", pos, .{ .declared = call.params });
@@ -12571,7 +12737,7 @@ const Checker = struct {
             if (!a.isKind(.write) and self.ctx.types.get(ty) != .write_view) return try self.badCall(args, a, "`io.copy` reads and writes through `{s}`: lend it to write, `!{s}`", .{ try self.plainText(stripSigil(a)), try self.plainText(stripSigil(a)) });
             params[i] = try self.ctx.intern(.{ .write_view = base });
         }
-        const result = try self.ctx.intern(.{ .fallible = self.t().int_id });
+        const result = try self.ctx.intern(.{ .fallible = .{ .ok = self.t().int_id } });
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(&params), .returns = result, .is_sub = false };
         try self.noteCallee(call);
         try self.checkArgs(args, call, .{ .names = &.{ "from", "to" } }, "io.copy", pos, .{ .declared = call.params });
@@ -12649,7 +12815,7 @@ const Checker = struct {
         const ty = switch (kind) {
             .map => try self.checkLambdaGiven(f, null, &.{each_param}, fails),
             .each => blk: {
-                const returns = if (fails) try self.ctx.intern(.{ .fallible = self.t().void_id }) else self.t().void_id;
+                const returns = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id;
                 break :blk try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{each_param}), .returns = returns, .is_sub = true } }));
             },
         };
@@ -12687,10 +12853,10 @@ const Checker = struct {
         if (!first and !rig.isWaitMember(callee)) return null;
         const each = sema.taskResult(self.ctx, set).?;
         const fails = self.ctx.types.get(each) == .fallible;
-        const value = if (fails) self.ctx.types.get(each).fallible else each;
+        const value = if (fails) self.ctx.types.get(each).fallible.ok else each;
         const result = if (first) each else blk: {
             const all = if (value == self.t().void_id) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
-            break :blk if (fails) try self.ctx.intern(.{ .fallible = all }) else all;
+            break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = all } }) else all;
         };
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{set}), .returns = result, .is_sub = result == self.t().void_id };
         try self.noteCallee(f);
@@ -13352,13 +13518,13 @@ const Checker = struct {
         // Failing is written: an error value meets a `T!` only as the
         // operand of `return`.
         if (self.ctx.types.get(expected) == .fallible and sema.isErrorValue(self.ctx, actual)) {
-            if (self.isReturnLeaf(e)) return;
+            if (self.isReturnLeaf(e)) return self.checkReturnedError(e, actual, expected);
             return self.errAt(e, "an error value meets `{s}` only as the operand of `return`: write `return {s}`", .{ try self.tyName(expected), self.sourceText(e) });
         }
         // A fallible call where its value is expected: `synthCall`
         // reported the missing `!` / `catch`.
         const at = self.ctx.types.get(actual);
-        if (at == .fallible and compatible(self.ctx, at.fallible, expected)) return;
+        if (at == .fallible and compatible(self.ctx, at.fallible.ok, expected)) return;
         if (sameExpr(e, self.ignored_in)) return;
         if (resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; {s}", .{ try self.tyName(expected), try self.tyName(actual), hint });
@@ -14057,7 +14223,7 @@ const Checker = struct {
         while (true) {
             switch (self.ctx.types.get(ty)) {
                 .optional => return ty,
-                .fallible => |i| ty = i,
+                .fallible => |i| ty = i.ok,
                 else => break,
             }
         }
@@ -14086,7 +14252,7 @@ const Checker = struct {
         while (true) {
             switch (self.ctx.types.get(ty)) {
                 .optional => |i| ty = i,
-                .fallible => |i| ty = i,
+                .fallible => |i| ty = i.ok,
                 else => return ty,
             }
         }
@@ -14111,7 +14277,7 @@ const Checker = struct {
     fn recordLift(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         const ts = &self.ctx.types;
         var into = expected;
-        while (ts.get(into) == .fallible) into = ts.get(into).fallible;
+        while (ts.get(into) == .fallible) into = ts.get(into).fallible.ok;
         if (ts.get(into) != .optional) return self.ctx.recordLift(e, null);
         if (e == .src and self.ctx.symbolOf(e) == null and std.mem.eql(u8, self.text(e), "none")) {
             return self.ctx.recordLift(e, .{ .into = into, .from = self.t().none_id });
@@ -14472,7 +14638,7 @@ const Checker = struct {
                         x.writes = true;
                         const call = parentIn(f.root, p) orelse p;
                         const ret = c.ctx.types.get(m.returns);
-                        const value = if (ret == .fallible) ret.fallible else m.returns;
+                        const value = if (ret == .fallible) ret.fallible.ok else m.returns;
                         const used = !sameExpr(call, f.root) or c.value_tails.contains(nodeId(call));
                         const bool_used = value == c.t().bool_id and used;
                         x.open = if (bool_used) "(!" else "!";
@@ -14994,7 +15160,7 @@ const Checker = struct {
     fn writeViewOf(self: *Checker, ty: TypeId) Error!TypeId {
         return switch (self.ctx.types.get(ty)) {
             .optional => |inner| self.ctx.intern(.{ .optional = try self.writeViewOf(inner) }),
-            .fallible => |inner| self.ctx.intern(.{ .fallible = try self.writeViewOf(inner) }),
+            .fallible => |inner| self.ctx.intern(.{ .fallible = .{ .ok = try self.writeViewOf(inner.ok) } }),
             else => self.ctx.intern(.{ .write_view = ty }),
         };
     }
@@ -15248,11 +15414,93 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
+    /// How many values a `match` on `ty` must cover, when they are named:
+    /// an enum's variants, a set's members, or every member of every set
+    /// a union joins.
+    fn variantTotal(self: *Checker, ty: TypeId) Error!?usize {
+        if (!sema.isErrorUnion(self.ctx, ty)) return sema.enumVariantCount(self.ctx, ty);
+        var leaves: std.ArrayList(sema.SetKey) = .empty;
+        try sema.errorSetLeaves(self.ctx, ty, &leaves, self.ctx.arena.allocator());
+        var n: usize = 0;
+        for (leaves.items) |leaf| for (sema.setMembers(leaf)) |f| {
+            if (f.is_variant) n += 1;
+        };
+        return n;
+    }
+
+    /// The set of union `union_ty` whose member `.name` is: the one set it
+    /// joins that has the member, or `invalid` once none or several do.
+    fn unionMemberSet(self: *Checker, union_ty: TypeId, name: Sexp) Error!TypeId {
+        var leaves: std.ArrayList(sema.SetKey) = .empty;
+        try sema.errorSetLeaves(self.ctx, union_ty, &leaves, self.ctx.arena.allocator());
+        const wanted = self.text(name);
+        var found: ?sema.SetKey = null;
+        for (leaves.items) |leaf| for (sema.setMembers(leaf)) |f| {
+            if (!f.is_variant or !std.mem.eql(u8, f.name, wanted)) continue;
+            if (found) |first| {
+                const a_ty = try first.typeIn(self.ctx);
+                const b_ty = try leaf.typeIn(self.ctx);
+                try self.errAt(name, "`.{s}` is a member of both `{s}` and `{s}`, which `{s}` joins: name its set, `{s}.{s}`", .{ wanted, try self.tyName(a_ty), try self.tyName(b_ty), try self.tyName(union_ty), try self.tyName(a_ty), wanted });
+                return self.t().invalid_id;
+            }
+            found = leaf;
+        };
+        const leaf = found orelse {
+            try self.errAt(name, "no set `{s}` joins has a member `.{s}`", .{ try self.tyName(union_ty), wanted });
+            return self.t().invalid_id;
+        };
+        return leaf.typeIn(self.ctx);
+    }
+
+    /// `g: E =>`: an error of set `E`, a set or a union, bound as `g`,
+    /// where the subject may be of several sets: `error`, or a union that
+    /// holds `E`. It covers every member of `E`.
+    fn checkSetPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        const name = ir.SetPattern.name(pattern);
+        const sym = self.ctx.symbolOf(name);
+        var r = self.resolver();
+        const set = try r.resolveType(ir.SetPattern.set(pattern));
+        const subject = sema.unwrapViews(self.ctx, scrutinee);
+        const bound = blk: {
+            if (self.isPoison(set) or self.isPoison(subject)) break :blk self.t().invalid_id;
+            if (!sema.isErrorSet(self.ctx, set)) {
+                try self.errAt(ir.SetPattern.set(pattern), "`{s}` is not an error set: `{s}: E =>` names a set declared with `error`", .{ try self.tyName(set), self.text(name) });
+                break :blk self.t().invalid_id;
+            }
+            if (subject != self.t().any_error_id and !sema.isErrorUnion(self.ctx, subject)) {
+                try self.errAt(pattern, "`{s}: {s} =>` narrows an error that may be of several sets, and the subject is `{s}`", .{ self.text(name), try self.tyName(set), try self.tyName(scrutinee) });
+                break :blk self.t().invalid_id;
+            }
+            if (!sema.errorSubset(self.ctx, set, subject)) {
+                try self.errAt(ir.SetPattern.set(pattern), "`{s}` is not in `{s}`, the union the subject may be", .{ try self.tyName(set), try self.tyName(subject) });
+                break :blk self.t().invalid_id;
+            }
+            break :blk set;
+        };
+        if (sym) |id| self.ctx.symbols.items[id].ty = bound;
+        try self.ctx.recordType(name, bound);
+        try self.ctx.recordType(pattern, bound);
+        if (self.isPoison(bound)) {
+            cov.rejected = true;
+            return;
+        }
+        var leaves: std.ArrayList(sema.SetKey) = .empty;
+        try sema.errorSetLeaves(self.ctx, set, &leaves, self.ctx.arena.allocator());
+        for (leaves.items) |leaf| {
+            const leaf_ty = try leaf.typeIn(self.ctx);
+            for (sema.setMembers(leaf)) |f| {
+                if (!f.is_variant) continue;
+                const key = try self.errorArmKey(subject, leaf_ty, f.name);
+                if (cov.variantAt(key) == null) try cov.variants.put(self.ctx.allocator, key, self.startOf(pattern));
+            }
+        }
+    }
+
     /// What a pattern for member `name` of error set `set` covers: the
     /// member alone where the subject is of that set, the set and the
     /// member where it may be any error.
     fn errorArmKey(self: *Checker, subject: TypeId, set: TypeId, name: []const u8) Error![]const u8 {
-        if (subject != self.t().any_error_id) return name;
+        if (subject != self.t().any_error_id and !sema.isErrorUnion(self.ctx, subject)) return name;
         return self.ctx.arena.allocator().print("{s}.{s}", .{ try self.tyName(set), name });
     }
 
@@ -15283,7 +15531,12 @@ const Checker = struct {
             if (value) return self.errAt(pattern, "`{s}` is a value, which a pattern cannot name; compare with it in a guard: `x if x == {s} =>`", .{ shown, shown });
             return self.errAt(pattern, "`{s}` is not a pattern; a qualified pattern names a member of an error set: `E.name`", .{shown});
         }
-        if (subject != self.t().any_error_id and subject != ty) {
+        if (sema.isErrorUnion(self.ctx, subject)) {
+            if (!sema.errorSubset(self.ctx, ty, subject)) {
+                cov.rejected = true;
+                return self.errAt(pattern, "`{s}` is not in `{s}`, the union the subject may be", .{ shown, try self.tyName(subject) });
+            }
+        } else if (subject != self.t().any_error_id and subject != ty) {
             cov.rejected = true;
             return self.errAt(pattern, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(subject), try self.tyName(ty) });
         }
@@ -15908,7 +16161,7 @@ const Checker = struct {
             ret = inner;
         };
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
-        if (fails and !self.isPoison(ret) and self.ctx.types.get(ret) != .fallible) ret = try self.ctx.intern(.{ .fallible = ret });
+        if (fails and !self.isPoison(ret) and self.ctx.types.get(ret) != .fallible) ret = try self.ctx.intern(.{ .fallible = .{ .ok = ret } });
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
     }
@@ -16143,7 +16396,8 @@ fn bindingValue(ctx: *const SemContext, ty: TypeId) TypeId {
 fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .slice, .array, .function => false,
-        .optional, .fallible, .read_view, .write_view, .shared, .weak => |inner| spelledInBrackets(ctx, inner),
+        .optional, .read_view, .write_view, .shared, .weak => |inner| spelledInBrackets(ctx, inner),
+        .fallible => |inner| spelledInBrackets(ctx, inner.ok),
         .parameterized_nominal => |pn| for (pn.args) |arg| {
             if (!spelledInBrackets(ctx, arg)) break false;
         } else true,
@@ -16234,7 +16488,11 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         .read_view => |inner| if (sema.readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
         // A `T!` holds a `T`; an error value meets it only as `return`'s
         // operand (`Checker.isReturnLeaf`).
-        .fallible => |inner| return meets(ctx, actual, inner),
+        .fallible => |inner| {
+            // A `T!A` meets a `T!L` whose set holds `A`'s.
+            if (a == .fallible) return a.fallible.ok == inner.ok and sema.errorSubset(ctx, a.fallible.set, inner.set);
+            return meets(ctx, actual, inner.ok);
+        },
         // `error` holds an error of any set.
         .any_error => if (sema.isErrorSet(ctx, actual)) return true,
         // A `![]T` (or a `?[]T`) reads as the `[]T` it views.
@@ -16244,6 +16502,8 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
             .slice => |have| if (sema.readsAsStringView(ctx, have.elem, want.elem)) return true,
             else => {},
         },
+        // A union holds an error of each set it joins.
+        .nominal, .imported_nominal => if (sema.isErrorUnion(ctx, expected) and sema.isErrorSet(ctx, actual) and sema.errorSubset(ctx, actual, expected)) return true,
         else => {},
     }
     return switch (a) {

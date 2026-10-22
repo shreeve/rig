@@ -14,7 +14,7 @@ extern zig "task.zig"
   # A waiting point that waits for nothing: fail with `Stop.canceled`
   # when this task is canceled, and otherwise give other threads a turn.
   # A long computation calls it where stopping is safe.
-  pub sub check()!
+  pub sub check()!Stop
 
   # Run tasks on `n` workers (at most 64), in place of one per core or
   # `RIG_WORKERS`: a program sets it from its own arguments, say. It

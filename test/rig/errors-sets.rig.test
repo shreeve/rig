@@ -1,0 +1,345 @@
+# errors: declared sets (`T!E`, `sub f()!E`), unions (`error L = A | B`),
+# the typed `catch` binding, narrowing (`g: E =>`), and what a wait adds.
+
+test "a declared set types the catch binding", '''
+  2
+  bad range
+  0
+  star star
+  0
+  bad range
+  -1
+'''
+  error GlobError
+    bad_range
+    star_star
+
+  fun error_text(err: GlobError) -> Static
+    match err
+      .bad_range => "bad range"
+      .star_star => "star star"
+
+  fun parse(p: ?String) -> Int!GlobError
+    return GlobError.star_star if p == "a**"
+    return GlobError.bad_range if p == "["
+    p.len
+
+  fun loose(p: ?String) -> Int!
+    parse(p)!
+
+  for p in ["ab", "[", "a**"]
+    n = parse(p) catch |e|
+      print(error_text(e))
+      0
+    print(n)
+  m = loose("[") catch |e|
+    match e
+      g: GlobError => print(error_text(g))
+      _ => print("other")
+    -1
+  print(m)
+
+test "a union joins sets, and its match needs no `_`", '''
+  3
+  io
+  -1
+  io
+  -2
+  bad
+  -3
+  empty
+  -4
+'''
+  error IoError
+    closed
+    reset
+
+  error ParseError
+    bad
+    empty
+
+  error LoadError = IoError | ParseError
+
+  fun read(n: Int) -> Int!IoError
+    return IoError.closed if n < 0
+    return IoError.reset if n == 0
+    n
+
+  fun parse(n: Int) -> Int!ParseError
+    return ParseError.bad if n > 9
+    return ParseError.empty if n == 5
+    n
+
+  fun load(n: Int) -> Int!LoadError
+    parse(read(n)!)!
+
+  fun kind(e: LoadError) -> Static
+    match e
+      _: IoError => "io"
+      ParseError.bad => "bad"
+      .empty => "empty"
+
+  for n in [3, -1, 0, 12, 5]
+    v = load(n) catch |e|
+      print(kind(e))
+      match e
+        IoError.closed => -1
+        IoError.reset => -2
+        ParseError.bad => -3
+        ParseError.empty => -4
+    print(v)
+
+test "a union of unions", '''
+  -2
+'''
+  error A
+    x
+  error B
+    y
+  error C
+    z
+  error AB = A | B
+  error ABC = AB | C
+
+  fun f() -> Int!ABC
+    return B.y
+
+  v = f() catch |e|
+    match e
+      A.x => -1
+      B.y => -2
+      C.z => -3
+  print(v)
+
+test "a function fails into a wider view's set", '''
+  3
+  -1
+'''
+  error A
+    x
+
+  fun g(n: Int) -> Int!A
+    return A.x if n < 0
+    n
+
+  fun run(f: ?fun(Int) -> Int!, n: Int) -> Int
+    f(n) catch -1
+
+  print(run(g, 3))
+  print(run(g, -3))
+
+test "a task's set holds `task.Stop`", '''
+  3
+  -2
+'''
+  use std.task
+  use std.time
+
+  error Job
+    bad
+
+  error JobOrStop = Job | task.Stop
+
+  fun work(n: Int) -> Int!JobOrStop
+    time.sleep(time.MS)!
+    return Job.bad if n < 0
+    n
+
+  t = work(3)&
+  print(>t catch -1)
+  u = work(-1)&
+  v = >u catch |e|
+    match e
+      Job.bad => -2
+      task.Stop.canceled => -3
+      task.Stop.timeout => -4
+      task.Stop.panicked => -5
+  print(v)
+
+code "a declared set is the Zig set the function fails with", "GlobError!i64"
+  error GlobError
+    star_star
+
+  fun parse(p: ?String) -> Int!GlobError
+    return GlobError.star_star if p == "a**"
+    p.len
+
+  print(parse("ab") catch 0)
+
+code "a union is the Zig sets merged", "pub const LoadError = IoError || ParseError;"
+  error IoError
+    closed
+  error ParseError
+    bad
+  error LoadError = IoError | ParseError
+
+  fun load(n: Int) -> Int!LoadError
+    return IoError.closed if n < 0
+    n
+
+  print(load(1) catch 0)
+
+fail "a `T!` callee into a declared set", "`loose` may fail with any error, and `narrow` declares `Int!A`: catch it, or declare `-> Int!`"
+  error A
+    x
+
+  fun loose() -> Int!
+    1
+
+  fun narrow() -> Int!A
+    loose()!
+
+  print(narrow() catch -1)
+
+fail "a member outside the declared set", "`B.y` is not in `A`, the error set `f` declares"
+  error A
+    x
+  error B
+    y
+
+  fun f() -> Int!A
+    return B.y
+
+  print(f() catch -1)
+
+fail "a callee's set outside the declared set", "`g` may fail with `B`, which `A`, the error set `f` declares, does not hold: catch it, or declare a set that holds both (`error L = A | B`)"
+  error A
+    x
+  error B
+    y
+
+  fun g() -> Int!B
+    return B.y
+
+  fun f() -> Int!A
+    g()!
+
+  print(f() catch -1)
+
+fail "returning any error from a declared set", "`e` may be any error, and `f` declares `Int!A`: narrow it with a `match` arm (`g: A =>`), or declare `-> Int!`"
+  error A
+    x
+
+  fun g() -> Int!
+    1
+
+  fun f() -> Int!A
+    v = g() catch |e|
+      return e
+    v
+
+  print(f() catch -1)
+
+fail "a `_` after every member", "this arm never runs: the arms before it cover every value"
+  error A
+    x
+    y
+
+  fun f() -> Int!A
+    return A.x
+
+  v = f() catch |e|
+    match e
+      .x => 1
+      .y => 2
+      _ => 3
+  print(v)
+
+fail "comparing with a member of another set", "cannot compare `A` with `B`"
+  error A
+    x
+  error B
+    y
+
+  fun f() -> Int!A
+    return A.x
+
+  v = f() catch |e|
+    if e == B.y
+      1
+    else
+      2
+  print(v)
+
+fail "a union of something not a set", "`Int` is not an error set: a union joins sets declared with `error`"
+  error A
+    x
+  error L = A | Int
+  pass
+
+fail "a union that joins itself", "`L` joins itself: a union joins other sets"
+  error A
+    x
+  error L = A | L
+  pass
+
+fail "a union that joins itself through another", "`L` joins itself through `M`: a union joins other sets"
+  error A
+    x
+  error L = A | M
+  error M = L | A
+  pass
+
+fail "a member two joined sets share", "`.x` is a member of both `A` and `B`, which `L` joins: name its set, `A.x`"
+  error A
+    x
+  error B
+    x
+  error L = A | B
+
+  fun f() -> Int!L
+    return A.x
+
+  v = f() catch |e|
+    match e
+      .x => 1
+      _ => 2
+  print(v)
+
+fail "narrowing an error of one set", "`g: A =>` narrows an error that may be of several sets, and the subject is `A`"
+  error A
+    x
+
+  fun f() -> Int!A
+    return A.x
+
+  v = f() catch |e|
+    match e
+      g: A => 1
+  print(v)
+
+fail "a set that is not one", "`Int` is not an error set: `T!E` names a set declared with `error`, or a union of sets"
+  fun f() -> Int!Int
+    1
+
+  print(f() catch 0)
+
+fail "a union's member named through the union", "`L` is a union of error sets, which lists no members of its own: name the member with its set (`E.x`)"
+  error A
+    x
+  error L = A
+  print(L.x)
+
+fail "a task whose set lacks `task.Stop`", "`plain` fails with `Job`, and waiting for it also fails with `task.Stop`: join it into the set (`error L = Job | task.Stop`)"
+  error Job
+    bad
+
+  fun plain(n: Int) -> Int!Job
+    return Job.bad if n < 0
+    n
+
+  w = plain(1)&
+  print(>w catch -9)
+
+fail "a `Task` type whose set lacks `task.Stop`", "waiting for a task also fails with `task.Stop`, and `Job` does not hold it: join it into the set (`error L = Job | task.Stop`)"
+  error Job
+    bad
+
+  fun plain(n: Int) -> Int!Job
+    return Job.bad if n < 0
+    n
+
+  fun keep(t: Task[Int!Job]) -> Int
+    0
+
+  pass

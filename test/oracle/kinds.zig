@@ -220,7 +220,8 @@ const Scan = struct {
                 defer self.read_only = saved;
                 try self.walk(ctx, inner, depth + 1, in_generic);
             },
-            .optional, .fallible, .range => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
+            .optional, .range => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
+            .fallible => |inner| try self.walk(ctx, inner.ok, depth + 1, in_generic),
             // Several results are held together, as an object's fields.
             .results => |parts| for (parts) |part| try self.walk(ctx, part, depth + 1, in_generic),
             .slice => |s| try self.walk(ctx, s.elem, depth + 1, in_generic),
@@ -302,9 +303,14 @@ pub const Reach = struct {
                 try w.writeAll("]");
             },
             .type_var => |sym| if (subst) |s| if (s.lookup(sym)) |b| return spell(w, b.ctx, b.ty, null, depth + 1),
-            .read_view, .write_view, .optional, .fallible, .shared, .weak => |inner| {
+            .read_view, .write_view, .optional, .shared, .weak => |inner| {
                 try w.print("{s}(", .{@tagName(t)});
                 try spell(w, ctx, inner, subst, depth + 1);
+                try w.writeAll(")");
+            },
+            .fallible => |f| {
+                try w.writeAll("fallible(");
+                try spell(w, ctx, f.ok, subst, depth + 1);
                 try w.writeAll(")");
             },
             .slice => |s| {
@@ -363,7 +369,8 @@ pub const Reach = struct {
     fn parts(self: *Reach, n: Node, out: *std.ArrayList(Node)) std.mem.Allocator.Error!void {
         const ctx = n.ctx;
         switch (ctx.types.get(n.ty)) {
-            .optional, .fallible, .shared, .weak => |inner| try out.append(self.a, .{ .ctx = ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
+            .optional, .shared, .weak => |inner| try out.append(self.a, .{ .ctx = ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
+            .fallible => |inner| try out.append(self.a, .{ .ctx = ctx, .ty = inner.ok, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
             .array => |arr| try out.append(self.a, .{ .ctx = ctx, .ty = arr.elem, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true }),
             // Several results, each held by value as a field is.
             .results => |rs| for (rs) |r| try out.append(self.a, .{ .ctx = ctx, .ty = r, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),

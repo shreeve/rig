@@ -9512,16 +9512,27 @@ sub main()
 
 ### Declared sets and fields
 
-These are decided and not built yet ([CORE §2](docs/CORE.md#2-the-core-in-ten-sentences),
-"A failure moves its error"). A function may declare the set it fails
-with, `-> T!E` or `sub f()!E`, and `T!` stays any error. Sets combine by
-a named union, `error L = A | B`. `catch |err|` gives `err` the type of
-the callee's set, a `match` on a set needs no `_`, and a `g: E =>` arm
-narrows an `error` to a set. A member may carry fields, as an enum's
-variant does, which are never views and always clone; the error moves
-up through `!` and the handler owns it.
+A function may declare the set it fails with, `-> T!E` or `sub f()!E`,
+and `T!` stays any error. Sets combine by a named union,
+`error L = A | B`, which lists no members of its own. `catch |err|`
+gives `err` the type of the callee's set, so a `match` on it names
+every member and needs no `_`, and an arm `g: E =>` narrows an `error`,
+or a union, to a set. `!` and a failing `return` keep to the set the
+function declares: the callee's set, or the error's, must be inside it,
+and `error` is inside none. No conversion runs at `!`; a union is how a
+function takes in several callees' sets. A function that fails with `A`
+is lent where a `?fun(...) -> T!L` goes when `L` holds `A`. Waiting for
+a task also fails with `task.Stop`, so a task's set, and the set of an
+actor's method called through a handle, holds it (`time.sleep` and
+`task.check` declare `!task.Stop`).
 
-```rig pending
+A member may also carry fields, as an enum's variant does, which are
+never views and always clone; the error moves up through `!` and the
+handler owns it. Fields are decided and not built yet
+([CORE §2](docs/CORE.md#2-the-core-in-ten-sentences), "A failure moves
+its error"): the examples that use them are pending.
+
+```rig
 error GlobError
   bad_range
   star_star
@@ -9629,7 +9640,7 @@ sub main()
 -112
 ```
 
-```rig pending
+```rig reject
 error A
   x
 
@@ -9644,7 +9655,7 @@ fun narrow() -> Int!A
 `loose` may fail with any error, and `narrow` declares `Int!A`: catch it, or declare `-> Int!`
 ```
 
-```rig pending
+```rig reject
 error A
   x
 
@@ -9680,7 +9691,7 @@ error U
 an error's fields must clone, and `Random` is unique
 ```
 
-```rig pending
+```rig reject
 error A
   x
 

@@ -433,6 +433,9 @@ pub const Facts = struct {
     pub fn repoints(f: Facts, node: Sexp) bool {
         return f.c().repoints(node);
     }
+    pub fn isMemberTest(f: Facts, node: Sexp) bool {
+        return f.c().isMemberTest(node);
+    }
     pub fn isErrorMember(f: Facts, node: Sexp) bool {
         return f.c().isErrorMember(node);
     }
@@ -810,6 +813,24 @@ pub const Facts = struct {
     /// (`sema.ownApiOf`).
     pub fn ownApiOf(f: Facts, ty: TypeId, api: sema.Api) ?sema.Field {
         return sema.ownApiOf(f.c(), ty, api);
+    }
+
+    /// A member of a declared error set, with the facts of the module
+    /// that declares the set.
+    pub const ErrorMember = struct { facts: Facts, set: []const u8, name: []const u8 };
+
+    /// Every member of every set `set`, a set or a union, stands for
+    /// (`sema.errorSetLeaves`): what a `g: E =>` arm matches.
+    pub fn errorSetMembers(f: Facts, set: TypeId, a: std.mem.Allocator) std.mem.Allocator.Error![]const ErrorMember {
+        var leaves: std.ArrayList(sema.SetKey) = .empty;
+        try sema.errorSetLeaves(f.c(), set, &leaves, a);
+        var out: std.ArrayList(ErrorMember) = .empty;
+        for (leaves.items) |leaf| {
+            const leaf_facts = of(leaf.ctx);
+            const set_name = leaf.ctx.symbols.items[leaf.sym].name;
+            for (sema.setMembers(leaf)) |m| if (m.is_variant) try out.append(a, .{ .facts = leaf_facts, .set = set_name, .name = m.name });
+        }
+        return out.items;
     }
 
     pub fn nominalDecl(f: Facts, ty: TypeId) ?Nominal {

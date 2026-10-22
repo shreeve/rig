@@ -75,6 +75,9 @@ pub const TypeId = u32;
 pub const symbol_invalid: SymbolId = 0;
 pub const scope_invalid: ScopeId = 0;
 pub const type_invalid: TypeId = 0;
+/// `error`, an error of any set: the set of a `T!` (`Fallible`). Every
+/// `TypeStore` interns it at this place (`TypeStore.init`).
+pub const type_any_error: TypeId = 12;
 
 /// The first scope a module's check opens.
 pub const module_scope: ScopeId = 1;
@@ -371,7 +374,7 @@ pub const Type = union(enum) {
     any_error,
 
     optional: TypeId, // T?
-    fallible: TypeId, // T!
+    fallible: Fallible, // T!, T!E
     read_view: TypeId, // ?T
     write_view: TypeId, // !T
     shared: TypeId, // *T
@@ -415,6 +418,13 @@ pub const Type = union(enum) {
     /// way a `type_var` stands for a type: `n` in `[n]T` inside `fun
     /// f[n: Int]` or `obj Ring[T, n: Int]`.
     ct_param: SymbolId,
+};
+
+/// `T!E`: a value `ok`, or a failure with an error of `set`, a declared
+/// error set or a union of sets; `T!`'s set is `error`, any error.
+pub const Fallible = struct {
+    ok: TypeId,
+    set: TypeId = type_any_error,
 };
 
 pub const ParamNominal = struct {
@@ -516,6 +526,7 @@ pub const TypeStore = struct {
         s.none_id = try s.intern(allocator, .none_literal);
         s.noreturn_id = try s.intern(allocator, .noreturn);
         s.any_error_id = try s.intern(allocator, .any_error);
+        std.debug.assert(s.any_error_id == type_any_error);
         s.static_id = try s.intern(allocator, .static);
         s.symbol_id = try s.intern(allocator, .symbol);
         return s;
@@ -779,6 +790,9 @@ pub const Symbol = struct {
     /// (`implied`). A nominal or generic type: the APIs its header names
     /// (`obj Name: Eq + Hash`), which it gives a meaning of its own.
     apis: Apis = .empty,
+    /// A union of error sets (`error L = A | B`): the sets it joins, each
+    /// a declared set or another union. Null for every other symbol.
+    error_parts: ?[]const TypeId = null,
 };
 
 pub const Api = rig.Api;
@@ -1082,6 +1096,10 @@ pub const Facts = struct {
     /// `E.name` nodes that name a member of an error set `E`, through
     /// its module or an alias (`SemContext.recordErrorMember`).
     error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `x == K.name` nodes whose side `K.name` names a variant of `x`'s
+    /// enum: a test of which variant `x` holds, comparing no payload
+    /// (`SemContext.recordMemberTest`).
+    member_tests: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -3095,6 +3113,14 @@ pub const SemContext = struct {
         try self.facts.error_members.put(self.allocator, recordKey(node), {});
     }
 
+    pub fn recordMemberTest(self: *SemContext, node: Sexp) !void {
+        try self.facts.member_tests.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn isMemberTest(self: *const SemContext, node: Sexp) bool {
+        return self.facts.member_tests.contains(nodeKey(node) orelse return false);
+    }
+
     pub fn isErrorMember(self: *const SemContext, node: Sexp) bool {
         return self.facts.error_members.contains(nodeKey(node) orelse return false);
     }
@@ -4502,8 +4528,8 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         .array => |a| holdsIn(ctx, a.elem, params, held),
         // Lanes of a number or `Bool`: one plain value.
         .simd => .{ .plain = true, .vector = true },
-        .fallible => |inner| blk: {
-            const h = try holdsIn(ctx, inner, params, held);
+        .fallible => |f| blk: {
+            const h = try holdsIn(ctx, f.ok, params, held);
             break :blk .{ .type_var = h.type_var, .vector = h.vector };
         },
         .shared, .weak => .{ .glue = true },
@@ -4649,7 +4675,8 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         .write_view => |inner| (Reach{ .views = .{ .marked = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.string_only), into)),
         .string_view => .{ .views = .{ .string_view = true } },
         .string => .{ .views = .{ .string = true } },
-        .optional, .fallible => |inner| return reachOf(ctx, inner, mask, into),
+        .optional => |inner| return reachOf(ctx, inner, mask, into),
+        .fallible => |inner| return reachOf(ctx, inner.ok, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
         .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.views_only), into),
         .nominal => |sym| blk: {
@@ -4874,7 +4901,7 @@ const Components = struct {
 pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
     if (ret == ctx.types.void_id) return true;
     return switch (ctx.types.get(ret)) {
-        .fallible => |inner| inner == ctx.types.void_id,
+        .fallible => |inner| inner.ok == ctx.types.void_id,
         else => false,
     };
 }
@@ -4907,7 +4934,8 @@ fn isHeapBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
 /// `every_arg`, those of every argument of a generic instance as well.
 fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), every_arg: bool) std.mem.Allocator.Error!void {
     switch (ctx.types.get(ty)) {
-        .optional, .fallible => |inner| try byValueTargets(ctx, inner, out, every_arg),
+        .optional => |inner| try byValueTargets(ctx, inner, out, every_arg),
+        .fallible => |inner| try byValueTargets(ctx, inner.ok, out, every_arg),
         .array => |a| try byValueTargets(ctx, a.elem, out, every_arg),
         .nominal => |s| try out.append(ctx.allocator, s),
         .parameterized_nominal => |pn| {
@@ -4949,7 +4977,8 @@ pub const TypeChildren = struct {
         const i = self.i;
         self.i += 1;
         return switch (self.ty) {
-            .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
+            .optional, .read_view, .write_view, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
+            .fallible => |inner| if (i == 0) inner.ok else null,
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .simd => |v| if (i == 0) v.elem else if (i == 1) v.len else null,
@@ -5356,7 +5385,8 @@ pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
 pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     switch (ctx.types.get(ty)) {
         .callable => return true,
-        .read_view, .write_view, .optional, .fallible, .shared, .weak => |inner| return holdsCallable(ctx, inner),
+        .read_view, .write_view, .optional, .shared, .weak => |inner| return holdsCallable(ctx, inner),
+        .fallible => |inner| return holdsCallable(ctx, inner.ok),
         .slice => |sl| return holdsCallable(ctx, sl.elem),
         .array => |a| return holdsCallable(ctx, a.elem),
         .parameterized_nominal => |pn| for (pn.args) |a| {
@@ -5413,7 +5443,8 @@ pub const boxed_function = "`^` boxes a value; a function has no box (`^fun` is 
 pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
     switch (ctx.types.get(ty)) {
         .shared => |inner| return if (heapStacked(ctx, inner)) ty else findHeapStacked(ctx, inner),
-        .weak, .read_view, .write_view, .optional, .fallible, .range, .callable => |inner| return findHeapStacked(ctx, inner),
+        .weak, .read_view, .write_view, .optional, .range, .callable => |inner| return findHeapStacked(ctx, inner),
+        .fallible => |inner| return findHeapStacked(ctx, inner.ok),
         .slice => |s| return findHeapStacked(ctx, s.elem),
         .array => |a| return findHeapStacked(ctx, a.elem),
         .function => |f| {
@@ -5467,12 +5498,148 @@ pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.types.get(ty) == .any_error or isErrorSet(ctx, ty);
 }
 
-/// A type declared with `error`.
+/// Whether error set `set` holds `task.Stop`, `std.task`'s set, which
+/// every wait may also fail with: `error` does, and a declared set or
+/// union does when it joins it.
+pub fn setHoldsStop(ctx: *const SemContext, set: TypeId, a: std.mem.Allocator) std.mem.Allocator.Error!bool {
+    if (set == type_any_error) return true;
+    var leaves: std.ArrayList(SetKey) = .empty;
+    try errorSetLeaves(ctx, set, &leaves, a);
+    for (leaves.items) |leaf| {
+        if (std.mem.eql(u8, leaf.ctx.name, "std.task") and std.mem.eql(u8, leaf.ctx.symbols.items[leaf.sym].name, "Stop")) return true;
+    }
+    return false;
+}
+
+/// Whether function type `f` is lent where function type `want` goes:
+/// the same, or with the same parameters and a result `T!A` where
+/// `want`'s is a `T!L` whose set holds `A`'s. The view's thunk
+/// (`rig.FnRef.ofFn`) returns `want`'s result, which Zig's error union
+/// coercion makes of `f`'s.
+pub fn lendsCovariant(ctx: *const SemContext, f: TypeId, want: TypeId) bool {
+    if (f == want) return true;
+    const a = ctx.types.get(f);
+    const b = ctx.types.get(want);
+    if (a != .function or b != .function) return false;
+    const af = a.function;
+    const bf = b.function;
+    if (af.is_sub != bf.is_sub or af.params.len != bf.params.len or af.ct_params.len != 0 or bf.ct_params.len != 0) return false;
+    for (af.params, bf.params) |x, y| if (x != y) return false;
+    const ar = ctx.types.get(af.returns);
+    const br = ctx.types.get(bf.returns);
+    if (ar != .fallible or br != .fallible) return false;
+    return ar.fallible.ok == br.fallible.ok and errorSubset(ctx, ar.fallible.set, br.fallible.set);
+}
+
+/// A type declared with `error`: a set, or a union of sets.
 pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .nominal, .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().flags.error_set,
         else => false,
     };
+}
+
+/// One declared error set, by the module that declares it and its
+/// symbol there: what a set is wherever it is named.
+pub const SetKey = struct {
+    ctx: *const SemContext,
+    sym: SymbolId,
+    /// The module that declares it, as the module asking names it: null
+    /// for one of its own (`NominalDecl.module_id`).
+    module_id: ?u32 = null,
+
+    /// The set as a type of the module asking.
+    pub fn typeIn(key: SetKey, ctx: *SemContext) std.mem.Allocator.Error!TypeId {
+        if (key.module_id) |m| return ctx.intern(.{ .imported_nominal = .{ .module_id = m, .sym_id = key.sym } });
+        return ctx.intern(.{ .nominal = key.sym });
+    }
+};
+
+/// The declared error set `ty` names, if it names one rather than a
+/// union.
+pub fn setKeyOf(ctx: *const SemContext, ty: TypeId) ?SetKey {
+    const d = nominalDecl(ctx, ty) orelse return null;
+    const sym = d.symbol();
+    if (!sym.flags.error_set or sym.error_parts != null) return null;
+    return .{ .ctx = d.ctx, .sym = d.sym };
+}
+
+/// A union of error sets (`error L = A | B`).
+pub fn isErrorUnion(ctx: *const SemContext, ty: TypeId) bool {
+    const d = nominalDecl(ctx, ty) orelse return false;
+    return d.symbol().error_parts != null;
+}
+
+/// The declared sets `ty`, a set or a union, stands for, each once,
+/// appended to `out`; a union's parts are read in the module that
+/// declares it. `error` and any other type add none.
+pub fn errorSetLeaves(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SetKey), a: std.mem.Allocator) std.mem.Allocator.Error!void {
+    return leavesAt(ctx, ty, out, a, 0);
+}
+
+fn leavesAt(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SetKey), a: std.mem.Allocator, depth: u32) std.mem.Allocator.Error!void {
+    return leavesFrom(ctx, ty, null, out, a, depth);
+}
+
+/// `leavesAt` for `ty` as the module with id `home` names it (null: the
+/// module asking), so each leaf records its module as the asker names it.
+fn leavesFrom(ctx: *const SemContext, ty: TypeId, home: ?u32, out: *std.ArrayList(SetKey), a: std.mem.Allocator, depth: u32) std.mem.Allocator.Error!void {
+    if (depth > union_depth) return;
+    const d = nominalDecl(ctx, ty) orelse return;
+    const sym = d.symbol();
+    if (!sym.flags.error_set) return;
+    const module = d.module_id orelse home;
+    const parts = sym.error_parts orelse {
+        const key: SetKey = .{ .ctx = d.ctx, .sym = d.sym, .module_id = module };
+        for (out.items) |k| if (k.ctx == key.ctx and k.sym == key.sym) return;
+        return out.append(a, key);
+    };
+    for (parts) |part| try leavesFrom(d.ctx, part, module, out, a, depth + 1);
+}
+
+/// The members of declared set `key`, by name.
+pub fn setMembers(key: SetKey) []const Field {
+    return key.ctx.symbols.items[key.sym].fields orelse &.{};
+}
+
+/// How deep unions may nest before `errorSubset` stops looking: past
+/// any union a program writes, and an end for one that joins itself,
+/// which `typecheck.checkErrorJoin` rejects.
+const union_depth = 32;
+
+/// Whether `key`, a declared set, is one `outer` stands for: `outer`
+/// itself, or a set a part of the union `outer` joins.
+pub fn setIn(ctx: *const SemContext, key: SetKey, outer: TypeId) bool {
+    return setInAt(ctx, key, outer, 0);
+}
+
+fn setInAt(ctx: *const SemContext, key: SetKey, outer: TypeId, depth: u32) bool {
+    if (depth > union_depth) return false;
+    const d = nominalDecl(ctx, outer) orelse return false;
+    const sym = d.symbol();
+    if (!sym.flags.error_set) return false;
+    const parts = sym.error_parts orelse return key.ctx == d.ctx and key.sym == d.sym;
+    for (parts) |part| if (setInAt(d.ctx, key, part, depth + 1)) return true;
+    return false;
+}
+
+/// Whether every error of `inner` is one of `outer`: `outer` is `error`,
+/// or each set `inner` stands for is one `outer` stands for. `error` is
+/// inside no declared set.
+pub fn errorSubset(ctx: *const SemContext, inner: TypeId, outer: TypeId) bool {
+    if (outer == type_any_error) return true;
+    if (inner == type_any_error) return false;
+    return subsetAt(ctx, inner, ctx, outer, 0);
+}
+
+fn subsetAt(ctx: *const SemContext, inner: TypeId, outer_ctx: *const SemContext, outer: TypeId, depth: u32) bool {
+    if (depth > union_depth) return false;
+    const d = nominalDecl(ctx, inner) orelse return false;
+    const sym = d.symbol();
+    if (!sym.flags.error_set) return false;
+    const parts = sym.error_parts orelse return setInAt(outer_ctx, .{ .ctx = d.ctx, .sym = d.sym }, outer, 0);
+    for (parts) |part| if (!subsetAt(d.ctx, part, outer_ctx, outer, depth + 1)) return false;
+    return true;
 }
 
 /// The error sets a bare `.name` may mean in this module, as its types:
@@ -6362,10 +6529,16 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
-        inline .read_view, .write_view, .shared, .weak, .optional, .fallible, .range, .callable => |inner, tag| {
+        inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
             return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
+        },
+        .fallible => |f| {
+            const ok = try substituteType(ctx, f.ok, subst);
+            const set = try substituteType(ctx, f.set, subst);
+            if (ok == f.ok and set == f.set) return ty_id;
+            return ctx.intern(.{ .fallible = .{ .ok = ok, .set = set } });
         },
         .slice => |s| {
             const e = try substituteType(ctx, s.elem, subst);
@@ -6610,7 +6783,7 @@ pub fn writeViewMisplaced(ctx: *const SemContext, ty: TypeId, home: Home) bool {
 /// decided where it was written, as `.viewed`.
 fn isHeldWriteView(ctx: *const SemContext, ty: TypeId) bool {
     var t = ty;
-    if (ctx.types.get(t) == .fallible) t = ctx.types.get(t).fallible;
+    if (ctx.types.get(t) == .fallible) t = ctx.types.get(t).fallible.ok;
     if (ctx.types.get(t) == .optional) t = ctx.types.get(t).optional;
     return ctx.types.get(t) == .write_view;
 }
@@ -6621,7 +6794,8 @@ fn isHeldWriteView(ctx: *const SemContext, ty: TypeId) bool {
 fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .write_view => true,
-        .read_view, .shared, .weak, .optional, .fallible => |inner| nestsWriteView(ctx, inner),
+        .read_view, .shared, .weak, .optional => |inner| nestsWriteView(ctx, inner),
+        .fallible => |inner| nestsWriteView(ctx, inner.ok),
         .array => |a| nestsWriteView(ctx, a.elem),
         .slice => |s| nestsWriteView(ctx, s.elem),
         .parameterized_nominal => |pn| for (pn.args) |a| {
@@ -6808,7 +6982,8 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         .callable => here,
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
         .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, seen),
-        .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, local, seen),
+        .optional, .range => |inner| blockerIn(ctx, inner, how, local, seen),
+        .fallible => |inner| blockerIn(ctx, inner.ok, how, local, seen),
         .array => |a| blockerIn(ctx, a.elem, how, local, seen),
         .slice => |sl| blockerIn(ctx, sl.elem, how, local, seen),
         .results => |parts| for (parts) |part| {
@@ -6844,7 +7019,8 @@ pub fn holdsTask(ctx: *const SemContext, ty: TypeId) bool {
 
 fn taskIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) bool {
     return switch (ctx.types.get(ty)) {
-        .read_view, .write_view, .optional, .fallible, .shared, .weak, .range => |inner| taskIn(ctx, inner, seen),
+        .read_view, .write_view, .optional, .shared, .weak, .range => |inner| taskIn(ctx, inner, seen),
+        .fallible => |inner| taskIn(ctx, inner.ok, seen),
         .array => |a| taskIn(ctx, a.elem, seen),
         .slice => |sl| taskIn(ctx, sl.elem, seen),
         .results => |parts| for (parts) |part| {
@@ -7093,7 +7269,8 @@ const elem_view: u64 = 1 << 62;
 fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
     const ctx = node.ctx;
     switch (ctx.types.get(node.ty)) {
-        .optional, .fallible, .shared, .weak => |inner| try f.visit(.{ .ctx = ctx, .ty = inner, .args = node.args }),
+        .optional, .shared, .weak => |inner| try f.visit(.{ .ctx = ctx, .ty = inner, .args = node.args }),
+        .fallible => |inner| try f.visit(.{ .ctx = ctx, .ty = inner.ok, .args = node.args }),
         .array => |a| try f.visit(.{ .ctx = ctx, .ty = a.elem, .args = node.args, .elem = true }),
         .nominal, .imported_nominal => {
             const decl = nominalDecl(ctx, node.ty) orelse return;
@@ -7546,7 +7723,8 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// one `T!` or `T?` (`(A, B)!`, `(A, B)?`); null for any other type.
 pub fn resultsOf(ctx: *const SemContext, ty: TypeId) ?[]const TypeId {
     const t = switch (ctx.types.get(ty)) {
-        .fallible, .optional => |inner| inner,
+        .optional => |inner| inner,
+        .fallible => |inner| inner.ok,
         else => ty,
     };
     return switch (ctx.types.get(t)) {
@@ -7640,8 +7818,12 @@ fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) !boo
                 }
                 continue;
             },
-            .optional, .fallible, .read_view, .write_view, .shared => |inner| {
+            .optional, .read_view, .write_view, .shared => |inner| {
                 try todo.append(a, .{ .ctx = c, .ty = inner });
+                continue;
+            },
+            .fallible => |f| {
+                try todo.append(a, .{ .ctx = c, .ty = f.ok });
                 continue;
             },
             .array => |arr| {
@@ -7674,7 +7856,8 @@ fn dropBodyOf(ctx: *const SemContext, ty: TypeId) bool {
 /// `path` holds the declared types being looked into: a cycle adds nothing.
 fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .optional, .fallible => |i| runsDropBody(ctx, i, path),
+        .shared, .optional => |i| runsDropBody(ctx, i, path),
+        .fallible => |i| runsDropBody(ctx, i.ok, path),
         .array => |a| runsDropBody(ctx, a.elem, path),
         .imported_nominal => typeHasDropGlue(ctx, ty),
         .nominal => |sid| fieldsRunDropBody(ctx, sid, path),
@@ -7785,7 +7968,8 @@ pub fn copiedThrough(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// they copy their payload (`SemContext.copiesPayload`).
 pub fn payloadViewed(ctx: *const SemContext, holder: TypeId) ?TypeId {
     const payload = switch (ctx.types.get(unwrapViews(ctx, holder))) {
-        .optional, .fallible => |inner| inner,
+        .optional => |inner| inner,
+        .fallible => |inner| inner.ok,
         else => return null,
     };
     const viewed = switch (ctx.types.get(payload)) {
@@ -7912,7 +8096,8 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
     if (!ctx.holds(ty).holds_type_var) return;
     switch (ctx.types.get(ty)) {
         .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
-        .optional, .fallible => |inner| try heldTypeVars(ctx, inner, out, a),
+        .optional => |inner| try heldTypeVars(ctx, inner, out, a),
+        .fallible => |inner| try heldTypeVars(ctx, inner.ok, out, a),
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
         .parameterized_nominal => |pn| {
             const held = ctx.symbols.items[pn.sym].contents.held;
@@ -7936,7 +8121,8 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
     if (!ctx.typeInfo(ty).has_type_var) return;
     switch (ctx.types.get(ty)) {
         .type_var => |sym| if (std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
-        .optional, .fallible, .read_view, .write_view, .shared, .weak => |inner| try reachedTypeVars(ctx, inner, out, a),
+        .optional, .read_view, .write_view, .shared, .weak => |inner| try reachedTypeVars(ctx, inner, out, a),
+        .fallible => |inner| try reachedTypeVars(ctx, inner.ok, out, a),
         .array => |arr| try reachedTypeVars(ctx, arr.elem, out, a),
         .slice => |sl| try reachedTypeVars(ctx, sl.elem, out, a),
         .parameterized_nominal => |pn| for (pn.args) |arg| try reachedTypeVars(ctx, arg, out, a),
@@ -7955,10 +8141,14 @@ pub fn importType(
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
         .invalid, .unknown, .void, .bool, .string_view, .string, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
-        inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
+        inline .optional, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
+        .fallible => |f| return local_ctx.intern(.{ .fallible = .{
+            .ok = try importType(local_ctx, foreign_ctx, f.ok, origin_module_id),
+            .set = try importType(local_ctx, foreign_ctx, f.set, origin_module_id),
+        } }),
         .slice => |s| return local_ctx.intern(.{ .slice = .{ .elem = try importType(local_ctx, foreign_ctx, s.elem, origin_module_id) } }),
         .array => |a| return local_ctx.intern(.{ .array = .{
             .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id),
@@ -8551,7 +8741,11 @@ const TypePrinter = struct {
             .any_error => "error",
             .noreturn => "NoReturn",
             .optional => |inner| try p.suffixed(inner, '?'),
-            .fallible => |inner| try p.suffixed(inner, '!'),
+            .fallible => |f| blk: {
+                const base = try p.suffixed(f.ok, '!');
+                if (f.set == type_any_error) break :blk base;
+                break :blk try p.a.print("{s}{s}", .{ base, try p.id(f.set) });
+            },
             .read_view => |inner| try a.print("?{s}", .{try p.id(inner)}),
             .callable => |f| try p.id(f),
             .write_view => |inner| try a.print("!{s}", .{try p.id(inner)}),
@@ -8653,7 +8847,8 @@ const TypePrinter = struct {
 /// (`rig.typeName`), which spells it by the same rules.
 fn spelledPerInstance(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .optional, .fallible => |inner| paramOperand(ctx, inner),
+        .optional => |inner| paramOperand(ctx, inner),
+        .fallible => |inner| paramOperand(ctx, inner.ok),
         .shared, .weak => |inner| ctx.types.get(inner) == .type_var,
         .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and ctx.types.get(pn.args[0]) == .type_var,
         else => false,
@@ -8969,13 +9164,14 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         .write_view => |t| if (t == from and kind == .write) return true,
         else => {},
     }
-    // A function, or an owned closure, lends a `?fun(...)`.
+    // A function, or an owned closure, lends a `?fun(...)`, one whose
+    // failure the view's set holds (`lendsCovariant`).
     if (callableFnTy(ctx, view)) |fn_ty| {
         const owned = switch (types.get(from)) {
-            .shared => |inner| inner == fn_ty,
+            .shared => |inner| lendsCovariant(ctx, inner, fn_ty),
             else => false,
         };
-        if (!owned and !(from == fn_ty and kind == .read)) return false;
+        if (!owned and !(lendsCovariant(ctx, from, fn_ty) and kind == .read)) return false;
         lend.fn_ty = fn_ty;
         return lend.push(.callable);
     }
@@ -9437,11 +9633,11 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
-        .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
+        .arm, .alt_pattern, .range_pattern, .variant_pattern, .set_pattern => .none,
         // `>t`, `f: once T`, and `a..=b`, which the Parser wrapper rewrites first.
         .wait, .once, .@"..=" => .none,
         // Types.
@@ -10311,7 +10507,7 @@ test "TypeStore: composites intern by structure" {
     defer store.deinit(a);
     const opt = try store.intern(a, .{ .optional = store.int_id });
     try std.testing.expectEqual(opt, try store.intern(a, .{ .optional = store.int_id }));
-    try std.testing.expect(opt != try store.intern(a, .{ .fallible = store.int_id }));
+    try std.testing.expect(opt != try store.intern(a, .{ .fallible = .{ .ok = store.int_id } }));
     try std.testing.expect(opt != try store.intern(a, .{ .optional = opt }));
 
     const p1 = [_]TypeId{ store.int_id, store.int_id };
