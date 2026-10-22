@@ -69,6 +69,10 @@ const After = struct {
 /// A worker: its own stack pointer while a fiber runs, the fiber
 /// running, its ring of ready fibers, its stacks to reuse, and the word it
 /// sleeps on.
+///
+/// A worker begins a cache line and fills whole lines (`thread`'s
+/// alignment), so no line holds two workers' fields: the fields each
+/// writes at every switch never slow the other's.
 const Worker = struct {
     sp: usize = 0,
     current: ?*Fiber = null,
@@ -125,7 +129,7 @@ const Worker = struct {
     slept: std.atomic.Value(u64) = .init(0),
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
-    thread: ?std.Thread = null,
+    thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
 /// The workers, worker 0 first; set by `runMain`.
@@ -2997,6 +3001,11 @@ pub fn abandon() noreturn {
     const h: *Header = @fieldParentPtr("fiber", f);
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
+}
+
+test "no cache line holds two workers' fields" {
+    try std.testing.expect(@alignOf(Worker) >= std.atomic.cache_line);
+    try std.testing.expect(@sizeOf(Worker) % std.atomic.cache_line == 0);
 }
 
 test "fibers switch, yield to each other in turn, and finish" {

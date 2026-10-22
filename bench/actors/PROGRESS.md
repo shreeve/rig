@@ -20,6 +20,8 @@ to the end of the file, so a Mac row moves up into its table).
 | 2026-10-21 | #535: interrupts cancel main | rig-fast | 5.0 ns | 29 ns | 0.9 ns |
 | 2026-10-22 | main before #541, interleaved | rig-fast | 5.1 ns | 30 ns | 0.9 ns |
 | 2026-10-22 | #541: a run-next fill wakes no worker | rig-fast | 5.0 ns | 33 ns | 1.0 ns |
+| 2026-10-22 | main before #552, interleaved | rig-fast | 5.1 ns | 31 ns | 0.9 ns |
+| 2026-10-22 | #552: each worker on cache lines of its own | rig-fast | 5.1 ns | 29 ns | 0.9 ns |
 
 ## x86-64 (pup)
 
@@ -38,3 +40,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-21 | #535: interrupts cancel main | rig-fast | 14 ns | 30 ns | 1.8 ns |
 | 2026-10-22 | main before #541, interleaved (pup cores 8,9) | rig-fast | 13 ns | 17 ns | 12 ns |
 | 2026-10-22 | #541: a run-next fill wakes no worker (pup cores 8,9) | rig-fast | 11 ns | 14 ns | 10 ns |
+| 2026-10-22 | main before #552, interleaved (pup cores 8,9) | rig-fast | 12 ns | 15 ns | 11 ns |
+| 2026-10-22 | #552: each worker on cache lines of its own (pup cores 8,9) | rig-fast | 11 ns | 14 ns | 10 ns |

@@ -679,6 +679,12 @@ pub const Checker = struct {
     /// The positions where a `once` parameter is used as it may be: the
     /// callee of a call, or an argument to another `once` parameter.
     once_uses: std.ArrayList(u32) = .empty,
+    /// The views of a value in itself reported where a closure being
+    /// walked is made (`walkLambda`), as "`into` <- `viewed`": its body's
+    /// stores of the same are not reported again.
+    closure_self_views: std.ArrayList([]const u8) = .empty,
+    /// True while a closure's captures are walked where it is made.
+    capturing: bool = false,
     reachable: bool = true,
     /// Non-zero while computing a loop fixpoint: diagnostics suppressed.
     quiet: u32 = 0,
@@ -5278,6 +5284,10 @@ pub const Checker = struct {
         } else whole_path;
         const into = try self.pathText(id, into_path);
         const viewed = try self.pathText(l.root, l.path);
+        // One the closure's captures were reported for, where it is made.
+        const pair = try std.fmt.allocPrint(self.arena(), "{s} <- {s}", .{ into, viewed });
+        for (self.closure_self_views.items) |p| if (std.mem.eql(u8, p, pair)) return;
+        if (self.capturing) try self.closure_self_views.append(self.arena(), pair);
         if (via != null) {
             try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ into, viewed });
         } else try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: a value never holds a view of itself", .{ viewed, into });
@@ -5369,11 +5379,15 @@ pub const Checker = struct {
         // captured write view leads to, as a call may with its
         // arguments: that value now holds those loans. Only a capture
         // that can write leads a store (as for a call's arguments).
+        const self_views = self.closure_self_views.items.len;
+        defer self.closure_self_views.shrinkRetainingCapacity(self_views);
+        self.capturing = true;
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
             const pos = sema.captureNameNode(cap).?.src.pos;
             if (sema.captureModeOf(cap).? != .cap_write and !self.mayWrite(self.symType(pos))) continue;
             try self.absorbThroughWrites(cv, value, pos, null, null);
         };
+        self.capturing = false;
 
         // The body is checked as its own function; it cannot affect the
         // enclosing state.
