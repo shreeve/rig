@@ -32,6 +32,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Error data in the runtime (R3a) | its design, and a review with no blocker | [errors-r3a/](2026-10/errors-r3a/) |
 | CORE's "A failure moves its error" | a panel of four, and the final text | [errors-core/](2026-10/errors-core/) |
 | Frozen values (`*Frozen[T]`) | a handle counted atomically for a value no one changes, read by many tasks; Rig's review | [frozen/](2026-10/frozen/) |
+| Fix: `Stop.canceled` after a failed `par.map` | a waiter takes no cancel from the task it waits on; `par.map`, `par.each`, and `http.serve` were affected | [fixes/parmap-cancel.md](2026-10/fixes/parmap-cancel.md) |
 
 ## Every record
 
@@ -59,6 +60,10 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [review-1.md](2026-10/errors-r2/review-1.md): Review: declared error sets (branch `errsets`, PR #542)
 - [review-1-fixes.md](2026-10/errors-r2/review-1-fixes.md): how each of review 1's findings was fixed
+
+### 2026-10/fixes/
+
+- [parmap-cancel.md](2026-10/fixes/parmap-cancel.md): `Stop.canceled` after a failed `par.map`
 
 ### 2026-10/frozen/
 

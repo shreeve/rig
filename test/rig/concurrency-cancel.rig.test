@@ -224,3 +224,158 @@ test "cancel storm", seeds: 20, "true"
   for i in 0..300
     total += round(i)
   print(total > 0)
+
+test "cancel par failure", seeds: 20, '''
+  map Bad.odd
+  each Bad.odd
+  slept
+  3
+  7
+  task ok
+'''
+  # A failed `par.map` or `par.each` cancels its own tasks, not its
+  # caller: the caller's next waits succeed, and so do its owner's.
+  use std.par
+  use std.time
+
+  error Bad
+    odd
+
+  fun slow(n: Int) -> Int!
+    return Bad.odd if n == 50
+    time.sleep(time.MS)!
+    n
+
+  sub bump(x: !Int)!
+    x += slow(x)!
+
+  fun three() -> Int!
+    time.sleep(time.MS)!
+    3
+
+  sub run()!
+    xs: List[Int] = List(capacity: 100)
+    for i in 0..100
+      !xs.push(i)
+    _ = par.map(?xs, |x| slow(x)!, limit: 8) catch |e|
+      print("map", e)
+      List[Int]()
+    par.each(!xs, bump, limit: 8) catch |e| print("each", e)
+    time.sleep(time.MS)!
+    print("slept")
+    t = three()&
+    print(>t!)
+    ch = *Chan[Int](1)
+    !ch.send(7)!
+    print((!ch).recv()! ?? 0)
+
+  sub checked()
+    run() catch |e| print("run", e)
+
+  c = checked()&
+  >c
+  time.sleep(time.MS)!
+  print("task ok")
+
+test "cancel par canceled", seeds: 20, '''
+  map Stop.canceled
+  still Stop.canceled
+  -1
+'''
+  # A task canceled during a `par.map` stays canceled after it.
+  use std.par
+  use std.time
+
+  fun nap(n: Int) -> Int!
+    time.sleep(10 * time.SECOND)!
+    n
+
+  fun run() -> Int!
+    xs = [1, 2, 3, 4, 5, 6, 7, 8]
+    _ = par.map(?xs, |x| nap(x)!, limit: 4) catch |e|
+      print("map", e)
+      List[Int]()
+    time.sleep(time.MS) catch |e| print("still", e)
+    time.sleep(time.MS)!
+    0
+
+  t = run()&
+  time.sleep(time.MS)!
+  print(<t.cancel() catch -1)
+
+test "cancel leaves the caller", seeds: 20, '''
+  2
+  set Bad.odd
+  all Bad.odd
+  isolate -1
+  within -1
+  -1
+  ok
+'''
+  # Whatever cancels the tasks a task owns, by success, failure, panic,
+  # deadline, or drop, leaves that task's own waits as they were.
+  use std.task
+  use std.time
+
+  error Bad
+    odd
+
+  fun nap(n: Int) -> Int!
+    time.sleep(10 * time.SECOND)!
+    n
+
+  fun quick(n: Int) -> Int!
+    time.sleep(time.MS)!
+    n
+
+  fun bad(n: Int) -> Int!
+    time.sleep(time.MS)!
+    return Bad.odd
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun boom(n: Int) -> Int!
+    time.sleep(time.MS)!
+    pick([1, 2, 3], n)
+
+  fun under() -> Int!
+    ts = Tasks[Int!]()
+    !ts.add(nap(1)&)
+    !ts.add(boom(9)&)
+    xs = >ts!
+    xs.len
+
+  sub both()!
+    a, b = task.all(nap(1)&, bad(2)&)!
+    print(a + b)
+
+  ts = Tasks[Int!]()
+  !ts.add(nap(1)&)
+  !ts.add(quick(2)&)
+  print(<ts.wait_first()!)
+  time.sleep(time.MS)!
+  us = Tasks[Int!]()
+  !us.add(nap(1)&)
+  !us.add(bad(2)&)
+  _ = >us catch |e|
+    print("set", e)
+    List[Int]()
+  time.sleep(time.MS)!
+  both() catch |e| print("all", e)
+  time.sleep(time.MS)!
+  print("isolate", task.isolate(|| under()!) catch -1)
+  time.sleep(time.MS)!
+  print("within", time.within(5 * time.MS, || nap(1)!) catch -1)
+  time.sleep(time.MS)!
+  vs = Tasks[Int!]()
+  !vs.add(nap(1)&)
+  <vs
+  time.sleep(time.MS)!
+  t = nap(1)&
+  print(<t.cancel() catch -1)
+  time.sleep(time.MS)!
+  u = nap(1)&
+  <u
+  time.sleep(time.MS)!
+  print("ok")

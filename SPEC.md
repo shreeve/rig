@@ -10956,7 +10956,9 @@ task waited for: waiting on a task that can fail is a waiting point,
 so the waiter fails with `Stop.canceled`, and waiting on one that
 cannot fail finishes, leaving the request for the waiter's next
 waiting point. Dropping a task cancels it when it can fail, or when the
-task dropping it is canceled.
+task dropping it is canceled. A cancel passes down, never up: canceling
+the tasks a task owns, as a set's first failure, a failed `par.map`, a
+deadline, or a drop does, leaves that task's own waits as they were.
 
 ```rig
 use std.task
