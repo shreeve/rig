@@ -241,12 +241,18 @@ fn dropResult(comptime T: type, result: *T, data: *rt.ErrData) void {
 /// `data` holds, move into the waiter's slot `out`, or are dropped where
 /// the waiter has none.
 fn keepResult(comptime T: type, result: T, data: *rt.ErrData, out: ?rt.ErrSlot) T {
+    keepFailure(T, &result, data, out);
+    return result;
+}
+
+/// `keepResult`'s part for a failure: its fields, which `data` holds, move
+/// into `out`, or are dropped where there is none.
+fn keepFailure(comptime T: type, result: *const T, data: *rt.ErrData, out: ?rt.ErrSlot) void {
     if (comptime @typeInfo(T) == .error_union) {
-        if (result) |_| {} else |err| {
+        if (result.*) |_| {} else |err| {
             if (out) |o| o.* = data.* else rt.dropErrorData(err, data);
         }
     }
-    return result;
 }
 
 /// How a task is held: its fiber's record, which keeps its result once
@@ -615,6 +621,16 @@ pub fn Tasks(comptime T: type) type {
         /// `>ts`: every result, in the order added; nothing for tasks that
         /// give none.
         pub fn wait_all(self: Self) All {
+            return self.waitAllWith(null);
+        }
+
+        /// `>ts` where the waiter takes the failure's fields into its slot
+        /// `out`.
+        pub fn wait_allInto(self: Self, out: rt.ErrSlot) All {
+            return self.waitAllWith(out);
+        }
+
+        fn waitAllWith(self: Self, out: ?rt.ErrSlot) All {
             var s = self;
             defer s.free();
             const n = s.items.items.len;
@@ -623,9 +639,9 @@ pub fn Tasks(comptime T: type) type {
                     for (s.items.items) |t| t.wait();
                     return;
                 }
-                var out = List(Value).initCapacity(@intCast(n));
-                for (s.items.items) |t| out.push(t.wait());
-                return out;
+                var values = List(Value).initCapacity(@intCast(n));
+                for (s.items.items) |t| values.push(t.wait());
+                return values;
             }
             const results = defaultAllocator().alloc(Value, n) catch oom();
             defer defaultAllocator().free(results);
@@ -645,6 +661,9 @@ pub fn Tasks(comptime T: type) type {
                     taken[i] = true;
                     left -= 1;
                     const result = t.handle.result();
+                    // Its failure's fields are taken from its record
+                    // before the record is freed.
+                    keepFailure(T, &result, &t.control.err, out);
                     t.release();
                     if (result) |v| {
                         results[i] = v;
@@ -666,13 +685,23 @@ pub fn Tasks(comptime T: type) type {
                 };
             }
             if (comptime Value == void) return;
-            var out = List(Value).initCapacity(@intCast(n));
-            for (results) |v| out.push(v);
-            return out;
+            var values = List(Value).initCapacity(@intCast(n));
+            for (results) |v| values.push(v);
+            return values;
         }
 
         /// `<ts.wait_first()`: the first result to succeed.
         pub fn wait_first(self: Self) T {
+            return self.waitFirstWith(null);
+        }
+
+        /// `<ts.wait_first()` where the waiter takes the last failure's
+        /// fields into its slot `out`.
+        pub fn wait_firstInto(self: Self, out: rt.ErrSlot) T {
+            return self.waitFirstWith(out);
+        }
+
+        fn waitFirstWith(self: Self, out: ?rt.ErrSlot) T {
             if (comptime !fallible) @compileError("rig: wait_first is only for a set that can fail");
             var s = self;
             defer s.free();
@@ -684,7 +713,10 @@ pub fn Tasks(comptime T: type) type {
             const untaken: Untaken = .{ .items = s.items.items, .taken = taken };
             const b = untaken.blocked();
             var left = n;
-            var last: Err = undefined;
+            // The last failure, with its fields: each one replaces the one
+            // before, whose fields are dropped.
+            var last: ?Err = null;
+            var last_data: rt.ErrData = undefined;
             while (true) {
                 const seen = s.wakeup.?.ticks.load(.seq_cst);
                 for (s.items.items, 0..) |*t, i| {
@@ -692,21 +724,30 @@ pub fn Tasks(comptime T: type) type {
                     taken[i] = true;
                     left -= 1;
                     const result = t.handle.result();
+                    if (result) |_| {} else |err| {
+                        if (last) |l| rt.dropErrorData(l, &last_data);
+                        last = err;
+                        last_data = t.control.err;
+                    }
                     t.release();
                     if (result) |v| {
+                        if (last) |l| rt.dropErrorData(l, &last_data);
                         s.stopUntaken(taken);
                         s.items.items.len = 0;
                         return v;
-                    } else |err| last = err;
+                    } else |_| {}
                 }
                 if (left == 0) {
                     s.items.items.len = 0;
-                    return last;
+                    const l = last.?;
+                    if (out) |o| o.* = last_data else rt.dropErrorData(l, &last_data);
+                    return l;
                 }
                 rt.sched.block(&b);
                 const slept = s.wakeup.?.sleep(seen);
                 rt.sched.unblock();
                 slept catch |err| {
+                    if (last) |l| rt.dropErrorData(l, &last_data);
                     s.stopUntaken(taken);
                     s.items.items.len = 0;
                     return err;
@@ -723,7 +764,7 @@ pub fn Tasks(comptime T: type) type {
             for (self.items.items, taken) |*t, k| {
                 if (k) continue;
                 var result = t.handle.stopped();
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 t.release();
             }
         }
@@ -751,7 +792,7 @@ pub fn Tasks(comptime T: type) type {
             }
             for (self.items.items) |*t| {
                 var result = if (fallible or canceledHere()) t.handle.stopped() else t.handle.result();
-                dropElement(T, &result);
+                dropResult(T, &result, &t.control.err);
                 t.release();
             }
         }
@@ -2240,5 +2281,49 @@ test "a task's failure data moves to the waiter's slot, and is dropped wherever 
     try std.testing.expectEqual(@as(usize, 0), Run.drops_after_into);
     try std.testing.expectEqual(@as(usize, 1), Run.drops_after_wait);
     try std.testing.expectEqual(@as(usize, 2), Run.drops_after_cancel);
+    try std.testing.expectEqual(@as(usize, 3), Run.drops_after_drop);
+}
+
+test "a set of tasks keeps the failure it gives and drops every other one's data" {
+    const builtin = @import("builtin");
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const G = rt.TestErrorGlue;
+    const Run = struct {
+        var all_kept: u8 = 0;
+        var first_kept: u8 = 0;
+        var drops_after_all: usize = 0;
+        var drops_after_first: usize = 0;
+        var drops_after_drop: usize = 0;
+        fn fails(n: u8, out: rt.ErrSlot) anyerror!i64 {
+            out.bytes[0] = n;
+            return error.WithData;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            G.drops = 0;
+            var slot: rt.ErrData = undefined;
+            var a: Tasks(anyerror!i64) = .{};
+            a.add(Task(anyerror!i64).spawn(fails, .{5}));
+            if (a.wait_allInto(&slot)) |l| {
+                var v = l;
+                v.__rig_drop();
+            } else |_| all_kept = slot.bytes[0];
+            drops_after_all = G.drops;
+            var b: Tasks(anyerror!i64) = .{};
+            b.add(Task(anyerror!i64).spawn(fails, .{1}));
+            b.add(Task(anyerror!i64).spawn(fails, .{2}));
+            if (b.wait_firstInto(&slot)) |_| {} else |_| first_kept = slot.bytes[0];
+            drops_after_first = G.drops;
+            var c: Tasks(anyerror!i64) = .{};
+            c.add(Task(anyerror!i64).spawn(fails, .{3}));
+            c.add(Task(anyerror!i64).spawn(fails, .{4}));
+            c.__rig_drop();
+            drops_after_drop = G.drops;
+        }
+    };
+    rt.sched.runForTest(Run.first, 2);
+    try std.testing.expectEqual(@as(u8, 5), Run.all_kept);
+    try std.testing.expectEqual(@as(usize, 0), Run.drops_after_all);
+    try std.testing.expect(Run.first_kept == 1 or Run.first_kept == 2);
+    try std.testing.expectEqual(@as(usize, 1), Run.drops_after_first);
     try std.testing.expectEqual(@as(usize, 3), Run.drops_after_drop);
 }
