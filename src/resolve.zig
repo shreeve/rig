@@ -934,7 +934,14 @@ fn resolveEnumsNamed(ctx: *SemContext, node: Sexp) Error!void {
     switch (node) {
         .src => {
             const name = identAt(ctx.source, node) orelse return;
-            const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return;
+            var id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return;
+            // Through type aliases, as the signature resolves them.
+            var hops: u32 = 0;
+            while (ctx.symbols.items[id].kind == .type_alias and hops < 64) : (hops += 1) {
+                const target = ctx.alias_targets.get(id) orelse return;
+                if (target != .src) return resolveEnumsNamed(ctx, target);
+                id = ctx.lookupInScopeOnly(sema.module_scope, identAt(ctx.source, target) orelse return) orelse return;
+            }
             if (ctx.symbols.items[id].kind != .nominal_type) return;
             try resolveVariantsEarly(ctx, sema.cteval.plainEnumDecl(ctx, id) orelse return);
         },
@@ -1086,8 +1093,10 @@ fn orderModuleConsts(ctx: *SemContext, tree: Sexp) Error![]const Sexp {
             try constNamesIn(ctx, set, &index, &deps);
             continue;
         }
+        // An enum depends on what its variants' values name; its
+        // methods feed no value.
         if (set.isKind(.@"enum")) {
-            for (ir.rest(set, .members)) |m| try constNamesIn(ctx, m, &index, &deps);
+            for (ir.rest(set, .members)) |m| if (m.isKind(.valued)) try constNamesIn(ctx, ir.Valued.value(m), &index, &deps);
             continue;
         }
         try constNamesIn(ctx, ir.Set.value(set), &index, &deps);
@@ -1156,7 +1165,16 @@ fn constNamesIn(ctx: *const SemContext, node: Sexp, index: *const std.AutoHashMa
     switch (node) {
         .src => {
             const text = identAt(ctx.source, node) orelse return;
-            const id = ctx.lookupInScopeOnly(sema.module_scope, text) orelse return;
+            var id = ctx.lookupInScopeOnly(sema.module_scope, text) orelse return;
+            // A type alias names what its target names, through a chain
+            // of aliases (one longer than this is a cycle, reported
+            // elsewhere).
+            var hops: u32 = 0;
+            while (ctx.symbols.items[id].kind == .type_alias and hops < 64) : (hops += 1) {
+                const target = ctx.alias_targets.get(id) orelse return;
+                if (target != .src) return constNamesIn(ctx, target, index, out);
+                id = ctx.lookupInScopeOnly(sema.module_scope, identAt(ctx.source, target) orelse return) orelse return;
+            }
             if (index.get(id)) |i| try out.append(ctx.allocator, i);
         },
         .list => switch (node.kind() orelse {
@@ -1201,8 +1219,12 @@ fn reportConstCycle(ctx: *SemContext, consts: []const Sexp, stack: anytype, j: u
     try path.print(a, "`{s}`", .{constName(ctx, consts[c])});
     const d = rig.unpub(consts[c]);
     if (d.isKind(.@"enum")) {
-        // The enum stays in the order: its value that needs itself is
-        // reported where its variants are resolved.
+        // The compile-time functions on the cycle are left unchecked and
+        // fail quietly where they are called: what they would report
+        // follows from the cycle.
+        for (cycle) |f| if (rig.isCtFun(consts[f.i])) if (ctx.symbolOf(ir.Fun.name(rig.unpub(consts[f.i])))) |id| if (ctx.ct.funs.getPtr(id)) |fun| {
+            fun.* = .{ .decl = fun.decl, .sig = .done, .body = .done };
+        };
         try ctx.errAt(ir.get(d, .name), "enum `{s}` depends on itself ({s})", .{ constName(ctx, consts[c]), path.items });
         return;
     }

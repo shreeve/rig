@@ -10366,11 +10366,13 @@ loop cannot change the array it walks.
 Each call written is computed within fixed limits, from no remembered
 value, so `rig check` gives the same verdict on every machine and
 wherever the call is written: 10,000,000 steps (each expression, loop
-iteration, and array element copied), 256 nested compile-time calls,
-20,000 expressions and statements nested in one another, and 64 MiB of
-values held at once. A call computed once is not computed again, and
-the same call again has the same value or failure. The result must be
-a value of the declared result type, and obeys the 8 MiB value rule.
+iteration, and 8 bytes of an array copied), 256 nested compile-time
+calls, 20,000 expressions and statements nested in one another, and
+256 MiB of values held at once, as their types store them. An array
+the body makes obeys the 8 MiB value rule, which is what limits a
+table. A call computed once is not computed again, and the same call
+again has the same value or failure. The result must be a value of the
+declared result type.
 Each failure is a diagnostic at the call, with a note at the line of
 the body that failed: an overflow of the operation's type, a division
 by zero, an index out of range, a conversion that does not fit, a

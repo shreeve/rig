@@ -2217,9 +2217,11 @@ again. `Eval` runs on a thread with a 512 MiB stack, and counts what it
 nests (`max_nest`) so that stack always holds it; it walks the checked
 IR of the body, reading each node's type from the checker, with the one
 arithmetic core of constant folding (`sema.ctArith`). Arrays are
-values: each is allocated alone and owned by one binding, element, or
-result (`Held` tells a value read where a local holds it from one of its
-own), and `live` counts what is held at once; a loop walks what a local
+values, stored as their types store them: one buffer of packed scalars
+per array, nested arrays row-major, an element of one a view of its row
+(`cteval.Arr`). Each buffer is owned by one binding, element, or result
+(`Held` tells a value read where a local holds it from one of its own),
+and `live` counts the bytes held at once; a loop walks what a local
 holds in place, kept alive while it does (`pins`). The result is checked
 against the declared result type, so emit never writes a value its type
 cannot hold. `callAt` reports a failure at the call, with a note at the

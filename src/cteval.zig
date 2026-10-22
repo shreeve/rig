@@ -42,8 +42,10 @@ const identAt = sema.identAt;
 pub const max_steps: u64 = 10_000_000;
 /// The most compile-time calls nested in one another.
 pub const max_depth: u32 = 256;
-/// The most bytes of values one evaluation holds at once.
-pub const max_bytes: u64 = 64 << 20;
+/// The most bytes of values one evaluation holds at once, as their types
+/// store them: 32 values at the 8 MiB value rule's limit
+/// (`sema.max_value_bytes`), so that rule is what limits an array.
+pub const max_bytes: u64 = 32 * sema.max_value_bytes;
 /// The most nested evaluations of expressions and statements, compile-time
 /// calls included: the evaluator recurses on a stack of its own
 /// (`eval_stack_bytes`), which this many always fit.
@@ -59,7 +61,87 @@ pub const CtVal = union(enum) {
     int: Wide,
     boolean: bool,
     variant: u32,
-    array: []CtVal,
+    array: Arr,
+};
+
+/// What an array's scalars are, and the bytes each takes: an integer's
+/// width, one for a `Bool`, four for a variant.
+pub const Scalar = struct {
+    kind: enum(u2) { int, boolean, variant },
+    width: u8,
+    signed: bool = false,
+
+    /// The scalars of array type `ty`, through its dimensions.
+    pub fn of(ctx: *const SemContext, ty: TypeId) Scalar {
+        return switch (ctx.types.get(ty)) {
+            .array => |arr| of(ctx, arr.elem),
+            .int => |i| .{ .kind = .int, .width = i.width() / 8, .signed = i.signed },
+            .int_literal => .{ .kind = .int, .width = 8, .signed = true },
+            .bool => .{ .kind = .boolean, .width = 1 },
+            else => .{ .kind = .variant, .width = 4 },
+        };
+    }
+
+    /// Whether `x`, a scalar's integer form, fits.
+    fn fits(self: Scalar, x: Wide) bool {
+        const bits: u16 = @as(u16, self.width) * 8;
+        if (self.kind != .int) return x >= 0 and x < (@as(Wide, 1) << @intCast(bits));
+        return sema.intInfoFits(.{ .bits = @intCast(bits), .signed = self.signed }, x);
+    }
+
+    fn encode(self: Scalar, v: CtVal, dst: []u8) void {
+        const x: Wide = switch (v) {
+            .int => |i| i,
+            .boolean => |b| @intFromBool(b),
+            .variant => |k| k,
+            .array => 0,
+        };
+        const u: u256 = @bitCast(x);
+        for (dst[0..self.width], 0..) |*d, k| d.* = @truncate(u >> @intCast(8 * k));
+    }
+
+    fn decode(self: Scalar, src: []const u8) CtVal {
+        var u: u256 = 0;
+        for (src[0..self.width], 0..) |b, k| u |= @as(u256, b) << @intCast(8 * k);
+        const bits: u16 = @as(u16, self.width) * 8;
+        var x: Wide = @bitCast(u);
+        if (self.signed and (u >> @intCast(bits - 1)) & 1 == 1) x -= @as(Wide, 1) << @intCast(bits);
+        return switch (self.kind) {
+            .int => .{ .int = x },
+            .boolean => .{ .boolean = u != 0 },
+            .variant => .{ .variant = @intCast(u) },
+        };
+    }
+};
+
+/// An array, stored as its declared type stores it: its scalars packed,
+/// row-major, `elem.width` bytes each, so a value takes the bytes the
+/// language says it does. An element of a nested array is a view of
+/// the bytes of its row.
+pub const Arr = struct {
+    elem: Scalar,
+    /// The length of each dimension, outermost first.
+    shape: []const u32,
+    data: []u8,
+
+    pub fn len(self: Arr) usize {
+        return self.shape[0];
+    }
+
+    /// The bytes one element takes.
+    fn stride(self: Arr) usize {
+        var n: usize = self.elem.width;
+        for (self.shape[1..]) |d| n *= d;
+        return n;
+    }
+
+    /// Element `i`: a scalar, or a view of a row.
+    pub fn at(self: Arr, i: usize) CtVal {
+        const w = self.stride();
+        const bytes = self.data[i * w ..][0..w];
+        if (self.shape.len == 1) return self.elem.decode(bytes);
+        return .{ .array = .{ .elem = self.elem, .shape = self.shape[1..], .data = bytes } };
+    }
 };
 
 pub const Stage = enum(u2) { new, open, done };
@@ -278,10 +360,10 @@ const Names = struct {
                         try ctx.errAt(node, "a compile-time function cannot use `{s}`: " ++ plain_rule, .{name});
                         ok.* = false;
                     },
-                    // An alias of an integer type; any other names a type
-                    // whose declaration may not be resolved yet.
-                    .type_alias => if (sema.aliasIntType(ctx, id) == null) {
-                        try ctx.errAt(node, "a compile-time function cannot use `{s}`: " ++ plain_rule ++ ", and `{s}` names no integer type", .{ name, name });
+                    // An alias of an integer type or a plain enum; any other
+                    // names a type whose declaration may not be resolved yet.
+                    .type_alias => if (sema.aliasIntType(ctx, id) == null and !aliasesPlainEnum(ctx, id)) {
+                        try ctx.errAt(node, "a compile-time function cannot use `{s}`: " ++ plain_rule ++ ", and `{s}` names no integer type or plain enum", .{ name, name });
                         ok.* = false;
                     },
                     .@"extern" => {
@@ -302,6 +384,24 @@ const Names = struct {
         }
     }
 };
+
+/// Whether type alias `id` of this module names a plain enum of it,
+/// through other aliases.
+fn aliasesPlainEnum(ctx: *const SemContext, alias: SymbolId) bool {
+    var id = alias;
+    for (0..64) |_| {
+        switch (ctx.symbols.items[id].kind) {
+            .type_alias => {
+                const target = ctx.alias_targets.get(id) orelse return false;
+                if (target != .src) return false;
+                id = ctx.lookupInScopeOnly(sema.module_scope, identAt(ctx.source, target) orelse return false) orelse return false;
+            },
+            .nominal_type => return plainEnumDecl(ctx, id) != null,
+            else => return false,
+        }
+    }
+    return false;
+}
 
 /// The body of compile-time function `def`, typed, checked against the
 /// positive list of what runs at compile time: each node a form the
@@ -983,15 +1083,15 @@ pub fn writeValue(ctx: *const SemContext, w: *std.Io.Writer, v: CtVal, ty: TypeI
         .int => |i| try w.print("{d}", .{i}),
         .boolean => |b| try w.writeAll(if (b) "true" else "false"),
         .variant => |i| try w.print(".{s}", .{variantName(ctx, ty, i)}),
-        .array => |elems| {
+        .array => |arr| {
             const elem = switch (ctx.types.get(ty)) {
-                .array => |a| a.elem,
+                .array => |x| x.elem,
                 else => ty,
             };
             try w.writeAll("[");
-            for (elems, 0..) |e, i| {
+            for (0..arr.len()) |i| {
                 if (i > 0) try w.writeAll(", ");
-                try writeValue(ctx, w, e, elem);
+                try writeValue(ctx, w, arr.at(i), elem);
             }
             try w.writeAll("]");
         },
@@ -1000,11 +1100,7 @@ pub fn writeValue(ctx: *const SemContext, w: *std.Io.Writer, v: CtVal, ty: TypeI
 
 fn copyInto(a: std.mem.Allocator, v: CtVal) Error!CtVal {
     return switch (v) {
-        .array => |elems| blk: {
-            const out = try a.alloc(CtVal, elems.len);
-            for (elems, out) |e, *o| o.* = try copyInto(a, e);
-            break :blk .{ .array = out };
-        },
+        .array => |arr| .{ .array = .{ .elem = arr.elem, .shape = try a.dupe(u32, arr.shape), .data = try a.dupe(u8, arr.data) } },
         else => v,
     };
 }
@@ -1067,7 +1163,7 @@ pub const Eval = struct {
     fail: ?Failure = null,
     /// The innermost loop running, where a run out of steps is reported.
     loop: Sexp = .nil,
-    /// The arrays loops walk where a local holds them, and those of them
+    /// The arrays loops walk where a local holds them, by their bytes, and those of them
     /// freed while a loop walks them, which are freed when it ends: the
     /// ownership checker rejects a body that changes what its loop
     /// walks, which may run before it is checked, safely.
@@ -1076,7 +1172,7 @@ pub const Eval = struct {
 
     fn deinit(self: *Eval) void {
         var it = self.live.iterator();
-        while (it.next()) |e| self.gpa.free(@as([*]CtVal, @ptrFromInt(e.key_ptr.*))[0..e.value_ptr.*]);
+        while (it.next()) |e| self.gpa.free(@as([*]u8, @ptrFromInt(e.key_ptr.*))[0..e.value_ptr.*]);
         self.live.deinit(self.gpa);
         self.pins.deinit(self.gpa);
         self.orphans.deinit(self.gpa);
@@ -1136,44 +1232,75 @@ pub const Eval = struct {
 
     // ---- values ---------------------------------------------------------
 
-    fn alloc(self: *Eval, node: Sexp, n: usize) EvalError![]CtVal {
-        const size = @as(u64, n) * @sizeOf(CtVal);
-        if (self.bytes + size > max_bytes) return self.failAt(node, "holds more than {d} MiB of values at once", .{max_bytes >> 20});
-        try self.step(node, n);
-        const out = try self.gpa.alloc(CtVal, n);
+    /// `n` bytes of an array's scalars, recorded live.
+    fn alloc(self: *Eval, node: Sexp, n: usize) EvalError![]u8 {
+        if (self.bytes + n > max_bytes) return self.failAt(node, "holds more than {d} MiB of values at once", .{max_bytes >> 20});
+        try self.step(node, n / 8 + 1);
+        const out = try self.gpa.alloc(u8, n);
+        if (n == 0) return out;
         errdefer self.gpa.free(out);
         try self.live.put(self.gpa, @intFromPtr(out.ptr), n);
-        self.bytes += size;
+        self.bytes += n;
         return out;
+    }
+
+    /// An array of `bytes` must fit a value, as when the program runs
+    /// (`sema.max_value_bytes`).
+    fn valueRule(self: *Eval, node: Sexp, bytes: u128) EvalError!void {
+        if (bytes > sema.max_value_bytes) return self.failAt(node, "makes an array of {d} bytes; a value takes at most {d} (8 MiB)", .{ bytes, sema.max_value_bytes });
+    }
+
+    /// The dimensions `inner` follow, after one of length `n`.
+    fn shapeWith(self: *Eval, n: usize, inner: []const u32) Error![]const u32 {
+        const out = try self.a().alloc(u32, inner.len + 1);
+        out[0] = @intCast(n);
+        @memcpy(out[1..], inner);
+        return out;
+    }
+
+    /// The lengths of the dimensions inside array type `ty`, as far as
+    /// the type knows them (0 where a parameter sets one): an empty
+    /// array's rows.
+    fn innerShape(self: *Eval, ty: TypeId) Error![]const u32 {
+        var out: std.ArrayList(u32) = .empty;
+        var t = switch (self.ctx.types.get(ty)) {
+            .array => |x| x.elem,
+            else => return &.{},
+        };
+        while (true) switch (self.ctx.types.get(t)) {
+            .array => |x| {
+                try out.append(self.a(), @intCast(sema.arrayLen(self.ctx, x) orelse 0));
+                t = x.elem;
+            },
+            else => break,
+        };
+        return out.items;
     }
 
     /// Free `v`, which nothing owns any more.
     fn drop(self: *Eval, v: CtVal) void {
-        const elems = switch (v) {
-            .array => |e| e,
+        const data = switch (v) {
+            .array => |arr| arr.data,
             else => return,
         };
-        if (std.mem.findScalar(usize, self.pins.items, @intFromPtr(elems.ptr)) != null) {
+        if (data.len == 0) return;
+        if (std.mem.findScalar(usize, self.pins.items, @intFromPtr(data.ptr)) != null) {
             self.orphans.append(self.gpa, v) catch {};
             return;
         }
-        for (elems) |e| self.drop(e);
-        if (self.live.fetchRemove(@intFromPtr(elems.ptr))) |kv| {
-            self.bytes -= @as(u64, kv.value) * @sizeOf(CtVal);
-            self.gpa.free(elems);
+        if (self.live.fetchRemove(@intFromPtr(data.ptr))) |kv| {
+            self.bytes -= kv.value;
+            self.gpa.free(data);
         }
     }
 
     /// A copy of `v` of its own.
     fn copy(self: *Eval, node: Sexp, v: CtVal) EvalError!CtVal {
         return switch (v) {
-            .array => |elems| blk: {
-                const out = try self.alloc(node, elems.len);
-                // Each slot holds a scalar until it holds its copy, so a
-                // failure part way frees what was made.
-                @memset(out, .{ .int = 0 });
-                for (elems, out) |e, *o| o.* = try self.copy(node, e);
-                break :blk .{ .array = out };
+            .array => |arr| blk: {
+                const data = try self.alloc(node, arr.data.len);
+                @memcpy(data, arr.data);
+                break :blk .{ .array = .{ .elem = arr.elem, .shape = arr.shape, .data = data } };
             },
             else => v,
         };
@@ -1262,17 +1389,54 @@ pub const Eval = struct {
                     return self.failAt(node, "gives {d}, which `{s}` ({d}..{d}) cannot hold", .{ i, try self.typeName(info), r.min, r.max });
                 }
             },
-            .array => |arr| {
-                const elems = switch (v) {
-                    .array => |e| e,
+            .array => {
+                const arr = switch (v) {
+                    .array => |x| x,
                     else => return self.failAt(node, "gives no array", .{}),
                 };
-                if (sema.arrayLen(self.ctx, arr)) |n| if (n != elems.len) return self.failAt(node, "gives an array of length {d}, not {d}", .{ elems.len, n });
-                for (elems) |e| try self.check(node, e, arr.elem);
+                if (!std.meta.eql(arr.elem, Scalar.of(self.ctx, ty))) return self.failAt(node, "gives an array of another element type", .{});
+                var t = ty;
+                for (arr.shape) |n| {
+                    const at = switch (self.ctx.types.get(t)) {
+                        .array => |x| x,
+                        else => return self.failAt(node, "gives an array of another shape", .{}),
+                    };
+                    if (sema.arrayLen(self.ctx, at)) |want| if (want != n) return self.failAt(node, "gives an array of length {d}, not {d}", .{ n, want });
+                    t = at.elem;
+                }
             },
             .bool => if (v != .boolean) return self.failAt(node, "gives no `Bool`", .{}),
             else => if (v != .variant) return self.failAt(node, "gives no variant", .{}),
         }
+    }
+
+    /// Write `v`, owned, as element `i` of `arr`, a place: a scalar in
+    /// the array's own form, a row as its bytes.
+    fn storeAt(self: *Eval, node: Sexp, arr: Arr, i: usize, v: CtVal) EvalError!void {
+        defer self.drop(v);
+        const w = arr.stride();
+        const dst = arr.data[i * w ..][0..w];
+        switch (v) {
+            .array => |row| {
+                if (!std.mem.eql(u32, row.shape, arr.shape[1..]) or row.data.len != w) return self.failAt(node, "stores an array of another shape", .{});
+                @memcpy(dst, row.data);
+            },
+            else => {
+                const x = try self.ordinalOf(node, v);
+                if (!arr.elem.fits(x)) return self.failAt(node, "stores {d}, which its array cannot hold", .{x});
+                arr.elem.encode(v, dst);
+            },
+        }
+    }
+
+    /// The integer form a scalar is stored in.
+    fn ordinalOf(self: *Eval, node: Sexp, v: CtVal) EvalError!Wide {
+        return switch (v) {
+            .int => |i| i,
+            .boolean => |b| @intFromBool(b),
+            .variant => |k| k,
+            .array => self.failAt(node, "is no scalar", .{}),
+        };
     }
 
     // ---- calls ----------------------------------------------------------
@@ -1337,7 +1501,7 @@ pub const Eval = struct {
             self.drop(v);
             return e;
         };
-        try self.memo.put(self.gpa, key, try self.copy(site, v));
+        if (at != .nil) try self.memo.put(self.gpa, key, try self.copy(site, v));
         return v;
     }
 
@@ -1441,32 +1605,45 @@ pub const Eval = struct {
         const op = rig.bindingKindOf(ir.Set.op(s)).operator();
         var v = try self.value(ir.Set.value(s));
         if (target == .src and std.mem.eql(u8, identAt(self.ctx.source, target) orelse "", "_")) return self.drop(v);
-        const slot = self.slotOf(target) catch |e| {
+        const place = self.placeOf(target) catch |e| {
             self.drop(v);
             return e;
         };
-        if (op) |o| v = .{ .int = try self.arith(s, o, try self.int(target, slot.*), try self.int(s, v), self.infoOf(target)) };
-        self.store(slot, v);
+        switch (place) {
+            .slot => |slot| {
+                if (op) |o| v = .{ .int = try self.arith(s, o, try self.int(target, slot.*), try self.int(s, v), self.infoOf(target)) };
+                self.store(slot, v);
+            },
+            .elem => |el| {
+                if (op) |o| v = .{ .int = try self.arith(s, o, try self.int(target, el.arr.at(el.i)), try self.int(s, v), self.infoOf(target)) };
+                try self.storeAt(s, el.arr, el.i, v);
+            },
+        }
     }
 
-    /// The slot an assignment's target names: a local's, or an element's
-    /// of a local array.
-    fn slotOf(self: *Eval, target: Sexp) EvalError!*CtVal {
+    /// Where an assignment writes: a local's slot, or an element of a
+    /// local array, at any depth.
+    const Place = union(enum) { slot: *CtVal, elem: struct { arr: Arr, i: usize } };
+
+    fn placeOf(self: *Eval, target: Sexp) EvalError!Place {
         if (target == .src) {
             const sym = self.ctx.symbolOf(target) orelse return self.failAt(target, "assigns what it cannot name", .{});
             const gop = try self.env.?.getOrPut(self.gpa, sym);
             if (!gop.found_existing) gop.value_ptr.* = .{ .int = 0 };
-            return gop.value_ptr;
+            return .{ .slot = gop.value_ptr };
         }
         if (!target.isKind(.index)) return self.failAt(target, "assigns what is no place", .{});
         const i = try self.intOf(ir.Index.index(target));
-        const obj = try self.slotOf(ir.get(target, .object));
-        const elems = switch (obj.*) {
-            .array => |e| e,
+        const outer = switch (try self.placeOf(ir.get(target, .object))) {
+            .slot => |slot| slot.*,
+            .elem => |el| el.arr.at(el.i),
+        };
+        const arr = switch (outer) {
+            .array => |x| x,
             else => return self.failAt(target, "indexes what is no array", .{}),
         };
-        if (i < 0 or i >= elems.len) return self.failAt(target, "indexes {d} in an array of length {d}", .{ i, elems.len });
-        return &elems[@intCast(i)];
+        if (i < 0 or i >= arr.len()) return self.failAt(target, "indexes {d} in an array of length {d}", .{ i, arr.len() });
+        return .{ .elem = .{ .arr = arr, .i = @intCast(i) } };
     }
 
     /// `while c : step` with its `else`: the loop's value, owned, when a
@@ -1534,25 +1711,25 @@ pub const Eval = struct {
             }
         } else {
             const all = try self.held(source);
-            const elems = switch (all.v) {
-                .array => |e| e,
+            const arr = switch (all.v) {
+                .array => |x| x,
                 else => return self.failAt(source, "is no array", .{}),
             };
-            const pin = @intFromPtr(elems.ptr);
+            const pin = @intFromPtr(arr.data.ptr);
             try self.pins.append(self.gpa, pin);
             defer {
                 _ = self.pins.orderedRemove(std.mem.findScalar(usize, self.pins.items, pin).?);
                 if (std.mem.findScalar(usize, self.pins.items, pin) == null) {
                     var k: usize = 0;
                     while (k < self.orphans.items.len) {
-                        if (@intFromPtr(self.orphans.items[k].array.ptr) == pin) self.drop(self.orphans.swapRemove(k)) else k += 1;
+                        if (@intFromPtr(self.orphans.items[k].array.data.ptr) == pin) self.drop(self.orphans.swapRemove(k)) else k += 1;
                     }
                 }
                 self.release(all);
             }
-            for (elems, 0..) |elem, i| {
+            for (0..arr.len()) |i| {
                 try self.step(s, 1);
-                if (var_sym) |v| try self.bind(v, try self.copy(s, elem));
+                if (var_sym) |v| try self.bind(v, try self.copy(s, arr.at(i)));
                 if (index_sym) |v| try self.bind(v, .{ .int = @intCast(i) });
                 self.exec(ir.For.body(s)) catch |e| switch (try self.caught(e, id)) {
                     .brk => |v| return v,
@@ -1649,15 +1826,15 @@ pub const Eval = struct {
             .index => {
                 const i = try self.intOf(ir.Index.index(e));
                 const obj = try self.held(ir.get(e, .object));
-                const elems = switch (obj.v) {
+                const arr = switch (obj.v) {
                     .array => |x| x,
                     else => return self.failAt(e, "indexes what is no array", .{}),
                 };
-                if (i < 0 or i >= elems.len) {
+                if (i < 0 or i >= arr.len()) {
                     self.release(obj);
-                    return self.failAt(e, "indexes {d} in an array of length {d}", .{ i, elems.len });
+                    return self.failAt(e, "indexes {d} in an array of length {d}", .{ i, arr.len() });
                 }
-                const elem = elems[@intCast(i)];
+                const elem = arr.at(@intCast(i));
                 if (!obj.owned) return .{ .v = elem, .owned = false };
                 const out = try self.copy(e, elem);
                 self.release(obj);
@@ -1687,7 +1864,7 @@ pub const Eval = struct {
             const h = try self.held(obj);
             defer self.release(h);
             return switch (h.v) {
-                .array => |x| .{ .int = @intCast(x.len) },
+                .array => |x| .{ .int = @intCast(x.len()) },
                 else => self.failAt(e, "has no length", .{}),
             };
         };
@@ -1752,19 +1929,61 @@ pub const Eval = struct {
             },
             .array => {
                 const elems = ir.Array.elems(e);
-                const out = try self.alloc(e, elems.len);
-                @memset(out, .{ .int = 0 });
-                for (elems, out) |x, *o| o.* = try self.value(x);
+                const ty = self.ctx.typeOf(e) orelse return self.failAt(e, "has no type", .{});
+                const kind = Scalar.of(self.ctx, ty);
+                if (elems.len == 0) return .{ .array = .{ .elem = kind, .shape = try self.shapeWith(0, try self.innerShape(ty)), .data = &.{} } };
+                const first = try self.value(elems[0]);
+                const row: []const u32 = switch (first) {
+                    .array => |x| x.shape,
+                    else => &.{},
+                };
+                const w: usize = switch (first) {
+                    .array => |x| x.data.len,
+                    else => kind.width,
+                };
+                const data = blk: {
+                    self.valueRule(e, @as(u128, w) * elems.len) catch |err| {
+                        self.drop(first);
+                        return err;
+                    };
+                    break :blk self.alloc(e, w * elems.len) catch |err| {
+                        self.drop(first);
+                        return err;
+                    };
+                };
+                const out: Arr = .{ .elem = kind, .shape = try self.shapeWith(elems.len, row), .data = data };
+                try self.storeAt(elems[0], out, 0, first);
+                for (elems[1..], 1..) |x, k| try self.storeAt(x, out, k, try self.value(x));
                 return .{ .array = out };
             },
             .array_fill => {
                 const n = try self.intOf(ir.ArrayFill.size(e));
                 if (n < 0 or n > sema.max_array_len) return self.failAt(e, "makes an array of length {d}: an array length runs from 0 to {d}", .{ n, sema.max_array_len });
+                const ty = self.ctx.typeOf(e) orelse return self.failAt(e, "has no type", .{});
+                const kind = Scalar.of(self.ctx, ty);
                 const v = try self.value(ir.ArrayFill.value(e));
                 defer self.drop(v);
-                const out = try self.alloc(e, @intCast(n));
-                @memset(out, .{ .int = 0 });
-                for (out) |*o| o.* = try self.copy(e, v);
+                const row: []const u32 = switch (v) {
+                    .array => |x| x.shape,
+                    else => &.{},
+                };
+                const w: usize = switch (v) {
+                    .array => |x| x.data.len,
+                    else => kind.width,
+                };
+                const count: usize = @intCast(n);
+                try self.valueRule(e, @as(u128, w) * count);
+                const data = try self.alloc(e, w * count);
+                const out: Arr = .{ .elem = kind, .shape = try self.shapeWith(count, row), .data = data };
+                if (count > 0) {
+                    try self.storeAt(e, out, 0, try self.copy(e, v));
+                    // Each copy doubles what is filled.
+                    var filled: usize = w;
+                    while (filled < data.len) : (filled *= 2) {
+                        const k = @min(filled, data.len - filled);
+                        @memcpy(data[filled..][0..k], data[0..k]);
+                    }
+                }
                 return .{ .array = out };
             },
             .@"if" => {
@@ -1806,9 +2025,7 @@ fn eqlVal(x: CtVal, y: CtVal) bool {
         .int => |i| y == .int and y.int == i,
         .boolean => |b| y == .boolean and y.boolean == b,
         .variant => |i| y == .variant and y.variant == i,
-        .array => |xs| y == .array and xs.len == y.array.len and for (xs, y.array) |p, q| {
-            if (!eqlVal(p, q)) break false;
-        } else true,
+        .array => |xs| y == .array and std.mem.eql(u32, xs.shape, y.array.shape) and std.mem.eql(u8, xs.data, y.array.data),
     };
 }
 

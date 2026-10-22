@@ -529,13 +529,14 @@ pub const Emitter = struct {
                 try self.writeAsOpen(ty);
                 try self.w.print(".{f})", .{ident(self.facts.variantName(ty, i))});
             },
-            .array => |elems| {
+            .array => |arr| {
                 const elem = self.facts.types.get(ty).array.elem;
                 try self.w.writeAll("[_]");
                 try self.emitTypeTy(elem);
                 try self.w.writeAll("{ ");
-                for (elems, 0..) |e, k| {
+                for (0..arr.len()) |k| {
                     if (k > 0) try self.w.writeAll(", ");
+                    const e = arr.at(k);
                     switch (e) {
                         .int => |n| try self.w.print("{d}", .{n}),
                         .boolean => |b| try self.w.writeAll(if (b) "true" else "false"),

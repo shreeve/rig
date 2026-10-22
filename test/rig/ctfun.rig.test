@@ -445,7 +445,7 @@ fail "ctfun optional result", "compile-time function `f` cannot give a `Int?`: i
 
   print(f[1])
 
-fail "ctfun object", "a compile-time function cannot use `Q`: it holds only integers, `Bool`, plain enums, and arrays of them, and `Q` names no integer type", errors: 1
+fail "ctfun object", "a compile-time function cannot use `Q`: it holds only integers, `Bool`, plain enums, and arrays of them, and `Q` names no integer type or plain enum", errors: 1
   obj P
     x: Int
 
@@ -1122,3 +1122,121 @@ test "ctfun parenthesized length", "5 3"
   a: Y = [5 of 0]
   b: [(cap[1])]Int = [3 of 0]
   print(a.len, b.len)
+
+test "ctfun table of a million bytes", "7", whole: true
+  fun big[n: Int] -> [n]U8
+    [n of 7]
+  sub main()
+    t = big[1000000]
+    i = 5
+    print(t[i])
+
+test "ctfun table of a million integers", "7", whole: true
+  fun big[n: Int] -> [n]Int
+    [n of 7]
+  sub main()
+    t = big[1000000]
+    i = 5
+    print(t[i])
+
+test "ctfun enum method calls a function over its enum", "1 4", whole: true
+  fun f[m: Mode] -> Int
+    Int(m)
+  enum Mode
+    a = 1
+    b = 2
+  fun Mode.twice(?@) -> Int
+    f[.b] * 2
+  sub main()
+    print(f[.a], Mode.a.twice())
+
+test "ctfun enum methods and drop call a function over the enum", "1 4", whole: true
+  fun f[m: Mode] -> Int
+    Int(m)
+  enum Mode
+    a = 1
+    b = 2
+  fun Mode.twice(?@) -> Int
+    f[.b] * 2
+  sub Mode.drop(!@)
+    print("drop")
+  sub main()
+    print(f[.a], Mode.a.twice())
+
+test "ctfun alias of an enum as a parameter", "1", whole: true
+  type M = Mode
+  enum Mode
+    a
+    b
+  fun f[m: M] -> Int
+    1
+  sub main()
+    print(f[.a])
+
+test "ctfun alias of an enum with constant values as a parameter", "6 10 11", whole: true
+  type M = Mode
+  fun f[m: M] -> Int
+    match m
+      .a => K
+      .b => K + 1
+  enum Mode
+    a = K * 2
+    b
+  K = 5
+  sub main()
+    print(f[.b], Int(Mode.a), Int(Mode.b))
+
+fail "ctfun enum value through an alias needs itself", "enum `Mode` depends on itself (`Mode` → `f` → `Mode`)", errors: 1, whole: true
+  enum Mode
+    a = f[.b]
+    b = 1
+  type M = Mode
+  fun f[m: M] -> Int
+    3
+  sub main()
+    print(f[.a])
+
+test "ctfun alias of an enum as a result", ".b", whole: true
+  type M = Mode
+  enum Mode
+    a
+    b
+  fun f[m: Int] -> M
+    Mode.b
+  sub main()
+    print(f[1])
+
+fail "ctfun enum value needs itself", "enum `Mode` depends on itself (`Mode` → `f` → `Mode`)", errors: 1, whole: true
+  X = f[.b]
+
+  fun f[m: Mode] -> Int
+    match m
+      .a => 1
+      .b => 2
+
+  enum Mode
+    a = f[.b] + 10
+    b = 30
+
+  sub main()
+    print(X, Int(Mode.a))
+
+test "ctfun arrays at the value limit", "8388610 2097152"
+  fun bytes[n: Int] -> Int
+    t = [n of U8(1)]
+    t[n - 1] = 2
+    t.len + Int(t[n - 1])
+
+  fun ints[n: Int] -> Int
+    t = [n of 0]
+    u = t
+    u.len + t.len
+
+  print(bytes[8388608], ints[1048576])
+
+fail "ctfun array past the value limit", "compile-time call `bytes[8388609]` makes an array of 8388609 bytes; a value takes at most 8388608 (8 MiB)"
+  fun bytes[n: Int] -> Int
+    t = [n of U8(1)]
+    t.len
+
+  print(bytes[8388609])
