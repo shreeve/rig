@@ -1599,7 +1599,9 @@ or more is never an index, and empty brackets are rejected.
 
 A type argument in an expression is written as a type that is also an
 expression: a name, `mod.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, an
-instance, or `*T?` (an optional handle, as in a type). A slice, array,
+instance, or `*T?` (an optional handle, as in a type). What a task
+gives may also fail, as in a type: `Tasks[Int!]()`, `Tasks[Int!L]()`,
+`Task[T!m.E]`. A slice, array,
 or function type, and a handle to an optional (`*(T?)`), have no such
 spelling: name them with a `type` alias, or write the type where the
 value goes.

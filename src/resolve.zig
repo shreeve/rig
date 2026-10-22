@@ -3235,6 +3235,23 @@ pub const TypeResolver = struct {
         return try sema.proxyOf(self.ctx, .{ .module_id = d.origin, .sym = d.id });
     }
 
+    /// What a task gives, `T!E` written as `Task[T!E]` or `Tasks[T!E]`:
+    /// `E` holds `task.Stop`, which waiting also fails with. `ok` is `T`
+    /// when the caller has read it already (a type argument in an
+    /// expression). Poison after a diagnostic.
+    pub fn taskResult(self: *TypeResolver, a: Sexp, ok: ?TypeId) Error!TypeId {
+        const t = &self.ctx.types;
+        const inner = ok orelse try self.resolveType(ir.ErrorUnion.type(a));
+        const set = try self.resolveFailSet(ir.ErrorUnion.set(a));
+        if (set != t.invalid_id and !try sema.setHoldsStop(self.ctx, set, self.ctx.arena.allocator())) {
+            const shown = try sema.formatType(self.ctx, set);
+            try self.ctx.errAt(a, "waiting for a task also fails with `task.Stop`, and `{s}` does not hold it: join it into the set (`error L = {s} | task.Stop`)", .{ shown, shown });
+            return t.invalid_id;
+        }
+        if (sema.containsPoison(self.ctx, inner) or set == t.invalid_id) return t.invalid_id;
+        return self.ctx.intern(.{ .fallible = .{ .ok = inner, .set = set } });
+    }
+
     /// Run `check` now if every declared type's contents are known,
     /// otherwise once they are (`checkDeclarations`).
     fn checkWhenResolved(self: *TypeResolver, check: DeferredCheck) Error!void {
@@ -3293,16 +3310,7 @@ pub const TypeResolver = struct {
         for (supplied, tparams, 0..) |a, tp, i| {
             const arg = if (self.ctx.symbols.items[tp].kind == .param)
                 try self.resolveCtInt(a, .{ .arg = .{ .param = tp, .owner = name, .index = i } })
-            else if (gives and a.isKind(.error_union)) blk: {
-                const inner = try self.resolveType(ir.ErrorUnion.type(a));
-                const set = try self.resolveFailSet(ir.ErrorUnion.set(a));
-                if (set != t.invalid_id and !try sema.setHoldsStop(self.ctx, set, self.ctx.arena.allocator())) {
-                    const shown = try sema.formatType(self.ctx, set);
-                    try self.ctx.errAt(a, "waiting for a task also fails with `task.Stop`, and `{s}` does not hold it: join it into the set (`error L = {s} | task.Stop`)", .{ shown, shown });
-                    break :blk t.invalid_id;
-                }
-                break :blk if (sema.containsPoison(self.ctx, inner) or set == t.invalid_id) t.invalid_id else try self.ctx.intern(.{ .fallible = .{ .ok = inner, .set = set } });
-            } else if (isValueSpelling(self.ctx.source, a)) blk: {
+            else if (gives and a.isKind(.error_union)) try self.taskResult(a, null) else if (isValueSpelling(self.ctx.source, a)) blk: {
                 try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
                 break :blk t.invalid_id;
             } else try self.resolveType(a);

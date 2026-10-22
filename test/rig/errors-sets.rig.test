@@ -535,3 +535,46 @@ fail "a closure's set, named in a message", "`loose` may fail with any error, an
     f() catch -1
 
   print(run(|| loose()!))
+
+test "a task set of a declared set, made in an expression", ''', seeds: 20
+  E.bad(msg: "x")
+  0
+  1
+  0
+'''
+  use std.task
+
+  error E
+    bad(msg: String)
+
+  error L = E | task.Stop
+
+  fun f(n: Int) -> Int!L
+    return E.bad(msg: String("x")) if n > 1
+    n
+
+  fun keep[T](x: T) -> T
+    x
+
+  sub main()!
+    ts = Tasks[Int!L]()
+    !ts.add(f(1)&)
+    !ts.add(f(2)&)
+    all = >ts catch |e|
+      print(e)
+      List[Int]()
+    print(all.len)
+    t = keep[Task[Int!L]](f(1)&)
+    print(>t!)
+    us = Tasks[Int!task.Stop]()
+    print(us.len)
+    _ = >us!
+
+fail "a declared set in an expression's type argument", "5:13: a fallible type `Int!E` stands only where a call's result is named", "6:14: waiting for a task also fails with `task.Stop`, and `E` does not hold it", "7:16: a fallible type `Int!E` stands only where a call's result is named"
+  error E
+    bad
+
+  sub main()
+    xs = List[Int!E]()
+    ys = Tasks[Int!E]()
+    m = Map[Int, Int!E]()
