@@ -30,6 +30,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Declared error sets (R2, #542) | its first review, and its fixes | [errors-r2/](2026-10/errors-r2/) |
 | Clones across modules, and Map's `+` | its review: a nested generic hid a drop body, fixed | [clone/](2026-10/clone/) |
 | Error data in the runtime (R3a) | its design, and a review with no blocker | [errors-r3a/](2026-10/errors-r3a/) |
+| CORE's "A failure moves its error" | a panel of four, and the final text | [errors-core/](2026-10/errors-core/) |
 
 ## Every record
 
@@ -42,6 +43,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 ### 2026-10/clone/
 
 - [review-1.md](2026-10/clone/review-1.md): Review: clones across modules, and the fix of its finding
+
+### 2026-10/errors-core/
+
+- [final.md](2026-10/errors-core/final.md): the panel's result, and the final text's choices
+- [brief.md](2026-10/errors-core/brief.md), [expert-1-spec-author.md](2026-10/errors-core/expert-1-spec-author.md), [expert-2-ownership.md](2026-10/errors-core/expert-2-ownership.md), [expert-3-writer.md](2026-10/errors-core/expert-3-writer.md), [expert-4-core-purist.md](2026-10/errors-core/expert-4-core-purist.md)
 
 ### 2026-10/errors-r3a/
 
