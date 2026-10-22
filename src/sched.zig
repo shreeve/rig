@@ -1117,6 +1117,7 @@ pub fn spendBudget() void {
 /// poller's events make ready, when it has descriptors: what a worker
 /// looks at every 61 turns.
 fn service(w: *Worker) void {
+    deliverInterrupt();
     if (w.timers.due.load(.acquire) != no_due) _ = w.timers.fire(nowNs());
     if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
 }
@@ -1124,6 +1125,7 @@ fn service(w: *Worker) void {
 /// Before `w` sleeps: wake the fibers whose timers are due on any worker,
 /// and those the events of any poller no worker sleeps in make ready.
 fn serviceAll(w: *Worker) void {
+    deliverInterrupt();
     const now = nowNs();
     for (workers) |*v| {
         _ = v.timers.fire(now);
@@ -1131,6 +1133,32 @@ fn serviceAll(w: *Worker) void {
     }
     _ = w;
 }
+
+/// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
+/// on a worker, as the handler may not. What a worker looks at as it
+/// services its poller and timers.
+inline fn deliverInterrupt() void {
+    if (rt.interrupt_pending.load(.monotonic)) {
+        @branchHint(.unlikely);
+        if (rt.interrupt_pending.swap(false, .seq_cst)) rt.cancelMain();
+    }
+}
+
+/// From the interrupt handler: wake every worker, so one sleeping in its
+/// poller, or the next to service it, passes the cancel on. A kick is
+/// one system call, which a handler may make. Once `main` has ended
+/// there is nothing to cancel: `runMain` closes the pollers only after
+/// `stopping` is set and every handler that looked before has left
+/// (`kicking`).
+pub fn kickForInterrupt() void {
+    _ = kicking.fetchAdd(1, .seq_cst);
+    defer _ = kicking.fetchSub(1, .seq_cst);
+    if (stopping.load(.seq_cst)) return;
+    for (workers) |*w| w.poller.kick();
+}
+
+/// How many interrupt handlers are kicking the pollers.
+var kicking: std.atomic.Value(u32) = .init(0);
 
 // -----------------------------------------------------------------------------
 // The blocking pool
@@ -1524,6 +1552,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     me_slot = &workers[0];
     if (deterministic) wake(&m.fiber) else workers[0].ring.push(&m.fiber);
     loop(&workers[0]);
+    while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
     printStats();
     for (workers[1..]) |*w| w.thread.?.join();
@@ -1692,6 +1721,7 @@ fn next(w: *Worker) ?*Fiber {
     // Deterministic: any ready fiber, as the seed picks, once the timers
     // the clock has reached have woken theirs.
     if (deterministic) {
+        deliverInterrupt();
         fireDue();
         if (ready.items.len == 0) return null;
         return ready.orderedRemove(random(ready.items.len));

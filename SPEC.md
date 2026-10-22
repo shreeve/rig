@@ -10804,6 +10804,21 @@ sub main()
 `Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `>t`
 ```
 
+**An interrupt cancels `main`.** An interrupt (Ctrl-C, SIGINT) or a
+request to end (SIGTERM) cancels `main` when `main` can fail, as a
+cancel reaches any task: `main` fails with `Stop.canceled` at its next
+waiting point (a socket's `accept`, `read`, and `write` among them),
+its `defer`s and drops run, and the tasks it owns are canceled as they
+drop. The program then ends as the signal ends one, with status 130 or
+143, and shows no error. A `main` that catches the cancel and returns
+keeps its own status. A second signal while the first is unwinding ends
+the program at once, so a `main` in a loop that reaches no waiting
+point can still be stopped. A `main` that cannot fail is never
+canceled, and the signals end it as they end any program; a program
+started with a signal ignored (`nohup`) keeps ignoring it. `rig run`
+waits for its program to end: one that catches the cancel and runs on
+keeps it waiting, until the program ends or a second interrupt ends it.
+
 ### Sets of tasks
 
 `Tasks[T]` holds tasks of one type. `!ts.add(f(x)&)` moves a task in,

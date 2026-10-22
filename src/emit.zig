@@ -1039,6 +1039,9 @@ pub const Emitter = struct {
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
+        // A `main` that can fail is canceled by an interrupt or SIGTERM
+        // (`rig.cancelOnInterrupt`); one that cannot keeps their default.
+        if (main_fails) try self.w.writeAll("pub const __rig_interrupt = true;\n\n");
         // `main` is the body of a Zig `main` that runs it on the stack the
         // runtime maps (`rig.onOwnStack`), then reports a failure as Rig
         // shows errors (`rig.failMain`) or sets the exit status
