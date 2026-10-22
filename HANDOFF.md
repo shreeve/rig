@@ -46,9 +46,11 @@ newest entry summarizes the latest rounds.
   error sets (R2, #542), clones across modules and Map's `+` (#548), the
   runtime's error-data plumbing (R3a, #550), and CORE's paragraph "A
   failure moves its error", revised by a panel of four
-  (docs/history/records/2026-10/errors-core/). Next are R3 (fields,
-  with the sites R3a left to it: a failure through a function value),
-  R4 (std.json), and R2.5 (generic sets).
+  (docs/history/records/2026-10/errors-core/). R3, fields on members
+  wherever a failure goes (calls, function values, closures, tasks,
+  actors, `par`, `isolate`, `main`, tests), is in review on branch
+  `errdata`. Next are the oracle's model of the hidden `E?` and std's
+  I/O sets (R3-3), R4 (std.json), and R2.5 (generic sets).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

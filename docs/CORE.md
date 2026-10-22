@@ -811,13 +811,13 @@ return Bad.oops
 as an enum's variant does. Each field's type holds no loan, holds no
 `*` or `~` handle anywhere inside it, and clones (sentence 2), so an
 error never limits an owner, goes to any task, always has a `+`, and
-drops without running a `drop` body. *(planned)* An error is plain or
+drops without running a `drop` body. *(built)* An error is plain or
 owning by the enum rule (§1), and `error`, which holds an error of any
 set, is owning. *(built)* Each fallible call is lent, to write, a
 hidden `E?` of its statement, `E` the call's set, empty until the call
 fails; the `!` or `catch` that every fallible call carries (sentence 10)
 is that lend's mark, and since an error holds no loan, the call keeps
-nothing there and its result views none of it (sentence 7). *(planned)*
+nothing there and its result views none of it (sentence 7). *(built)*
 A failing `return` stores the error it made through its function's
 view and leaves, before the scopes it leaves end. On a failure the
 caller takes the error out with `<` (§5): `e!` returns it, the same
@@ -825,9 +825,9 @@ error, to its own caller, and `catch |err|` makes it the handler's own
 binding, which drops when the handler ends unless the handler moves it
 on (`return err`, `<err`). *(built)* A `catch` that binds no name, or
 `_`, takes it nowhere, a statement `<`, so it drops before its handler
-runs. *(planned)* A task holds its call's error as it holds its result:
+runs. *(built)* A task holds its call's error as it holds its result:
 `>t!` and `>t catch` take it as `>t` takes the result, and dropping the
-task drops it. *(built;* a task's error with fields is *planned.)*
+task drops it. *(built)*
 Reading, matching, printing, storing, and cloning an error follow its
 type, as for any value. *(built)*
 
@@ -891,7 +891,7 @@ error Lookup
 an error's field never holds a loan: hold a `String` or a `Static`
 ```
 
-```rig pending
+```rig
 use std.task
 
 error E
@@ -904,6 +904,7 @@ fun f() -> Int!ES
 
 sub main()
   t = f()&
+  <t
   print("dropped")
 ```
 

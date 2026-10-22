@@ -4407,11 +4407,49 @@ symbols); a query that decides more than that belongs in `Pending`.
   ([The program's stack](#the-programs-stack)); then `rig.failMain`
   reports a failure and exits 1, and `rig.exitStatus` makes the `Int`
   the `u8` exit status. Both run after `__rig_run_main` has returned, so
-  after its drops and `finish`. The root module declares
-  `pub const panic = rig.panic`.
-- **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
+  after its drops and `finish` (a failure that may carry fields is shown
+  before `finish`: [Errors that carry fields](#errors-that-carry-fields)).
+  The root module declares `pub const panic = rig.panic`.
+- **Tests.** `test "name"` becomes `fn __rig_test_<n>(__out: rig.ErrSlot) anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
+
+### Errors that carry fields
+
+A program in which some error set's member declares fields
+(`sema.declaresErrorFields`) carries them past the Zig error code.
+
+- **The value.** A Zig error is a code; an error of a set with fields,
+  or `error` in such a program, is a `rig.ErrorValue`: the code and
+  `ErrData`, bytes sized and aligned for the largest member's fields.
+  Emit writes each member's fields as a struct, `Set__member`, and the
+  program's glue, `__rig_errors.zig`, which the root names as
+  `__rig_error_glue`: the size, alignment, and the drop, clone, `==`,
+  and print of each member's fields, chosen by code.
+- **The slot.** A function that may fail with fields takes `__out:
+  rig.ErrSlot` last (a closure `__out_N`, by its depth, since Zig lets
+  no parameter shadow another), as do function values' types, closures,
+  zig-extern wrappers, and test functions. A failing `return` of a
+  member writes its fields there (`rig.failWith`), and one of an error
+  it holds moves them (`rig.failValue`); sema records which leaves fail
+  (`isFailingLeaf`). `e!` hands its call the function's own slot; a
+  `catch` holds a slot of its statement's in a block around the call
+  (`openCatchSlot`), and its binding takes code and bytes as an owned
+  `ErrorValue` (`ErrorValue.taken`), while a nameless catch drops them
+  (`rig.dropFailure`).
+- **Matching.** A `switch` on an error value is on its code; an arm's
+  fields are read through its bytes (`fieldsAs`), in place, or taken by
+  `match <e`, and a member's set comes from its pattern
+  (`variantPatternSet`), which may name it, `E.name(...)`.
+- **Leaving.** `main` runs inside `__rig_fail_main`, which holds the
+  slot, shows a failure with its fields after the body's drops and
+  defers, then runs `rig.finish`; `rig.runTests` gives each test a slot.
+  A runtime wait has an `Into` variant taking the waiter's slot
+  (`waitInto`, `wait_allInto`, `waitTasksInto`, `parMapInto`,
+  `isolateInto`, `superviseInto`), and a spawned call that takes a slot
+  is given its task's (`takesSlot`).
+- **Batches.** A batch has one root, so `rig batch build` leaves such a
+  program out, to be built alone with its glue.
 
 ### Symbols
 

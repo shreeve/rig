@@ -9699,11 +9699,22 @@ a task also fails with `task.Stop`, so a task's set, and the set of an
 actor's method called through a handle, holds it (`time.sleep` and
 `task.check` declare `!task.Stop`).
 
-A member may also carry fields, as an enum's variant does, which are
-never views and always clone; the error moves up through `!` and the
-handler owns it. Fields are decided and not built yet
+A member may also carry fields, as an enum's variant does
 ([CORE §2](docs/CORE.md#2-the-core-in-ten-sentences), "A failure moves
-its error"): the examples that use them are pending.
+its error"). A field never holds a loan or a `*` or `~` handle, and
+always clones; a member that holds `error`, or a set whose members have
+fields, holds it boxed (`cause: ^error`). The error moves up through
+`!`, and `catch |err|` owns it: the handler reads it, matches it, keeps
+it, or passes it on (`return err`), and it drops when the handler ends.
+A `catch` that binds no name drops it before its handler runs. A
+pattern names a member with its set, `E.name(fields)`, or alone,
+`.name(fields)`, where one set the subject may be has it; `E.name`
+without parentheses, a pattern or `e == E.name`, tests the member and
+compares no fields. An error prints as `E.name(field: value, ...)`, and
+`main` or a `test` that fails with one shows it so. A task, a set's
+waits, `task.all`, `par`, `task.isolate`, `task.supervise`,
+`time.within`, and an actor's method hand a failure's fields to whoever
+waits.
 
 ```rig
 error GlobError
