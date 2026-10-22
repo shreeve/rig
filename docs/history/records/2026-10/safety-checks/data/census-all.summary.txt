@@ -1,0 +1,57 @@
+sites by kind:
+  panic(explicit)    336
+  total 336
+
+sites by handler (call instructions in parentheses):
+  panic: rig: a thread used another thread's heap 264  (59)
+  panic: integer part of floating point value out of bounds 26  (5)
+  panic: negative size     26  (10)
+  panic: None              12  (4)
+  panic: TODO implement netInterfaceName for linux 3  (1)
+  panic: TODO implement netConnectIpPosix with timeout 1  (1)
+  panic: bigint.pow: the power is negative 1  (1)
+  panic: TODO implement dirSetFileOwner 1  (1)
+  panic: out of memory     1  (1)
+  panic: bigint: the shift is negative 1  (1)
+
+top 40 functions by sites (source frame):
+     24  parser.Parser.parse_error_at_range_with   {'panic(explicit)': 24}
+     16  compiler.Program.path_key_of   {'panic(explicit)': 16}
+     12  tspath.combine_paths   {'panic(explicit)': 12}
+     12  jsnum.to_int32   {'panic(explicit)': 12}
+     12  tspath.CaseSensitivity.common_directory_of_files   {'panic(explicit)': 12}
+     10  parser.Parser.rewind   {'panic(explicit)': 10}
+      8  rig.runtime.dropElement__func_1985   {'panic(explicit)': 8}
+      8  semver.parse_alternatives   {'panic(explicit)': 8}
+      8  compiler.Program.get_mode_for_usage_location   {'panic(explicit)': 8}
+      8  checker.EmitResolver.create_late_bound_index_signatures   {'panic(explicit)': 8}
+      7  debug.panicExtra__func_1340   {'panic(explicit)': 7}
+      6  vfsmatch.get_base_paths   {'panic(explicit)': 6}
+      6  compiler.compact_and_merge_related_infos   {'panic(explicit)': 6}
+      6  modulespecifiers.try_get_module_name_from_paths   {'panic(explicit)': 6}
+      6  module.get_automatic_type_directive_names   {'panic(explicit)': 6}
+      5  debug.panicExtra__func_31   {'panic(explicit)': 5}
+      4  diagnosticwriter.add_line_map   {'panic(explicit)': 4}
+      4  tsoptions.starts_with_config_dir_template   {'panic(explicit)': 4}
+      4  tsoptions.get_substituted_path_with_config_dir_template   {'panic(explicit)': 4}
+      4  printer.Printer.write_lines   {'panic(explicit)': 4}
+      4  checker.Checker.add_duplicate_declaration_error   {'panic(explicit)': 4}
+      4  modulespecifiers.get_all_module_paths_worker   {'panic(explicit)': 4}
+      4  compiler.Program.file_index_of_path   {'panic(explicit)': 4}
+      4  checker.Checker.find_matching_signatures   {'panic(explicit)': 4}
+      4  __rig_std___rig_builtin.Map(checker.CompositeTypeCacheIdentity,checker.SerializedTypeEntry).clear   {'panic(explicit)': 4}
+      4  checker.Checker.deep_clone_file_node   {'panic(explicit)': 4}
+      4  compiler.Program.verify_compiler_options   {'panic(explicit)': 4}
+      4  rig.runtime.dropElement__func_891   {'panic(explicit)': 4}
+      4  __rig_std___rig_builtin.Set(rig.runtime.String).compact   {'panic(explicit)': 4}
+      4  __rig_std___rig_builtin.Set(u32).compact   {'panic(explicit)': 4}
+      4  __rig_std___rig_builtin.Set(checker.VisitKey).compact   {'panic(explicit)': 4}
+      4  __rig_std___rig_builtin.Set(i64).compact   {'panic(explicit)': 4}
+      4  __rig_std___rig_builtin.Set(checker.CacheKey).compact   {'panic(explicit)': 4}
+      3  Io.Threaded.netInterfaceName   {'panic(explicit)': 3}
+      2  rig.runtime.dropElement__func_996   {'panic(explicit)': 2}
+      2  vfsmatch.match_file_names   {'panic(explicit)': 2}
+      2  tsoptions.get_file_names_from_config_specs   {'panic(explicit)': 2}
+      2  rig.runtime.dropElement__func_1361   {'panic(explicit)': 2}
+      2  rig.runtime.dropElement__func_1480   {'panic(explicit)': 2}
+      2  tspath.get_normalized_absolute_path   {'panic(explicit)': 2}

@@ -1,0 +1,45 @@
+Analysis of sampling rig (pid 51141) every 1 millisecond
+Process:         rig [51141]
+Path:            /private/tmp/*/rig
+Load Address:    0x1048c0000
+Identifier:      rig
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  zsh [51138]
+Target Type:     live task
+
+Date/Time:       2026-10-02 04:41:56.356 -0600
+Launch Time:     2026-10-02 04:41:56.331 -0600
+OS Version:      macOS 27.0 (26A428)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+----
+
+Call graph:
+    1864 Thread_19604836   DispatchQueue_1: com.apple.main-thread  (serial)
+      1855 start  (in dyld) + 6688  [0x19977fe80]
+      + 1851 main  (in rig) + 1184  [0x1049c7a04]  start.zig:663
+      + ! 1846 main.main  (in rig) + 720  [0x1049c6f7c]  main.zig:148
+      + ! : 1846 main.loadProject  (in rig) + 180  [0x1049bf3cc]  main.zig:313
+      + ! :   1704 modules.ModuleGraph.loadRoot  (in rig) + 2708  [0x104b1cf98]  modules.zig:174
+      + ! :   | 1548 modules.ModuleGraph.check  (in rig) + 780  [0x104b1ff94]  modules.zig:401
+      + ! :   | + 1091 sema.check  (in rig) + 3684  [0x104b1fa80]  sema.zig:1516
+      + ! :   | + ! 858 typecheck.checkGenericInstantiations  (in rig) + 1564  [0x104bb4edc]  typecheck.zig:8364
+      + ! :   | + ! : 821 typecheck.checkInstanceSizes  (in rig) + 3344  [0x104bdcef8]  typecheck.zig:8508
+      + ! :   | + ! : | 511 sema.usesParams  (in rig) + 528  [0x104bc8e8c]  sema.zig:1827
+      + ! :   | + ! : | + 275 sema.usesParams  (in rig) + 528  [0x104bc8e8c]  sema.zig:1827
+      + ! :   | + ! : | + ! 134 sema.usesParams  (in rig) + 528  [0x104bc8e8c]  sema.zig:1827
+      + ! :   | + ! : | + ! : 43 sema.usesParams  (in rig) + 528  [0x104bc8e8c]  sema.zig:1827
+      + ! :   | + ! : | + ! : | 16 sema.usesParams  (in rig) + 316  [0x104bc8db8]  sema.zig:1823
+      + ! :   | + ! : | + ! : | + 15 mem.findScalar__anon_107680  (in rig) + 64  [0x104b34dbc]  mem.zig:1220
+      + ! :   | + ! : | + ! : | + ! 8 mem.findScalarPos__anon_108082  (in rig) + 1860,220,...  [0x104b35734,0x104b350cc,...]  mem.zig:1297
+      + ! :   | + ! : | + ! : | + ! 3 mem.findScalarPos__anon_108082  (in rig) + 244  [0x104b350e4]  mem.zig:1248
+      + ! :   | + ! : | + ! : | + ! : 2 math.isPowerOfTwo__anon_108085  (in rig) + 28  [0x104b35fac]  math.zig:1123
+      + ! :   | + ! : | + ! : | + ! : | 2 debug.assert  (in rig) + 36  [0x1048c4030]  debug.zig:420
+      + ! :   | + ! : | + ! : | + ! : 1 math.isPowerOfTwo__anon_108085  (in rig) + 36  [0x104b35fb4]  math.zig:1124
+      + ! :   | + ! : | + ! : | + ! 2 mem.findScalarPos__anon_108082  (in rig) + 172  [0x104b3509c]  mem.zig:0
+      + ! :   | + ! : | + ! : | + ! 1 mem.findScalarPos__anon_108082  (in rig) + 80  [0x104b35040]  mem.zig:1242
+      + ! :   | + ! : | + ! : | + ! 1 mem.findScalarPos__anon_108082  (in rig) + 1248  [0x104b354d0]  mem.zig:1284
+      + ! :   | + ! : | + ! : | + 1 mem.findScalar__anon_107680  (in rig) + 24  [0x104b34d94]  mem.zig:1219
+      + ! :   | + ! : | + ! : | 14 sema.usesParams  (in rig) + 

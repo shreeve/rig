@@ -4,7 +4,10 @@ This is the resume point for anyone, human or agent, picking up Rig
 work. Read it first, then [AGENTS.md](AGENTS.md) (the rules) and
 [docs/CORE.md](docs/CORE.md) (the ownership model every rule derives
 from). What changed is in [CHANGELOG.md](CHANGELOG.md), and what is
-planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
+planned is in [docs/ROADMAP.md](docs/ROADMAP.md). Why it was decided,
+and what was measured, is in the records,
+[docs/history/records/](docs/history/records/INDEX.md), whose ledger's
+newest entry summarizes the latest rounds.
 
 ## Current state
 
@@ -37,7 +40,7 @@ planned is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - **Declared error sets** (#542, branch `errsets`): round R2 of errors
   with data (`-> T!E`, `error L = A | B`, `catch |e|` typed by the
-  callee's set), from the approved spec (`.git/revamp/r3/errors-panel/`).
+  callee's set), from the approved spec (docs/history/records/revamp/r3/errors-panel/).
   Its review found eight programs that check and then fail in Zig or
   leak; they are being fixed, and a second round of such findings stops
   it for redesign. Then Trig's build, and the owner's names for std's
@@ -56,7 +59,7 @@ uses about 1.7x less memory. In the owner's order:
 1. **Single-thread speed of the checker and of Map/Set,** which carries
    into every checker. With every safety check removed, ts-pattern runs
    11.2% faster (index tests 8.0%, conversions 2.9%, Zig's bounds 1.7%,
-   overflow 1.2%; `.git/revamp/reports/safety-checks-2026-10-21.md`). By
+   overflow 1.2%; docs/history/records/2026-10/safety-checks/measurement.md). By
    share of that cost: the stores (`Table`/`Slot`), Trig's symbol and id
    accessors, the std Map/Set probes, and Trig's AST records. Map and
    Set code is 18.8% of ts-pattern's samples, beyond its checks.

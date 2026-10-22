@@ -4,7 +4,7 @@
 #   xrun.sh build OUT VARIANTS   build every file's variants (--dsym on macOS)
 #   xrun.sh profile OUT          per-file profile of the base build
 #   xrun.sh time OUT VARIANTS    interleaved timing, fastest of $REPS (15)
-# On pup, through .git/revamp/r3/pup.sh: set PIN=CPU to pin the timing to
+# On pup, through docs/history/records/revamp/r3/pup.sh: set PIN=CPU to pin the timing to
 # one core. FILES overrides the six corpus files.
 set -e
 H=$(cd "$(dirname "$0")" && pwd)

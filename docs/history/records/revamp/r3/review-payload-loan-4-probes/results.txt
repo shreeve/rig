@@ -1,0 +1,536 @@
+== a01_prop_readview_opt
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a01_prop_readview_opt.rig:13:9: error: a view cannot give up the write view inside it; lend the value inside with `if o as value`   match o?         ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a01_prop_readview_opt.rig:13:9: error: a view cannot give up the write view inside it; lend the value inside with `if o as value` 
+  oracle: silent
+== a02_prop_local_opt
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a02_prop_local_opt.rig:13:14: error: bare use of write view `e` in binding would copy a write view, which is unique; use `<e` to move it   o: (!E)? = e              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a02_prop_local_opt.rig:15:14: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== a03_branch_readview_fields
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a03_branch_readview_fields.rig:17:14: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 77, t: "x"))|
+  rel: .a(r: Res(n: 77, t: "x"))|
+  oracle: silent
+== a04_coalesce_readview
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a04_coalesce_readview.rig:13:9: error: a view cannot give up the write view inside it; lend the value inside with `if o as value`   match o ?? d         ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a04_coalesce_readview.rig:13:9: error: a view cannot give up the write view inside it; lend the value inside with `if o as value` 
+  oracle: silent
+== a05_branch_bare_writeviews
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a05_branch_bare_writeviews.rig:14:14: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 44, t: "x")) .a(r: Res(n: 2, t: "y"))|.a(r: Res(n: 44, t: "x"))|
+  rel: .a(r: Res(n: 44, t: "x")) .a(r: Res(n: 2, t: "y"))|.a(r: Res(n: 44, t: "x"))|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a05_branch_bare_writeviews.rig f prod=accept ref=reject C2 13:10 a bare write view would be copied; write `<` to move it 
+== a06_catch
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a06_catch.rig:14:10: error: unexpected `"no"`     fail "no"          ^~~~ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a06_catch.rig:14:10: error: unexpected `"no"` 
+  oracle: silent
+== a07_prop_field_readview
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/a07_prop_field_readview.rig:17:14: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 66, t: "x"))|
+  rel: .a(r: Res(n: 66, t: "x"))|
+  oracle: silent
+== b01_branch_readview_uaf
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/b01_branch_readview_uaf.rig:17:19: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: x|
+  rel: x|
+  oracle: silent
+== b02_branch_bare_uaf
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/b02_branch_bare_uaf.rig:14:19: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: x|
+  rel: x|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/b02_branch_bare_uaf.rig f prod=accept ref=reject C2 13:14 a bare write view would be copied; write `<` to move it 
+== b03_prop_field_readview_uaf
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/b03_prop_field_readview_uaf.rig:17:19: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: x|
+  rel: x|
+  oracle: silent
+== b04_branch_bare_two_writers
+  head: ACCEPT
+  main: ACCEPT
+  san: x|
+  rel: x|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/b04_branch_bare_two_writers.rig f prod=accept ref=reject C2 10:10 a bare write view would be copied; write `<` to move it 
+== c01_branch_readview_uaf_vec
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/c01_branch_readview_uaf_vec.rig:24:14: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|.a(r: Res(n: 1, v: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]))|
+  oracle: silent
+== c02_branch_bare_uaf_vec
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/c02_branch_bare_uaf_vec.rig:21:14: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|.a(r: Res(n: 1, v: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]))|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/c02_branch_bare_uaf_vec.rig f prod=accept ref=reject C2 18:14 a bare write view would be copied; write `<` to move it 
+== c03_prop_field_readview_uaf_vec
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/c03_prop_field_readview_uaf_vec.rig:24:14: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|.a(r: Res(n: 1, v: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]))|
+  oracle: silent
+== d01_branch_bare_two_writers_vec
+  head: ACCEPT
+  main: ACCEPT
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d01_branch_bare_two_writers_vec.rig f prod=accept ref=reject C2 15:10 a bare write view would be copied; write `<` to move it 
+== d02_coalesce_local_opt
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d02_coalesce_local_opt.rig:18:11: error: cannot lend parameter `o` to write; parameters are immutable (bind a copy with `new o = o`, or take `o: !(!E)?` to write through to the caller)       if !o as w           ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d02_coalesce_local_opt.rig:18:11: error: cannot lend parameter `o` to write; parameters are immutable (bind a copy with `new o = o`, or take `o: !(!E)?` to write through to the caller) 
+  oracle: silent
+== d03_coalesce_local_opt_write
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d03_coalesce_local_opt_write.rig:18:11: error: cannot lend parameter `o` to write; parameters are immutable (bind a copy with `new o = o`, or take `o: !(!E)?` to write through to the caller)       if !o as w           ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d03_coalesce_local_opt_write.rig:18:11: error: cannot lend parameter `o` to write; parameters are immutable (bind a copy with `new o = o`, or take `o: !(!E)?` to write through to the caller) 
+  oracle: silent
+== d04_as_branch_readview_fields
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d04_as_branch_readview_fields.rig:18:7: error: bare use of `h1.o` in binding would copy a write view; a field cannot be moved out of its parent   if (h1.o if c else h2.o) as x       ^~~~ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d04_as_branch_readview_fields.rig:18:7: error: bare use of `h1.o` in binding would copy a write view; a field cannot be moved out of its parent 
+  oracle: silent
+== d05_for_branch_readview_fields
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d05_for_branch_readview_fields.rig:6:5: error: cannot assign to `x`; loop and pattern bindings are immutable (bind a copy with `new x = x`)     x = 9     ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d05_for_branch_readview_fields.rig:6:5: error: cannot assign to `x`; loop and pattern bindings are immutable (bind a copy with `new x = x`) 
+  oracle: silent
+== d06_match_branch_readview_payload_field
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d06_match_branch_readview_payload_field.rig:19:14: error: cannot assign through a read view (`?T`); `r` is a read view of a field of `(h1 if c else h2).w`: to write through it, bind `(h1 if c else h2).w` to a name first, then match it with `match !`     .a(r) => r.n = 77              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d06_match_branch_readview_payload_field.rig:19:14: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== d07_catch_readview_field
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d07_catch_readview_field.rig:18:8: error: a member `.` touches both sides; write `fail.nope`   fail .nope        ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/d07_catch_readview_field.rig:18:8: error: a member `.` touches both sides; write `fail.nope` 
+  oracle: silent
+== e01_catch_readview_field
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e01_catch_readview_field.rig:32:14: error: write `!x`: the call writes through `x`   match tryw(x, false) catch h2.w              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e01_catch_readview_field.rig:32:14: error: write `!x`: the call writes through `x` 
+  oracle: silent
+== e02_coalesce_readview_field
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e02_coalesce_readview_field.rig:32:14: error: write `!x`: the call writes through `x`   match optw(x, false) ?? h2.w              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e02_coalesce_readview_field.rig:32:14: error: write `!x`: the call writes through `x` 
+  oracle: silent
+== e03_call_live_reassign
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e03_call_live_reassign.rig:33:7: error: cannot reassign `e` while it is lent       e = mk(5)       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e03_call_live_reassign.rig:33:7: error: cannot reassign `e` while it is lent 
+  oracle: silent
+== e04_call_live_read_owner
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e04_call_live_read_owner.rig:32:13: error: use of `e` while a write loan is live       print(e)             ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e04_call_live_read_owner.rig:33:7: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== e05_branch_live_write_other
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e05_branch_live_write_other.rig:35:7: error: cannot reassign `d` while it is lent       d = mk(9)       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e05_branch_live_write_other.rig:35:7: error: cannot reassign `d` while it is lent 
+  oracle: silent
+== e06_branch_live_lend_e
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e06_branch_live_lend_e.rig:34:14: error: cannot lend `e` to write while a write loan is live       match !e              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e06_branch_live_lend_e.rig:37:7: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== e07_branch_same_source
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e07_branch_same_source.rig:34:10: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]))|
+  rel: .a(r: Res(n: 1, v: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]))|
+  oracle: silent
+== e08_nested_branch
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e08_nested_branch.rig:36:8: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 100, v: [2, 42])) .a(r: Res(n: 3, v: [3]))|
+  rel: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 100, v: [2, 42])) .a(r: Res(n: 3, v: [3]))|
+  oracle: silent
+== e09_nested_branch_live
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e09_nested_branch_live.rig:37:7: error: cannot reassign `g` while it is lent       g = mk(7)       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e09_nested_branch_live.rig:37:7: error: cannot reassign `g` while it is lent 
+  oracle: silent
+== e10_catch_legit
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e10_catch_legit.rig:33:8: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 2, v: [2, 42]))|.a(r: Res(n: 1, v: [1, 43])) .a(r: Res(n: 2, v: [2, 42]))|
+  rel: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 2, v: [2, 42]))|.a(r: Res(n: 1, v: [1, 43])) .a(r: Res(n: 2, v: [2, 42]))|
+  oracle: silent
+== e11_catch_live
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e11_catch_live.rig:34:7: error: cannot reassign `d` while it is lent       d = mk(8)       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e11_catch_live.rig:34:7: error: cannot reassign `d` while it is lent 
+  oracle: silent
+== e12_coalesce_legit
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e12_coalesce_legit.rig:32:15: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 2, v: [2, 42]))|
+  rel: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 2, v: [2, 42]))|
+  oracle: silent
+== e13_coalesce_live
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e13_coalesce_live.rig:34:7: error: cannot reassign `e` while it is lent       e = mk(8)       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e13_coalesce_live.rig:34:7: error: cannot reassign `e` while it is lent 
+  oracle: silent
+== e14_loop
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e14_loop.rig:33:17: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1, 0, 2])) .a(r: Res(n: 2, v: [2, 1, 3]))|
+  rel: .a(r: Res(n: 1, v: [1, 0, 2])) .a(r: Res(n: 2, v: [2, 1, 3]))|
+  oracle: silent
+== e15_loop_hold_across
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e15_loop_hold_across.rig:34:13: error: cannot lend `e` to write while a write loan is live     match (!e if i % 2 == 0 else !d)             ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e15_loop_hold_across.rig:37:10: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: stricter /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e15_loop_hold_across.rig main prod=reject ref=accept 
+== e16_closure_capture_write
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e16_closure_capture_write.rig:34:13: error: cannot lend to write through a read view `?Res`; capture it with `|?r|` 
+  san: .a(r: Res(n: 1, v: [1, 9, 9]))|
+  rel: .a(r: Res(n: 1, v: [1, 9, 9]))|
+  oracle: silent
+== e17_closure_capture_then_owner
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e17_closure_capture_then_owner.rig:35:7: error: cannot reassign `e` while it is lent       e = mk(3)       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e17_closure_capture_then_owner.rig:34:13: error: cannot lend to write through a read view `?Res`; capture it with `|?r|` 
+  oracle: silent
+== e18_method_call
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e18_method_call.rig:44:7: error: cannot reassign `h` while it is lent       h = H(e: mk(3))       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e18_method_call.rig:38:8: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== e19_generic_first
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e19_generic_first.rig:42:10: error: use of `v` while a write loan is live         !v.push(mk(i))          ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/e19_generic_first.rig:36:8: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== f01_as_branch_readview_writeopt
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f01_as_branch_readview_writeopt.rig:14:7: error: bare use of `h1.w` in binding would copy a write view; a field cannot be moved out of its parent   if (h1.w if c else h2.w) as r       ^~~~ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f01_as_branch_readview_writeopt.rig:14:7: error: bare use of `h1.w` in binding would copy a write view; a field cannot be moved out of its parent 
+  oracle: silent
+== f02_as_branch_bare_writeparams
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f02_as_branch_bare_writeparams.rig:11:7: error: bare use of write view `a` in binding would copy a write view, which is unique; use `<a` to move it   if (a if c else b) as r       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f02_as_branch_bare_writeparams.rig:11:7: error: bare use of write view `a` in binding would copy a write view, which is unique; use `<a` to move it 
+  oracle: silent
+== f03_while_branch_readview
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f03_while_branch_readview.rig:14:10: error: bare use of `h1.w` in binding would copy a write view; a field cannot be moved out of its parent   while (h1.w if c else h2.w) as r          ^~~~ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f03_while_branch_readview.rig:14:10: error: bare use of `h1.w` in binding would copy a write view; a field cannot be moved out of its parent 
+  oracle: silent
+== f04_as_prop_field_readview
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f04_as_prop_field_readview.rig:14:6: error: bare use of `h.w` in binding would copy a write view; a field cannot be moved out of its parent   if h.w? as r      ^~~ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f04_as_prop_field_readview.rig:14:6: error: bare use of `h.w` in binding would copy a write view; a field cannot be moved out of its parent 
+  oracle: silent
+== f05_as_prop_local
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f05_as_prop_local.rig:12:6: error: bare use of `o` in binding would copy the write view it holds; use `<o` to move it   if o? as r      ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/f05_as_prop_local.rig:12:6: error: bare use of `o` in binding would copy the write view it holds; use `<o` to move it 
+  oracle: silent
+== g01_call_int_payload
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/g01_call_int_payload.rig:18:7: error: cannot assign to `n`; loop and pattern bindings are immutable (bind a copy with `new n = n`) 
+  san: .a(n: 15)|.s(t: "hi there")|qq|.v(xs: [100, 3])|
+  rel: .s(t: "hi there")|qq|.v(xs: [100, 3])|
+  oracle: silent
+== g02_call_int_payload_guard
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/g02_call_int_payload_guard.rig:14:7: error: cannot assign to `n`; loop and pattern bindings are immutable (bind a copy with `new n = n`) 
+  san: .a(n: 5) .a(n: 14)|
+  rel: .a(n: 5) .a(n: 14)|
+  oracle: silent
+== g03_call_slice_payload
+  head: ACCEPT
+  main: ACCEPT
+  san: 20|
+  rel: 20|
+  oracle: silent
+== g04_call_whole_catchall
+  head: ACCEPT
+  main: ACCEPT
+  san: .b|
+  rel: .b|
+  oracle: silent
+== h01_as_copy_owner_write
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h01_as_copy_owner_write.rig:5:5: error: cannot reassign `p` while it is lent     p = 9     ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h01_as_copy_owner_write.rig:5:5: error: cannot reassign `p` while it is lent 
+  oracle: silent
+== h02_readview_int_owner_write
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h02_readview_int_owner_write.rig:4:3: error: cannot reassign `p` while it is lent   p = 9   ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h02_readview_int_owner_write.rig:4:3: error: cannot reassign `p` while it is lent 
+  oracle: silent
+== h03_as_copy_param_path
+  head: ACCEPT
+  main: ACCEPT
+  san: 5|5 1|
+  rel: 5|5 1|
+  oracle: silent
+== h04_as_copy_handle_write_through
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h04_as_copy_handle_write_through.rig:8:9: error: cannot lend to write through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.     if !h.o as w         ^~~ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h04_as_copy_handle_write_through.rig:8:9: error: cannot lend to write through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership. 
+  oracle: silent
+== h05_as_copy_while_stale
+  head: ACCEPT
+  main: ACCEPT
+  san: 5|6|
+  rel: 5|6|
+  oracle: silent
+== h06_as_copy_text
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h06_as_copy_text.rig:6:9: error: cannot lend `o` to write while a read loan is live     if !o as w         ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h06_as_copy_text.rig:6:9: error: cannot lend `o` to write while a read loan is live 
+  oracle: silent
+== h07_as_copy_cell
+  head: ACCEPT
+  main: ACCEPT
+  san: 5|5|
+  rel: 5|5|
+  oracle: silent
+== h08_as_copy_cell_param
+  head: ACCEPT
+  main: ACCEPT
+  san: 5|5|
+  rel: 5|5|
+  oracle: silent
+== h09_as_copy_cell_direct
+  head: ACCEPT
+  main: ACCEPT
+  san: 5|5|
+  rel: 5|5|
+  oracle: silent
+== h10_as_copy_param_cell_direct
+  head: ACCEPT
+  main: ACCEPT
+  san: 6|
+  rel: 6|
+  oracle: silent
+== h11_as_int_closure_then_write
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h11_as_int_closure_then_write.rig:6:9: error: cannot lend `o` to write while a read loan is live     if !o as w         ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h11_as_int_closure_then_write.rig:5:14: error: operator `+` requires numeric operands; got `?!Int` 
+  oracle: silent
+== h12_as_branch_readviews_int
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h12_as_branch_readviews_int.rig:4:20: error: bare use of write view `k` in array element would copy a write view, which is unique; use `<k` to move it 
+  san: 6 7 [6, 6]|
+  rel: 6 7 [6, 6]|
+  oracle: silent
+== h13_as_call_readview_int
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h13_as_call_readview_int.rig:7:20: error: bare use of write view `k` in array element would copy a write view, which is unique; use `<k` to move it 
+  san: 5 6 [5]|7|
+  rel: 5 6 [5]|7|
+  oracle: silent
+== h14_as_coalesce_readview_int
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h14_as_coalesce_readview_int.rig:2:7: error: a view cannot give up the write view inside it; lend the value inside with `if a as value`   if (a ?? b) as k       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h14_as_coalesce_readview_int.rig:2:7: error: a view cannot give up the write view inside it; lend the value inside with `if a as value` 
+  oracle: silent
+== h15_as_text_readview_variants
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h15_as_text_readview_variants.rig:9:19: error: incompatible types `?(!Text)?` and `(!Text)?`   if (a if c else h.o) as t                   ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h15_as_text_readview_variants.rig:9:19: error: incompatible types `?(!Text)?` and `(!Text)?` 
+  oracle: silent
+== h16_as_slice_readview_variants
+  head: ACCEPT
+  main: ACCEPT
+  san: 1 3|3 [2]|
+  rel: 1 3|3 [2]|
+  oracle: silent
+== h17_as_handle_int
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h17_as_handle_int.rig:8:14: error: operator `*` requires numeric operands; got `?!Int` 
+  san: 5 10 [5]|5|
+  rel: 5 10 [5]|5|
+  oracle: silent
+== h18_as_struct_holding_wv
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h18_as_struct_holding_wv.rig:7:22: error: bare use of write view `x` in array element would copy a write view, which is unique; use `<x` to move it 
+  san: 4 4 4|
+  rel: 4 4 4|
+  oracle: silent
+== h19_as_copy_path_pointer
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/h19_as_copy_path_pointer.rig:8:27: error: bare use of write view `x` in array element would copy a write view, which is unique; use `<x` to move it 
+  san: 5 qq 5 5|2|3 2 4|
+  rel: 5 qq 5 5|2|3 2 4|
+  oracle: silent
+== h20_as_copy_path_text_int
+  head: ACCEPT
+  main: ACCEPT
+  san: aa 2|2|42|
+  rel: aa 2|2|42|
+  oracle: silent
+== i01_generic_loop_views
+  head: ACCEPT
+  main: ACCEPT
+  san:     callMainWithArgs [inlined]: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:729:20|    main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=4' to see all references|error: rig: the program did not run: `zig run` exited with status 1, and the program left no sign that it started|
+  rel:     main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=4' to see all references|note: emitted Zig is in /Users/shreeve/.cache/rig/i01_generic_loop_views-66b98daa3817e6ab|
+  oracle: silent
+== i02_generic_enum_views
+  head: ACCEPT
+  main: ACCEPT
+  san:     callMainWithArgs [inlined]: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:729:20|    main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=5' to see all references|error: rig: the program did not run: `zig run` exited with status 1, and the program left no sign that it started|
+  rel:     main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=5' to see all references|note: emitted Zig is in /Users/shreeve/.cache/rig/i02_generic_enum_views-fe7d4d7330bd2153|
+  oracle: silent
+== i03_generic_write_views
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/i03_generic_write_views.rig:33:12: error: each element of `v` is a write view, which a loop binding cannot hold; loop over the indices and write `v[i]`   for x in v            ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/i03_generic_write_views.rig:33:12: error: each element of `v` is a write view, which a loop binding cannot hold; loop over the indices and write `v[i]` 
+  oracle: silent
+== i04_for_vec_readview_elem
+  head: ACCEPT
+  main: ACCEPT
+  san:     callMainWithArgs [inlined]: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:729:20|    main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=4' to see all references|error: rig: the program did not run: `zig run` exited with status 1, and the program left no sign that it started|
+  rel:     main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=4' to see all references|note: emitted Zig is in /Users/shreeve/.cache/rig/i04_for_vec_readview_elem-2cbb44de6ff2e20b|
+  oracle: silent
+== i05_for_lend_vec_readview_elem
+  head: ACCEPT
+  main: ACCEPT
+  san:     callMainWithArgs [inlined]: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:729:20|    main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=4' to see all references|error: rig: the program did not run: `zig run` exited with status 1, and the program left no sign that it started|
+  rel:     main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=4' to see all references|note: emitted Zig is in /Users/shreeve/.cache/rig/i05_for_lend_vec_readview_elem-d40d37a8b567011e|
+  oracle: silent
+== i06_ifas_readview_opt_local
+  head: ACCEPT
+  main: ACCEPT
+  san: 3|
+  rel: 3|
+  oracle: silent
+== i07_generic_write_match_capture
+  head: ACCEPT
+  main: ACCEPT
+  san:     callMainWithArgs [inlined]: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:729:20|    main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=5' to see all references|error: rig: the program did not run: `zig run` exited with status 1, and the program left no sign that it started|
+  rel:     main: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/lib/std/start.zig:754:28|    1 reference(s) hidden; use '-freference-trace=5' to see all references|note: emitted Zig is in /Users/shreeve/.cache/rig/i07_generic_write_match_capture-cae8d42f5ea3c1a7|
+  oracle: silent
+== i08_generic_read_match_capture
+  head: ACCEPT
+  main: ACCEPT
+  san: 1|
+  rel: 1|
+  oracle: silent
+== i09_generic_walk_capture
+  head: ACCEPT
+  main: ACCEPT
+  san: 1|
+  rel: 1|
+  oracle: silent
+== i10_nongeneric_write_match_capture
+  head: ACCEPT
+  main: ACCEPT
+  san: 5|
+  rel: 5|
+  oracle: silent
+== j02_closure_bindings
+  head: ACCEPT
+  main: ACCEPT
+  san: 2|3|7|4|
+  rel: 3|7|4|
+  oracle: silent
+== j03_closure_bindings2
+  head: ACCEPT
+  main: ACCEPT
+  san: 4|3|
+  rel: 4|3|
+  oracle: silent
+== k01_prop_local_opt_two_writers
+  head: ACCEPT
+  main: ACCEPT
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|
+  oracle: silent
+== k02_prop_local_opt_write
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k02_prop_local_opt_write.rig:17:15: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1, 5]))|.a(r: Res(n: 1, v: [1, 5]))|
+  rel: .a(r: Res(n: 1, v: [1, 5]))|.a(r: Res(n: 1, v: [1, 5]))|
+  oracle: silent
+== k03_branch_local_writeviews
+  head: ACCEPT
+  main: ACCEPT
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k03_branch_local_writeviews.rig main prod=accept ref=reject C2 20:10 a bare write view would be copied; write `<` to move it 
+== k04_branch_local_writeviews_write
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k04_branch_local_writeviews_write.rig:21:15: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1, 5, 6])) .a(r: Res(n: 2, v: [2]))|
+  rel: .a(r: Res(n: 1, v: [1, 5, 6])) .a(r: Res(n: 2, v: [2]))|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k04_branch_local_writeviews_write.rig main prod=accept ref=reject C2 20:10 a bare write view would be copied; write `<` to move it 
+== k05_branch_writeview_and_lend
+  head: ACCEPT
+  main: ACCEPT
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|
+  oracle: DIFF /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k05_branch_writeview_and_lend.rig f prod=accept ref=reject C2 15:10 a bare write view would be copied; write `<` to move it 
+== k06_coalesce_place_and_lend
+  head: ACCEPT
+  main: ACCEPT
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|
+  oracle: silent
+== k07_prop_local_owned_opt
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k07_prop_local_owned_opt.rig:16:9: error: a `match` reads a place or takes a call's result; bind this `E` to a name first   match o?         ^~ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k07_prop_local_owned_opt.rig:16:9: error: a `match` reads a place or takes a call's result; bind this `E` to a name first 
+  oracle: silent
+== k08_match_writeview_param_direct
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k08_match_writeview_param_direct.rig:18:14: error: cannot lend `a` to write while a read loan is live       match !a              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/k08_match_writeview_param_direct.rig:18:14: error: cannot lend `a` to write while a read loan is live 
+  oracle: silent
+== l01_branch_writelend_through_readview
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l01_branch_writelend_through_readview.rig:21:11: error: cannot lend the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view   match (!h1.w if c else !h2.w)           ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l01_branch_writelend_through_readview.rig:21:11: error: cannot lend the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view 
+  oracle: silent
+== l02_call_through_readview
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l02_call_through_readview.rig:21:14: error: cannot lend the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view   match getw(h1.w)              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l02_call_through_readview.rig:21:14: error: cannot lend the write view held here: it is reached through a read view (`?T`), and other views may reach the same write view 
+  oracle: silent
+== l03_branch_call_and_readview_field
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l03_branch_call_and_readview_field.rig:22:14: error: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 77, v: [1]))|
+  rel: .a(r: Res(n: 77, v: [1]))|
+  oracle: silent
+== l04_handle_field_branch
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l04_handle_field_branch.rig:27:15: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1, 9]))|
+  rel: .a(r: Res(n: 1, v: [1, 9]))|
+  oracle: silent
+== l05_handle_field_prop
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l05_handle_field_prop.rig:29:10: error: cannot clone `h`: it holds a write view, which cannot be duplicated   _ = f(+h)          ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l05_handle_field_prop.rig:22:15: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== l06_handle_field_branch_uaf
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l06_handle_field_branch_uaf.rig:29:14: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|
+  oracle: silent
+== l07_mixed_call_readview_uaf
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/l07_mixed_call_readview_uaf.rig:27:14: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san:     if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{|                                                                                       ^|???:?:?: 0x188dd7e7f in start (/usr/lib/dyld)|error: rig: the program was killed by signal 6|
+  rel: 0|
+  oracle: silent
+== m01_call_two_sources_live
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/m01_call_two_sources_live.rig:23:7: error: cannot reassign `d` while it is lent       d = mk(9)       ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/m01_call_two_sources_live.rig:23:7: error: cannot reassign `d` while it is lent 
+  oracle: silent
+== m02_call_two_sources_ok
+  head: ACCEPT
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/m02_call_two_sources_ok.rig:22:8: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  san: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 2, v: [2, 7]))|
+  rel: .a(r: Res(n: 1, v: [1])) .a(r: Res(n: 2, v: [2, 7]))|
+  oracle: silent
+== m03_call_nested_match_same
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/m03_call_nested_match_same.rig:22:19: error: cannot lend `e` to write while a write loan is live       match pick(!e, !d, true)                   ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/m03_call_nested_match_same.rig:23:20: error: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate 
+  oracle: silent
+== m04_call_result_escape
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/m04_call_result_escape.rig:18:14: error: write `!e`: the call writes through `e`   match pick(e, e, true)              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/m04_call_result_escape.rig:18:14: error: write `!e`: the call writes through `e` 
+  oracle: silent
+== n01_hint_followthrough_branch_part
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n01_hint_followthrough_branch_part.rig:13:14: error: cannot assign to `r`: it is a copy of a field of `(h1 if c else h2).w`; to change the field in place, bind `(h1 if c else h2).w` to a name first, then match it with `match !`     .a(r) => r.n = 77              ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n01_hint_followthrough_branch_part.rig:13:14: error: cannot assign to `r`: it is a copy of a field of `(h1 if c else h2).w`; to change the field in place, match with `match !(h1 if c else h2).w` 
+  oracle: silent
+== n02_hint_followthrough_branch_part_fixed
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n02_hint_followthrough_branch_part_fixed.rig:23:9: error: use of `h1` while a write loan is live   print(h1.w)         ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n02_hint_followthrough_branch_part_fixed.rig:23:9: error: use of `h1` while a write loan is live 
+  oracle: stricter /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n02_hint_followthrough_branch_part_fixed.rig main prod=reject ref=accept 
+== n03_hint_followthrough_branch_part_alt
+  head: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n03_hint_followthrough_branch_part_alt.rig:22:9: error: use of `h1` while a write loan is live   print(h1.w)         ^ 
+  main: /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n03_hint_followthrough_branch_part_alt.rig:13:14: error: cannot assign to `r`; loop and pattern bindings are immutable (bind a copy with `new r = r`) 
+  oracle: stricter /Users/shreeve/Data/Code/rig/.git/revamp/r3/review-payload-loan-4-probes/n03_hint_followthrough_branch_part_alt.rig main prod=reject ref=accept 
+== n04_print_after_lend_holder
+  head: ACCEPT
+  main: ACCEPT
+  san: .a(r: Res(n: 1))|
+  rel: .a(r: Res(n: 1))|
+  oracle: silent
+== main
+  head: ACCEPT
+  main: ACCEPT
+  san: 1|1|2|y|
+  rel: 1|2|y|
+  oracle: silent

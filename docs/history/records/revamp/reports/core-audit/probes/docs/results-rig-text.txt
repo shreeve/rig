@@ -1,0 +1,14 @@
+=== p16_text_on_main.rig (rig-text)
+a
+=== p19_print_ternary_owners.rig (rig-text)
+p19_print_ternary_owners.rig:12:9: error: `a if c else b` is not a fresh value: it reaches an owner a name holds, which reading it here would move; borrow what it reaches (`?a if c else ?b`), or read an optional through `if ?o as x`, or take it with `if <o as x`
+  print(a if c else b)
+=== p20_print_nullish_owner.rig (rig-text)
+p20_print_nullish_owner.rig:10:9: error: `??` on an optional `R?` would copy an owning handle out of it; take the handle out with `if x as h`
+  print(o ?? R(n: 9))
+=== p27_vec_box_text_branch.rig (rig-text)
+p27_vec_box_text_branch.rig:3:6: error: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, optional, or array that owns nothing), a shared handle (`*T`), a weak handle (`~T`), or a box (`Box[T]`); got `Text`
+  v: Vec[Text] = Vec()
+=== p06_if_bare_owning_optional.rig (rig-text)
+p06_if_bare_owning_optional.rig:10:6: error: bare use of `Res` value `m` in binding would alias an owning value; `Res` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor. Use `<m` to move ownership
+  if m as r

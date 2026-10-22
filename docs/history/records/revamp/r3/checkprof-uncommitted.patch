@@ -1,0 +1,254 @@
+diff --git i/src/main.zig w/src/main.zig
+index 9f21afcd5..da6c4df21 100644
+--- i/src/main.zig
++++ w/src/main.zig
+@@ -192,6 +192,15 @@ pub fn main(init: std.process.Init) !void {
+             }
+         },
+         .check => {
++            if (std.c.getenv("RIG_REPEAT")) |r| {
++                const n = std.fmt.parseInt(usize, std.mem.span(r), 10) catch 1;
++                for (0..n) |_| {
++                    var ar = std.heap.ArenaAllocator.init(std.heap.page_allocator);
++                    var g = try loadProject(ar.allocator(), io, env, opts.path);
++                    g.deinit();
++                    ar.deinit();
++                }
++            }
+             var graph = try loadProject(allocator, io, env, opts.path);
+             defer graph.deinit();
+             switch (opts.facts) {
+@@ -408,17 +417,24 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
+ /// Load and check the project rooted at `path`; print every diagnostic
+ /// and exit 1 if there are errors.
+ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !modules.ModuleGraph {
++    const ttot = ptime.now();
+     var graph = modules.ModuleGraph.init(allocator, io);
+     errdefer graph.deinit();
+     graph.std_dir = env.get("RIG_STD");
+     try graph.loadRoot(path);
++    const td = ptime.now();
+ 
+     var buffer: [4096]u8 = undefined;
+     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
+     try graph.writeAllDiagnostics(&writer.interface);
+     try writer.interface.flush();
++    ptime.add(.diagnostics, td);
+     if (graph.hasErrors()) std.process.exit(1);
++    const ti = ptime.now();
+     try inlining.decide(allocator, &graph, inlining.max_size);
++    ptime.add(.inlining, ti);
++    ptime.add(.total, ttot);
++    ptime.report();
+     return graph;
+ }
+ 
+@@ -1327,3 +1343,4 @@ test {
+     _ = @import("ownership.zig");
+     _ = @import("runtime.zig");
+ }
++const ptime = @import("ptime.zig");
+diff --git i/src/modules.zig w/src/modules.zig
+index c7bc01f64..15e7dfbce 100644
+--- i/src/modules.zig
++++ w/src/modules.zig
+@@ -365,6 +365,24 @@ pub const ModuleGraph = struct {
+             break :blk p;
+         };
+ 
++        {
++            const rigm = @import("rig.zig");
++            var tl = ptime.now();
++            var bl = parser.BaseLexer.init(source);
++            var nt: u64 = 0;
++            while (true) : (nt += 1) { const t = bl.next(); if (t.cat == .eof or t.cat == .err) break; }
++            ptime.add(.lex_base, tl);
++            tl = ptime.now();
++            var rl = rigm.Lexer.init(source);
++            while (true) { const t = rl.next(); if (t.cat == .eof or t.cat == .err) break; }
++            ptime.add(.lex_rig, tl);
++            ptime.bump(.c_modget, nt * 1000000);
++            ptime.bump(.c_handsover, @as(u64, source.len) * 1000000);
++            ptime.bump(.c_record, @as(u64, std.mem.count(u8, source, "\n")) * 1000000);
++            std.debug.print("module {s} {d} bytes\n", .{ display, source.len });
++        }
++        const tp = ptime.now();
++        defer ptime.add(.parse, tp);
+         self.get(id).ir = p.parseProgram() catch |err| switch (err) {
+             error.ParseError => {
+                 const d = p.diagnostic();
+@@ -422,6 +440,7 @@ pub const ModuleGraph = struct {
+         // them, and no pass sees one once the tree is rewritten and the
+         // module checked again (docs/INTERNALS.md, "Loops over an iterator").
+         if (m.sema.iter_loops.items.len > 0) {
++            ptime.add(.iter_desugar, ptime.now());
+             try m.parser.desugarIterLoops(m.ir, m.sema.iter_loops.items);
+             m.sema.deinit();
+             m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
+@@ -435,9 +454,11 @@ pub const ModuleGraph = struct {
+             m.state = .failed;
+             return;
+         }
++        const to = ptime.now();
+         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
+         defer own.deinit();
+         try own.check(m.ir);
++        ptime.add(.ownership, to);
+         const first: u32 = @intCast(m.sema.diagnostics.items.len);
+         for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
+         m.own_ran = true;
+@@ -448,7 +469,9 @@ pub const ModuleGraph = struct {
+         m.state = if (m.sema.hasErrors()) .failed else .checked;
+         // Which tests are known to pass rests on the ownership checker's
+         // acceptance (docs/INTERNALS.md, "Proven checks").
++        const tq = ptime.now();
+         if (m.state == .checked) try proofs.check(m.sema, m.ir);
++        ptime.add(.proofs, tq);
+     }
+ 
+     fn errorAt(self: *ModuleGraph, id: ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {
+@@ -509,3 +532,4 @@ pub fn fileError(err: anyerror) []const u8 {
+ test "moduleName strips the directory and .rig" {
+     try std.testing.expectEqualStrings("baz", moduleName("/foo/bar/baz.rig"));
+ }
++const ptime = @import("ptime.zig");
+diff --git i/src/rig.zig w/src/rig.zig
+index 36f9eede9..439e635bc 100644
+--- i/src/rig.zig
++++ w/src/rig.zig
+@@ -1685,7 +1685,12 @@ pub const Parser = struct {
+     /// Parse and rewrite into the semantic IR. On `error.ParseError`,
+     /// `diagnostic()` describes the failure.
+     pub fn parseProgram(self: *Parser) !Sexp {
+-        const tree = try self.rewrite(try self.parseTree());
++        var t0 = ptime.now();
++        const raw_tree = try self.parseTree();
++        ptime.add(.p_tree, t0);
++        t0 = ptime.now();
++        const tree = try self.rewrite(raw_tree);
++        ptime.add(.p_rewrite, t0);
+         // Spacing is checked once the source parses, so that an error in
+         // the parse is the one reported.
+         if (self.failure == null) {
+@@ -3570,3 +3575,4 @@ test "a keyword after `@` names a builtin" {
+     try expectCats("@type(x)", &.{ .at, .ident, .lparen, .ident, .rparen });
+     try expectCats("@size(@type(x))", &.{ .at, .ident, .lparen, .at, .ident, .lparen, .ident, .rparen, .rparen });
+ }
++const ptime = @import("ptime.zig");
+diff --git i/src/sema.zig w/src/sema.zig
+index e2de326d6..cf2ea2587 100644
+--- i/src/sema.zig
++++ w/src/sema.zig
+@@ -2415,6 +2415,7 @@ pub const SemContext = struct {
+     pub fn recordDecision(self: *const SemContext, node: Sexp, at: Sexp, q: Question, answer: u8) void {
+         if (self.decided.sealed) return;
+         const key = decisionKey(node) orelse return;
++        ptime.bump(.c_record, 1000000);
+         self.decided.map.put(self.allocator, .{ .node = key, .q = q }, .{ .node = node, .at = at, .answer = answer }) catch std.debug.panic("out of memory", .{});
+     }
+ 
+@@ -2774,6 +2775,7 @@ pub fn notPublic(ctx: *SemContext, pos: u32, module: []const u8, name: []const u
+ 
+ /// Check one module.
+ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts: CheckOptions) !SemContext {
++    var t0 = ptime.now();
+     var ctx = try SemContext.init(allocator, source);
+     errdefer ctx.deinit();
+ 
+@@ -2795,23 +2797,53 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
+         for (0..(theirs.bit_length + @bitSizeOf(usize) - 1) / @bitSizeOf(usize)) |i| ctx.reach.masks[i] |= theirs.masks[i];
+     }
+ 
++    ptime.add(.sema_init, t0);
+     const scope = try ctx.pushScopeKind(scope_invalid, .module);
+     std.debug.assert(scope == module_scope);
++    t0 = ptime.now();
+     try resolve.registerBuiltins(&ctx, module_scope);
++    ptime.add(.builtins, t0);
++    t0 = ptime.now();
+     try resolve.resolveSymbols(&ctx, tree, module_scope);
++    ptime.add(.resolve_symbols, t0);
++    t0 = ptime.now();
+     try resolve.resolveDeclarations(&ctx, tree, module_scope);
++    ptime.add(.resolve_decls, t0);
++    t0 = ptime.now();
+     const order = try computeContents(&ctx);
++    ptime.add(.contents, t0);
++    t0 = ptime.now();
+     try checkInfiniteTypes(&ctx);
+     try checkTypeSizes(&ctx, order);
++    ptime.add(.type_sizes, t0);
++    t0 = ptime.now();
+     try computeOrigins(&ctx);
++    ptime.add(.origins, t0);
++    t0 = ptime.now();
+     try resolve.checkDeclarations(&ctx);
++    ptime.add(.check_decls, t0);
++    t0 = ptime.now();
+     try typecheck.checkModule(&ctx, tree, module_scope);
++    ptime.add(.typecheck, t0);
++    t0 = ptime.now();
+     try typecheck.checkFrames(&ctx, tree);
++    ptime.add(.frames, t0);
++    t0 = ptime.now();
+     try checkUnreadLocals(&ctx);
++    ptime.add(.unread, t0);
++    t0 = ptime.now();
+     try expandInstantiations(&ctx);
++    ptime.add(.expand_inst, t0);
++    t0 = ptime.now();
+     try typecheck.checkGenericInstantiations(&ctx);
++    ptime.add(.generic_inst, t0);
++    t0 = ptime.now();
+     if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
++    ptime.add(.binding_access, t0);
++    t0 = ptime.now();
+     try storage.plan(&ctx, tree);
++    ptime.add(.storage, t0);
++    ptime.memOf(&ctx);
+     return ctx;
+ }
+ 
+@@ -6704,6 +6736,7 @@ pub fn handsOverIn(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hand
+ }
+ 
+ fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind {
++    ptime.bump(.c_handsover, 1000000);
+     switch (node) {
+         .src => return leafHands(source, ctx, node),
+         .list => {},
+@@ -9214,3 +9247,4 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
+     const fallback = nthNode(tree, .@"??", &n).?;
+     try std.testing.expect(jumps.list[0].items().ptr == ir.get(fallback, .right).items().ptr);
+ }
++const ptime = @import("ptime.zig");
+diff --git i/src/storage.zig w/src/storage.zig
+index 46eb4332a..d701b3893 100644
+--- i/src/storage.zig
++++ w/src/storage.zig
+@@ -1229,10 +1229,20 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
+     var names = ctx.facts.names.iterator();
+     while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.*) p.used.set(e.value_ptr.*);
+     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < p.used.bit_length) p.used.set(s.origin);
++    var t0 = ptime.now();
+     try p.walk(tree);
++    ptime.add(.st_walk, t0);
++    t0 = ptime.now();
+     try planConsumed(ctx, tree);
++    ptime.add(.st_consumed, t0);
++    t0 = ptime.now();
+     try rig.eachBody(tree, ctx, planUnits);
++    ptime.add(.st_units, t0);
++    t0 = ptime.now();
++    ptime.bump(.decided_size, @as(u64, ctx.decided.map.count()) * 1000000);
++    ptime.bump(.decided_cap, @as(u64, ctx.decided.map.capacity()) * 1000000);
+     verifyDecisions(ctx);
++    ptime.add(.st_verify, t0);
+ }
+ 
+ /// Record the units of a body (`rig.eachUnit`): the innermost one
+@@ -1716,3 +1726,4 @@ fn isCellListTy(ctx: *const SemContext, ty: TypeId) bool {
+     };
+     return isListTy(ctx, cell);
+ }
++const ptime = @import("ptime.zig");

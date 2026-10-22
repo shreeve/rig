@@ -1,0 +1,16 @@
+894c894
+<          | name:tname "[" args:types ![","] "]"      → (generic_inst)
+---
+>          | ccall
+924a925,926
+>          | STRING_DQ
+>          | STRING_SQ
+938a941
+>          | ccall
+940a944,947
+> # A call of a compile-time function in a type: `[cap[n]]T`.
+> ccall    = name:name "[" args:types ![","] "]"       → (generic_inst)
+>          | name "." name "[" types ![","] "]"       → (generic_inst (member 1 3) ...5)
+> 
+957a965
+>          | ccall

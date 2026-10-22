@@ -1,0 +1,909 @@
+diff --git a/src/facts.zig b/src/facts.zig
+index e613f228..8bf4072a 100644
+--- a/src/facts.zig
++++ b/src/facts.zig
+@@ -28,6 +28,7 @@
+ //!   should become a recorded node fact, and the list only shrinks.
+ 
+ const std = @import("std");
++const study = @import("study.zig");
+ const parser = @import("parser.zig");
+ const sema = @import("sema.zig");
+ const storage = @import("storage.zig");
+@@ -297,10 +298,15 @@ pub const Facts = struct {
+     pub fn readsThroughWrite(f: Facts, sym: SymbolId, reached: TypeId) ?ThroughWrite {
+         const ctx = f.c();
+         if (ctx.bindingAccess(sym) != .read) return null;
+-        return switch (ctx.types.get(reached)) {
++        const r: ?ThroughWrite = switch (ctx.types.get(reached)) {
+             .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner)) .value else .pointer,
+             else => null,
+         };
++        if (r) |x| switch (x) {
++            .value => study.hit("FA_rtw_value"),
++            .pointer => study.hit("FA_rtw_pointer"),
++        };
++        return r;
+     }
+     /// Whether a payload binding copies the value its field's write view
+     /// points at (`readsThroughWrite`).
+@@ -308,7 +314,7 @@ pub const Facts = struct {
+         const ctx = f.c();
+         const sym = ctx.symbolOf(b) orelse return false;
+         const field = ctx.payloadFieldOf(b) orelse return false;
+-        return f.readsThroughWrite(sym, field) == .value;
++        return study.hitIf("FA_payload_rtw", f.readsThroughWrite(sym, field) == .value);
+     }
+     /// Whether a `print`, `Text(...)`, or `add` argument is read by address
+     /// (`storage.printsByAddress`).
+diff --git a/src/main.zig b/src/main.zig
+index 8cbd62e0..0b04cb31 100644
+--- a/src/main.zig
++++ b/src/main.zig
+@@ -156,6 +156,7 @@ pub fn main(init: std.process.Init) !void {
+     const allocator = init.arena.allocator();
+     const io = init.io;
+     const env: Env = .{ .map = init.environ_map };
++    @import("study.zig").configure(env.get("RIG_STUDY"));
+     const args = try init.minimal.args.toSlice(allocator);
+     const opts = parseArgs(io, args[@min(1, args.len)..]);
+ 
+diff --git a/src/ownership.zig b/src/ownership.zig
+index 795ba9c9..d5001b60 100644
+--- a/src/ownership.zig
++++ b/src/ownership.zig
+@@ -117,6 +117,7 @@
+ //!   effects are undone after the check.
+ 
+ const std = @import("std");
++const study = @import("study.zig");
+ const parser = @import("parser.zig");
+ const rig = @import("rig.zig");
+ const sema = @import("sema.zig");
+@@ -2018,6 +2019,10 @@ pub const Checker = struct {
+         // its holder is lent to write for as long as the result may keep
+         // the view.
+         // A `![]T` passed where a `[]T` is expected is lent to read.
++        if (sink == .argument and self.isWriteViewPlace(expr)) {
++            if (expr == .src) study.hit("OW02_pass_held_wv_name") else study.hit("OW01_pass_held_wv_part");
++        }
++        if (sink == .argument and !self.isWriteViewPlace(expr) and self.carriesWriteView(self.exprType(expr)) and self.hands(expr).kind == .branches) study.hit("OW_pass_wv_branch_unlent");
+         if (sink == .argument and self.isWriteViewPlace(expr)) return self.walkLend(expr, if (self.lendsBy(expr, .read_only)) .read else .write);
+         self.setTail(expr, sink);
+         return self.walk(expr);
+@@ -2608,6 +2613,11 @@ pub const Checker = struct {
+         const ctx = self.sema orelse return .owner;
+         const sym = v.sym orelse return .owner;
+         const access = ctx.bindingAccess(sym) orelse return .owner;
++        const s = ctx.symbols.items[sym];
++        switch (access) {
++            .write => if (s.flags.pattern_bound and !s.flags.as_bound and s.flags.access_decided and v.kind == .pattern) study.hit("OW_lt_write_payload") else if (s.flags.as_bound) study.hit("OW_lt_write_as") else if (s.flags.access_decided) study.hit("OW_lt_write_loop") else study.hit("OW_lt_write_declared"),
++            .read => if (v.kind == .pattern) study.hit("OW_lt_read_payload") else if (s.flags.as_bound) study.hit("OW_lt_read_as") else if (s.flags.access_decided) study.hit("OW_lt_read_loop") else study.hit("OW_lt_read_declared"),
++        }
+         return switch (access) {
+             .write => .write_view,
+             .read => .read_view,
+@@ -2807,7 +2817,10 @@ pub const Checker = struct {
+ 
+         // A payload that views its scrutinee cannot leave it; a copied
+         // payload is not a view (`bindPayload`).
+-        if (v.payload_view) return self.movePayload(id, pos, vt);
++        if (v.payload_view) {
++            study.hit("OW_pv_move");
++            return self.movePayload(id, pos, vt);
++        }
+ 
+         if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
+         // Emit arms a drop flag only for a binding the consumed fact
+@@ -3112,6 +3125,7 @@ pub const Checker = struct {
+                 // A write view of a Copy value is copied where the
+                 // value is read; where a `!T` goes, the view would be.
+                 if (v.ref == .write and !self.readsThroughWriteView(v.ty)) {
++                    study.hit("OW_bare_wv_name_rejects");
+                     try self.err(pos, "bare use of write view `{s}` in {s} would copy a write view, which is unique; use `<{s}` to move it", .{ name, sink.text(), name });
+                 } else if (v.ref != .write and self.carriesWriteView(v.ty)) {
+                     try self.err(pos, "bare use of `{s}` in {s} would copy the write view it holds; use `<{s}` to move it", .{ name, sink.text(), name });
+@@ -3129,6 +3143,7 @@ pub const Checker = struct {
+                     // value reads the value where its context reads it,
+                     // as a bare write-view name does.
+                     if (sink != .argument and self.carriesWriteView(ty) and !self.readsThroughWriteView(ty)) {
++                        study.hit("OW_bare_wv_part_rejects");
+                         const shown = try self.placeText(expr);
+                         // A binding typed `!T`, or of a view of a value
+                         // that does not copy: say how to read the value,
+@@ -3172,7 +3187,7 @@ pub const Checker = struct {
+     /// name or place only reads (Core sentence 1): `x = h.w`, with
+     /// `w: !Int` or `w: !Point`, copies the value.
+     fn readsThroughWriteView(self: *const Checker, ty: ?TypeId) bool {
+-        return self.copy_reads and self.refOfType(ty) == .write and self.copiedThrough(ty);
++        return study.hitIf("OW_reads_through_wv", self.copy_reads and self.refOfType(ty) == .write and self.copiedThrough(ty));
+     }
+ 
+     /// The var the name `expr` refers to, once the walk has bound it:
+@@ -3532,6 +3547,7 @@ pub const Checker = struct {
+         if (!writes_capture and try self.rejectConsumedView(id, pos, "reassign")) return;
+         if (!self.copies(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
+         if (v.payload_view and v.ref != .write and !self.isPoisonType(v.ty)) {
++            study.hit("OW_pv_reassign_rejects");
+             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
+             return;
+         }
+@@ -5131,6 +5147,10 @@ pub const Checker = struct {
+             // binding of a view type views by its type, and any other
+             // (a `T` of a generic body) by this fact.
+             v.payload_view = info.root != null or (info.shown.len > 0 and v.ref == .none);
++            if (v.payload_view) {
++                if (info.root == null) study.hit("OW_pv_noroot") else if (self.carriesWriteView(ty)) study.hit("OW_pv_root_holds_wv") else study.hit("OW_pv_root");
++                if (v.ref == .write) study.hit("OW_pv_ref_write");
++            }
+             if (info.root == null and v.payload_view) {
+                 v.via = info.via;
+                 v.matched = info.shown;
+diff --git a/src/sema.zig b/src/sema.zig
+index cf290a37..96abad87 100644
+--- a/src/sema.zig
++++ b/src/sema.zig
+@@ -49,6 +49,7 @@
+ //! everything so one mistake doesn't cascade.
+ 
+ const std = @import("std");
++const study = @import("study.zig");
+ const zig_builtin = @import("builtin");
+ const parser = @import("parser.zig");
+ const rig = @import("rig.zig");
+@@ -1482,6 +1483,8 @@ pub const SemContext = struct {
+     /// diagnostic's hint reads it, so it is no fact.
+     untakeable: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+     facts: Facts = .{},
++    /// STUDY: how typecheck read each view as a value (`ViewRead` tags).
++    study_reads: std.AutoHashMapUnmanaged(u64, u8) = .empty,
+ 
+     cell_sym_id: SymbolId = symbol_invalid,
+     vec_sym_id: SymbolId = symbol_invalid,
+@@ -1625,6 +1628,7 @@ pub const SemContext = struct {
+         self.reported.deinit(self.allocator);
+         self.untakeable.deinit(self.allocator);
+         self.facts.deinit(self.allocator);
++        self.study_reads.deinit(self.allocator);
+         self.declared_origins.deinit(self.allocator);
+         self.module_refs.deinit(self.allocator);
+         self.reach.deinit(self.allocator);
+@@ -1839,6 +1843,14 @@ pub const SemContext = struct {
+         return decideBindingAccess(self, .{ .declared = s.ty });
+     }
+ 
++    pub fn studyRecordRead(self: *SemContext, node: Sexp, tag: u8) !void {
++        try self.study_reads.put(self.allocator, recordExprKey(node) orelse return, tag);
++    }
++
++    pub fn studyReadTag(self: *const SemContext, node: Sexp) ?u8 {
++        return self.study_reads.get(exprKey(node) orelse return null);
++    }
++
+     /// The type of an expression node.
+     pub fn typeOf(self: *const SemContext, node: Sexp) ?TypeId {
+         return self.facts.types.get(exprKey(node) orelse return null);
+@@ -2496,6 +2508,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
+     try checkUnreadLocals(&ctx);
+     try expandInstantiations(&ctx);
+     try typecheck.checkGenericInstantiations(&ctx);
++    try @import("study.zig").check(&ctx, tree);
+     if (zig_builtin.optimize == .debug or zig_builtin.is_test) try checkBindingAccess(&ctx);
+     try storage.plan(&ctx, tree);
+     return ctx;
+@@ -3956,6 +3969,32 @@ pub const LoopMode = enum { write, take, read };
+ /// binding's type from it, ownership the loan a lend of it makes
+ /// (`lendTarget`), and emit how it binds.
+ pub fn decideBindingAccess(ctx: *const SemContext, site: BindingSite) ?Access {
++    const r = decideBindingAccessInner(ctx, site);
++    switch (site) {
++        .declared => {},
++        .as => |a| switch (a.reach) {
++            .written => if (r == .write) study.hit("BA_as_written_write"),
++            .read => if (r == .read) study.hit("BA_as_read_read"),
++            .copied => if (r == .write) study.hit("BA_as_copied_write"),
++        },
++        .loop => |l| if (r == .write) switch (l.mode) {
++            .write => study.hit("BA_loop_write_write"),
++            .take => study.hit("BA_loop_take_write"),
++            .read => study.hit("BA_loop_read_write"),
++        },
++        .match => |m| if (m.reach == .owned) {
++            if (r == .write) study.hit("BA_match_owned_write");
++        } else switch (ctx.types.get(m.reached)) {
++            .write_view => if (r == .write) {
++                if (m.reach == .written) study.hit("BA_match_wvfield_written_write") else study.hit("BA_match_wvfield_readown_write");
++            } else study.hit("BA_match_wvfield_read"),
++            else => if (r == .write) study.hit("BA_match_written_field_write"),
++        },
++    }
++    return r;
++}
++
++fn decideBindingAccessInner(ctx: *const SemContext, site: BindingSite) ?Access {
+     return switch (site) {
+         // A parameter, local, or capture is the view its type is.
+         .declared => |ty| switch (ctx.types.get(ty)) {
+@@ -6374,7 +6413,10 @@ pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp))
+ /// one included, is only read. The one decider of a header that lends
+ /// on a write view, by a positive list.
+ pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!bool {
+-    if (subject.isKind(.write)) return true;
++    if (subject.isKind(.write)) {
++        study.hit("SM01a_mwv_direct_lend");
++        return true;
++    }
+     const ty = ctx.typeOf(subject) orelse return false;
+     switch (ctx.types.get(ty)) {
+         .write_view => {
+@@ -6387,6 +6429,9 @@ pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.E
+                     made = true;
+                 } else if (handsOver(ctx, leaf).kind != .jump) return false;
+             }
++            if (made) {
++                if (yieldsPart(subject)) study.hit("SM01b_mwv_branch_made") else study.hit("SM01c_mwv_call_or_move");
++            }
+             return made;
+         },
+         else => return false,
+@@ -6409,7 +6454,10 @@ pub fn headerCopiesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allo
+     for (leaves.items) |leaf| switch (handsOver(ctx, leaf).kind) {
+         .place, .part_of_made => {
+             const ty = ctx.typeOf(leaf) orelse continue;
+-            if (holdsWriteView(ctx, ty)) return leaf;
++            if (holdsWriteView(ctx, ty)) {
++                if (leaf == .src) study.hit("HC1_hcw_name_leaf") else if (leaf.isKind(.member) or leaf.isKind(.index)) study.hit("HC2_hcw_part_leaf") else study.hit("HC3_hcw_other_leaf");
++                return leaf;
++            }
+         },
+         .made, .lend, .branches, .jump, .none => {},
+     };
+diff --git a/src/study.zig b/src/study.zig
+new file mode 100644
+index 00000000..09935df1
+--- /dev/null
++++ b/src/study.zig
+@@ -0,0 +1,498 @@
++//! STUDY ONLY (never merged): measures four candidate rules on write views
++//! and Cells, and counts which compiler sites a program reaches.
++//!
++//! RIG_STUDY=report        report every rule hit on stderr, change nothing
++//! RIG_STUDY=enforce:1234  reject the listed rules as errors
++//! With RIG_STUDY set, `hit` prints each probe site once per process.
++//!
++//! Rule 1: a write view is never data (no strict closure rule).
++//! Rule 2: a Cell lives only behind `*`.
++//! Rule 3: a branch over write views is never a place.
++//! Rule 4: `(!T)?` and `(!T)!` only as parameter or result types.
++
++const std = @import("std");
++const parser = @import("parser.zig");
++const sema = @import("sema.zig");
++
++const Sexp = parser.Sexp;
++const ir = parser.ir;
++const SemContext = sema.SemContext;
++const TypeId = sema.TypeId;
++
++pub const Mode = enum { off, report, enforce };
++pub var mode: Mode = .off;
++pub var enforced: [5]bool = .{ false, false, false, false, false };
++
++pub fn configure(value: ?[]const u8) void {
++    const v = value orelse return;
++    if (std.mem.eql(u8, v, "report")) {
++        mode = .report;
++    } else if (std.mem.startsWith(u8, v, "enforce:")) {
++        mode = .enforce;
++        for (v["enforce:".len..]) |ch| if (ch >= '1' and ch <= '4') {
++            enforced[ch - '0'] = true;
++        };
++    }
++}
++
++/// Print probe `name` once per process.
++pub fn hit(comptime name: []const u8) void {
++    const S = struct {
++        const id = name;
++        var seen: bool = false;
++    };
++    if (mode == .off or S.seen) return;
++    S.seen = true;
++    std.debug.print("STUDYPROBE {s}\n", .{name});
++}
++
++/// `hit` when `cond`; returns `cond`.
++pub fn hitIf(comptime name: []const u8, cond: bool) bool {
++    if (cond) hit(name);
++    return cond;
++}
++
++const Checker = struct {
++    ctx: *SemContext,
++    a: std.mem.Allocator,
++    covered: std.AutoHashMapUnmanaged(usize, void) = .empty,
++    seen: std.AutoHashMapUnmanaged(u64, void) = .empty,
++
++    fn report(c: *Checker, rule: u8, comptime kind: []const u8, pos: u32, comptime fmt: []const u8, args: anytype) !void {
++        const k = (@as(u64, rule) << 40) | pos;
++        if (c.seen.contains(k)) return;
++        try c.seen.put(c.a, k, {});
++        const lc = @import("diag.zig").lineCol(c.ctx.source, pos);
++        const detail = try std.fmt.allocPrint(c.a, fmt, args);
++        if (mode == .report) {
++            std.debug.print("STUDY r{d} {s} {s}{s}:{d}:{d} {s}\n", .{ rule, kind, if (c.ctx.is_std) "std:" else "", c.ctx.name, lc.line, lc.col, detail });
++        } else if (mode == .enforce and enforced[rule]) {
++            try c.ctx.err(pos, "study rule {d} ({s}): {s}", .{ rule, kind, detail });
++        }
++    }
++
++    fn info(c: *Checker, ty: TypeId) sema.TypeInfo {
++        return c.ctx.typeInfo(ty);
++    }
++
++    fn tyName(c: *Checker, ty: TypeId) ![]const u8 {
++        return sema.formatTypeIn(c.ctx, c.a, ty);
++    }
++
++    fn poison(c: *Checker, ty: TypeId) bool {
++        return c.info(ty).poison or ty == c.ctx.types.invalid_id or ty == c.ctx.types.unknown_id;
++    }
++
++    // ---- Rule 1 ----------------------------------------------------------
++
++    /// A type a binding, parameter, result, or expression may have: one
++    /// that holds no write view, `!U`, `(!U)?`, or `(!U)!`, where `U` holds
++    /// none.
++    fn rule1Ok(c: *Checker, ty: TypeId) bool {
++        if (!c.nestsWrite(ty, 0)) return true;
++        switch (c.ctx.types.get(ty)) {
++            .write_view => |u| return !c.nestsWrite(u, 0),
++            .optional, .fallible => |x| switch (c.ctx.types.get(x)) {
++                .write_view => |u| return !c.nestsWrite(u, 0),
++                else => return false,
++            },
++            .function, .callable => return true,
++            else => return false,
++        }
++    }
++
++    /// Whether `ty` is or holds a write view anywhere, through views and
++    /// handles too.
++    fn nestsWrite(c: *Checker, ty: TypeId, depth: u8) bool {
++        if (depth > 24) return false;
++        if (c.info(ty).views.write) return true;
++        return switch (c.ctx.types.get(ty)) {
++            .write_view => true,
++            .read_view, .shared, .weak, .optional, .fallible => |x| c.nestsWrite(x, depth + 1),
++            .array => |arr| c.nestsWrite(arr.elem, depth + 1),
++            .slice => |sl| c.nestsWrite(sl.elem, depth + 1),
++            .parameterized_nominal => |pn| for (pn.args) |arg| {
++                if (c.nestsWrite(arg, depth + 1)) break true;
++            } else false,
++            else => false,
++        };
++    }
++
++    /// A lend's type: `!S` or `?S` of a type a binding may have.
++    fn lendOfOk(c: *Checker, ty: TypeId) bool {
++        return switch (c.ctx.types.get(ty)) {
++            .read_view, .write_view => |s| c.rule1Ok(s),
++            else => false,
++        };
++    }
++
++    // ---- Rule 2 ----------------------------------------------------------
++
++    /// A Cell held by value somewhere inside `ty` where rule 2 forbids it,
++    /// below its top.
++    fn rule2Nested(c: *Checker, ty: TypeId, depth: u8) bool {
++        if (depth > 24) return false;
++        switch (c.ctx.types.get(ty)) {
++            .shared, .weak, .read_view, .write_view, .callable => |x| return c.rule2Nested(x, depth + 1),
++            .optional, .fallible => |x| return c.info(x).cell or c.rule2Nested(x, depth + 1),
++            .array => |arr| return c.info(arr.elem).cell or c.rule2Nested(arr.elem, depth + 1),
++            .slice => |s| return c.info(s.elem).cell or c.rule2Nested(s.elem, depth + 1),
++            .parameterized_nominal => |pn| {
++                for (pn.args) |arg| if (c.info(arg).cell or c.rule2Nested(arg, depth + 1)) return true;
++                return false;
++            },
++            else => return false,
++        }
++    }
++
++    /// A type a binding, parameter, result, or value may have.
++    fn rule2Ok(c: *Checker, ty: TypeId) bool {
++        if (c.info(ty).cell) return false;
++        return !c.rule2Nested(ty, 0);
++    }
++
++    fn isCellType(c: *Checker, ty: TypeId) bool {
++        return switch (c.ctx.types.get(ty)) {
++            .parameterized_nominal => |pn| pn.sym == c.ctx.cell_sym_id,
++            else => false,
++        };
++    }
++
++    // ---- Declarations and bindings ---------------------------------------
++
++    fn checkDecls(c: *Checker) !void {
++        for (c.ctx.symbols.items) |sym| {
++            if (sema.isProxy(sym) or sym.decl_pos == sema.builtin_decl_pos) continue;
++            switch (sym.kind) {
++                .nominal_type, .generic_type => {
++                    const fields = sym.fields orelse continue;
++                    for (fields) |f| {
++                        if (f.is_method) {
++                            try c.checkSignature(f.ty, f.decl_pos);
++                            continue;
++                        }
++                        if (f.is_variant) {
++                            for (f.payload orelse &.{}) |pf| try c.checkField(pf.ty, pf.decl_pos, false);
++                            continue;
++                        }
++                        try c.checkField(f.ty, f.decl_pos, true);
++                    }
++                },
++                .function, .@"extern" => try c.checkSignature(sym.ty, sym.decl_pos),
++                .param, .local, .capture => try c.checkBinding(sym),
++                else => {},
++            }
++        }
++    }
++
++    fn checkField(c: *Checker, ty: TypeId, pos: u32, in_struct: bool) !void {
++        if (c.poison(ty)) return;
++        if (c.nestsWrite(ty, 0)) try c.report(1, "field", pos, "a field or payload holds a write view: `{s}`", .{try c.tyName(ty)});
++        const bad2 = if (in_struct and c.isCellType(ty)) c.rule2Nested(ty, 0) else !c.rule2Ok(ty);
++        if (bad2) try c.report(2, "field", pos, "a field or payload holds a Cell by value: `{s}`", .{try c.tyName(ty)});
++    }
++
++    fn checkSignature(c: *Checker, ty: TypeId, pos: u32) !void {
++        const f = switch (c.ctx.types.get(ty)) {
++            .function => |f| f,
++            else => return,
++        };
++        for (f.params) |p| {
++            if (c.poison(p)) continue;
++            if (!c.rule1Ok(p)) try c.report(1, "param", pos, "a parameter nests a write view: `{s}`", .{try c.tyName(p)});
++            if (!c.rule2Ok(p)) try c.report(2, "param", pos, "a parameter holds a Cell by value: `{s}`", .{try c.tyName(p)});
++        }
++        if (!c.poison(f.returns)) {
++            if (!c.rule1Ok(f.returns)) try c.report(1, "result", pos, "a result nests a write view: `{s}`", .{try c.tyName(f.returns)});
++            if (!c.rule2Ok(f.returns)) try c.report(2, "result", pos, "a result holds a Cell by value: `{s}`", .{try c.tyName(f.returns)});
++        }
++    }
++
++    fn checkBinding(c: *Checker, sym: sema.Symbol) !void {
++        const ty = sym.ty;
++        if (c.poison(ty)) return;
++        if (std.mem.eql(u8, sym.name, "_")) return;
++        if (!c.rule1Ok(ty)) try c.report(1, "binding", sym.decl_pos, "`{s}` nests a write view: `{s}`", .{ sym.name, try c.tyName(ty) });
++        if (sym.kind != .param and !c.rule2Ok(ty)) try c.report(2, "binding", sym.decl_pos, "`{s}` holds a Cell by value: `{s}`", .{ sym.name, try c.tyName(ty) });
++        if (sym.kind != .param) switch (c.ctx.types.get(ty)) {
++            .optional, .fallible => |x| if (c.ctx.types.get(x) == .write_view) {
++                const what: []const u8 = if (sym.kind == .capture) "capture" else if (sym.flags.as_bound) "as" else if (sym.flags.pattern_bound) "pattern" else "local";
++                try c.report(4, "binding", sym.decl_pos, "{s} `{s}` has type `{s}`", .{ what, sym.name, try c.tyName(ty) });
++            },
++            else => {},
++        };
++    }
++
++    fn checkInstances(c: *Checker) !void {
++        for (c.ctx.fn_instances.items) |f| {
++            for (f.inst.ownArgs()) |arg| {
++                if (c.poison(arg)) continue;
++                if (c.nestsWrite(arg, 0)) try c.report(1, "typearg", f.site, "a function's type argument holds a write view: `{s}`", .{try c.tyName(arg)});
++                if (c.info(arg).cell or c.rule2Nested(arg, 0)) try c.report(2, "typearg", f.site, "a function's type argument holds a Cell by value: `{s}`", .{try c.tyName(arg)});
++            }
++        }
++    }
++
++    // ---- Expressions -------------------------------------------------------
++
++    fn key(n: Sexp) usize {
++        return switch (n) {
++            .list => |l| @intFromPtr(l.ptr),
++            .src => |s| (@as(usize, s.pos) << 1) | 1,
++            else => 0,
++        };
++    }
++
++    fn cover(c: *Checker, n: Sexp) !void {
++        if (n == .nil) return;
++        try c.covered.put(c.a, key(n), {});
++        try c.coverParts(n);
++    }
++
++    /// Mark every node whose value `n`'s value is.
++    fn coverParts(c: *Checker, n: Sexp) std.mem.Allocator.Error!void {
++        switch (n.kind() orelse return) {
++            .@"if" => {
++                try c.cover(ir.If.then(n));
++                try c.cover(ir.If.@"else"(n));
++            },
++            .match => for (ir.Match.arms(n)) |arm| try c.cover(ir.Arm.body(arm)),
++            .block => {
++                const stmts = ir.Block.stmts(n);
++                if (stmts.len > 0) try c.cover(stmts[stmts.len - 1]);
++            },
++            .raw_block => try c.cover(ir.get(n, .body)),
++            .@"??" => {
++                try c.cover(ir.@"??".left(n));
++                try c.cover(ir.@"??".right(n));
++            },
++            .@"catch" => {
++                try c.cover(ir.Catch.value(n));
++                try c.cover(ir.Catch.handler(n));
++            },
++            .propagate => try c.cover(ir.Propagate.value(n)),
++            .propagate_none => try c.cover(ir.PropagateNone.value(n)),
++            .labeled, .@"while", .@"for" => {
++                var vals: std.ArrayList(Sexp) = .empty;
++                try sema.loopValues(c.a, c.ctx.source, n, &vals);
++                for (vals.items) |v| try c.cover(v);
++                if (n.isKind(.labeled)) try c.covered.put(c.a, key(ir.Labeled.stmt(n)), {});
++            },
++            else => {},
++        }
++    }
++
++    const Leaves = struct { place: bool = false, lend: bool = false, call: bool = false, move: bool = false, other: bool = false };
++
++    fn leaves(c: *Checker, n: Sexp, out: *Leaves, depth: u8) std.mem.Allocator.Error!void {
++        if (n == .nil or depth > 40) return;
++        const k = n.kind();
++        if (k) |tag| switch (tag) {
++            .@"if" => {
++                try c.leaves(sema.tailOf(ir.If.then(n)), out, depth + 1);
++                try c.leaves(sema.tailOf(ir.If.@"else"(n)), out, depth + 1);
++                return;
++            },
++            .match => {
++                for (ir.Match.arms(n)) |arm| try c.leaves(sema.tailOf(ir.Arm.body(arm)), out, depth + 1);
++                return;
++            },
++            .block, .raw_block => return c.leaves(sema.tailOf(n), out, depth + 1),
++            .@"??" => {
++                try c.leaves(ir.@"??".left(n), out, depth + 1);
++                try c.leaves(ir.@"??".right(n), out, depth + 1);
++                return;
++            },
++            .@"catch" => {
++                try c.leaves(ir.Catch.value(n), out, depth + 1);
++                try c.leaves(sema.tailOf(ir.Catch.handler(n)), out, depth + 1);
++                return;
++            },
++            .propagate => return c.leaves(ir.Propagate.value(n), out, depth + 1),
++            .propagate_none => return c.leaves(ir.PropagateNone.value(n), out, depth + 1),
++            .labeled, .@"while", .@"for" => {
++                var vals: std.ArrayList(Sexp) = .empty;
++                try sema.loopValues(c.a, c.ctx.source, n, &vals);
++                for (vals.items) |v| try c.leaves(v, out, depth + 1);
++                return;
++            },
++            .@"return", .@"break", .@"continue" => return,
++            .write => {
++                out.lend = true;
++                return;
++            },
++            .call, .builtin, .inst => {
++                out.call = true;
++                return;
++            },
++            .move => {
++                out.move = true;
++                return;
++            },
++            else => {},
++        };
++        switch (sema.handsOver(c.ctx, n).kind) {
++            .place, .part_of_made => out.place = true,
++            .jump => {},
++            else => out.other = true,
++        }
++    }
++
++    fn walk(c: *Checker, n: Sexp, stack: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
++        if (n != .list) {
++            if (n == .src) try c.checkExpr(n, stack.items);
++            return;
++        }
++        const tag = n.kind();
++        if (tag) |t| switch (t) {
++            .fun, .sub, .lambda, .@"test", .drop_decl => try c.cover(ir.get(n, .body)),
++            .@"return" => try c.cover(ir.Return.value(n)),
++            else => {},
++        };
++        if (tag != null) try c.checkExpr(n, stack.items);
++        // A branch's parts are its value, checked with it.
++        if (isBranchRoot(n)) try c.coverParts(n);
++        try stack.append(c.a, n);
++        defer _ = stack.pop();
++        for (n.items()) |child| try c.walk(child, stack);
++    }
++
++    fn parentTagged(stack: []const Sexp) struct { node: Sexp, idx: usize } {
++        var i = stack.len;
++        while (i > 0) {
++            i -= 1;
++            if (stack[i].kind() != null) return .{ .node = stack[i], .idx = i };
++        }
++        return .{ .node = .nil, .idx = 0 };
++    }
++
++    fn same(a: Sexp, b: Sexp) bool {
++        return key(a) == key(b) and key(a) != 0;
++    }
++
++    fn checkExpr(c: *Checker, n: Sexp, stack: []const Sexp) !void {
++        const ty = c.ctx.typeOf(n) orelse return;
++        if (c.poison(ty)) return;
++        // Rule 1: an expression's type may not nest a write view.
++        if (!c.rule1Ok(ty) and !c.lendOfOk(ty) and n != .src) {
++            const kind_ok = switch (c.ctx.types.get(ty)) {
++                .nominal, .imported_nominal => true, // reported at the declaration
++                else => false,
++            };
++            if (!kind_ok) try c.report(1, "expr", c.ctx.startOf(n), "a value nests a write view: `{s}`", .{try c.tyName(ty)});
++        }
++        // Rule 2: a value made holding a Cell by value, outside `*`.
++        if (n == .list) {
++            if (c.rule2Nested(ty, 0)) try c.report(2, "expr", c.ctx.startOf(n), "a value's type holds a Cell by value inside it: `{s}`", .{try c.tyName(ty)});
++            if (c.info(ty).cell and sema.handsOver(c.ctx, n).kind == .made) {
++                const p = parentTagged(stack).node;
++                const under_share = p.isKind(.share);
++                const field_arg = p.isKind(.kwarg) and c.isCellType(ty) and (n.isKind(.call) or n.isKind(.inst));
++                if (!under_share and !field_arg) try c.report(2, "made", c.ctx.startOf(n), "a value holding a Cell made outside `*`: `{s}`", .{try c.tyName(ty)});
++            }
++        }
++        // Rule 3.
++        if (n == .list) try c.checkBranch(n, ty, stack);
++    }
++
++    fn isBranchRoot(n: Sexp) bool {
++        return switch (n.kind() orelse return false) {
++            .@"if", .@"??", .@"catch", .propagate, .propagate_none, .match, .labeled, .@"while", .@"for" => sema.isBranchingForm(n) or n.isKind(.match) or n.isKind(.labeled) or n.isKind(.@"while") or n.isKind(.@"for"),
++            else => false,
++        };
++    }
++
++    fn checkBranch(c: *Checker, n: Sexp, ty: TypeId, stack: []const Sexp) !void {
++        if (!isBranchRoot(n)) return;
++        if (!c.info(ty).views.write) return;
++        if (c.covered.contains(key(n))) return;
++        // A statement `if`/`match`/loop gives no value.
++        const top = parentTagged(stack);
++        if (top.node.isKind(.block) or top.node.isKind(.module)) {
++            // A block's statement: only its tail is a value, and only when
++            // the block's own value is used (covered).
++            const items = top.node.items();
++            const is_tail = items.len > 1 and same(items[items.len - 1], n);
++            if (!is_tail or !c.covered.contains(key(top.node))) return;
++        }
++        if (top.node.isKind(.arm) and !c.covered.contains(key(ir.Arm.body(top.node)))) return;
++        var lv: Leaves = .{};
++        try c.leaves(n, &lv, 0);
++        if (!lv.place and !lv.lend and !lv.call and !lv.move and !lv.other) return;
++        const leafkind: []const u8 = if (lv.place) "placeleaf" else "madeleaf";
++        const form: []const u8 = @tagName(n.kind().?);
++        // The path this branch is the base of.
++        var p = n;
++        var i = stack.len;
++        var parent: Sexp = .nil;
++        while (i > 0) {
++            i -= 1;
++            const s = stack[i];
++            if (s.kind() == null) continue;
++            if ((s.isKind(.member) or s.isKind(.index)) and same(ir.get(s, .object), p)) {
++                // A method call's receiver stops the path.
++                if (s.isKind(.member) and i > 0) {
++                    const up = parentTagged(stack[0..i]).node;
++                    if (up.isKind(.call) and same(ir.Call.callee(up), s)) {
++                        parent = s;
++                        break;
++                    }
++                }
++                p = s;
++                continue;
++            }
++            parent = s;
++            break;
++        }
++        const use = c.useOf(p, parent);
++        if (!same(p, n)) {
++            // A part read out of the branch: allowed when it copies and the
++            // context only reads it.
++            const pty = c.ctx.typeOf(p) orelse return;
++            if (c.poison(pty)) return;
++            const writes = std.mem.eql(u8, use, "assign") or std.mem.eql(u8, use, "lend") or std.mem.eql(u8, use, "move") or std.mem.eql(u8, use, "receiver") or std.mem.eql(u8, use, "for");
++            if (!writes and sema.copies(c.ctx, pty) == .yes) return;
++            try c.report(3, "part", c.ctx.startOf(n), "{s} {s} form={s} of a part `{s}` of a branch over write views", .{ leafkind, use, form, try c.tyName(pty) });
++            return;
++        }
++        // The branch itself: allowed where its context reads the value it
++        // views as a copy.
++        if (c.ctx.studyReadTag(n)) |tag| if (tag == 0 or tag == 1) return;
++        try c.report(3, "whole", c.ctx.startOf(n), "{s} {s} form={s} of a branch over write views `{s}`", .{ leafkind, use, form, try c.tyName(ty) });
++    }
++
++    /// What context `parent` does with `p`, by a positive list.
++    fn useOf(c: *Checker, p: Sexp, parent: Sexp) []const u8 {
++        _ = c;
++        const k = parent.kind() orelse return "other";
++        return switch (k) {
++            .set => if (same(ir.get(parent, .target), p)) "assign" else "bind",
++            .read, .write => "lend",
++            .move => "move",
++            .member => "receiver",
++            .call => if (same(ir.Call.callee(parent), p)) "call" else "pass",
++            .kwarg => "pass",
++            .builtin => "read",
++            .match => if (same(ir.Match.subject(parent), p)) "match" else "other",
++            .as => "as",
++            .@"for" => if (ir.For.mode(parent).tag == .iter) "forin" else "for",
++            .array, .array_fill => "store",
++            .@"return" => "return",
++            .@"break" => "break",
++            .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@"and", .@"or", .neg, .not, .@"if", .@"while", .index => "read",
++            else => "other",
++        };
++    }
++};
++
++/// Check module `tree` against the four rules (`mode`).
++pub fn check(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
++    if (mode == .off) return;
++    var arena: std.heap.ArenaAllocator = .init(ctx.allocator);
++    defer arena.deinit();
++    var c: Checker = .{ .ctx = ctx, .a = arena.allocator() };
++    try c.checkDecls();
++    try c.checkInstances();
++    var stack: std.ArrayList(Sexp) = .empty;
++    try c.walk(tree, &stack);
++}
+diff --git a/src/typecheck.zig b/src/typecheck.zig
+index 96f4d2b1..dd078bf6 100644
+--- a/src/typecheck.zig
++++ b/src/typecheck.zig
+@@ -32,6 +32,7 @@
+ //! so rather than being passed through.
+ 
+ const std = @import("std");
++const study = @import("study.zig");
+ const parser = @import("parser.zig");
+ const rig = @import("rig.zig");
+ const sema = @import("sema.zig");
+@@ -1767,6 +1768,7 @@ const Checker = struct {
+         // A branch that reads a place holding a write view would copy the
+         // write view out of it (`sema.headerCopiesWriteView`).
+         if (!self.isPoison(inner)) if (try sema.headerCopiesWriteView(self.ctx, expr)) |leaf| {
++            study.hit("TC09_as_hcw_rejects");
+             try self.reportHeaderWriteViewCopy(leaf, "as");
+             inner = self.t().invalid_id;
+         };
+@@ -1777,6 +1779,7 @@ const Checker = struct {
+             // `!o`, or a fresh write view (a call's result, `<w`).
+             const writes = self.ctx.types.get(ty) == .write_view;
+             if (try sema.makesWriteView(self.ctx, expr)) {
++                study.hit("TC13_as_mwv_written");
+                 reach = .written;
+             } else if (sema.holdsCellByValue(self.ctx, inner) or try self.cannotCopy(inner, self.startOf(expr), "moves out of a view a value")) {
+                 // Over a view a call returns, a header temporary makes emit
+@@ -1788,6 +1791,7 @@ const Checker = struct {
+                 } else if (writes) {
+                     // A held write view is lent on visibly, as `!o`; one a
+                     // temporary of the header holds ends with the header.
++                    study.hit("TC_as_wv_lendon_rejects");
+                     if (sema.firstStmtTemp(self.ctx, expr)) |temp| {
+                         try self.errAt(expr, "`as` over a write view in a header that makes a temporary, `{s}`, which ends with the header: bind it to a name first, then lend the value inside with `!`", .{self.sourceText(temp)});
+                     } else try self.errAt(expr, "`as` over a write view lends it on: write `!{s}` to lend the value inside", .{self.sourceText(expr)});
+@@ -2183,6 +2187,7 @@ const Checker = struct {
+             return true;
+         }
+         if (mode != .write and sema.holdsWriteView(self.ctx, elem)) {
++            study.hit("TC16_loop_holds_wv_rejects");
+             try self.err(pos, "each element holds a write view, which a loop binding would copy; write through them with `for x in !xs`", .{});
+         }
+         return false;
+@@ -2339,6 +2344,7 @@ const Checker = struct {
+         // A branch that reads a place holding a write view would copy the
+         // write view out of it (`sema.headerCopiesWriteView`).
+         if (mode == .read and !self.isPoison(scrutinee)) if (try sema.headerCopiesWriteView(self.ctx, subject)) |leaf| {
++            study.hit("TC10_match_hcw_rejects");
+             try self.reportHeaderWriteViewCopy(leaf, "match");
+             scrutinee = self.t().invalid_id;
+         };
+@@ -3014,7 +3020,10 @@ const Checker = struct {
+                 // A write view the subject makes, a call's or a branch of
+                 // write lends (`match (!a if c else !b)`), is lent on, as
+                 // `if … as` lends one on (`sema.makesWriteView`).
+-                if (try sema.makesWriteView(self.ctx, subject)) break :blk .written;
++                if (try sema.makesWriteView(self.ctx, subject)) {
++                    study.hit("TC18_mreach_mwv_written");
++                    break :blk .written;
++                }
+                 // A value made here, an enum, an error, an integer, or a
+                 // Bool, is the match's whole.
+                 if (self.hands(subject).kind == .made) if (self.ctx.typeOf(subject)) |ty| switch (self.ctx.types.get(ty)) {
+@@ -4337,6 +4346,7 @@ const Checker = struct {
+         if (!self.isTemporary(operand)) return true;
+         const base = if (self.hands(operand).hasStorage()) self.placeOf(operand).base else operand;
+         if (self.namedLeaf(base)) |leaf| {
++            study.hit("TC_lendw_branch_leaf_rejects");
+             // A part of a temporary is no name's, but is copied the same.
+             if (self.hands(leaf).kind == .part_of_made) {
+                 try self.errAt(base, "cannot lend `{s}` to write: it may be `{s}`, a part of the temporary `{s}`, which lending the branching value would copy; lend what each branch reaches instead (`!a if c else !b`, `if !o as x`)", .{ self.sourceText(base), self.sourceText(leaf), self.sourceText(self.placeOf(leaf).base) });
+@@ -4654,6 +4664,7 @@ const Checker = struct {
+             .no => {
+                 const shown = try self.tyName(value);
+                 if (!sema.typeHasDropGlue(self.ctx, value) and sema.holdsWriteView(self.ctx, value)) {
++                    study.hit("TC27_clone_holds_wv");
+                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it holds a write view, which has one holder; move it with `<x`", .{shown});
+                 } else if (!sema.typeHasDropGlue(self.ctx, value)) {
+                     try self.errAt(operand, "`+x` cannot clone a `{s}`: it is unique, and a copy would duplicate it; move it with `<x`", .{shown});
+@@ -4768,7 +4779,10 @@ const Checker = struct {
+     /// be copied, as a diagnostic says it.
+     fn movesBecause(self: *const Checker, ty: TypeId) []const u8 {
+         if (sema.typeHasDropGlue(self.ctx, ty)) return "owns a resource";
+-        if (sema.holdsWriteView(self.ctx, ty)) return "holds a write view, which has one holder";
++        if (sema.holdsWriteView(self.ctx, ty)) {
++            study.hit("TC28_moves_because_wv");
++            return "holds a write view, which has one holder";
++        }
+         return "is unique";
+     }
+ 
+@@ -4798,6 +4812,7 @@ const Checker = struct {
+         if (base != .list) return;
+         const ty = self.ctx.typeOf(base) orelse return;
+         if (sema.moves(self.ctx, ty) == .yes or self.ctx.types.get(ty) == .write_view) if (self.namedLeaf(base)) |leaf| {
++            if (self.ctx.types.get(ty) == .write_view) study.hit("TC_lendtemp_wv_branch_leaf_rejects");
+             const held = if (self.placeOf(leaf).root == .temporary) "a part of a temporary" else "a value a name holds";
+             const fix = if (whole != .nil and sameNode(base, operand)) try self.eachLeafLent(whole, base) else "`?a if c else ?b`, `if ?o as x`";
+             try self.errAt(base, "cannot lend `{s}`: it may be `{s}`, {s}, which lending the branching value would copy; lend what each branch reaches instead ({s})", .{ self.sourceText(base), self.sourceText(leaf), held, fix });
+@@ -8543,7 +8558,11 @@ const Checker = struct {
+         }
+         if (compatible(self.ctx, actual, expected)) {
+             try self.recordAdapted(e, actual, expected);
+-            if (sema.holdsWriteView(self.ctx, expected)) _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
++            if (sema.holdsWriteView(self.ctx, expected)) {
++                study.hit("TC24_coerce_pass_write");
++                if (sema.isBranchingForm(e)) study.hit("TC24b_coerce_pass_write_branch");
++                _ = try self.requireAccess(self.placeOf(e), .pass_write, e);
++            }
+             return;
+         }
+         // Failing is written: an error value meets a `T!` only as the
+@@ -9633,6 +9652,7 @@ const Checker = struct {
+     /// the one place type checking records it: a read as a value is first
+     /// decided by `writeLendRead`.
+     fn readOf(self: *Checker, e: Sexp, ty: TypeId, how: ViewRead) Error!void {
++        try self.ctx.studyRecordRead(e, @intFromEnum(std.meta.activeTag(how)));
+         switch (how) {
+             .slot, .value, .lent_to_read, .read_view, .read_receiver, .path => if (try self.writeLendRead(e, ty, how)) return,
+             .narrow, .reach => {},
+@@ -9685,7 +9705,10 @@ const Checker = struct {
+     /// write view.
+     fn readViewSlot(self: *Checker, ty: TypeId) bool {
+         const lifted = self.liftTarget(ty);
+-        if (sema.holdsWriteView(self.ctx, lifted)) return false;
++        if (sema.holdsWriteView(self.ctx, lifted)) {
++            study.hit("TC30_read_view_slot_wv");
++            return false;
++        }
+         return switch (self.ctx.types.get(lifted)) {
+             .read_view, .slice, .string => true,
+             else => false,
+@@ -9844,7 +9867,10 @@ const Checker = struct {
+         for (values, types) |v, ty| {
+             const written = v.isKind(.write) or (v.isKind(.move) and ir.Move.operand(v).isKind(.write));
+             if (!written) continue;
+-            if (sema.holdsWriteView(self.ctx, ty)) continue;
++            if (sema.holdsWriteView(self.ctx, ty)) {
++                study.hit("TC31_plain_slot_lends_wv");
++                continue;
++            }
+             try out.append(self.ctx.arena.allocator(), v);
+         }
+         return out.items;

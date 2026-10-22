@@ -1,0 +1,128 @@
+samples total 292266; on check branches and their cmp/test 13029 (4.46%)
+
+by kind:
+  index         9732   3.33%
+  cast          1788   0.61%
+  overflow       832   0.28%
+  bounds         523   0.18%
+  union           99   0.03%
+  other           39   0.01%
+  panic(explicit)      16   0.01%
+
+top 40 source lines (emitted Zig line, source function):
+    1126  0.39%  checker.zig:78396  checker.Checker.type_flags  {'index': 1126}
+     592  0.20%  checker.zig:72093  checker.Checker.type_at  {'index': 583, 'overflow': 9}
+     424  0.15%  checker.zig:78409  checker.Checker.type_object_flags  {'index': 424}
+     300  0.10%  checker.zig:87178  checker.Ids.sym_file_of  {'index': 300}
+     300  0.10%  checker.zig:87184  checker.Ids.local_sym  {'index': 283, 'overflow': 17}
+     275  0.09%  checker.zig:2487  checker.Checker.symbol_flags  {'index': 275}
+     262  0.09%  rig/alloc.zig:474  rig.alloc.free  {'other': 8, 'bounds': 239, 'panic(explicit)': 15}
+     243  0.08%  __rig_std___rig_builtin.zig:509  __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find  {'index': 243}
+     240  0.08%  checker.zig:2604  checker.Checker.symbol_declaration  {'index': 240}
+     206  0.07%  ast.zig:193  ast.Ast.pos  {'index': 206}
+     181  0.06%  __rig_std___rig_builtin.zig:36  __rig_std___rig_builtin.Table.place  {'index': 181}
+     176  0.06%  __rig_std___rig_builtin.zig:509  __rig_std___rig_builtin.Map(checker.CacheKey,u32).find  {'index': 176}
+     168  0.06%  checker.zig:43992 (discriminator 2)  checker.Checker.instantiate_type_with_alias  {'bounds': 168}
+     164  0.06%  checker.zig:87160  checker.Ids.node_id  {'index': 164}
+     164  0.06%  checker.zig:2446  checker.Checker.data_place  {'index': 164}
+     143  0.05%  __rig_std_text.zig:613 (discriminator 2)  __rig_std_text.Interner.text  {'index': 143}
+     129  0.04%  __rig_std___rig_builtin.zig:542  __rig_std___rig_builtin.Map(checker.CacheKey,u32).insert  {'overflow': 129}
+     125  0.04%  checker.zig:2588  checker.Checker.symbol_declaration_count  {'index': 125}
+     125  0.04%  checker.zig:2508  checker.Checker.symbol_name  {'index': 125}
+     118  0.04%  checker.zig:2573  checker.Checker.symbol_value_declaration  {'index': 118}
+     116  0.04%  ast.zig:168  ast.Ast.kind  {'index': 116}
+     112  0.04%  __rig_std___rig_builtin.zig:509  __rig_std___rig_builtin.Map(checker.AssignmentReducedKey,u32).find  {'index': 112}
+     111  0.04%  checker.zig:43990  checker.Checker.instantiate_type_with_alias  {'index': 111}
+      95  0.03%  __rig_std___rig_builtin.zig:37 (discriminator 6)  __rig_std___rig_builtin.Table.place  {'cast': 95}
+      90  0.03%  checker.zig:86658  checker.Store.value_symbol_links_has  {'cast': 90}
+      87  0.03%  __rig_std___rig_builtin.zig:1008  __rig_std___rig_builtin.Items(u32,u32).next  {'index': 87}
+      85  0.03%  ast.zig:389  ast.Ast.word_node  {'index': 72, 'overflow': 13}
+      81  0.03%  __rig_std___rig_builtin.zig:462  __rig_std___rig_builtin.Map(checker.CacheKey,u32).find  {'cast': 81}
+      80  0.03%  checker.zig:86625  checker.Store.type_node_links_has  {'cast': 80}
+      80  0.03%  checker.zig:72138  checker.Checker.sym_at  {'index': 80}
+      79  0.03%  checker.zig:72606  checker.Checker.structured_target  {'index': 79}
+      78  0.03%  checker.zig:87068 (discriminator 22)  checker.node_ref  {'cast': 78}
+      78  0.03%  __rig_std___rig_builtin.zig:793  __rig_std___rig_builtin.Set(checker.CacheKey).find  {'index': 78}
+      75  0.03%  ast.zig:205  ast.Ast.parent  {'index': 75}
+      71  0.02%  checker.zig:74092  checker.Checker.mapper_kind  {'index': 71}
+      71  0.02%  checker.zig:2590  checker.Checker.symbol_declaration_count  {'cast': 41, 'index': 30}
+      68  0.02%  checker.zig:6078  checker.Checker.get_conditional_flow_type_of_type  {'index': 68}
+      68  0.02%  checker.zig:72550  checker.Checker.structured_signatures  {'index': 68}
+      67  0.02%  __rig_std___rig_builtin.zig:44 (discriminator 4)  __rig_std___rig_builtin.Table.free_slot  {'cast': 67}
+      66  0.02%  __rig_std___rig_builtin.zig:509  __rig_std___rig_builtin.Map(u32,ast.Node).find  {'index': 66}
+
+top 30 functions:
+    1126  0.39%  checker.Checker.type_flags
+     645  0.22%  checker.Checker.type_at
+     424  0.15%  checker.Checker.type_object_flags
+     376  0.13%  checker.Checker.instantiate_type_with_alias
+     340  0.12%  checker.Checker.symbol_flags
+     325  0.11%  __rig_std___rig_builtin.Table.place
+     304  0.10%  checker.Ids.local_sym
+     301  0.10%  __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find
+     300  0.10%  checker.Ids.sym_file_of
+     295  0.10%  __rig_std___rig_builtin.Map(checker.CacheKey,u32).find
+     265  0.09%  checker.Checker.symbol_declaration
+     263  0.09%  rig.alloc.free
+     206  0.07%  ast.Ast.pos
+     196  0.07%  checker.Checker.symbol_declaration_count
+     165  0.06%  checker.Ids.node_id
+     164  0.06%  checker.Checker.data_place
+     164  0.06%  __rig_std_text.Interner.text
+     163  0.06%  __rig_std___rig_builtin.Map(checker.CacheKey,u32).insert
+     161  0.06%  __rig_std___rig_builtin.Map(u32,ast.Node).find
+     158  0.05%  checker.Checker.checker_symbol
+     155  0.05%  __rig_std___rig_builtin.Map(checker.AssignmentReducedKey,u32).find
+     147  0.05%  checker.Checker.symbol_value_declaration
+     142  0.05%  checker.Checker.symbol_name
+     131  0.04%  checker.Checker.new_type_list
+     116  0.04%  ast.Ast.kind
+     105  0.04%  __rig_std___rig_builtin.Set(checker.CacheKey).find
+     103  0.04%  checker.Checker.symbol_check_flags
+      95  0.03%  checker.node_ref
+      95  0.03%  ast.Ast.word_node
+      90  0.03%  checker.Store.value_symbol_links_has
+
+top 40 machine sites:
+     293 0x186e440 index    checker.zig:78396 checker.Checker.type_flags [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.get_reduced_type
+     239 0x1ebb3b5 bounds   rig/alloc.zig:474 rig.alloc.free [inner rig.alloc.Heap.freeSmall rig/alloc.zig:208] in rig.alloc.free
+     180 0x1b0a974 index    checker.zig:78409 checker.Checker.type_object_flags [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.resolve_structured_type_members
+     179 0x1b03f5f index    checker.zig:72093 checker.Checker.type_at [inner math.cast__func_382 std/math.zig:1074] in checker.Checker.mapper_map
+     168 0x1827b4f bounds   checker.zig:43992 (discriminator 2) checker.Checker.instantiate_type_with_alias [inner rig.runtime.ListOf(u32,0).pop rig/runtime.zig:1896 (discriminator 2)] in checker.Checker.instantiate_type_with_alias
+     152 0x19a8131 index    __rig_std___rig_builtin.zig:509 __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find [inner math.cast__func_382 std/math.zig:1074] in __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find
+     129 0x1827d36 overflow __rig_std___rig_builtin.zig:542 __rig_std___rig_builtin.Map(checker.CacheKey,u32).insert [inner __rig_std___rig_builtin.Map(checker.CacheKey,u32).insert __rig_std___rig_builtin.zig:542] in __rig_std___rig_builtin.Map(checker.CacheKey,u32).add_entry
+     122 0x19308d3 index    ast.zig:193 ast.Ast.pos [inner rig.runtime.index__func_1310 rig/runtime.zig:2433] in checker.Checker.is_declaration_contained_by
+     116 0x1b5d7b1 index    __rig_std___rig_builtin.zig:509 __rig_std___rig_builtin.Map(checker.CacheKey,u32).find [inner math.cast__func_382 std/math.zig:1074] in __rig_std___rig_builtin.Map(checker.CacheKey,u32).find
+     108 0x1b0d0a4 index    checker.zig:78409 checker.Checker.type_object_flags [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.is_generic_mapped_type
+      94 0x1889f39 index    checker.zig:2487 checker.Checker.symbol_flags [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.symbol_is_value_ex
+      91 0x19a813b index    __rig_std___rig_builtin.zig:509 __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find
+      85 0x1a4ae81 index    __rig_std___rig_builtin.zig:509 __rig_std___rig_builtin.Map(checker.AssignmentReducedKey,u32).find [inner math.cast__func_382 std/math.zig:1074] in __rig_std___rig_builtin.Map(checker.AssignmentReducedKey,u32).find
+      83 0x1b09ebd index    checker.zig:78396 checker.Checker.type_flags [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.get_actual_type_variable
+      81 0x1828f4c index    checker.zig:87160 checker.Ids.node_id [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.instantiate_type_worker
+      81 0x1b5d761 cast     __rig_std___rig_builtin.zig:462 __rig_std___rig_builtin.Map(checker.CacheKey,u32).find [inner rig.runtime.len rig/runtime.zig:3788] in __rig_std___rig_builtin.Map(checker.CacheKey,u32).find
+      78 0x183e70d index    __rig_std___rig_builtin.zig:1008 __rig_std___rig_builtin.Items(u32,u32).next [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.table_entries
+      78 0x1878734 index    checker.zig:2588 checker.Checker.symbol_declaration_count [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.compare_symbols
+      78 0x1b43a9a index    __rig_std___rig_builtin.zig:793 __rig_std___rig_builtin.Set(checker.CacheKey).find [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in __rig_std___rig_builtin.Set(checker.CacheKey).find
+      73 0x1b03da7 index    checker.zig:72093 checker.Checker.type_at [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.mapper_map
+      72 0x1878a80 cast     checker.zig:87068 (discriminator 22) checker.node_ref [inner checker.node_ref checker.zig:87068 (discriminator 22)] in checker.Checker.compare_symbols
+      68 0x1862e42 index    checker.zig:6078 checker.Checker.get_conditional_flow_type_of_type [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.get_conditional_flow_type_of_type
+      66 0x186e9d7 index    checker.zig:2508 checker.Checker.symbol_name [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.get_reduced_type
+      62 0x1862f1e cast     checker.zig:6145 checker.Checker.conditional_flow_step [inner rig.runtime.len rig/runtime.zig:3788] in checker.Checker.get_conditional_flow_type_of_type
+      59 0x1b5d7bb index    __rig_std___rig_builtin.zig:509 __rig_std___rig_builtin.Map(checker.CacheKey,u32).find [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in __rig_std___rig_builtin.Map(checker.CacheKey,u32).find
+      58 0x1827b0f index    checker.zig:43990 checker.Checker.instantiate_type_with_alias [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.instantiate_type_with_alias
+      56 0x192a5ac index    __rig_std_text.zig:613 (discriminator 2) __rig_std_text.Interner.text [inner rig.runtime.bounds__func_1309 rig/runtime.zig:3751 (discriminator 2)] in checker.Checker.set_structured_type_members
+      55 0x1930be1 overflow checker.zig:2428 (discriminator 24) checker.Checker.checker_symbol [inner checker.Checker.checker_symbol checker.zig:2428 (discriminator 24)] in checker.Checker.is_declaration_contained_by
+      54 0x19eb701 cast     __rig_std___rig_builtin.zig:462 __rig_std___rig_builtin.Map(u32,ast.Node).find [inner rig.runtime.len rig/runtime.zig:3788] in __rig_std___rig_builtin.Map(u32,ast.Node).find
+      53 0x1827b02 index    checker.zig:43990 checker.Checker.instantiate_type_with_alias [inner math.cast__func_382 std/math.zig:1074] in checker.Checker.instantiate_type_with_alias
+      53 0x1930a6f index    checker.zig:2604 checker.Checker.symbol_declaration [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.is_declaration_contained_by
+      53 0x1930a86 index    checker.zig:2604 checker.Checker.symbol_declaration [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.is_declaration_contained_by
+      52 0x1930c32 index    checker.zig:2604 checker.Checker.symbol_declaration [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.is_declaration_contained_by
+      52 0x195c2d7 index    checker.zig:2573 checker.Checker.symbol_value_declaration [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.get_unmatched_properties_worker
+      52 0x19eb751 index    __rig_std___rig_builtin.zig:509 __rig_std___rig_builtin.Map(u32,ast.Node).find [inner math.cast__func_382 std/math.zig:1074] in __rig_std___rig_builtin.Map(u32,ast.Node).find
+      51 0x1826c08 index    checker.zig:78441 checker.Checker.type_alias [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.instantiate_type_with_alias
+      50 0x1878b72 index    ast.zig:193 ast.Ast.pos [inner rig.runtime.index__func_1310 rig/runtime.zig:2433] in checker.Checker.compare_symbols
+      48 0x19308b7 index    checker.zig:39996 checker.Checker.is_declaration_contained_by [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.is_declaration_contained_by
+      48 0x1b46882 index    checker.zig:78396 checker.Checker.type_flags [inner rig.runtime.index__func_959 rig/runtime.zig:2433] in checker.Checker.is_simple_type_related_to_ex
+      47 0x19a80e2 cast     __rig_std___rig_builtin.zig:462 __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find [inner rig.runtime.len rig/runtime.zig:3788] in __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find
+
+concentration: top 10 lines: 30.5% of check samples; top 30 lines: 49.1% of check samples; top 100 lines: 72.7% of check samples; top 300 lines: 89.7% of check samples; top 1000 lines: 100.0% of check samples; lines with samples: 1004

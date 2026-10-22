@@ -92,7 +92,7 @@ The Emdb session owns this work; it is a few days by estimate.
   does not compile on a single-threaded target such as wasm32. That is
   the one thing blocking Rig on WebAssembly today. Choosing Zig's
   `wasm_allocator` there made two Rig programs run under wasmtime in the
-  Zig 0.17 audit (`.git/revamp/r3/zig-audit.md`).
+  Zig 0.17 audit (docs/history/records/revamp/r3/zig-audit.md).
 - **The target.** `rig build --target wasm32-wasi`, and the standard
   library's modules that touch the OS (`std.os`, `std.time`) working
   under WASI.

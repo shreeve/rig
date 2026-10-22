@@ -1,0 +1,9 @@
+You are an experienced programmer. The files in your working directory are code in a programming language called Rig that you have never seen. There is no documentation: work out the language from the code alone. Use only the Read tool on files in your working directory.
+
+Step 1 (first contact): BEFORE reading questions.md, read p01.rig, p02.rig and p03.rig only. Then write a section "First guesses" stating what you think each of these means, exactly as you understand it at that point: every symbol that appears directly before a name or type (a prefix symbol), every symbol that appears directly after an expression or type (a postfix symbol), and every keyword you do not recognize. Do not revise this section later.
+
+Step 2: read the remaining programs (p04-p12, r01-r04) and answer every question in questions.md, with exact printed output where asked and a confidence (high/medium/low) for each answer.
+
+Step 3: add the sections "Revised meanings" (what each symbol means as you finally understand it, and which first guesses were wrong), "Where I hesitated" (every line or symbol you misread or had to re-read, and what you first thought), and "Overall" (a 1-10 rating of how easy the notation was to read cold, and why).
+
+Print your complete answer as Markdown on standard output.

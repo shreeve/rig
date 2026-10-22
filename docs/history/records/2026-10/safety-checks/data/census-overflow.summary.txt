@@ -1,0 +1,87 @@
+sites by kind:
+  index              71344
+  cast               36676
+  other              6810
+  bounds             3285
+  union              1645
+  unwrap             140
+  panic(explicit)    82
+  total 119982
+
+sites by handler (call instructions in parentheses):
+  indexPanic               69021  (3178)
+  integerOutOfBounds       18351  (1447)
+  lenPanic                 17992  (1873)
+  memcpyAlias              5250  (964)
+  outOfBounds              2956  (1586)
+  slicePanic               2323  (693)
+  corruptSwitch            1605  (822)
+  incorrectAlignment       818  (512)
+  reachedUnreachable       711  (304)
+  startGreaterThanEnd      283  (208)
+  integerPartOutOfBounds   202  (51)
+  castToNull               130  (119)
+  unwrapNull               79  (27)
+  unwrapError              45  (38)
+  inactiveUnionField       40  (26)
+  divideByZero             30  (13)
+  panic: negative size     26  (10)
+  panic: integer part of floating point value out of bounds 25  (5)
+  sentinelMismatch         20  (16)
+  panic: None              18  (18)
+  sliceCastLenRemainder    16  (14)
+  unexpectedErrorCode      15  (6)
+  copyLenMismatch          8  (4)
+  panic: rig: a thread used another thread's heap 6  (2)
+  forLenMismatch           2  (1)
+  panic: TODO implement netInterfaceName for linux 2  (1)
+  exactDivisionRemainder   1  (1)
+  invalidErrorCode         1  (1)
+  panic: TODO implement netConnectIpPosix with timeout 1  (1)
+  panic: bigint.pow: the power is negative 1  (1)
+  invalidEnumValue         1  (1)
+  panic: TODO implement dirSetFileOwner 1  (1)
+  panic: out of memory     1  (1)
+  panic: bigint: the shift is negative 1  (1)
+
+top 40 functions by sites (source frame):
+  13351  ast.Ast.new_node   {'cast': 13351}
+   3397  ast.Ast.add_list   {'cast': 3397}
+   3328  ast.Ast.add_text   {'cast': 2880, 'other': 448}
+   2512  ast.Ast.kind   {'index': 2512}
+   2474  ast.Ast.word_node   {'index': 2388, 'bounds': 86}
+   2255  checker.Ids.sym_file_of   {'index': 2255}
+   1753  ast.Ast.finish_node   {'index': 786, 'cast': 967}
+   1746  checker.Checker.symbol_declaration   {'index': 1746}
+   1613  checker.Ids.local_sym   {'index': 1613}
+   1596  ast.Ast.binary_expression   {'index': 1596}
+   1534  __rig_std___rig_builtin.Map(u32,printer.EmitNode).get   {'index': 1534}
+   1451  ast.Ast.nodes   {'index': 1451}
+   1201  checker.Checker.type_flags   {'index': 1201}
+   1122  checker.Checker.data_place   {'index': 1122}
+   1091  ast.Ast.update_node   {'index': 1091}
+   1087  checker.Checker.symbol_declaration_count   {'index': 817, 'cast': 270}
+   1070  ast.Ast.word_list   {'index': 1066, 'bounds': 4}
+   1070  checker.Checker.symbol_flags   {'index': 1070}
+    968  checker.Checker.new_type_list   {'cast': 968}
+    890  __rig_std_text.Interner.text   {'index': 890}
+    824  __rig_std___rig_builtin.Map(u32,printer.EmitNode).replace   {'index': 824}
+    789  checker.node_ref   {'cast': 789}
+    763  __rig_std___rig_builtin.Table.place   {'index': 507, 'cast': 256}
+    701  ast.Ast.name   {'index': 701}
+    675  ast.Ast.pos   {'index': 675}
+    640  ast.Ast.jsdoc_parameter_or_property_tag   {'index': 640}
+    640  ast.Ast.parent   {'index': 640}
+    638  parser.Parser.report   {'cast': 638}
+    627  checker.Checker.symbol_name   {'index': 627}
+    596  checker.Ids.node_id   {'index': 596}
+    595  checker.Checker.type_at   {'index': 593, 'cast': 2}
+    581  ast.as_node   {'index': 376, 'bounds': 205}
+    518  __rig_std___rig_builtin.Map(u32,u32).get   {'index': 518}
+    496  ast.Ast.parameter_declaration   {'index': 496}
+    469  ast.Ast.set_loc   {'index': 432, 'cast': 37}
+    461  checker.Checker.symbol_value_declaration   {'index': 461}
+    459  ast.Ast.expression   {'index': 459}
+    457  checker.Checker.type_object_flags   {'index': 457}
+    450  ast.Ast.module_declaration   {'index': 450}
+    436  declarations.DeclarationTransformer.keep   {'index': 256, 'cast': 180}
