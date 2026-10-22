@@ -247,6 +247,11 @@ first step is on `main` (SPEC §18):
   result; a task is never left running past its scope.
 - **Cancellation:** `<t.cancel()`, a cancel that sticks, `std.task`
   (`Stop`, `check`), and a fallible `time.sleep`.
+- **Interrupts:** Ctrl-C (SIGINT) or SIGTERM cancels a `main` that can
+  fail: its defers and drops run, the tasks it owns are canceled, and
+  the program ends with status 130 or 143, showing no error. A second
+  interrupt ends it at once; a `main` that cannot fail keeps the
+  signals' default; `rig run` waits for its program to end.
 - **Sets and joins:** `Tasks[T]` with `>ts` and `wait_first`, and
   `task.all`; a deadline for any wait is `time.within`'s, which calls
   its closure exactly once, so it may move a task or a set in.

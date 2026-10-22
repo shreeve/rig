@@ -276,7 +276,8 @@ loans goes. Five rules make that so:
    other exit, so no task outlives a frame it borrows from.
 5. **The program's end waits for its tasks.** `main` returns only after
    every task it still holds is canceled and waited for, before the leak
-   check runs. An interrupt (SIGINT) cancels `main`.
+   check runs. An interrupt (SIGINT) or SIGTERM cancels a `main` that
+   can fail (SPEC §18, "An interrupt cancels `main`").
 
 FORMAL-RIG's principles change in three places:
 - principle 4, "safety never rests on a drop running", becomes "safety

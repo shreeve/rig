@@ -126,6 +126,23 @@ A poller that wakes a fiber waiting on a descriptor holds that waiter
 until it is done (`Registration.Waiter`), so the fiber, which takes
 itself back only after, never goes on and ends under it.
 
+An interrupt is a cancel whose canceler is a signal handler, which may
+run between any two instructions of any thread and so may not wake a
+fiber. A `main` that can fail has a `Control` of its own
+(`rt.cancelOnInterrupt`); the handler sets its flag, which is the
+first half of the handshake, sets `rt.interrupt_pending`, and kicks
+every worker's poller, one system call each. The worker that next
+services its poller and timers, awake or woken by the kick, takes the
+pending flag and ends `main`'s wait (`sched.deliverInterrupt`), the
+second half. A program without the scheduler has one thread: its
+handler is installed without `SA_RESTART`, so the system call `main`
+blocks in fails with EINTR, and the waiting points that make their own
+calls (`tasks.sleepHere`, `net.waitFor` and its reads and writes) look
+at the flag then; Zig's own calls would only restart. The second
+signal, or a failure out of `main` with the cancel it sent, ends the
+process by the signal itself, its default put back (`rt.endBy`), so a
+shell sees it end as by the signal.
+
 ## Yield checks
 
 A fiber yields only at a waiting point, so a task that computes without

@@ -894,8 +894,9 @@ fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.
         if (ran) {
             if (env.get(run_started_var)) |path| try writeFile(io, path, "");
             // A status above 128 may be the program's own; this says a
-            // signal ended it (a Rig panic aborts, after its report).
-            if (ended.signal) |sig| std.debug.print("error: rig: the program was killed by signal {d}\n", .{sig});
+            // signal ended it (a Rig panic aborts, after its report), but
+            // an interrupt, which whoever pressed Ctrl-C knows of.
+            if (ended.signal) |sig| if (sig != @backingInt(std.posix.SIG.INT)) std.debug.print("error: rig: the program was killed by signal {d}\n", .{sig});
             if (code == 0) return;
             std.process.exit(code);
         }
@@ -1340,7 +1341,10 @@ const Ended = struct { code: u8, signal: ?u8 = null };
 /// time limit sends one, passes on to the process `runZigReport` runs,
 /// which would otherwise run on with no parent, and this process then
 /// ends as the child does. One that comes before the child has started
-/// reaches it as it starts.
+/// reaches it as it starts. An interrupt (Ctrl-C) reaches the child from
+/// the terminal, as it does this process: this process waits for the
+/// child to end, which a program whose `main` can fail does by
+/// canceling `main`, and is not ended by it first.
 const Ending = struct {
     const signals = [_]std.posix.SIG{ .TERM, .HUP };
     var child: std.atomic.Value(std.posix.pid_t) = .init(0);
@@ -1354,7 +1358,16 @@ const Ending = struct {
             .flags = 0,
         };
         for (signals) |sig| std.posix.sigaction(sig, &act, null);
+        // A handler, unlike ignoring it, is reset in the child.
+        const wait: std.posix.Sigaction = .{
+            .handler = .{ .handler = waitForChild },
+            .mask = std.posix.sigemptyset(),
+            .flags = std.posix.SA.RESTART,
+        };
+        std.posix.sigaction(.INT, &wait, null);
     }
+
+    fn waitForChild(_: std.posix.SIG) callconv(.c) void {}
 
     fn started(pid: std.posix.pid_t) void {
         child.store(pid, .seq_cst);

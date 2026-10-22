@@ -4944,6 +4944,7 @@ pub fn start(init: std.process.Init.Minimal) void {
         };
         std.posix.sigaction(.PIPE, &act, null);
     }
+    if (cancels_on_interrupt) cancelOnInterrupt();
     // The backend that runs tasks, set up after that handler, which it
     // saves and puts back when `finish` joins it. Its own allocations are
     // outside the leak count.
@@ -5047,13 +5048,102 @@ pub fn finish() void {
 }
 
 /// A failure that left `main`, after its drops and `finish`: report the
-/// error as a Rig program shows it and exit 1.
+/// error as a Rig program shows it and exit 1. The cancel an interrupt
+/// sent ends the program as that signal does, with nothing shown.
 pub fn failMain(err: anyerror) noreturn {
     @branchHint(.cold);
     lockOutput();
     flushQuietly();
+    if (err == error.@"std.task.Stop.canceled") if (interruptedBy()) |sig| endBy(sig);
     std.debug.print("error: {s}\n", .{errorShown(err)});
     std.process.exit(1);
+}
+
+// Interrupts. A `main` that can fail declares `__rig_interrupt` in the
+// root module, and an interrupt (SIGINT) or a request to end (SIGTERM)
+// cancels it: it fails with `task.Stop.canceled` at its next fallible
+// waiting point, its drops and defers run, the tasks it owns are canceled
+// as they drop, and the program ends as the signal would have ended it
+// (status 130 or 143), unless `main` catches the cancel. A second signal
+// while the first is still unwinding ends the program at once. A `main`
+// that cannot fail is never canceled, and the signals keep their default.
+
+const cancels_on_interrupt = @hasDecl(root, "__rig_interrupt") and root.__rig_interrupt;
+const interrupt_signals = [_]std.posix.SIG{ .INT, .TERM };
+
+/// What an interrupt cancels: `main`'s, as a task's `Control` is its
+/// owner's.
+var main_control: Control = .{};
+/// The signal that canceled `main`, 0 before one came.
+var interrupted: std.atomic.Value(u32) = .init(0);
+/// Set by the handler, which may not wake a fiber itself, until a worker
+/// passes the cancel on to `main`'s wait (`sched.deliverInterrupt`).
+pub var interrupt_pending: std.atomic.Value(bool) = .init(false);
+
+/// From `start`, on `main`'s stack: give `main` a cancel flag and install
+/// the handler. On the scheduler a worker ends `main`'s wait, so a system
+/// call the signal lands in restarts; without it, `main`'s thread is the
+/// only one, and its blocking calls end (EINTR) so that its waiting
+/// points see the cancel (`tasks.sleep`, `net.waitFor`).
+fn cancelOnInterrupt() void {
+    if (std.posix.Sigaction == void) return;
+    task().control = &main_control;
+    if (scheduled) main_control.fiber = sched.current();
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .handler = onInterrupt },
+        .mask = std.posix.sigemptyset(),
+        .flags = if (scheduled) std.posix.SA.RESTART else 0,
+    };
+    // A signal the program started with ignored (`nohup`, `prog &` in a
+    // script) stays ignored, as a shell leaves it.
+    for (interrupt_signals) |sig| {
+        var old: std.posix.Sigaction = undefined;
+        std.posix.sigaction(sig, &act, &old);
+        if (old.handler.handler == std.posix.SIG.IGN) std.posix.sigaction(sig, &old, null);
+    }
+}
+
+/// The handler: record the cancel and wake the workers, nothing more,
+/// since a handler may run between any two instructions of any thread.
+fn onInterrupt(sig: std.posix.SIG) callconv(.c) void {
+    if (interrupted.cmpxchgStrong(0, @intCast(@backingInt(sig)), .seq_cst, .seq_cst) != null) {
+        // The second: the default, delivered as the handler returns.
+        defaultFor(sig);
+        std.posix.raise(sig) catch {};
+        return;
+    }
+    main_control.canceled.store(true, .seq_cst);
+    if (scheduled) {
+        interrupt_pending.store(true, .seq_cst);
+        sched.kickForInterrupt();
+    }
+}
+
+/// `main`'s wait ends, if a cancel may end it: on a worker, which
+/// `sched.deliverInterrupt` calls once the handler has run.
+pub fn cancelMain() void {
+    main_control.cancel();
+}
+
+/// The signal that canceled `main`, if one did.
+fn interruptedBy() ?std.posix.SIG {
+    if (!cancels_on_interrupt) return null;
+    const sig = interrupted.load(.seq_cst);
+    return if (sig == 0) null else @fromBackingInt(@intCast(sig));
+}
+
+fn defaultFor(sig: std.posix.SIG) void {
+    const dfl: std.posix.Sigaction = .{ .handler = .{ .handler = std.posix.SIG.DFL }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    std.posix.sigaction(sig, &dfl, null);
+}
+
+/// End the process as `sig` does by default, so the shell that started
+/// it sees it ended by the signal (and stops a loop it runs); status
+/// 128 + `sig` if the signal does not end it.
+fn endBy(sig: std.posix.SIG) noreturn {
+    defaultFor(sig);
+    std.posix.raise(sig) catch {};
+    std.process.exit(128 +| @as(u8, @intCast(@backingInt(sig))));
 }
 
 // Output. `print` writes to one process-wide buffer. It is flushed

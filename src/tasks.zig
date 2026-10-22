@@ -2055,7 +2055,8 @@ pub fn check() Stop!void {
 /// fiber sleeps until its timer, or a cancel, wakes it. When the task's
 /// deadline comes first, it sleeps until then and fails with
 /// `task.Stop.timeout`. A program that makes no tasks sleeps on its
-/// thread, where no cancel can come.
+/// thread, where only an interrupt's cancel of `main` can come
+/// (`sleepHere`).
 pub fn sleep(ns: i64) Stop!void {
     if (ns <= 0) return;
     const until = nowNs() + ns;
@@ -2069,10 +2070,10 @@ pub fn sleep(ns: i64) Stop!void {
         return rt.sched.advanceTo(until);
     }
     if (!rt.scheduled) {
-        const d = deadline orelse return std.Io.sleep(io(), .fromNanoseconds(ns), .awake) catch {};
-        if (d >= until) return std.Io.sleep(io(), .fromNanoseconds(ns), .awake) catch {};
+        const d = deadline orelse return sleepHere(ns);
+        if (d >= until) return sleepHere(ns);
         const left = d - nowNs();
-        if (left > 0) std.Io.sleep(io(), .fromNanoseconds(@intCast(left)), .awake) catch {};
+        if (left > 0) try sleepHere(@intCast(left));
         return timeout_error;
     }
     const wake_at = earlier(until, deadline);
@@ -2084,6 +2085,23 @@ pub fn sleep(ns: i64) Stop!void {
         const e = rt.sched.beginWait(true);
         if (canceledHere()) return canceled_error;
         rt.sched.commitWait(e, wake_at);
+    }
+}
+
+/// Sleep `ns` nanoseconds on this thread, outside the scheduler. An
+/// interrupt that cancels `main` ends the sleep (its handler leaves
+/// system calls to fail with EINTR, `rt.cancelOnInterrupt`), and the
+/// sleep fails with `Stop.canceled`; Zig's own sleep would go back to
+/// sleeping.
+fn sleepHere(ns: i64) Stop!void {
+    const posix = std.posix;
+    if (canceledHere()) return canceled_error;
+    var left: posix.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@rem(ns, std.time.ns_per_s)) };
+    while (true) {
+        switch (posix.errno(posix.system.nanosleep(&left, &left))) {
+            .INTR => if (canceledHere()) return canceled_error,
+            else => return,
+        }
     }
 }
 
