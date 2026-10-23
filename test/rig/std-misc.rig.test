@@ -2446,6 +2446,20 @@ test "sort", '''
       ok = ok and v[i] == k and (i == 0 or v[i - 1] < k) and sort.search(?v[..], k) == i
   print(ok)
 
+test "sort by an owned key", "[2, 1, 3] [\"a\", \"b\", \"c\"]"
+  # `sort_by_key` with a key that owns a resource drops each key it makes.
+
+  obj Item
+    name: String
+    n: Int
+
+  fun key(it: ?Item) -> String
+    +it.name
+
+  its = [Item(name: String("b"), n: 1), Item(name: String("a"), n: 2), Item(name: String("c"), n: 3)]
+  sort.sort_by_key(!its, key)
+  print([its[0].n, its[1].n, its[2].n], [key(?its[0]), key(?its[1]), key(?its[2])])
+
 fail "sort needs order", "8:6: `sort.sort[P]` cannot use `T = P`: `P` cannot be ordered; name `Ord` on its header: `obj P: Ord`"
   # `sort` takes `T: Ord`, which an object provides only where its
   # header names it: sort it with `sort_by` and a comparator instead.

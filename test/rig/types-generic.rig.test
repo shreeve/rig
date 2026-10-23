@@ -422,6 +422,65 @@ fail "generic eq made temporary", "`same[String]` cannot use `T = String`: the g
   print(same(true, 1, 2, 1))
   print(same(true, String("a"), String("b"), String("a")))
 
+fail "generic ordering made temporary", "`lt[String]` cannot use `K = String`: the generic body leaves a temporary that holds a `K`", "`le[String]` cannot use `K = String`: the generic body leaves a temporary that holds a `K`", "`gt[String]` cannot use `K = String`: the generic body leaves a temporary that holds a `K`", "`ge[String]` cannot use `K = String`: the generic body leaves a temporary that holds a `K`", errors: 4
+  # A made `K` beside `<` and its kin is a temporary of `K`, as beside
+  # `==`: an instance that owns a resource is rejected, never leaked.
+
+  fun mk() -> String
+    String("a")
+
+  fun lt[K](f: ?fun() -> K) -> Bool
+    f() < f()
+
+  fun le[K](f: ?fun() -> K, k: ?K) -> Bool
+    f() <= k
+
+  fun gt[K](f: ?fun() -> K, k: K) -> Bool
+    k > f()
+
+  fun ge[K](f: ?fun() -> K) -> Bool
+    f() >= f()
+
+  s = String("b")
+  print(lt(mk), le(mk, ?s), gt(mk, String("c")), ge(mk))
+
+fail "bounded ordering made temporary", "5:3: `K` is bounded by `Ord`, which does not give a value that owns no resource; add `Copy` to its bounds: `[K: Copy + Ord]`", "5:9: `K` is bounded by `Ord`", errors: 2
+  # Under a bound, the body is checked against the bound alone: `Ord`
+  # gives no value that owns no resource, so its temporaries need `Copy`.
+
+  fun lt[K: Ord](f: ?fun() -> K) -> Bool
+    f() < f()
+
+  fun mk() -> Int
+    1
+
+  print(lt(mk))
+
+test "generic ordering temporaries", "false true false true true false"
+  # A made `K` that needs no cleanup is compared as it is made; one that
+  # may own a resource is bound to a name first, and dropped with it.
+
+  fun lt[K](f: ?fun() -> K) -> Bool
+    f() < f()
+
+  fun ge[K: Copy + Ord](f: ?fun() -> K) -> Bool
+    f() >= f()
+
+  fun named[K: Ord](f: ?fun() -> K, k: ?K) -> Bool
+    a = f()
+    b = f()
+    a < b or a > k
+
+  fun mi() -> Int
+    1
+
+  fun ms() -> String
+    String("a")
+
+  s = String("b")
+  t = String("Z")
+  print(lt(mi), ge(mi), named(ms, ?s), named(ms, ?t), named(mi, ?0), named(mi, ?1))
+
 test "generic equality", '''
   1 -1
   2 -1

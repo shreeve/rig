@@ -13,6 +13,15 @@ changed the language since it:
 
 ### Language and compiler
 
+- **An ordering in a generic body reads its operands as `==` does:** a
+  made `T` beside `<`, `<=`, `>`, or `>=` is a temporary of `T`, which an
+  instance that owns a resource cannot leave, and which a body bounded by
+  `Ord` alone cannot leave either (`[K: Copy + Ord]`, or bind it to a
+  name). Before, `f() < f()` with `K = String` leaked both Strings, and
+  so did `sort.sort_by_key` with an owned key; it now binds each key to a
+  name and drops it. A generic body that ordered made values of a type
+  parameter without `Copy` is now rejected.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed
