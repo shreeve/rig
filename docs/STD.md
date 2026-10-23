@@ -2148,10 +2148,6 @@ cursor 1 4
 
 ## std.json
 
-**Experimental:** the names and shapes below will change, to idiomatic
-fallible `!` functions, once errors can carry data. Use it to read JSON
-fast today, not as a settled API.
-
 A JSON parser (RFC 8259) in safe Rig, written for speed: it validates
 the whole document in one pass and builds a tape, a flat list with one
 entry for each value in document order. On Apple silicon it runs at 1.9 to 7.0 GB/s on the standard
@@ -2165,6 +2161,7 @@ before it returns.
 | `new_doc() -> Doc` | an empty `Doc`; each `parse` reuses its lists, so a parse allocates only when a list must grow |
 | `(!doc).parse(src: ?String) -> Bool keeps src` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
 | `doc.error: Error`, `doc.error_pos: Int` | the first error, and the byte offset of the byte that cannot be read |
+| `(!doc).load(src: ?String)!JsonError keeps src` | `parse` as a failure: `load` fails with `JsonError.bad(kind: Error, at: Int)`, the error and its offset, where `parse` returns `false` |
 | `error_name(e: Error) -> Static` | the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
 | `doc.size() -> Int` | the number of tape entries |
 | `doc.kind(i: Int) -> Kind` | the entry at `i`: `null`, `bool`, `int`, `float`, `string`, `array`, `array_end`, `object`, or `object_end` |
@@ -2228,6 +2225,34 @@ string pi
 float 3.5
 }
 eof at byte 5
+```
+
+`load` is `parse` for a caller that fails rather than tests: it gives
+the failure as a `JsonError`, which `!` passes on and `catch` binds.
+
+```rig
+use std.json
+
+fun count(src: ?String) -> Int!json.JsonError
+  doc = json.new_doc()
+  (!doc).load(src)!
+  doc.size()
+
+sub main()
+  print(count("[1, 2, 3]") catch -1)
+  n = count("[1, 2") catch |e|
+    print(e)
+    match e
+      .bad(kind, at) => print(json.error_name(kind), "at byte", at)
+    -1
+  print(n)
+```
+
+```output
+5
+JsonError.bad(kind: .eof, at: 5)
+eof at byte 5
+-1
 ```
 
 `bench/json/check/compare.py` checks it against Python's `json` module on 10,511

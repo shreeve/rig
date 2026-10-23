@@ -851,6 +851,185 @@ test "one module's fields and another's sets without them", '''
       return F.odd(msg: String("x")) if n == 7
       n
 
+test "a code-only error in every place an `error` is stored or passed", '''
+  F.plain
+  1 F.plain
+  F.other
+  F.plain
+  F.plain
+  F.plain
+  hold F.plain
+  F.plain
+  F.other
+  2
+  F.plain
+  F.plain
+  F.plain
+  F.other
+  F.plain
+'''
+  error E
+    bad(msg: String)
+
+  error F
+    plain
+    other
+
+  obj W
+    cause: error
+    maybe: error?
+
+  enum Hold
+    one(e: error)
+    nothing
+
+  fun take(e: error) -> error
+    e
+
+  fun pair(n: Int) -> (Int, error)
+    return n, F.plain
+
+  fun opt(n: Int) -> error?
+    return F.other if n > 0
+    none
+
+  fun id[T](x: T) -> T
+    x
+
+  fun reach() -> Int!
+    return E.bad(msg: String("r"))
+
+  sub main()
+    _ = reach() catch 0
+    print(take(F.plain))
+    n, e = pair(1)
+    print(n, e)
+    if opt(1) as o
+      print(o)
+    print(id[error](F.plain))
+    w = W(cause: F.plain, maybe: F.other)
+    w.maybe = F.plain
+    print(w.cause)
+    if w.maybe as mb
+      print(mb)
+    h = Hold.one(e: F.plain)
+    match h
+      .one(g) => print("hold", g)
+      .nothing => pass
+    b: ^error = ^F.plain
+    print(b)
+    xs: [2]error = [F.plain, F.other]
+    print(xs[1])
+    ys: [2]error = [E.bad(msg: String("y")), F.plain]
+    print(ys.len)
+    m = Map[Int, error]()
+    !m.put(1, F.plain)
+    if m.get(1) as g
+      print(g)
+    l = List[error]()
+    !l.push(F.other)
+    l[0] = F.plain
+    print(l[0])
+    c = |+n| (F.plain if n > 0 else F.other)
+    print(c())
+    k: error = F.plain if n > 5 else F.other
+    print(k)
+    j: error = match n
+      1 => F.plain
+      _ => E.bad(msg: String("j"))
+    print(j)
+
+test "a temporary `error` in every place one is made", '''
+  E.bad(msg: "t")
+  true true
+  is E.bad(msg: "t")
+  E.bad(msg: "t")
+  1
+  true
+  1
+  2
+  E.bad(msg: "t")
+  1 E.bad(msg: "p")
+  E.bad(msg: "t")
+  1
+'''
+  error E
+    bad(msg: String)
+
+  error F
+    plain
+
+  fun mk(n: Int) -> error
+    return F.plain if n == 0
+    E.bad(msg: String("t"))
+
+  fun mo(n: Int) -> error?
+    return none if n == 0
+    E.bad(msg: String("o"))
+
+  fun mp() -> (Int, error)
+    return 1, E.bad(msg: String("p"))
+
+  fun f(n: Int) -> Int!
+    return E.bad(msg: String("x")) if n > 0
+    n
+
+  fun show(e: ?error) -> Int
+    print(e)
+    1
+
+  sub main()
+    print(mk(1))
+    print(mk(1) == E.bad, mk(0) == F.plain)
+    print(String("is ", mk(1)))
+    print(show(?mk(1)))
+    print(mo(1) != none)
+    print(f(1) catch |e| (1 if e == E.bad else 2))
+    l = List[error]()
+    !l.push(mk(1))
+    !l.push(mk(1))
+    print(l.len)
+    print((!l).pop())
+    _ = mk(1)
+    a, b = mp()
+    print(a, b)
+    print(+mk(1))
+    m = Map[Int, error]()
+    !m.put(1, mk(1))
+    !m.put(1, mk(1))
+    print(m.len)
+
+test "an error of a set without fields goes where `error` carries fields", '''
+  F.plain
+  E.bad(msg: "a")
+  F.plain
+  F.plain
+  true
+'''
+  error E
+    bad(msg: String)
+
+  error F
+    plain
+
+  obj W
+    cause: error
+
+  fun pick(n: Int) -> error
+    E.bad(msg: String("j")) if n > 0 else F.plain
+
+  sub main()
+    e: error = F.plain
+    print(e)
+    e = E.bad(msg: String("a"))
+    print(e)
+    w = W(cause: F.plain)
+    print(w.cause)
+    l = List[error]()
+    !l.push(F.plain)
+    print(l[0])
+    print(pick(1) == E.bad)
+
 fail "a field holding a loan", "an error's field never holds a loan: hold a `String` or a `Static`"
   error E
     bad(names: List[?String])

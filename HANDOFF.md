@@ -52,8 +52,9 @@ newest entry summarizes the latest rounds.
   members wherever a failure goes (calls, function values, closures,
   tasks, actors, `par`, `isolate`, `main`, tests). One representation
   for `error` (Option U, errors-r3/design-check-u.md), which removes R3's
-  program-wide switch and fixes the 7 classes it hid, is in review; R4
-  (#565) and R2.5 follow it. Next are the oracle's
+  program-wide switch and fixes the 7 classes it hid, and R4 (#565, on
+  top of it: std.json's `JsonError`, by `load` beside a `Bool` `parse`
+  kept for speed) are in review; R2.5 follows them. Next are the oracle's
   model of the hidden `E?` and std's I/O sets (R3-3), R4 (std.json),
   and R2.5 (generic sets).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
