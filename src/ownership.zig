@@ -3999,7 +3999,7 @@ pub const Checker = struct {
         const s = ctx.symbols.items[sym];
         if (s.decl_pos == target.src.pos) return mark;
         const kind = rig.bindingKindOf(ir.Set.op(node));
-        const writes_through = kind == .default and !ctx.repoints(node) and sema.assignWritesThrough(ctx, s.ty);
+        const writes_through = kind == .default and ctx.writesThrough(node);
         if (kind.operator() != null or writes_through) try self.after_value.append(self.gpa, .{ .sym = sym, .loop = self.loop });
         return mark;
     }
