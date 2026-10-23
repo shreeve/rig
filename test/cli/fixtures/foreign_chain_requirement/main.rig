@@ -1,12 +1,12 @@
 # An instance reached through another module's generic body is checked
 # against the body of the module that declares it, which this module
-# need not import.
+# need not import, for what no bound names: a literal's fit.
 
 use lib
 
 sub main()
-  print(lib.quad(2), lib.quad("a"))
+  print(lib.quad(2), lib.quad(U8(1)))
 
-# error: 8:26: `util.twice[Static]` cannot use `T = Static`: the generic body applies `+` to `T`, which `Static` does not support
-# error: 2:3: `+` used on `T` here (arithmetic)
-# error: 8:26: `util.twice[Static]` is made by `lib.quad[Static]`
+# error: 8:26: `util.twice[U8]` cannot use `T = U8`: the generic body applies `+` to a `T` and the literal `300`, which `U8` cannot hold
+# error: 2:3: `+` used here
+# error: 8:26: `util.twice[U8]` is made by `lib.quad[U8]`

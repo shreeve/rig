@@ -79,6 +79,10 @@ const SymbolResolver = struct {
     /// Parameters and locals whose clash with a module-level
     /// declaration is checked after the whole module is walked.
     pending_shadows: std.ArrayList(PendingShadow) = .empty,
+    /// The declaration about to be walked is `pub` (a function, a type,
+    /// or a `pub` method of a `pub` type): its type parameters state
+    /// their bounds (`markStated`). The walk of the declaration takes it.
+    pub_decl: bool = false,
 
     const PendingShadow = struct { name_node: Sexp, what: []const u8, at: usize };
 
@@ -96,7 +100,12 @@ const SymbolResolver = struct {
             },
             .@"pub" => {
                 const decl = ir.Pub.decl(sexp);
+                self.pub_decl = if (decl.kind()) |k| switch (k) {
+                    .fun, .sub, .generic_struct, .generic_enum, .@"struct", .@"enum" => true,
+                    else => false,
+                } else false;
                 try self.walk(decl);
+                self.pub_decl = false;
                 // The symbol the declaration's name leaf names: a module
                 // constant's value is walked before its name is declared.
                 const kind = decl.kind() orelse return;
@@ -332,6 +341,8 @@ const SymbolResolver = struct {
 
     /// The parameters and body of a `fun`, `sub`, or `drop`.
     fn walkFun(self: *SymbolResolver, node: Sexp) Error!void {
+        const stated = self.pub_decl;
+        self.pub_decl = false;
         const prev = try self.enter(node, .function);
         defer self.scope = prev;
         const tparams = sema.tparamsOf(node);
@@ -341,8 +352,60 @@ const SymbolResolver = struct {
             for (ir.get(node, .params).items()) |p| self.markSetParams(p);
             self.markSetParams(rig.returnType(node));
             if (rig.subFails(node)) self.markSetParam(rig.failSet(ir.Sub.fails(node)));
+            if (stated) {
+                var ids: std.ArrayList(SymbolId) = .empty;
+                for (tparams.items()) |p| {
+                    const id = self.ctx.symbolOf(sema.paramNameNode(p) orelse continue) orelse continue;
+                    try ids.append(self.ctx.arena.allocator(), id);
+                }
+                try self.markStated(node, tparams, ids.items);
+            }
         }
         try self.walk(ir.get(node, .body));
+    }
+
+    /// The type parameters `ids` of `pub` declaration `node`, whose
+    /// compile-time parameters are `tparams`, state their bounds: a set
+    /// parameter and a value parameter state none.
+    fn markStated(self: *SymbolResolver, node: Sexp, tparams: Sexp, ids: []const SymbolId) Error!void {
+        if (tparams == .nil) return;
+        const decl = try oneLine(self.ctx.arena.allocator(), "pub ", diag.textBetween(self.ctx.source, self.ctx.startOf(node), self.ctx.span(tparams).end));
+        for (ids) |id| {
+            const sym = &self.ctx.symbols.items[id];
+            if (sym.kind != .generic_param or sym.flags.set_param) continue;
+            sym.flags.states_bounds = true;
+            try self.ctx.stated.put(self.ctx.allocator, id, decl);
+        }
+    }
+
+    /// `prefix` and then `text`, source that may span lines, on one line
+    /// as an error names it: each comment dropped, each run of spaces and
+    /// newlines one space, none inside brackets, and no comma before a
+    /// closing one (`pub fun pick[K, T]`).
+    fn oneLine(a: std.mem.Allocator, prefix: []const u8, text: []const u8) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        try out.appendSlice(a, prefix);
+        var space = false;
+        var i: usize = 0;
+        while (i < text.len) : (i += 1) {
+            const c = text[i];
+            if (c == '#') {
+                while (i + 1 < text.len and text[i + 1] != '\n') i += 1;
+                continue;
+            }
+            if (std.ascii.isWhitespace(c)) {
+                space = true;
+                continue;
+            }
+            if (c == ']' or c == ')') {
+                if (std.mem.endsWith(u8, out.items, ",")) out.items.len -= 1;
+            } else if (space and !std.mem.endsWith(u8, out.items, "[") and !std.mem.endsWith(u8, out.items, "(") and c != ',') {
+                try out.append(a, ' ');
+            }
+            space = false;
+            try out.append(a, c);
+        }
+        return out.items;
     }
 
     /// Each of the function's type parameters that `node`, part of its
@@ -525,6 +588,8 @@ const SymbolResolver = struct {
 
     /// A `generic_struct` or `generic_enum`.
     fn walkGenericType(self: *SymbolResolver, node: Sexp) Error!void {
+        const stated = self.pub_decl;
+        self.pub_decl = false;
         const name_node = ir.get(node, .name);
         const unique = node.isKind(.generic_struct) and ir.GenericStruct.unique(node) != .nil;
         const id = (try self.declare(name_node, .generic_type, .{ .unique = unique })) orelse return;
@@ -564,22 +629,25 @@ const SymbolResolver = struct {
             try ids.append(self.ctx.allocator, pid);
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
+        if (stated) try self.markStated(node, params, ids.items);
         const header = try self.headerApis(node);
         self.ctx.symbols.items[id].apis = header.apis;
         self.ctx.symbols.items[id].user_apis = header.user;
         self.type_params = self.ctx.symbols.items[id].type_params.?;
         defer self.type_params = &.{};
-        try self.walkMembers(ir.rest(node, .members));
+        try self.walkMembers(ir.rest(node, .members), stated);
     }
 
     /// A `struct`, `enum`, or `errors`.
     fn walkNominalType(self: *SymbolResolver, node: Sexp, flags: sema.SymbolFlags) Error!void {
+        const stated = self.pub_decl;
+        self.pub_decl = false;
         const header = try self.headerApis(node);
         if (try self.declare(ir.get(node, .name), .nominal_type, flags)) |id| {
             self.ctx.symbols.items[id].apis = header.apis;
             self.ctx.symbols.items[id].user_apis = header.user;
         }
-        try self.walkMembers(ir.rest(node, .members));
+        try self.walkMembers(ir.rest(node, .members), stated);
     }
 
     /// The bounds written on the type parameter named at `name_node`
@@ -833,10 +901,15 @@ const SymbolResolver = struct {
         try self.ctx.errAt(name_node, "a type parameter starts with a capital letter: `[{s}]`; a compile-time value parameter has a type: `[{s}: Int]`", .{ cap, name });
     }
 
-    fn walkMembers(self: *SymbolResolver, members: []const Sexp) Error!void {
+    /// The methods of a type, `pub` (`type_pub`) or not: a `pub` method
+    /// of a `pub` type states the bounds of its own type parameters.
+    fn walkMembers(self: *SymbolResolver, members: []const Sexp, type_pub: bool) Error!void {
         for (members) |m| {
             if (m.isKind(.fun) or m.isKind(.sub)) try self.ownerBounds(m);
-            if (m.isKind(.fun) or m.isKind(.sub) or m.isKind(.drop_decl)) try self.walkFun(m);
+            if (m.isKind(.fun) or m.isKind(.sub) or m.isKind(.drop_decl)) {
+                self.pub_decl = type_pub and if (self.ctx.parser) |p| p.isPubMember(m) else false;
+                try self.walkFun(m);
+            }
         }
     }
 
@@ -1258,6 +1331,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
         tr.part = if (d == .list and ctx.ct.early.contains(d.list.id)) .rest else .all;
         try tr.resolveDecl(decl);
     }
+    try impliedFixpoint(ctx);
     // An addition's value parameter (`add Ring[T, n]`) has the type of the
     // type's, which a type of this module resolves only now.
     for (ctx.conformances.items) |conf| {
@@ -1273,6 +1347,27 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
             },
             else => {},
         };
+    }
+}
+
+/// The bounds each signature implies (`TypeResolver.implyBounds`), once
+/// every declaration is resolved: a parameter named where another
+/// declaration's parameter has bounds its own signature implies gets
+/// them too (`Index[K]`, whose field names `Map[K, Int]`), however the
+/// declarations are ordered.
+fn impliedFixpoint(ctx: *SemContext) Error!void {
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (ctx.implications.items) |imp| {
+            const tparams = ctx.symbols.items[imp.generic].type_params orelse continue;
+            const from = ctx.symbols.items[tparams[imp.index]];
+            const sym = &ctx.symbols.items[imp.param];
+            const more = from.apis.unionWith(from.implied);
+            if (more.differenceWith(sym.implied).count() == 0) continue;
+            sym.implied.setUnion(more);
+            changed = true;
+        }
     }
 }
 
@@ -1771,6 +1866,11 @@ pub const DeferredCheck = union(enum) {
     /// An instance of a generic type the program declares, spelled at
     /// `pos`: none of its fields or methods may stack two holdings.
     instance_stacking: struct { pos: u32, ty: TypeId },
+    /// A generic instance spelled at `pos` inside a generic declaration
+    /// while declarations are resolved: its arguments meet its bounds by
+    /// the declaration's, asked once every implied bound is known, under
+    /// the bounds a method there adds (`widened`; `TypeResolver.instanceOf`).
+    bounds: struct { pos: u32, ty: TypeId, widened: []const sema.WidenedBound },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
     /// A type spelled at `node` that stands at `home`, where a value
     /// holding a Cell may not (`sema.misplaced`).
@@ -1792,6 +1892,12 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
         .instance_stacking => |c| try sema.checkInstanceStacked(ctx, c.ty, c.pos),
+        .bounds => |c| {
+            const pn = ctx.types.get(c.ty).parameterized_nominal;
+            const widened = try sema.rewiden(ctx, c.widened);
+            defer sema.restoreOwnerBounds(ctx, widened);
+            if (ctx.symbols.items[pn.sym].type_params) |tps| _ = try sema.checkBounds(ctx, tps, pn.args, c.pos, .{ .type = c.ty });
+        },
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
             try ctx.errAt(c.node, sema.cell_misplaced, .{ shown, shown });
@@ -1909,6 +2015,12 @@ pub const TypeResolver = struct {
     /// them, its variants alone (ahead of the other declarations,
     /// `resolveVariantsEarly`), or the rest, once its variants are.
     part: enum { all, variants, rest } = .all,
+    /// The type parameters of the declaration whose signature is being
+    /// resolved: a function's own, or a generic type's while its fields
+    /// are. A generic type named there with one of them as an argument
+    /// gives it the built-in bounds of that argument's parameter
+    /// (`implyBounds`).
+    implying: []const SymbolId = &.{},
 
     /// The type a type name not found here was likely meant as: a
     /// built-in one written in lower case (`i32`, `string`), or a type
@@ -2227,6 +2339,9 @@ pub const TypeResolver = struct {
             try ct_syms.append(self.ctx.allocator, pid);
             if (p != .src and pid != sema.symbol_invalid) self.ctx.symbols.items[pid].ty = pty;
         }
+        const saved_implying = self.implying;
+        defer self.implying = saved_implying;
+        self.implying = ct_syms.items;
         const returns = rig.returnType(node);
         const fail_set = if (rig.subFails(node)) try self.resolveFailSet(rig.failSet(ir.Sub.fails(node))) else self.ctx.types.any_error_id;
         const return_ty = if (fail_set == self.ctx.types.invalid_id)
@@ -2243,6 +2358,7 @@ pub const TypeResolver = struct {
                 if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             }
         }
+        self.implying = saved_implying;
         for (params.items(), param_types.items) |p, pty| try self.setParamAsValue(p, pty);
         if (returns != .nil) try self.setParamAsValue(returns, return_ty);
         const fn_ty = try self.ctx.intern(.{ .function = .{
@@ -2791,6 +2907,11 @@ pub const TypeResolver = struct {
         var values: EnumValues = .{};
         defer values.seen.deinit(self.ctx.allocator);
         var none_line: ?Sexp = null;
+        // A generic type's fields and payloads imply bounds on its
+        // parameters; a method's signature implies them on its own.
+        const saved_implying = self.implying;
+        defer self.implying = saved_implying;
+        if (generic) self.implying = self.ctx.symbols.items[sym_id].type_params orelse &.{};
         // The variants resolved first: the rest of the members follow
         // them, and none may reuse their names.
         const rest = self.part == .rest;
@@ -4113,11 +4234,45 @@ pub const TypeResolver = struct {
         } else {
             // Spelled inside a generic declaration: each instantiation of
             // that generic instantiates this too, and meets its bounds by
-            // the declaration's.
-            if (sym.type_params) |tps| _ = try sema.checkBounds(self.ctx, tps, inst.args, pos, .{ .type = ty });
+            // the declaration's, those its signature implies included.
+            // While declarations are resolved, the check waits until every
+            // type's contents and implied bounds are known: a bound
+            // implied by a type resolved later (`impliedFixpoint`), and
+            // an argument made of other types (`Pair[T, U]`), are asked
+            // then, whatever the declarations' order.
+            if (sym.type_params) |tps| {
+                try self.implyBounds(sym_id, tps, inst.args);
+                if (!self.ctx.contents_ready) {
+                    try self.ctx.deferred_checks.append(self.ctx.allocator, .{ .bounds = .{ .pos = pos, .ty = ty, .widened = try sema.snapshotWidened(self.ctx) } });
+                } else _ = try sema.checkBounds(self.ctx, tps, inst.args, pos, .{ .type = ty });
+            }
             try self.ctx.addGeneric(.uses, ty);
         }
         return ty;
+    }
+
+    /// A generic type `generic`, with parameters `tparams`, named at
+    /// `args` in the signature of a declaration whose type parameters are
+    /// `self.implying`: each of those that is an argument has the
+    /// built-in bounds of the parameter it fills (open question 6 of
+    /// APIs Stage 3: `K` in `Map[K, V]` is `K: Hash` without saying it).
+    /// The parameter's own implied bounds count too, which a type
+    /// resolved later may still add to (`impliedFixpoint`). An API of a
+    /// program's own is never implied: it is a compile-time parameter of
+    /// the declaration, its witness, so it is written.
+    fn implyBounds(self: *TypeResolver, generic: SymbolId, tparams: []const SymbolId, args: []const TypeId) Error!void {
+        if (self.implying.len == 0) return;
+        for (args, 0..) |arg, i| {
+            if (i >= tparams.len) break;
+            const p = switch (self.ctx.types.get(arg)) {
+                .type_var => |p| p,
+                else => continue,
+            };
+            if (std.mem.findScalar(SymbolId, self.implying, p) == null) continue;
+            const from = self.ctx.symbols.items[tparams[i]];
+            self.ctx.symbols.items[p].implied.setUnion(from.apis.unionWith(from.implied));
+            try self.ctx.implications.append(self.ctx.allocator, .{ .param = p, .generic = generic, .index = @intCast(i) });
+        }
     }
 };
 

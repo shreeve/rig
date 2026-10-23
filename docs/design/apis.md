@@ -41,7 +41,7 @@ it.
 |---|---|---|---|
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Sends`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
-| 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(in part: declarations and conformance built)* |
+| 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(built)* |
 | 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
 | 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Sends}` | *(planned)* |
 
@@ -371,9 +371,8 @@ with no import:
 checked against its bounds alone: a body may copy a `T: Copy`, compare
 a `T: Ord`, and put a `T: Copy + Owned` in a Cell, and may not do what
 its bounds do not name. A parameter with no bound keeps per-instance
-checking, method calls included (Stage 1). Bounds are optional in this
-stage: no generic must state them, and std adopts them by choice; the
-rule that a `pub` generic states its bounds comes with Stage 3. A view
+checking, method calls included (Stage 1), unless it is a `pub`
+declaration's: a `pub` generic states its bounds (Stage 3). A view
 as a type argument, `T = ?X`, meets only these built-in bounds.
 
 **Tasks.** A bounded `T` without `Sends` or `Syncs` does not cross, so
@@ -454,7 +453,7 @@ sub main()
 written into the signature, and the runtime's `rig.eql`, `rig.hash`,
 and `rig.compare` call a type's own methods where it declares them.
 
-## Stage 3: APIs of your own *(in part)*
+## Stage 3: APIs of your own *(built)*
 
 *Built:* `api` with required methods and defaults, APIs that build on
 others and on the built-in ones, headers and `add`, how an
@@ -463,9 +462,10 @@ meets a `pub` API, a bound by an API checked at each instance, a call
 through a bound with the API's clauses and set, `Shape.area(c)` and the
 shorthand `c.area()`, witnesses, a generic type's among its
 arguments, method-level bounds, additions to `Slot[n]` and
-`Table[T, n]`, associated types with their bounds, and `Iter` with
-`iter.count` and `iter.sum` ([SPEC, APIs](../../SPEC.md#apis)). *Not
-yet:* the rule that public generics state their bounds.
+`Table[T, n]`, associated types with their bounds, `Iter` with
+`iter.count` and `iter.sum` ([SPEC, APIs](../../SPEC.md#apis)), implied
+bounds, and the rule that public generics state their bounds ([SPEC,
+Bounds](../../SPEC.md#bounds)).
 
 ```rig
 pub api Shape
@@ -694,13 +694,14 @@ a type, names by bounds everything its body does with each type
 parameter that an API names; the error carries the fix. The bounds a
 signature's types require are implied: a parameter named in
 `Map[K, V]`, or in the field of a type bounded so, is `K: Hash` without
-saying it, whether or not it has bounds of its own. A private generic
-may keep per-instance checking, since its author sees every instance,
-and facts no API names stay per instance everywhere. The rule rejects
-programs a release accepted, so it is the last step of this stage and
-lands on its own: a migration script writes each bound from the
-compiler's own fix, std first, the release notes list it, and Trig
-gets a note and the script before it merges.
+saying it, whether or not it has bounds of its own. An API of a
+program's own is never implied: its witness is a compile-time parameter
+of the declaration, which writes it. A private generic keeps
+per-instance checking, since its author sees every instance, and facts
+no API names stay per instance everywhere. The error is at the
+parameter, with the bounds to write, `` `pub fun sum[T]` adds `T`s:
+write `[T: Num]` ``, and `tools/state-bounds.py` writes each bound from
+the compiler's own fixes.
 
 **Lowering.** A call through a bound is a direct call. Each
 conformance has one witness, a namespace declared beside it, whose

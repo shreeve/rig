@@ -108,34 +108,31 @@ poison.rig:9:16: error: cannot infer \`T\` for \`empty\` from its arguments or t
 # An instance of another module's generic is reported where it is made,
 # with a note at the operation in the other module's file.
 cat >lib.rig <<'EOF2'
-pub fun max[T](a: T, b: T) -> T
-  a if a > b else b
+pub fun per_mille[T: Num](a: T) -> T
+  a * 1000
 EOF2
 cat >main.rig <<'EOF2'
 use lib
 
-obj P
-  x: Int
-
 sub main()
-  print(lib.max(P(x: 1), P(x: 2)).x)
+  print(lib.per_mille(U8(3)))
 EOF2
 "$RIG" check main.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a foreign instance that fails a requirement"
-expect_eq "$(cat out.txt)" "main.rig:7:13: error: \`lib.max[P]\` cannot use \`T = P\`: the generic body applies \`>\` to \`T\`, which \`P\` does not support
-  print(lib.max(P(x: 1), P(x: 2)).x)
+expect_eq "$(cat out.txt)" "main.rig:4:13: error: \`lib.per_mille[U8]\` cannot use \`T = U8\`: the generic body applies \`*\` to a \`T\` and the literal \`1000\`, which \`U8\` cannot hold
+  print(lib.per_mille(U8(3)))
             ^
-lib.rig:2:8:   note: \`>\` used on \`T\` here (ordering comparison)
-  a if a > b else b
-       ^" "a note in another module's file"
+lib.rig:2:3:   note: \`*\` used here
+  a * 1000
+  ^" "a note in another module's file"
 
 # Each note in another module's file names that file: a requirement
-# reached through a chain (in `util.rig`), a copy, an array length, an
-# array made, and a generic type's declaration.
+# reached through a chain (in `util.rig`), an array length, an array
+# made, and a generic type's declaration.
 m="$ROOT/test/cli/fixtures"
 out=$("$RIG" check "$m/foreign_chain_requirement/main.rig" 2>&1)
-expect_has "$out" "$m/foreign_chain_requirement/util.rig:2:3:   note: \`+\` used on \`T\` here" "a note through a chain names its file"
+expect_has "$out" "$m/foreign_chain_requirement/util.rig:2:3:   note: \`+\` used here" "a note through a chain names its file"
 out=$("$RIG" check "$m/foreign_instance_ownership/main.rig" 2>&1)
-expect_has "$out" "$m/foreign_instance_ownership/lib.rig:2:7:   note: \`T\` copied here" "a copy note names its file"
+expect_has "$out" "$m/foreign_instance_ownership/lib.rig:15:43:   note: \`n\` used as an array length here" "a note of an instance's body names its file"
 out=$("$RIG" check "$m/foreign_array_len/main.rig" 2>&1)
 expect_has "$out" "$m/foreign_array_len/lib.rig:12:11:   note: \`n\` used as an array length here" "an array length note names its file"
 expect_has "$out" "$m/foreign_array_len/lib.rig:1:28:   note: the array is made here" "an array note names its file"

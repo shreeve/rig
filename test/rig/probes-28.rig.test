@@ -304,7 +304,7 @@ test "review-sc5-pub1", '''
       pub fun twice[T](?@, t: T) -> Int
         @peek() * 2
 
-    pub obj Pair[T]
+    pub obj Pair[T: Copy]
       pub a: T
       b: T
 
@@ -314,7 +314,7 @@ test "review-sc5-pub1", '''
       fun second(?@) -> T
         @b
 
-    pub fun pair[T](a: T, b: T) -> Pair[T]
+    pub fun pair[T: Copy](a: T, b: T) -> Pair[T]
       Pair(a: a, b: b)
 
     pub fun peekof[T](c: ?Counter, t: T) -> Int

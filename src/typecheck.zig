@@ -7279,12 +7279,13 @@ const Checker = struct {
             const arg = args[b.param];
             const pname = home.symbols.items[tparams[b.param]].name;
             const shown = try self.tyName(arg);
-            // A type parameter with no bound, which each instance decides.
+            // A type parameter with no bound, which each instance decides;
+            // a `pub` declaration's is checked by its bounds, below.
             var held: std.ArrayList(SymbolId) = .empty;
             try sema.reachedTypeVars(self.ctx, arg, &held, a);
             for (held.items) |p| {
                 const psym = self.ctx.symbols.items[p];
-                if (sema.hasBounds(psym) or psym.flags.set_param) continue;
+                if (sema.checkedByBounds(psym) or psym.flags.set_param) continue;
                 const needed = try sema.ownerBoundsText(self.ctx, home, a, tparams, &.{b});
                 try self.err(pos, "`{s}` needs `{s}`, and `{s}` has no bound: a call reaches a method under a bound only where the bounds of its type's arguments give it; write `[{s}: {s}]`", .{ inst, needed, psym.name, psym.name, needed[std.mem.indexOf(u8, needed, ": ").? + 2 ..] });
                 return false;
@@ -7292,13 +7293,16 @@ const Checker = struct {
             for (b.user_apis) |u| {
                 if (try sema.provides(self.ctx, arg, u) != null) continue;
                 const uname = try sema.apiName(self.ctx, u);
+                if (try sema.reportStatedUser(self.ctx, pos, arg, u, try a.print("calls `{s}`, which needs `{s}: {s}`", .{ inst, pname, uname }))) return false;
                 try self.err(pos, "`{s}` needs `{s}: {s}`, and `{s}` does not provide `{s}`{s}", .{ inst, pname, uname, shown, uname, try sema.unprovidedFix(self.ctx, arg, u) });
                 return false;
             }
             var it = sema.implied(b.apis).iterator();
             while (it.next()) |api| {
                 const lack = (try sema.lacks(self.ctx, arg, api)) orelse continue;
-                if (lack.own_eq) {
+                if (try sema.reportStatedLack(self.ctx, pos, api, lack, try a.print("calls `{s}`, which needs `{s}: {s}`", .{ inst, pname, @tagName(api) }))) {
+                    // Reported at the parameter.
+                } else if (lack.own_eq) {
                     try self.err(pos, "`{s}` needs `{s}: {s}`: {s}", .{ inst, pname, @tagName(api), try sema.ownEqUnhashed(self.ctx, lack.ty) });
                 } else try self.err(pos, "`{s}` needs `{s}: {s}`, and `{s}` {s}{s}", .{ inst, pname, @tagName(api), shown, sema.cannotDo(api), try sema.lackDetail(self.ctx, a, arg, api, lack) });
                 return false;
@@ -8875,6 +8879,7 @@ const Checker = struct {
         if (!self.ctx.isLocalTask(node)) {
             const result = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.ok else ty;
             if (try sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
+                if (try self.statedCrossing(blocker, .moves, self.startOf(callee))) return self.t().invalid_id;
                 try self.errAt(callee, "`{s}` may run on another core, so what it gives must be sent to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
                 return self.t().invalid_id;
             }
@@ -8942,6 +8947,17 @@ const Checker = struct {
     /// Why a value holding `blocker` cannot go to another core
     /// (`crossCheck`), and to be read there when `shared`; `verb` says how
     /// it relates to `blocker` when it is that type or views it.
+    /// A crossing at `at` that a `pub` declaration's type parameter
+    /// `blocker` does not state, reported at the parameter
+    /// (`sema.reportStated`): false for any other blocker.
+    fn statedCrossing(self: *Checker, blocker: TypeId, how: sema.Crossing, at: u32) Error!bool {
+        const p = switch (self.ctx.types.get(blocker)) {
+            .type_var => |p| p,
+            else => return false,
+        };
+        return sema.reportStated(self.ctx, at, p, if (how == .moves) .Sends else .Syncs, "");
+    }
+
     fn blockerReason(self: *Checker, blocker: TypeId, shared: bool, verb: ?[]const u8) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         const what = verb orelse try std.fmt.allocPrint(a, "holds `{s}`,", .{try self.tyName(blocker)});
@@ -9512,8 +9528,9 @@ const Checker = struct {
                         const direct = std.mem.eql(u8, name, "[]U8");
                         try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
                     }
-                    // Each instance answers for a type parameter the value holds.
-                    try self.requireOf(ty, .printable, self.startOf(a), verb);
+                    // Each instance answers for a type parameter the value
+                    // holds, or that a view of it shows.
+                    try self.requireOf(sema.unwrapViews(self.ctx, ty), .printable, self.startOf(a), verb);
                 },
             }
         }
@@ -9816,7 +9833,9 @@ const Checker = struct {
         switch (self.ctx.types.get(value)) {
             .type_var => |tv| {
                 const sym = self.ctx.symbols.items[tv];
-                if (sema.hasBounds(sym) and !sema.boundApis(self.ctx, sym).contains(.Ord)) return null;
+                if (sema.hasBounds(sym) and !sema.boundApis(self.ctx, sym).contains(.Ord)) {
+                    if (!try sema.reportStated(self.ctx, self.startOf(obj), tv, .Ord, "order")) return null;
+                }
                 if (!sema.hasBounds(sym)) try self.require(tv, .ordered, self.startOf(obj), "order");
             },
             else => if ((try sema.lacks(self.ctx, value, .Ord)) != null) return null,
@@ -9850,7 +9869,9 @@ const Checker = struct {
                 else => {},
             }
             if (try sema.lacks(self.ctx, value, .Hash)) |lack| {
-                if (lack.own_eq) {
+                if (try sema.reportStatedLack(self.ctx, self.startOf(arg), .Hash, lack, null)) {
+                    // Reported at the parameter.
+                } else if (lack.own_eq) {
                     try self.errAt(arg, "{s}", .{try sema.ownEqUnhashed(self.ctx, lack.ty)});
                 } else try self.errAt(arg, "`!h.add(x)` takes a value that provides `Hash`, and `{s}` cannot be hashed{s}", .{ try self.tyName(value), try sema.lackDetail(self.ctx, self.ctx.arena.allocator(), value, .Hash, lack) });
             }
@@ -12447,6 +12468,32 @@ const Checker = struct {
     /// The method `method` of the APIs `refs` name and those they build
     /// on: each API that declares it, once, in the order written. More than
     /// one makes a call ambiguous (`reportAmbiguous`).
+    /// The fix for a call of `method` on type parameter `pname`, which
+    /// has no bound: the bound by the one API this module sees that
+    /// declares it, or how to make one.
+    fn boundForMethod(self: *Checker, pname: []const u8, method: []const u8) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var refs: std.ArrayList(sema.ApiRef) = .empty;
+        for (self.ctx.symbols.items, 0..) |sym, i| {
+            if (sym.kind == .api and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = self.ctx.module_id, .sym = @intCast(i) });
+        }
+        for (self.ctx.imports) |imp| for (imp.sema.symbols.items, 0..) |sym, i| {
+            if (sym.kind == .api and sym.flags.is_public and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = imp.module_id, .sym = @intCast(i) });
+        };
+        var found: ?sema.ApiRef = null;
+        for (refs.items) |r| {
+            const sym = sema.apiSymbol(self.ctx, r) orelse continue;
+            const declares = for (sym.fields orelse &.{}) |f| {
+                if (f.is_method and std.mem.eql(u8, f.name, method)) break true;
+            } else false;
+            if (!declares) continue;
+            if (found != null) return a.print("bound `{s}` by an API that declares `{s}`", .{ pname, method });
+            found = r;
+        }
+        if (found) |r| return a.print("write `[{s}: {s}]`", .{ pname, try sema.apiName(self.ctx, r) });
+        return a.print("declare an API with `{s}`, and bound `{s}` by it", .{ method, pname });
+    }
+
     fn apiMethodsIn(self: *Checker, refs: []const sema.ApiRef, method: []const u8) Error![]const ApiMethod {
         const a = self.ctx.arena.allocator();
         var out: std.ArrayList(ApiMethod) = .empty;
@@ -12507,6 +12554,12 @@ const Checker = struct {
     fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv: TypeId, param: SymbolId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const tname = try self.tyName(tv);
         const psym = self.ctx.symbols.items[param];
+        if (!sema.hasBounds(psym) and psym.flags.states_bounds) if (self.ctx.stated.get(param)) |decl| {
+            // A `pub` declaration calls a method on a `T` through a bound.
+            try self.ctx.err(psym.decl_pos, "`{s}` calls `{s}` on a `{s}`, which a `pub` generic does through a bound: {s}", .{ decl, method, tname, try self.boundForMethod(psym.name, method) });
+            try self.ctx.note(pos, "here", .{});
+            return self.skipCall(args);
+        };
         if (sema.hasBounds(psym)) {
             const found = try self.apiMethodsIn(psym.user_apis, method);
             if (found.len > 1) return self.reportAmbiguous(obj, method, found, tv, pos, args);
@@ -12877,6 +12930,7 @@ const Checker = struct {
             return self.badCall(args, value, "an actor runs an object or an enum, whose methods its handles call; `{s}` has type `{s}`", .{ shown, try self.tyName(ty) });
         }
         if (try sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
+            if (try self.statedCrossing(blocker, .moves, self.startOf(value))) return self.skipCall(args);
             return self.badCall(args, value, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
         }
         if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, value, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
@@ -12955,6 +13009,7 @@ const Checker = struct {
         };
         if (!declared) return self.badCall(args, f, "an actor runs an object or an enum, whose methods its handles call; the function gives a value of type `{s}`", .{try self.tyName(ty)});
         if (try sema.crossingBlocker(self.ctx, ty, .moves)) |blocker| {
+            if (try self.statedCrossing(blocker, .moves, self.startOf(f))) return self.skipCall(args);
             return self.badCall(args, f, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
         }
         if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, f, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
@@ -12965,6 +13020,7 @@ const Checker = struct {
             const cty = self.ctx.symbols.items[id].ty;
             if (self.isPoison(cty)) continue;
             const blocker = (try sema.crossingBlocker(self.ctx, cty, .moves)) orelse continue;
+            if (try self.statedCrossing(blocker, .moves, self.startOf(name_node))) return self.skipCall(args);
             return self.badCall(args, name_node, "the tasks that run the actor call the function that makes its value, and `{s}` {s}", .{ self.text(name_node), try self.blockerReason(blocker, false, if (blocker == cty) "is" else null) });
         }
         const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
@@ -13044,6 +13100,7 @@ const Checker = struct {
             const how: sema.Crossing = if (k == .read_view) .shares else .moves;
             const inner = if (k == .read_view) sema.unwrapViews(self.ctx, ty) else ty;
             if (try sema.crossingBlocker(self.ctx, inner, how)) |blocker| {
+                if (try self.statedCrossing(blocker, how, self.startOf(arg))) return self.t().invalid_id;
                 try self.errAt(arg, "an actor runs its methods on a task of its own, and `{s}` {s}: `{s}` {s}", .{ self.sourceText(arg), if (how == .shares) "is lent to it to read" else "is given to it", try self.tyName(ty), try self.blockerReason(blocker, how == .shares, if (blocker == ty) "is" else if (blocker == inner) "views" else null) });
                 return self.t().invalid_id;
             }
@@ -13055,6 +13112,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (try sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
+            if (try self.statedCrossing(blocker, .moves, pos)) return self.t().invalid_id;
             try self.err(pos, "`{s}` gives a value made on the actor's task, and `{s}` {s}", .{ method, try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
             return self.t().invalid_id;
         }
@@ -13546,10 +13604,12 @@ const Checker = struct {
         };
         const how: sema.Crossing = if (kind == .map) .shares else .moves;
         if (try sema.crossingBlocker(self.ctx, elem, how)) |blocker| {
+            if (try self.statedCrossing(blocker, how, self.startOf(xs))) return self.t().invalid_id;
             try self.errAt(xs, "`{s}` hands the elements of `{s}` to tasks that may run on other cores, {s} each, and `{s}` {s}", .{ shown, self.sourceText(xs), if (kind == .map) "to read" else "to write", try self.tyName(elem), try self.blockerReason(blocker, kind == .map, if (blocker == elem) "is" else null) });
             return self.t().invalid_id;
         }
         if (kind == .map) if (try sema.crossingBlocker(self.ctx, value, .moves)) |blocker| {
+            if (try self.statedCrossing(blocker, .moves, self.startOf(f))) return self.t().invalid_id;
             try self.errAt(f, "`par.map` gathers the values that tasks on other cores make, and `{s}` {s}", .{ try self.tyName(value), try self.blockerReason(blocker, false, if (blocker == value) "is" else null) });
             return self.t().invalid_id;
         };
@@ -13942,6 +14002,7 @@ const Checker = struct {
         if (self.isPoison(ty)) return true;
         const inner = sema.unwrapViews(self.ctx, ty);
         const blocker = (try sema.crossingBlocker(self.ctx, inner, .shares)) orelse return true;
+        if (try self.statedCrossing(blocker, .shares, self.startOf(name_node))) return false;
         try self.errAt(name_node, "`{s}` calls the closure on several tasks at once, which all read what it captures, and `{s}` {s}", .{ shown, name, try self.blockerReason(blocker, true, if (blocker == ty) "is" else if (blocker == inner) "views" else null) });
         return false;
     }
@@ -14641,7 +14702,7 @@ const Checker = struct {
                 if (try self.payloadViewTaken(e, "move")) return;
                 // A bounded `T` copies only where its bounds name `Copy`.
                 switch (self.ctx.types.get(inner)) {
-                    .type_var => |param| if (sema.hasBounds(self.ctx.symbols.items[param]))
+                    .type_var => |param| if (sema.checkedByBounds(self.ctx.symbols.items[param]))
                         return reportUnbounded(self.ctx, self.startOf(e), param, .Copy, "a copy"),
                     else => {},
                 }
@@ -19352,16 +19413,19 @@ fn checkBoundedBodies(ctx: *SemContext) Error!void {
     for (ctx.generic_requirements.items) |r| {
         if (r.module_id != 0) continue;
         const sym = ctx.symbols.items[r.param];
-        if (!sema.hasBounds(sym)) continue;
+        if (!sema.checkedByBounds(sym)) continue;
         const api = apiOf(r.req) orelse continue;
         if (sema.boundApis(ctx, sym).contains(api)) continue;
+        if (try sema.reportStated(ctx, r.pos, r.param, api, r.op)) continue;
         try reportUnbounded(ctx, r.pos, r.param, api, try a.print("{s}", .{r.req.describe()}));
     }
 }
 
-/// A body at `pos` does with a `T` (`param`, which has bounds) what `api`
-/// gives (`what`), and its bounds do not name it.
+/// A body at `pos` does with a `T` (`param`, which has bounds or is one
+/// of a `pub` declaration's) what `api` gives (`what`), and its bounds do
+/// not name it.
 fn reportUnbounded(ctx: *SemContext, pos: u32, param: SymbolId, api: sema.Api, what: []const u8) Error!void {
+    if (try sema.reportStated(ctx, pos, param, api, "")) return;
     const a = ctx.arena.allocator();
     const sym = ctx.symbols.items[param];
     try ctx.err(pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});

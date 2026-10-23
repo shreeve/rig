@@ -626,7 +626,7 @@ fail "step3-adv1-rej", "method `new_stack` of `lib.Stack` is private to module `
       fun size(?@) -> Int
         @items.len
 
-    pub obj Slot[T]
+    pub obj Slot[T: Owned]
       c: Cell[T]
 
       fun swap(!@, x: T) -> T
@@ -657,7 +657,7 @@ fail "step3-bagt", "only module `bag` can construct `bag.Bag`: its field `items`
       sub add(!@, x: T)
         !@items.push(<x)
 
-    pub fun largest[T](b: ?Bag[T], start: T) -> T
+    pub fun largest[T: Copy + Ord](b: ?Bag[T], start: T) -> T
       t = start
       for x in b.items
         if x > t

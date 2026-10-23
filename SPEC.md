@@ -2914,8 +2914,8 @@ conflicting values for `n` in the call to `both`: `2` (argument 1) and `3` (argu
 
 A generic type's methods and a generic function's body are checked
 once, with each type parameter standing for any type. A parameter with
-bounds is checked against its bounds alone ([Bounds](#bounds)); for one
-with no bound, what the body does with a `T` that only some types
+bounds, or of a `pub` declaration, is checked against its bounds alone
+([Bounds](#bounds)); for any other, what the body does with a `T` that only some types
 support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 `T`) is recorded, a viewed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
@@ -2927,7 +2927,9 @@ note at the body line that needs the operation, in the module that
 declares the body. A body cannot read a field of a `T` or call `T`
 itself.
 
-A body may call a method on a `T`, or on a view of one (`?T`, `!T`):
+A private generic's body may call a method on a `T` with no bound, or
+on a view of one (`?T`, `!T`), and a `pub` one calls it through an API
+its bounds name ([APIs](#apis)):
 `x.m(args)` reads self, `!x.m(args)` writes it, and `<x.m(args)`
 consumes it, as the sigil says at any call. The call's result takes its
 type from where the call stands: the type its context expects (a typed
@@ -3233,6 +3235,66 @@ task. A comparison reads its operands where they are and drops none: a
 `==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
 binding of each (`ka = key(a)`, then `ka < kb`). Each instance must provide every bound, checked at the call or
 type that makes it, with the fix in the error.
+
+**Implied bounds.** A bound a signature's types already require counts
+as stated: a type parameter named as an argument of a generic type in
+a function's signature, or in a generic type's fields, has the built-in
+bounds of the parameter it fills. `K` in `Map[K, V]` is `K: Hash`
+without saying it, whether or not it has bounds of its own, and so is
+`K` in `Index[K]` when a field of `Index` names `Map[K, Int]`. An API of
+the program's own is never implied: its witness is a compile-time
+parameter of the declaration, so the declaration writes it. An implied
+bound holds at each instance, as a written one does.
+
+**Public generics state their bounds.** A `pub` generic names by
+bounds everything its body does with each type parameter, so a reader
+of its signature knows what an instance needs: a `pub` function's and a
+`pub` type's parameters do, in every method of the type, and so do a
+`pub` method's own when its type is `pub`. The error is at the
+parameter, with the bounds to write; `tools/state-bounds.py` writes
+them from the errors. A private generic keeps per-instance checking,
+since its author sees every instance, and what no API names (a
+literal's fit, a table's default, freezing) is checked at each instance
+everywhere.
+
+```rig
+pub fun count[K, V](m: ?Map[K, V], k: ?K) -> Int
+  m.len + (1 if m.has(k) else 0)
+
+pub fun shown[K: Print, V](m: ?Map[K, V], k: ?K) -> Bool
+  print(k)
+  m.has(k)
+
+fun sum[T](a: T, b: T) -> T
+  a + b
+
+sub main()
+  m: Map[Int, Int] = Map()
+  !m.put(1, 2)
+  print(count(?m, ?1), shown(?m, ?3), sum(1, 2))
+```
+
+```output
+3
+2 false 3
+```
+
+```rig reject
+pub fun total[T](xs: ?List[T]) -> T
+  s = xs[0]
+  for x in ?xs[1..]
+    s = s + x
+  s
+
+sub main()
+  l: List[Int] = List()
+  !l.push(1)
+  print(total(?l))
+```
+
+```error
+`pub fun total[T]` adds `T`s: write `[T: Num]`
+```
 
 ```rig
 obj Version: Ord
@@ -4685,7 +4747,7 @@ ordinary method, which `x.hash()` calls on that type; the built-in
 parts. A type gives `==` or hashing a meaning of its own by naming the
 API on its header ([Own meanings](#own-meanings)). In a generic body,
 `k.hash()` on a type parameter's value is checked at each instance, as
-`==` is. Map and Set ([docs/STD.md](docs/STD.md#map-and-set))
+`==` is, or against its bounds ([Bounds](#bounds)). Map and Set ([docs/STD.md](docs/STD.md#map-and-set))
 key on it.
 
 ```rig
@@ -10661,9 +10723,11 @@ Another module's `pub` generic types and functions are used as local
 ones are: `boxes.Wrap[Int]` names an instance in a type or an
 expression, its type arguments are given or inferred, and its methods
 and variants are reached through it. Each instance a module makes is
-checked where it is made, against what the declaring module's bodies do
-with its type parameters ([§3](#generic-bodies)), and a diagnostic
-about it has a note at that body's line, in its file. An instance is
+checked where it is made: against the bounds the declaring module
+states, since a `pub` generic states them ([Bounds](#bounds)), and
+against what its bodies do with the facts no API names, such as a
+literal's fit ([§3](#generic-bodies)), with a note at that body's line,
+in its file. An instance is
 one type wherever it is reached from: `boxes.Wrap[Int]` spelled here is
 the type another module's function returns as `boxes.Wrap[Int]`, even
 through a module that does not import `boxes`. A public signature may
@@ -10671,13 +10735,13 @@ hold an instance of a private generic type, which importers hold and
 use as they do a private type.
 
 ```rig file=boxes.rig
-pub obj Wrap[T]
+pub obj Wrap[T: Copy]
   pub v: T
 
   pub fun get(?@) -> T
     @v
 
-pub fun larger[T](a: T, b: T) -> T
+pub fun larger[T: Ord](a: T, b: T) -> T
   a if a > b else b
 ```
 
@@ -10698,20 +10762,23 @@ sub main()
 ```
 
 ```rig file=stats.rig
-pub fun mean[T](a: T, b: T) -> T
+pub fun mean[T: Num](a: T, b: T) -> T
   (a + b) / 2
+
+pub fun per_mille[T: Num](a: T) -> T
+  a * 1000
 ```
 
 ```rig reject
 use stats
 
 sub main()
-  print(stats.mean(4, 6), stats.mean("a", "b"))
+  print(stats.mean(4, 6), stats.per_mille(U8(3)))
 ```
 
 ```error
-`stats.mean[Static]` cannot use `T = Static`: the generic body applies `+` to `T`, which `Static` does not support
-`+` used on `T` here (arithmetic)
+`stats.per_mille[U8]` cannot use `T = U8`: the generic body applies `*` to a `T` and the literal `1000`, which `U8` cannot hold
+`*` used here
 ```
 
 Every check (types, arity, keyword

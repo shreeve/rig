@@ -2945,3 +2945,313 @@ fail "apis old name shares", "`Shares` is now `Syncs`: a type several tasks may 
     1
 
   print(1)
+
+fail "apis pub states its bounds copy", "1:15: `pub fun twice[T]` copies a `T`: write `[T: Copy]`", "3:13: here"
+  pub fun twice[T](x: ?T) -> List[T]
+    out: List[T] = List()
+    !out.push(x)
+    out
+
+  print(twice(?1).len)
+
+fail "apis pub states its bounds eq", "4:14: `pub fun same[T]` compares `T`s with `==`: write `[T: Eq]`", "5:3: here"
+  # A `pub` generic names, by bounds, everything its body does with each
+  # type parameter; the error, at the parameter, carries the fix.
+
+  pub fun same[T](a: ?T, b: ?T) -> Bool
+    a == b
+
+  print(same(?1, ?1))
+
+fail "apis pub states its bounds ord", "1:14: `pub fun less[T]` orders `T`s: write `[T: Ord]`"
+  pub fun less[T](a: ?T, b: ?T) -> Bool
+    a < b
+
+  print(less(?1, ?2))
+
+fail "apis pub states its bounds hash", "1:16: `pub fun hashed[T]` hashes a `T`: write `[T: Hash]`"
+  pub fun hashed[T](a: ?T) -> U64
+    a.hash()
+
+  print(hashed(?1) > 0)
+
+fail "apis pub states its bounds print", "`pub sub show[T]` prints a `T`: write `[T: Print]`", "`pub fun text[T]` prints a `T`: write `[T: Print]`"
+  # A view of a `T` prints the `T`, in `print` and in text building.
+
+  pub sub show[T](a: ?T)
+    print(a)
+
+  pub fun text[T](a: ?T) -> String
+    String("x", a)
+
+  show(?1)
+  print(text(?2))
+
+fail "apis pub states its bounds arithmetic", "`pub fun sum[T]` adds `T`s: write `[T: Num]`", "`pub fun neg[T]` negates a `T`: write `[T: Signed]`", "`pub fun low[T]` applies `&` to `T`s: write `[T: Integer]`"
+  pub fun sum[T](a: T, b: T) -> T
+    a + b
+
+  pub fun neg[T](a: T) -> T
+    -a
+
+  pub fun low[T](a: T, b: T) -> T
+    a & b
+
+  print(sum(1, 2), neg(3), low(6, 3))
+
+fail "apis pub states its bounds clone", "`pub fun dup[T]` copies a `T`: write `[T: Copy]`"
+  # `+x` on a `T` makes a new owner only of a value that copies.
+
+  pub fun dup[T](a: ?T) -> T
+    +a
+
+  print(dup(?1))
+
+fail "apis pub states its bounds cell", "`pub fun boxed[T: Copy]` keeps a `T` where no loan is tracked: write `[T: Copy + Owned]`"
+  pub fun boxed[T: Copy](a: T) -> Int
+    c = *Cell(a)
+    1
+
+  print(boxed(1))
+
+fail "apis pub states its bounds crossing", "3:19: `pub fun count_all[T]` lets several tasks read a `T`: write `[T: Syncs]`"
+  use std.par
+
+  pub fun count_all[T](xs: ?List[T]) -> Int
+    par.map(?xs, |x| 1).sum()
+
+  l: List[Int] = List()
+  !l.push(1)
+  print(count_all(?l))
+
+fail "apis pub states its bounds method", "`pub fun area_of[T]` calls `area` on a `T`, which a `pub` generic does through a bound: write `[T: Shape]`", "`pub fun size_of[T]` calls `size` on a `T`, which a `pub` generic does through a bound: declare an API with `size`, and bound `T` by it"
+  # A private generic calls a method on a `T` at each instance (Stage 1);
+  # a `pub` one calls it through an API its bounds name.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Sq: Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s
+
+    fun size(?@) -> Int
+      1
+
+  pub fun area_of[T](x: ?T) -> Float
+    x.area()
+
+  pub fun size_of[T](x: ?T) -> Int
+    x.size()
+
+  print(area_of(?Sq(s: 1.0)), size_of(?Sq(s: 1.0)))
+
+fail "apis pub states its bounds names", "`pub fun f[T]` names `Bag[T]`, which needs `T: Shape`: write `[T: Shape]`", "`pub fun g[T]` calls `biggest[T]`, which needs `T: Ord`: write `[T: Ord]`"
+  # A type or a function it names asks the bounds its own parameters
+  # state; an API of a program's own is never implied (its witness is
+  # a compile-time parameter of the declaration that states it).
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Bag[T: Shape]
+    x: T
+
+  fun biggest[T: Ord](a: T, b: T) -> T
+    a if a > b else b
+
+  pub fun f[T](b: ?Bag[T]) -> Int
+    1
+
+  pub fun g[T](a: T, b: T) -> T
+    biggest(<a, <b)
+
+  print(g(1, 2))
+
+fail "apis pub states its bounds adds to its bounds", "3:15: `pub fun total[T: Num]` copies a `T`: write `[T: Copy + Num]`"
+  # The fix is the whole list: the bounds written, and the one to add.
+
+  pub fun total[T: Num](xs: ?List[T]) -> T
+    s = xs[0]
+    s
+
+  l: List[Int] = List()
+  !l.push(1)
+  print(total(?l))
+
+fail "apis pub states its bounds implied by another", "3:11: `pub fun h[T: Eq]` hashes a `T`: write `[T: Hash]`"
+  # A bound another implies is left out of the fix: `Hash` gives `Eq`.
+
+  pub fun h[T: Eq](a: ?T) -> U64
+    a.hash()
+
+  print(h(?1) > 0)
+
+fail "apis pub states its bounds of a type", "3:14: `pub obj Pair[T]` copies a `T`: write `[T: Copy]`"
+  # A `pub` type's parameters are its methods', private ones included.
+
+  pub obj Pair[T]
+    a: T
+    b: T
+
+    fun first(?@) -> T
+      @a
+
+  p = Pair(a: 1, b: 2)
+  print(p.first())
+
+fail "apis pub states its bounds of a method", "7:15: `pub fun map[U]` copies a `U`: write `[U: Copy]`"
+  # A `pub` method of a `pub` type states the bounds of its own
+  # parameters; a private method's keep per-instance checking.
+
+  pub obj Pair[T: Copy]
+    a: T
+
+    pub fun map[U](?@, u: ?U) -> List[U]
+      out: List[U] = List()
+      !out.push(u)
+      out
+
+    fun keep[U](?@, u: ?U) -> List[U]
+      out: List[U] = List()
+      !out.push(u)
+      out
+
+  p = Pair(a: 1)
+  print(p.map(?3).len, p.keep(?4).len)
+
+test "apis pub states its bounds private per instance", "3 true"
+  # A private generic keeps per-instance checking: its author sees every
+  # instance.
+
+  fun sum[T](a: T, b: T) -> T
+    a + b
+
+  fun same[T](a: ?T, b: ?T) -> Bool
+    a == b
+
+  print(sum(1, 2), same(?1, ?1))
+
+test "apis pub states its bounds with implied bounds", "true false 2 true"
+  # A bound a signature's types already require counts as stated: `K`
+  # named in `Map[K, V]` is `K: Hash` without saying it, whether or not
+  # it has bounds of its own, and so is one named in a type whose field
+  # does (`Index[K]`), declared before or after.
+
+  pub fun has[K](ix: ?Index[K], k: ?K) -> Bool
+    ix.m.has(k)
+
+  obj Index[K]
+    m: Map[K, Int]
+
+  fun shown[K: Print, V](m: ?Map[K, V], k: ?K) -> Bool
+    m.has(k)
+
+  pub fun count[K, V](m: ?Map[K, V], k: ?K) -> Int
+    m.len + (1 if k.hash() > 0 else 0)
+
+  m: Map[Int, Int] = Map()
+  !m.put(1, 1)
+  ix = Index(m: Map[Int, Int]())
+  !ix.m.put(1, 2)
+  print(has(?ix, ?1), shown(?m, ?5), count(?m, ?1), ix.m.len == 1)
+
+fail "apis pub states its bounds implied at each instance", "`Index[Float]` cannot use `K = Float`: `Float` cannot be hashed"
+  # An implied bound is checked at each instance, as a written one is.
+
+  obj Index[K]
+    m: Map[K, Int]
+
+  ix: Index[Float]? = none
+  print(ix == none)
+
+fail "apis pub states its bounds of a type declared later", "4:11: `pub obj W[T]` names `Index[T]`, which needs `K: Hash`: write `[T: Hash]`", "10:11: `pub fun f[T]` names `Index[T]`, which needs `K: Hash`: write `[T: Hash]`"
+  # The bounds a type's signature implies are asked whatever the order
+  # of the declarations, and the fix names the bound the type implies,
+  # not one that bound implies in turn (`Hash` gives `Eq`).
+  pub obj W[T]
+    t: T
+
+    pub fun m(?@, ix: ?Index[T]) -> Int
+      1
+
+  pub fun f[T](x: ?T) -> Int
+    ix: Index[T]? = none
+    1
+
+  obj Index[K]
+    m: Map[K, Int]
+
+  w = W(t: 1)
+  print(w.t, f(?1))
+
+fail "apis pub states its bounds on lines of their own", "4:3: `pub fun pick[K, T]` copies a `T`: write `[T: Copy]`", whole: true
+  # The error names the declaration on one line, without its comments.
+  pub fun pick[
+    K,
+    T,  # the element, copied out [by value]
+  ](m: ?Map[K, Int], xs: ?List[T]) -> T
+    xs[0]
+
+  sub main()
+    l: List[Int] = List()
+    !l.push(1)
+    print(pick(?Map[Int, Int](), ?l))
+
+fail "apis a call through a bound checks the implementation's instance", known: true, "`Float` cannot be hashed"
+  # An implementation's generic method checked at each instance (`Sq` is
+  # private) is reached through `T: Keyed` at `K = Float`, which it
+  # hashes: the instance must be checked, not left to Zig.
+  api Keyed
+    fun look[K](?@, k: ?K) -> Bool
+
+  obj Sq: Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+  fun probe[T: Keyed](t: ?T) -> Bool
+    t.look(?1.5)
+
+  print(probe(?Sq(n: 1)))
+
+test "apis pub states its bounds facts no API names", "301 2"
+  # A literal's fit and a table's default are no API's: each instance of
+  # a `pub` generic decides them, bounded or not.
+
+  pub fun add300[T: Num](x: T) -> T
+    x + 300
+
+  pub fun slots[T: Copy, n: Int]() -> Int
+    t = Table[T, n]()
+    n
+
+  print(add300(1), slots[Int, 2]())
+
+test "apis bounds of a composite argument", "1"
+  # A bound asked of an argument made of other types (`Pair[T, U]`) in a
+  # signature is checked once every type's contents are known.
+
+  obj Pair[A, B]
+    a: A
+    b: B
+
+  obj Chain[T: Copy]
+    items: List[T]
+
+    fun zip[U](?@, other: ?Chain[U]) -> Chain[Pair[T, U]]
+      out: List[Pair[T, U]] = List()
+      i = 0
+      while i < @items.len and i < other.items.len
+        !out.push(Pair(a: @items[i], b: other.items[i]))
+        i += 1
+      Chain(items: <out)
+
+  v: List[Int] = List()
+  !v.push(1)
+  l = Chain(items: <v)
+  z = ?l.zip(?l)
+  print(z.items[0].a)

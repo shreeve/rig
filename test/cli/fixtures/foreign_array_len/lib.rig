@@ -8,5 +8,5 @@ fun helper[m: Int]() -> Int
 pub sub show[k: Int]()
   print(helper[k]())
 
-pub obj Ring[T, n: Int]
+pub obj Ring[T: Copy, n: Int]
   items: [n]T

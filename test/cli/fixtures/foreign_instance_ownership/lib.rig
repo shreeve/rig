@@ -1,4 +1,4 @@
-pub fun twice[T](x: T) -> T
+pub fun twice[T: Copy](x: T) -> T
   a = x
   <a
   x
@@ -11,3 +11,6 @@ pub obj Wrap[T]
 
   fun get(?@) -> ?T
     ?@v
+
+pub fun filled[T: Copy, n: Int](x: T) -> [n]T
+  [n of x]

@@ -49,6 +49,6 @@ out=$("$TIMEOUT_CMD" 120 "$RIG" check subs.rig 2>&1); expect_rc $? 0 "a chain of
 # Another module's generic functions, each calling the next: each one's
 # type parameter is imported with the calls its body makes.
 mkdir -p generic
-chain 20000 'pub fun f%d[T](x: T) -> T' 'f%d(x)' 'x' '' >generic/lib.rig
+chain 20000 'pub fun f%d[T: Copy](x: T) -> T' 'f%d(x)' 'x' '' >generic/lib.rig
 printf 'use lib\n\nsub main()\n  print(lib.f0(1))\n' >generic/main.rig
 out=$("$TIMEOUT_CMD" 120 "$RIG" check generic/main.rig 2>&1); expect_rc $? 0 "a chain of 20,000 generic calls in another module: $out"

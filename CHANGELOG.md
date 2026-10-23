@@ -13,6 +13,31 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Public generics state their bounds (APIs Stage 3, the last step):**
+  a `pub` function, a `pub` type, and a `pub` method of a `pub` type
+  name, by bounds, everything their bodies do with each type parameter
+  that an API names: a copy, `==`, ordering, `.hash()`, printing,
+  arithmetic, keeping a `T` where no loan is tracked, crossing to other
+  tasks, a call of another generic or a type bounded so, and a method
+  call, which goes through an API. The error is at the parameter, with
+  the bounds to write: `` `pub fun sum[T]` adds `T`s: write `[T: Num]`
+  ``. A bound a signature's types already require counts as stated:
+  `K` named in `Map[K, V]`, or in a type whose field names one, is
+  `K: Hash` without saying it, whether or not it has bounds of its own,
+  so `[K: Print]` no longer restates `Hash`. A private generic keeps
+  per-instance checking, and what no API names (a literal's fit, a
+  table's default, freezing) is checked at each instance everywhere. A
+  bound asked of an argument made of other types in a signature
+  (`Chain[Pair[T, U]]` under `Chain[T: Copy]`) is checked once every
+  type's contents are known, where it crashed the compiler. Printing a
+  view of a `T` (`print(x)`, `x: ?T`) needs `Print`, as printing a `T`
+  does. *Rejected now:* a `pub` generic whose body does with a type
+  parameter what its bounds do not name, which earlier releases checked
+  at each instance. `tools/state-bounds.py PROGRAM.rig` writes every
+  such bound from the compiler's own fixes (`--dry-run` prints the
+  diff); std and examples/ need none, and Trig's src/ needs 51 bounds
+  on 49 declarations.
+
 - **A method's view names the path of self it views:** `-> ?String from
   @text` (also `from @a.b`, and beside parameters, `from @map, k`) lets
   the result carry the loans self holds and a loan on that path alone,

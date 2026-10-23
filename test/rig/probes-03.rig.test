@@ -4391,7 +4391,7 @@ test "audit-emit-mod", '''
     pub fun ident[T](x: T) -> T
       x
 
-    pub obj Pair[T]
+    pub obj Pair[T: Num]
       pub a: T
       pub b: T
 

@@ -41,7 +41,7 @@ test "alias across modules", '''
   file "lib.rig"
     use util
 
-    pub obj Pair[T]
+    pub obj Pair[T: Copy]
       pub a: T
       pub b: T
 
@@ -213,7 +213,7 @@ test "closure args across modules", '''
         while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
           !xs.swap(j, j - 1)
 
-    pub fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+    pub fun map[T: Copy, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
       out: List[U] = List()
       for x in xs
         !out.push(f(?x))
@@ -297,7 +297,7 @@ test "const generics across modules", '''
         t += x
       t
 
-    pub obj Ring[T, n: Int]
+    pub obj Ring[T: Copy, n: Int]
       pub items: [n]T
 
       pub fun cap(?@) -> Int
@@ -733,7 +733,7 @@ test "directory module names", "21 4"
     pub fun total() -> Int
       LIMIT + helper() + u.twice(geo.Point(x: 1, y: 2).sum())
 
-    pub obj Ring[T, n: Int]
+    pub obj Ring[T: Copy, n: Int]
       items: [n]T
 
   file "m/b.rig"
@@ -1298,7 +1298,7 @@ fail "foreign array len", "8:11: `lib.zeros[-1]` cannot use `n = -1`: the generi
     pub sub show[k: Int]()
       print(helper[k]())
 
-    pub obj Ring[T, n: Int]
+    pub obj Ring[T: Copy, n: Int]
       items: [n]T
 
 test "foreign builtin element", '''
@@ -1325,25 +1325,25 @@ test "foreign builtin element", '''
       !v.push(<x)
       v.len
 
-fail "foreign chain requirement", "8:26: `util.twice[Static]` cannot use `T = Static`: the generic body applies `+` to `T`, which `Static` does not support", "2:3: `+` used on `T` here (arithmetic)", "8:26: `util.twice[Static]` is made by `lib.quad[Static]`"
+fail "foreign chain requirement", "8:26: `util.twice[U8]` cannot use `T = U8`: the generic body applies `+` to a `T` and the literal `300`, which `U8` cannot hold", "2:3: `+` used here", "8:26: `util.twice[U8]` is made by `lib.quad[U8]`"
   # An instance reached through another module's generic body is checked
   # against the body of the module that declares it, which this module
-  # need not import.
+  # need not import, for what no bound names: a literal's fit.
 
   use lib
 
   sub main()
-    print(lib.quad(2), lib.quad("a"))
+    print(lib.quad(2), lib.quad(U8(1)))
 
   file "lib.rig"
     use util
 
-    pub fun quad[T](x: T) -> T
+    pub fun quad[T: Copy + Num](x: T) -> T
       util.twice(util.twice(x))
 
   file "util.rig"
-    pub fun twice[T](x: T) -> T
-      x + x
+    pub fun twice[T: Num](x: T) -> T
+      x + 300
 
 test "foreign constant methods", '''
   true 5
@@ -1378,7 +1378,7 @@ test "foreign constant methods", '''
     pub D: lib.Opt[Int] = .nothing
 
   file "lib.rig"
-    pub enum Opt[T]
+    pub enum Opt[T: Copy]
       some(value: T)
       nothing
 
@@ -1472,15 +1472,15 @@ fail "foreign instance names", "9:13: `conv[Bool]` cannot use `U = Bool`", "9:13
     pub fun max[T](a: T, b: T) -> T
       a
 
-    pub fun run[T](x: T) -> T
+    pub fun run[T: Copy](x: T) -> T
       w = Wrap(v: 1)
       w.conv(x)
 
-fail "foreign instance ownership", "16:11: `lib.twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns", "2:7: `T` copied here; move it with `<` instead"
-  # The ownership checker checks each instance of another module's
-  # generic against that module's body: an owning argument where the body
-  # copies a `T` (the note points into the body). A read view is a fine
-  # `T` there, of a generic function or of a type with methods.
+fail "foreign instance ownership", "16:11: `lib.twice[Res]` cannot use `T = Res`: `Res` cannot be copied"
+  # Each instance of another module's `pub` generic meets the bounds that
+  # module states: an owning argument where the body copies a `T`, which
+  # it states as `Copy`, is rejected. A read view is a fine `T` there, of
+  # a generic function or of a type with methods.
 
   use lib
 
@@ -1499,7 +1499,7 @@ fail "foreign instance ownership", "16:11: `lib.twice[Res]` cannot use `T = Res`
     print(c.v.n)
 
   file "lib.rig"
-    pub fun twice[T](x: T) -> T
+    pub fun twice[T: Copy](x: T) -> T
       a = x
       <a
       x
@@ -1513,10 +1513,9 @@ fail "foreign instance ownership", "16:11: `lib.twice[Res]` cannot use `T = Res`
       fun get(?@) -> ?T
         ?@v
 
-fail "foreign instance requirement", "11:13: `lib.max[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support", "2:8: `>` used on `T` here (ordering comparison)"
+fail "foreign instance requirement", "10:13: `lib.max[P]` cannot use `T = P`: `P` cannot be ordered; name `Ord` on its header: `obj P: Ord`"
   # An instance of another module's generic function is checked where it
-  # is made, against what that module's body does with its type
-  # parameters; the note points into the body.
+  # is made, against the bounds that module's signature states.
 
   use lib
 
@@ -1527,7 +1526,7 @@ fail "foreign instance requirement", "11:13: `lib.max[P]` cannot use `T = P`: th
     print(lib.max(P(x: 1), P(x: 2)).x)
 
   file "lib.rig"
-    pub fun max[T](a: T, b: T) -> T
+    pub fun max[T: Ord](a: T, b: T) -> T
       a if a > b else b
 
 fail "foreign oversized generic argument", "10:19: `[2]Big` takes 8480000 bytes", "11:19: `[3]Big` takes 12720000 bytes"
@@ -1650,11 +1649,11 @@ test "generic chain three modules", "12 6.0 12"
   file "lib.rig"
     use util
 
-    pub fun quad[T](x: T) -> T
+    pub fun quad[T: Copy + Num](x: T) -> T
       util.twice(util.twice(x))
 
   file "util.rig"
-    pub fun twice[T](x: T) -> T
+    pub fun twice[T: Num](x: T) -> T
       x + x
 
 test "generic fn across modules", '''
@@ -1690,13 +1689,13 @@ test "generic fn across modules", '''
     print(r.n, kept.n)
 
   file "lib.rig"
-    pub fun max[T](a: T, b: T) -> T
+    pub fun max[T: Ord](a: T, b: T) -> T
       a if a > b else b
 
     fun bigger[T](a: T, b: T) -> T
       a if a > b else b
 
-    pub fun biggest[T](a: T, b: T, c: T) -> T
+    pub fun biggest[T: Copy](a: T, b: T, c: T) -> T
       bigger(bigger(a, b), c)
 
     pub fun keep[T](x: T) -> T
@@ -1767,7 +1766,7 @@ test "generic instance identity", "5 6 [1, 2]"
     pub obj Wrap[T]
       pub v: T
 
-    pub fun unbox[T](b: Wrap[T]) -> T
+    pub fun unbox[T: Copy](b: Wrap[T]) -> T
       b.v
 
 test "generic method own param", '''
@@ -1796,10 +1795,10 @@ test "generic method own param", '''
       pub a: A
       pub b: B
 
-    pub obj Chain[T]
+    pub obj Chain[T: Copy]
       pub items: List[T]
 
-      pub fun zip[U](?@, other: ?Chain[U]) -> Chain[Pair[T, U]]
+      pub fun zip[U: Copy](?@, other: ?Chain[U]) -> Chain[Pair[T, U]]
         out: List[Pair[T, U]] = List()
         i = 0
         while i < @items.len and i < other.items.len
@@ -1813,7 +1812,7 @@ test "generic method own param", '''
       fun tag[U](?@, u: U) -> Wrap[Pair[T, U]]
         Wrap(v: Pair(a: @v, b: u))
 
-    pub fun tagged[T](x: T) -> Int
+    pub fun tagged[T: Copy](x: T) -> Int
       w = Wrap(v: x)
       t = w.tag(true)
       1 if t.v.b else 0
@@ -1843,7 +1842,7 @@ test "generic methods across modules", '''
     pub obj Tagger
       pub label: ?String
 
-      pub sub show[T](?@, x: T)
+      pub sub show[T: Print](?@, x: T)
         print(@label, x)
 
     fun local[T](x: T) -> T
@@ -1907,7 +1906,7 @@ test "generic type across modules", '''
       print(x.v, x.count)
 
   file "lib.rig"
-    pub obj Wrap[T]
+    pub obj Wrap[T: Copy]
       pub v: T
       pub count: Int = 1
 
@@ -1917,14 +1916,14 @@ test "generic type across modules", '''
       pub fun get(?@) -> T
         @v
 
-      pub fun with[U](?@, u: U) -> Pair[T, U]
+      pub fun with[U: Copy](?@, u: U) -> Pair[T, U]
         Pair(first: @v, second: u)
 
     pub obj Pair[A, B]
       pub first: A
       pub second: B
 
-    pub enum Opt[T]
+    pub enum Opt[T: Copy]
       some(value: T)
       nothing
 
@@ -2079,7 +2078,7 @@ fail "marker frame across", "7:5: `generic` keeps", "10:5: `nested` keeps", "13:
     method(1)
 
   file "lib.rig"
-    pub inline fun big[T](x: T, i: Int) -> T
+    pub inline fun big[T: Copy](x: T, i: Int) -> T
       t = [1000000 of x]
       t[i % 1000000]
 
@@ -2093,7 +2092,7 @@ fail "marker frame across", "7:5: `generic` keeps", "10:5: `nested` keeps", "13:
     pub inline fun small[T](x: T) -> T
       x
 
-    pub inline fun outer[T](x: T, i: Int) -> T
+    pub inline fun outer[T: Copy](x: T, i: Int) -> T
       big(x, i)
 
 fail "marker frame alias", "12:5: `there` keeps 16000040 bytes of values on its stack", "15:5: `here` keeps 16000040 bytes of values on its stack", "18:5: `generic` keeps 16000040 bytes of values on its stack", errors: 3
@@ -2157,7 +2156,7 @@ fail "marker frame instance across", "`gen` keeps 16000", "in `lib.gen[Int]`", e
       t = [1000000 of x]
       t.len - 1000000 + i
 
-    pub fun gen[T](x: T, i: Int) -> Int
+    pub fun gen[T: Copy](x: T, i: Int) -> Int
       big(x, i) + big(x, i + 1)
 
 test "marker generic member across", release: true, '''
@@ -2566,7 +2565,7 @@ fail "private members", "8:5: field `count` of `lib.Counter` is private to modul
       sub reset(!@)
         @count = 0
 
-    pub obj Pair[T]
+    pub obj Pair[T: Copy]
       pub a: T
       b: T
 
@@ -2616,7 +2615,7 @@ fail "private method of generic type", "25:21: method `make` of `lib.Wrap` is pr
     print(b.v)
 
   file "lib.rig"
-    pub obj Wrap[T]
+    pub obj Wrap[T: Copy + Print]
       pub v: T
 
       fun make(v: T) -> Self
@@ -2739,7 +2738,7 @@ test "pub members", '''
       sub note(?@)
         print("bumped", @label, @count)
 
-    pub obj Pair[T]
+    pub obj Pair[T: Copy]
       pub a: T
       pub b: T
 

@@ -6996,7 +6996,7 @@ test "pub generic method own param", "2 b 2"
     a: A
     b: B
 
-  pub obj Chain[T]
+  pub obj Chain[T: Copy]
     items: List[T]
 
     fun zip[U](?@, other: ?Chain[U]) -> Chain[Pair[T, U]]

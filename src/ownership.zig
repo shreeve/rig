@@ -836,9 +836,16 @@ pub const Checker = struct {
         const a = self.arena();
         for (self.plain_reqs.items[0..self.own_plain_reqs]) |r| {
             const sym = ctx.symbols.items[r.param];
-            if (!sema.hasBounds(sym)) continue;
+            if (!sema.checkedByBounds(sym)) continue;
             const api: sema.Api = if (r.view) .Owned else .Copy;
             if (sema.boundApis(ctx, sym).contains(api)) continue;
+            // A `pub` declaration's parameter: at the parameter, with the
+            // bounds to write, and a note where the body does it.
+            if (try sema.statedMessage(ctx, a, r.param, .{ .api = api }, try sema.boundUse(a, api, sym.name, ""))) |msg| {
+                try self.err(sym.decl_pos, "{s}", .{msg});
+                try self.note(r.pos, "here", .{});
+                continue;
+            }
             const what = if (r.view) "a value that holds no loan, which a Cell, a Signal, or an owned closure keeps" else if (r.element) "taking an element its collection still owns" else "a copy";
             try self.err(r.pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
         }
