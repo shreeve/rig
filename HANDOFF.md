@@ -85,7 +85,10 @@ After the consolidation round, in the owner's order:
    defaults, additions, `Shape.area(c)`, error sets and the
    API's clauses through a bound
    ([phase2-notes.md](docs/history/records/2026-10/apis-stage3/phase2-notes.md)).
-   Phase 3 (method-level bounds, additions to `Slot[n]`) is next.
+   Phase 3, method-level bounds and additions to types with value
+   parameters (`Slot[n]`, `Table[T, n]`), is built
+   ([phase3-notes.md](docs/history/records/2026-10/apis-stage3/phase3-notes.md)).
+   Phase 4 (associated types and `Iter`) is next.
 2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved

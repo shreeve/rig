@@ -786,6 +786,30 @@ pub const Field = struct {
     /// An API's method with a body: a default, which a type that
     /// provides the API may leave out.
     is_default: bool = false,
+    /// A method declared under bounds on its type's parameters (`fun
+    /// Wrap[T: Print].show(?@)`): what each adds, which a call's type
+    /// arguments must provide.
+    owner_bounds: []const OwnerBound = &.{},
+};
+
+/// A bound a method adds to one of its type's parameters (`fun Wrap[T:
+/// Print].show(?@)`): the parameter, by its place among the type's, and
+/// the APIs, built-in and a program's own (docs/design/apis.md, Stage 3,
+/// "Bounds"). Within the method the parameter has its type's bounds and
+/// these (`widenOwnerBounds`); a call's argument for it must provide
+/// them, and passes a witness for each API of a program's own.
+pub const OwnerBound = struct {
+    param: u32,
+    apis: Apis = .empty,
+    user_apis: []const ApiRef = &.{},
+};
+
+/// The witnesses a call passes a method under bounds (`OwnerBound`), one
+/// per API of a program's own in the order written, after self, which is
+/// the call's first argument when `receiver_arg` (`Wrap.show(w)`).
+pub const OwnerWitnesses = struct {
+    witnesses: []const Witness,
+    receiver_arg: bool = false,
 };
 
 pub const Symbol = struct {
@@ -1384,6 +1408,9 @@ pub const Facts = struct {
     read_only_fields: std.AutoHashMapUnmanaged(NodeKey, ReadOnlyField) = .empty,
     /// Method call node -> how it reaches its method (`Dispatch`).
     dispatch: std.AutoHashMapUnmanaged(NodeKey, Dispatch) = .empty,
+    /// A call of a method under bounds -> the witnesses it passes for
+    /// them (`OwnerWitnesses`).
+    owner_witnesses: std.AutoHashMapUnmanaged(NodeKey, OwnerWitnesses) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
@@ -2415,6 +2442,13 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
                 try w.print(" {s}.{s}", .{ try apiName(ctx, s.api), s.method });
             },
         },
+        OwnerWitnesses => {
+            if (v.receiver_arg) try w.writeAll(" receiver_arg");
+            for (v.witnesses) |ow| {
+                try w.writeAll(" witness ");
+                try writeWitness(ctx, a, w, ow);
+            }
+        },
         // A field a pattern leaves out shows as `-`.
         []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
         []const SetMember => for (v) |m| try w.print(" {s}.{s}", .{ try formatTypeIn(ctx, a, m.set), m.name }),
@@ -2748,6 +2782,13 @@ pub const SemContext = struct {
     /// Each instance of a generic type bounded by an API of a program's
     /// own -> the witnesses among its arguments (`recordTypeWitnesses`).
     type_witnesses: std.AutoHashMapUnmanaged(TypeId, []const ArgWitness) = .empty,
+    /// Where the name of each method declared under bounds on its type's
+    /// parameters is -> those bounds, as resolve reads them, for the
+    /// method's `Field` (`Field.owner_bounds`).
+    owner_bounds: std.AutoHashMapUnmanaged(u32, []const OwnerBound) = .empty,
+    /// The type parameters that carry the bounds of the method being
+    /// checked as well as their own (`widenOwnerBounds`).
+    widened: []const SymbolId = &.{},
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
@@ -2987,6 +3028,7 @@ pub const SemContext = struct {
         self.deferred_checks.deinit(self.allocator);
         self.conformances.deinit(self.allocator);
         self.type_witnesses.deinit(self.allocator);
+        self.owner_bounds.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
         self.untakeable.deinit(self.allocator);
@@ -4241,6 +4283,14 @@ pub const SemContext = struct {
 
     pub fn dispatchOf(self: *const SemContext, call: Sexp) ?Dispatch {
         return self.facts.dispatch.get(nodeKey(call) orelse return null);
+    }
+
+    pub fn recordOwnerWitnesses(self: *SemContext, call: Sexp, w: OwnerWitnesses) !void {
+        try self.facts.owner_witnesses.put(self.allocator, recordKey(call), w);
+    }
+
+    pub fn ownerWitnessesOf(self: *const SemContext, call: Sexp) ?OwnerWitnesses {
+        return self.facts.owner_witnesses.get(nodeKey(call) orelse return null);
     }
 
     /// Record an instance of a generic function a call makes at `site`:
@@ -6719,9 +6769,18 @@ pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const Typ
 /// of the program's own, at `at`; the fix names the header or the
 /// addition that would provide it, or the bound.
 fn reportUnprovided(ctx: *SemContext, at: u32, of: InstanceRoot, pname: []const u8, arg: TypeId, api: ApiRef) std.mem.Allocator.Error!void {
-    const a = ctx.arena.allocator();
     const inst = try rootName(ctx, of);
     const bare = if (std.mem.indexOfScalar(u8, inst, '[')) |i| inst[0..i] else inst;
+    const aname = try formatType(ctx, arg);
+    const iname = try apiName(ctx, api);
+    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` needs `{s}: {s}`, and `{s}` does not provide `{s}`{s}", .{ inst, pname, aname, bare, pname, iname, aname, iname, try unprovidedFix(ctx, arg, api) });
+}
+
+/// The end of an error that `arg` does not provide `api`, an API of a
+/// program's own: the bound to add, the header or addition that would
+/// provide it, or why none can.
+pub fn unprovidedFix(ctx: *SemContext, arg: TypeId, api: ApiRef) std.mem.Allocator.Error![]const u8 {
+    const a = ctx.arena.allocator();
     const aname = try formatType(ctx, arg);
     const iname = try apiName(ctx, api);
     const fix: []const u8 = fix: {
@@ -6769,7 +6828,7 @@ fn reportUnprovided(ctx: *SemContext, at: u32, of: InstanceRoot, pname: []const 
         const named = try formatBounds(ctx, a, sym, null);
         break :fix try a.print("; declare `{s} {s}{s}: {s}{s}{s}`", .{ if (is_enum) "enum" else "obj", sym.name, params, named, if (named.len > 0) " + " else "", iname });
     };
-    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` needs `{s}: {s}`, and `{s}` does not provide `{s}`{s}", .{ inst, pname, aname, bare, pname, iname, aname, iname, fix });
+    return fix;
 }
 
 /// A conformance of `ty`'s type constructor to `api` whose conditions
@@ -6861,7 +6920,10 @@ fn providesAt(ctx: *SemContext, ty: TypeId, api: ApiRef, depth: u32) std.mem.All
 /// addition `conf` (of module `home`) puts on the parameter it fills
 /// (`add Wrap[T: Shape]: Shape`).
 fn conditionsMet(ctx: *SemContext, ty: TypeId, home: *const SemContext, conf: Conformance, depth: u32) std.mem.Allocator.Error!bool {
-    if (conf.params.len == 0) return true;
+    const bounded = for (conf.params) |p| {
+        if (hasBounds(home.symbols.items[p])) break true;
+    } else false;
+    if (!bounded) return true;
     const args = switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| pn.args,
         else => return false,
@@ -6904,8 +6966,20 @@ fn typeKey(ctx: *const SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.All
         .nominal => |s| symKey(ctx, s),
         .parameterized_nominal => |pn| symKey(ctx, pn.sym),
         .imported_nominal => |n| .{ .module_id = n.module_id, .sym = n.sym_id },
-        .int, .float, .bool, .string, .static, .symbol, .slot => .{ .name = try formatTypeIn(ctx, a, ty) },
+        .int, .float, .bool, .string, .static, .symbol => .{ .name = try formatTypeIn(ctx, a, ty) },
+        // Every `Slot[n]`, whatever its `n`, as `add Slot[n]` names it.
+        .slot => .{ .name = "Slot" },
         else => null,
+    };
+}
+
+/// The compile-time arguments of `ty` that a conformance's own parameters
+/// fill: a generic type's, or a slot's `n`; empty for any other type.
+pub fn conformanceArgs(ctx: *const SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn.args,
+        .slot => |n| a.dupe(TypeId, &.{n}),
+        else => &.{},
     };
 }
 
@@ -6945,10 +7019,7 @@ pub fn witnessFor(ctx: *SemContext, ty: TypeId, api: ApiRef) std.mem.Allocator.E
         },
         .conformance => |c| {
             const found = conformanceOf(ctx, p).?;
-            const args: []const TypeId = switch (ctx.types.get(ty)) {
-                .parameterized_nominal => |pn| pn.args,
-                else => &.{},
-            };
+            const args = try conformanceArgs(ctx, ctx.arena.allocator(), ty);
             // The parameters whose bounds the witness takes: an addition's
             // own, or the generic type's.
             const params: []const SymbolId = if (found.conf.kind == .add) found.conf.params else switch (found.home.types.get(found.conf.ty)) {
@@ -7007,9 +7078,102 @@ pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
             if (p != symbol_invalid and ctx.symbols.items[p].user_apis.len > 0) break true;
         } else false;
         if (!bounded or ctx.type_witnesses.contains(ty)) continue;
+        // A type whose parameters carry a method's bounds just now
+        // (`widenOwnerBounds`) takes the witnesses its declaration names,
+        // which the record after that method's check gives it.
+        const widened = for (params) |p| {
+            if (p != symbol_invalid and ownerWidened(ctx, p)) break true;
+        } else false;
+        if (widened) continue;
         const ws = (try typeWitnesses(ctx, ty)) orelse continue;
         try ctx.type_witnesses.put(ctx.allocator, ty, ws);
     }
+}
+
+/// The bounds of a type's parameters as they stand while a method that
+/// adds to them is checked (`widenOwnerBounds`), to put back after.
+pub const Widened = struct {
+    syms: []const SymbolId = &.{},
+    apis: []const Apis = &.{},
+    user_apis: []const []const ApiRef = &.{},
+    outer: []const SymbolId = &.{},
+};
+
+/// While the body of a method under bounds (`fun Wrap[T: Print].show(?@)`)
+/// is checked, each parameter of its type it bounds has its type's bounds
+/// and the method's, so the body does what both name, as any bounded
+/// body does; `restoreOwnerBounds` puts them back. A requirement made on
+/// such a parameter meanwhile is decided at once (`ownerWidened`), never
+/// left for the type's other instances.
+pub fn widenOwnerBounds(ctx: *SemContext, type_params: []const SymbolId, bounds: []const OwnerBound) std.mem.Allocator.Error!Widened {
+    const a = ctx.arena.allocator();
+    var syms: std.ArrayList(SymbolId) = .empty;
+    var apis: std.ArrayList(Apis) = .empty;
+    var users: std.ArrayList([]const ApiRef) = .empty;
+    for (bounds) |b| {
+        if (b.param >= type_params.len) continue;
+        const p = type_params[b.param];
+        if (p == symbol_invalid) continue;
+        const sym = &ctx.symbols.items[p];
+        try syms.append(a, p);
+        try apis.append(a, sym.apis);
+        try users.append(a, sym.user_apis);
+        sym.apis.setUnion(b.apis);
+        sym.user_apis = try std.mem.concat(a, ApiRef, &.{ sym.user_apis, b.user_apis });
+    }
+    const saved: Widened = .{ .syms = syms.items, .apis = apis.items, .user_apis = users.items, .outer = ctx.widened };
+    ctx.widened = try std.mem.concat(a, SymbolId, &.{ ctx.widened, syms.items });
+    return saved;
+}
+
+pub fn restoreOwnerBounds(ctx: *SemContext, w: Widened) void {
+    for (w.syms, w.apis, w.user_apis) |p, apis, users| {
+        ctx.symbols.items[p].apis = apis;
+        ctx.symbols.items[p].user_apis = users;
+    }
+    ctx.widened = w.outer;
+}
+
+/// Whether type parameter `sym` carries the bounds of the method being
+/// checked (`widenOwnerBounds`).
+pub fn ownerWidened(ctx: *const SemContext, sym: SymbolId) bool {
+    return std.mem.findScalar(SymbolId, ctx.widened, sym) != null;
+}
+
+/// The bounds a method adds to its type's parameters as written, each
+/// with the parameter's name from `type_params` (symbols of `home`):
+/// `T: Print`, `T: Print, U: Shape`.
+pub fn ownerBoundsText(ctx: *const SemContext, home: *const SemContext, a: std.mem.Allocator, type_params: []const SymbolId, bounds: []const OwnerBound) std.mem.Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (bounds) |b| {
+        if (b.param >= type_params.len) continue;
+        if (out.items.len > 0) try out.appendSlice(a, ", ");
+        try out.print(a, "{s}: ", .{home.symbols.items[type_params[b.param]].name});
+        const start = out.items.len;
+        for (b.user_apis) |u| {
+            if (out.items.len > start) try out.appendSlice(a, " + ");
+            try out.appendSlice(a, try apiName(ctx, u));
+        }
+        var it = b.apis.iterator();
+        while (it.next()) |api| {
+            if (out.items.len > start) try out.appendSlice(a, " + ");
+            try out.appendSlice(a, @tagName(api));
+        }
+    }
+    return out.items;
+}
+
+/// The witnesses a call of a method under `bounds` passes, its type's
+/// arguments being `args` (of `ctx`): one for each API of a program's own
+/// a bound names, in order. Null when an argument does not provide one,
+/// which the call's check reports.
+pub fn ownerWitnesses(ctx: *SemContext, bounds: []const OwnerBound, args: []const TypeId) std.mem.Allocator.Error!?[]const Witness {
+    var out: std.ArrayList(Witness) = .empty;
+    for (bounds) |b| {
+        if (b.param >= args.len) return null;
+        for (b.user_apis) |u| try out.append(ctx.arena.allocator(), (try witnessFor(ctx, args[b.param], u)) orelse return null);
+    }
+    return out.items;
 }
 
 /// Why `ty`, a type with its own `==` and no hash of its own, cannot be

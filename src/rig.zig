@@ -2348,6 +2348,11 @@ pub const Parser = struct {
     /// module as it declares it (`fun Nope.m()`, `fun geo.Point.m()`),
     /// each as written, `pub` included; the checker says why.
     detached: std.ArrayList(Sexp) = .empty,
+    /// The type's parameters as a method declared outside its type's
+    /// body names them, by where the method's name is, for a method that
+    /// bounds one of them (`fun Wrap[T: Print].show(?@)`): each a bare
+    /// name, its bounds recorded by where it is (`bounds`).
+    owner_bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
 
     /// How many `obj` or `enum` bodies the node being rewritten is in: a
     /// function there is a method.
@@ -3255,11 +3260,13 @@ pub const Parser = struct {
             // The body's value is returned.
             .fun => {
                 try self.tparamBounds(walked, ir.slot(.fun, .tparams));
+                try self.tparamBounds(walked, ir.slot(.fun, .owner_params));
                 try self.paramList(out);
                 if (ir.Fun.returns(out) != .nil) try self.valueTail(&walked[ir.slot(.fun, .body)]);
             },
             .sub => {
                 try self.tparamBounds(walked, ir.slot(.sub, .tparams));
+                try self.tparamBounds(walked, ir.slot(.sub, .owner_params));
                 try self.paramList(out);
             },
             .extern_fun, .extern_sub => try self.paramList(out),
@@ -3415,6 +3422,13 @@ pub const Parser = struct {
     /// (`tparamBounds`); empty for one written bare.
     pub fn boundsAt(self: *const Parser, pos: u32) []const Sexp {
         return self.bounds.get(pos) orelse &.{};
+    }
+
+    /// The type's parameters as the method whose name is at `pos` names
+    /// them, when it bounds one (`fun Wrap[T: Print].show(?@)`); each
+    /// one's bounds are `boundsAt` its name. Empty for any other method.
+    pub fn ownerBoundsAt(self: *const Parser, pos: u32) []const Sexp {
+        return self.owner_bounds.get(pos) orelse &.{};
     }
 
     /// A `rarely` that starts the body of a function, a branch of `if` or
@@ -3689,6 +3703,14 @@ pub const Parser = struct {
                 try self.detached.append(a, d);
                 continue;
             }
+            const owner_params = ir.get(method, .owner_params);
+            const named = ir.get(method, .name);
+            if (named == .src and owner_params != .nil) for (owner_params.items()) |p| {
+                if (p == .src and self.bounds.contains(p.src.pos)) {
+                    try self.owner_bounds.put(a, named.src.pos, owner_params.items());
+                    break;
+                }
+            };
             const items = @constCast(method.items());
             const fun = method.isKind(.fun);
             items[if (fun) ir.slot(.fun, .owner) else ir.slot(.sub, .owner)] = .nil;

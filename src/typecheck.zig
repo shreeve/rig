@@ -726,10 +726,25 @@ const Checker = struct {
                 .fun, .sub => {
                     const pos = ir.get(m, .name).src.pos;
                     var fn_ty = self.t().invalid_id;
+                    var bounds: []const sema.OwnerBound = &.{};
                     for (fields) |f| {
-                        if (f.is_method and f.decl_pos == pos) fn_ty = f.ty;
+                        if (f.is_method and f.decl_pos == pos) {
+                            fn_ty = f.ty;
+                            bounds = f.owner_bounds;
+                        }
                     }
+                    if (bounds.len == 0) {
+                        try self.checkFunction(m, fn_ty);
+                        continue;
+                    }
+                    // A method under bounds: its type's parameters have
+                    // them while its body is checked.
+                    const tparams = self.ctx.symbols.items[sym_id].type_params orelse &.{};
+                    try self.checkOwnerBounds(sym_id, node, pos, bounds);
+                    const widened = try sema.widenOwnerBounds(self.ctx, tparams, bounds);
+                    defer sema.restoreOwnerBounds(self.ctx, widened);
                     try self.checkFunction(m, fn_ty);
+                    try sema.recordTypeWitnesses(self.ctx);
                 },
                 .default => for (fields) |f| {
                     if (f.default != null and f.decl_pos == ir.Default.name(m).src.pos) try self.checkDefaultValue(f.default.?, f.ty, "field");
@@ -3116,6 +3131,7 @@ const Checker = struct {
             else => return .not_iterator,
         }
         const next = (try self.findMethod(peeled, "next")) orelse return .not_iterator;
+        if (next.field.owner_bounds.len > 0) return .{ .malformed = "is declared under a bound on its type's parameters, which the loop does not state" };
         if (next.field.receiver != .write) return .{ .malformed = switch (next.field.receiver) {
             .read => "takes `?@`",
             .value => "takes `<@`",
@@ -5443,7 +5459,84 @@ const Checker = struct {
     }
 
     fn require(self: *Checker, param: SymbolId, req: Requirement, pos: u32, op: []const u8) Error!void {
+        if (try self.decidedByOwnerBounds(param, req, pos)) return;
         try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = req, .pos = pos, .op = op });
+    }
+
+    /// A requirement on a parameter that has the bounds of the method
+    /// being checked (`sema.widenOwnerBounds`) is decided here, by those
+    /// bounds and its type's, never left for the type's instances, which
+    /// may not call the method. Copying, keeping, and crossing are the
+    /// type's alone (`checkOwnerBounds`), so they are left as for any
+    /// method of the type.
+    fn decidedByOwnerBounds(self: *Checker, param: SymbolId, req: Requirement, pos: u32) Error!bool {
+        if (!sema.ownerWidened(self.ctx, param)) return false;
+        const api = apiOf(req) orelse return false;
+        if (ownershipApi(api)) return false;
+        if (!sema.boundApis(self.ctx, self.ctx.symbols.items[param]).contains(api)) {
+            try reportUnbounded(self.ctx, pos, param, api, try self.ctx.arena.allocator().print("{s}", .{req.describe()}));
+        }
+        return true;
+    }
+
+    /// What a method's own bounds (`fun Wrap[T: Print].show(?@)`) may add
+    /// to its type's: none it names already, given or implied, and none of
+    /// the facts of how a `T` is copied, kept, or crosses, which every
+    /// method of the type shares and the type's bounds say.
+    fn checkOwnerBounds(self: *Checker, type_sym: SymbolId, node: Sexp, pos: u32, bounds: []const sema.OwnerBound) Error!void {
+        const sym = self.ctx.symbols.items[type_sym];
+        const tparams = sym.type_params orelse &.{};
+        const keyword = if (node.isKind(.generic_enum)) "enum" else "obj";
+        const mname = for (sym.fields orelse &.{}) |f| {
+            if (f.is_method and f.decl_pos == pos) break f.name;
+        } else "?";
+        for (bounds) |b| {
+            if (b.param >= tparams.len) continue;
+            const param = self.ctx.symbols.items[tparams[b.param]];
+            const has = sema.boundApis(self.ctx, param);
+            const header = try self.boundedHeader(keyword, sym.name, tparams, std.math.maxInt(u32), "");
+            var it = b.apis.iterator();
+            while (it.next()) |api| {
+                if (ownershipApi(api)) {
+                    try self.err(pos, "`{s}.{s}` bounds `{s}` by `{s}`, which says how a `{s}` is copied, kept, or sent, the same in every method: bound the type, `{s}`", .{ sym.name, mname, param.name, @tagName(api), param.name, try self.boundedHeader(keyword, sym.name, tparams, b.param, @tagName(api)) });
+                } else if (has.contains(api)) {
+                    try self.err(pos, "`{s}.{s}` repeats `{s}: {s}`, which `{s}` already gives: a method's bounds add to its type's", .{ sym.name, mname, param.name, @tagName(api), header });
+                }
+            }
+            for (b.user_apis) |u| {
+                const uname = try sema.apiName(self.ctx, u);
+                const builds = try sema.builtInSupers(self.ctx, &.{u});
+                var bit = builds.iterator();
+                const moves: ?sema.Api = while (bit.next()) |api| {
+                    if (ownershipApi(api)) break api;
+                } else null;
+                if (moves) |api| {
+                    try self.err(pos, "`{s}.{s}` bounds `{s}` by `{s}`, which builds on `{s}`, which says how a `{s}` is copied, kept, or sent, the same in every method: bound the type, `{s}`", .{ sym.name, mname, param.name, uname, @tagName(api), param.name, try self.boundedHeader(keyword, sym.name, tparams, b.param, uname) });
+                    continue;
+                }
+                if (try sema.provides(self.ctx, try self.ctx.intern(.{ .type_var = tparams[b.param] }), u) != null) {
+                    try self.err(pos, "`{s}.{s}` repeats `{s}: {s}`, which `{s}` already gives: a method's bounds add to its type's", .{ sym.name, mname, param.name, uname, header });
+                }
+            }
+        }
+    }
+
+    /// `obj Wrap[T: Copy]`: the type's header with `bound` added to
+    /// parameter `at`'s bounds.
+    fn boundedHeader(self: *Checker, keyword: []const u8, name: []const u8, tparams: []const SymbolId, at: u32, bound: []const u8) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var out: std.ArrayList(u8) = .empty;
+        try out.print(a, "{s} {s}[", .{ keyword, name });
+        for (tparams, 0..) |p, i| {
+            if (i > 0) try out.appendSlice(a, ", ");
+            const sym = self.ctx.symbols.items[p];
+            try out.appendSlice(a, sym.name);
+            if (i != at and !sema.hasBounds(sym)) continue;
+            const written = try sema.formatBounds(self.ctx, a, sym, null);
+            try out.print(a, ": {s}{s}{s}", .{ written, if (i == at and written.len > 0) " + " else "", if (i == at) bound else "" });
+        }
+        try out.appendSlice(a, "]");
+        return out.items;
     }
 
     /// A literal operand next to a generic `T` becomes a `T`, so every
@@ -7149,6 +7242,64 @@ const Checker = struct {
         return false;
     }
 
+    /// A call of method `m` of a generic type (`owner`, declared in
+    /// module `module`, null for this one) at the type's arguments `args`
+    /// meets the bounds the method adds to them (`fun Wrap[T: Print].show(?@)`)
+    /// and records the witnesses it passes for those that name APIs of a
+    /// program's own. An argument that holds a type parameter with no
+    /// bound meets none: each instance would decide, and a call on one
+    /// reaches no method under a bound. False after a diagnostic.
+    fn meetsOwnerBounds(self: *Checker, m: Field, owner: sema.Symbol, module: ?u32, args: []const TypeId, pos: u32, receiver_arg: bool) Error!bool {
+        if (m.owner_bounds.len == 0) return true;
+        const a = self.ctx.arena.allocator();
+        const home: *const SemContext = if (module) |id| self.ctx.foreign_semas.get(id) orelse self.ctx else if (sema.isProxy(owner)) self.ctx.foreign_semas.get(owner.from.module_id) orelse self.ctx else self.ctx;
+        const home_sym = if (sema.isProxy(owner) and home != self.ctx) home.symbols.items[owner.from.sym] else owner;
+        const tparams = home_sym.type_params orelse &.{};
+        if (args.len < tparams.len) {
+            try self.err(pos, "internal error: `{s}.{s}` is declared under bounds on its type's parameters, and the call has no type arguments to check", .{ owner.name, m.name });
+            return false;
+        }
+        for (args) |arg| if (self.isPoison(arg)) return true;
+        var inst_text: std.ArrayList(u8) = .empty;
+        try inst_text.print(a, "{s}[", .{owner.name});
+        for (args, 0..) |arg, i| try inst_text.print(a, "{s}{s}", .{ if (i > 0) ", " else "", try self.tyName(arg) });
+        try inst_text.print(a, "].{s}", .{m.name});
+        const inst = inst_text.items;
+        for (m.owner_bounds) |b| {
+            if (b.param >= tparams.len) continue;
+            const arg = args[b.param];
+            const pname = home.symbols.items[tparams[b.param]].name;
+            const shown = try self.tyName(arg);
+            // A type parameter with no bound, which each instance decides.
+            var held: std.ArrayList(SymbolId) = .empty;
+            try sema.reachedTypeVars(self.ctx, arg, &held, a);
+            for (held.items) |p| {
+                const psym = self.ctx.symbols.items[p];
+                if (sema.hasBounds(psym) or psym.flags.set_param) continue;
+                const needed = try sema.ownerBoundsText(self.ctx, home, a, tparams, &.{b});
+                try self.err(pos, "`{s}` needs `{s}`, and `{s}` has no bound: a call reaches a method under a bound only where the bounds of its type's arguments give it; write `[{s}: {s}]`", .{ inst, needed, psym.name, psym.name, needed[std.mem.indexOf(u8, needed, ": ").? + 2 ..] });
+                return false;
+            }
+            for (b.user_apis) |u| {
+                if (try sema.provides(self.ctx, arg, u) != null) continue;
+                const uname = try sema.apiName(self.ctx, u);
+                try self.err(pos, "`{s}` needs `{s}: {s}`, and `{s}` does not provide `{s}`{s}", .{ inst, pname, uname, shown, uname, try sema.unprovidedFix(self.ctx, arg, u) });
+                return false;
+            }
+            var it = sema.implied(b.apis).iterator();
+            while (it.next()) |api| {
+                const lack = (try sema.lacks(self.ctx, arg, api)) orelse continue;
+                if (lack.own_eq) {
+                    try self.err(pos, "`{s}` needs `{s}: {s}`: {s}", .{ inst, pname, @tagName(api), try sema.ownEqUnhashed(self.ctx, lack.ty) });
+                } else try self.err(pos, "`{s}` needs `{s}: {s}`, and `{s}` {s}{s}", .{ inst, pname, @tagName(api), shown, sema.cannotDo(api), try sema.lackDetail(self.ctx, a, arg, api, lack) });
+                return false;
+            }
+        }
+        const ws = (try sema.ownerWitnesses(self.ctx, m.owner_bounds, args)) orelse return false;
+        if (ws.len > 0) if (self.current_call) |call| try self.ctx.recordOwnerWitnesses(call, .{ .witnesses = ws, .receiver_arg = receiver_arg });
+        return true;
+    }
+
     /// The one diagnostic of a form that writes copies of a value it
     /// leaves in place (`copy`, `fill`, `[n of x]`, `List.filled`, and
     /// `resize`) when the element `elem` does not copy (docs/CORE.md §5,
@@ -7191,7 +7342,7 @@ const Checker = struct {
         var held: std.ArrayList(SymbolId) = .empty;
         defer held.deinit(self.ctx.allocator);
         try sema.heldTypeVars(self.ctx, ty, &held, self.ctx.allocator);
-        for (held.items) |param| try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = req, .pos = pos, .op = op });
+        for (held.items) |param| try self.require(param, req, pos, op);
     }
 
     /// The temporary a read view of `operand` (or a slice of it) lends,
@@ -12246,6 +12397,7 @@ const Checker = struct {
         // found.
         try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module, self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)));
         if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos)) return self.skipCall(args);
+        if (!try self.meetsOwnerBounds(resolved.field, resolved.owner_sym, resolved.module, self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)).args, pos, false)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -12807,6 +12959,7 @@ const Checker = struct {
             return self.badCall(args, pos, "no method `{s}` on `{s}`, the value of actor `{s}`", .{ method, try self.tyName(value), shown });
         };
         const receiver = m.field.receiver;
+        if (m.field.owner_bounds.len > 0) return self.badCall(args, pos, "`{s}` is declared under a bound on its type's parameters, and an actor's handle calls no such method: call it in a method of `{s}`", .{ method, try self.tyName(value) });
         switch (receiver) {
             .none => return self.badCall(args, pos, "`{s}` takes no self: call it through its type, `{s}.{s}(...)`", .{ method, try self.tyName(value), method }),
             .value => return self.badCall(args, pos, "`{s}` takes its value, which the actor keeps: a handle calls a `?@` or `!@` method", .{method}),
@@ -13956,6 +14109,7 @@ const Checker = struct {
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv);
                 if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
+                if (!try self.meetsOwnerBounds(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv.args, pos, m.receiver != .none)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
@@ -19055,6 +19209,7 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
         // the function; through a write view, the function's own `keeps`
         // says what may be stored.
         if (c.owned_recv and m.field.origins.stores & m.field.origins.lent != 0) break :blk try a.print("and `{s}` keeps a view of an argument in `{s}`, a `{s}` the body holds, whose loans it does not track", .{ owner, c.recv, pname });
+        if (m.field.owner_bounds.len > 0) break :blk try a.print("and `{s}` is declared under a bound on its type's parameters, which a call on a `{s}` with no bound does not state", .{ owner, pname });
         if (sema.isGenericFn(ctx, m.fn_ty)) break :blk try a.print("and `{s}` takes compile-time parameters of its own, which a call on a `{s}` does not give", .{ owner, pname });
         const params = m.fn_ty.params[1..];
         if (params.len != args.len) break :blk try a.print("with {d} argument{s}, and `{s}` takes {d}", .{ args.len, if (args.len == 1) "" else "s", owner, params.len });
@@ -19115,6 +19270,16 @@ fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, a
 /// (docs/design/apis.md, "What a bound changes in a body"), or null for
 /// one each instance still decides with any bounds: a literal's fit, a
 /// shift's width, a size, a name.
+/// Whether `api` says how a value is copied, kept, or crosses to
+/// another task: a fact of a type's parts that every method of a generic
+/// type shares, never one a method's own bounds add.
+fn ownershipApi(api: sema.Api) bool {
+    return switch (api) {
+        .Copy, .Clone, .Owned, .Moves, .Shares => true,
+        else => false,
+    };
+}
+
 fn apiOf(req: Requirement) ?sema.Api {
     return switch (req) {
         .numeric, .bytes => .Num,
@@ -19227,6 +19392,7 @@ fn checkApiMethod(ctx: *SemContext, sym: sema.Symbol, api: sema.Api, m: Field) E
             .read => "?@",
         }});
         if (f.ct_params.len > 0) break :blk "takes compile-time parameters";
+        if (m.owner_bounds.len > 0) break :blk "is declared under a bound on its type's parameters, which the header does not state";
         if (f.params.len != 2) break :blk try a.print("takes {d} parameter{s}", .{ f.params.len - 1, if (f.params.len == 2) "" else "s" });
         const p = f.params[1];
         const ok = switch (api) {
@@ -19387,12 +19553,39 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
             continue;
         };
         try members.append(a, .{ .name = w.field.name, .from = if (conf.kind == .add) .added else .own });
+        // A method under bounds the header does not state meets no API on
+        // it: only an addition under those bounds gives the API.
+        if (conf.kind == .header and have.owner_bounds.len > 0) {
+            const tsym = ctx.symbols.items[decl.?.sym];
+            const tparams = tsym.type_params orelse &.{};
+            var names: std.ArrayList(u8) = .empty;
+            for (tparams, 0..) |p, i| try names.print(a, "{s}{s}", .{ if (i > 0) ", " else "", ctx.symbols.items[p].name });
+            const under = try sema.ownerBoundsText(ctx, ctx, a, tparams, have.owner_bounds);
+            try ctx.err(have.decl_pos, "`{s}.{s}` is declared under `{s}`, which `{s}[{s}]: {s}` does not state: a conformance is met only by methods its own bounds imply; take `{s}` off the header and write `add {s}[{s}]: {s}`, which declares `{s}`", .{ tname, have.name, under, tname, names.items, api_name, api_name, tname, try boundParamsText(ctx, a, tparams, have.owner_bounds), api_name, have.name });
+            continue;
+        }
         try checkMethodMeets(ctx, conf, tname, w, have);
         // A method that meets a `pub` API on a `pub` type is `pub`.
         if (conf.kind == .header and api_sym.flags.is_public and ctx.symbols.items[decl.?.sym].flags.is_public and !have.is_pub) {
             try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}`, a `pub` API, on `{s}`, a `pub` type, so it is `pub`: write `pub {s}`", .{ tname, have.name, api_name, tname, headerText(ctx.source, have.decl_pos) });
         }
     }
+}
+
+/// A generic type's parameters with the bounds a method adds written in:
+/// `T: Print, U`.
+fn boundParamsText(ctx: *SemContext, a: std.mem.Allocator, tparams: []const SymbolId, bounds: []const sema.OwnerBound) Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (tparams, 0..) |p, i| {
+        if (i > 0) try out.appendSlice(a, ", ");
+        const b = for (bounds) |b| {
+            if (b.param == i) break b;
+        } else null;
+        if (b) |one| {
+            try out.appendSlice(a, try sema.ownerBoundsText(ctx, ctx, a, tparams, &.{one}));
+        } else try out.appendSlice(a, ctx.symbols.items[p].name);
+    }
+    return out.items;
 }
 
 /// An API other than `api` that a later conformance of the same type
@@ -19496,6 +19689,8 @@ fn sameProvider(ctx: *SemContext, x: TypeId, y: TypeId) Error!bool {
 fn genericSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     return switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| pn.sym,
+        // Every `Slot[n]` is one type constructor's.
+        .slot => ctx.slot_sym_id,
         else => null,
     };
 }

@@ -835,7 +835,9 @@ type's module, written as it is called: `fun Point.length(?@) ->
 Int`, `sub Point.shift(!@, dx: Int)`, `pub fun Point.origin() ->
 Self`. After a name, `[]` is compile time: a generic type's method
 repeats the type's parameters as its declaration names them, then
-gives its own, `fun Wrap[T].map[U](?@, f: fun(T) -> U) -> Wrap[U]`.
+gives its own, `fun Wrap[T].map[U](?@, f: fun(T) -> U) -> Wrap[U]`;
+a bound there is the method's, `fun Wrap[T: Print].show(?@)`
+([SPEC, APIs](SPEC.md#apis)).
 It is the same member written in the body ([SPEC
 §3](SPEC.md#methods-outside-the-body)); a `drop` body stays in the
 body.
@@ -967,7 +969,8 @@ each a method that takes self first, without a body when it is
 required and with one when it is a default; `api Name: A + B` builds on
 other APIs. `add Type: Name` gives an API to a type its header cannot
 name, with the methods in its body, and `add Wrap[T: Bound]: Name` to a
-generic type under a bound ([SPEC, APIs](SPEC.md#apis)).
+generic type under a bound; a value parameter is named as a type
+parameter is, `add Slot[n]: Name` ([SPEC, APIs](SPEC.md#apis)).
 
 ```rig
 api Shape

@@ -461,10 +461,11 @@ others and on the built-in ones, headers and `add`, how an
 implementation must match its API, coherence, `pub` on a method that
 meets a `pub` API, a bound by an API checked at each instance, a call
 through a bound with the API's clauses and set, `Shape.area(c)` and the
-shorthand `c.area()`, and witnesses, a generic type's among its
-arguments ([SPEC, APIs](../../SPEC.md#apis)). *Not yet:* associated
-types and `Iter`, method-level bounds, additions to `Slot[n]` and
-`Table[T, n]`, and the rule that public generics state their bounds.
+shorthand `c.area()`, witnesses, a generic type's among its
+arguments, method-level bounds, and additions to `Slot[n]` and
+`Table[T, n]` ([SPEC, APIs](../../SPEC.md#apis)). *Not yet:* associated
+types and `Iter`, and the rule that public generics state their
+bounds.
 
 ```rig
 pub api Shape

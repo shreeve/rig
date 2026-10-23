@@ -763,6 +763,15 @@ const SymbolResolver = struct {
                 self.ctx.symbols.items[pid].user_apis = user.items;
             }
         };
+        // `add Slot[n]`, `add Table[T, n]`: a lowercase name is a value
+        // parameter of the addition, of the type's parameter's type
+        // (`TypeResolver.addedType`), which takes no bound.
+        if (ty.isKind(.generic_inst)) for (ir.GenericInst.args(ty)) |arg| {
+            if (arg != .src) continue;
+            const text = identAt(self.ctx.source, arg) orelse continue;
+            if (!std.ascii.isLower(text[0]) or self.ctx.lookup(self.scope, text) != null) continue;
+            _ = try self.declare(arg, .param, .{ .comptime_known = true });
+        };
         for (ir.rest(node, .members)) |m| {
             if (m.isKind(.fun) or m.isKind(.sub)) try self.walkFun(m);
         }
@@ -791,8 +800,27 @@ const SymbolResolver = struct {
 
     fn walkMembers(self: *SymbolResolver, members: []const Sexp) Error!void {
         for (members) |m| {
+            if (m.isKind(.fun) or m.isKind(.sub)) try self.ownerBounds(m);
             if (m.isKind(.fun) or m.isKind(.sub) or m.isKind(.drop_decl)) try self.walkFun(m);
         }
+    }
+
+    /// The bounds a method declared outside its type's body adds to the
+    /// type's parameters (`fun Wrap[T: Print].show(?@)`), recorded for its
+    /// `Field` (`SemContext.owner_bounds`).
+    fn ownerBounds(self: *SymbolResolver, decl: Sexp) Error!void {
+        const p = self.ctx.parser orelse return;
+        const name = ir.get(decl, .name);
+        if (name != .src) return;
+        const params = p.ownerBoundsAt(name.src.pos);
+        if (params.len == 0) return;
+        var out: std.ArrayList(sema.OwnerBound) = .empty;
+        for (params, 0..) |leaf, i| {
+            const b = try self.boundsOf(leaf);
+            if (b.apis.count() == 0 and b.user.len == 0) continue;
+            try out.append(self.ctx.arena.allocator(), .{ .param = @intCast(i), .apis = b.apis, .user_apis = b.user });
+        }
+        if (out.items.len > 0) try self.ctx.owner_bounds.put(self.ctx.allocator, name.src.pos, out.items);
     }
 
     fn walkSet(self: *SymbolResolver, node: Sexp) Error!void {
@@ -1168,6 +1196,22 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
         const d = rig.unpub(decl);
         tr.part = if (d == .list and ctx.ct.early.contains(d.list.id)) .rest else .all;
         try tr.resolveDecl(decl);
+    }
+    // An addition's value parameter (`add Ring[T, n]`) has the type of the
+    // type's, which a type of this module resolves only now.
+    for (ctx.conformances.items) |conf| {
+        if (conf.kind != .add) continue;
+        const pn = switch (ctx.types.get(conf.ty)) {
+            .parameterized_nominal => |pn| pn,
+            else => continue,
+        };
+        const tparams = ctx.symbols.items[pn.sym].type_params orelse continue;
+        for (pn.args, 0..) |arg, i| switch (ctx.types.get(arg)) {
+            .ct_param => |p| if (i < tparams.len) {
+                ctx.symbols.items[p].ty = ctx.symbols.items[tparams[i]].ty;
+            },
+            else => {},
+        };
     }
 }
 
@@ -2004,23 +2048,28 @@ pub const TypeResolver = struct {
             break :blk id;
         };
         const tparams = self.ctx.symbols.items[gid].type_params orelse &.{};
-        for (tparams) |tp| if (self.ctx.symbols.items[tp].kind != .generic_param) {
-            try self.ctx.errAt(tnode, "an addition to a type with a compile-time value parameter is not built yet", .{});
-            return null;
-        };
         const args = ir.GenericInst.args(tnode);
         var tys: std.ArrayList(TypeId) = .empty;
         defer tys.deinit(self.ctx.allocator);
-        for (args) |arg| {
+        for (args, 0..) |arg, i| {
             const leaf = if (arg.isKind(.kwarg)) ir.Kwarg.name(arg) else arg;
             const pid = self.ctx.symbolOf(leaf);
-            if (pid == null or self.ctx.symbols.items[pid.?].kind != .generic_param) {
+            // A value parameter of the type (`Slot[n]`, `Table[T, n]`) is
+            // one of the addition's, `n`, of the type's parameter's type.
+            const value = i < tparams.len and self.ctx.symbols.items[tparams[i]].kind == .param;
+            if (value and pid != null and self.ctx.symbols.items[pid.?].kind == .param and self.ctx.symbols.items[pid.?].flags.comptime_known and !arg.isKind(.kwarg)) {
+                self.ctx.symbols.items[pid.?].ty = self.ctx.symbols.items[tparams[i]].ty;
+                try params.append(self.ctx.allocator, pid.?);
+                try tys.append(self.ctx.allocator, try self.ctx.intern(.{ .ct_param = pid.? }));
+                continue;
+            }
+            if (pid == null or value or self.ctx.symbols.items[pid.?].kind != .generic_param) {
                 var names: std.ArrayList(u8) = .empty;
-                for (tparams, 0..) |tp, i| {
-                    if (i > 0) try names.appendSlice(self.ctx.arena.allocator(), ", ");
+                for (tparams, 0..) |tp, j| {
+                    if (j > 0) try names.appendSlice(self.ctx.arena.allocator(), ", ");
                     try names.appendSlice(self.ctx.arena.allocator(), self.ctx.symbols.items[tp].name);
                 }
-                try self.ctx.errAt(arg, "an addition covers every instance of its type: name each of its type parameters, `add {s}[{s}]: {s}`", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), names.items, apis_text });
+                try self.ctx.errAt(arg, "an addition covers every instance of its type: name each of its compile-time parameters, `add {s}[{s}]: {s}`", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), names.items, apis_text });
                 return null;
             }
             try params.append(self.ctx.allocator, pid.?);
@@ -2030,6 +2079,8 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(tnode, "`{s}` takes {d} compile-time parameter{s}, and `add` names {d}", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), tparams.len, if (tparams.len == 1) "" else "s", args.len });
             return null;
         }
+        // `Slot[n]` is a number below `n`, a type of its own kind.
+        if (gid == self.ctx.slot_sym_id) return try self.ctx.intern(.{ .slot = tys.items[0] });
         return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gid, .args = tys.items } });
     }
 
@@ -3098,7 +3149,12 @@ pub const TypeResolver = struct {
         const mpos = name.src.pos;
         const owner = self.ctx.symbols.items[nominal_sym].name;
         if (try self.checkDuplicateMember(names, mname, mpos, owner)) return;
+        // A method under bounds on its type's parameters
+        // (`SemContext.owner_bounds`) names types its bounds allow.
+        const owner_bounds = self.ctx.owner_bounds.get(mpos) orelse &.{};
+        const widened = try sema.widenOwnerBounds(self.ctx, self.ctx.symbols.items[nominal_sym].type_params orelse &.{}, owner_bounds);
         const fn_ty = try self.resolveFunction(node, nominal_sym);
+        sema.restoreOwnerBounds(self.ctx, widened);
         const marked = rig.markerOf(node) == .@"inline";
         if (marked) try self.ctx.inline_decls.put(self.ctx.allocator, mpos, node);
         const params = ir.get(node, .params);
@@ -3120,6 +3176,7 @@ pub const TypeResolver = struct {
             .ty = fn_ty,
             .decl_pos = mpos,
             .is_method = true,
+            .owner_bounds = owner_bounds,
             .is_pub = self.isPubMember(node),
             .inline_marked = marked,
             .receiver = receiver,

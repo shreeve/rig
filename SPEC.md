@@ -2185,8 +2185,10 @@ declaration written as `T`'s last member: `pub` exports it, `Self` is
 `T`, and `?@`, `!@`, and `<@` mean what they mean in the body.
 A generic type's method names the type's parameters exactly as its
 declaration does (`Wrap[T]` for `obj Wrap[T]`, `Ring[T, n]` for `obj
-Ring[T, n: Int]`), and any of its own follow its name. A `drop` body
-stays in the body, since it decides the type's kind.
+Ring[T, n: Int]`), and any of its own follow its name. It may bound
+them, `fun Wrap[T: Print].show(?@)`, for a method that exists only
+where they provide what it needs ([APIs](#apis)). A `drop` body stays
+in the body, since it decides the type's kind.
 
 ```rig
 obj Point
@@ -2220,8 +2222,9 @@ sub main()
 
 A method is declared in the module that declares its type: an `obj`
 or `enum` of this module, named as declared, not through an alias, a
-built-in type, or another module's type (methods a type gains from
-elsewhere are what traits are for, [ROADMAP](docs/ROADMAP.md)).
+built-in type, or another module's type. A built-in type or another
+module's gains methods through an API, which `add` gives it
+([APIs](#apis)).
 
 ```rig reject
 obj Point
@@ -3400,7 +3403,10 @@ Shape`, or a type only under a bound, `add Wrap[T: Shape]: Shape`. An
 addition's methods belong to the API and never become methods of the
 type. `add` names a type by its name, never a view, an optional, a
 handle, an array, a slice, or a function type, and a type of the
-module itself only under a bound, since its header says the rest. A
+module itself only under a bound, since its header says the rest. It
+names each of the type's compile-time parameters, a value parameter as
+a type parameter, `add Slot[n]: Shape`, `add Table[T, n]: Shape`, and
+its methods read `n`. A
 type provides an API once in the whole program, in its own module or
 the API's; an addition gives the APIs its API builds on too, so it is
 written where each of them may be. An addition names no member the type
@@ -3594,6 +3600,76 @@ sub main()
 
 ```error
 `T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`
+```
+
+A method that exists only for some instances of a generic type states
+its bounds in the type's brackets, `fun Wrap[T: Print].show(?@)`,
+outside the type's body. Its signature and body have the type's bounds
+and these, and a call's type argument provides them; a type parameter
+with no bound provides none, and a call on a `T` with no bound reaches
+no such method. Its bounds add to the type's: one the type gives
+already, written or through an API it builds on, is an error, and so
+are `Copy`, `Clone`, `Owned`, `Moves`, and `Shares`, and an API that
+builds on them, which say how a value of the type is copied, kept, and
+sent in every method, and go in the type's own brackets. A conformance
+is met only by methods its own bounds imply: such a method meets no API
+on the type's header, gives the type no own meaning, and is no loop's
+`next`; `add Wrap[T: Print]: Shape` gives an API under a bound. A
+method's own type parameter takes bounds as a function's does, `fun
+of[U: Shape](?@, xs: ?List[U])`.
+
+```rig
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side
+
+obj Wrap[T]
+  x: T
+
+fun Wrap[T: Shape].doubled(?@) -> Float
+  2.0 * @x.area()
+
+sub Wrap[T: Print].show(?@)
+  print("holds", @x)
+
+fun total[U: Shape](ws: ?List[Wrap[U]]) -> Float
+  t = 0.0
+  for w in ws
+    t += w.doubled()
+  t
+
+sub main()
+  ws = List([Wrap(x: Square(side: 1.0)), Wrap(x: Square(side: 2.0))])
+  print(total(?ws))
+  Wrap(x: 3).show()
+```
+
+```output
+6.0
+holds 3
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Wrap[T]
+  x: T
+
+fun Wrap[T: Shape].doubled(?@) -> Float
+  2.0 * @x.area()
+
+sub main()
+  print(Wrap(x: 3).doubled())
+```
+
+```error
+`Wrap[Int].doubled` needs `T: Shape`, and `Int` does not provide `Shape`; write `add Int: Shape` in the module of `Shape`
 ```
 
 ### Type aliases

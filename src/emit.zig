@@ -282,6 +282,9 @@ const FunState = struct {
     cold: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
+    /// The witness parameters of a method under bounds on its type's
+    /// parameters (`W_T_Shape`), read by type at the top of its body.
+    owner_witnesses: []const []const u8 = &.{},
     /// The captures a closure called exactly once takes from its
     /// environment, bound at the top of its body as parameters are
     /// (`SemContext.recordOnceClosure`).
@@ -1122,6 +1125,26 @@ pub const Emitter = struct {
         }
     }
 
+    /// The witness parameters of the method named at `name_node` when it
+    /// is declared under bounds on its type's parameters
+    /// (`Field.owner_bounds`): `W_T_Shape` for each API of a program's own
+    /// they name, in order.
+    fn ownerWitnessParams(self: *Emitter, name_node: Sexp) Error![]const []const u8 {
+        const nom = self.nominal orelse return &.{};
+        if (name_node != .src or nom.sym == facts.symbol_invalid) return &.{};
+        const sym = self.facts.symbols.items[nom.sym];
+        const tparams = sym.type_params orelse return &.{};
+        const field = for (sym.fields orelse return &.{}) |f| {
+            if (f.is_method and f.decl_pos == name_node.src.pos) break f;
+        } else return &.{};
+        var out: std.ArrayList([]const u8) = .empty;
+        for (field.owner_bounds) |b| {
+            if (b.param >= tparams.len) return self.unsupported(name_node, "a bound on a parameter its type does not have");
+            for (b.user_apis) |api| try out.append(self.arena.allocator(), try self.witnessParamName(tparams[b.param], api));
+        }
+        return out.items;
+    }
+
     /// `W_T_Shape`: type parameter `sym`'s witness for `api`.
     fn witnessParamName(self: *Emitter, sym: SymbolId, api: facts.ApiRef) Error![]const u8 {
         if (self.facts.apiSymbol(api) == null) return self.unsupported(.nil, "a bound by an unknown API");
@@ -1142,11 +1165,12 @@ pub const Emitter = struct {
                 }
                 try self.w.writeAll(try self.facts.witnessName(self.arena.allocator(), c.module_id, c.index));
                 const found = self.facts.conformanceAt(c.module_id, c.index) orelse return self.unsupported(.nil, "a witness of an unknown conformance");
-                if (found.facts.types.get(found.conf.ty) != .parameterized_nominal) return;
-                const args = switch (self.facts.types.get(c.ty)) {
-                    .parameterized_nominal => |pn| pn.args,
-                    else => return self.unsupported(.nil, "a generic type's witness for another type"),
-                };
+                switch (found.facts.types.get(found.conf.ty)) {
+                    .parameterized_nominal, .slot => {},
+                    else => return,
+                }
+                const args = try self.facts.conformanceArgs(self.arena.allocator(), c.ty);
+                if (args.len == 0) return self.unsupported(.nil, "a generic type's witness for another type");
                 try self.w.writeAll("(");
                 try self.writeArgsWithWitnesses(args, c.args);
                 try self.w.writeAll(")");
@@ -1551,12 +1575,22 @@ pub const Emitter = struct {
         try self.bindParams(params, inlined);
         const rt = params.items();
         const recv: usize = @intFromBool(self.nominal != null and rt.len > 0 and self.isReceiverParam(rt[0]));
+        // A method under bounds on its type's parameters takes a witness
+        // for each that names an API of a program's own, after self.
+        self.fun.owner_witnesses = try self.ownerWitnessParams(name_node);
         var n: usize = 0;
-        for ([_][]const Sexp{ rt[0..recv], tparams.items(), rt[recv..] }, 0..) |group, g| for (group) |p| {
-            if (n > 0) try self.w.writeAll(", ");
-            n += 1;
-            try self.emitParam(p, g == 1);
-        };
+        for ([_][]const Sexp{ rt[0..recv], tparams.items(), rt[recv..] }, 0..) |group, g| {
+            if (g == 1) for (self.fun.owner_witnesses) |w| {
+                if (n > 0) try self.w.writeAll(", ");
+                n += 1;
+                try self.w.print("comptime {s}: type", .{w});
+            };
+            for (group) |p| {
+                if (n > 0) try self.w.writeAll(", ");
+                n += 1;
+                try self.emitParam(p, g == 1);
+            }
+        }
         // A function that may fail with fields stores them through the
         // slot its caller lends it, last.
         if (!is_main and self.failsWithFields(return_ty)) {
@@ -1678,6 +1712,9 @@ pub const Emitter = struct {
             const local = self.localOf(facts.syntax.paramNameNode(p) orelse continue) orelse continue;
             try self.discardWitnesses(local.sym, self.indent);
         }
+        const owner_ws = self.fun.owner_witnesses;
+        self.fun.owner_witnesses = &.{};
+        for (owner_ws) |w| try self.line("_ = @TypeOf({s});", .{w});
         // A closure its callee calls at most once marks its environment
         // called: the call owns what the environment held, which the
         // environment drops only when it was never called.
@@ -8436,7 +8473,15 @@ pub const Emitter = struct {
         const slots = self.facts.callSlotsOf(call);
         const n = if (slots) |sl| sl.len else args.len;
         var written: usize = 0;
+        // The witnesses a method under bounds takes come first among its
+        // compile-time arguments, after self.
+        const owner_ws = self.facts.ownerWitnessesOf(call);
         for (0..n + 1) |i| {
+            if (owner_ws) |ow| if (i == @min(@intFromBool(ow.receiver_arg), n)) for (ow.witnesses) |w| {
+                if (written > 0) try self.w.writeAll(", ");
+                written += 1;
+                try self.writeWitness(w);
+            };
             if (i == @min(ct_at, n)) {
                 const ct = self.facts.ctArgsOf(call);
                 if (written > 0 and ctArgCount(generic, ct) > 0) try self.w.writeAll(", ");
