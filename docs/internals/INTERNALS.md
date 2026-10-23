@@ -26,7 +26,10 @@ source.rig
   │  Parser       src/rig.zig      a few tree rewrites → semantic IR
   ▼
 modules          src/modules.zig   load `use`d files, check in dependency order
-  │  sema        src/sema.zig      names, types, effects, the facts table
+  │  sema        src/sema.zig      names, types, effects, the facts table:
+  │    resolve   src/resolve.zig     declarations and their types
+  │    typecheck src/typecheck.zig   every expression's type and facts
+  │    cteval    src/cteval.zig      compile-time functions, run in the checker
   │  storage     src/storage.zig   the hidden storage emit makes
   │  ownership   src/ownership.zig moves, loans, drops, aliasing
   │  proofs      src/proofs.zig    the tests known to pass
@@ -34,9 +37,13 @@ modules          src/modules.zig   load `use`d files, check in dependency order
 inlining         src/inlining.zig  which small functions Zig inlines, program-wide
 symbols          src/symbols.zig   the program's symbols, numbered
 emit             src/emit.zig      one Zig file per module
-runtime          src/runtime.zig   written next to them as rig/runtime.zig
+runtime          src/runtime.zig   written next to them as rig/runtime.zig,
+                                   with sched, tasks, alloc, net, and table
   ▼
 zig run / zig build-exe            debug (leak-checked), safe, or fast
+  ▼
+rig build        src/frames.zig    warns of a frame larger than a page
+                 src/bolt.zig      lays the executable out by a workload (--bolt)
 ```
 
 `src/main.zig` is the CLI; `rig --help` is its reference. `check` runs
@@ -187,16 +194,20 @@ failed; after a panic it is non-zero, with no count.
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/symbols.zig` | the program's symbols: every `:name` of every module, numbered once for the whole program, and `__rig_symbols.zig`, which holds them ([Symbols](#symbols)) |
 | `src/proofs.zig` | the proven checks: which index, byte-access, and add tests a guard or a check already made |
-| `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`) |
+| `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`: `assignWritesThrough`, `moves`, `copies`) |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
 | `src/sched.zig` | the scheduler: fibers, workers, rings and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
 | `src/tasks.zig` | the task runtime: `Task`, `Tasks`, cancellation and deadlines, `par`, `task.isolate`, actors, `Chan` and `select`, over the scheduler |
 | `src/net.zig` | sockets and the HTTP server for `std.net` and `std.http`, registered with the workers' pollers |
+| `src/table.zig` | `Table[T, n]` and `Slot[n]`: how a table holds its slots (reserved, made, or committed), written beside the runtime as `rig/table.zig` ([Tables](#tables)) |
+| `src/alloc.zig` | the allocator of release builds, a heap per thread, written beside the runtime as `rig/alloc.zig` (`defaultAllocator`, [The runtime](#the-runtime)) |
 | `src/nametable.zig` | the table of names a plain enum's `E.from_text` reads, built by the compiler and emitted as constant data |
 | `src/timing.zig` | the pass times `rig check --time` reports |
 | `src/lib.zig` | the compiler as a library for `bin/rig-oracle`; `bin/rig` never imports it |
 | `src/main.zig` | the CLI |
+| `src/frames.zig` | the frame each function of a built executable reserves, read from its Mach-O or ELF symbols and prologues, for `rig build`'s warning of a frame larger than a page (`main.warnFrames`) |
+| `src/bolt.zig` | `rig build --release --bolt`: lays the executable out again with LLVM's BOLT by where a workload runs it (Linux); deleting it and its flags removes the feature |
 | `src/lsp.zig` | `rig lsp`, the language server: JSON-RPC on stdin and stdout, positions, and the diagnostics `rig check` gives, read through the same `ModuleGraph` |
 | `src/editor.zig` | what an editor shows of one file: the parse errors, the tokens the lexer wrapper classifies with the tree's declared names and sigils, the outline, and the folds, from the tolerant parse (`parseTolerant`, rig.grammar's `@repair`) |
 
@@ -446,7 +457,7 @@ wrapper also makes the only rewrites that need to inspect the tree:
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error; a
   capture of a field path, `|?p.a|`, keeps the lend its sigil makes
-  there as its value, `(cap_read ?p.a (read (member p a)))`, under a
+  there as its value, `(cap_read p.a (read (member p a)))`, under a
   name whose leaf spans the path from the sigil (`rig.isPathCapture`),
   and each `p.a` in the body becomes a name that reads as that path, so
   every later pass reads the body's `p.a` as the capture and checks,
@@ -1430,6 +1441,8 @@ instead of re-deriving it by name:
 | `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
 | `isEnumText(node)`, `hasTextTable(sym)` | whether a `member` `e.text` is the name of plain enum value `e`'s variant, which emit writes as `rig.enumText(e)`, and the place checks block every write and write lend of; and whether the program calls `from_text` on plain enum `sym` of this module, which then holds the table of its names (`rig.NameTable`, built by `src/nametable.zig`). A call on another module's enum is marked there once every module is checked (`ModuleGraph.markTextTables`); a built-in enum's table is the calling module's own |
+| `isMemberTest(node)` | whether `x == K.name` or `x == .name` tests which variant or member `x` holds, so emit tests the tag alone and needs no `==` on the payloads |
+| `isFrozenMake(call)`, `isLocalTask(call)` | whether a call is `Frozen(x)` under `*`, which emit writes as `rig.frozen(x)`; and whether the task a call makes is local, pinned to one thread ([What crosses to a task](#what-crosses-to-a-task)) |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
@@ -2482,6 +2495,57 @@ table held as it is written never grows for a read. It is not cloned
 (`deepCloneable`), and it is no field's default
 (`Checker.checkDefaultValue`): a Zig field default is a constant, and a
 table is made as the program runs.
+
+### What crosses to a task
+
+Whether a value may go to a task on another core is one fact per type,
+`sema.Crossing`: a value that `moves` may be handed whole to another
+thread, and one that `shares` may be read there while this thread reads
+it too ([docs/design/concurrency.md](../design/concurrency.md), "What
+may cross cores"). `sema.crosses` and `sema.crossingBlocker` answer it,
+the latter with the innermost type that stops it, through one walk,
+`blockerIn`:
+
+- a `*T` or `~T` crosses only when its count is atomic,
+  `sema.atomicHandle`, the one test of that (a one-word `Cell`'s, an
+  actor's, a channel's, or a frozen value's), and the runtime's
+  `synchronized` makes the same choice; then `atomicReach` checks what
+  the handle hands on: a channel's elements, which move, and a frozen
+  value's contents;
+- a function value, `fun(A) -> R`, is a named function's address and
+  holds nothing, so it crosses, alone or inside an object, a List, or a
+  channel; a callable view `?fun` and an owned closure `*fun` or `~fun`
+  never do, since their type does not show their captures;
+- a read view crosses as what it views shares, a write view and a `Task`
+  as what they hold moves; a set of tasks, a `Cell`, and a `Signal`
+  never cross;
+- a type parameter with no bound is decided in each instance, and one
+  with bounds as they say (`Moves`, `Shares`, `boundBlocker`).
+
+`sema.localBlocker` is the same walk with `local` set: what even a
+task pinned to this thread may not take. A part that crosses no core
+but passes it makes the task local (`SemContext.recordLocalTask`, read
+as `isLocalTask`), and emit spawns it with `spawnLocal` or
+`spawnMethodLocal`, which pin it and its maker to one worker
+(`sched.pinHere`); `rig check --tasks` lists each with what pins it.
+Typecheck asks it of a task's parts in `Checker.crossCheck` and of an
+actor call's arguments in `Checker.actorCall`, which takes no write view
+and makes no task local; both first read the part through
+`crossingTypeOf`, the one classifier of how a part goes: a closure
+literal written there is lent as a callable view, as `?f` of a closure
+is, so it goes to no task.
+
+**Frozen values.** `*Frozen(x)` (`Checker.frozenMake`, recorded as
+`isFrozenMake`) takes `x` behind its first handle, a
+`Frozen[T]` under `*`. What it may hold is `sema.frozenBlocker`
+(`frozenIn`): plain data, owners, `String`s, `List`s, objects and enums
+of such, and other frozen values, never a view, a callable, a `*T` that
+is not frozen, or a `~T`; a type parameter is checked in each instance
+(`sema.requireFrozen`, `Requirement.frozen`). A frozen value is never
+frozen again, and is shared with `+f`. `sema.frozenValue` and
+`frozenOfHandle` find the `T`; the runtime's `Frozen(T)` is `Shared(T)`
+with its counts always atomic (`Counted(T, true)`), made by
+`rig.frozen(value)`.
 
 ## Ownership
 
@@ -3779,7 +3843,9 @@ storage facts, and the questions about a type whose answer is how its
 values are held in Zig (a view as a pointer or a copy, a mutable or a
 constant pointer, what `+x` lowers to). The node decisions emit still
 makes itself, with the classifiers the checkers also call, are listed
-in `Pending`, which a unit test of `facts.zig` keeps from growing: it
+in `Pending` (whether an assignment writes through a view,
+`assignWritesThrough`, and whether a type `moves` or `copies`), which a
+unit test of `facts.zig` keeps from growing: it
 reads `emit.zig` with Zig's tokenizer and fails if emit imports any
 other file of the compiler, reaches the context behind `Facts`, or keeps
 a `Pending` entry it no longer uses. `Facts` also answers a few node
@@ -4442,12 +4508,21 @@ program-wide mode.
   (`recordCodeWidening`, in `recordAdapted`), and emit makes it
   `rig.ErrorValue.of(code, .{})` at `emitValue`, inside any optional it
   is lifted into.
-- **The slot.** Every function whose failure is an `ErrorValue` (`T!`, or
-  a set with fields) takes `__out: rig.ErrSlot` last (a closure
+- **Set parameters.** A function's type parameter written after `!`,
+  `fun total[E](f: ?fun() -> Int!E) -> Int!E`, is a set parameter
+  (`SymbolFlags.set_param`, marked by `resolve.markSetParams`): bound
+  only to an error set, and a value of it is an error
+  (`sema.isSetParam`, `isErrorValue`). Zig takes it as the set's error
+  set (`GenericCall.sets`), and a function that fails with one takes
+  the slot whatever set a call binds (`GenericCall.fails_by_set`).
+- **The slot.** Every function whose failure is an `ErrorValue` (`T!`, a
+  set with fields, or a set parameter) takes `__out: rig.ErrSlot` last (a closure
   `__out_N`, by its depth), as do function values' types, closures,
   zig-extern wrappers, and test functions. `ErrSlot` is a pointer to
   `ErrData`, and an empty struct with no bits where `ErrData` has none
-  (`rig.failSlot` makes one of a slot's bytes). A failing `return` of a
+  (`rig.failSlot` makes one of a slot's bytes). A callable view of any
+  fallible function takes it too, whatever its set, so a view typed
+  `!E` is one type in every instance. A failing `return` of a
   member writes its fields there (`rig.failWith`), and one of an error
   it holds moves them (`rig.failValue`); sema records which leaves fail
   (`isFailingLeaf`). `e!` hands its call the function's own slot; a
@@ -4532,7 +4607,7 @@ reviewed.
 
 | Piece | Role |
 |---|---|
-| `Shared(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
+| `Shared(T)`, `Frozen(T)` | the box behind `*T`, and behind `*Frozen[T]` with its counts always atomic (both `Counted(T, atomic)`; `Shared`'s counts are atomic when `T` is `synchronized`): a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
 | `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `Shared` past 256 nested releases |
 | `Weak(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
 | `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `nicheOf`, `Niche(T, n)`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way: `Niche(T, n)`, an object's bytes holding `none` in its niche `n` (`nicheOf`), which it keeps as bytes since they are no `T` while they hold `none`, and reads as a `T` only past that one compare; `Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`; `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
@@ -4573,6 +4648,7 @@ reviewed.
 | `io` | the `std.Io` the runtime and the standard library's Zig files use, synchronous on the calling thread: `std.Io.Threaded.global_single_threaded`, or, in a program that makes tasks, a `Threaded` instance `start` sets up, which the scheduler's threads call into and which runs no tasks |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int`. With `RIG_NO_CRASH_REPORT=1` in its environment, in every build mode, on Linux `start` first sets its core limit to exactly 1 (`RLIMIT_CORE` {1, 1}), at which the kernel passes it to no `core_pattern` pipe (apport) and writes no core. On macOS the program does nothing itself: clearing its own crash handler would stop only the user's ReportCrash, and the system's would still file the crash in /Library/Logs/DiagnosticReports. The process that starts it answers its crash as handled instead: `rig run` and `rig test`, always, with or without the variable (`CrashCatcher` in main.zig, around their `zig run` child; a panic's message and trace are on stderr already), or `cpuq cap --no-crash-report` for a built program a harness runs directly. The trade-off: `zig run` compiles and runs in one process, so inside such a run a compiler crash files no .ips either; it still fails the run loudly (no `RIG_RUN_STARTED`, a nonzero status). It still dies by its signal, its stderr unchanged. A test harness sets it for programs that panic on purpose |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_heap_profile` (`RIG_HEAP_PROFILE=1` at build time, debug or release), every allocation goes through `HeapProfile`, which records each live block's size and owner, the type `allocSlice`, `reallocSlice`, or `create` names just before allocating (a List's or slice's element, a box's value; text a writer builds is `u8`), snapshots every owner's live bytes each time the total passes its highest by more than a 200th, and at `finish` prints the owners at the peak, largest first. With `RIG_HEAP_PROFILE=sites` (the root module also declares `__rig_heap_sites`), each block is also counted under its site, its owner and the return addresses of the calls that made it (`std.debug.captureCurrentStackTrace`, a stack walk per allocation), and the report adds the 20 sites that held the most at the peak, each named by the first calls in the program's own code (`function (file:line)`), the runtime's and Zig's library's left out. With `__rig_sanitize` (`RIG_SANITIZE=1`, which the test suite sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds allocate from Rig's own allocator (`src/alloc.zig`, written beside the runtime as `rig/alloc.zig`): a heap per thread with no lock, size classes of 8 bytes to 64 and four per doubling to 32 KiB, each a free list, filled from 64 KiB pages of 4 MiB segments carved from one reservation; a block freed on another thread goes back to its heap's remote list with one compare-and-swap, and the heap takes it back when its own list runs out. Larger blocks come from the system, a heap keeps 16 MiB of those freed for the next, and a block of 1 MiB or more grows by moving its pages (`mremap`, Linux). On Linux, while a program has one heap, as one that starts no task does, the heap faults in with one call (`MADV_POPULATE_WRITE`) the memory it is about to fill: each 1 MiB of a segment as it reaches it, a new large block's first three quarters, and half of a growth, at most 8 MiB at a time. Once a second thread allocates, pages fault as they are touched, since faulting in ahead made a program of many workers start slower and a server, whose buffers are written sparsely, answer fewer requests. It asks for no huge pages: on a host whose memory is fragmented, each fault of an advised range tries a compaction that may fail. A thread that ends gives its heap to the next to start. No box, List, or closure stores an allocator. Allocation failure panics |
+| `cancelOnInterrupt`, `onInterrupt`, `failMain`, `reportFailure` | interrupts, in a program whose `main` can fail (emit writes `__rig_interrupt` into its root): `start` installs a handler for SIGINT and SIGTERM, which leaves one ignored at start ignored. The handler only records the signal, sets `main`'s cancel flag, and wakes the workers (`sched.kickForInterrupt`), one of which ends `main`'s wait (`sched.deliverInterrupt`, `cancelMain`); without the scheduler, `main`'s blocking calls end with EINTR, so its waiting points see the cancel. `main` then fails with `task.Stop.canceled`, its drops and defers run and its tasks are canceled as they drop, and `failMain` or `failMainReported` ends the process by the signal itself (status 130 or 143), showing nothing. A second signal takes the default at once |
 | `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
 
 ### Tasks

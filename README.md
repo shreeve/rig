@@ -224,6 +224,45 @@ up with `?`. `pop` lends `v` to write and gives an `Int!`; `drain`
 passes a failure up with `!`, which `catch` turns into `-1`. There are
 no exceptions and no hidden control flow.
 
+A function may name the set it fails with, `-> T!E`, and a member may
+carry fields, as an enum's variant does:
+
+```rig
+error Parse
+  empty
+  bad(at: Int)
+
+fun digit(s: ?String) -> Int!Parse
+  return Parse.empty if s.len == 0
+  return Parse.bad(at: 0) if s[0] < '0' or s[0] > '9'
+  Int(s[0] - '0')
+
+sub main()
+  for s in ["7", "", "x"]
+    n = digit(s) catch |e|
+      print(e)
+      match e
+        .empty => -1
+        .bad(at) => -10 - at
+    print(n)
+```
+
+```output
+7
+Parse.empty
+-1
+Parse.bad(at: 0)
+-10
+```
+
+`catch |e|` gives `e` the callee's set, so the `match` names every
+member and needs no `_`. A failure moves its error up through `!` to
+the `catch` that owns it, and a task, `par`, or an actor hands the
+fields to whoever waits. `T!` alone may fail with any error,
+`error L = A | B` joins sets, and a function may take its set as a
+parameter, `fun total[E](f: ?fun() -> Int!E) -> Int!E`, to fail with
+whatever its callback fails with.
+
 An optional costs nothing where its value has room for `none`: a view
 or handle uses address 0, an object holding a String, List, box, `Bool`,
 or enum uses a value of that field no real one holds, and an object
@@ -245,7 +284,9 @@ no detached tasks and no `'static` bounds. A task's failure arrives
 through `>t`, as any failure does: `>t!` passes it on, and `catch`
 handles it. For a task that can fail, a cancel (`<t.cancel()`) or a
 deadline (`time.within(ns, f)`) arrives as an error at its next waiting
-point, with no token to pass down.
+point, with no token to pass down. Ctrl-C cancels a `main` that can
+fail in the same way: its `defer`s and drops run, the tasks it owns
+are canceled, and the program ends with status 130.
 
 The compiler knows, for every type, whether a value may move to another
 core or be read from two at once, and decides where each task may run.
@@ -253,6 +294,8 @@ A task handed a `*T` handle, whose count is not atomic, runs on the
 thread of the task that makes it, so a GUI program's shared state can
 use `&` too. A function value, `fun(Int) -> Int`, is a named
 function's address and holds nothing, so it goes to a task on any core.
+A value that never changes again, `*Frozen(x)`, sits behind a handle
+counted atomically, and any number of tasks read it with no copy.
 `Tasks[T]` holds a set of tasks, `*Chan[T](n)` is a
 bounded channel, `task.select` commits exactly one of its arms, and
 `par.map` and `par.each` spread a loop over the cores.
@@ -405,7 +448,9 @@ runs in the checker: `fun cap[n: Int] -> Int` makes `cap[8]` a
 constant, in an expression, a module constant, or a type
 (`[cap[4]]U8`), and a failure in it is a Rig error at the call.
 A closure's capture list says how it holds each outer value,
-`|+total, ~clicks| ...`. Rig also has objects, enums with payloads and
+`|+total, ~clicks| ...`, or one field of it, `|?@template, k| ...`.
+A `Table[T, n]` holds `n` slots, and a `Slot[n]` from it indexes any
+table of that `n` with no bounds test. Rig also has objects, enums with payloads and
 exhaustive `match`, modules of one file or a directory, SIMD vectors
 (`Simd[U8, 16]`), C functions through `extern` and `raw`, `test`
 blocks, and a language server, `rig lsp` ([editors/](editors/README.md)).
@@ -416,8 +461,8 @@ Zig, C, Python, Ruby, JavaScript, or Go.
 
 A program imports a module with `use std.NAME`
 ([docs/STD.md](docs/STD.md)). Built in, with no import: `print`,
-`String`, `List`, `Map`, `Set`, `Cell`, `Signal`, `Actor`, `Chan`, and
-`Tasks`.
+`String`, `List`, `Map`, `Set`, `Table`, `Slot`, `Cell`, `Signal`,
+`Actor`, `Frozen`, `Chan`, and `Tasks`.
 
 | Area | Modules |
 |---|---|
@@ -427,7 +472,7 @@ A program imports a module with `use std.NAME`
 | Networking | `std.net` (TCP), `std.http` (an HTTP/1.1 server) |
 | Data | `std.sort`, `std.slices`; `Map` and `Set`, in insertion order, are built in |
 | Text | `std.text`, `std.utf8`, `std.utf16`, `std.unicode` |
-| Experimental | `std.json` (a fast, validating JSON parser), `std.terminal` (a terminal emulator as a library) |
+| Experimental | `std.json` (a fast, validating JSON parser; `load` fails with a `JsonError` naming the first error and its byte offset), `std.terminal` (a terminal emulator as a library) |
 
 The modules are Rig code, under `std/`, checked like any other.
 
@@ -496,18 +541,20 @@ to `^T`, `List`, `String`, and `obj`; `tools/migrate-0.3.py` migrates
 0.2 programs.
 
 **Built and tested:** the language in this README, its ownership
-checker, generics with built-in bounds (`[K: Hash]`), closures, modules,
-SIMD vectors, C functions through
+checker, declared error sets whose members carry fields, generics with
+built-in bounds (`[K: Hash]`) and generic error sets, compile-time
+functions, closures, tables, modules, SIMD vectors, C functions through
 `extern`, `test` blocks, the language server, the concurrency model
-(tasks, sets of tasks, cancellation, deadlines, actors, supervision,
-channels, `select`, `par`, deterministic tests), and the standard
-library above. The scheduler runs on macOS and Linux, on arm64 and
+(tasks, sets of tasks, cancellation, deadlines, Ctrl-C, actors, frozen
+values, supervision, channels, `select`, `par`, deterministic tests),
+and the standard library above. The scheduler runs on macOS and Linux, on arm64 and
 x86-64.
 
 **Not built yet:**
 
 - TLS, and an HTTP client.
-- Errors that carry data (declared sets such as `T!E`).
+- Declared error sets for std's I/O functions, which fail with any
+  error.
 - APIs of a program's own (`api Shape`), API objects (`?{Shape}`), and
   raw pointers.
 - Storing or returning a stack closure, and `drop` bodies on enums and

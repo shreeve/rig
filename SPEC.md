@@ -11753,6 +11753,10 @@ The rest parse, and the checker rejects them as not supported yet
 | a field or element bound by several results, `i, xs[i] = f()` | `` each result is bound to a name `` |
 | named results, `-> (q: Int, r: Int)` | `` results are not named `` |
 | `for` over an iterator whose `next` gives several results | `` a `for` binds one value each step `` |
+| a compile-time function called with an enclosing generic's parameter, `[cap[n]]T` | `` compile-time argument 1 of `cap` is the compile-time parameter `n`; a compile-time function is called with values known where the call is written `` |
+| arithmetic on a compile-time parameter in a type, `[n * 2]T` | `` an array length `n * 2` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant `` |
+| a compile-time function over text, a float, or an optional | `` compile-time function `h` cannot take a `Static`: its parameters are integers, `Bool`, and plain enums `` |
+| an owned closure called as a temporary, `(+h.f)(x)` | `` this `*fun(Int) -> Int` is a temporary that owns a resource, and nothing would drop it; bind it to a name first `` |
 
 ```rig reject
 sub main()

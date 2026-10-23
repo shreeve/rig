@@ -170,17 +170,22 @@ support file.
 | unwrap or leave | `let Some(v) = x else { return }` | `x orelse return` | `v = x ?? return` |
 | if let | `if let Some(v) = x` | `if (x) \|v\|` | `if x as v` |
 | if let, a variant | `if let Circle(r) = s` | `switch (s) { .circle => \|c\| .., else => {} }` | `if s as .circle(r)` |
-| fallible | `Result<T, E>` | `E!T` | `T!` |
+| fallible | `Result<T, E>` | `E!T` | `T!E`, or `T!` for any error |
+| an error with data | `enum E { Bad { at: usize } }` | (an error holds no data) | `error E` / `  bad(at: Int)` |
+| match the error | `Err(E::Bad { at }) =>` | `error.Bad =>` | `catch \|e\|` / `.bad(at) =>` |
 | propagate | `f()?` | `try f()` | `f()!` |
 | handle | `f().unwrap_or(0)` | `f() catch 0` | `f() catch 0` |
 | lend | `&x`, `&mut x` | `&x` | `?x`, `!x` |
 | slice | `&v[a..b]`, `&mut v[a..]` | `v[a..b]`, `v[a..]` | `?v[a..b]`, `!v[a..]` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `*w` |
+| shared across threads, never changed | `Arc::new(x)` | by hand | `*Frozen(x)` |
 | interior mutability | `Rc<RefCell<T>>` | by hand | `*Cell[T]` |
 | heap box | `Box<T>` | `allocator.create(T)` | `^T` |
 | growable array | `Vec<T>` | `std.ArrayList(T)` | `List[T]` |
+| an index always in range | a newtype index, still tested | by hand | `Table[T, n]`, `Slot[n]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
+| capture one field | `\|\| self.a.len()` | a struct with a method | `\|?@a\| @a.len` |
 | closure argument | `f: &dyn Fn(i64) -> i64` | a context pointer and a function | `f: ?fun(Int) -> Int` |
 | drop early | `drop(x)` | `x.deinit()` | `<x` alone on a line |
 | destructor | `impl Drop` | `deinit` + `defer` | `drop(!@)` |
@@ -217,6 +222,7 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | generic type | `obj Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `obj Wrap[T]` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `List[Int]()` |
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?@, f: fun(T) -> U) -> Wrap[U]` |
+| a set as a parameter | `fn total<E>(f: &dyn Fn() -> Result<i64, E>) -> Result<i64, E>` | an inferred error set, `fn total(f: anytype) !i64` | `fun total[E](f: ?fun() -> Int!E) -> Int!E` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
 | its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
 | an array of it | `fn sum<const N: usize>(xs: [i64; N])` | `fn sum(comptime n: usize, xs: [n]i64)` | `fun sum[n: Int](xs: [n]Int)` |
@@ -264,18 +270,20 @@ correspondences:
 | `fun cap[n: Int] -> Int`, `cap[8]` | no function: the value the checker computed, as a literal, or a hidden constant for an array |
 | `[n of x]` | `@as([n]T, @splat(x))` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
-| `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
+| `T!`, `T!E`, `f()!`, `catch` | `anyerror!T`, `E!T`, `try f()`, `catch`; every fallible function also takes a hidden `rig.ErrSlot`, which carries an error's fields |
 | a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `?String`, a slice, a plain enum); `*const T` for an object, an array, or a generic instance |
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
 | `*T`, `~T` | a runtime `Shared(T)` pointer, a weak handle |
-| `List[T]`, `Cell[T]`, `^T`, `Signal[T]` | runtime generic types |
+| `List[T]`, `Cell[T]`, `^T`, `Signal[T]`, `Table[T, n]` | runtime generic types |
+| `*Frozen[T]` | a `rig.Frozen(T)` pointer, counted atomically |
+| `Slot[n]` | `rig.SlotOf(n)`, the smallest of `u8`, `u16`, `u32`, and `u64` that holds `n - 1` |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
 | a stack closure | a local struct holding its captures, with an `__rig_invoke` method |
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `sub main()` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name` and exits 1; in Debug it checks for leaks on exit |
+| `sub main()` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name`, with the error's fields, and exits 1 (130 when Ctrl-C cancels a `main` that can fail); in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
 program; [INTERNALS](docs/internals/INTERNALS.md) describes it.

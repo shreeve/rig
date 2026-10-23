@@ -97,7 +97,26 @@ function's last value.
 **Optionals and failure.** `if o as x` binds `x` when `o` is not
 `none`, and `o ?? d` gives `d` instead. A `T!` function fails with
 `return E.name`; each call to it says `f()!`, to pass the failure up,
-or `f() catch d`.
+or `f() catch d`. `-> T!E` names the set it fails with, and
+`catch |e|` then gives `e: E`, matched with no `_`; `T!` alone fails
+with any error. A member may carry fields, `bad(at: Int)`, made as
+`E.bad(at: 3)` and matched as `.bad(at) =>`, and `error L = A | B`
+joins sets.
+
+**Closures.** `|+n, x| x + n` names how it holds each outer value: `+n`
+copies or clones it, `?n` and `!n` lend it, `<n` takes it, `~n` holds
+it weakly. A capture may be one field, `|?@template, k| ...`, which
+leaves the rest of the object free. `?fun(Int) -> Int` is a view of a
+closure for a call; `*fun` owns one.
+
+**Tables.** `Table[T, n]` holds `n` slots, each `T()` until written;
+`s = (!t).push(x)` gives the slot as a `Slot[n]`, and `t[s]` reads or
+writes it with no bounds test, in any table of that `n`.
+
+**Tasks.** A function value, `fun(Int) -> Int`, holds nothing and goes
+to a task on any core. `*Frozen(x)` puts a value that never changes
+again behind a handle many tasks read at once. Ctrl-C cancels a `main`
+that can fail: its `defer`s and drops run, and it ends with status 130.
 
 **Several results.** `fun divmod(a: Int, b: Int) -> (Int, Int)` gives
 two, with `return a / b, a % b`, and `q, r = divmod(17, 5)` binds each
