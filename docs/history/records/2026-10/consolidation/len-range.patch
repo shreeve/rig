@@ -1,0 +1,17 @@
+diff --git i/src/runtime.zig w/src/runtime.zig
+index 17e5ce8f6..8035debf0 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -4158,6 +4158,12 @@ fn lenHeld(comptime P: type) bool {
+ /// Debug builds verify it.
+ pub inline fn heldLen(n: usize) Int {
+     invariant(@as(u64, n) <= max_len);
++    // Safe builds tell LLVM the range a length test once gave it, with no
++    // test: a length is never negative as an `Int`.
++    if (builtin.mode == .safe) {
++        @setRuntimeSafety(false);
++        if (@as(u64, n) > max_len) unreachable;
++    }
+     return @bitCast(@as(u64, n));
+ }
+ 
