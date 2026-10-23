@@ -68,9 +68,9 @@ planned rule it shows:
 | CORE.md:1034 | `for` over a made List of owners | rejected: "bind `names()` to a name first" |
 | CORE.md:1599 | `(+h.on)(1)`, a temporary callee | rejected (now in §19, with its `fail` case) |
 
-Each describes a planned rule. SPEC.md:6964, SPEC.md:7915, CORE.md:947,
-and CORE.md:1034 have no ROADMAP line of their own; CORE is unchanged,
-as CORE changes need the owner.
+Each describes a planned rule, and each now has a ROADMAP line with its
+reason; SPEC.md:7915's program runs clean under `RIG_SANITIZE=1` with no
+leak. CORE is unchanged, as CORE changes need the owner.
 
 ## Found, not fixed
 
@@ -82,13 +82,15 @@ as CORE changes need the owner.
   track 1.
 - `std/text.rig:297`: `parse_int` is `-> Int!`, so a function that
   declares a set cannot pass its failure on with `!`; journey 03 catches
-  it instead. This is std's I/O sets (R3-3), waiting on the owner.
+  it instead. ROADMAP's "std's I/O sets" item (R3-3) names it and
+  std's other fallible functions.
 - ROADMAP's "A frame-size guard for every function" may be built in
   part (the task guard is sized, and `rig build` warns of large frames);
   it was left as it was.
 - Journeys 03 and 04 are now about 3,550 and 3,700 words, code
-  included, over journeys.md's 3,000; 02, 05, 06, 07, and 09 were over
-  already.
+  included, over journeys.md's 3,000 (02, 05, 06, 07, and 09 were over
+  already); journeys.md records that they are trimmed when APIs Stage 3
+  rewrites journey 07.
 - A program started in the background from a non-interactive shell
   ignores SIGINT (as `nohup` does), so an interrupt test sends it from
   a terminal or uses SIGTERM.

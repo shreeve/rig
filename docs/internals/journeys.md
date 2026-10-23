@@ -12,6 +12,10 @@ brings a reader to understand one idea. Sentences run about 15 words,
 sections 100 to 300. There are no em dashes and no hype, and the prose
 is timeless: no dates, no "currently", "now", or "new".
 
+Journeys 03 and 04 run over 3,000 words, with declared error sets,
+fields, Ctrl-C, and function values crossing tasks; they are trimmed
+when APIs Stage 3 rewrites journey 07.
+
 1. **The title names what the reader gets** ("Concurrency without
    async"), not the feature.
 2. **It opens on a problem the reader already has,** in a language they

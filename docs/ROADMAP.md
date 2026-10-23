@@ -20,9 +20,13 @@ items, with their probe cases, are in
 - **More compile-time functions** (the first form is built, SPEC "Compile-time functions"): a call over an enclosing generic's parameter and arithmetic on one in a type (`[cap[n]]Int`, `[n * 2]Int`), by hidden compile-time arguments the checker computes per instance; then text parameters (`hash[s: Static]`), plain objects, and reading module array constants in a body.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Drop bodies for enums and generic types.**
+- **A view of part of self**: a method's view result names the field it views, `-> ?String from @text`, so the caller may write self's other fields while the result lives; today the result keeps all of self lent (SPEC §7, "Places", pending example).
+- **A generic body's holding of a held `T`**: `*<x` in a body whose instance's `T` is already held (`T = ~N`) is rejected at that instance, as `*~N` written out is ("stacks one heap holding on another"); today the instance is accepted, and runs clean (SPEC §10, "Boxes, `^T`", pending example).
+- **A read view of a branch**: `?(a if c else b)` lends whichever name the branch picks, with no copy; today each branch is lent, `?a if c else ?b` (CORE §3, pending example).
+- **A `for` over a made List of owners**: `for x in names()` walks the List a call makes and drops it after the loop, as a `for` over plain elements does; today the List is bound to a name first (CORE §3, pending example).
 - **Tables, next** (`Table[T, n]` and `Slot[n]` are built, SPEC "Table"): a `Span` that std mints, covering a run of slots (`start`, `count`) with no test per element; then `program.files` as a table (Trig's phase 2, an eager table of an owning `File`); and, only if catching an id from another table at compile time is ever worth it, generative brands (`Table[T, B]`, `Id[B]`, a scope whose brand is fresh), which need rank-2 scopes and erased parameters. `pop`, `clear`, and `keep` (a `clear` restores every touched slot to `T()`).
 
-- **std's I/O sets**: declared error sets for std's I/O functions, which fail with any error today, so a caller can match their members ([SPEC §13](../SPEC.md#declared-sets-and-fields)); they wait for the owner's names.
+- **std's I/O sets**: declared error sets for std's I/O functions and its other fallible ones, which fail with any error today (`text.parse_int -> Int!`, `std.file`, `std.net`, `std.io`), so a caller can match their members and a function that declares a set can pass their failures on with `!` rather than catch them ([SPEC §13](../SPEC.md#declared-sets-and-fields)); they wait for the owner's names.
 - **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
 - **Several results**, after their first form (SPEC "Several results"):
   in registers when small, `from` per result, and a `for` that binds

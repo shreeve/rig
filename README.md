@@ -450,10 +450,11 @@ constant, in an expression, a module constant, or a type
 A closure's capture list says how it holds each outer value,
 `|+total, ~clicks| ...`, or one field of it, `|?@template, k| ...`.
 A `Table[T, n]` holds `n` slots, and a `Slot[n]` from it indexes any
-table of that `n` with no bounds test. Rig also has objects, enums with payloads and
-exhaustive `match`, modules of one file or a directory, SIMD vectors
-(`Simd[U8, 16]`), C functions through `extern` and `raw`, `test`
-blocks, and a language server, `rig lsp` ([editors/](editors/README.md)).
+table of that `n` with no bounds test. Rig also has objects, enums
+with payloads and exhaustive `match`, modules of one file or a
+directory, SIMD vectors (`Simd[U8, 16]`), C functions through `extern`
+and `raw`, `test` blocks, and a language server, `rig lsp`
+([editors/](editors/README.md)).
 [WELCOME.md](WELCOME.md) tours them for programmers coming from Rust,
 Zig, C, Python, Ruby, JavaScript, or Go.
 
