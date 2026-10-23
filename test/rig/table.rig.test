@@ -434,6 +434,19 @@ code "table a match subject is reached read-only", "w.constSlot(ws)", /^(?![\s\S
     x => x.len
   print(c)
 
+test "table an optional element read through a read view", "3"
+  # Whether `<t[0]` could take the element is only asked, and the asking
+  # reaches no slot to write: a read view of the table reads it in place.
+  fun peek(t: ?Table[String?, 4]) -> Int
+    if t[0] as s
+      s.len
+    else
+      0
+
+  t: Table[String?, 4] = Table()
+  _ = (!t).push(String("abc"))
+  print(peek(?t))
+
 test "table of an object with an empty method", "true 0"
   # A method named like a runtime name is the object's own.
   obj Bag

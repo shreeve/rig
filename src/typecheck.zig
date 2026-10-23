@@ -349,6 +349,9 @@ const Checker = struct {
     /// type it is expected to have: the generic instances found there
     /// are not recorded.
     tentative: u32 = 0,
+    /// Inside `noteTakeable`'s trial of a take, which only asks whether
+    /// `<e` would be accepted: `requireAccess` records nothing.
+    trial_take: bool = false,
     /// The body being checked is a compile-time function's
     /// (`checkCtFun`): a compile-time call there is run by the evaluator,
     /// which knows every value, so its arguments may be any expression.
@@ -2170,7 +2173,7 @@ const Checker = struct {
     /// from must be one that may change (`requireBinding`). A diagnostic
     /// with no better position is at `at`. False after a diagnostic.
     fn requireAccess(self: *Checker, place: Place, access: Access, at: Sexp) Error!bool {
-        try self.recordTableWrites(place.node);
+        if (!self.trial_take) try self.recordTableWrites(place.node);
         const verb = access.verb();
         if (place.blocked) |b| {
             const through: Verb = if (access == .assign) .{ .head = "assign" } else verb;
@@ -4628,6 +4631,11 @@ const Checker = struct {
         if (sema.moveSource(self.ctx, e) != .optional_part) return;
         const mark = self.ctx.diagnostics.items.len;
         const place = self.placeOf(e);
+        // A trial: it records nothing a take would, such as a table's
+        // slot reached to write.
+        const saved = self.trial_take;
+        defer self.trial_take = saved;
+        self.trial_take = true;
         const ok = place.cell_list_elem == null and try self.requireAccess(place, .take, e);
         self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         if (!ok) try self.ctx.recordUntakeable(e);
@@ -6279,8 +6287,8 @@ const Checker = struct {
     /// included (Core §3, planned). Each branch is lent instead, which the
     /// error writes out in `whole` (the operand, or the slice it is the
     /// object of). Decided once per branch (`branch_lends`), so a lend
-    /// that asks again, as a slice's object does, reports nothing new.
-    /// False after reporting.
+    /// that asks again, as a slice's object does, reports nothing new;
+    /// a verdict reached quietly is not kept. False after reporting.
     fn lendsBranch(self: *Checker, operand: Sexp, whole: Sexp, kind: LendKind) Error!bool {
         const lent = lentBranch(operand);
         if (lent == .nil) return true;
@@ -6300,7 +6308,9 @@ const Checker = struct {
                 break;
             },
         };
-        try self.branch_lends.put(self.ctx.allocator, nodeId(lent), place == .nil);
+        // A verdict reached while diagnostics are dropped is not kept: the
+        // check that keeps them decides again, and reports.
+        if (self.ctx.quiet == 0) try self.branch_lends.put(self.ctx.allocator, nodeId(lent), place == .nil);
         if (place == .nil) return true;
         const a = self.ctx.arena.allocator();
         const sigil: u8 = if (kind == .write) '!' else '?';
@@ -14230,7 +14240,10 @@ const Checker = struct {
             .member, .index => try self.keptLeaf(ir.get(e, .object), kept),
             .array => for (ir.Array.elems(e)) |el| try self.keptLeaf(el, kept),
             .call => {
-                if (try self.kept_reported.fetchPut(self.ctx.allocator, nodeId(e), {}) != null) return;
+                // Marked reported only where the report is kept: a quiet
+                // check's is dropped, and the check that keeps it reports.
+                if (self.kept_reported.contains(nodeId(e))) return;
+                if (self.ctx.quiet == 0) try self.kept_reported.put(self.ctx.allocator, nodeId(e), {});
                 const callee = ir.Call.callee(e);
                 const params = self.ctx.callParamsOf(e);
                 const has_recv = if (params) |p| p.fills.len > 0 and p.fills[0] == .receiver else false;

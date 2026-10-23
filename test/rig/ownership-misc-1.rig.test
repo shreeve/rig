@@ -10976,3 +10976,52 @@ test "take optional field", '''
   !s.reverse()
   print((!s).pop(), (!s).pop())
   print("end")
+
+fail "lend of a branch to a generic with its type inferred", "7:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`", errors: 1
+  # Inference checks the argument quietly first; the check that reports
+  # decides the lend again, so its error is not lost with the quiet one's.
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun pick[T](a: T, b: T, c: Bool) -> Int
+    look(?(a if c else b))
+
+  print(pick(String("a"), String("b"), true))
+
+fail "lend of a branch to a generic with its type given", "cannot lend `a if c else b`: it may be `a`, a value a name holds", errors: 1
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun pick[T](a: T, b: T, c: Bool) -> Int
+    look[T](?(a if c else b))
+
+  print(pick(String("a"), String("b"), true))
+
+fail "lend of a branch in a closure given to a generic", "cannot lend `s if x > 0 else t`: it may be `s`, a value a name holds, which lending the branching value would copy; lend each branch: `?s if x > 0 else ?t`", errors: 1
+  fun look(x: ?String) -> Int
+    x.len
+
+  fun apply[T](f: ?fun(Int) -> T) -> T
+    f(1)
+
+  print(apply(|x|
+    s = String("a")
+    t = String("b")
+    look(?(s if x > 0 else t)) + x
+  ))
+
+fail "kept view in a closure given to a generic", "`head(v)` keeps `v` lent while `r` lives; write `head(?v)`", errors: 1
+  # Inference checks the closure quietly first; the check that keeps its
+  # errors reports the kept view.
+  fun head(xs: []Int) -> []Int
+    xs[0..1]
+
+  fun apply[T](f: ?fun(Int) -> T) -> T
+    f(1)
+
+  print(apply(|x|
+    v: List[Int] = List()
+    !v.push(1)
+    r = head(v)
+    r[0] + x
+  ))

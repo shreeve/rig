@@ -24,6 +24,18 @@ changed the language since it:
   them and leave the change half made after a panic. Every arm of
   `task.select` takes a closure's view, the first as well as the rest.
 
+- **A lend of a branch is decided where it is reported:** inference checks
+  a generic call's arguments quietly first, and a lend of a branch that
+  was refused there (`look(?(a if c else b))`, `T` inferred, or the same
+  inside a closure given to a generic) kept the verdict without its error,
+  so the program was accepted and Zig failed. The verdict is now kept
+  only from a check that reports. Two siblings are fixed with it: a kept
+  view in a closure given to a generic lost its error the same way, and
+  the trial of whether `<t[i]` could take a table's optional element
+  recorded the slot as written, so a read through `?Table` failed in Zig.
+  Debug and self-check builds also refuse to accept a module that types
+  an expression `invalid` with no error.
+
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
   binds it from its callbacks' sets (`error` for a `T!` callback), and
