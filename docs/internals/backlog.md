@@ -247,8 +247,6 @@ fixing.
   work made into the global queue that the model closes only with a
   `relook` step, which `src/sched.zig` does not have, and which neither
   HANDOFF nor ROADMAP mentions.
-- **design/formal-plan.md describes `RIG_SANITIZE=views`,** which `src/`
-  does not have; mark it planned or remove it.
 - **A debug panic prints Zig stack frames with local paths,** so a doc
   block cannot hold one and a panicking program cannot be shown with
   its exact stderr; there is no way to turn the frames off.
