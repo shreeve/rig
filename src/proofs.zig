@@ -1946,12 +1946,16 @@ pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *s
             else => @tagName(n.kind().?),
         };
         const span = if (ctx.parser) |pr| pr.base.span(n) else rig.leafSpan(ctx.source, n);
-        const lc = lines.at(span.start);
+        // A directory module's position is in one of its files, named.
+        const file: diag.File = .{ .source = ctx.source, .path = "", .parts = ctx.parts };
+        const in = file.locate(span.start);
+        const lc = if (ctx.parts.len == 0) lines.at(span.start) else diag.lineCol(in.text, span.start - in.start);
         // The tests of every path, then (`ok`) those a flag proves.
         for ([2]?Proven{ if (always.any()) always else null, if (cond) |c| c.tests else null }, [2][]const u8{ "", " ok" }) |tests, how| {
             const p = tests orelse continue;
             var text: std.Io.Writer.Allocating = .init(a);
             const t = &text.writer;
+            if (ctx.parts.len != 0) try t.print("{s}:", .{in.path});
             try t.print("{d}:{d}{s} {s}", .{ lc.line, lc.col, how, kind });
             if (p.lower) try t.writeAll(" lower");
             if (p.upper) try t.writeAll(" upper");

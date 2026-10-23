@@ -2016,7 +2016,9 @@ fail a run rather than a proof:
 
 `rig check --facts=proofs` prints each node with a test known to pass,
 `L:C KIND TESTS` (`index`, `read`, `write`, `+`, or `+=`, then `lower`,
-`upper`, `no_overflow`), in source order. `test/cli/facts_proofs.sh`
+`upper`, `no_overflow`), in source order; in a directory module each
+line names its file first, `FILE:L:C KIND TESTS`, the line and column
+in that file. `test/cli/facts_proofs.sh`
 compares it on `test/cli/fixtures/swar.rig` line by line and checks
 the `# proves:` and `# keeps:` marks of every `proofs` case.
 `test/matrix.py`'s `proof.` grid puts each guard, write, and use
