@@ -163,6 +163,27 @@ SYNTAX.md draft parked at scratchpad/syn/SYNTAX.draft.md.
 - Lead decisions: expression-position `f[args]` parses as index / multi-arg list; sema decides instantiation vs indexing by what the object names (Go approach). Type args in expression position are expressions read as types (name, a.B, *T, ~T, T?, T!, X[Y]); `[]T`, `[N]T`, `fun(..)` there need an annotation or alias (clear diagnostic). Generic fns: callable only, not values (as pre fns today). No compatibility shims for old syntax.
 - Phases: A (agent) grammar + sema + emit + full migration, generic fns still rejected; B generic fns; C adversarial review; D docs (SYNTAX generics section, SPEC, DESIGN, INTERNALS, ROADMAP).
 
+## RESUME HERE (2026-10-23): errors with data done; the consolidation round next
+
+**Landed on main (463de5898), #548-#569.** Each passed Rig's full suite, and each change to the compiler, runtime, or std passed Trig's light gate before merging.
+- Errors with data: #548 (`+x` clones another module's types), #550 (R3a, the runtime's plumbing), #551 (CORE, "A failure moves its error"), #555 (R3, fields wherever a failure goes), #561 (a task's set in a type argument), #566 (Option U: one representation for `error`, the coercion fact, the 7 latent classes; 2026-10/errors-r3/design-check-u.md), #565 (R4, std.json's `JsonError` by `load`), #569 (R2.5, generic sets; 24 cases, review 2026-10/errors-r25/review-1.md with two HIGHs fixed, full suite 9,789, light gate 24 of 24).
+- Other: #549 (the audit's fixes), #552 (scheduler worker on its own cache line), #553 (`*Frozen`), #554 (two doubled diagnostics), #558 (a waiter's cancel only from its own flag), #559 (an array literal's element failing drops those before it), #564 (`tools/gitdir`); records #544-#547, #556-#557, #560, #562-#563, #567-#568.
+
+**Measured.**
+- Option U: std.json's machine code byte-identical; Trig on ts-pattern 0.5% (48.72 against 48.46 ms, noise); a loop calling only through a fallible function value 1.2% slower (fast) and 4.0% (safe).
+- R4 (#565): a 32-byte code shift made std.json 2.3% slower on twitter and 7% faster on citm on pup, with identical code. The owner accepted it "for this one instance" (2026-10/errors-r4/accepted.md); the fix is aligning the hot functions, track 6.
+- R2.5 (#569): the emitted Zig of 73 roots (14 examples, the json probe, std's modules, 49 Trig modules) byte-identical to main's, checked by the Rig session, so no timing was run.
+- Census, the Mac, 2026-10-22: main against ace79d579 (before 2026-10-21), nothing slower beyond noise, std.json 1-4% faster.
+
+**Decisions (the owner).**
+- Option U, its coercion fact, and a zero-bit slot when no set has fields; spec §7.1's narrowing and §7.10's gate dropped for the json instruction guard and timing (2026-10-22, "Approve the defaults").
+- One language feature in flight at a time; a consolidation round with no new features after errors with data (2026-10-22).
+- The order: finish R2.5, prepare the consolidation, a fresh session runs it, then APIs Stage 3 (2026-10-22).
+- Moving `rig lsp` onto Nexus's generated server waits until after the consolidation round, or after Stage 3 (2026-10-22). Nexus was told, and its template already has the fixes from Rig's dry run.
+- Nothing late may slow earlier work: a speed baseline and a census after merges; bisect anything slower beyond 2% (2026-10-22).
+
+**Next.** The consolidation round, from 2026-10/consolidation/PLAN.md, in a fresh session. What remains of errors with data: the oracle's model of the hidden `E?` (PLAN track 2), and std's I/O sets (R3-3) after the round, once the owner names them.
+
 ## Audit of #532-#547 (2026-10-22)
 
 Two independent reviews (soundness; process and measurement). No test, oracle line, or coverage was weakened; every measurement was interleaved with byte-identical output. Fixed in the audit PR: D1, a closure literal given to an actor method in a task call was accepted and its captures dangled (from #532, where `crossCheck` alone retyped a literal; now one classifier, `crossingTypeOf`, for tasks and actors, and a synchronous actor call is rejected as in 0.2.9); D2, a Table of an object with a method `empty` failed in Zig (the runtime's default marker is now `__rig_default`); D3, `h: *fun(...) = *g` of a function failed in Zig (from 0.2.9; rejected now); D4, SPEC and INTERNALS still said functions declare no error sets. Headline numbers were corrected to the measured ranges. #542 merged on the owner's approval to the fork ("Approve to land PR #542") after its first review's eight fixes, with no second review; the audit's ~50 probes found it sound.
