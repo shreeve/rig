@@ -110,6 +110,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [6-final.md](2026-10/from-field/6-final.md): the paragraph, its rules as built, and the must-pass tests
 - [4-draft.md](2026-10/from-field/4-draft.md): the combined draft, each rule with its reason
 - [1-core.md](2026-10/from-field/1-core.md), [2-compiler.md](2026-10/from-field/2-compiler.md), [3-adversary.md](2026-10/from-field/3-adversary.md), [5-review.md](2026-10/from-field/5-review.md): the panel's reports
+- [review.md](2026-10/from-field/review.md): the adversarial review of the build: a task's lend of self and a path past the checker's cut fixed, the oracle's carry copied at the call
 
 ### 2026-10/frozen/
 

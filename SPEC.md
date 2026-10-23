@@ -6747,10 +6747,11 @@ the checker tracks where every one came from.
   that returns a view of a parameter it does not name is rejected. A
   name must be a parameter whose type could hold what the result
   views. A method's clause may name a path of self, `from @text` or
-  `from @a.b`, through fields and boxes: the result then carries the
-  loans self holds and a loan on that path alone, or, for a field
-  declared as a read view, none on self ([Places](#places)). An API
-  names no fields. A function lent as a value (`?first`) is called
+  `from @a.b`, through fields and boxes, of at most 8 fields: the
+  result then carries the loans self holds and a loan on that path
+  alone, or, for a field declared as a read view, none on self
+  ([Places](#places)). A task (`(!s).m()&`) is its call, still
+  running, and keeps all of self lent. An API names no fields. A function lent as a value (`?first`) is called
   with what its type says, as if it had no clause.
 - A view reached through another view views what that view views,
   not what holds it: `?c.items[0]`, with `items: ?List[Item]`, views

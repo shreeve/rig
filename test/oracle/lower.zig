@@ -3537,6 +3537,16 @@ const Lowerer = struct {
         if (stored_value.items.len > 0) for (exchanged.items) |root| {
             try self.emit(.{ .pos = pos, .what = .assign, .reads = stored_value.items, .weak = root });
         };
+        // What self holds as the call starts, which a result through a
+        // path of self carries (`pathsResult`): what the call stores in
+        // self comes from its arguments, which the result carries only
+        // where `from` names them (Core s7).
+        var held_at_call: ?VarId = null;
+        if (narrowed) if (result != null) {
+            const snap = try self.viewTemp(self.f.vars.items[recv_held.?].ty, .read_view, pos);
+            try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(recv_held.?), .def = snap });
+            held_at_call = snap;
+        };
         // A write view handed on lets the call store into what it sees.
         var through: std.ArrayList(VarId) = .empty;
         if (recv_view) |r| try through.append(self.a, r);
@@ -3569,7 +3579,7 @@ const Lowerer = struct {
         // A `from` that names paths of self (Core s7): the result carries
         // the loans self holds, and a loan on each path that is no read
         // view, not one on all of self.
-        if (narrowed) if (result) |r| try self.pathsResult(sig.?.paths, r, recv_held.?, recv_place, recv_lent, recv_deref, pos);
+        if (narrowed) if (result) |r| try self.pathsResult(sig.?.paths, r, held_at_call.?, recv_place, recv_lent, recv_deref, pos);
         // `swap` exchanges what its places hold (Core s6): each place's
         // holder then holds the views the other held, not the call's own
         // lends of them. A swap with a value stores it in its place, above.

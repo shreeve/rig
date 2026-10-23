@@ -23,8 +23,10 @@ changed the language since it:
   `from @set`, so their items outlive the step of the loop, a function
   lent an iterator holds two items at once, and `iter.count` and any
   body bounded by `Iter` take them. The body is checked against the
-  path. A path in `keeps`, in an API, through a read view, or beside
-  `@` is rejected with the fix.
+  path. A path in `keeps`, in an API, through a read view, beside `@`,
+  or of more than 8 fields is rejected with the fix. A task through
+  such a method (`(!it).next()&`) keeps all of self lent until it is
+  waited for.
 
 - **A slot compares with a literal below its count:** `s == 0`,
   `0 == s`, `s != 3`, and `s < 3` for a `Slot[n]` were "cannot compare",

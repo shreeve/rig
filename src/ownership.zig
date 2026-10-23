@@ -170,7 +170,7 @@ const Paths = struct {
     const Step = struct { path: PathId, ended: bool };
 
     /// A path is cut at this many fields, which only adds conflicts.
-    const max_depth = 8;
+    const max_depth = sema.max_path_fields;
 
     const Node = struct { parent: PathId, field: []const u8, depth: u8 };
     const Key = struct { parent: PathId, field: []const u8 };
@@ -5859,13 +5859,13 @@ pub const Checker = struct {
             const pname = if (sema.paramNameNode(items[i])) |pn| self.text(pn) else "?";
             if (self.func.returned & bit != 0 and o.result & bit == 0) {
                 if (o.declared) {
-                    const only = try self.paramList(items, o.result, true);
+                    const only = try self.paramList(items, o.result, true, name);
                     const at = self.resultPos(self.func.returned_by[i], pname) orelse self.func.returned_at[i];
                     if (only.len == 0) {
                         try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
                     } else try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
                     if (self.declaredFrom(name)) |d| {
-                        const all = try self.paramList(items, self.func.returned, false);
+                        const all = try self.paramList(items, self.func.returned, false, name);
                         if (self.namesStatic(items, self.func.returned)) {
                             try self.note(self.startOf(d.returns), "`from static` means what lives for the whole program, not the parameter `static`; rename the parameter to name it in `from`", .{});
                         } else try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), all });
@@ -5878,7 +5878,7 @@ pub const Checker = struct {
                 if (o.lent & bit != 0) {
                     // A lent parameter is kept only where `keeps` names it.
                     const into = self.func.stored_in[i];
-                    const kept = try self.paramList(items, (o.stores & o.lent) | (self.func.stored & o.lent), false);
+                    const kept = try self.paramList(items, (o.stores & o.lent) | (self.func.stored & o.lent), false, .nil);
                     try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, pname, kept });
                 } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
             }
@@ -5935,18 +5935,30 @@ pub const Checker = struct {
     }
 
     /// The parameters of `mask` among `items`, as a `from` list (`a, b`),
-    /// each in backquotes when `quoted`.
-    fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quoted: bool) Error![]const u8 {
+    /// each in backquotes when `quoted`. Self is the paths of it that the
+    /// `from` of function `name` names (`from @text`), when it names any.
+    fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quoted: bool, name: Sexp) Error![]const u8 {
         var out: std.ArrayList(u8) = .empty;
+        const clause: []const Sexp = if (self.func.origins.self_paths.len == 0) &.{} else if (self.declaredFrom(name)) |d| d.names.items() else &.{};
         for (items, 0..) |p, i| {
             if (mask & sema.paramBit(i) == 0) continue;
             const pn = if (sema.paramNameNode(p)) |n| self.text(n) else continue;
-            if (out.items.len > 0) try out.appendSlice(self.arena(), ", ");
-            if (quoted) try out.append(self.arena(), '`');
-            try out.appendSlice(self.arena(), pn);
-            if (quoted) try out.append(self.arena(), '`');
+            var paths: usize = 0;
+            if (std.mem.eql(u8, pn, "@")) for (clause) |c| if (c.isKind(.member)) {
+                try self.appendListName(&out, self.spanText(c), quoted);
+                paths += 1;
+            };
+            if (paths == 0) try self.appendListName(&out, pn, quoted);
         }
         return out.items;
+    }
+
+    /// `item` appended to the list `out` (`paramList`).
+    fn appendListName(self: *Checker, out: *std.ArrayList(u8), item: []const u8, quoted: bool) Error!void {
+        if (out.items.len > 0) try out.appendSlice(self.arena(), ", ");
+        if (quoted) try out.append(self.arena(), '`');
+        try out.appendSlice(self.arena(), item);
+        if (quoted) try out.append(self.arena(), '`');
     }
 
     fn checkEscape(self: *Checker, v: Value) Error!void {

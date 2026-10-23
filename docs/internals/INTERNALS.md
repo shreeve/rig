@@ -3169,8 +3169,10 @@ Resolve records each clause (`declared_origins`) before types are
 complete. A method's clause may name a path of self (`from @text`,
 `from @a.b`; the grammar's `oname`): `declaredOrigins` checks it once
 (`selfPathIn`: fields through objects and boxes, the last able to hold
-what the result views, no path in an API, through a read view, or
-beside `@`), keeps self's bit in `result`, and records each path in
+what the result views, no path in an API, through a read view,
+beside `@`, or longer than `sema.max_path_fields`, the depth at which
+the ownership checker cuts a place's path, so the body is checked
+against it exactly), keeps self's bit in `result`, and records each path in
 `Origins.self_paths` with `via_view`, whether its last field is
 declared as a read view (`sema.readViewField`). A call's result then
 carries the loans the receiver holds and, for each path not `via_view`,
@@ -3182,7 +3184,11 @@ value comes from (`tagSelf`, gated on the method having paths, so
 `lendOn` stays one compare otherwise), and `checkSelfPaths` reports a
 returned view, or a value of a type parameter's type a returned one was
 reached from, outside the paths. `[I: Iter]` takes an instance whose
-`next` has only `via_view` paths (`assocViewsBase`). The built-in
+`next` has only `via_view` paths (`assocViewsBase`). A task call drops
+the paths with the rest of its clause (`checkArgs`): it keeps every
+loan of its receiver until it is waited for. The oracle copies what
+the receiver holds before the call's own op, so what the call stores
+in self is carried only by the arguments `from` names. The built-in
 generics' methods keep every argument's (`all_params`). A
 call of a function value (a closure, a lent callable) takes the origins
 of its type, computed at the call; the body of every function and

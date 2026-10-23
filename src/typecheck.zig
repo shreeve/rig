@@ -10611,13 +10611,15 @@ const Checker = struct {
             .arg => |i| .{ .arg = i },
             .default => .default,
         };
-        // A task keeps the loans of every argument, and of its receiver,
-        // until it ends: its result is the call itself, still running
-        // (docs/design/concurrency.md, "Loans and structure").
+        // A task keeps the loans of every argument, and of all of its
+        // receiver, until it ends: its result is the call itself, still
+        // running (docs/design/concurrency.md, "Loans and structure"), so
+        // the paths of self a `from` names narrow nothing.
         var origins = site.origins;
         if (call_node.isKind(.call) and ir.Call.task(call_node) != .nil) {
             origins.result = sema.all_params;
             origins.declared = false;
+            origins.self_paths = &.{};
         }
         const recorded: sema.CallParams = .{ .fills = fills, .origins = origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);

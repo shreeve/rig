@@ -937,3 +937,142 @@ code "origin self path names no function", "pub inline fn set("
   if (!b).next() as v
     !x.set(v)
   print(x.n)
+
+fail "origin self path task", "cannot drop `it` while it is lent", "cannot assign to `s.at` while `s` is lent", errors: 2
+  # A task is its call, still running: it keeps all of its receiver
+  # lent until it is waited for, whatever paths of self `from` names.
+
+  obj Walk
+    map: ?Map[Int, String]
+    own: String
+    at: Int
+
+    fun next(!@) -> (?String)? from @map
+      @at += 1
+      print(@own)
+      @map.get(@at)
+
+  m: Map[Int, String] = Map()
+  !m.put(1, String("one"))
+  it = Walk(map: ?m, own: String("owned"), at: 0)
+  t = (!it).next()&
+  <it
+  print(>t)
+
+  obj Scan
+    text: String
+    at: Int
+
+    fun word(!@) -> ?String from @text
+      @at += 1
+      ?@text[..@at]
+
+  s = Scan(text: String("owned text"), at: 0)
+  u = (!s).word()&
+  s.at = 5
+  print(>u)
+
+fail "origin self path too long", "`from @a.b.c.d.e.f.g.h.i`: a path of self names at most 8 fields"
+  # The checker tells apart places of at most 8 fields, so a longer path
+  # could not keep the body to it.
+
+  obj L0
+    i: ?String
+    j: String
+
+  obj L1
+    h: L0
+
+  obj L2
+    g: L1
+
+  obj L3
+    f: L2
+
+  obj L4
+    e: L3
+
+  obj L5
+    d: L4
+
+  obj L6
+    c: L5
+
+  obj L7
+    b: L6
+
+  obj L8
+    a: L7
+
+    fun get(?@) -> ?String from @a.b.c.d.e.f.g.h.i
+      ?@a.b.c.d.e.f.g.h.j[..3]
+
+  print(1)
+
+fail "origin self path eight fields", "`get` returns a view of `@a.b.c.d.e.f.g.j`, but its signature says it views only `@a.b.c.d.e.f.g.i`"
+  # A path of 8 fields is checked exactly: `j` is no part of `i`.
+
+  obj L0
+    i: ?String
+    j: String
+
+  obj L1
+    g: L0
+
+  obj L2
+    f: L1
+
+  obj L3
+    e: L2
+
+  obj L4
+    d: L3
+
+  obj L5
+    c: L4
+
+  obj L6
+    b: L5
+
+  obj L7
+    a: L6
+
+    fun get(?@) -> ?String from @a.b.c.d.e.f.g.i
+      ?@a.b.c.d.e.f.g.j[..3]
+
+  print(1)
+
+test "origin self path stored by the call", "other"
+  # A result through a read-view field carries what self held as the
+  # call started: what the call stores in self comes from its arguments,
+  # which `from` does not name here, so `s2` may end while `r` lives.
+
+  obj Scan
+    text: ?String
+    other: ?String
+
+    fun swap_in(!@, t: ?String) -> ?String from @other keeps t
+      r = @other
+      @text = t
+      r
+
+  s1 = String("first")
+  o = String("other")
+  it = Scan(text: ?s1, other: ?o)
+  r = ?s1
+  if true
+    s2 = String("second")
+    r = (!it).swap_in(?s2)
+  print(r)
+
+fail "origin self path names its paths", "`next_in` returns a view of `m`, but its signature says it views only `@map`"
+  # The error names the paths of self the clause names.
+
+  obj Walk
+    map: ?Map[Int, String]
+
+    fun next_in(!@, m: ?Map[Int, String]) -> (?String)? from @map keeps m
+      @map = m
+      @map.get(1)
+
+  print(1)

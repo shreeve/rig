@@ -2169,6 +2169,12 @@ pub const Origins = struct {
     self_paths: []const SelfPath = &.{},
 };
 
+/// The most fields a place's path names that the ownership checker tells
+/// apart: a deeper place is cut there, which only adds conflicts. A path
+/// of self a `from` names is no longer (`selfPathIn`), so the body is
+/// checked against it exactly.
+pub const max_path_fields = 8;
+
 /// A path of self a method's `from` names (Core sentence 7, `from
 /// @text`, `from @a.b`): its fields from self, and whether the last is
 /// declared as a read view (`readViewField`). A call's result carries
@@ -9441,7 +9447,8 @@ fn selfPathText(ctx: *SemContext, n: Sexp) std.mem.Allocator.Error![]const u8 {
 /// §5 defines a path, whose last field's type could hold what the result
 /// views. Null after reporting a path that names a parameter's part, one
 /// in an API, one past a read view (whose result views what the view
-/// views), one past anything else that ends a path, a field no type
+/// views), one past anything else that ends a path, one longer than the
+/// ownership checker tells apart (`max_path_fields`), a field no type
 /// has, or one that cannot hold the result.
 fn selfPathIn(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, f: FunctionType, params: Sexp, results: ViewTargets, n: Sexp, in_api: bool) std.mem.Allocator.Error!?struct { path: SelfPath, index: usize } {
     const text = try selfPathText(ctx, n);
@@ -9464,6 +9471,10 @@ fn selfPathIn(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, f: Funct
         return null;
     };
     if (index >= f.params.len) return null;
+    if (steps.items.len > max_path_fields) {
+        try ctx.errAt(n, "`from {s}`: a path of self names at most {d} fields", .{ text, max_path_fields });
+        return null;
+    }
     const fields = try ctx.arena.allocator().alloc([]const u8, steps.items.len);
     var t = unwrapViews(ctx, f.params[index]);
     for (steps.items, fields, 0..) |step, *field, k| {
