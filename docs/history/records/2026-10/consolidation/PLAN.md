@@ -157,6 +157,35 @@ the owner wants the tag:
   accepted (CHANGELOG has them);
 - Trig's note and scripts first.
 
+## Inventory (taken 2026-10-22, while R2.5 was being built)
+
+- **Tests:** no case is marked `known: true`. Several known issues exist
+  but have no case, so the round first writes each as a failing case:
+  - #542's three bends (any error from `task.all`, `task.isolate`, and
+    `par.map` despite a declared set; the hint "lend it to read:
+    `?B.y`"; `Int!!` in a generic's message);
+  - Table's `n` not inferred from a `Slot[n]` argument;
+  - `match_scale`'s ratio under load.
+- **Backlog:** 16 items in docs/internals/backlog.md, to be fixed, or
+  moved to the ROADMAP with a reason.
+- **Pending examples:** SPEC has 4 `rig pending` blocks and CORE has 3,
+  all still pending. Check that each still describes a planned rule.
+- **The guides miss this period's features.** README, WELCOME, and QUICK
+  name none of `*Frozen`, `Table`/`Slot`, `JsonError`/`load`, Ctrl-C,
+  closure field paths, or declared error sets, beyond one line on
+  `*Frozen` in QUICK. README's "Not built yet" still lists errors that
+  carry data. Learn Rig:
+  - 03-errors needs declared sets and fields;
+  - 04-concurrency needs function values crossing tasks, `*Frozen`, and
+    Ctrl-C;
+  - 07-generics covers compile-time functions already.
+- **The speed baseline:** the reference is ace79d579 (main before
+  2026-10-21). The Mac's std.json row is recorded (1–4% faster on main,
+  nothing slower). Still to do: pup's std.json row, the bench
+  tasks/actors/net/http rows, and Trig's timing rows.
+- **Run beside the round, docs only:** the Stage 3 design refresh of
+  docs/design/apis.md, so Stage 3 can start when the round ends.
+
 ## Order, and what comes after
 
 1. Track 1, while tracks 3 and 4 run beside it (agents, small PRs).
