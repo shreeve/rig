@@ -211,15 +211,5 @@ fixing.
   as a statement drops its `Bool` with no error, while a bare `0` is
   rejected. Make the rule one: a statement whose value is not `Void`
   needs `_ =`, or say in SPEC why a call's result may go unused.
-- **An idle worker once missed a run-next fiber for 2 seconds.** The
-  unit test "a fiber left in a busy worker's run-next slot is taken by
-  an idle worker" failed once in debug on pup's E-cores (12–19) while
-  the machine was loaded, then passed 20 of 20. Its bound is 2 s, so the
-  idle worker slept through the wake for that long: check it against
-  the sleep handshake below before calling it load.
-- **The scheduler's sleep handshake.** formal/README records a gap for
-  work made into the global queue that the model closes only with a
-  `relook` step, which `src/sched.zig` does not have, and which neither
-  HANDOFF nor ROADMAP mentions.
 - **`rig check --tasks`,** to list each local task and what pins it, was
   decided by the concurrency panel and is not built.
