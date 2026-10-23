@@ -1273,6 +1273,41 @@ rather than fails, and a 64-bit count that adds 1 cannot wrap in any
 program's life (2^63 additions take 292 years at one a nanosecond), so
 `@count +%= 1` makes no test.
 
+## Frozen
+
+`*Frozen(x)` is built in ([SPEC §18](../SPEC.md#frozen-values)): it
+moves `x` behind a handle counted atomically, and nothing changes it
+again. Many tasks read one value this way with no copy, where a plain
+`*T` stays with its task. A table read by every task of a program,
+such as a dictionary or a configuration, is built as usual and then
+frozen:
+
+```rig
+fun hits(words: *Frozen[Map[String, Int]], w: Static) -> Int
+  words.get(w) ?? 0
+
+sub main()
+  m = Map[String, Int]()
+  !m.put(String("rig"), 3)
+  !m.put(String("zig"), 2)
+  words = *Frozen(<m)
+  a = hits(+words, "rig")&
+  b = hits(+words, "zig")&
+  print(>a, >b, words.len)
+```
+
+```output
+3 2 2
+```
+
+| Member | Meaning |
+|---|---|
+| `*Frozen(x)` | moves `x`, which holds only data that never changes (no `Cell`, `Signal`, actor, channel, other handle, task, closure, or view), behind a new handle |
+| `f.field`, `f.m()`, `f[i]` | reads through the handle, as through any `*T`; nothing writes through it |
+| `?f` | lends the frozen value as a `?T` |
+| `+f` | another handle, in one atomic step; the last one dropped, on any task, drops the value |
+| `f == g`, hashing | compare and hash the values the handles reach, so `*Frozen[String]` keys a Map |
+
 ## reduce
 
 `xs.reduce(start, f)` folds the elements of a slice, an array, or a

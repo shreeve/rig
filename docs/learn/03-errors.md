@@ -263,9 +263,7 @@ the module, `text.ParseError.invalid`. An error belongs to its set, so
 
 The `_` arm is required here. `value_of` is declared `-> Int!`, which
 may fail with any error, so `e` may be any error, and no list of arms
-names them all. A function that names its set, `-> Int!Config`, gives
-`e` that set, and a `match` that names every member needs no `_`
-([SPEC §13](../../SPEC.md), "Declared sets and fields"):
+names them all:
 
 ```rig reject
 error Config
@@ -286,6 +284,255 @@ fun code(n: Int) -> Int
 ```error
 `match` on `error` is not exhaustive; add `_ =>`
 ```
+
+## Naming the set
+
+A function may name the set it fails with, `-> Int!Config`. Then the
+handler knows every error it can see:
+
+```rig
+use std.text
+
+error Config
+  missing
+  empty_key
+  not_a_number
+
+fun value_of(line: ?String) -> Int!Config
+  c = text.cut(line, "=") ?? return Config.missing
+  return Config.empty_key if text.trim(c.before).len == 0
+  text.parse_int(text.trim(c.after)) catch return Config.not_a_number
+
+fun explain(line: ?String) -> ?String
+  _ = value_of(line) catch |e|
+    match e
+      .missing => return "no `=`"
+      .empty_key => return "no key"
+      .not_a_number => return "not a number"
+  "ok"
+
+sub main()
+  for line in ["port = 8080", "port", "= 3", "port = eighty"]
+    print(value_of(line) catch -1, explain(line))
+```
+
+```output
+8080 ok
+-1 no `=`
+-1 no key
+-1 not a number
+```
+
+`Int!Config` is an `Int`, or an error of `Config`. In `explain`, `e`
+has the type `Config`, so a `match` that names its three members is
+complete and needs no `_`. Add a member to `Config`, and every `match`
+that misses it stops compiling.
+
+The set is a promise, and the compiler holds `value_of` to it.
+`text.parse_int` is declared `-> Int!`, so it may fail with any error,
+and `!` cannot pass that into `Config`. Here the `catch` turns it into
+a member of `Config`. Written with `!`, it is rejected:
+
+```rig reject
+use std.text
+
+error Config
+  missing
+
+fun value_of(line: ?String) -> Int!Config
+  c = text.cut(line, "=") ?? return Config.missing
+  text.parse_int(text.trim(c.after))!
+```
+
+```error
+`text.parse_int` may fail with any error, and `value_of` declares `Int!Config`: catch it, or declare `-> Int!`
+```
+
+A function that calls into several sets names their union.
+`error LoadError = Config | Limit` lists no members of its own; it
+holds every member of both:
+
+```rig
+use std.text
+
+error Config
+  missing
+  not_a_number
+
+error Limit
+  too_many(count: Int)
+
+error LoadError = Config | Limit
+
+fun value_of(line: ?String) -> Int!Config
+  c = text.cut(line, "=") ?? return Config.missing
+  text.parse_int(text.trim(c.after)) catch return Config.not_a_number
+
+fun load(lines: []?String) -> Int!LoadError
+  return Limit.too_many(count: lines.len) if lines.len > 3
+  total = 0
+  for line in lines
+    total += value_of(line)!
+  total
+
+sub report(lines: []?String)
+  n = load(lines) catch |e|
+    match e
+      c: Config => print("bad line:", c)
+      Limit.too_many(count) => print(count, "lines are too many")
+    -1
+  print(n)
+
+sub main()
+  report(["a = 1", "b = 2"])
+  report(["a = 1", "b"])
+  report(["a = 1", "b = x"])
+  report(["a", "b", "c", "d"])
+```
+
+```output
+3
+bad line: Config.missing
+-1
+bad line: Config.not_a_number
+-1
+4 lines are too many
+-1
+```
+
+`value_of(line)!` passes a `Config` error into `load`, because
+`LoadError` holds `Config`. No conversion runs: the error goes up as it
+is. In `report`, the arm `c: Config =>` matches any member of
+`Config` and binds it as a `Config`, and the arm after it names the one
+member of `Limit`. Between them the `match` covers `LoadError`.
+
+`-> T!` still means any error. It suits a quick program, or one that
+passes on what std gives. A declared set suits a library, whose
+callers want to know what can go wrong.
+
+## Errors that say more
+
+An error can say which line failed. A member may carry fields, as an
+enum's variant does:
+
+```rig
+use std.text
+
+error Config
+  missing(line: Int)
+  not_a_number(line: Int, found: String)
+
+fun value_of(n: Int, line: ?String) -> Int!Config
+  c = text.cut(line, "=") ?? return Config.missing(line: n)
+  v = text.trim(c.after)
+  text.parse_int(v) catch return Config.not_a_number(line: n, found: String(v))
+
+sub main()
+  lines = ["port = 80", "debug", "workers = four"]
+  bad: List[Config] = List()
+  for line, i in lines
+    n = value_of(i + 1, line) catch |e|
+      !bad.push(<e)
+      continue
+    print("value", n)
+  for e in bad
+    print(e)
+    match e
+      .missing(line) => print("  line", line, "has no `=`")
+      .not_a_number(line, found) => print("  line", line, "has", found)
+  print(bad[0] == Config.missing)
+```
+
+```output
+value 80
+Config.missing(line: 2)
+  line 2 has no `=`
+Config.not_a_number(line: 3, found: "four")
+  line 3 has four
+true
+```
+
+`Config.missing(line: n)` makes the error with its field. An error
+prints with its fields, and a pattern binds them,
+`.missing(line) =>`. `bad[0] == Config.missing` tests which member an
+error is and compares no fields.
+
+A failure moves its error. It goes up through each `!` to the `catch`
+that handles it, and the handler owns it: here `<e` moves it into the
+list. A field holds no view, so an error never keeps anything lent, and
+every error clones, so `+e` copies one. A `main` that fails with one
+shows its fields too, `error: Config.missing(line: 2)`. A moved error
+is gone, as any moved value is:
+
+```rig reject
+error Config
+  missing(line: Int)
+
+fun value_of(n: Int) -> Int!Config
+  return Config.missing(line: n) if n > 9
+  n
+
+sub main()
+  bad: List[Config] = List()
+  v = value_of(12) catch |e|
+    !bad.push(<e)
+    print(e)
+    0
+  print(v, bad.len)
+```
+
+```error
+use of `e` after move
+```
+
+## A set as a parameter
+
+A helper that runs a function it is given fails however that function
+fails. Its set is a parameter, `E`, written after `!`:
+
+```rig
+use std.text
+
+error Config
+  missing
+  not_a_number
+
+fun value_of(line: ?String) -> Int!Config
+  c = text.cut(line, "=") ?? return Config.missing
+  text.parse_int(text.trim(c.after)) catch return Config.not_a_number
+
+fun width(line: ?String) -> Int!
+  return Config.missing if line.len == 0
+  line.len
+
+fun sum[E](lines: []?String, f: ?fun(?String) -> Int!E) -> Int!E
+  n = 0
+  for line in lines
+    n += f(line)!
+  n
+
+sub main()
+  for lines in [["a = 1", "b = 2"], ["a = 1", "b"]]
+    v = sum(lines, value_of) catch |e|
+      match e
+        .missing => -1
+        .not_a_number => -2
+    print(v)
+  print(sum(["ab", "cde"], width) catch -1)
+```
+
+```output
+3
+-1
+5
+```
+
+`f: ?fun(?String) -> Int!E` is a view of a function that fails with
+the set `E`. The call `sum(lines, value_of)` binds `E` to `Config`, so
+it fails with `Config`, and its `match` needs no `_`. `sum(..., width)`
+binds `E` to `error`, any error. In the body, `!` passes on only `E`.
+[Write it once, for every type](07-generics.md) has more on brackets
+and type parameters.
 
 ## Several results
 
@@ -558,6 +805,8 @@ The two ideas run in parallel, with one mark each:
 | leave instead | `e ?? return`, `?? continue` | `e catch return`, `catch continue` |
 | look inside | `if e as v` | `e catch \|err\| ...`, `match err` |
 | cleanup | `defer` | `defer` and `errdefer` |
+| name what can fail | | `-> T!E`, `error L = A \| B` |
+| say more | | `bad(line: Int)`, `.bad(line) =>` |
 | out of `main` | | `error: Set.name`, status 1 |
 
 A panic is in neither column. It is a bug, it ends the program where
@@ -565,40 +814,6 @@ it stands, and nothing runs after it.
 
 **Absence and failure are types, and every use says what it does with
 them.**
-
-## Errors that say more
-
-A member may carry fields, as an enum's variant does, so the error can
-say which line failed. The failure carries them up through `!`, and the
-handler owns them: it prints them, matches them, or passes them on
-([SPEC §13, "Declared sets and fields"](../../SPEC.md#declared-sets-and-fields)).
-
-```rig
-error Config
-  missing(line: Int)
-  empty_key
-
-fun value_of(n: Int) -> Int!Config
-  return Config.missing(line: n) if n > 9
-  return Config.empty_key if n < 0
-  n
-
-sub main()
-  v = value_of(12) catch |e|
-    print(e)
-    match e
-      .missing(line) => -line
-      .empty_key => 0
-  print(v)
-```
-
-```output
-Config.missing(line: 12)
--12
-```
-
-A field holds no view, so an error never keeps anything lent, and it
-always clones, so `+e` copies it.
 
 ## Where to go next
 
@@ -608,6 +823,9 @@ always clones, so `+e` copies it.
   at a boundary.
 - [SPEC §12](../../SPEC.md#12-optionals) and [§13](../../SPEC.md#13-errors)
   give every rule for optionals and errors,
+  [Declared sets and fields](../../SPEC.md#declared-sets-and-fields)
+  and [Generic sets](../../SPEC.md#generic-sets) the rules for naming
+  a set,
   [§17](../../SPEC.md#panic) the panic, [defer and
   errdefer](../../SPEC.md#defer-and-errdefer) the cleanups, and
   [Several results](../../SPEC.md#several-results) the full rules for

@@ -614,6 +614,56 @@ otherwise kept for every call, so it cannot give up what it holds;
 R!`, and only a closure passed to such a parameter may move a capture
 out.
 
+## Stopping the whole program
+
+The user who presses Ctrl-C is canceling `main`. A `main` that can
+fail, `sub main()!`, takes an interrupt (SIGINT) or a request to end
+(SIGTERM) as a cancel, the same one `<t.cancel()` sends:
+
+```rig
+use std.time
+
+fun work(n: Int) -> Int!
+  defer print("worker", n, "stops")
+  time.sleep(3600 * time.SECOND)!
+  n
+
+sub main()!
+  defer print("main saves and closes")
+  ts = Tasks[Int!]()
+  !ts.add(work(1)&)
+  !ts.add(work(2)&)
+  for i in 1..4
+    time.sleep(100 * time.MS)!
+    print("tick", i)
+  print(>ts!)
+```
+
+```text
+$ rig build -o tick tick.rig
+$ ./tick
+tick 1
+tick 2
+^Cworker 2 stops
+worker 1 stops
+main saves and closes
+$ echo $?
+130
+```
+
+`main` fails with `task.Stop.canceled` at its next waiting point, here
+its sleep. Its `defer` runs and its values drop, as on any failure.
+The set drops with them, so its tasks are canceled and waited for,
+each running its own `defer`. Then the program ends with the status a
+shell expects of an interrupt, 130, or 143 for SIGTERM, and shows no
+error. No signal handler is written, and none is needed: cleanup is
+the code that already runs on failure.
+
+A second Ctrl-C while the first unwinds ends the program at once, so
+a `main` stuck in a loop with no waiting point can still be stopped.
+A `main` that cannot fail is never canceled; the signals end it as
+they end any program.
+
 ## Each element on several tasks
 
 `par.map` and `par.each` of `std.par` spread a loop over the cores:
@@ -693,6 +743,69 @@ not parallelism, which is what a GUI program's `*T`, `Cell`, and
 To run on another core, pass what crosses: a one-word `*Cell`, a
 channel, an actor, or a copy.
 
+## Functions go anywhere
+
+A function value, such as `fun(Int) -> Int`, is a named function's
+address. It holds nothing, so it goes to a task on any core:
+
+```rig
+fun double(x: Int) -> Int
+  x * 2
+
+fun square(x: Int) -> Int
+  x * x
+
+fun apply(f: fun(Int) -> Int, xs: ?List[Int]) -> Int
+  n = 0
+  for x in xs
+    n += f(x)
+  n
+
+sub main()
+  xs = List([1, 2, 3])
+  ts = Tasks[Int]()
+  for f in [double, square]
+    !ts.add(apply(f, ?xs)&)
+  print(>ts)
+```
+
+```output
+[12, 14]
+```
+
+`apply` takes the function by value, and each task gets its own copy
+of the address. The same holds for a function value inside an object,
+a List, or a channel's message, so a table of handlers can be shared
+by every task.
+
+A closure is different. It captures values from where it was made,
+and its type does not show what they are. A callable view, `?fun`, may
+lend those captures to write, and an owned closure, `*fun` or `~fun`,
+holds a handle whose count is not atomic. Neither goes to a task. A
+closure written in a task's call is lent to it as a `?fun`, so it is
+rejected:
+
+```rig reject
+fun apply(f: ?fun(Int) -> Int, xs: ?List[Int]) -> Int
+  n = 0
+  for x in xs
+    n += f(x)
+  n
+
+sub main()
+  xs = List([1, 2, 3])
+  k = 10
+  t = apply(|+k, x| x * k, ?xs)&
+  print(>t)
+```
+
+```error
+this closure is lent to a task to read: `?fun(Int) -> Int` views a closure or function lent for a call, whose captures its type does not show
+```
+
+The way out is to name the work: a function the task calls, given `k`
+as an argument.
+
 ## Tests that replay
 
 `bin/rig run --seed=N FILE.rig`, and `rig test`, run concurrent code
@@ -716,6 +829,8 @@ to find a race with one seed and replay it.
 | stop a bug at a boundary | `task.isolate(f)`, `*Actor.supervised(make)` |
 | stop a task | `<t.cancel()` |
 | give work a deadline | `time.within(ns, f)` |
+| end cleanly on Ctrl-C | `sub main()!`, with `defer` |
+| hand a task a function | a `fun(A) -> R` value, never a closure |
 | spread a loop over cores | `par.map(?xs, f)`, `par.each(!xs, f)` |
 
 A task is a call whose loan lasts until its result is taken. Everything

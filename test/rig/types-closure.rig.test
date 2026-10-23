@@ -329,3 +329,11 @@ fail "closure after keyword arguments misuse", "13:14: positional arguments must
   #
   run(1, n: 2, show)
   run(1, f: show, |x| print(x))
+
+fail "owned closure as a temporary callee", "this `*fun(Int) -> Int` is a temporary that owns a resource, and nothing would drop it; bind it to a name first"
+  obj H
+    f: *fun(Int) -> Int
+
+  # Calling a clone of an owned closure in place is planned (CORE §3).
+  h = H(f: *|x| x + 1)
+  print((+h.f)(2))
