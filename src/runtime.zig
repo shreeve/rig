@@ -732,6 +732,13 @@ pub inline fn selfArg(comptime f: anytype, recv: anytype) @typeInfo(@TypeOf(f)).
     return ptr.*;
 }
 
+/// The item of iterator type `I`, a type with `next(!@) -> T?`: the `T`
+/// its `next` gives (docs/design/apis.md, Stage 3, `Iter`), which a body
+/// bounded by `Iter` names `I.Item`.
+pub fn IterItem(comptime I: type) type {
+    return @typeInfo(@typeInfo(@TypeOf(I.next)).@"fn".return_type.?).optional.child;
+}
+
 /// Whether type `T` gives `api` (`__rig_own_eq`, `__rig_own_hash`,
 /// `__rig_own_order`, `__rig_own_print`) a meaning of its own: its header
 /// names the API and it declares the method (docs/design/apis.md).

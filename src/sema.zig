@@ -864,6 +864,37 @@ pub const Symbol = struct {
     /// A union of error sets (`error L = A | B`): the sets it joins, each
     /// a declared set or another union. Null for every other symbol.
     error_parts: ?[]const TypeId = null,
+    /// An associated type, a type parameter that its base determines: an
+    /// API's own `type Item`, or `S.Item` of a type parameter `S` whose
+    /// bounds declare it (`assocParam`). Null for every other symbol.
+    assoc_of: ?AssocOf = null,
+    /// A type parameter: the associated types made for it, each once.
+    assoc: []const SymbolId = &.{},
+};
+
+/// What an associated type is: `name` of its `base`'s provider for `api`
+/// (docs/design/apis.md, Stage 3: `type Item`, read `I.Item`).
+pub const AssocOf = struct {
+    base: SymbolId,
+    api: AssocApi,
+    name: []const u8,
+};
+
+/// The API that declares an associated type: the built-in `Iter`, whose
+/// `Item` is what `next` gives (`iterItem`), or an API of a program's own
+/// that declares `type Item`, which its base reaches through the bound
+/// `via` (itself or an API built on it), whose witness names it
+/// (`W_S_Source.Item`).
+pub const AssocApi = union(enum) {
+    iter,
+    user: struct { api: ApiRef, via: ApiRef },
+
+    pub fn sameApi(x: AssocApi, y: AssocApi) bool {
+        return switch (x) {
+            .iter => y == .iter,
+            .user => |u| y == .user and u.api.eql(y.user.api),
+        };
+    }
 };
 
 pub const Api = rig.Api;
@@ -943,7 +974,8 @@ pub fn builtInSupers(ctx: *const SemContext, refs: []const ApiRef) std.mem.Alloc
 /// Whether type parameter `sym` has bounds: built-in ones or APIs of a
 /// program's own. One with none is checked at each instance.
 pub fn hasBounds(sym: Symbol) bool {
-    return sym.apis.count() > 0 or sym.user_apis.len > 0;
+    // An associated type does what its own bounds name, as its base does.
+    return sym.apis.count() > 0 or sym.user_apis.len > 0 or sym.assoc_of != null;
 }
 
 /// The built-in APIs type parameter `sym`'s bounds give, those its
@@ -972,6 +1004,15 @@ pub fn formatBounds(ctx: *const SemContext, a: std.mem.Allocator, sym: Symbol, m
     return out.items;
 }
 
+/// The error that a body does with type parameter `sym` what `api` gives
+/// (`what`), and its bounds do not name it, with the bound to add; an
+/// associated type with no bound of its own is given one.
+pub fn unboundedMessage(ctx: *const SemContext, a: std.mem.Allocator, sym: Symbol, api: Api, what: []const u8) std.mem.Allocator.Error![]const u8 {
+    const written = try formatBounds(ctx, a, sym, null);
+    if (written.len == 0) return a.print("`{s}` has no bound, so it does not give {s}; give it one: `[{s}: {s}]`", .{ sym.name, what, sym.name, @tagName(api) });
+    return a.print("`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, written, what, @tagName(api), sym.name, try formatBounds(ctx, a, sym, api) });
+}
+
 /// How a type provides an API of a program's own: by its header (`obj
 /// Square: Shape`) or by an addition (`add Int: Shape`). Recorded in the
 /// module that writes it (`SemContext.conformances`); `provides` is the
@@ -994,10 +1035,22 @@ pub const Conformance = struct {
     methods: []const Field = &.{},
     /// An addition's `Self`, the symbol its methods are checked under.
     self_sym: SymbolId = symbol_invalid,
+    /// The type it gives each associated type of its API and those it
+    /// builds on, in terms of its own parameters (`conformanceAssoc`),
+    /// what its methods give in the API's place (`inferAssoc`).
+    assoc: []const AssocBinding = &.{},
+    assoc_state: enum { pending, computing, done } = .pending,
     /// What its witness names for each method of the API and those it
     /// builds on, in their order (`typecheck.checkConformance`): emit
     /// writes the witness from these alone.
     members: []const WitnessMember = &.{},
+};
+
+/// The type a conformance gives the associated type `name` of `api`.
+pub const AssocBinding = struct {
+    api: ApiRef,
+    name: []const u8,
+    ty: TypeId,
 };
 
 /// A method of a conformance's witness, and where its body is: the
@@ -2789,6 +2842,10 @@ pub const SemContext = struct {
     /// The type parameters that carry the bounds of the method being
     /// checked as well as their own (`widenOwnerBounds`).
     widened: []const SymbolId = &.{},
+    /// Each bound on an associated type (`[S: Source, S.Item: Ord]`), by
+    /// the parameter it is written on, for resolve to give the
+    /// associated type once the APIs are known (`resolveAssocBounds`).
+    assoc_bound_decls: std.ArrayList(struct { param: SymbolId, node: Sexp }) = .empty,
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
@@ -3029,6 +3086,7 @@ pub const SemContext = struct {
         self.conformances.deinit(self.allocator);
         self.type_witnesses.deinit(self.allocator);
         self.owner_bounds.deinit(self.allocator);
+        self.assoc_bound_decls.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
         self.untakeable.deinit(self.allocator);
@@ -6697,6 +6755,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
             return heldLack(ctx, ty, api);
         },
         .Num => return if (isNumeric(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
+        .Iter => return if (try iterLack(ctx, ty) == null) null else .{ .ty = ty },
         .Integer => return if (isInteger(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
         .Signed => return switch (ctx.types.get(unwrapViews(ctx, ty))) {
             .int => |info| if (info.signed) null else .{ .ty = ty },
@@ -6732,17 +6791,73 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
     }
 }
 
+/// Parameters `params` at `args`, followed by each associated type made
+/// for one of them (`Symbol.assoc`) at what its argument gives it
+/// (`assocType`): an instance's checks reach `I.Item` as they reach `I`.
+/// One whose argument gives it nothing is left out, for the base's bound
+/// to report.
+pub fn withAssoc(ctx: *SemContext, params: []const SymbolId, args: []const TypeId) std.mem.Allocator.Error!struct { params: []const SymbolId, args: []const TypeId } {
+    const any = for (params) |p| {
+        if (p != symbol_invalid and ctx.symbols.items[p].assoc.len > 0) break true;
+    } else false;
+    if (!any or args.len < params.len) return .{ .params = params, .args = args };
+    const a = ctx.arena.allocator();
+    var ps: std.ArrayList(SymbolId) = .empty;
+    var as: std.ArrayList(TypeId) = .empty;
+    try ps.appendSlice(a, params);
+    try as.appendSlice(a, args[0..params.len]);
+    var i: usize = 0;
+    while (i < ps.items.len) : (i += 1) {
+        const p = ps.items[i];
+        if (p == symbol_invalid) continue;
+        for (ctx.symbols.items[p].assoc) |assoc| {
+            const of = ctx.symbols.items[assoc].assoc_of.?;
+            if (containsPoison(ctx, as.items[i])) continue;
+            const ty = (try assocType(ctx, as.items[i], of.api, of.name)) orelse continue;
+            try ps.append(a, assoc);
+            try as.append(a, ty);
+        }
+    }
+    return .{ .params = ps.items, .args = as.items };
+}
+
+/// The type an associated type's base takes (`I = Buf`) when what the
+/// instance gives the associated type (`I.Item = ?String`) may view
+/// memory that base owns; null otherwise. A generic body tracks no view
+/// a value of a type parameter holds (docs/design/apis.md, Stage 3), so
+/// it may hold an item across the next `next`, which a loop over the base
+/// itself would reject as the ownership checker does (`viewReach`).
+fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, base: SymbolId, item: TypeId) std.mem.Allocator.Error!?TypeId {
+    const i = std.mem.findScalar(SymbolId, params, base) orelse return null;
+    if (i >= args.len) return null;
+    const base_ty = args[i];
+    if (containsTypeVar(ctx, item) or containsTypeVar(ctx, base_ty)) return null;
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    return if (try viewReach(ctx, scratch.allocator(), base_ty, item) == .owned) base_ty else null;
+}
+
 /// Each argument of the instance `of`, made at `at`, provides what its
 /// parameter's bounds name: a built-in API (`lacks`) or one of the
 /// program's own (`provides`); the first that does not is reported
-/// there. False after a diagnostic.
-pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: InstanceRoot) std.mem.Allocator.Error!bool {
+/// there. The associated types' bounds are checked too (`[I: Iter, I.Item:
+/// Ord]`), after their bases', at what each argument gives them. False
+/// after a diagnostic.
+pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args: []const TypeId, at: u32, of: InstanceRoot) std.mem.Allocator.Error!bool {
+    const all = try withAssoc(ctx, given_params, given_args);
+    const params = all.params;
+    const args = all.args;
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
         const sym = ctx.symbols.items[param];
         if (!hasBounds(sym)) continue;
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
+        if (sym.assoc_of) |assoc| if (try assocViewsBase(ctx, params, args, assoc.base, arg)) |base| {
+            const shown = try formatType(ctx, base);
+            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, which a generic body does not track, so one could outlive the next call that changes `{s}`; use `{s}` itself, or give items that own what they hold", .{ try rootName(ctx, of), sym.name, try formatType(ctx, arg), try formatType(ctx, arg), shown, shown, shown });
+            return false;
+        };
         // A type parameter with no bound is no exception: the witness the
         // bound takes would come from its own bounds, and it has none.
         for (sym.user_apis) |api| {
@@ -7090,6 +7205,273 @@ pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
     }
 }
 
+// =============================================================================
+// Associated types and iterators (docs/design/apis.md, Stage 3)
+// =============================================================================
+
+/// What a `for` loop makes of a value of type `ty`: not an iterator, one
+/// whose `next` has another shape (why), or an iterator of `item`. The one
+/// classifier of iterators (docs/internals/INTERNALS.md, "Loops over an
+/// iterator"): the loop, the `Iter` bound (`lacks`), and `I.Item`
+/// (`assocType`) read it. A positive list: a struct or enum a program or
+/// std declares (not a `List`, an array, a slice, a `?String`, a range,
+/// or a `Table`, which keep their own meaning) that declares `next(!@) ->
+/// T?`, or a type parameter bounded by `Iter`.
+pub const IterShape = union(enum) { not_iterator, malformed: []const u8, item: TypeId };
+
+pub fn iterItem(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!IterShape {
+    const peeled = unwrapViews(ctx, ty);
+    switch (ctx.types.get(peeled)) {
+        .nominal, .imported_nominal => {},
+        .parameterized_nominal => if (listElem(ctx, peeled) != null or tableElem(ctx, peeled) != null) return .not_iterator,
+        .type_var => |p| {
+            if (!boundApis(ctx, ctx.symbols.items[p]).contains(.Iter)) return .not_iterator;
+            return .{ .item = try ctx.intern(.{ .type_var = try assocParam(ctx, p, .iter, "Item") }) };
+        },
+        else => return .not_iterator,
+    }
+    const next = (try methodOfType(ctx, peeled, "next")) orelse return .not_iterator;
+    if (next.field.receiver != .write) return .{ .malformed = switch (next.field.receiver) {
+        .read => "takes `?@`",
+        .value => "takes `<@`",
+        else => "takes no self",
+    } };
+    if (next.field.owner_bounds.len > 0) return .{ .malformed = "is declared under a bound on its type's parameters, which the loop does not state" };
+    if (next.fn_ty.params.len != 1) return .{ .malformed = "takes more than `@`" };
+    if (next.fn_ty.ct_params.len > 0) return .{ .malformed = "takes compile-time parameters" };
+    return switch (ctx.types.get(next.fn_ty.returns)) {
+        .optional => |o| .{ .item = o },
+        else => .{ .malformed = "does not give an optional" },
+    };
+}
+
+/// Why a type argument `ty` does not provide `Iter`, as the end of an
+/// error says it, or null when it does: what `iterItem` decides, and
+/// two facts a bound adds to the loop's. A view is no iterator, since
+/// `next(!@)` advances the iterator itself (the loop says the same of
+/// `for x in ?it`); and a `next` private to another module is not called
+/// from this one, as a call by name or a loop would not call it.
+pub fn iterLack(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]const u8 {
+    const a = ctx.arena.allocator();
+    if (unwrapViews(ctx, ty) != ty) return "a view only reads an iterator, and `next(!@)` advances it; pass the iterator itself, `!it`";
+    switch (try iterItem(ctx, ty)) {
+        .item => {},
+        .malformed => |why| return try a.print("its `next` {s}", .{why}),
+        .not_iterator => return "it declares no `fun next(!@) -> T?`",
+    }
+    const decl = nominalDecl(ctx, ty) orelse return null;
+    const module = decl.module_id orelse if (isProxy(decl.symbol())) decl.symbol().from.module_id else return null;
+    if (module == ctx.module_id) return null;
+    const next = (try methodOfType(ctx, ty, "next")) orelse return null;
+    if (next.field.is_pub) return null;
+    const foreign = ctx.foreign_semas.get(module) orelse return null;
+    return try a.print("its `next` is private to module `{s}`; declare it `pub fun next` there", .{foreign.name});
+}
+
+/// The method `name` of a value of type `ty`, a type of this module or
+/// another's, with its signature in this module's types.
+pub fn methodOfType(ctx: *SemContext, ty: TypeId, name: []const u8) std.mem.Allocator.Error!?struct { field: Field, fn_ty: FunctionType } {
+    if (try lookupMethod(ctx, ty, name)) |m| return .{ .field = m.field, .fn_ty = m.fn_ty };
+    const decl = nominalDecl(ctx, unwrapAccess(ctx, ty)) orelse return null;
+    const module_id = decl.module_id orelse return null;
+    const foreign = ctx.foreign_semas.get(module_id) orelse return null;
+    const fields = decl.symbol().fields orelse return null;
+    const f = fields[(try findMember(ctx, fields, name, .method)) orelse return null];
+    const fty = ctx.types.get(try importType(ctx, foreign, f.ty, module_id));
+    if (fty != .function) return null;
+    return .{ .field = f, .fn_ty = fty.function };
+}
+
+/// The associated types API `ref` declares (`type Item`): its hidden
+/// parameters after `Self`.
+pub fn apiAssocParams(ctx: *const SemContext, ref: ApiRef) []const SymbolId {
+    const sym = apiSymbol(ctx, ref) orelse return &.{};
+    const params = sym.type_params orelse return &.{};
+    return if (params.len > 1) params[1..] else &.{};
+}
+
+/// Whether API `ref` declares the associated type `name`.
+pub fn apiDeclaresAssoc(ctx: *const SemContext, ref: ApiRef, name: []const u8) bool {
+    const home = apiContext(ctx, ref) orelse return false;
+    for (apiAssocParams(ctx, ref)) |p| if (std.mem.eql(u8, home.symbols.items[p].assoc_of.?.name, name)) return true;
+    return false;
+}
+
+/// The API through which type parameter `base`'s bounds give it the
+/// associated type `name`: one of a program's own that declares it, or
+/// `Iter` for `Item`. Null when none does; `ambiguous` when two do.
+pub fn assocApiOf(ctx: *const SemContext, base: SymbolId, name: []const u8) std.mem.Allocator.Error!union(enum) { none, ambiguous, one: AssocApi } {
+    var found: ?AssocApi = null;
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    const sym = ctx.symbols.items[base];
+    for (sym.user_apis) |b| for (try apiClosure(ctx, scratch.allocator(), b)) |c| {
+        if (!apiDeclaresAssoc(ctx, c, name)) continue;
+        const here: AssocApi = .{ .user = .{ .api = c, .via = b } };
+        if (found) |f| {
+            if (!f.sameApi(here)) return .ambiguous;
+        } else found = here;
+    };
+    if (std.mem.eql(u8, name, "Item") and boundApis(ctx, sym).contains(.Iter)) {
+        if (found != null) return .ambiguous;
+        found = .iter;
+    }
+    return if (found) |f| .{ .one = f } else .none;
+}
+
+/// The associated type `name` of type parameter `base` by `api`, one
+/// symbol however often it is named: an API's own (`Item` of `Self`), one
+/// imported with its base, or one made now.
+pub fn assocParam(ctx: *SemContext, base: SymbolId, api: AssocApi, name: []const u8) std.mem.Allocator.Error!SymbolId {
+    for (ctx.symbols.items[base].assoc) |a| {
+        const of = ctx.symbols.items[a].assoc_of.?;
+        if (std.mem.eql(u8, of.name, name) and of.api.sameApi(api)) return a;
+    }
+    const b = ctx.symbols.items[base];
+    const id = try ctx.addSymbol(.{
+        .name = try ctx.arena.allocator().print("{s}.{s}", .{ b.name, name }),
+        .kind = .generic_param,
+        .ty = ctx.types.unknown_id,
+        .decl_pos = b.decl_pos,
+        .scope = scope_invalid,
+        .assoc_of = .{ .base = base, .api = api, .name = name },
+    });
+    ctx.symbols.items[base].assoc = try std.mem.concat(ctx.arena.allocator(), SymbolId, &.{ ctx.symbols.items[base].assoc, &.{id} });
+    return id;
+}
+
+/// The type `ty` gives associated type `name` of `api`: a type
+/// parameter's own (`S.Item`), an iterator's item (`iterItem`), or what a
+/// conformance gives it (`conformanceAssoc`); null when `ty` provides no
+/// such API.
+pub fn assocType(ctx: *SemContext, ty: TypeId, api: AssocApi, name: []const u8) std.mem.Allocator.Error!?TypeId {
+    switch (ctx.types.get(ty)) {
+        .type_var => |p| switch (try assocApiOf(ctx, p, name)) {
+            .one => |found| if (found.sameApi(api)) return try ctx.intern(.{ .type_var = try assocParam(ctx, p, found, name) }),
+            else => {},
+        },
+        else => {},
+    }
+    return switch (api) {
+        .iter => switch (try iterItem(ctx, ty)) {
+            .item => |item| item,
+            else => null,
+        },
+        .user => |u| conformanceAssoc(ctx, ty, u.api, name),
+    };
+}
+
+/// An associated type whose base `subst` replaces is what the base's
+/// replacement gives it (`assocType`); null for any other symbol.
+fn assocSubst(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?TypeId {
+    const of = ctx.symbols.items[sym].assoc_of orelse return null;
+    const arg = subst.lookup(of.base) orelse return null;
+    return assocType(ctx, arg, of.api, of.name);
+}
+
+/// What the conformance by which `ty` provides `api` gives its associated
+/// type `name`, in this module's types; null when there is none, or it is
+/// not known yet.
+pub fn conformanceAssoc(ctx: *SemContext, ty: TypeId, api: ApiRef, name: []const u8) std.mem.Allocator.Error!?TypeId {
+    const p = (try provides(ctx, ty, api)) orelse return null;
+    const c = switch (p) {
+        .conformance => |c| c,
+        .bound => return null,
+    };
+    if (c.module_id == ctx.module_id) try inferAssoc(ctx, c.index);
+    const found = conformanceOf(ctx, p) orelse return null;
+    const binding = for (found.conf.assoc) |b| {
+        if (b.api.eql(api) and std.mem.eql(u8, b.name, name)) break b.ty;
+    } else return null;
+    if (binding == type_invalid) return null;
+    const local = if (found.home == @as(*const SemContext, ctx)) binding else try importType(ctx, found.home, binding, c.module_id);
+    // In the conformance's own parameters: an addition's, or the generic
+    // type's for a header.
+    const home_params: []const SymbolId = if (found.conf.kind == .add) found.conf.params else switch (found.home.types.get(found.conf.ty)) {
+        .parameterized_nominal => |pn| found.home.symbols.items[pn.sym].type_params orelse &.{},
+        else => &.{},
+    };
+    const args = try conformanceArgs(ctx, ctx.arena.allocator(), ty);
+    if (home_params.len == 0 or args.len != home_params.len) return local;
+    const params = try ctx.arena.allocator().alloc(SymbolId, home_params.len);
+    for (home_params, params) |hp, *lp| lp.* = if (found.home == @as(*const SemContext, ctx)) hp else try proxyOf(ctx, .{ .module_id = c.module_id, .sym = hp });
+    return try substituteType(ctx, local, .{ .params = params, .args = args });
+}
+
+/// What conformance `index` of this module gives each associated type of
+/// its API and those it builds on: what its methods give where the API's
+/// required methods name it (`matchAssoc`). One that none names is left
+/// unknown (`type_invalid`), which `typecheck.checkApis` reports at the
+/// API.
+pub fn inferAssoc(ctx: *SemContext, index: u32) std.mem.Allocator.Error!void {
+    const conf = &ctx.conformances.items[index];
+    if (conf.assoc_state != .pending) return;
+    conf.assoc_state = .computing;
+    defer ctx.conformances.items[index].assoc_state = .done;
+    const a = ctx.arena.allocator();
+    var out: std.ArrayList(AssocBinding) = .empty;
+    const provider: []const Field = if (conf.kind == .add) conf.methods else blk: {
+        const key = nominalDecl(ctx, conf.ty) orelse break :blk &.{};
+        break :blk key.symbol().fields orelse &.{};
+    };
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    for (try apiClosure(ctx, scratch.allocator(), conf.api)) |api| {
+        const home = apiContext(ctx, api) orelse continue;
+        const api_sym = apiSymbol(ctx, api) orelse continue;
+        for (apiAssocParams(ctx, api)) |param| {
+            const pname = home.symbols.items[param].assoc_of.?.name;
+            var bound: TypeId = type_invalid;
+            for (api_sym.fields orelse &.{}) |f| {
+                if (!f.is_method or f.is_default or bound != type_invalid) continue;
+                const have = for (provider) |h| {
+                    if (h.is_method and std.mem.eql(u8, h.name, f.name)) break h;
+                } else continue;
+                const pattern = if (home == @as(*const SemContext, ctx)) f.ty else try importType(ctx, home, f.ty, api.module_id);
+                const target = if (home == @as(*const SemContext, ctx)) param else try proxyOf(ctx, .{ .module_id = api.module_id, .sym = param });
+                bound = matchAssoc(ctx, pattern, have.ty, target, 0) orelse type_invalid;
+            }
+            try out.append(a, .{ .api = api, .name = pname, .ty = bound });
+        }
+    }
+    ctx.conformances.items[index].assoc = out.items;
+}
+
+/// The type `actual` holds where `pattern` holds type parameter `target`,
+/// matching the two by their shape; null when `pattern` does not hold it,
+/// or the shapes differ before it.
+pub fn matchAssoc(ctx: *const SemContext, pattern: TypeId, actual: TypeId, target: SymbolId, depth: u32) ?TypeId {
+    if (depth > 32) return null;
+    const p = ctx.types.get(pattern);
+    const x = ctx.types.get(actual);
+    if (p == .type_var and p.type_var == target) return actual;
+    // `?String` is the one text view, the type `?Item` takes at `String`.
+    if (p == .read_view and x == .string_view) return matchAssoc(ctx, p.read_view, ctx.types.string_id, target, depth + 1);
+    switch (p) {
+        inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot => |inner, tag| {
+            if (std.meta.activeTag(x) != tag) return null;
+            return matchAssoc(ctx, inner, @field(x, @tagName(tag)), target, depth + 1);
+        },
+        .fallible => |f| {
+            if (x != .fallible) return null;
+            return matchAssoc(ctx, f.ok, x.fallible.ok, target, depth + 1) orelse matchAssoc(ctx, f.set, x.fallible.set, target, depth + 1);
+        },
+        .slice => |sl| return if (x == .slice) matchAssoc(ctx, sl.elem, x.slice.elem, target, depth + 1) else null,
+        .array => |ar| return if (x == .array) matchAssoc(ctx, ar.elem, x.array.elem, target, depth + 1) else null,
+        .parameterized_nominal => |pn| {
+            if (x != .parameterized_nominal or x.parameterized_nominal.args.len != pn.args.len) return null;
+            for (pn.args, x.parameterized_nominal.args) |pa, xa| if (matchAssoc(ctx, pa, xa, target, depth + 1)) |t| return t;
+            return null;
+        },
+        .function => |f| {
+            if (x != .function or x.function.params.len != f.params.len) return null;
+            for (f.params, x.function.params) |pa, xa| if (matchAssoc(ctx, pa, xa, target, depth + 1)) |t| return t;
+            return matchAssoc(ctx, f.returns, x.function.returns, target, depth + 1);
+        },
+        else => return null,
+    }
+}
+
 /// The bounds of a type's parameters as they stand while a method that
 /// adds to them is checked (`widenOwnerBounds`), to put back after.
 pub const Widened = struct {
@@ -7197,6 +7579,7 @@ pub fn cannotDo(api: Api) []const u8 {
         .Num => "is no number",
         .Integer => "is no integer",
         .Signed => "is no signed number",
+        .Iter => "is no iterator",
     };
 }
 
@@ -7216,6 +7599,7 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
         return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[sym].name, try formatBounds(ctx, a, ctx.symbols.items[sym], api) });
     }
     if (lack.own_eq) return "";
+    if (api == .Iter) return a.print(": {s}", .{(try iterLack(ctx, ty)) orelse "it declares no `fun next(!@) -> T?`"});
     if (lack.path.len > 0) return a.print("; its field `{s}` is a `{s}`", .{ lack.path, try formatType(ctx, lack.ty) });
     if (lack.ty != ty) return a.print("; it holds a `{s}`", .{try formatType(ctx, lack.ty)});
     // A type a module declares gives itself an order, or its own `==`,
@@ -7735,7 +8119,8 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     if (subst.isEmpty() or !ctx.typeInfo(ty_id).has_type_var) return ty_id;
     const ty = ctx.types.get(ty_id);
     switch (ty) {
-        .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
+        .type_var => |sym| return subst.lookup(sym) orelse (try assocSubst(ctx, sym, subst)) orelse ty_id,
+        .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
         inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
@@ -9735,6 +10120,17 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     });
     // Recorded first: the members of a generic type name the type.
     try ctx.imported.put(ctx.allocator, origin, id);
+    // A type parameter's associated types come with it, and the
+    // requirements its bodies make of them (`importParam`).
+    for (fsym.assoc) |assoc| _ = try proxyOf(ctx, .{ .module_id = origin.module_id, .sym = assoc });
+    // An associated type is its base's proxy's.
+    if (fsym.assoc_of) |of| {
+        const base = try proxyOf(ctx, .{ .module_id = origin.module_id, .sym = of.base });
+        if (base != symbol_invalid) {
+            ctx.symbols.items[id].assoc_of = .{ .base = base, .api = of.api, .name = of.name };
+            ctx.symbols.items[base].assoc = try std.mem.concat(a, SymbolId, &.{ ctx.symbols.items[base].assoc, &.{id} });
+        }
+    }
     // Past `max_import_depth` nested imports, the proxy is filled in
     // later, by the outermost import, which fills each in turn: a chain
     // of generics, each naming the next, would nest once per link.
@@ -11270,7 +11666,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.

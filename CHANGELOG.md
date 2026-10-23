@@ -188,6 +188,22 @@ changed the language since it:
   functions of `n`; every `Slot[n]` is one type constructor for
   coherence.
 
+- **APIs of a program's own (Stage 3, associated types and `Iter`):**
+  `type Item` in an API names a type each provider chooses, by what its
+  methods give where the API's required methods name it; a bounded body
+  reads it `S.Item` and bounds it by built-in APIs as an entry of its
+  own, `[S: Source, S.Item: Ord]`, checked at each instance with what it
+  does that no API names. A witness carries each associated type (`pub
+  const Item = i64;`). `Iter` is the built-in API a `for` loop walks: a
+  type with `next(!@) -> T?` provides it, by the loop's own rule, with
+  `Item` its `T`; `[I: Iter]` loops over and calls `next` on an `I`, an
+  API may build on it, and no header names it. std.iter gives `count`
+  and `sum` over any iterator; every std iterator is an `Iter` whose item
+  is what the loop gives. An instance whose associated type may view
+  memory its base owns is rejected, since a generic body does not track
+  that view across `next`; a Map's and a Set's iterators are walked by a
+  loop instead.
+
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
   binds it from its callbacks' sets (`error` for a `T!` callback), and

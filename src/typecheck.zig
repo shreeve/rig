@@ -767,9 +767,10 @@ const Checker = struct {
     fn checkApiDefaults(self: *Checker, node: Sexp) Error!void {
         const id = self.ctx.symbolOf(ir.Api.name(node)) orelse return;
         const sym = self.ctx.symbols.items[id];
-        const self_param = (sym.type_params orelse return)[0];
+        const params = sym.type_params orelse return;
         const prev = self.nominal;
-        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = self_param }), .type_params = &.{} };
+        // `Item` names the API's associated type, as in its signatures.
+        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = params[0] }), .type_params = params[1..] };
         defer self.nominal = prev;
         const prev_scope = self.enter(node);
         defer self.scope = prev_scope;
@@ -3114,32 +3115,18 @@ const Checker = struct {
         try self.checkLoopElse(&frame, ir.For.@"else"(node));
     }
 
-    /// Whether a `for` source of type `ty` is an iterator: the one decision
-    /// (docs/internals/INTERNALS.md, "Loops over an iterator"). A positive list: a
-    /// struct or enum the program declares, or a std one (not a `List`, an
-    /// array, a slice, a `?String`, or a range, which keep their own
-    /// meaning), that declares `next(!@) -> T?`. A type with a `next`
-    /// of another shape is `.malformed`, so the mistake is reported where
-    /// the loop is.
+    /// Whether a `for` source of type `ty` is an iterator, as the one
+    /// classifier, `sema.iterItem`, decides for the loop and the `Iter`
+    /// bound alike. A type with a `next` of another shape is `.malformed`,
+    /// so the mistake is reported where the loop is.
     const IterShape = union(enum) { not_iterator, malformed: []const u8, iterator };
 
     fn iteratorShape(self: *Checker, ty: TypeId) Error!IterShape {
-        const peeled = sema.unwrapViews(self.ctx, ty);
-        switch (self.ctx.types.get(peeled)) {
-            .nominal, .imported_nominal => {},
-            .parameterized_nominal => if (listElementType(self.ctx, peeled) != null or sema.tableElem(self.ctx, peeled) != null) return .not_iterator,
-            else => return .not_iterator,
-        }
-        const next = (try self.findMethod(peeled, "next")) orelse return .not_iterator;
-        if (next.field.owner_bounds.len > 0) return .{ .malformed = "is declared under a bound on its type's parameters, which the loop does not state" };
-        if (next.field.receiver != .write) return .{ .malformed = switch (next.field.receiver) {
-            .read => "takes `?@`",
-            .value => "takes `<@`",
-            else => "takes no self",
-        } };
-        if (next.fn_ty.params.len != 1) return .{ .malformed = "takes more than `@`" };
-        if (self.ctx.types.get(next.fn_ty.returns) != .optional) return .{ .malformed = "does not give an optional" };
-        return .iterator;
+        return switch (try sema.iterItem(self.ctx, ty)) {
+            .not_iterator => .not_iterator,
+            .malformed => |why| .{ .malformed = why },
+            .item => .iterator,
+        };
     }
 
     /// Whether a bare `for x in it` over an iterator in a place advances it,
@@ -12499,6 +12486,8 @@ const Checker = struct {
         if (sema.hasBounds(psym)) {
             const found = try self.apiMethodsIn(psym.user_apis, method);
             if (found.len > 1) return self.reportAmbiguous(obj, method, found, tv, pos, args);
+            // `Iter`'s `next`, which each instance's type declares.
+            if (found.len == 0 and std.mem.eql(u8, method, "next") and sema.boundApis(self.ctx, psym).contains(.Iter)) return self.iterNextCall(callee, obj, obj_ty, tv, param, pos, args, ct);
             if (found.len == 0) {
                 const bounds = try sema.formatBounds(self.ctx, self.ctx.arena.allocator(), psym, null);
                 return self.badCall(args, pos, "`{s}` is bounded by `{s}`, which gives no method `{s}`; a call on a `{s}` is checked at each instance only where `{s}` has no bound", .{ tname, bounds, method, tname, tname });
@@ -12592,6 +12581,38 @@ const Checker = struct {
             .call = try a.dupe(u8, self.sourceText(call)),
             .owned_recv = if (self.ctx.typeOf(stripSigil(obj))) |recv_ty| self.ctx.types.get(recv_ty) == .type_var else false,
         });
+        return returns;
+    }
+
+    /// `(!it).next()` on an `I` bounded by `Iter`: `fun next(!@) ->
+    /// I.Item?`, the shape `sema.iterItem` asks of each instance's type,
+    /// whose `next` Zig finds on the value (`Dispatch.direct`).
+    fn iterNextCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv: TypeId, param: SymbolId, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const tname = try self.tyName(tv);
+        if (ct) |b| return self.badCall(args, b, "`Iter`'s `next` takes no compile-time arguments", .{});
+        if (args.len > 0) return self.badCall(args, pos, "`Iter`'s `next` takes no arguments: `next(!@) -> {s}.Item?`", .{tname});
+        if (sema.unwrapViews(self.ctx, obj_ty) != tv) return self.badCall(args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, self.sourceText(stripSigil(obj)), try self.tyName(obj_ty) });
+        const item = try self.ctx.intern(.{ .type_var = try sema.assocParam(self.ctx, param, .iter, "Item") });
+        const returns = try self.ctx.intern(.{ .optional = item });
+        _ = try self.noteMethod(callee, .write, returns);
+        const misplaced_sigil = try self.checkReceiverSigil(obj, .write, returns, "next");
+        if (!misplaced_sigil) {
+            const kind: ReceiverTypeKind = switch (self.ctx.types.get(obj_ty)) {
+                .read_view => .read_view,
+                .write_view => .write_view,
+                else => .owned_nominal,
+            };
+            try self.checkReceiverMode(obj, .write, kind, "next", pos, returns);
+        }
+        try self.recordUse(stripSigil(obj), .lend);
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .write_view = tv })}), .returns = returns, .is_sub = false };
+        try self.noteCallee(f);
+        var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
+        defer scratch.deinit();
+        const origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f);
+        self.lend_call = true;
+        self.lend_recv = f.params[0];
+        try self.checkArgs(args, .{ .params = &.{}, .returns = returns, .is_sub = false }, .{}, "next", pos, .{ .receiver = true, .origins = origins, .declared = &.{} });
         return returns;
     }
 
@@ -19016,8 +19037,13 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
 const Requirements = std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32));
 
 /// False after a diagnostic.
-fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: []const SymbolId, given_args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
     var ok = true;
+    // The associated types of the parameters too (`I.Item`), at what each
+    // argument gives them.
+    const all = try sema.withAssoc(ctx, given_params, given_args);
+    const params = all.params;
+    const args = all.args;
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
         const arg = args[i];
@@ -19314,7 +19340,7 @@ fn checkBoundedBodies(ctx: *SemContext) Error!void {
 fn reportUnbounded(ctx: *SemContext, pos: u32, param: SymbolId, api: sema.Api, what: []const u8) Error!void {
     const a = ctx.arena.allocator();
     const sym = ctx.symbols.items[param];
-    try ctx.err(pos, "`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, try sema.formatBounds(ctx, a, sym, null), what, @tagName(api), sym.name, try sema.formatBounds(ctx, a, sym, api) });
+    try ctx.err(pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
 }
 
 /// The APIs this module's types name on their headers. A type that
@@ -19445,6 +19471,15 @@ fn checkApiDecl(ctx: *SemContext, id: SymbolId) Error!void {
         };
     }
     const own = sym.fields orelse &.{};
+    // Each associated type is what a provider's methods give where the
+    // API's required methods name it (`sema.inferAssoc`), so one names it.
+    const params = sym.type_params orelse &.{};
+    if (params.len > 1) for (params[1..]) |p| {
+        const named = for (own) |m| {
+            if (m.is_method and !m.is_default and sema.usesParams(ctx, m.ty, &.{p})) break true;
+        } else false;
+        if (!named) try ctx.err(ctx.symbols.items[p].decl_pos, "`{s}` declares `type {s}`, which none of its required methods names: a provider's `{s}` is what its methods give in their place", .{ sym.name, ctx.symbols.items[p].name, ctx.symbols.items[p].name });
+    };
     for (own) |m| {
         // An API takes the methods of those it builds on as they are.
         supers: for (sym.user_apis) |s| for (try sema.apiClosure(ctx, a, s)) |c| {
@@ -19504,7 +19539,9 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
         var it = csym.apis.iterator();
         while (it.next()) |b| {
             const lack = (try sema.lacks(ctx, conf.ty, b)) orelse continue;
-            const detail = (try fieldLacking(ctx, decl, b)) orelse try sema.lackDetail(ctx, a, conf.ty, b, lack);
+            // An iterator is one by its `next`, not by its fields.
+            const by_field = if (b == .Iter) null else try fieldLacking(ctx, decl, b);
+            const detail = by_field orelse try sema.lackDetail(ctx, a, conf.ty, b, lack);
             const shown = if (std.mem.startsWith(u8, detail, "; ")) try a.print(": {s}", .{detail[2..]}) else detail;
             try ctx.err(conf.pos, "`{s}` provides `{s}`, which builds on `{s}`, but `{s}` {s}{s}", .{ tname, api_name, @tagName(b), tname, sema.cannotDo(b), shown });
             return;

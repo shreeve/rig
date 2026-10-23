@@ -677,13 +677,14 @@ meets; a bound moves that check into the signature.**
 ## What is not there yet
 
 APIs are built in stages ([design/apis.md](../design/apis.md)), and
-the first two are what this chapter shows. A program cannot yet
-declare an API of its own, `api Shape`, and bound a parameter by it,
-`[T: Shape]`, or add one to a type declared elsewhere, `add Int:
-Shape`. An API object, `?{Shape}`, which holds any value that provides
-`Shape` behind one call through a table, comes after that. Until then,
-the enum and the object of closures above are how one list holds many
-kinds.
+the first two are what this chapter shows. The third, a program's own
+APIs, `api Shape`, a parameter bounded by one, `[T: Shape]`, and one
+added to a type declared elsewhere, `add Int: Shape`, with associated
+types and `Iter`, runs as SPEC's [APIs](../../SPEC.md#apis) section
+shows, and this chapter does not teach it yet. An API object,
+`?{Shape}`, which holds any value that provides `Shape` behind one call
+through a table, comes after that. Until then, the enum and the object
+of closures above are how one list holds many kinds.
 
 A value parameter of a generic type or function is an integer, and a
 compile-time function cannot yet be called with one: `[slots[n]]T`

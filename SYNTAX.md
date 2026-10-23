@@ -970,7 +970,9 @@ required and with one when it is a default; `api Name: A + B` builds on
 other APIs. `add Type: Name` gives an API to a type its header cannot
 name, with the methods in its body, and `add Wrap[T: Bound]: Name` to a
 generic type under a bound; a value parameter is named as a type
-parameter is, `add Slot[n]: Name` ([SPEC, APIs](SPEC.md#apis)).
+parameter is, `add Slot[n]: Name` ([SPEC, APIs](SPEC.md#apis)). `type
+Item` in an API declares an associated type, which a bounded body reads
+`S.Item` and bounds as an entry of its own: `[S: Source, S.Item: Ord]`.
 
 ```rig
 api Shape

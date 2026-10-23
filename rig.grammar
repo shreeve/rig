@@ -415,6 +415,7 @@ tokens
     # Parameters, fields, and enum members
     ":"                         name:leaf type
     bound                       name:leaf apis:group   # `[K: Hash + Print]`, two or more APIs; one is a `:`
+    assoc_bound                 owner:leaf name:leaf apis:group   # `[S: Source, S.Item: Ord]`: bounds on an associated type
     once                        name:leaf type   # `f: once ?fun() -> T`; the Parser wrapper makes it a `:`
     default                     name:leaf type value
     valued                      name:leaf value
@@ -777,6 +778,7 @@ tfields  = tfield                                   → (1)
 tfield   = name
          | name:name ":" type:type                  → (:)
          | name:name ":" apis:apis2                 → (bound)     # `[K: Hash + Print]`
+         | owner:name "." name:name ":" apis:apis   → (assoc_bound) # `[S: Source, S.Item: Ord]`
 
 # The APIs a bound or a type's header names, joined with `+`: built-in
 # ones and a program's own, `Eq + Hash`, `Shape + Print`.

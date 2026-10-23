@@ -88,7 +88,10 @@ After the consolidation round, in the owner's order:
    Phase 3, method-level bounds and additions to types with value
    parameters (`Slot[n]`, `Table[T, n]`), is built
    ([phase3-notes.md](docs/history/records/2026-10/apis-stage3/phase3-notes.md)).
-   Phase 4 (associated types and `Iter`) is next.
+   Phase 4, associated types and `Iter` with std.iter, is built
+   ([phase4-notes.md](docs/history/records/2026-10/apis-stage3/phase4-notes.md)).
+   Phase 5 (the Lean lemma) and phase 6 (public generics state their
+   bounds) are next.
 2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved

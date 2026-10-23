@@ -819,7 +819,7 @@ pub const Checker = struct {
             const api: sema.Api = if (r.view) .Owned else .Copy;
             if (sema.boundApis(ctx, sym).contains(api)) continue;
             const what = if (r.view) "a value that holds no loan, which a Cell, a Signal, or an owned closure keeps" else if (r.element) "taking an element its collection still owns" else "a copy";
-            try self.err(r.pos, "`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, try sema.formatBounds(ctx, a, sym, null), what, @tagName(api), sym.name, try sema.formatBounds(ctx, a, sym, api) });
+            try self.err(r.pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
         }
     }
 

@@ -43,6 +43,7 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
+| [`std.iter`](#stditer) | counting and summing what any iterator gives |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -920,6 +921,36 @@ sub main()
 
 ```output
 ["bob", "ann", "cy"] 1 false
+```
+
+## std.iter
+
+Functions over any iterator, a value of a type that declares
+`next(!@) -> T?` ([SPEC, APIs](../SPEC.md#apis): it provides `Iter`,
+and its `Item` is `T`). Each takes the iterator lent to write and
+advances it to its end. An iterator whose items may view memory it owns,
+a Map's or a Set's among them, is walked with a loop instead
+([SPEC, APIs](../SPEC.md#apis)).
+
+| Function | Result |
+|---|---|
+| `count[I: Iter](it: !I) -> Int` | how many items `it` gives |
+| `sum[I: Iter, I.Item: Num](it: !I) -> I.Item?` | the sum of the items, or `none` when it gives none |
+
+```rig
+use std.iter
+use std.text
+
+sub main()
+  words = text.split("a b c", " ")
+  print(iter.count(!words))
+  runes = text.chars("abc")
+  print(iter.count(!runes))
+```
+
+```output
+3
+3
 ```
 
 ## Map and Set
