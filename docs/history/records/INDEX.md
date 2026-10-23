@@ -41,6 +41,8 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | pup's memory rule (consolidation track 4) | a proposal for Trig: `tools/release-slot` takes a slot only with 12 GB available and at most one other release build | [consolidation/pup-slot-memory.md](2026-10/consolidation/pup-slot-memory.md) |
 | APIs Stage 3's refresh (2026-10-23) | Stage 3 of docs/design/apis.md for this period's changes: an API method fails with exactly the API's set, witnesses of a generic type are its parameters, facts no API names stay per instance, public generics state their bounds as the last step; a six-phase build plan and 15 questions with defaults | [apis-stage3/](2026-10/apis-stage3/) |
 | The docs pass (consolidation track 3) | README, WELCOME, QUICK, SPEC §19, Learn Rig 03 and 04, STD, ROADMAP, and INTERNALS cover this period's features; the seven pending blocks checked | [consolidation/docs-pass.md](2026-10/consolidation/docs-pass.md) |
+| The round's speed baseline (consolidation track 6) | main against ace79d579 on both machines: std.json, tasks, actors, net, http, `rig check` of Trig, Trig's projects; one regression, #538 (pup's safe json 3-6%, the Mac's canada fast 2.6%); aligning std.json's hot functions removes R4's swing but is slower than main's placement, so not opened | [consolidation/speed-baseline.md](2026-10/consolidation/speed-baseline.md), [census/](2026-10/consolidation/census/) |
+| The speed census | how to time main against the reference after merges, and a row per run | [consolidation/census.md](2026-10/consolidation/census.md) |
 
 ## Every record
 
