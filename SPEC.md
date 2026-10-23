@@ -11339,6 +11339,13 @@ different types, and gives each one's value as several results:
 and can fail when any of them can; then the first to fail cancels the
 others.
 
+A wait fails with the set its work declares: `task.all` with the one of
+its tasks' sets that holds the others, `par.map` and `par.each` with
+their function's, and `task.isolate` and `task.supervise` with theirs.
+The set must hold `task.Stop`, which every wait may fail with, as a task
+of a declared set's does; otherwise, or when no one of the sets holds
+the others, the wait fails with any error (`error`).
+
 **What a task may take.** A task may run on another core, so each
 argument, and a method's self (`@`), must be able to go there as it is
 passed. A value *moves* when it can be handed whole to another thread,

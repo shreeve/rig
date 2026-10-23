@@ -186,3 +186,83 @@ test "an actor's method fails with fields, called and as a task", ''', seeds: 20
       print("task", e)
       -1
     print(w)
+
+test "waits fail with the set their work declares", seeds: 20, '''
+  3
+  3
+  -1
+  2
+  3
+'''
+  # `task.all`, `par.map`, and `task.isolate` fail with the set the work
+  # they wait for declares, when it holds `task.Stop`, so a function
+  # declaring that set passes their failure on with `!`, and a `match`
+  # names its members.
+  use std.task
+  use std.par
+
+  error E
+    bad(msg: String)
+
+  error L = E | task.Stop
+
+  fun check(x: ?Int) -> Int!L
+    return E.bad(msg: String("big")) if x > 5
+    x
+
+  fun both(x: Int, y: Int) -> Int!L
+    a, b = task.all(check(?x)&, check(?y)&)!
+    a + b
+
+  fun many(xs: ?List[Int]) -> Int!L
+    ys = par.map(?xs, check)!
+    ys.len
+
+  fun work() -> Int!L
+    return E.bad(msg: String("iso"))
+
+  fun isolated() -> Int!L
+    task.isolate(work)!
+
+  print(both(1, 2)!)
+  r = both(1, 8) catch |e|
+    match e
+      E.bad(msg) => msg.len
+      _ => -2
+  print(r)
+  xs = List([1, 2, 9])
+  print(many(?xs) catch -1)
+  ok = List([1, 2])
+  print(many(?ok)!)
+  q = isolated() catch |e|
+    match e
+      E.bad(msg) => msg.len
+      _ => -5
+  print(q)
+
+fail "a wait whose work fails with sets that do not nest", "`task.all` may fail with any error, and `both` declares `Int!L`", errors: 1
+  # No one of the sets holds the others, so the wait fails with any
+  # error, which `L` does not hold.
+  use std.task
+
+  error A
+    x
+
+  error B
+    y
+
+  error LA = A | task.Stop
+  error LB = B | task.Stop
+  error L = A | B | task.Stop
+
+  fun fa() -> Int!LA
+    1
+
+  fun fb() -> Int!LB
+    2
+
+  fun both() -> Int!L
+    a, b = task.all(fa()&, fb()&)!
+    a + b
+
+  print(both() catch -1)

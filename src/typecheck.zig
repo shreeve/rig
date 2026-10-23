@@ -12885,6 +12885,26 @@ const Checker = struct {
     /// A `Cell[List[E]]` answers its List's `push`, `pop`, `keep`,
     /// `clear`, and, for a plain-data `E`, `get(i)`, through any path to
     /// the cell, as `set` does. Null for the Cell's own members.
+    /// The error set a wait for work failing with `sets` fails with: the
+    /// one of them that holds every other and `task.Stop`, which every
+    /// wait may also fail with (`sema.setHoldsStop`); `error` when none
+    /// does, or one is `error` or a set parameter. The one rule for
+    /// `task.all`, `par.map` and `par.each`, and `task.isolate` and
+    /// `task.supervise`, whose runtime fails with the sets joined and
+    /// `task.Stop` (`rig.WaitErr`).
+    fn waitSet(self: *Checker, sets: []const TypeId) Error!TypeId {
+        const any = self.t().any_error_id;
+        for (sets) |set| if (set == any or self.isPoison(set) or sema.isSetParam(self.ctx, set)) return any;
+        for (sets) |held| {
+            if (!try sema.setHoldsStop(self.ctx, held, self.ctx.arena.allocator())) continue;
+            const holds_all = for (sets) |other| {
+                if (!sema.errorSubset(self.ctx, other, held)) break false;
+            } else true;
+            if (holds_all) return held;
+        }
+        return any;
+    }
+
     /// `task.all(a, b, ...)` of `std.task`: wait for tasks of any types,
     /// which the call takes, and give each one's value as several
     /// results, failing when any task can. Rig declares no function of
@@ -12900,6 +12920,7 @@ const Checker = struct {
         const a = self.ctx.arena.allocator();
         const params = try a.alloc(TypeId, args.len);
         const parts = try a.alloc(TypeId, args.len);
+        var sets: std.ArrayList(TypeId) = .empty;
         var fails = false;
         for (args, params, parts) |arg, *p, *part| {
             if (arg.isKind(.kwarg)) return try self.badCall(args, arg, "`task.{s}` takes its tasks in order, with no names", .{name});
@@ -12911,11 +12932,12 @@ const Checker = struct {
             const value = if (can_fail) self.ctx.types.get(gives).fallible.ok else gives;
             if (value == self.t().void_id) return try self.badCall(args, arg, "`task.{s}` gives each task's value, and `{s}` gives none: wait for it on its own, `>t`", .{ name, self.sourceText(arg) });
             fails = fails or can_fail;
+            if (can_fail) try sets.append(a, self.ctx.types.get(gives).fallible.set);
             p.* = ty;
             part.* = value;
         }
         const results = try self.ctx.intern(.{ .results = try self.ctx.dupeIds(parts) });
-        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = results } }) else results;
+        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = results, .set = try self.waitSet(sets.items) } }) else results;
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = false };
         try self.noteCallee(f);
         try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
@@ -12981,9 +13003,9 @@ const Checker = struct {
             .map => blk: {
                 if (value == self.t().void_id) return try self.badCall(args, f, "`par.map` gives each call's value, and `{s}` gives none: to call it on each element, `par.each(!xs, ...)`", .{self.sourceText(f)});
                 const list = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
-                break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = list } }) else list;
+                break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = list, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else list;
             },
-            .each => if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id,
+            .each => if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else self.t().void_id,
         };
         const params: []const TypeId = &.{ xs_param, try sema.callableOfFn(self.ctx, fn_ty), self.t().int_id };
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = result, .is_sub = kind == .each };
@@ -13064,7 +13086,7 @@ const Checker = struct {
         if (sema.holdsTask(self.ctx, value)) {
             return try self.badCall(args, f, "a task started in `{s}` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ shown, self.sourceText(f), try self.tyName(value) });
         }
-        const result = try self.ctx.intern(.{ .fallible = .{ .ok = value } });
+        const result = try self.ctx.intern(.{ .fallible = .{ .ok = value, .set = try self.waitSet(if (fails) &.{self.ctx.types.get(returns).fallible.set} else &.{}) } });
         // The function, then each option given, in the order written.
         const a = self.ctx.arena.allocator();
         const params = try a.alloc(TypeId, args.len);
