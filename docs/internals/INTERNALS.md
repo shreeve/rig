@@ -2535,6 +2535,19 @@ and makes no task local; both first read the part through
 literal written there is lent as a callable view, as `?f` of a closure
 is, so it goes to no task.
 
+What a function value is where a call runs it is one fact,
+`Checker.fnArg`: a closure written in the call (`literal`, whose
+captures are checked where it goes), a function's name (`named`), a
+closure binding (`binding`, which goes nowhere; its view does), a
+closure's view or an owned closure (`view`, whose type does not show
+what it captures), or none. Task and actor calls (through
+`crossingTypeOf`), `par.map` and `par.each`, `http.serve`,
+`task.isolate` and `task.supervise`, and `task.select`'s arms all ask
+it. A call that runs the function on several tasks at once takes only a
+literal or a name (`manyTasksClosure` reports the rest); `task.isolate`
+takes the same, and refuses a literal's capture that is a closure or
+holds a write view, either of which could write outside it.
+
 **Frozen values.** `*Frozen(x)` (`Checker.frozenMake`, recorded as
 `isFrozenMake`) takes `x` behind its first handle, a
 `Frozen[T]` under `*`. What it may hold is `sema.frozenBlocker`
