@@ -1604,6 +1604,9 @@ const Checker = struct {
             try self.ctx.recordRepoint(node);
             self.ctx.symbols.items[sym_id].flags.repointed = true;
         }
+        if (writes_through) {
+            try self.ctx.recordWriteThrough(node);
+        } else if (!is_decl) self.ctx.symbols.items[sym_id].flags.rebound = true;
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the viewed value.
         if (!is_decl and (repoints or self.ctx.types.get(sym.ty) != .write_view)) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});

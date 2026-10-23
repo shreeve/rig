@@ -442,6 +442,12 @@ pub const Facts = struct {
     pub fn repoints(f: Facts, node: Sexp) bool {
         return f.c().repoints(node);
     }
+    pub fn writesThrough(f: Facts, node: Sexp) bool {
+        return f.c().writesThrough(node);
+    }
+    pub fn copiesElem(f: Facts, node: Sexp) bool {
+        return f.c().copiesElem(node);
+    }
     pub fn memberCompares(f: Facts, member: sema.Field) sema.MemberCompares {
         return f.c().memberCompares(member);
     }
@@ -968,14 +974,8 @@ pub const Pending = struct {
         return @ptrCast(@alignCast(p.sema_context));
     }
 
-    pub fn assignWritesThrough(p: Pending, ty: TypeId) bool {
-        return sema.assignWritesThrough(p.c(), ty);
-    }
     pub fn moves(p: Pending, ty: TypeId) Answer {
         return sema.moves(p.c(), ty);
-    }
-    pub fn copies(p: Pending, ty: TypeId) Answer {
-        return sema.copies(p.c(), ty);
     }
 };
 
@@ -1016,7 +1016,7 @@ pub const syntax = struct {
 
 /// The node decisions `Pending` may still offer emit: this number only
 /// goes down, as each moves into a recorded fact.
-const pending_budget = 3;
+const pending_budget = 1;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");

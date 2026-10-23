@@ -1111,7 +1111,7 @@ pub fn storesAfterValue(ctx: *const SemContext, set: Sexp) bool {
     if (target != .src or !setOrder(ctx, set).held or isPureArg(ctx, value)) return false;
     const sym = ctx.symbolOf(target) orelse return false;
     const ty = known(ctx, ctx.symbols.items[sym].ty) orelse return false;
-    if (sema.isReadOrWriteView(ctx, ty)) return !ctx.repoints(set) and sema.assignWritesThrough(ctx, ty);
+    if (sema.isReadOrWriteView(ctx, ty)) return ctx.writesThrough(set);
     return true;
 }
 
@@ -1775,7 +1775,7 @@ const Planner = struct {
         // first, as every assignment does (`storesAfterValue`).
         const ty = known(ctx, s.ty) orelse return;
         const ptr = isPtrViewTy(ctx, ty);
-        const writes_through = !ctx.repoints(set) and sema.assignWritesThrough(ctx, s.ty);
+        const writes_through = ctx.writesThrough(set);
         const pointee = sema.writtenThrough(ctx, ty);
         if ((ptr and writes_through and !isPtrViewTy(ctx, pointee) and owns(ctx, pointee)) or (!ptr and owns(ctx, ty)) or storesAfterValue(ctx, set))
             try p.record(value, .new_value, .owned, .assignment);

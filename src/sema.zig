@@ -645,7 +645,7 @@ pub const SymbolKind = enum {
     capture,
 };
 
-pub const SymbolFlags = packed struct(u32) {
+pub const SymbolFlags = packed struct(u64) {
     /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
@@ -679,6 +679,10 @@ pub const SymbolFlags = packed struct(u32) {
     /// A `!T` or `![]T` local assigned a view somewhere
     /// (`SemContext.repoints`): it lowers to a Zig `var` pointer.
     repointed: bool = false,
+    /// An assignment gives the binding itself another value or view, not
+    /// a write through it (`SemContext.writesThrough`): it lowers to a Zig
+    /// `var`.
+    rebound: bool = false,
     /// A `for` element that views a slot of the List the loop walks in
     /// place (`forViewsSlot`).
     slot_view: bool = false,
@@ -698,6 +702,8 @@ pub const SymbolFlags = packed struct(u32) {
     /// a value of it is an error (errors-spec §3.5).
     set_param: bool = false,
     _: u15 = 0,
+    /// Room for flags to come.
+    spare: u31 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -1104,6 +1110,13 @@ pub const Facts = struct {
     /// Assignments of a view to a `!T` or `![]T` local, which point it
     /// at another place (`SemContext.recordRepoint`).
     repoints: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Assignments of a value to a `!T` binding, which write the value it
+    /// views rather than give the binding another
+    /// (`SemContext.recordWriteThrough`).
+    write_throughs: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Element reads (`x[i]`) that copy the element's value out
+    /// (`SemContext.copiesElem`).
+    elem_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Payload bindings of a variant pattern -> the type of the field
     /// each binds, at the matched instance and in this module's types
     /// (`SemContext.recordPayloadField`).
@@ -3092,6 +3105,20 @@ pub const SemContext = struct {
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
         try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
+        // An element read copies its value, or is reached where it is,
+        // as its type says (`copiesElem`), decided with the type.
+        if (node.isKind(.index)) {
+            if (copies(self, ty) == .yes) {
+                try self.facts.elem_copies.put(self.allocator, recordKey(node), {});
+            } else _ = self.facts.elem_copies.remove(recordKey(node));
+        }
+    }
+
+    /// Whether reading element `node` (`x[i]`) copies its value out
+    /// (`sema.copies` of its type is `.yes`) rather than reaching it where
+    /// it is.
+    pub fn copiesElem(self: *const SemContext, node: Sexp) bool {
+        return self.facts.elem_copies.contains(nodeKey(node) orelse return false);
     }
 
     /// `node` yields a view where its context reads the value it
@@ -3397,6 +3424,16 @@ pub const SemContext = struct {
 
     pub fn repoints(self: *const SemContext, node: Sexp) bool {
         return self.facts.repoints.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, an assignment of a `!T` binding (`w = v`, `w += 1`), writes
+    /// the value it views; the binding keeps pointing where it did.
+    pub fn recordWriteThrough(self: *SemContext, node: Sexp) !void {
+        try self.facts.write_throughs.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn writesThrough(self: *const SemContext, node: Sexp) bool {
+        return self.facts.write_throughs.contains(nodeKey(node) orelse return false);
     }
 
     /// `node`, a payload binding of a variant pattern, binds a field of

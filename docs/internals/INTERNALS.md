@@ -194,7 +194,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/symbols.zig` | the program's symbols: every `:name` of every module, numbered once for the whole program, and `__rig_symbols.zig`, which holds them ([Symbols](#symbols)) |
 | `src/proofs.zig` | the proven checks: which index, byte-access, and add tests a guard or a check already made |
-| `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`: `assignWritesThrough`, `moves`, `copies`) |
+| `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decision emit still makes itself (`Pending`: `moves`) |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
 | `src/sched.zig` | the scheduler: fibers, workers, rings and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
@@ -3858,11 +3858,14 @@ reach: every decision that affects ownership or memory is made before
 emit runs, recorded, and read. `Facts` offers the facts table, the
 storage facts, and the questions about a type whose answer is how its
 values are held in Zig (a view as a pointer or a copy, a mutable or a
-constant pointer, what `+x` lowers to). The node decisions emit still
-makes itself, with the classifiers the checkers also call, are listed
-in `Pending` (whether an assignment writes through a view,
-`assignWritesThrough`, and whether a type `moves` or `copies`), which a
-unit test of `facts.zig` keeps from growing: it
+constant pointer, what `+x` lowers to). Whether an assignment writes
+through a `!T` binding is recorded where typecheck decides it
+(`writesThrough`, with the binding's `rebound` flag for its Zig `var`),
+and whether an element read copies the element where its type is
+recorded (`copiesElem`). The node decision emit still makes itself,
+with a classifier the checkers also call, is listed in `Pending`
+(whether a value of a type `moves`, which picks how a binding is held
+and dropped), which a unit test of `facts.zig` keeps from growing: it
 reads `emit.zig` with Zig's tokenizer and fails if emit imports any
 other file of the compiler, reaches the context behind `Facts`, or keeps
 a `Pending` entry it no longer uses. `Facts` also answers a few node

@@ -2438,3 +2438,37 @@ test "write views in sibling calls", "2 3"
 
   n = 1
   print(bump(!n), bump(!n))
+
+test "write view local repointed and written through", "60 5 4 2"
+  # Each assignment of a `!T` local is recorded once as a repoint or a
+  # write through it, and the local is a Zig `var` because it is
+  # repointed; a `!T` parameter is only written through.
+  sub bump(w: !Int)
+    w += 1
+    w = w * 10
+
+  a = 1
+  b = 2
+  w = !a
+  w = 5
+  w = !b
+  w += 3
+  bump(!a)
+  xs = [String("x"), String("yy")]
+  ns = [3, 4]
+  n = ns[1]
+  print(a, b, n, xs[1].len)
+
+code "write view local writes through without repointing", '''
+  var w: *i64 = &a;
+  w.* = 5;
+  w = &b;
+  w.* += 3;
+'''
+  a = 1
+  b = 2
+  w = !a
+  w = 5
+  w = !b
+  w += 3
+  print(a, b)

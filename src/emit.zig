@@ -1998,7 +1998,7 @@ pub const Emitter = struct {
                 try self.emitBare(ir.ArrayFill.value(expr));
                 return self.w.writeAll(");");
             }
-            try self.emitRebind(local.*, expr, self.facts.repoints(sexp));
+            try self.emitRebind(local.*, expr, sexp);
         }
     }
 
@@ -2130,7 +2130,7 @@ pub const Emitter = struct {
         const needs_ptr_self = local.kind == .value or local.kind == .optional;
         // Assigning a write view writes through it, leaving the
         // pointer as it is.
-        const rebound = s.flags.repointed or (s.flags.reassigned and !(ty != null and self.facts.pending.assignWritesThrough(ty.?)));
+        const rebound = s.flags.repointed or s.flags.rebound;
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
@@ -2191,9 +2191,8 @@ pub const Emitter = struct {
     /// Reassign an existing binding. A resource's old value is dropped
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
-    fn emitRebind(self: *Emitter, local: Local, value: Sexp, repoints: bool) Error!void {
-        const s = self.facts.symbols.items[local.sym];
-        const writes_through = !repoints and self.facts.pending.assignWritesThrough(s.ty);
+    fn emitRebind(self: *Emitter, local: Local, value: Sexp, set: Sexp) Error!void {
+        const writes_through = self.facts.writesThrough(set);
         if (local.is_ptr and !writes_through) {
             // A view local is rebound to view something else.
             try self.w.print("{s} = ", .{local.zig_name});
@@ -6296,12 +6295,12 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether element `e` is read where it is rather than copied: its
-    /// type is not copied implicitly (`sema.copies`). (No element holds a
-    /// Cell by value: a Cell lives only behind a shared handle.)
+    /// Whether element `e` is read where it is rather than copied
+    /// (`copiesElem`). (No element holds a Cell by value: a Cell lives
+    /// only behind a shared handle.)
     fn elemInPlace(self: *Emitter, e: Sexp) bool {
-        const t = self.typeOf(e) orelse return false;
-        return self.facts.pending.copies(t) != .yes;
+        if (self.typeOf(e) == null) return false;
+        return !self.facts.copiesElem(e);
     }
 
     /// The object `base` of an index, emitted `how` the index needs it. A
