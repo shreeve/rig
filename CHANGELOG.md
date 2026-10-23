@@ -19,7 +19,8 @@ changed the language since it:
   fails with that set; in the body `!` passes only `E`, and `catch |e|`
   gives an `e: E` that `return e` fails with again. A callable view of a
   fallible function always takes the hidden slot, which has no bits in a
-  program whose sets have none.
+  program whose sets have none. A fallible arm of `task.select` hands its
+  failure's fields to whoever catches it.
 
 - **`std.json`'s `JsonError`:** `(!doc).load(?src)` parses as `parse`
   does and fails with `JsonError.bad(kind:, at:)`, the first error and

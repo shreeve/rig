@@ -9943,9 +9943,10 @@ Such a parameter is bound only to a set, a union, or `error`, and a
 call binds it from the failure of a callback, as `T` binds from a
 value: one failing with `Bad` gives `E = Bad`, one failing with any
 error `E = error`. Two callbacks of different sets conflict, and the
-caller names a union that holds both, `total[L](...)`; so does a call
-whose only callback is a closure literal, which fails with any error
-otherwise. The call fails with the set it binds, so its `catch` names
+caller names a union that holds both, `total[L](...)`. A closure
+literal binds no set: it fails with the set another argument, the type
+expected of the result, or brackets give, and with none of them with
+any error. The call fails with the set it binds, so its `catch` names
 `Bad`'s members and needs no `_`.
 
 In the body, `!` passes a failure of `E` into a function that declares

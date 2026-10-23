@@ -6008,6 +6008,10 @@ const Checker = struct {
         if (set == self.t().any_error_id) {
             return self.errAt(operand, "`{s}` may fail with any error, and {s} declares `{s}`: catch it, or declare `{s}`", .{ callee, fname, declared, try self.anyErrorHeader() });
         }
+        // A union joins declared sets, never a set parameter.
+        if (sema.isSetParam(self.ctx, set) or sema.isSetParam(self.ctx, ret.fallible.set)) {
+            return self.errAt(operand, "`{s}` may fail with `{s}`, which `{s}`, the error set {s} declares, does not hold: catch it", .{ callee, try self.tyName(set), try self.tyName(ret.fallible.set), fname });
+        }
         return self.errAt(operand, "`{s}` may fail with `{s}`, which `{s}`, the error set {s} declares, does not hold: catch it, or declare a set that holds both (`error L = {s} | {s}`)", .{ callee, try self.tyName(set), try self.tyName(ret.fallible.set), fname, try self.tyName(ret.fallible.set), try self.tyName(set) });
     }
 
@@ -10720,6 +10724,13 @@ const Checker = struct {
         exact: u8 = 0,
         /// `bindArg` is matching the `T` of a `?T` against a `?String`.
         viewing: bool = false,
+        /// `bindArg` is matching a closure literal, whose failure binds
+        /// no set parameter (`bindSet`).
+        lambda: bool = false,
+        /// Bit `i`: a closure literal fails where set parameter `own[i]`
+        /// goes; with nothing else to bind it, it is `error`.
+        lambda_sets: u64 = 0,
+        lambda_arg: u32 = 0,
     };
 
     /// Match each argument's type against the field or parameter it
@@ -10809,9 +10820,17 @@ const Checker = struct {
             for (lambdas.items, done) |l, *d| {
                 if (d.*) continue;
                 const actual = (try self.lentLambdaType(&inf, l.pattern, l.lambda)) orelse continue;
+                inf.lambda = true;
+                defer inf.lambda = false;
                 try self.bindArg(&inf, l.pattern, actual, l.arg, 1);
                 d.* = true;
                 progress = true;
+            }
+        }
+        for (inf.bound, 0..) |*b, i| {
+            if (i < 64 and b.ty == sema.type_invalid and inf.lambda_sets & (@as(u64, 1) << @intCast(i)) != 0) {
+                b.ty = self.t().any_error_id;
+                b.arg = inf.lambda_arg;
             }
         }
         // A `T` that a `Static` argument and a `?String` argument both
@@ -11387,10 +11406,18 @@ const Checker = struct {
 
     /// The set a function-typed argument fails with, `actual`, where
     /// the set parameter `pattern` goes: a callback failing with `Bad`
-    /// binds `E = Bad`, and one failing with any error `E = error`.
+    /// binds `E = Bad`, and one failing with any error `E = error`. A
+    /// closure literal's set is what it is checked against, so it binds
+    /// none: the set comes from another argument, the expected result,
+    /// or brackets.
     fn bindSet(self: *Checker, inf: *Inference, pattern: TypeId, actual: TypeId, arg: u32) Error!void {
         if (!sema.isSetParam(self.ctx, pattern) or self.isPoison(actual)) return;
         const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.types.get(pattern).type_var) orelse return;
+        if (inf.lambda) {
+            if (i < 64) inf.lambda_sets |= @as(u64, 1) << @intCast(i);
+            inf.lambda_arg = arg;
+            return;
+        }
         const b = &inf.bound[i];
         if (b.ty == sema.type_invalid) {
             b.ty = actual;

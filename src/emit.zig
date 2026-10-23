@@ -5615,11 +5615,14 @@ pub const Emitter = struct {
                 const saved = self.fail_slot;
                 defer self.fail_slot = saved;
                 // The function's own slot goes on to the call; a function
-                // with none fails with no fields, and lends the slot nothing
-                // writes.
-                if (self.failsWithFieldsCall(operand)) self.fail_slot = .{ .call = operand, .expr = if (self.fun.has_out) self.fun.out_name else "rig.unwritten_slot" };
+                // with none, which fails with no fields, lends a slot of
+                // its own to a call that takes one.
+                const fails_out = self.failsWithFieldsCall(operand);
+                if (fails_out and self.fun.has_out) self.fail_slot = .{ .call = operand, .expr = self.fun.out_name };
                 try self.w.writeAll("try ");
+                const own = if (fails_out and !self.fun.has_out) try self.openCatchSlot(operand) else null;
                 try self.emitExpr(operand);
+                try self.closeCatchSlot(own);
             },
             .propagate_none => {
                 const operand = ir.PropagateNone.value(sexp);
@@ -6635,9 +6638,12 @@ pub const Emitter = struct {
                     // function's slot, as a `!` anywhere does.
                     const saved = self.fail_slot;
                     defer self.fail_slot = saved;
-                    if (self.failsWithFieldsCall(operand)) self.fail_slot = .{ .call = operand, .expr = if (self.fun.has_out) self.fun.out_name else "rig.unwritten_slot" };
+                    const fails_out = self.failsWithFieldsCall(operand);
+                    if (fails_out and self.fun.has_out) self.fail_slot = .{ .call = operand, .expr = self.fun.out_name };
                     try self.w.writeAll("(if (");
+                    const own = if (fails_out and !self.fun.has_out) try self.openCatchSlot(operand) else null;
                     try self.emitPayloadHolder(operand);
+                    try self.closeCatchSlot(own);
                     return self.w.print(") |*{s}| {s} else |__rig_failed| return __rig_failed)", .{ v, v });
                 }
                 const routed = self.routedOptional(self.typeOf(operand));
@@ -7831,13 +7837,15 @@ pub const Emitter = struct {
         // `task.select(arm, ...)`: each arm a channel operation and the
         // function the runtime calls when it is the one that commits.
         if (self.facts.isSelect(sexp)) {
-            // The runtime's own call, which takes no slot.
-            _ = self.takeFailSlot(sexp);
-            try self.w.writeAll("rig.select(.{ ");
+            // The runtime calls the arm's function with the slot a `!` or
+            // `catch` lends (`selectInto`).
+            const out = self.takeFailSlot(sexp);
+            try self.w.writeAll(if (out != null) "rig.selectInto(.{ " else "rig.select(.{ ");
             for (args, 0..) |arm, i| {
                 if (i > 0) try self.w.writeAll(", ");
                 try self.emitExpr(arm);
             }
+            if (out) |o| return self.w.print(" }}, {s})", .{o});
             return self.w.writeAll(" })");
         }
         // An arm of `task.select`: the channel, the value an arm sends,

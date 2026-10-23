@@ -50,10 +50,10 @@ Without it a declared set collapses to `T!` at the first callback.
    argument: a callback failing with `Bad` binds `E = Bad`, a `T!`
    callback binds `E = error` (D7: `T!` still goes where `!E` does).
    Two callbacks with different sets conflict, as two types do today;
-   the caller names a union, `each[L](...)`. A closure literal is
-   checked after inference and fails with any error, so a call whose
-   only callback is one names the set (`spin[E](n, |?f, x| f(x)!)`):
-   sets inferred from a body stay out (spec §13). Named in brackets the
+   the caller names a union, `each[L](...)`. A closure literal binds no
+   set: it is checked against the set another argument, the expected
+   result, or brackets give, and with none of them the set is `error`
+   (sets inferred from a body stay out, spec §13). Named in brackets the
    set is checked like any type argument.
 4. **In the body.** `!` passes a failure of `E` into a function that
    declares `E`; any other set, `T!` included, does not fit (`E` may be
@@ -83,8 +83,11 @@ Without it a declared set collapses to `T!` at the first callback.
   must be the same Zig type as the caller's `?fun(Int) -> Int!Bad`.
   `FnRef` already drops the slot for a function that takes none
   (`argsFor`), so a set without fields lends as before. A frame with no
-  slot of its own that calls such a view lends `rig.unwritten_slot`,
-  which nothing writes: the view's set has no fields there, by typing.
+  slot of its own that calls such a view, or a function generic over its
+  set, lends a slot of its own, as a `catch` does: a re-raise
+  (`return e`) copies the slot whatever the member. The runtime calls a
+  fallible arm of `task.select` with the slot its `!` or `catch` lends
+  (`selectInto`).
   No program in std, examples, or Trig lends a callback with a declared
   set, so no existing code changes; in a program whose sets have no
   fields the slot has no bits. A function value or an owned closure has
@@ -105,7 +108,7 @@ emit the same Zig (checked with `emit` diffs).
 | sema | `isSetParam`; `isErrorValue`, `holdsIn`, `deepCloneable`, and `errorSubset` see a set parameter as an `error` that only itself holds; a fallible's set is one of its child types (`TypeChildren`), so `T!E` mentions `E` |
 | typecheck | `bindArg` and `bindReturns` bind the set (`bindSet`); the `.error_set` requirement; a `match` reads `E` as `error`; `E` and `?E` meet `error` and `?error`; `GenericCall.sets` and `fails_by_set` |
 | emit | `isErrorValueTy` and `isErrorSetTy` take a set parameter; a set type argument is written as its Zig set; the callable slot rule above |
-| runtime | `unwritten_slot` |
+| runtime | `selectInto` |
 
 ## 5. Out of scope
 
