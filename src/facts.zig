@@ -102,11 +102,13 @@ pub const JumpDest = sema.JumpDest;
 pub const CallTarget = sema.CallTarget;
 pub const Dispatch = sema.Dispatch;
 pub const Witness = sema.Witness;
+pub const OwnerWitnesses = sema.OwnerWitnesses;
 pub const ArgWitness = sema.ArgWitness;
 pub const Conformance = sema.Conformance;
 pub const ApiRef = sema.ApiRef;
 
 pub const type_invalid = sema.type_invalid;
+pub const symbol_invalid = sema.symbol_invalid;
 pub const type_param_mark = sema.type_param_mark;
 
 /// The recorded facts of one checked module.
@@ -390,6 +392,11 @@ pub const Facts = struct {
     pub fn dispatchOf(f: Facts, call: Sexp) ?Dispatch {
         return f.c().dispatchOf(call);
     }
+    /// The witnesses a call of a method under bounds on its type's
+    /// parameters passes (`sema.OwnerWitnesses`); null for any other call.
+    pub fn ownerWitnessesOf(f: Facts, call: Sexp) ?OwnerWitnesses {
+        return f.c().ownerWitnessesOf(call);
+    }
     /// The witnesses an instance of a generic type takes among its
     /// arguments (`sema.recordTypeWitnesses`); null for a type that takes
     /// none, or one no check recorded.
@@ -420,6 +427,11 @@ pub const Facts = struct {
     }
     /// The conformance `index` of module `module_id`, with that module's
     /// facts.
+    /// The compile-time arguments of `ty` a conformance's own parameters
+    /// fill (`sema.conformanceArgs`).
+    pub fn conformanceArgs(f: Facts, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const TypeId {
+        return sema.conformanceArgs(f.c(), a, ty);
+    }
     pub fn conformanceAt(f: Facts, module_id: u32, index: u32) ?struct { facts: Facts, conf: Conformance } {
         const home = if (module_id == f.c().module_id) f else f.foreign(module_id) orelse return null;
         return .{ .facts = home, .conf = home.c().conformances.items[index] };

@@ -173,6 +173,21 @@ changed the language since it:
   `total(x)` in a body whose `U` has none), which phase 1 left to each
   instance: the error gives the bound to write.
 
+- **APIs of a program's own (Stage 3, method bounds and additions):** a
+  method declared outside its type's body may bound the type's
+  parameters, `fun Wrap[T: Print].show(?@)`: its signature and body have
+  the type's bounds and these, a call's type argument provides them, and
+  it takes a witness, after self, for each API of a program's own they
+  name. A bound the type already gives, and `Copy`, `Clone`, `Owned`,
+  `Moves`, or `Shares` (or an API built on them), are rejected toward the
+  type's brackets; such a method meets no API on the type's header, gives
+  no own meaning, and is no loop's `next`, and a call on a `T` with no
+  bound, or on a `Wrap[U]` whose `U` has none, reaches it with an error.
+  `add` names a type's value parameters as its type parameters, `add
+  Slot[n]: Shape` and `add Table[T, n]: Shape`, whose witnesses are
+  functions of `n`; every `Slot[n]` is one type constructor for
+  coherence.
+
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
   binds it from its callbacks' sets (`error` for a `T!` callback), and

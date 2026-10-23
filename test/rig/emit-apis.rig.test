@@ -88,3 +88,47 @@ code "apis by name", "__rig_impl_Shape_Int.area(n)"
 
   n = 3
   print(Shape.area(n))
+
+code "apis a method under a bound takes its witness", "comptime W_T_Shape: type) f64 {", "w.doubled(__rig_impl_Shape_Square)"
+  # A method under a bound takes a witness after self for each API of a
+  # program's own its bounds name; a call passes the type argument's.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side
+
+  obj Wrap[T]
+    x: T
+
+  fun Wrap[T: Shape].doubled(?@) -> Float
+    2.0 * @x.area()
+
+  w = Wrap(x: Square(side: 3.0))
+  print(w.doubled())
+
+code "apis a slot's witness", "total(rig.SlotOf(4), __rig_impl_Shape_Slot(4), &ss)", "pub fn __rig_impl_Shape_Slot(comptime n: i64) type {"
+  # An addition to `Slot[n]` is a function of `n`, as one to a generic
+  # type is of its arguments.
+
+  api Shape
+    fun area(?@) -> Float
+
+  add Slot[n]: Shape
+    fun area(?@) -> Float
+      Float(n)
+
+  fun total[T: Shape](xs: ?List[T]) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  t: Table[Int, 4] = Table()
+  s = (!t).push(7)
+  ss = List([s])
+  print(total(?ss))
