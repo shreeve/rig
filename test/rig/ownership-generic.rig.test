@@ -614,11 +614,13 @@ test "type param method keeps", "y"
   put(!h, "y")
   print(h.s)
 
-fail "type param method stores through an owned value", "`stash` stores a view of `s`", known: true
+fail "type param method stores through an owned value", "`stash[Log]` cannot use `T = Log`: the generic body calls `x.watch(s)`, and `Log.watch` keeps a view of an argument in `x`, a `T` the body holds, whose loans it does not track", errors: 1
   # A view stored in a `T` the body owns, which then moves into the
-  # caller's list: the caller may drop `b` and read the list. Found by
-  # the review of APIs Stage 3, phase 2 (review-p2.md); the call through
-  # a bound is rejected for this.
+  # caller's list: the caller may drop `b` and read the list. The body
+  # does not track the loans a `T` it holds carries, so an instance
+  # whose method keeps a view in one is refused. Found by the review of APIs
+  # Stage 3, phase 2 (review-p2.md); the call through a bound is
+  # rejected for this too.
 
   obj Log
     last: ?String

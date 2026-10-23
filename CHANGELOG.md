@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A generic body hands its caller no view it never declared:** a body
+  that called a `keeps` method on a `T` it held by value, then moved the
+  value into its caller's List, let the caller drop what the view read
+  and read freed memory. Such an instance is refused at the call that
+  makes it, as the call through a bound already was.
+
 - **A wait fails with the set its work declares:** `task.all`,
   `par.map`, `par.each`, `task.isolate`, and `task.supervise` failed with
   any error even where what they wait for declares a set, so a function

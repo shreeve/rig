@@ -2922,7 +2922,10 @@ result the body takes. The method of a built-in type, one marked
 reached through a `T`. The body's ownership check treats the call as a
 call of a function value with no `from` or `keeps`: its result may
 carry the loans of self and of every view argument, and a call that
-writes self may store in it what any argument views. Every method is
+writes self may store in it what any argument views. A `T` the body
+holds by value carries no loans it tracks, so an instance whose method
+keeps an argument's view in one (`keeps`) is refused; through a write
+view, `!T`, the function's own `keeps` says what may be stored. Every method is
 within that, so an instance needs no second check.
 
 ```rig
