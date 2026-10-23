@@ -4153,10 +4153,13 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
         }
         /// Two allocations with a switch between, in one function, where
         /// a compiler could keep the first thread-local address for the
-        /// second; a safe build's owner check catches a stale heap.
+        /// second; a safe build's owner check catches a stale heap. Each
+        /// runs 2000 rounds, and on until some fiber has moved, as a
+        /// busy machine may steal none for a while.
         fn hop(_: *Unit) u8 {
             const a = rt.fast_alloc.allocator;
-            for (0..2000) |_| {
+            var i: usize = 0;
+            while (i < 2000 or (moved.load(.monotonic) == 0 and i < 1_000_000)) : (i += 1) {
                 const before = me();
                 const x = a.alloc(u8, 24) catch unreachable;
                 yield();
