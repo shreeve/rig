@@ -120,6 +120,30 @@ and QUICK meets every feature that is built.
 
 **Done when** each slip of the period has a tool that prevents it.
 
+## Track 6: speed baseline and census
+
+The owner's rule: nothing late may slow earlier work.
+
+- **The baseline.** Record it once, on the Mac and pup, from a fixed
+  reference (main before 2026-10-21, ace79d579):
+  - std.json (safe and fast, full corpus);
+  - bench tasks, actors, net, and http;
+  - `rig check --time` on Trig;
+  - Trig's ts-pattern and zod3.
+- **The census.** After each batch of merges, and on demand, time main
+  against the baseline, interleaved. Bisect anything slower beyond 2%
+  before more lands.
+- **std.json's hot functions** (`document`, `escaped`,
+  `skip_plain_ascii`) get aligned, so a code shift elsewhere cannot move
+  them. A 32-byte shift made #565 2.3% slower on twitter and 7% faster
+  on citm on pup, with identical code
+  (records/2026-10/errors-r4/accepted.md).
+- **guard.txt** for json is older than main: refresh it with `--update`
+  on main, so the instruction guard measures against today.
+
+The first census row is the 2026-10-22 run: main against ace79d579, on
+the Mac. Nothing was slower beyond noise, and std.json was 1–4% faster.
+
 ## Track 5 (owner's choice): release v0.3.0
 
 HANDOFF names it as next: "the docs pass, a full run, and the tag with
