@@ -224,6 +224,9 @@ const Checker = struct {
     /// The calls whose lasting lends were reported (`keptLends`), so that
     /// one reached from two kept values is reported once.
     kept_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The closures and outer locals whose missing capture was reported
+    /// (`useName`), each a closure's scope above a local's symbol.
+    uncaptured_reported: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The `!x` being checked where a write view is expected, the one
     /// place a write view of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
@@ -4775,6 +4778,11 @@ const Checker = struct {
                 }
                 if (crossed_lambda != null and s != self.module_scope and (kind == .local or kind == .param or kind == .capture)) {
                     if (try self.pastPathCapture(leaf, name, crossed_lambda.?)) return id;
+                    // One error for each closure and local, at its first
+                    // use: the capture it names fixes every use.
+                    const key = (@as(u64, crossed_lambda.?) << 32) | id;
+                    if (self.uncaptured_reported.contains(key)) return id;
+                    if (self.ctx.quiet == 0) try self.uncaptured_reported.put(self.ctx.arena.allocator(), key, {});
                     try self.errAt(leaf, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` lends it, `|~{s}|` holds it weakly)", .{ name, name, name, name, name, name });
                 }
                 return id;

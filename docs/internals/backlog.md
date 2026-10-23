@@ -243,7 +243,6 @@ fixing.
   and INTERNALS should say which, or emit should take the mode.
 - **`extern zig` is for std alone,** so a program cannot call Zig of its
   own. Decide whether a program may, and say so either way.
-- **A capture error inside an `http.serve` closure is reported twice.**
 - **`RIG_LEAK_TRACE=1 rig test` prints no allocation trace,** though
   `rig run` of the same body does, and the leak note says to use
   `rig run`.
