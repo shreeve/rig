@@ -1719,3 +1719,51 @@ bomb "simd write past end panics", "byte write out of range: 4 bytes at offset 3
   store(!b, 2)
   print(b)
   store(!b, 3)
+
+test "simd methods read through a call's write view", '''
+  [7, 2, 3, 4] [-2, -3, -4, -5] [1, 2, 3, 4]
+  true false 5 [1, 0, 3, 0] [true, true, true, false]
+  [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3] [1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+'''
+  # A method that reads a vector as a value reads the one a call's
+  # write view reaches.
+
+  fun vs(v: !List[Simd[I8, 4]], i: Int) -> !Simd[I8, 4] from v
+    !v[i]
+
+  fun ms(v: !List[Simd[Bool, 4]], i: Int) -> !Simd[Bool, 4] from v
+    !v[i]
+
+  fun us(v: !List[Simd[U8, 16]], i: Int) -> !Simd[U8, 16] from v
+    !v[i]
+
+  v: List[Simd[I8, 4]] = List()
+  !v.push(Simd[I8, 4]([1, 2, 3, 4]))
+  print(vs(!v, 0).with(0, 7), vs(!v, 0).not(), vs(!v, 0).array())
+  m: List[Simd[Bool, 4]] = List()
+  !m.push(Simd[Bool, 4]([true, false, true, false]))
+  print(ms(!m, 0).any(), ms(!m, 0).all(), ms(!m, 0).bits(), ms(!m, 0).select(vs(!v, 0), 0), ms(!m, 0).with(1, true))
+  u: List[Simd[U8, 16]] = List()
+  !u.push(Simd[U8, 16].splat(3))
+  k = Simd[U8, 16].splat(1)
+  print(us(!u, 0).lookup(k), us(!u, 0).lag[1](k))
+
+test "bit methods read through a call's write view", '''
+  3 0 55 200
+  4609434218613702656 0.75 1
+'''
+  # A method that reads a number's bits reads the one a call's write
+  # view reaches.
+
+  fun sl(v: !List[U8], i: Int) -> !U8 from v
+    !v[i]
+
+  fun fs(v: !List[Float], i: Int) -> !Float from v
+    !v[i]
+
+  v: List[U8] = List()
+  !v.push(U8(200))
+  print(sl(!v, 0).count_ones(), sl(!v, 0).leading_zeros(), sl(!v, 0).not(), sl(!v, 0).swap_bytes())
+  f: List[Float] = List()
+  !f.push(1.5)
+  print(fs(!f, 0).to_bits(), fs(!f, 0).fraction(), fs(!f, 0).exponent())

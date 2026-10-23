@@ -630,9 +630,9 @@ fail "apis own unprovided bound", "`count[U]` cannot use `T = U`: `count` needs 
   xs: List[Int] = List()
   print(outer(?xs))
 
-fail "apis own call through a bound", "`x.area()` calls `Shape.area` through the bound `T: Shape`, and a call through a bound is not built yet (docs/design/apis.md, Stage 3)"
-  # A call through a bound is checked and lowered in the next step; until
-  # then it is rejected, never left to Zig.
+test "apis own call through a bound", "5.0 3.0"
+  # A call through a bound is typed from the API's declaration and
+  # reaches each instance's method through its witness.
 
   api Shape
     fun area(?@) -> Float
@@ -643,6 +643,12 @@ fail "apis own call through a bound", "`x.area()` calls `Shape.area` through the
     fun area(?@) -> Float
       @side * @side
 
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
   fun total[T: Shape](xs: ?List[T]) -> Float
     t = 0.0
     for x in xs
@@ -650,7 +656,11 @@ fail "apis own call through a bound", "`x.area()` calls `Shape.area` through the
     t
 
   xs: List[Square] = List()
-  print(total(?xs))
+  !xs.push(Square(side: 2.0))
+  !xs.push(Square(side: 1.0))
+  cs: List[Circle] = List()
+  !cs.push(Circle(r: 1.0))
+  print(total(?xs), total(?cs))
 
 fail "apis own bounded body", "`T` is bounded by `Shape`, which does not give ordering comparison; add `Ord` to its bounds: `[T: Shape + Ord]`", "`T` is bounded by `Shape`, which gives no method `perimeter`; a call on a `T` is checked at each instance only where `T` has no bound"
   # A `T` bounded by an API does what its bounds name, and no more.
@@ -1235,10 +1245,9 @@ fail "apis own unprovided function", "`count[fun() -> Int]` cannot use `T = fun(
   sub main()
     print(count(one))
 
-fail "apis own default unchecked", "use of unbound name `nosuch`", "use of unbound name `missing`", known: true
-  # A default's body, and an addition's method's, are checked with the
-  # calls through a bound that reach them (docs/design/apis.md, Stage 3);
-  # until then a name in them that names nothing is not reported.
+fail "apis own default checked", "use of unbound name `nosuch`", "use of unbound name `missing`"
+  # A default's body, and an addition's method's, are checked as any
+  # method's, though no call reaches them.
 
   api Shape
     fun area(?@) -> Float
@@ -1292,3 +1301,618 @@ fail "apis own add has a built-in member", "`add String: Has` declares `push`, w
 
   sub main()
     print(1)
+
+# Calls through a bound, and witnesses: a call on a bounded `T` is typed
+# from the API's declaration and reaches each type's method through the
+# conformance's witness.
+
+test "apis own defaults", '''
+  area 9.0 18.0
+  a dot 0.0
+  area 1.0
+'''
+  # A default is checked once, generic over the type that provides the
+  # API; a type takes it or writes its own, and a call through a bound,
+  # or on the type itself, reaches either.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun describe(?@) -> String
+      String("area ", @area())
+
+    fun twice(?@) -> Float
+      2.0 * @area()
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Dot: Shape
+    fun area(?@) -> Float
+      0.0
+
+    fun describe(?@) -> String
+      String("a dot")
+
+  sub report[T: Shape](x: ?T)
+    print(x.describe(), x.twice())
+
+  report(Square(side: 3.0))
+  report(Dot())
+  print(Square(side: 1.0).describe())
+
+test "apis own closures and tasks", "8.0 4.0 4.0"
+  # A closure in a bounded body calls through its bounds; a call through
+  # a bound may be a task, local where self cannot be shared.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun twice[T: Shape](x: ?T) -> Float
+    f = |?x| x.area() * 2.0
+    f()
+
+  fun spawned[T: Shape + Shares](x: ?T) -> Float
+    t = x.area()&
+    >t
+
+  fun local[T: Shape](x: ?T) -> Float
+    t = x.area()&
+    >t
+
+  xs: List[Square] = List()
+  !xs.push(Square(side: 2.0))
+  print(twice(?xs[0]), spawned(?xs[0]), local(?xs[0]))
+
+test "apis own by name", "4.0 9.0 3.0"
+  # `Shape.area(c)` calls the method of the API by name, self given first
+  # with its sigil as at any call, on a provider or a bounded `T`.
+
+  api Shape
+    fun area(?@) -> Float
+
+    sub grow(!@, by: Float)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  fun both[T: Shape](x: !T) -> Float
+    Shape.grow(!x, 1.0)
+    Shape.area(x)
+
+  s = Square(side: 1.0)
+  Shape.grow(!s, 1.0)
+  print(Shape.area(s), both(!s), s.side)
+
+fail "apis own ambiguous", "`c.area()` could call `Shape.area` or `Region.area`, which both apply to `geo.Circle`; name the API: `Shape.area(c)`"
+  # Two APIs the module sees give a type one method name: the call names
+  # the API.
+
+  use geo
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Region
+    fun area(?@) -> Float
+
+  add geo.Circle: Shape + Region
+    fun area(?@) -> Float
+      @r
+
+  sub main()
+    c = geo.Circle(r: 1.0)
+    print(c.area(), Shape.area(c))
+
+  file "geo.rig"
+    pub obj Circle
+      pub r: Float
+
+fail "apis own no bound", "`T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`"
+  # An addition's methods are the API's: a call on a `T` with no bound
+  # reaches only a type's own methods.
+
+  api Shape
+    fun area(?@) -> Float
+
+  add Int: Shape
+    fun area(?@) -> Float
+      Float(@)
+
+  fun total[T](x: ?T) -> Float
+    x.area()
+
+  n = 3
+  print(total(?n))
+
+test "apis own compile-time parameters", "4 2 12"
+  # An API's method takes compile-time parameters of its own, a set's and
+  # a value's, which a call through a bound passes as any call does.
+
+  error Stop
+    early
+
+  api Each
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+
+    fun scaled[n: Int](?@) -> Int
+
+  obj Range: Each
+    hi: Int
+
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+      k = 0
+      for i in 0..@hi
+        k += 1
+        break if not f(i)!
+      k
+
+    fun scaled[n: Int](?@) -> Int
+      @hi * n
+
+  fun small(i: Int) -> Bool!Stop
+    return Stop.early if i > 5
+    i < 3
+
+  fun count[T: Each](x: ?T) -> Int!Stop
+    x.each(small)!
+
+  fun tripled[T: Each](x: ?T) -> Int
+    x.scaled[3]()
+
+  print(count(?Range(hi: 10)) catch -1, count(?Range(hi: 2)) catch -1, tripled(?Range(hi: 4)))
+
+test "apis own generic witnesses", '''
+  8.0 2.0 3.0
+  area 8.0 area 2.0
+'''
+  # A generic type's witnesses are among its arguments, so `Box[Square]`
+  # is one type; an addition under a bound reaches its own bound's.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun describe(?@) -> String
+      String("area ", @area())
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Wrap[T]
+    x: T
+
+  add Wrap[T: Shape]: Shape
+    fun area(?@) -> Float
+      2.0 * @x.area()
+
+  obj Box[U: Shape]: Shape
+    inner: U
+
+    fun area(?@) -> Float
+      @inner.area() + 1.0
+
+  fun total[T: Shape](xs: ?List[T]) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  ws: List[Wrap[Square]] = List()
+  !ws.push(Wrap(x: Square(side: 2.0)))
+  bs: List[Box[Square]] = List()
+  !bs.push(Box(inner: Square(side: 1.0)))
+  bws: List[Box[Wrap[Square]]] = List()
+  !bws.push(Box(inner: Wrap(x: Square(side: 1.0))))
+  print(total(?ws), total(?bs), total(?bws))
+  print(ws[0].describe(), bs[0].describe())
+
+test "apis own type through its bound", '''
+  5.0
+  5.0
+  close 2.0
+  close 1.0
+'''
+  # A generic type's methods, its own `print` among them, call through
+  # the bounds of its parameters.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Closer
+    sub close(!@)
+
+  obj Square: Shape + Closer
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub close(!@)
+      print("close", @side)
+
+  obj Bag[T: Shape + Closer]: Print
+    items: List[T]
+
+    fun total(?@) -> Float
+      t = 0.0
+      for x in @items
+        t += x.area()
+      t
+
+    sub print(?@, out: !Printer)
+      !out.value(@total())
+
+    sub shut(!@)
+      for x in !@items
+        !x.close()
+
+  fun make[T: Shape + Closer](x: T) -> Bag[T]
+    b = Bag[T](items: List())
+    !b.items.push(<x)
+    b
+
+  b = make(Square(side: 2.0))
+  !b.items.push(Square(side: 1.0))
+  print(b.total())
+  print(b)
+  !b.shut()
+
+test "apis own across modules", '''
+  4.0 3.0 3.0
+  area 4.0 area 3.0 3.0
+  9.0 32.0
+'''
+  # An API of another module: its defaults, its additions to a built-in
+  # type and a third module's, and the shorthand on a type it reaches.
+
+  use shapes
+  use geo
+
+  obj Square: shapes.Shape
+    side: Float
+
+    pub fun area(?@) -> Float
+      @side * @side
+
+  fun total[T: shapes.Shape](xs: ?List[T]) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  sub main()
+    xs: List[Square] = List()
+    !xs.push(Square(side: 2.0))
+    cs: List[geo.Circle] = List()
+    !cs.push(geo.Circle(r: 1.0))
+    print(total(?xs), total(?cs), shapes.circles())
+    print(xs[0].describe(), cs[0].describe(), cs[0].area())
+    n = 3
+    print(shapes.Shape.area(n), shapes.both(4))
+
+  file "shapes.rig"
+    use geo
+
+    pub api Shape
+      fun area(?@) -> Float
+
+      fun describe(?@) -> String
+        String("area ", @area())
+
+    add geo.Circle: Shape
+      fun area(?@) -> Float
+        3.0 * @r * @r
+
+    add Int: Shape
+      fun area(?@) -> Float
+        Float(@) * Float(@)
+
+      fun describe(?@) -> String
+        String("an int")
+
+    fun count[T: Shape](xs: ?List[T]) -> Float
+      t = 0.0
+      for x in xs
+        t += x.area()
+      t
+
+    pub fun circles() -> Float
+      cs: List[geo.Circle] = List()
+      !cs.push(geo.Circle(r: 1.0))
+      count(?cs)
+
+    pub fun both(n: Int) -> Float
+      n.area() + Shape.area(n)
+
+  file "geo.rig"
+    pub obj Circle
+      pub r: Float
+
+test "apis own builds on, through a bound", "1.0 7"
+  # A bound by an API reaches the methods of those it builds on.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Named: Shape
+    fun id(?@) -> Int
+
+  obj Tile: Named
+    n: Int
+
+    fun area(?@) -> Float
+      1.0
+
+    fun id(?@) -> Int
+      @n
+
+  sub show[T: Named](x: ?T)
+    print(x.area(), x.id())
+
+  show(Tile(n: 7))
+
+fail "apis own default body", "7:15: operator `+` requires numeric operands; got `String`"
+  # A default's body is checked as any method's, `Self` bounded by its API.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun label(?@) -> String
+      @area() + String("x")
+
+  print(1)
+
+fail "apis own parameter names and defaults", "`Pair.pick` names its parameter `second` where `Picker` declares `first`; a method meets its API with the same names: write `fun pick(?@, first: Int, second: Int) -> Int`", "`Scaled.by` gives `k` a default, and an API's method takes none: a call through the API passes each argument"
+  # A call through an API passes its arguments by the API's names, each
+  # given: an implementation names them so, and an API gives none a
+  # default.
+
+  api Picker
+    fun pick(?@, first: Int, second: Int) -> Int
+
+  obj Pair: Picker
+    n: Int
+
+    fun pick(?@, second: Int, first: Int) -> Int
+      first
+
+  api Scaled
+    fun by(?@, k: Int = 2) -> Int
+
+  print(1)
+
+test "apis own self by its sigil", '''
+  5 7
+  ab ab
+  closed ab
+'''
+  # Self goes through a bound as the API declares it: `!@` by address, so
+  # the caller's value changes; `?@` as the view lent, so a result `from
+  # @` views the caller's value after the call; `<@` moved in.
+
+  api Counter
+    sub bump(!@, by: Int)
+
+    fun label(?@) -> ?String from @
+
+    sub close(<@)
+
+  obj Tally: Counter
+    n: Int
+    name: String
+
+    sub bump(!@, by: Int)
+      @n += by
+
+    fun label(?@) -> ?String from @
+      ?@name
+
+    sub close(<@)
+      print("closed", @name)
+
+  sub twice[T: Counter](x: !T)
+    !x.bump(1)
+    !x.bump(2)
+
+  fun named[T: Counter](x: ?T) -> ?String from x
+    x.label()
+
+  sub done[T: Counter](x: T)
+    <x.close()
+
+  t = Tally(n: 0, name: String("ab"))
+  twice(!t)
+  !t.bump(2)
+  v = named(?t)
+  print(t.n, t.n + 2)
+  print(v, t.label())
+  done(<t)
+
+test "apis own witness names", '''
+  4.0 8.0 12.0
+  1.0 2.0
+'''
+  # Two witnesses whose names would be the same, of two APIs named
+  # `Shape` or of the types `geo_Circle` and `geo.Circle`, and two
+  # witness parameters of one `T`, are told apart.
+
+  use geo
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Sq: Shape + geo.Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s * @s
+
+    pub fun peri(?@) -> Float
+      4.0 * @s
+
+  obj geo_Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      1.0
+
+  add geo.Circle: Shape
+    fun area(?@) -> Float
+      2.0
+
+  fun a1[T: Shape](x: ?T) -> Float
+    x.area()
+
+  fun a2[T: geo.Shape](x: ?T) -> Float
+    x.peri()
+
+  fun both[T: Shape + geo.Shape](x: ?T) -> Float
+    x.area() + x.peri()
+
+  sub main()
+    s = Sq(s: 2.0)
+    print(a1(?s), a2(?s), both(?s))
+    print(a1(?geo_Circle(r: 1.0)), a1(?(geo.Circle(r: 1.0))))
+
+  file "geo.rig"
+    pub api Shape
+      fun peri(?@) -> Float
+
+    pub obj Circle
+      pub r: Float
+
+fail "apis own unbounded meets a bound", "13:22: `Bag[T]` cannot use `T = T`: `Bag` needs `T: Shape`, and `T` does not provide `Shape`; give it the bound: `[T: Shape]`", "17:6: `Bag[U]` cannot use `T = U`: `Bag` needs `T: Shape`, and `U` does not provide `Shape`; give it the bound: `[U: Shape]`", "23:3: `total[T]` cannot use `T = T`: `total` needs `T: Shape`, and `T` does not provide `Shape`; give it the bound: `[T: Shape]`"
+  # A `T` with no bound meets no bound by an API: the witness the bound
+  # takes would come from `T`'s own bounds, and it has none.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Bag[T: Shape]
+    items: List[T]
+
+  fun total[T: Shape](x: ?T) -> Float
+    x.area()
+
+  fun make[T](x: T) -> Bag[T]
+    Bag[T](items: List())
+
+  obj Holder[U]
+    b: Bag[U]
+
+  fun count[T: Shape](b: ?Bag[T]) -> Int
+    b.items.len
+
+  fun outer[T](x: ?T) -> Float
+    total(x)
+
+  print(1)
+
+test "apis own value parameter witness", "18.0 12.0"
+  # A generic type with a compile-time value parameter provides an API
+  # on its header; its witness takes the value as the type does.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun twice(?@) -> Float
+      2.0 * @area()
+
+  obj Sq: Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s
+
+  obj Grid[n: Int, T: Shape]: Shape
+    items: List[T]
+
+    fun area(?@) -> Float
+      t = 0.0
+      for x in @items
+        t += x.area()
+      t * Float(n)
+
+  fun total[T: Shape](x: ?T) -> Float
+    x.area() + x.twice()
+
+  g = Grid[3, Sq](items: List())
+  !g.items.push(Sq(s: 2.0))
+  print(total(?g), g.twice())
+
+test "apis own addition of several APIs", "4.5 2.0wrapwrap! 2.0 2.0 2.5 wrap!"
+  # An addition that gives several APIs writes every method in its first
+  # witness, those only a later API declares included.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun d1(?@) -> Float
+      @area() + 0.5
+
+  api Region
+    fun area(?@) -> Float
+
+    fun name(?@) -> String
+
+    fun d2(?@) -> String
+      String(@name(), "!")
+
+  obj Sq: Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s
+
+  obj Wrap[T]
+    x: T
+
+  add Wrap[T: Shape]: Shape + Region
+    fun area(?@) -> Float
+      2.0 * @x.area()
+
+    fun name(?@) -> String
+      String("wrap")
+
+  fun s1[T: Shape](x: ?T) -> Float
+    x.area() + x.d1()
+
+  fun r1[T: Region](x: ?T) -> String
+    String(x.area(), x.name(), x.d2())
+
+  w = Wrap(x: Sq(s: 1.0))
+  print(s1(?w), r1(?w), Shape.area(w), Region.area(w), w.d1(), w.d2())
+
+test "apis own ignored parameter", "1 1"
+  # An implementation may name a parameter its body ignores `_`, as any
+  # function may; a call through the API passes it by the API's name.
+
+  api Sz
+    fun scale(?@, k: Int) -> Int
+
+  obj One: Sz
+    fun scale(?@, _: Int) -> Int
+      1
+
+  fun go[T: Sz](x: ?T) -> Int
+    x.scale(k: 3)
+
+  print(One().scale(3), go(?One()))

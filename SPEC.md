@@ -598,7 +598,10 @@ A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
 array, an object or an enum, and each instance of a generic type or
 function, for the arrays it makes and, for a type, for itself. A
 `Cell` or `Signal` holds its value inline, so it counts at the size of
-what it holds. The values a function keeps on its stack take at most 13 MiB together:
+what it holds. A type nests at most 1000 levels by value, an object, an
+enum, an optional, an array, or a vector holding another each a level,
+and each instance of a generic type too; a part held in a box or a
+`List` is on the heap and adds none. The values a function keeps on its stack take at most 13 MiB together:
 the bindings it declares and its by-value parameters, each once, every
 array literal and fill whose value no binding takes directly, and every
 call of a function or method (twice when a binding takes its result,
@@ -2943,7 +2946,10 @@ method of a built-in type, one marked
 reached through a `T`. The body's ownership check treats the call as a
 call of a function value with no `from` or `keeps`: its result may
 carry the loans of self and of every view argument, and a call that
-writes self may store in it what any argument views. Every method is
+writes self may store in it what any argument views. A `T` the body
+holds by value carries no loans it tracks, so an instance whose method
+keeps an argument's view in one (`keeps`) is refused; through a write
+view, `!T`, the function's own `keeps` says what may be stored. Every method is
 within that, so an instance needs no second check.
 
 ```rig
@@ -3122,7 +3128,9 @@ parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`)
 would need ever deeper instances, and is rejected rather than expanded
 forever: at an instance, or, for a `pub` generic and the generic
 methods of a `pub` type, whose instances other modules make, where it
-is declared.
+is declared. A chain of distinct generics, each instantiating the next
+with its type arguments nested one deeper, is rejected too once an
+instance's type arguments nest more than 24 deep.
 
 ```rig reject
 obj Point
@@ -3217,7 +3225,10 @@ a `T: Copy`, compare a `T: Ord`, hash a `T: Hash`, and call no method
 on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Moves` or `Shares` does not cross to another
-task. Each instance must provide every bound, checked at the call or
+task. A comparison reads its operands where they are and drops none: a
+`T` made for one, `key(a) < key(b)`, is a temporary that may own, so
+`==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
+binding of each (`ka = key(a)`, then `ka < kb`). Each instance must provide every bound, checked at the call or
 type that makes it, with the fix in the error.
 
 ```rig
@@ -3407,11 +3418,27 @@ it is passed says what with `from`. A method that meets a `pub` API on a
 default writes the method to choose.
 
 A bound by an API holds at each instance, and a bounded `T` does what
-its bounds name and no more. `api` and `add` are keywords only at the
+its bounds name and no more. A type parameter meets a bound by an API
+only through bounds of its own: `Bag[U]` or `total(x)` in a body whose
+`U` has no bound is rejected with the bound to write. `api` and `add` are keywords only at the
 start of a module-level declaration, so `user.api` and `!set.add(x)`
-stay names. A call through a bound, and an API's defaults, are checked
-and lowered as [docs/design/apis.md](docs/design/apis.md) builds them
-in stages; until then such a call is rejected.
+stay names.
+
+A call through a bound, `x.area()` on a `[T: Shape]`, is checked
+against the API's declaration, `Self` being `T`: how it takes self, its
+parameters, its compile-time parameters, and its result and how it
+fails, which every implementation has exactly, and its `from` and
+`keeps`, which every implementation is within. So `!` passes the API's
+set on into a frame whose set holds it, and `catch |e|` gives `e` that
+set. A default is checked once, as a method generic over `Self`, a type
+parameter bounded by its API, and an addition's methods as methods of
+the type it adds to. `Shape.area(c)` calls a method through the API by
+name, self first with its sigil as at any call, on a type that provides
+the API or a bounded `T`. On a type with no method `area` of its own,
+`c.area()` calls the one the API gives it, a default or an addition's,
+when exactly one API the module declares or imports gives one; with
+two, the call names the API. A call on a `T` with no bound reaches only
+a type's own methods.
 
 ```rig
 api Shape
@@ -3499,11 +3526,14 @@ sub main()
 `Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
 ```
 
-A call through a bound comes with the next stage:
+A call through a bound, a default, and a call through the API by name:
 
-```rig pending
+```rig
 api Shape
   fun area(?@) -> Float
+
+  fun describe(?@) -> String          # a default
+    String("a shape of area ", @area())
 
 obj Square: Shape
   side: Float
@@ -3519,7 +3549,51 @@ fun total[T: Shape](xs: ?List[T]) -> Float
 
 sub main()
   squares = List([Square(side: 1.0), Square(side: 2.0)])
-  print(total(?squares))
+  print(total(?squares), squares[1].describe(), Shape.area(squares[0]))
+```
+
+```output
+5.0 a shape of area 4.0 1.0
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+api Region
+  fun area(?@) -> Float
+
+add Int: Shape + Region
+  fun area(?@) -> Float
+    Float(@)
+
+sub main()
+  n = 3
+  print(n.area())
+```
+
+```error
+`n.area()` could call `Shape.area` or `Region.area`, which both apply to `Int`; name the API: `Shape.area(n)`
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+add Int: Shape
+  fun area(?@) -> Float
+    Float(@)
+
+fun total[T](x: ?T) -> Float
+  x.area()
+
+sub main()
+  n = 3
+  print(total(?n))
+```
+
+```error
+`T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`
 ```
 
 ### Type aliases

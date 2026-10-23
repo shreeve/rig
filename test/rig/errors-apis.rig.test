@@ -1,0 +1,196 @@
+# errors: a call through a bound fails as the API's method declares
+# (docs/design/apis.md, Stage 3, "How an API's method fails"): `!` passes
+# the API's set into a frame whose set holds it, `catch |e|` gives `e` the
+# API's set, and a set with fields passes them through the slot.
+
+test "apis a bound's set passes on", '''
+  5
+  -1
+  2
+'''
+  error Bad
+    empty
+
+  error Disk
+    full
+
+  error Load = Bad | Disk
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  obj Word: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      @s.len
+
+  fun total[T: Sized](xs: ?List[T]) -> Int!Load
+    n = 0
+    for x in xs
+      n += x.size()!
+    n
+
+  fun first[T: Sized](xs: ?List[T]) -> Int!Bad
+    xs[0].size()!
+
+  ws: List[Word] = List()
+  !ws.push(Word(s: String("ab")))
+  !ws.push(Word(s: String("abc")))
+  print(total(?ws) catch -1)
+  !ws.push(Word(s: String("")))
+  print(total(?ws) catch -1)
+  !ws.push(Word(s: String("abcd")))
+  print(first(?ws) catch -1)
+
+fail "apis a bound's set into a frame without it", "11:3: `x.size` may fail with `Bad`, which `Disk`, the error set `total` declares, does not hold: catch it, or declare a set that holds both (`error L = Disk | Bad`)"
+  error Bad
+    empty
+
+  error Disk
+    full
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  fun total[T: Sized](x: ?T) -> Int!Disk
+    x.size()!
+
+  print(1)
+
+test "apis a bound's set is matched", "-1 40 2"
+  # `catch |e|` gives `e` the API's set, a declared one, matched without
+  # `_`; a member's fields come through the slot.
+
+  error Bad
+    empty
+    long(n: Int)
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  obj Word: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      return Bad.long(n: @s.len) if @s.len > 3
+      @s.len
+
+  fun named[T: Sized](x: ?T) -> Int
+    x.size() catch |e|
+      match e
+        .empty => -1
+        .long(n) => n * 10
+
+  print(named(?Word(s: String(""))), named(?Word(s: String("abcd"))), named(?Word(s: String("ab"))))
+
+test "apis a set parameter through a bound", "3 -1"
+  # An API's method generic over its set: the call binds it from the
+  # function it is passed.
+
+  error Stop
+    early
+
+  api Each
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+
+  obj Range: Each
+    hi: Int
+
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+      k = 0
+      for i in 0..@hi
+        f(i)!
+        k += 1
+      k
+
+  fun check(i: Int) -> Bool!Stop
+    return Stop.early if i > 5
+    true
+
+  fun count[T: Each](x: ?T) -> Int!Stop
+    x.each(check)!
+
+  print(count(?Range(hi: 3)) catch -1, count(?Range(hi: 9)) catch -1)
+
+test "apis a set with fields through a bound", '''
+  long 5
+  2
+'''
+  # The slot of a set's fields is passed as the API's set says, which
+  # every implementation's is.
+
+  error Bad
+    empty
+    long(n: Int)
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  obj Name: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      return Bad.long(n: @s.len) if @s.len > 3
+      @s.len
+
+  fun total[T: Sized](xs: ?List[T]) -> Int!Bad
+    n = 0
+    for x in xs
+      n += x.size()!
+    n
+
+  long: List[Name] = List()
+  !long.push(Name(s: String("ab")))
+  !long.push(Name(s: String("abcde")))
+  _ = total(?long) catch |e|
+    match e
+      .empty => print("empty")
+      .long(n) => print("long", n)
+    0
+  short: List[Name] = List()
+  !short.push(Name(s: String("ab")))
+  print(total(?short) catch -1)
+
+test "apis a failing default", "4 -1"
+  # A default's failure is checked in the API's module, as any body's is.
+
+  error Bad
+    empty
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+    fun double(?@) -> Int!Bad
+      2 * @size()!
+
+  obj Word: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      @s.len
+
+  fun twice[T: Sized](x: ?T) -> Int!Bad
+    x.double()!
+
+  print(twice(?Word(s: String("ab"))) catch -1, twice(?Word(s: String(""))) catch -1)
+
+fail "apis a task over a bound's call", "`x.size` fails with `Bad`, and waiting for it also fails with `task.Stop`"
+  # Waiting for a task also fails with `task.Stop`, which the set the
+  # frame passes on must hold.
+
+  error Bad
+    empty
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  fun later[T: Sized + Shares](x: ?T) -> Int!Bad
+    t = x.size()&
+    >t!
+
+  print(1)

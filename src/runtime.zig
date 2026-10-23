@@ -218,6 +218,8 @@ pub inline fn failWith(out: ErrSlot, code: anyerror, members_fields: anytype) an
 /// `e == E.name`: whether `v`, an error value or a code, is `code`.
 pub inline fn isError(v: anytype, code: anyerror) bool {
     const V = @TypeOf(v);
+    // An optional is `code` when it holds an error that is.
+    if (comptime @typeInfo(V) == .optional) return if (v) |e| isError(e, code) else false;
     if (V == ErrorValue) return v.code == code;
     if (V == *ErrorValue or V == *const ErrorValue) return v.code == code;
     return @as(anyerror, v) == code;
@@ -667,8 +669,11 @@ fn isShared(comptime T: type) bool {
 /// when it declares `__rig_drop`, is a strong handle, or (for structs,
 /// tagged unions, arrays, and optionals) contains something that does.
 /// The mirror of sema's `typeHasDropGlue` for a Zig type: a unique type
-/// that needs no cleanup drops nothing.
+/// that needs no cleanup drops nothing. It walks every type `T` holds by
+/// value, which may nest hundreds deep, so it sets the budget an emitted
+/// function does (`eval_quota`).
 pub fn needsDrop(comptime T: type) bool {
+    @setEvalBranchQuota(eval_quota);
     if (comptime isOptStruct(T)) return needsDrop(Payload(T));
     return switch (@typeInfo(T)) {
         .pointer => isShared(T),
@@ -708,6 +713,23 @@ pub fn ReadView(comptime T: type) type {
 /// pointer, or a copy where a read view copies (`ReadView`).
 pub inline fn viewOf(comptime T: type, p: *const T) ReadView(T) {
     return if (comptime ReadView(T) == *const T) p else p.*;
+}
+
+/// The self a witness's method `f` takes (docs/design/apis.md, Stage 3,
+/// "Lowering"), from `recv`, the address of the receiver or of a view of
+/// it: the pointer, or the value where `f` takes self by value, as Zig's
+/// method call would give it (`W.area(rig.selfArg(W.area, &x))`). A read
+/// view held as a copy (`ReadView`) is given as it is.
+pub inline fn selfArg(comptime f: anytype, recv: anytype) @typeInfo(@TypeOf(f)).@"fn".param_types[0].? {
+    const P = @TypeOf(recv);
+    if (comptime @typeInfo(P) != .pointer or P == []const u8) return recv;
+    const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
+    const ptr: Ptr = if (Ptr == P) recv else recv.*;
+    const Self = @typeInfo(@TypeOf(f)).@"fn".param_types[0].?;
+    // A `String`'s read view is its bytes, the one text view.
+    if (comptime Self == []const u8 and @typeInfo(Ptr) == .pointer and @typeInfo(Ptr).pointer.size == .one and @typeInfo(Ptr).pointer.child == String) return ptr.bytes();
+    if (comptime @typeInfo(Self) == .pointer) return ptr;
+    return ptr.*;
 }
 
 /// Whether type `T` gives `api` (`__rig_own_eq`, `__rig_own_hash`,

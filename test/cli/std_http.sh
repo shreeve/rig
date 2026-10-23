@@ -144,8 +144,20 @@ def descriptors():
         time.sleep(0.3)
         for s in held:
             s.close()
-        time.sleep(0.2)
-        print(ask(port, b'GET /again HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'))
+        # The server accepts again once it sees the closes, which a loaded
+        # machine may take a moment to deliver: ask until it answers, for
+        # up to 2 s.
+        again = b'GET /again HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'
+        deadline = time.time() + 2
+        while True:
+            time.sleep(0.1)
+            try:
+                got = ask(port, again)
+            except OSError as e:
+                got = 'error ' + str(e)
+            if got.startswith('200') or time.time() > deadline:
+                break
+        print(got)
         print('alive', p.poll() is None)
     finally:
         p.kill()

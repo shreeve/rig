@@ -3146,7 +3146,7 @@ const Lowerer = struct {
             // `Simd[T, n].splat(x)` is a function of a vector type.
             const splat = if (self.ctx.elemCallOf(callee)) |ec| ec.op == .splat else false;
             const static = splat or if (obj_sym) |os| switch (os.kind) {
-                .module, .nominal_type, .type_alias, .generic_type => true,
+                .module, .nominal_type, .type_alias, .generic_type, .api => true,
                 else => false,
             } else obj.isKind(.member) and self.ctx.typeOf(obj) == null;
             if (static) {
@@ -3157,10 +3157,13 @@ const Lowerer = struct {
                     // A generic function's callee has its instance's
                     // signature; only a plain one says what it was declared.
                     if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = self.staticFrom(callee), .keeps = self.staticKeeps(callee) };
+                    // `Shape.area(c)`: the API's declaration says what it
+                    // keeps and views, read from the call's dispatch.
+                    if (self.apiMethodOf(e)) |am| sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = declaredFrom(am.ctx, am.field.decl_pos), .keeps = declaredKeeps(am.ctx, am.field.decl_pos) orelse 0 };
                 } else is_ctor = true;
             } else {
                 // A method: the receiver first, then the arguments.
-                const recv_mode, const fn_params = try self.method(callee);
+                const recv_mode, const fn_params = try self.method(e, callee);
                 const recv_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
                 const recv_ty = try self.typeOf(recv_obj);
                 cell_store = self.isCell(recv_ty);
@@ -3847,9 +3850,17 @@ const Lowerer = struct {
     };
 
     /// How a method takes its receiver, and its other parameters' types.
-    fn method(self: *Lowerer, callee: Sexp) Error!struct { sema.MethodReceiver, ?MethodParams } {
+    fn method(self: *Lowerer, call_node: Sexp, callee: Sexp) Error!struct { sema.MethodReceiver, ?MethodParams } {
         const obj = ir.Member.object(callee);
         const mname = leafText(ir.Member.name(callee), self.src);
+        // A call through an API (a bound, or the API a type provides): the
+        // API's declaration, which the call's dispatch names, never the
+        // instance's method, which may keep and view less.
+        if (self.apiMethodOf(call_node)) |am| {
+            const ft = am.ctx.types.get(am.field.ty);
+            if (ft != .function or ft.function.params.len == 0) return abstain("an API's method, untyped");
+            return .{ am.field.receiver, .{ .ctx = am.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .decl_pos = am.field.decl_pos } };
+        }
         if (self.ctx.elemCallOf(callee)) |ec| {
             // An integer's bits and a vector's methods read it as a value.
             return .{ if (ec.op == .read or ec.op.isBits() or ec.op.isSimd()) .read else .write, null };
@@ -3903,6 +3914,21 @@ const Lowerer = struct {
             else => {},
         }
         return abstain("a method reached through a handle");
+    }
+
+    /// The API method a call through an API reaches (the call's
+    /// `sema.Dispatch`), with the context of the module that declares it;
+    /// null for any other call.
+    fn apiMethodOf(self: *Lowerer, call_node: Sexp) ?struct { ctx: *const sema.SemContext, field: sema.Field } {
+        const d = self.ctx.dispatchOf(call_node) orelse return null;
+        const st = switch (d) {
+            .static => |st| st,
+            .direct => return null,
+        };
+        const home = sema.apiContext(self.ctx, st.api) orelse return null;
+        const api = sema.apiSymbol(self.ctx, st.api) orelse return null;
+        for (api.fields orelse &.{}) |f| if (f.is_method and std.mem.eql(u8, f.name, st.method)) return .{ .ctx = home, .field = f };
+        return null;
     }
 
     fn methodOf(self: *Lowerer, decl: sema.NominalDecl, mname: []const u8) Error!?struct { sema.MethodReceiver, ?MethodParams } {

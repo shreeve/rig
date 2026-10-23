@@ -13,6 +13,22 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A generic body hands its caller no view it never declared:** a body
+  that called a `keeps` method on a `T` it held by value, then moved the
+  value into its caller's List, let the caller drop what the view read
+  and read freed memory. Such an instance is refused at the call that
+  makes it, as the call through a bound already was.
+
+- **Errors compared with a member:** an `L?` of a union with fields
+  tested with a member of a set without fields (`o == .y`) failed in
+  Zig; it tests the member. A member with fields written as a shorthand
+  beside an error (`l == .x(n: 3)`) failed in Zig or with an internal
+  error; it is told to name the set, `A.x(n: 3)`, and beside an
+  optional, to unwrap it first. SPEC says that a comparison of made
+  `T`s in a generic body needs `Copy`, or a binding of each. The HTTP
+  server test's descriptor check waits up to 2 s for the server to
+  accept again.
+
 - **A wait fails with the set its work declares:** `task.all`,
   `par.map`, `par.each`, `task.isolate`, and `task.supervise` failed with
   any error even where what they wait for declares a set, so a function
@@ -66,6 +82,23 @@ changed the language since it:
   with fields compared with one of its members (`o == .w`) failed in
   Zig.
 
+- **Three programs `rig check` accepted that Zig rejected, and a message
+  that blamed recursion on a chain.** A vector's and a number's built-in
+  methods (`with`, `select`, `bits`, `lookup`, `lag`, `not`,
+  `count_ones`, `to_bits`, ...) read their `self` through a call's
+  write view (`vs(!v, 0).with(0, 7)`), as an operator's operand is
+  read. The runtime's walk over a type's parts (`rig.needsDrop`) takes
+  the budget an emitted function does, so an object of many fields, or
+  a chain of objects, kept in a `List` compiles. A type nests at most
+  1000 levels by value (an object, enum, optional, array, or vector each
+  a level), past which Zig's compiler runs out of stack; a deeper one is
+  rejected once, at the first type past it. A clone, an error's fields,
+  and the drop-body check follow a type to any depth, not only 32
+  types down. A chain of distinct generic functions whose type arguments
+  nest more than 24 deep is reported as that, not as a function calling
+  itself. *Rejected now:* a type nesting more than 1000 levels by value,
+  which Zig could not compile past about 1250.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed
@@ -100,14 +133,38 @@ changed the language since it:
   bounds; a type provides an API once in the program, in its module or
   the API's, the APIs an addition's API builds on included; an addition
   names no member its type has, a String's `push` included; and a bound
-  by an API, `[T: Shape]`, holds at each instance. A call through such a bound is rejected until the next step
-  lowers it. `api` and `add` are keywords only at the start of a
+  by an API, `[T: Shape]`, holds at each instance. `api` and `add` are keywords only at the start of a
   module-level declaration, before the name it declares or the type it
   names, so `user.api`, `!set.add(x)`, and a binding named `add` stay
   names; `trait` and `impl` say to write `api` and `add`. A type, an
   API, or an alias named `Int`, `Float`, `Bool`, or a sized number is
   rejected, as one named `String` is: an `obj Int` was accepted and
   never reached, since the name named the built-in type.
+
+- **APIs of a program's own (Stage 3, calls through a bound):** a call
+  on a bounded `T`, `x.area()`, is typed from the API's declaration: its
+  self, parameters, compile-time parameters, and result with its failure,
+  so `x.size()!` passes the API's set into a frame whose set holds it,
+  `catch |e|` gives `e` that set, and a set with fields passes them
+  through the slot; ownership reads the API's `from` and `keeps`, which
+  every implementation is within. A call through a bound may be a task
+  and may stand in a closure. `Shape.area(c)` calls a method through the
+  API by name, and `c.area()` on a type with no `area` of its own
+  reaches the default or addition of the one API the module sees that
+  gives it one; two such APIs make the call name one. A call on a `T`
+  with no bound that would reach a default or an addition says to write
+  the bound. Each conformance has a witness, `__rig_impl_Shape_Square`,
+  beside it, naming the type's methods, an addition's, and the defaults
+  it takes; each bound adds one compile-time parameter, its witness,
+  after the type it bounds, a generic type's included, so `Bag[Square]`
+  stays one Zig type. Defaults' bodies and additions' methods are
+  checked and lowered: a default as a method generic over `Self`. Every
+  method call records how it dispatches, `direct` or `static`, and `rig
+  check --facts=sema` prints it. A call through a bound that would store
+  a view of a local in a value of a type parameter's type is rejected. A
+  type parameter with no bound meets no bound by an API (`Bag[U]` or
+  `total(x)` in a body whose `U` has none), which phase 1 left to each
+  instance: the error gives the bound to write.
 
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call

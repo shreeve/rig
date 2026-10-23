@@ -87,9 +87,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     // A compile-time function was checked before the constants that call
     // it (`resolve.ensureCtFun`, `checkCtFun`).
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl) and !rig.isCtFun(decl)) try c.checkDecl(decl);
-    // An API's defaults and an addition's methods are checked where a
-    // call through a bound reaches them (docs/design/apis.md, Stage 3).
-    for (ir.Module.decls(tree)) |decl| if (!rig.isCtFun(decl) and !rig.isApiDecl(decl)) try c.checkLendBases(decl, decl, false, true);
+    for (ir.Module.decls(tree)) |decl| if (!rig.isCtFun(decl)) try c.checkLendBases(decl, decl, false, true);
 }
 
 /// Check the body of compile-time function `decl` as any function body
@@ -156,6 +154,9 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// The APIs the module declares and imports, found once
+    /// (`visibleApis`).
+    visible_apis: ?[]const sema.ApiRef = null,
     /// The compile-time parameters of its own and their arguments, of the
     /// instance the last `instantiateCall` made; empty for a function that
     /// has none (`noteTarget`).
@@ -527,8 +528,8 @@ const Checker = struct {
             },
             .set => try self.checkModuleConst(sexp),
             .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_const => {},
-            // Checked with the module's conformances (`checkApis`).
-            .api, .api_add => {},
+            .api => try self.checkApiDefaults(sexp),
+            .api_add => try self.checkAddMethods(sexp),
             .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| try self.checkDecl(d),
             else => try self.errAt(sexp, not_at_module_level, .{}),
         }
@@ -740,6 +741,50 @@ const Checker = struct {
                 },
                 else => {},
             }
+        }
+    }
+
+    /// An API's defaults, each checked once, as a method generic over the
+    /// type that provides the API: `@` is a view of `Self`, a type
+    /// parameter bounded by the API, so the body does what the API and
+    /// those it builds on declare (docs/design/apis.md, Stage 3,
+    /// "Lowering": `describe[Self: Shape](?@)`).
+    fn checkApiDefaults(self: *Checker, node: Sexp) Error!void {
+        const id = self.ctx.symbolOf(ir.Api.name(node)) orelse return;
+        const sym = self.ctx.symbols.items[id];
+        const self_param = (sym.type_params orelse return)[0];
+        const prev = self.nominal;
+        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = self_param }), .type_params = &.{} };
+        defer self.nominal = prev;
+        const prev_scope = self.enter(node);
+        defer self.scope = prev_scope;
+        for (ir.rest(node, .members)) |m| {
+            if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
+            if (ir.get(m, .body) == .nil) continue;
+            const pos = ir.get(m, .name).src.pos;
+            for (sym.fields orelse &.{}) |f| if (f.decl_pos == pos) try self.checkFunction(m, f.ty);
+        }
+    }
+
+    /// An addition's methods, checked as methods of the type it adds its
+    /// APIs to: `@` is a view of `Self`, that type (`add Int: Shape`), or
+    /// the generic type at the addition's own parameters (`add Wrap[T:
+    /// Shape]`).
+    fn checkAddMethods(self: *Checker, node: Sexp) Error!void {
+        const at = self.ctx.startOf(node);
+        const conf = for (self.ctx.conformances.items) |c| {
+            if (c.kind == .add and c.pos == at) break c;
+        } else return;
+        if (sema.containsPoison(self.ctx, conf.ty)) return;
+        const prev = self.nominal;
+        self.nominal = .{ .sym = conf.self_sym, .self_type = conf.ty, .type_params = conf.params };
+        defer self.nominal = prev;
+        const prev_scope = self.enter(node);
+        defer self.scope = prev_scope;
+        for (ir.rest(node, .members)) |m| {
+            if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
+            const pos = ir.get(m, .name).src.pos;
+            for (conf.methods) |f| if (f.decl_pos == pos) try self.checkFunction(m, f.ty);
         }
     }
 
@@ -4780,10 +4825,10 @@ const Checker = struct {
                 try self.ctx.recordName(leaf, id);
                 const sym = self.ctx.symbols.items[id];
                 const kind = sym.kind;
-                // An API is no value, and a call through one by its name,
-                // `Shape.area(x)`, is not built yet.
+                // An API is no value; a call names one of its methods,
+                // `Shape.area(x)` (`apiNameCall`).
                 if (kind == .api) {
-                    try self.errAt(leaf, "`{s}` is an API, not a value; a call through it by name, `{s}.method(x)`, is not built yet (docs/design/apis.md, Stage 3)", .{ name, name });
+                    try self.errAt(leaf, "`{s}` is an API, not a value; call a method through it by name: `{s}.method(x)`", .{ name, name });
                     return null;
                 }
                 if (kind == .local and sym.ty == self.t().unknown_id and sym.decl_pos != leaf.src.pos) {
@@ -5463,6 +5508,21 @@ const Checker = struct {
             const owns = !self.isPoison(ty) and sema.moves(self.ctx, ty) != .no;
             if (owns and (lit.isKind(.call) or self.hands(other).kind != .made)) try self.readLeaf(other);
             const reached = try self.readThrough(other, ty, sema.unwrapViews(self.ctx, ty));
+            // Beside an error, a member with fields is named with its set
+            // (`A.x(n: 3)`), as it is made where it fails.
+            if (lit.isKind(.call) and ir.Call.callee(lit).isKind(.enum_lit) and !self.isPoison(reached)) {
+                const subject = sema.unwrapOptionals(self.ctx, sema.unwrapViews(self.ctx, reached));
+                if (sema.isErrorSet(self.ctx, subject) or subject == self.t().any_error_id) {
+                    const name = ir.EnumLit.name(ir.Call.callee(lit));
+                    const set = if (sema.isErrorUnion(self.ctx, subject)) try self.unionMemberSet(subject, name) else if (subject == self.t().any_error_id) try self.resolveErrorName(name) else subject;
+                    if (self.isPoison(set)) return self.t().bool_id;
+                    const named = try self.ctx.arena.allocator().print("{s}{s}", .{ try self.tyName(set), self.sourceText(lit) });
+                    if (self.ctx.types.get(sema.unwrapViews(self.ctx, reached)) == .optional) {
+                        try self.errAt(lit, "an error member compared is named with its set, beside the error an optional holds: `if {s} as e`, then `e == {s}`", .{ self.sourceText(other), named });
+                    } else try self.errAt(lit, "an error member compared is named with its set: write `{s}`", .{named});
+                    return self.t().bool_id;
+                }
+            }
             // A bare `.name` tests which variant the value holds, one
             // with a payload too (SPEC §5, "Comparing").
             if (lit.isKind(.enum_lit) and !self.isPoison(reached)) {
@@ -8606,7 +8666,12 @@ const Checker = struct {
             return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
         }
         const target = self.ctx.callTargetOf(node) orelse .none;
-        if (target != .function) {
+        // A call through an API reaches a Rig method through its witness.
+        const static: ?sema.Dispatch.Static = if (self.ctx.dispatchOf(node)) |d| switch (d) {
+            .static => |st| st,
+            .direct => null,
+        } else null;
+        if (target != .function and static == null) {
             try self.errAt(callee, "a task runs a call of a function or a method: `f(x)&`, `(!v).m(x)&`", .{});
             return self.t().invalid_id;
         }
@@ -8614,10 +8679,13 @@ const Checker = struct {
         var parts: std.ArrayList(Sexp) = .empty;
         // A method's self, `@`, is passed as the method takes it.
         var self_mode: sema.MethodReceiver = .none;
-        if (callee.isKind(.member)) {
+        const has_self = callee.isKind(.member) and !(if (static) |st| st.receiver_arg else false);
+        if (has_self) {
             const obj = ir.Member.object(callee);
             try parts.append(self.ctx.arena.allocator(), obj);
-            if (self.ctx.typeOf(obj)) |obj_ty| self_mode = sema.methodReceiver(self.ctx, obj_ty, self.text(ir.Member.name(callee))) orelse .none;
+            if (static) |st| {
+                self_mode = st.self_mode;
+            } else if (self.ctx.typeOf(obj)) |obj_ty| self_mode = sema.methodReceiver(self.ctx, obj_ty, self.text(ir.Member.name(callee))) orelse .none;
         }
         for (ir.Call.args(node)) |arg| try parts.append(self.ctx.arena.allocator(), if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
         // A task lent to write keeps its write loan while it runs, and no
@@ -8637,7 +8705,7 @@ const Checker = struct {
         for (parts.items, 0..) |part, i| {
             const part_ty = self.ctx.typeOf(part) orelse continue;
             if (self.isPoison(part_ty)) continue;
-            const as_self: ?sema.MethodReceiver = if (i == 0 and callee.isKind(.member)) self_mode else null;
+            const as_self: ?sema.MethodReceiver = if (i == 0 and has_self) self_mode else null;
             if (!try self.crossCheck(node, part, part_ty, as_self)) return self.t().invalid_id;
         }
         // A task that may run on another core hands its result back to
@@ -9492,8 +9560,8 @@ const Checker = struct {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
         if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
-        if (op == .to_bits) return self.toBitsCall(callee, obj, value, method, pos, args);
-        if (op == .fraction or op == .exponent) return self.frexpCall(callee, obj, value, op, method, pos, args);
+        if (op == .to_bits) return self.toBitsCall(callee, obj, obj_ty, value, method, pos, args);
+        if (op == .fraction or op == .exponent) return self.frexpCall(callee, obj, obj_ty, value, op, method, pos, args);
         // `v.not()` of a vector: lane by lane, of integer or `Bool` lanes.
         // A mask's bits are counted as `bits()`'s.
         const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else {
@@ -9504,6 +9572,7 @@ const Checker = struct {
         const is_bool = lane == self.t().bool_id;
         if (!(is_bool and op == .not) and !sema.isInteger(self.ctx, lane)) return null;
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
         if (value == self.t().int_literal_id) try self.defaultIntLiteral(obj);
         const ty = if (value == self.t().int_literal_id) self.t().int_id else value;
         const result = switch (op) {
@@ -9521,12 +9590,13 @@ const Checker = struct {
 
     /// `f.to_bits()`: the IEEE bits of a float as the unsigned integer of
     /// its width. Null when the receiver is not a float.
-    fn toBitsCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn toBitsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, value: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const info = switch (self.ctx.types.get(value)) {
             .float => |f| f,
             else => return null,
         };
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
         const result = try self.bitsType(info);
         if (args.len > 0) {
             try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
@@ -9659,9 +9729,10 @@ const Checker = struct {
     /// Python, and Go call `frexp`: the fraction, a float of the
     /// receiver's type, and the exponent, an `Int`. Null when the
     /// receiver is not a float.
-    fn frexpCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, op: sema.ElemOp, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn frexpCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, value: TypeId, op: sema.ElemOp, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         if (self.ctx.types.get(value) != .float) return null;
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
         const result = if (op == .fraction) value else self.t().int_id;
         if (args.len > 0) {
             try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
@@ -9955,6 +10026,7 @@ const Checker = struct {
         const mask_op = op == .bits or op == .first or op == .any or op == .all or op == .select;
         if (mask_op and v.elem != self.t().bool_id) return try self.badCall(args, pos, "`{s}` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `{s}`", .{ method, try self.tyName(vt) });
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "reads `self` as a value");
+        _ = try self.readThrough(obj, obj_ty, vt);
         if (op == .lag) {
             const b = ct orelse return try self.badCall(args, pos, "`lag` takes how many lanes back in brackets: `v.lag[1](prev)`", .{});
             return try self.lagCall(callee, vt, b, pos, args);
@@ -10695,7 +10767,7 @@ const Checker = struct {
         };
         if (bad) return null;
         if (own.items.len == 0) {
-            if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f) });
+            if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args) });
             self.inst_own = .empty;
             return f;
         }
@@ -10712,7 +10784,7 @@ const Checker = struct {
             return null;
         };
         const result = self.ctx.types.get(instance).function;
-        try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f) });
+        try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args) });
         self.inst_own = .{ .params = own.items, .args = own_args };
         if (self.tentative == 0) {
             const inst: sema.FnInstance = .{
@@ -10731,6 +10803,23 @@ const Checker = struct {
             _ = try self.ctx.recordFnInstance(inst, pos, null);
         }
         return result;
+    }
+
+    /// The witnesses a call's type arguments give the parameters of `f`
+    /// they fill whose bounds name APIs of a program's own
+    /// (`sema.argWitnesses`); none when an argument does not provide one,
+    /// which the bound's check reports.
+    fn ctWitnesses(self: *Checker, f: FunctionType, type_args: []const TypeId) Error![]const sema.ArgWitness {
+        const a = self.ctx.arena.allocator();
+        const params = try a.alloc(SymbolId, f.ct_params.len);
+        var any = false;
+        for (f.ct_params, params) |slot, *p| {
+            p.* = sema.typeParamOf(self.ctx, slot) orelse sema.symbol_invalid;
+            if (p.* != sema.symbol_invalid and self.ctx.symbols.items[p.*].user_apis.len > 0) any = true;
+        }
+        if (!any) return &.{};
+        for (type_args) |ty| if (ty == sema.type_invalid or self.isPoison(ty)) return &.{};
+        return (try sema.argWitnesses(self.ctx, self.ctx, params, type_args)) orelse &.{};
     }
 
     /// The symbol of compile-time slot `i` of `f` when it is an integer
@@ -11964,6 +12053,7 @@ const Checker = struct {
         if (try self.slotNamed(obj)) |st| return self.misreachedWrite(misreached, obj, method, try self.slotTypeCall(callee, st, method, pos, args, ct));
         if (self.symbolNamed(obj)) return self.misreachedWrite(misreached, obj, method, try self.symbolTypeCall(callee, method, pos, args, ct));
         if (try self.numberType(obj)) |nty| return self.misreachedWrite(misreached, obj, method, try self.numberTypeCall(callee, obj, nty, method, pos, args, ct));
+        if (try self.apiNamedCallee(obj)) |ref| return self.misreachedWrite(misreached, obj, method, try self.apiNameCall(ref, self.sourceText(obj), method, pos, args, ct));
         if (try self.namedType(obj)) |nt| {
             if (nt.id == self.ctx.actor_sym_id) return self.misreachedWrite(misreached, obj, method, try self.actorSupervised(callee, method, pos, args));
             return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
@@ -12006,8 +12096,12 @@ const Checker = struct {
         if (ct == null and std.mem.eql(u8, method, "add") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.hasher_sym_id })) return self.hasherAdd(callee, obj, pos, args);
         // `!out.value(x)` of a Printer.
         if (ct == null and std.mem.eql(u8, method, "value") and sema.unwrapViews(self.ctx, obj_ty) == try self.ctx.intern(.{ .nominal = self.ctx.printer_sym_id })) return self.printerValue(callee, obj, obj_ty, pos, args);
-        // `x.f[i](args)` where `f` is a field: its element is called.
-        if (ct != null and resolved_method == null) {
+        // A method no type declares, which an API the type provides does.
+        if (resolved_method == null) if (try self.apiShorthand(callee, obj, obj_ty, method, pos, args, ct)) |ty| return ty;
+        // `x.f[i](args)` where `f` is a field: its element is called. A
+        // type parameter's value has no fields, and its methods take
+        // compile-time arguments through a bound (`typeParamCall`).
+        if (ct != null and resolved_method == null and self.ctx.types.get(sema.unwrapAccess(self.ctx, obj_ty)) != .type_var) {
             const field_ty = try self.memberOf(callee, obj, obj_ty);
             try self.ctx.recordType(callee, field_ty);
             const elem_ty = try self.indexInto(ct.?, field_ty);
@@ -12187,35 +12281,83 @@ const Checker = struct {
         return f.returns;
     }
 
-    /// `x.m(args)` on a value of a type parameter `T` (`tv`), or a view
-    /// of one: checked here as the call of a function value with no
-    /// `from` or `keeps`, and at each instance against the method its
-    /// type declares (`sema.GenericMethodCall`). The call's sigil says
-    /// how it takes self; its arguments are what the body passes; and
-    /// its result is what the body takes (`typeParamResult`).
-    /// The API among `psym`'s bounds, or those they build on, that
-    /// declares `method`, as the module spells it.
-    fn boundMethod(self: *Checker, psym: sema.Symbol, method: []const u8) Error!?[]const u8 {
+    /// The method `method` of the APIs `refs` name and those they build
+    /// on: each API that declares it, once, in the order written. More than
+    /// one makes a call ambiguous (`reportAmbiguous`).
+    fn apiMethodsIn(self: *Checker, refs: []const sema.ApiRef, method: []const u8) Error![]const ApiMethod {
         const a = self.ctx.arena.allocator();
-        for (psym.user_apis) |b| for (try sema.apiClosure(self.ctx, a, b)) |c| {
+        var out: std.ArrayList(ApiMethod) = .empty;
+        for (refs) |b| for (try sema.apiClosure(self.ctx, a, b)) |c| {
+            const seen = for (out.items) |o| {
+                if (o.api.eql(c)) break true;
+            } else false;
+            if (seen) continue;
+            const home = sema.apiContext(self.ctx, c) orelse continue;
             const csym = sema.apiSymbol(self.ctx, c) orelse continue;
-            for (csym.fields orelse &.{}) |f| if (std.mem.eql(u8, f.name, method)) return try sema.apiName(self.ctx, c);
+            for (csym.fields orelse &.{}) |f| if (f.is_method and std.mem.eql(u8, f.name, method)) {
+                try out.append(a, .{ .api = c, .home = home, .field = f });
+                break;
+            };
         };
-        return null;
+        return out.items;
     }
 
+    /// The type of the API method `m` in this module's types, `Self` being
+    /// `self_ty`: the type a call through a bound, or through the API by
+    /// name, is checked against. Null for a method whose type was rejected.
+    fn apiMethodAt(self: *Checker, m: ApiMethod, self_ty: TypeId) Error!?TypeId {
+        const local_ty = if (m.home == @as(*const SemContext, self.ctx)) m.field.ty else try sema.importType(self.ctx, m.home, m.field.ty, m.api.module_id);
+        if (self.ctx.types.get(local_ty) != .function or sema.containsPoison(self.ctx, local_ty)) return null;
+        const api_sym = sema.apiSymbol(self.ctx, m.api) orelse return null;
+        const home_self = (api_sym.type_params orelse return null)[0];
+        const self_param = if (m.home == @as(*const SemContext, self.ctx)) home_self else try sema.proxyOf(self.ctx, .{ .module_id = m.api.module_id, .sym = home_self });
+        return try sema.substituteType(self.ctx, local_ty, .{ .params = &.{self_param}, .args = &.{self_ty} });
+    }
+
+    /// `x.area()` where two APIs that apply to `x`'s type declare `area`:
+    /// the call names one, `Shape.area(x)`.
+    fn reportAmbiguous(self: *Checker, obj: Sexp, method: []const u8, found: []const ApiMethod, ty: TypeId, pos: u32, args: []const Sexp) Error!TypeId {
+        const a = self.ctx.arena.allocator();
+        const call = if (self.current_call) |c| self.sourceText(c) else method;
+        const first = try sema.apiName(self.ctx, found[0].api);
+        const sigil: []const u8 = switch (found[0].field.receiver) {
+            .write => "!",
+            .value => "<",
+            .read, .none => "",
+        };
+        var named: std.ArrayList(u8) = .empty;
+        try named.print(a, "{s}.{s}({s}{s}", .{ first, method, sigil, try self.plainText(stripSigil(obj)) });
+        for (args) |arg| try named.print(a, ", {s}", .{self.sourceText(arg)});
+        try named.append(a, ')');
+        return self.badCall(args, pos, "`{s}` could call `{s}.{s}` or `{s}.{s}`, which both apply to `{s}`; name the API: `{s}`", .{ call, first, method, try sema.apiName(self.ctx, found[1].api), method, try self.tyName(ty), named.items });
+    }
+
+    /// `x.m(args)` on a value of a type parameter `T` (`tv`), or a view
+    /// of one. With no bound, it is checked here as the call of a function
+    /// value with no `from` or `keeps`, and at each instance against the
+    /// method its type declares (`sema.GenericMethodCall`): the call's
+    /// sigil says how it takes self; its arguments are what the body
+    /// passes; and its result is what the body takes (`typeParamResult`).
+    /// A bounded `T` is checked against its bounds alone: a method of an
+    /// API they name is called through the bound (`apiMethodCall`), and
+    /// the built-in APIs give a body no method to call.
     fn typeParamCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, tv: TypeId, param: SymbolId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const tname = try self.tyName(tv);
-        if (ct) |b| return self.badCall(args, b, "a method called on a `{s}` takes no compile-time arguments", .{tname});
-        // A bounded `T` is checked against its bounds alone: the built-in
-        // APIs give a body no method to call, and a call through an API
-        // of the program's own is not built yet.
         const psym = self.ctx.symbols.items[param];
         if (sema.hasBounds(psym)) {
-            const bounds = try sema.formatBounds(self.ctx, self.ctx.arena.allocator(), psym, null);
-            if (try self.boundMethod(psym, method)) |api| return self.badCall(args, pos, "`{s}()` calls `{s}.{s}` through the bound `{s}: {s}`, and a call through a bound is not built yet (docs/design/apis.md, Stage 3)", .{ self.sourceText(callee), api, method, tname, bounds });
-            return self.badCall(args, pos, "`{s}` is bounded by `{s}`, which gives no method `{s}`; a call on a `{s}` is checked at each instance only where `{s}` has no bound", .{ tname, bounds, method, tname, tname });
+            const found = try self.apiMethodsIn(psym.user_apis, method);
+            if (found.len > 1) return self.reportAmbiguous(obj, method, found, tv, pos, args);
+            if (found.len == 0) {
+                const bounds = try sema.formatBounds(self.ctx, self.ctx.arena.allocator(), psym, null);
+                return self.badCall(args, pos, "`{s}` is bounded by `{s}`, which gives no method `{s}`; a call on a `{s}` is checked at each instance only where `{s}` has no bound", .{ tname, bounds, method, tname, tname });
+            }
+            // The witness is the value's own, so the value is the `T` or a
+            // view of one, not a box or a handle of it.
+            if (sema.unwrapViews(self.ctx, obj_ty) != tv) return self.badCall(args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, self.sourceText(stripSigil(obj)), try self.tyName(obj_ty) });
+            const witness = (try sema.witnessFor(self.ctx, tv, found[0].api)) orelse return self.skipCall(args);
+            return self.apiMethodCall(callee, obj, obj_ty, tv, found[0], witness, method, pos, args, ct);
         }
+        if (ct) |b| return self.badCall(args, b, "a method called on a `{s}` takes no compile-time arguments", .{tname});
         // Emit writes the call as Zig resolves it on the value, so the
         // value is the `T` or a view of one, not a box or a handle of it.
         if (sema.unwrapViews(self.ctx, obj_ty) != tv) return self.badCall(args, pos, "a method on a `{s}` is called on a `{s}` or a view of one, and `{s}` is a `{s}`", .{ tname, tname, self.sourceText(stripSigil(obj)), try self.tyName(obj_ty) });
@@ -12296,8 +12438,169 @@ const Checker = struct {
             .pos = self.startOf(call),
             .recv = try a.dupe(u8, self.sourceText(stripSigil(obj))),
             .call = try a.dupe(u8, self.sourceText(call)),
+            .owned_recv = if (self.ctx.typeOf(stripSigil(obj))) |recv_ty| self.ctx.types.get(recv_ty) == .type_var else false,
         });
         return returns;
+    }
+
+    /// `x.area()` reaching a method of an API of a program's own: through
+    /// a bound on `x`'s type parameter, or on a type that provides the
+    /// API (`apiShorthand`). It is checked as a call of the API's
+    /// declaration, `Self` being `self_ty`: its self, parameters,
+    /// compile-time parameters, and result with its failure, which every
+    /// implementation has exactly, and its `from` and `keeps`, which every
+    /// implementation is within (docs/design/apis.md, Stage 3). The call
+    /// reaches the method through `witness` (`Dispatch.static`).
+    fn apiMethodCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, self_ty: TypeId, m: ApiMethod, witness: sema.Witness, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const fn_ty_id = (try self.apiMethodAt(m, self_ty)) orelse return self.skipCall(args);
+        const fn_ty = self.ctx.types.get(fn_ty_id).function;
+        const receiver = m.field.receiver;
+        _ = try self.noteMethod(callee, receiver, fn_ty.returns);
+        try self.noteCallee(fn_ty);
+        const misplaced_sigil = try self.checkReceiverSigil(obj, receiver, fn_ty.returns, method);
+        switch (receiver) {
+            .value => try self.recordUse(obj, .take),
+            .write => try self.recordUse(stripSigil(obj), .lend),
+            .read, .none => {},
+        }
+        if (receiver == .read and !misplaced_sigil and !self.hands(obj).hasStorage()) {
+            try self.readLeaf(obj);
+        } else if (receiver != .value and !misplaced_sigil and !(receiver == .write and self.hands(obj).kind == .made)) try self.rejectResourceTemporary(obj, obj_ty);
+        if (!misplaced_sigil) {
+            const saved_of = self.receiver_of;
+            defer self.receiver_of = saved_of;
+            self.receiver_of = callee;
+            const kind: ReceiverTypeKind = switch (self.ctx.types.get(obj_ty)) {
+                .read_view => .read_view,
+                .write_view => .write_view,
+                else => .owned_nominal,
+            };
+            try self.checkReceiverMode(obj, receiver, kind, method, pos, fn_ty.returns);
+        }
+        const info = methodParams(m.field, true, m.home.source);
+        const f = (try self.instantiateCall(fn_ty, ct, args, info, 1, method, pos, false, .empty)) orelse return self.skipCall(args);
+        if (sema.isGenericFn(self.ctx, fn_ty)) try self.noteCallee(f);
+        const rest: FunctionType = .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub };
+        // A temporary self the result or an argument may keep a view of
+        // is kept in its statement's slot, as for any method.
+        if ((receiver == .read or receiver == .write) and !misplaced_sigil and !obj.isKind(.read)) {
+            const lent = stripSigil(obj);
+            const base = if (self.hands(lent).kind == .part_of_made) self.placeOf(lent).base else lent;
+            const copied = switch (self.hands(base).kind) {
+                .made => true,
+                .branches => if (self.ctx.typeOf(base)) |ty| !sema.readByAddress(self.ctx, ty) else false,
+                else => false,
+            };
+            if (copied and self.isTemporary(lent) and (sema.mayHoldView(self.ctx, f.returns) or self.callRetains(rest, f.params[0]))) try self.lendTemp(lent);
+        }
+        self.lend_call = true;
+        self.lend_recv = f.params[0];
+        const mark = self.ctx.diagnostics.items.len;
+        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = m.field.origins, .declared = fn_ty.params[1..] });
+        // A receiver the method keeps is lent with `?` written (Core
+        // sentence 4).
+        const o = m.field.origins;
+        if (receiver == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.lent & sema.paramBit(0) != 0 and self.implicitReceiver(obj)) {
+            if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
+        }
+        if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_mode = receiver } });
+        return f.returns;
+    }
+
+    /// `c.area()` on a value of a type that has no method `area` of its
+    /// own, where one API the module declares or imports, which the type
+    /// provides, declares `area`: a call through that API, a default or
+    /// an addition's method included. Null when none does; two make the
+    /// call name the API (`Shape.area(c)`).
+    fn apiShorthand(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
+        const value = sema.unwrapViews(self.ctx, obj_ty);
+        switch (self.ctx.types.get(value)) {
+            .type_var, .shared, .weak, .optional, .function => return null,
+            else => {},
+        }
+        const visible = try self.visibleApis();
+        if (visible.len == 0) return null;
+        const a = self.ctx.arena.allocator();
+        var found: std.ArrayList(ApiMethod) = .empty;
+        for (visible) |ref| {
+            for (try self.apiMethodsIn(&.{ref}, method)) |m| {
+                const seen = for (found.items) |o| {
+                    if (o.api.eql(m.api)) break true;
+                } else false;
+                if (seen) continue;
+                if (try sema.provides(self.ctx, value, m.api) == null) continue;
+                try found.append(a, m);
+            }
+        }
+        if (found.items.len == 0) return null;
+        if (found.items.len > 1) return try self.reportAmbiguous(obj, method, found.items, value, pos, args);
+        const witness = (try sema.witnessFor(self.ctx, value, found.items[0].api)) orelse return null;
+        return try self.apiMethodCall(callee, obj, obj_ty, value, found.items[0], witness, method, pos, args, ct);
+    }
+
+    /// The APIs this module declares and those the modules it imports
+    /// declare `pub`: those whose methods `c.area()` reaches.
+    fn visibleApis(self: *Checker) Error![]const sema.ApiRef {
+        if (self.visible_apis) |v| return v;
+        const a = self.ctx.arena.allocator();
+        var out: std.ArrayList(sema.ApiRef) = .empty;
+        for (self.ctx.symbols.items, 0..) |sym, i| {
+            if (sym.kind == .api and !sema.isProxy(sym)) try out.append(a, .{ .module_id = self.ctx.module_id, .sym = @intCast(i) });
+        }
+        for (self.ctx.imports) |imp| {
+            for (imp.sema.symbols.items, 0..) |sym, i| {
+                if (sym.kind != .api or !sym.flags.is_public or sema.isProxy(sym)) continue;
+                const ref: sema.ApiRef = .{ .module_id = imp.module_id, .sym = @intCast(i) };
+                const seen = for (out.items) |o| {
+                    if (o.eql(ref)) break true;
+                } else false;
+                if (!seen) try out.append(a, ref);
+            }
+        }
+        self.visible_apis = out.items;
+        return out.items;
+    }
+
+    /// `Shape.area(c)`: the method of an API called through it by name,
+    /// self given as the first argument with its sigil as at any call. The
+    /// first argument's type provides the API, or is a type parameter
+    /// whose bounds name it; the call is checked against the API's
+    /// declaration and reaches the method through the witness.
+    fn apiNameCall(self: *Checker, ref: sema.ApiRef, api_text: []const u8, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const found = try self.apiMethodsIn(&.{ref}, method);
+        if (found.len == 0) return self.badCall(args, pos, "`{s}` declares no method `{s}`", .{ api_text, method });
+        const m = found[0];
+        if (args.len == 0 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`{s}.{s}` takes self first: `{s}.{s}(x)`", .{ api_text, method, api_text, method });
+        const recv_ty = try self.argType(stripSigil(args[0]));
+        if (self.isPoison(recv_ty)) return self.skipCall(args);
+        const value = sema.unwrapViews(self.ctx, recv_ty);
+        const witness = (try sema.witnessFor(self.ctx, value, m.api)) orelse {
+            const name = try sema.apiName(self.ctx, m.api);
+            return self.badCall(args, pos, "`{s}.{s}` takes self as a value of a type that provides `{s}`, and `{s}` does not", .{ api_text, method, name, try self.tyName(value) });
+        };
+        const fn_ty_id = (try self.apiMethodAt(m, value)) orelse return self.skipCall(args);
+        const fn_ty = self.ctx.types.get(fn_ty_id).function;
+        const info = methodParams(m.field, false, m.home.source);
+        const shown = try self.ctx.arena.allocator().print("{s}.{s}", .{ api_text, method });
+        const f = (try self.instantiateCall(fn_ty, ct, args, info, 0, shown, pos, true, .empty)) orelse return self.skipCall(args);
+        try self.noteCallee(f);
+        self.lend_call = true;
+        try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
+        if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .receiver_arg = true, .self_mode = m.field.receiver } });
+        return f.returns;
+    }
+
+    /// The API `obj` names, as the object of `Shape.area(c)`; null when it
+    /// names none.
+    fn apiNamedCallee(self: *Checker, obj: Sexp) Error!?sema.ApiRef {
+        if (obj == .src) {
+            const id = self.lookupQuiet(obj) orelse return null;
+            if (self.ctx.symbols.items[id].kind != .api) return null;
+        } else if (!obj.isKind(.member)) return null;
+        return switch (try resolve.apiNamed(self.ctx, self.scope, obj)) {
+            .user => |ref| ref,
+            else => null,
+        };
     }
 
     /// The result a call `x.m(...)` on a value of type parameter `tv`
@@ -12598,6 +12901,9 @@ const Checker = struct {
     /// `returns`.
     fn noteMethod(self: *Checker, callee: Sexp, receiver: sema.MethodReceiver, returns: TypeId) Error!TypeId {
         if (callee == .list) try self.methods.put(self.ctx.allocator, nodeId(callee), .{ .receiver = receiver, .returns = returns });
+        // How the call dispatches: `direct`, until a call through an API
+        // records `static` (`apiMethodCall`).
+        if (self.current_call) |call| if (self.ctx.dispatchOf(call) == null) try self.ctx.recordDispatch(call, .direct);
         return returns;
     }
 
@@ -18497,7 +18803,8 @@ fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?
 }
 
 /// The arrays a generic declaration makes, in one instance, and a generic
-/// type's instance itself, must fit `sema.max_value_bytes`.
+/// type's instance itself, must fit `sema.max_value_bytes`; the instance
+/// must also nest at most `sema.max_value_depth` deep.
 fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
     for (args) |a| if (sema.containsPoison(ctx, a)) return;
     const subst: sema.TypeSubst = .{ .params = params, .args = args };
@@ -18519,6 +18826,10 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         const sym = ctx.types.get(of.type).parameterized_nominal.sym;
         if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
             try sema.reportOversized(ctx, at, of.type, bytes);
+            return;
+        }
+        if (try sema.tooDeepByItself(ctx, of.type, sym, subst)) |depth| {
+            try sema.reportTooDeep(ctx, at, of.type, depth);
             return;
         }
     }
@@ -18707,6 +19018,7 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
         .value => "consumes",
         .read, .none => "reads",
     };
+    if (try reportApiUnbound(ctx, c, base, at, of)) return false;
     if (!declaredType(ctx, base)) {
         try ctx.err(at, cannot ++ "calls `{s}` on a `{s}`, and a call on a `{s}` reaches only the methods of an `obj` or an `enum` a module declares, not those of `{s}`", .{ inst, pname, aname, c.method, pname, pname, bname });
         try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
@@ -18738,6 +19050,11 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
             .none => "",
         } });
         if (m.field.inline_marked) break :blk try a.print("and `{s}` is marked `inline`, and a call on a `{s}` is not inlined", .{ owner, pname });
+        // A view kept in a `T` the body holds by value is a loan the body
+        // does not track, which a move of the value could carry out of
+        // the function; through a write view, the function's own `keeps`
+        // says what may be stored.
+        if (c.owned_recv and m.field.origins.stores & m.field.origins.lent != 0) break :blk try a.print("and `{s}` keeps a view of an argument in `{s}`, a `{s}` the body holds, whose loans it does not track", .{ owner, c.recv, pname });
         if (sema.isGenericFn(ctx, m.fn_ty)) break :blk try a.print("and `{s}` takes compile-time parameters of its own, which a call on a `{s}` does not give", .{ owner, pname });
         const params = m.fn_ty.params[1..];
         if (params.len != args.len) break :blk try a.print("with {d} argument{s}, and `{s}` takes {d}", .{ args.len, if (args.len == 1) "" else "s", owner, params.len });
@@ -18755,6 +19072,43 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
     try ctx.err(at, cannot ++ "calls `{s}`, {s}", .{ inst, pname, aname, c.call, reason });
     try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
     return false;
+}
+
+/// A call `x.area()` on a `T` with no bound, where the instance's type
+/// has no method `area` of its own but provides an API the module sees
+/// that declares it (a default, or an addition's method): only a bound
+/// reaches it, so the error says to write one. False when that is not so.
+fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+    if (try instanceMethod(ctx, base, c.method) != null) return false;
+    const a = ctx.arena.allocator();
+    var refs: std.ArrayList(sema.ApiRef) = .empty;
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (sym.kind == .api and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = ctx.module_id, .sym = @intCast(i) });
+    }
+    for (ctx.imports) |imp| for (imp.sema.symbols.items, 0..) |sym, i| {
+        if (sym.kind == .api and sym.flags.is_public and !sema.isProxy(sym)) try refs.append(a, .{ .module_id = imp.module_id, .sym = @intCast(i) });
+    };
+    const api: sema.ApiRef = for (refs.items) |r| {
+        const sym = sema.apiSymbol(ctx, r) orelse continue;
+        const declares = for (sym.fields orelse &.{}) |f| {
+            if (f.is_method and std.mem.eql(u8, f.name, c.method)) break true;
+        } else false;
+        if (declares and try sema.provides(ctx, base, r) != null) break r;
+    } else return false;
+    const pname = ctx.symbols.items[c.param].name;
+    const generic: []const u8 = switch (of) {
+        .func => |f| blk: {
+            var out: std.ArrayList(u8) = .empty;
+            try out.print(a, "{s}[", .{f.name});
+            for (f.ownParams(), 0..) |p, i| try out.print(a, "{s}{s}", .{ if (i > 0) ", " else "", ctx.symbols.items[p].name });
+            try out.append(a, ']');
+            break :blk out.items;
+        },
+        .type => |t| try sema.formatType(ctx, if (ctx.types.get(t) == .parameterized_nominal) (try sema.makeNominalContext(ctx, ctx.types.get(t).parameterized_nominal.sym)).self_type else t),
+    };
+    try ctx.err(at, "`{s}` has no method `{s}`: `{s}` gives `{s}` no bound; write `[{s}: {s}]`, which declares `{s}`", .{ pname, c.method, generic, pname, pname, try sema.apiName(ctx, api), c.method });
+    try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
+    return true;
 }
 
 /// The API that gives a body requirement `req` on a type parameter
@@ -18934,6 +19288,13 @@ fn checkApiDecl(ctx: *SemContext, id: SymbolId) Error!void {
                 break :supers;
             };
         };
+        // A call through the API passes every argument: an implementation
+        // has no default to fill, and one of the API's would be a second.
+        for (m.param_defaults orelse &.{}, 0..) |d, i| if (d != null) {
+            const pname = if (m.param_names) |ns| (if (i < ns.len) ns[i] else "?") else "?";
+            try ctx.err(m.decl_pos, "`{s}.{s}` gives `{s}` a default, and an API's method takes none: a call through the API passes each argument", .{ sym.name, m.name, pname });
+            break;
+        };
         const f = switch (ctx.types.get(m.ty)) {
             .function => |f| f,
             else => continue,
@@ -19002,6 +19363,8 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
             try ctx.err(m.decl_pos, "`add {s}: {s}` declares `{s}`, which `{s}` has already: an addition neither adopts nor replaces a method of its type", .{ tname, api_name, m.name, tname });
         }
     };
+    var members: std.ArrayList(sema.WitnessMember) = .empty;
+    defer ctx.conformances.items[index].members = members.items;
     for (wanted.items, 0..) |w, wi| {
         // Each name once, by the first API that declares it.
         const first = for (wanted.items[0..wi]) |e| {
@@ -19010,6 +19373,7 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
         if (!first) continue;
         const have = findMethod(provider, w.field.name) orelse {
             if (w.field.is_default) {
+                try members.append(a, .{ .name = w.field.name, .from = .{ .default = w.api } });
                 // Two defaults for one name, until the type writes it: from
                 // the APIs this one builds on, or another API the type
                 // provides.
@@ -19022,6 +19386,7 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
             try ctx.err(conf.pos, "`{s}` provides `{s}` but has no method `{s}`; declare `{s}` in `{s}`", .{ tname, api_name, w.field.name, headerText(w.home.source, w.field.decl_pos), if (conf.kind == .add) try a.print("add {s}: {s}", .{ tname, api_name }) else tname });
             continue;
         };
+        try members.append(a, .{ .name = w.field.name, .from = if (conf.kind == .add) .added else .own });
         try checkMethodMeets(ctx, conf, tname, w, have);
         // A method that meets a `pub` API on a `pub` type is `pub`.
         if (conf.kind == .header and api_sym.flags.is_public and ctx.symbols.items[decl.?.sym].flags.is_public and !have.is_pub) {
@@ -19300,6 +19665,16 @@ fn checkMethodMeets(ctx: *SemContext, conf: sema.Conformance, tname: []const u8,
         try ctx.err(have.decl_pos, "`{s}` takes `{s}` as `{s}`, but `{s}` declares `{s}`; a method meets its API with the same parameters: write `{s}`", .{ owner, if (i < names.len) names[i] else "?", try sema.formatType(ctx, gp), aname, signatureText(src, pos, false), header });
         return;
     }
+    // The same names: a call through the API passes its arguments by the
+    // API's names, which are the implementation's. A parameter its body
+    // ignores may be `_`, as in any function (SPEC "Functions").
+    const api_names = w.field.param_names orelse &.{};
+    for (names, 0..) |n, i| {
+        if (i == 0 or i >= api_names.len or std.mem.eql(u8, n, api_names[i])) continue;
+        if (std.mem.eql(u8, n, "_") or std.mem.eql(u8, api_names[i], "_")) continue;
+        try ctx.err(have.decl_pos, "`{s}` names its parameter `{s}` where `{s}` declares `{s}`; a method meets its API with the same names: write `{s}`", .{ owner, n, aname, api_names[i], header });
+        return;
+    }
     if (want.returns != got.returns) {
         const fails = ctx.types.get(want.returns) == .fallible or ctx.types.get(got.returns) == .fallible;
         const same_ok = sema.okOf(ctx, want.returns) == sema.okOf(ctx, got.returns);
@@ -19320,7 +19695,6 @@ fn checkMethodMeets(ctx: *SemContext, conf: sema.Conformance, tname: []const u8,
     }
     // `keeps` and `from` may be narrower, never wider: a call through
     // the API keeps and views what the API says.
-    const api_names = w.field.param_names orelse &.{};
     const kept = have.origins.stores & have.origins.lent;
     const api_kept = w.field.origins.stores & w.field.origins.lent;
     if (kept & ~api_kept != 0) {

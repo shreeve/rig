@@ -149,6 +149,14 @@ pub const max_array_len: Wide = std.math.maxInt(u32);
 /// `List`.
 pub const max_value_bytes: u64 = 8 << 20;
 
+/// How deep types may nest by value (`valueDepth`): an object, enum,
+/// optional, array, or vector holding another, each a level. Zig walks
+/// every level of a type when it compiles a use of it, and its compiler
+/// runs out of stack on a chain of objects each holding the next past
+/// about 1250 levels (on an arm64 Mac and x86-64 Linux alike); a deeper
+/// value is held through a box or a List.
+pub const max_value_depth: u32 = 1000;
+
 /// The most bytes of values one function keeps on its stack, with the
 /// frames inlined into it: 13 MiB. It is a limit on how a program keeps
 /// its data, which leaves large data to the heap; safety does not rest on
@@ -953,7 +961,63 @@ pub const Conformance = struct {
     params: []const SymbolId = &.{},
     /// An addition's methods; a header's are its type's own.
     methods: []const Field = &.{},
+    /// An addition's `Self`, the symbol its methods are checked under.
+    self_sym: SymbolId = symbol_invalid,
+    /// What its witness names for each method of the API and those it
+    /// builds on, in their order (`typecheck.checkConformance`): emit
+    /// writes the witness from these alone.
+    members: []const WitnessMember = &.{},
 };
+
+/// A method of a conformance's witness, and where its body is: the
+/// type's own method (a header), the addition's (`add Int: Shape`), or
+/// the default of the API that declares it.
+pub const WitnessMember = struct {
+    name: []const u8,
+    from: union(enum) { own, added, default: ApiRef },
+};
+
+/// How a call reaches the method it calls (docs/design/apis.md, Stage 3,
+/// "Lowering"), recorded once per method call (`SemContext.dispatchOf`):
+/// `direct`, the method the receiver's type declares, which Zig finds on
+/// the value, a call on a `T` with no bound included, which each instance
+/// resolves; `static`, through the witness by which the receiver's type
+/// provides the API that declares the method.
+pub const Dispatch = union(enum) {
+    direct,
+    static: Static,
+
+    pub const Static = struct {
+        witness: Witness,
+        /// The API that declares the method, and its name.
+        api: ApiRef,
+        method: []const u8,
+        /// The receiver is the call's first argument (`Shape.area(c)`),
+        /// not the object of `c.area()`.
+        receiver_arg: bool = false,
+        /// How the method takes self.
+        self_mode: MethodReceiver = .read,
+    };
+};
+
+/// The compile-time argument by which a body reaches a type's methods for
+/// an API of a program's own: a bound's own parameter `W_T_Shape`, which
+/// a declaration takes after the type it bounds, or the namespace a
+/// conformance declares beside it, `__rig_impl_Shape_Square`.
+pub const Witness = union(enum) {
+    /// Type parameter `sym`'s witness for `api`, one of its bounds as
+    /// written, which is or builds on the API asked for.
+    param: struct { sym: SymbolId, api: ApiRef },
+    /// The witness of the conformance `index` of module `module_id`, for
+    /// `ty`, a type of the module that names it. A generic type's takes
+    /// the type's arguments, each followed by the witnesses the
+    /// conformance's bounds on it ask for (`args`).
+    conformance: struct { module_id: u32, index: u32, ty: TypeId, args: []const ArgWitness = &.{} },
+};
+
+/// A witness among compile-time arguments, written after type argument
+/// `arg`: a generic function's or type's, or a conformance's.
+pub const ArgWitness = struct { arg: u32, witness: Witness };
 
 /// `apis` with what each implies: `Hash` and `Ord` need `Eq`, `Integer`
 /// and `Signed` need `Num`, and a value that copies also clones.
@@ -1311,6 +1375,8 @@ pub const Facts = struct {
     /// ?f: T`: read-only here (`Checker.placeOf` blocks every write
     /// through it).
     read_only_fields: std.AutoHashMapUnmanaged(NodeKey, ReadOnlyField) = .empty,
+    /// Method call node -> how it reaches its method (`Dispatch`).
+    dispatch: std.AutoHashMapUnmanaged(NodeKey, Dispatch) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
@@ -1912,6 +1978,9 @@ pub const GenericCall = struct {
     /// The function fails with a set parameter (`-> T!E`): its frame
     /// takes the slot, whatever set the call binds.
     fails_by_set: bool = false,
+    /// The witnesses its type arguments give the bounds that name APIs of
+    /// a program's own, each after the argument it follows.
+    witnesses: []const ArgWitness = &.{},
 };
 
 /// A generic function at particular type arguments: `params[i]` is
@@ -2219,6 +2288,66 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
     for (out.items) |l| try w.print("{s}\n", .{l.text});
 }
 
+/// A witness as `--facts=sema` shows it: `W_T_Shape` for a type
+/// parameter's, `__rig_impl_Shape_Square` for a conformance's, with the
+/// type it is for.
+fn writeWitness(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Writer, wit: Witness) !void {
+    switch (wit) {
+        .param => |p| try w.writeAll(try witnessParamName(ctx, a, p.sym, p.api)),
+        .conformance => |c| try w.print("{s}({s})", .{ try witnessName(ctx, a, c.module_id, c.index), try formatTypeIn(ctx, a, c.ty) }),
+    }
+}
+
+/// `W_T_Shape`: the witness parameter type parameter `sym` takes for
+/// `api`, one of its bounds. Two bounds by APIs of one name (`[T: Shape
+/// + geo.Shape]`) are told apart by their place among the bounds,
+/// `W_T_Shape_1`, so no two parameters share a name.
+pub fn witnessParamName(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId, api: ApiRef) std.mem.Allocator.Error![]const u8 {
+    const p = ctx.symbols.items[sym];
+    const name = (apiSymbol(ctx, api) orelse return "W_unknown").name;
+    var at: ?usize = null;
+    var shared = false;
+    for (p.user_apis, 0..) |b, i| {
+        if (b.eql(api)) {
+            at = i;
+        } else if (apiSymbol(ctx, b)) |other| {
+            if (std.mem.eql(u8, other.name, name)) shared = true;
+        }
+    }
+    if (shared) if (at) |i| return a.print("W_{s}_{s}_{d}", .{ p.name, name, i });
+    return a.print("W_{s}_{s}", .{ p.name, name });
+}
+
+/// The name of the witness of conformance `index` of module
+/// `module_id`, as its module declares it: `__rig_impl_Shape_Square`,
+/// `__rig_impl_Shape_Int`, `__rig_impl_Shape_geo_Circle`. Two of one
+/// module whose names would be the same (two APIs named `Shape`, or the
+/// types `geo_Circle` and `geo.Circle`) are told apart by their place,
+/// `__rig_impl_Shape_Square_1`.
+pub fn witnessName(ctx: *const SemContext, a: std.mem.Allocator, module_id: u32, index: u32) std.mem.Allocator.Error![]const u8 {
+    const home: *const SemContext = if (module_id == ctx.module_id) ctx else ctx.foreign_semas.get(module_id) orelse return "__rig_impl_unknown";
+    const name = try witnessBaseName(home, a, index);
+    for (home.conformances.items, 0..) |_, j| {
+        if (j == index) continue;
+        if (std.mem.eql(u8, try witnessBaseName(home, a, @intCast(j)), name)) return a.print("{s}_{d}", .{ name, index });
+    }
+    return name;
+}
+
+fn witnessBaseName(home: *const SemContext, a: std.mem.Allocator, index: u32) std.mem.Allocator.Error![]const u8 {
+    const conf = home.conformances.items[index];
+    const api = (apiSymbol(home, conf.api) orelse return "__rig_impl_unknown").name;
+    var shown: []const u8 = switch (home.types.get(conf.ty)) {
+        .nominal => |s| home.symbols.items[s].name,
+        .parameterized_nominal => |pn| home.symbols.items[pn.sym].name,
+        else => try formatTypeIn(home, a, conf.ty),
+    };
+    if (std.mem.indexOfScalar(u8, shown, '[')) |i| shown = shown[0..i];
+    const out = try a.alloc(u8, shown.len);
+    for (shown, out) |c, *o| o.* = if (std.ascii.isAlphanumeric(c)) c else '_';
+    return a.print("__rig_impl_{s}_{s}", .{ api, out });
+}
+
 fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Writer, comptime name: []const u8, v: anytype) !void {
     const V = @TypeOf(v);
     if (V == void) return;
@@ -2262,6 +2391,18 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             if (v.receiver_arg) try w.writeAll(" receiver");
             if (v.sets != 0) try w.print(" sets={b}", .{v.sets});
             if (v.fails_by_set) try w.writeAll(" fails_by_set");
+            for (v.witnesses) |aw| {
+                try w.writeAll(" witness ");
+                try writeWitness(ctx, a, w, aw.witness);
+            }
+        },
+        Dispatch => switch (v) {
+            .direct => try w.writeAll(" direct"),
+            .static => |s| {
+                try w.writeAll(" static ");
+                try writeWitness(ctx, a, w, s.witness);
+                try w.print(" {s}.{s}", .{ try apiName(ctx, s.api), s.method });
+            },
         },
         // A field a pattern leaves out shows as `-`.
         []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
@@ -2433,6 +2574,9 @@ pub const GenericMethodCall = struct {
     /// The module whose source `pos` is in: 0 for this one, or the
     /// module that declares the body of a proxy's call.
     module_id: u32 = 0,
+    /// The call is made on a `T` the body holds by value, whose loans
+    /// the body does not track, rather than through a view of one.
+    owned_recv: bool = false,
 
     pub const Result = union(enum) {
         /// The type the body takes the result as.
@@ -2590,6 +2734,9 @@ pub const SemContext = struct {
     /// How this module's types, and the types it adds its APIs to,
     /// provide APIs of a program's own (`Conformance`, `provides`).
     conformances: std.ArrayList(Conformance) = .empty,
+    /// Each instance of a generic type bounded by an API of a program's
+    /// own -> the witnesses among its arguments (`recordTypeWitnesses`).
+    type_witnesses: std.AutoHashMapUnmanaged(TypeId, []const ArgWitness) = .empty,
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
@@ -2651,6 +2798,8 @@ pub const SemContext = struct {
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
+    /// `valueDepth` of each type measured so far.
+    value_depths: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
     /// A local `k =! n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
@@ -2821,6 +2970,7 @@ pub const SemContext = struct {
         self.type_info.deinit(self.allocator);
         self.deferred_checks.deinit(self.allocator);
         self.conformances.deinit(self.allocator);
+        self.type_witnesses.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
         self.untakeable.deinit(self.allocator);
@@ -2853,6 +3003,7 @@ pub const SemContext = struct {
         self.generic_index.deinit(self.allocator);
         self.oversized.deinit(self.allocator);
         self.byte_sizes.deinit(self.allocator);
+        self.value_depths.deinit(self.allocator);
         self.imported.deinit(self.allocator);
         self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
@@ -4052,6 +4203,16 @@ pub const SemContext = struct {
         try self.facts.generic_calls.put(self.allocator, recordKey(node), call);
     }
 
+    /// How method call `call` reaches its method (`Dispatch`): `direct`
+    /// unless a call through a bound or an API recorded `static`.
+    pub fn recordDispatch(self: *SemContext, call: Sexp, d: Dispatch) !void {
+        try self.facts.dispatch.put(self.allocator, recordKey(call), d);
+    }
+
+    pub fn dispatchOf(self: *const SemContext, call: Sexp) ?Dispatch {
+        return self.facts.dispatch.get(nodeKey(call) orelse return null);
+    }
+
     /// Record an instance of a generic function a call makes at `site`:
     /// a concrete one, checked against its body's requirements, or, from
     /// a call inside a generic body, one over type parameters, which
@@ -4272,6 +4433,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try storage.plan(&ctx, tree);
     timing.stop(opts.timing, .storage, t0);
     try indexAllMembers(&ctx);
+    if (!ctx.hasErrors()) try recordTypeWitnesses(&ctx);
     return ctx;
 }
 
@@ -4383,8 +4545,46 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// An instance to expand: its parameters' arguments, where the program
-/// makes it, and the instance written there that it is reached from.
-const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot };
+/// makes it, the instance written there that it is reached from, and
+/// the generics between the two (`Trail`).
+const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot, trail: ?*const Trail = null };
+
+/// The generics an expansion passed through to reach an instance, each
+/// named by its parameters, nearest first: whether one repeats tells a
+/// generic that nests itself from a long chain of distinct ones
+/// (`deepInstance`).
+const Trail = struct { params: []const SymbolId, up: ?*const Trail };
+
+/// The instance at `item.trail` plus `item` itself, as the trail of an
+/// instance reached from `item`.
+fn trailFrom(ctx: *SemContext, item: ExpandItem) std.mem.Allocator.Error!*const Trail {
+    const t = try ctx.arena.allocator().create(Trail);
+    t.* = .{ .params = item.subst.params, .up = item.trail };
+    return t;
+}
+
+/// Report the root of `item`, which reaches an instance (through
+/// `through`, a use in the body `item` expands, of the generic with
+/// parameters `callee`) whose type arguments nest more than
+/// `max_instance_depth` deep. When a generic on the way, the callee
+/// among them, is reached twice, it nests itself (`why`) and would
+/// expand forever; otherwise the chain of distinct generics is only too
+/// deep.
+fn deepInstance(ctx: *SemContext, item: ExpandItem, callee: []const SymbolId, kind: []const u8, through: []const u8, why: []const u8) std.mem.Allocator.Error!void {
+    const root = try rootName(ctx, item.root);
+    const body: Trail = .{ .params = item.subst.params, .up = item.trail };
+    const head: Trail = .{ .params = callee, .up = &body };
+    var a: ?*const Trail = &head;
+    const nests = while (a) |x| : (a = x.up) {
+        var b = x.up;
+        const again = while (b) |y| : (b = y.up) {
+            if (std.mem.eql(SymbolId, x.params, y.params)) break true;
+        } else false;
+        if (again) break true;
+    } else false;
+    if (!nests) return ctx.err(item.site, "`{s}` leads to instances of generic {s} whose type arguments nest more than {d} deep (through `{s}`)", .{ root, kind, max_instance_depth, through });
+    try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic {s} (through `{s}`); {s}", .{ root, kind, through, why });
+}
 
 /// The instances an expansion over type parameters has reached
 /// (`checkSelfNesting`), which the program does not make.
@@ -4426,10 +4626,10 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             // A generic function that calls itself with its parameters
             // nested deeper (`f[Wrap[T]]` in `f[T]`), or a generic type
             // whose methods do so with its own instances, would expand
-            // forever.
+            // forever; a long chain of distinct ones is cut off too.
             if (deepest > max_instance_depth) {
                 const why = if (item.root == .func) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
-                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic functions (through `{s}`); {s}", .{ try rootName(ctx, item.root), try formatFnInstance(ctx, use), why });
+                try deepInstance(ctx, item, use.params, "functions", try formatFnInstance(ctx, use), why);
                 return true;
             }
             // An instance at a renaming of the callee's parameters expands
@@ -4439,7 +4639,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             if (reached) |r| {
                 if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
             } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
-            try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
+            try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
         }
         try ctx.genericEntries(.uses, item.subst.params, &entries);
         for (entries.items) |i| {
@@ -4456,7 +4656,8 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             // A generic whose body uses ever-deeper instances of itself
             // (`Wrap[T]` using `Wrap[Wrap[T]]`) would expand forever.
             if (info.depth > max_instance_depth) {
-                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try rootName(ctx, item.root), try formatType(ctx, use) });
+                const callee = if (typeItem(ctx, concrete)) |t| t.params else &.{};
+                try deepInstance(ctx, item, callee, "types", try formatType(ctx, use), "a generic type's body cannot nest itself in its own type arguments");
                 return true;
             }
             const inst = switch (ctx.types.get(concrete)) {
@@ -4481,7 +4682,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
                 }
                 try checkInstanceStacked(ctx, concrete, item.site);
             }
-            try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root });
+            try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
         }
     }
     return false;
@@ -5506,7 +5707,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .any_error => 2,
         // A null handle or view is its null address; anything else
         // needs a flag.
-        .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b + @intFromBool(!isAddress(ctx, inner)) else null,
+        .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b +| @intFromBool(!isAddress(ctx, inner)) else null,
         .array => |a| blk: {
             const n = arrayLen(ctx, a) orelse break :blk null;
             const e = (try minBytesOf(ctx, a.elem, false)) orelse break :blk null;
@@ -5649,18 +5850,85 @@ pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: Typ
     return bytes;
 }
 
-/// Every declared struct and enum must fit `max_value_bytes`; a generic
-/// one is checked at each instance. Each is sized after the types it
-/// holds (`order`, from `computeContents`), so sizing one does not nest
-/// through the chain of types it holds.
+/// Every declared struct and enum must fit `max_value_bytes` and nest
+/// at most `max_value_depth` deep; a generic one is checked at each
+/// instance. Each is sized after the types it holds (`order`, from
+/// `computeContents`), so sizing one does not nest through the chain of
+/// types it holds.
 fn checkTypeSizes(ctx: *SemContext, order: []const SymbolId) std.mem.Allocator.Error!void {
     for (order) |id| {
         const sym = ctx.symbols.items[id];
         if (sym.kind != .nominal_type or sym.decl_pos >= imported_decl_pos) continue;
         const ty = try ctx.intern(.{ .nominal = id });
-        const bytes = (try oversizedByItself(ctx, ty, id, .empty)) orelse continue;
-        try reportOversized(ctx, sym.decl_pos, ty, bytes);
+        if (try oversizedByItself(ctx, ty, id, .empty)) |bytes| {
+            try reportOversized(ctx, sym.decl_pos, ty, bytes);
+        } else if (try tooDeepByItself(ctx, ty, id, .empty)) |depth| try reportTooDeep(ctx, sym.decl_pos, ty, depth);
     }
+}
+
+/// How many levels `ty` nests by value: 0 for a type holding nothing by
+/// value (a number, a String, a List, a box, a handle), and one more than
+/// its deepest part for an optional, an array, a vector, a Signal, or an
+/// object or enum (`sizedParts`). The parts are measured first, deepest
+/// first, on a stack of the walk's own, as `sizeHeld` sizes them; a type
+/// that holds itself (rejected) counts no part twice.
+pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
+    if (ctx.value_depths.get(ty)) |d| return d;
+    var arena = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var open: std.AutoHashMapUnmanaged(TypeId, void) = .empty;
+    var stack: std.ArrayList(SizePending) = .empty;
+    try open.put(a, ty, {});
+    try stack.append(a, .{ .ty = ty, .parts = try sizedParts(ctx, a, ty) });
+    while (stack.items.len > 0) {
+        const top = &stack.items[stack.items.len - 1];
+        if (top.next < top.parts.len) {
+            const part = top.parts[top.next];
+            top.next += 1;
+            if (ctx.value_depths.contains(part)) continue;
+            if ((try open.getOrPut(a, part)).found_existing) continue;
+            try stack.append(a, .{ .ty = part, .parts = try sizedParts(ctx, a, part) });
+            continue;
+        }
+        const done = stack.pop().?;
+        var deepest: u32 = 0;
+        for (done.parts) |part| deepest = @max(deepest, ctx.value_depths.get(part) orelse 0);
+        const depth: u32 = switch (ctx.types.get(done.ty)) {
+            .optional, .array, .simd, .nominal => deepest +| 1,
+            // A List, a table, and a box hold their elements apart.
+            .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id or pn.sym == ctx.table_sym_id) 0 else deepest +| 1,
+            // Measured where it is declared (`checkTypeSizes`).
+            .imported_nominal => |in| blk: {
+                const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk 1;
+                const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk 1;
+                break :blk foreign.value_depths.get(declared) orelse 1;
+            },
+            else => 0,
+        };
+        try ctx.value_depths.put(ctx.allocator, done.ty, depth);
+    }
+    return ctx.value_depths.get(ty).?;
+}
+
+/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// `subst`) nests too deep by itself: more than `max_value_depth` levels
+/// (`valueDepth`), when no type it holds does, which is reported on its
+/// own. Its depth, when it is.
+pub fn tooDeepByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u32 {
+    const depth = try valueDepth(ctx, ty);
+    if (depth <= max_value_depth) return null;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| for (dataFields(f)) |d| {
+        if (try valueDepth(ctx, try substituteType(ctx, d.ty, subst)) > max_value_depth) return null;
+    };
+    return depth;
+}
+
+/// Report that `ty` nests `depth` levels by value, more than
+/// `max_value_depth`.
+pub fn reportTooDeep(ctx: *SemContext, pos: u32, ty: TypeId, depth: u32) std.mem.Allocator.Error!void {
+    try ctx.oversized.put(ctx.allocator, ty, {});
+    try ctx.err(pos, "`{s}` nests {d} types deep by value; a value nests at most {d} deep. Hold a part in a box (`^T`) or a `List`", .{ try formatType(ctx, ty), depth, max_value_depth });
 }
 
 /// The `ct_value` of the integer `v`.
@@ -5901,31 +6169,38 @@ pub fn declaresErrorFields(ctx: *const SemContext) bool {
 /// Whether a value of `ty` holds a shared or weak handle (`*T`, `~T`)
 /// anywhere inside it: what an error's field may not (errors-spec §4.1).
 pub fn holdsHandle(ctx: *const SemContext, ty: TypeId) bool {
-    return handleAt(ctx, ty, 0);
+    return handleAt(ctx, ty, null);
 }
 
-fn handleAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
-    if (depth > 32) return false;
+/// The declared types a walk is inside, each in the module whose type it
+/// is, nearest first: one met again is on a cycle, through a box or a
+/// List, and adds nothing.
+const TypePath = struct { ctx: *const SemContext, ty: TypeId, up: ?*const TypePath };
+
+fn handleAt(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
     return switch (ctx.types.get(ty)) {
         .shared, .weak => true,
-        .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, depth + 1),
-        .fallible => |f| handleAt(ctx, f.ok, depth + 1),
-        .array => |a| handleAt(ctx, a.elem, depth + 1),
-        .slice => |s| handleAt(ctx, s.elem, depth + 1),
+        .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, path),
+        .fallible => |f| handleAt(ctx, f.ok, path),
+        .array => |a| handleAt(ctx, a.elem, path),
+        .slice => |s| handleAt(ctx, s.elem, path),
         .parameterized_nominal => |pn| blk: {
-            for (pn.args) |arg| if (handleAt(ctx, arg, depth + 1)) break :blk true;
-            break :blk fieldsHoldHandle(ctx, ty, depth);
+            for (pn.args) |arg| if (handleAt(ctx, arg, path)) break :blk true;
+            break :blk fieldsHoldHandle(ctx, ty, path);
         },
-        .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, depth),
+        .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, path),
         else => false,
     };
 }
 
-fn fieldsHoldHandle(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+fn fieldsHoldHandle(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
+    var at = path;
+    while (at) |p| : (at = p.up) if (p.ctx == ctx and p.ty == ty) return false;
+    const inner: TypePath = .{ .ctx = ctx, .ty = ty, .up = path };
     const d = nominalDecl(ctx, ty) orelse return false;
     for (d.symbol().fields orelse &.{}) |*f| {
         if (f.is_method) continue;
-        for (dataFields(f)) |field| if (handleAt(d.ctx, field.ty, depth + 1)) return true;
+        for (dataFields(f)) |field| if (handleAt(d.ctx, field.ty, &inner)) return true;
     }
     return false;
 }
@@ -6388,9 +6663,10 @@ pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const Typ
         if (!hasBounds(sym)) continue;
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
+        // A type parameter with no bound is no exception: the witness the
+        // bound takes would come from its own bounds, and it has none.
         for (sym.user_apis) |api| {
             if (try provides(ctx, arg, api) != null) continue;
-            if (unboundedParam(ctx, arg)) continue;
             try reportUnprovided(ctx, at, of, sym.name, arg, api);
             return false;
         }
@@ -6409,15 +6685,6 @@ pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const Typ
     return true;
 }
 
-/// Whether `ty` is a type parameter with no bounds, which each of its
-/// instances decides.
-fn unboundedParam(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .type_var => |p| !hasBounds(ctx.symbols.items[p]),
-        else => false,
-    };
-}
-
 /// `of` cannot use `pname = arg`, which does not provide `api`, an API
 /// of the program's own, at `at`; the fix names the header or the
 /// addition that would provide it, or the bound.
@@ -6431,6 +6698,7 @@ fn reportUnprovided(ctx: *SemContext, at: u32, of: InstanceRoot, pname: []const 
         switch (ctx.types.get(arg)) {
             .type_var => |p| {
                 const sym = ctx.symbols.items[p];
+                if (!hasBounds(sym)) break :fix try a.print("; give it the bound: `[{s}: {s}]`", .{ sym.name, iname });
                 break :fix try a.print("; add `{s}` to its bounds: `[{s}: {s} + {s}]`", .{ iname, sym.name, try formatBounds(ctx, a, sym, null), iname });
             },
             else => {},
@@ -6627,6 +6895,91 @@ pub fn conformanceOf(ctx: *const SemContext, p: Provision) ?struct { home: *cons
     };
     const home: *const SemContext = if (c.module_id == ctx.module_id) ctx else ctx.foreign_semas.get(c.module_id) orelse return null;
     return .{ .home = home, .conf = home.conformances.items[c.index] };
+}
+
+/// The witness by which `ty`, a type of `ctx`, provides `api`, or null
+/// when it does not (`provides`, the one answer). A type parameter's is
+/// its own, by the bound that names `api` or an API built on it; any
+/// other type's is its conformance's, with the witnesses of a generic
+/// type's arguments that the conformance's bounds ask for.
+pub fn witnessFor(ctx: *SemContext, ty: TypeId, api: ApiRef) std.mem.Allocator.Error!?Witness {
+    const p = (try provides(ctx, ty, api)) orelse return null;
+    switch (p) {
+        .bound => |sym| {
+            var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+            defer scratch.deinit();
+            for (ctx.symbols.items[sym].user_apis) |b| {
+                for (try apiClosure(ctx, scratch.allocator(), b)) |c| if (c.eql(api)) return .{ .param = .{ .sym = sym, .api = b } };
+            }
+            return null;
+        },
+        .conformance => |c| {
+            const found = conformanceOf(ctx, p).?;
+            const args: []const TypeId = switch (ctx.types.get(ty)) {
+                .parameterized_nominal => |pn| pn.args,
+                else => &.{},
+            };
+            // The parameters whose bounds the witness takes: an addition's
+            // own, or the generic type's.
+            const params: []const SymbolId = if (found.conf.kind == .add) found.conf.params else switch (found.home.types.get(found.conf.ty)) {
+                .parameterized_nominal => |pn| found.home.symbols.items[pn.sym].type_params orelse &.{},
+                else => &.{},
+            };
+            const arg_ws = (try argWitnesses(ctx, found.home, params, args)) orelse return null;
+            return .{ .conformance = .{ .module_id = c.module_id, .index = c.index, .ty = ty, .args = arg_ws } };
+        },
+    }
+}
+
+/// The witnesses compile-time arguments `args` (of `ctx`) give the
+/// parameters `params` (symbols of `home`) they fill: one after each
+/// type argument for each API of a program's own its parameter's bounds
+/// name, in the order written. Null when an argument does not provide
+/// one, which the bound's check reports.
+pub fn argWitnesses(ctx: *SemContext, home: *const SemContext, params: []const SymbolId, args: []const TypeId) std.mem.Allocator.Error!?[]const ArgWitness {
+    var out: std.ArrayList(ArgWitness) = .empty;
+    for (params, 0..) |p, i| {
+        if (p == symbol_invalid or i >= args.len) continue;
+        for (home.symbols.items[p].user_apis) |b| {
+            const w = (try witnessFor(ctx, args[i], b)) orelse return null;
+            try out.append(ctx.arena.allocator(), .{ .arg = @intCast(i), .witness = w });
+        }
+    }
+    return out.items;
+}
+
+/// The witnesses an instance `ty` of a generic type takes among its
+/// arguments, after the types they bound (`Bag(Square,
+/// __rig_impl_Shape_Square)`); empty for every other type.
+pub fn typeWitnesses(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]const ArgWitness {
+    const pn = switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn,
+        else => return &.{},
+    };
+    const params = ctx.symbols.items[pn.sym].type_params orelse return &.{};
+    return argWitnesses(ctx, ctx, params, pn.args);
+}
+
+/// Record the witnesses of every instance of a generic type whose
+/// parameters are bounded by an API of a program's own, among this
+/// module's types (`SemContext.type_witnesses`), for emit, which writes
+/// them after the arguments they follow.
+pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var i: usize = 0;
+    while (i < ctx.types.items.items.len) : (i += 1) {
+        const ty: TypeId = @intCast(i);
+        const pn = switch (ctx.types.get(ty)) {
+            .parameterized_nominal => |pn| pn,
+            else => continue,
+        };
+        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const bounded = for (params) |p| {
+            if (p != symbol_invalid and ctx.symbols.items[p].user_apis.len > 0) break true;
+        } else false;
+        if (!bounded or ctx.type_witnesses.contains(ty)) continue;
+        const ws = (try typeWitnesses(ctx, ty)) orelse continue;
+        try ctx.type_witnesses.put(ctx.allocator, ty, ws);
+    }
 }
 
 /// Why `ty`, a type with its own `==` and no hash of its own, cannot be
@@ -7294,11 +7647,12 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 }
 
 /// A type a read view copies: a number, `Bool`, `?String`, a slice, a
-/// function or callable view (a `rig.FnRef`), a vector, a plain enum,
-/// an error, or an optional of one of those.
+/// read view, a function or callable view (a `rig.FnRef`), a vector, a
+/// plain enum, an error, or an optional of one of those. The runtime's
+/// `ReadView` holds a generic `?T` by the same rule.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd, .slot => true,
+        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd, .slot, .read_view => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
@@ -8641,15 +8995,18 @@ fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) !boo
 /// `runsDropBody` of `ty`, worked out once declarations are resolved
 /// (`TypeMemo`).
 fn dropBodyOf(ctx: *const SemContext, ty: TypeId) bool {
-    if (!ctx.contents_ready) return runsDropBody(ctx, ty, &.{});
+    if (!ctx.contents_ready) return runsDropBody(ctx, ty, null);
     if (ctx.type_memo.drop_body.get(ty)) |b| return b;
-    const b = runsDropBody(ctx, ty, &.{});
+    const b = runsDropBody(ctx, ty, null);
     ctx.type_memo.drop_body.put(ctx.allocator, ty, b) catch std.debug.panic("out of memory", .{});
     return b;
 }
 
+/// The declared types a walk is inside, nearest first.
+const SymPath = struct { sym: SymbolId, up: ?*const SymPath };
+
 /// `path` holds the declared types being looked into: a cycle adds nothing.
-fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool {
+fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: ?*const SymPath) bool {
     return switch (ctx.types.get(ty)) {
         .shared, .optional => |i| runsDropBody(ctx, i, path),
         .fallible => |i| runsDropBody(ctx, i.ok, path),
@@ -8667,14 +9024,11 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool
     };
 }
 
-fn fieldsRunDropBody(ctx: *const SemContext, sid: SymbolId, path: []const SymbolId) bool {
-    if (std.mem.findScalar(SymbolId, path, sid) != null) return false;
-    // Past any real nesting depth, assume the worst.
-    if (path.len >= 32) return true;
-    var buf: [32]SymbolId = undefined;
-    @memcpy(buf[0..path.len], path);
-    buf[path.len] = sid;
-    const inner = buf[0 .. path.len + 1];
+fn fieldsRunDropBody(ctx: *const SemContext, sid: SymbolId, path: ?*const SymPath) bool {
+    var at = path;
+    while (at) |p| : (at = p.up) if (p.sym == sid) return false;
+    const node: SymPath = .{ .sym = sid, .up = path };
+    const inner = &node;
     const fields = ctx.symbols.items[sid].fields orelse return false;
     for (fields) |f| if (f.is_drop_method) return true;
     for (fields) |f| {
@@ -8815,7 +9169,7 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
         // A value that does not move copies, but for one holding a write
         // view, which has one holder (Core sentence 2): it has no clone.
         .no => if (copies(ctx, value) == .yes) .copy else .no,
-        .yes => if (deepCloneable(ctx, value, null, &.{})) .deep else .no,
+        .yes => if (deepCloneable(ctx, value, null, null)) .deep else .no,
         .depends => .depends,
     };
 }
@@ -8829,6 +9183,9 @@ const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, args
 /// that declares it.
 const CloneSeen = struct { ctx: *const SemContext, sym: SymbolId };
 
+/// The declared types a clone check is inside, nearest first.
+const ClonePath = struct { at: CloneSeen, up: ?*const ClonePath };
+
 /// Whether `+x` can make a new owner of a `ty` part by part (Core
 /// sentence 2): a String, a List, a box, an optional, an array, or a
 /// struct or enum, of this module or another, of parts that clone; a
@@ -8837,8 +9194,7 @@ const CloneSeen = struct { ctx: *const SemContext, sym: SymbolId };
 /// Signal, a write view, or a type parameter. `seen` holds the declared
 /// types being checked: one reached again (a box of a recursive type)
 /// clones if the rest of it does.
-fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: []const CloneSeen) bool {
-    if (seen.len > 32) return false;
+fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: ?*const ClonePath) bool {
     switch (ctx.types.get(ty)) {
         .type_var => |sym| {
             // A set parameter's value is an error, which clones.
@@ -8895,24 +9251,22 @@ fn declaredAt(ctx: *const SemContext, sym: SymbolId) ?CloneSeen {
 
 /// Whether every part of type `sym`, declared in `ctx`, clones
 /// (`deepCloneable`), and it has no `drop` body.
-fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: []const CloneSeen) bool {
+fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: ?*const ClonePath) bool {
     // A type reached again (a box of a recursive type) clones if the rest
     // of it does, and if each type argument it is reached with clones:
     // `Map[Int, Map[Int, Res]]` reaches `Map` again with a `Res`, which a
     // revisit, which walks no field again, would not otherwise check.
-    for (seen) |t| if (t.ctx == ctx and t.sym == sym) {
+    var at = seen;
+    while (at) |t| : (at = t.up) if (t.at.ctx == ctx and t.at.sym == sym) {
         const f = frame orelse return true;
         for (f.args) |arg| if (!deepCloneable(f.args_ctx, arg, f.parent, seen)) return false;
         return true;
     };
     const s = ctx.symbols.items[sym];
-    var buf: [33]CloneSeen = undefined;
-    @memcpy(buf[0..seen.len], seen);
-    buf[seen.len] = .{ .ctx = ctx, .sym = sym };
-    const inner = buf[0 .. seen.len + 1];
+    const inner: ClonePath = .{ .at = .{ .ctx = ctx, .sym = sym }, .up = seen };
     for (s.fields orelse &.{}) |*f| {
         if (f.is_drop_method) return false;
-        for (dataFields(f)) |d| if (!deepCloneable(ctx, d.ty, frame, inner)) return false;
+        for (dataFields(f)) |d| if (!deepCloneable(ctx, d.ty, frame, &inner)) return false;
     }
     return true;
 }
@@ -12358,17 +12712,24 @@ test "declarations: struct fields, methods, and enum variants" {
 
 test "check: a long chain of types each holding the next by value" {
     // Each walk over what a type holds runs once per type, not nested
-    // once per link of the chain.
+    // once per link of the chain. The chain nests deeper than
+    // `max_value_depth`, reported once, at the first type past it.
     const n = 5000;
     var src: std.ArrayList(u8) = .empty;
     defer src.deinit(std.testing.allocator);
     const a = std.testing.allocator;
     for (0..n) |i| try src.print(a, "obj S{d}\n  x: S{d}\n\n", .{ i, i + 1 });
     try src.print(a, "obj S{d}\n  x: Int\n\nfun same(a: ?S0, b: ?S0) -> Bool\n  a == b\n", .{n});
-    var r = try factsRun(src.items);
-    defer r.deinit();
-    const s0 = try r.ctx.intern(.{ .nominal = r.ctx.lookup(module_scope, "S0").? });
-    try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
+    var p = parser.Parser.init(a, src.items);
+    defer p.deinit();
+    var ctx = try check(a, src.items, try p.parseProgram(), .{});
+    defer ctx.deinit();
+    try std.testing.expectEqual(@as(usize, 1), ctx.diagnostics.items.len);
+    try std.testing.expect(std.mem.find(u8, ctx.diagnostics.items[0].message, "`S4000` nests 1001 types deep by value") != null);
+    const s0 = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "S0").? });
+    try std.testing.expectEqual(@as(u32, n + 1), try valueDepth(&ctx, s0));
+    const last = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "S4999").? });
+    try std.testing.expectEqual(@as(?u128, 8), try minBytes(&ctx, last));
 }
 
 test "maskBytes: the runtime's own size" {
