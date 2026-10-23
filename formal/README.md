@@ -38,6 +38,7 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Facts.lean` | `Rel`, what the checker's facts say of a running machine |
 | `LambdaRig/Steps.lean` | One theorem per form: each step the checker accepts keeps `Rel` |
 | `LambdaRig/Sound.lean` | `sound`, the induction over programs, and `accepts_runs` |
+| `LambdaRig/Calls.lean` | Calls checked against an API's `from` and `keeps`, and why they are sound for any implementation within them |
 | `LambdaRig/Examples.lean` | Programs, whether the checker accepts each, and how each run ends |
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
@@ -87,6 +88,43 @@ holds read loans or one write loan, never both. This holds by
 construction: every way the interpreter touches a cell builds a cell
 of that shape. It shows the machine models sentence 5 the way CORE
 states it. It says nothing about the checker; `accepts_runs` does.
+
+**Calls through an API** (Calls.lean). A call through a bound is
+checked against the API's clauses, and an implementation's `from` and
+`keeps` may be narrower, by position, never wider (SPEC, "APIs";
+docs/design/apis.md, Stage 3). Clauses are lists of parameter
+positions, and `Within` says one is the same as another or narrower.
+Two results:
+
+- **`within_live`**, for loans: the caller records the loans of the
+  arguments the API's `from` names, kept while the result lives, and of
+  those its `keeps` names, kept while what the call stored into lives.
+  An implementation that meets clauses within the API's leaves views
+  only of those arguments (`records_created`), so after anything the
+  caller does that its record allows (the machine's ways to touch a
+  cell, by the access each is, and frees), every view the result holds
+  and every view the call stored is still live. `outside_dies` shows the
+  clauses are needed: a result viewing an argument the API's `from` does
+  not name dies at a write the caller is allowed. This part covers both
+  clauses and any number of positions, over the machine's cells; it
+  does not run programs.
+- **`api_calls_run`**, for programs: `Prog` is λRig with calls, `r =
+  f(args)`, each checked by `checkCall` against its API's clauses alone,
+  never the implementation; `elab` runs each call in place. If `checkP`
+  accepts a program and every implementation meets clauses within its
+  API's (`Fits`), the program runs to the end without a fault, by
+  `accepts_runs`. The step is `inline_check`: the call run in place is
+  accepted by `check` with the very type `checkCall` gave from the
+  API's `from`, so `call_fits` gives what `sound` gives, a result that
+  views the owner the caller recorded, with its loan live. On a program
+  with no calls `checkP` is `check` (`checkP_noCalls`), so the extension
+  is conservative. Its `#guard_msgs` keeps the axioms to Lean's three.
+
+The examples call `pick(a: ?Int, b: ?Int) -> ?Int from a`, then write
+`b` while the result lives: an implementation `from a` that reads `b`
+and returns `a` runs to the end, and one `from b`, outside the API's
+clauses, which `checkP` accepts all the same, stops at `deadTag`. A
+third calls an API `from a, b` with an implementation `from b`.
 
 **`Examples.lean`**: eleven programs, each with whether `check` accepts
 it and how its run ends. Four are accepted and end well; seven are
@@ -266,6 +304,17 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
   semantics; the test suite and the sanitizer stand in for it.
 - **Anything outside the slice:** objects, optionals, `List`,
   functions, `*T`, `~T`, `Cell`, loops.
+- **Calls beyond the slice (docs/design/apis.md, Stage 3).** In
+  `api_calls_run`, a method's parameters and result are read views and
+  its body reads parameters and returns one; there are no write views,
+  owners passed by value, or bodies of their own. `keeps` is proved
+  only for loans (`within_live`), since λRig stores no view where a
+  caller reaches it. A view's type names one owner, so `checkCall`
+  accepts a `from` of several positions only when their arguments view
+  one owner; `within_live` has no such limit. A call runs in place, as
+  inlining runs it, which is what binding each read-view parameter to
+  its argument does; a callee checked once, in a scope of its own, needs
+  functions in λRig (Next, 4).
 - **Bounds (docs/design/apis.md, Stage 2).** A body may copy a type
   parameter bounded `Copy`, so a proof that generic bodies keep the
   Core needs `Copy` to hold only of the kinds that copy: plain data and

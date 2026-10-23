@@ -204,6 +204,15 @@ changed the language since it:
   that view across `next`; a Map's and a Set's iterators are walked by a
   loop instead.
 
+- **APIs of a program's own (Stage 3, the proof):** formal/ proves, in
+  Lean, that a call checked against an API's `from` and `keeps` is
+  sound for any implementation whose clauses are within them, by
+  position: over the machine's loans, every view such an implementation
+  leaves behind stays live through whatever the caller's record allows
+  (`within_live`); and a λRig program whose calls, taking read views,
+  are checked against their APIs' clauses alone runs without a fault
+  for any such implementations (`api_calls_run`).
+
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
   binds it from its callbacks' sets (`error` for a `T!` callback), and
