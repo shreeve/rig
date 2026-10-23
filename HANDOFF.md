@@ -43,10 +43,13 @@ newest entry summarizes the latest rounds.
 
 ## In flight
 
-- **The consolidation round:** no new language features; fixes, docs,
-  tooling, and measurement, in small PRs. Its brief, tracks, and
-  inventory are
-  [docs/history/records/2026-10/consolidation/PLAN.md](docs/history/records/2026-10/consolidation/PLAN.md).
+- **The consolidation round** ran on 2026-10-23
+  ([PLAN.md](docs/history/records/2026-10/consolidation/PLAN.md)); what
+  it landed, measured, and left is in
+  [round-report.md](docs/history/records/2026-10/consolidation/round-report.md).
+  Emit decides nothing itself (`Pending` is gone), and no case is
+  `known: true`. Open: the owner's decisions it lists, and the oracle's
+  model of the hidden `E?`.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
@@ -67,13 +70,12 @@ Errors with data, from the approved spec
 - generic sets (R2.5, #569), `fun total[E](f: ?fun() -> Int!E) -> Int!E`
   (docs/history/records/2026-10/errors-r25/).
 
-Two pieces remain. The oracle's model of the hidden `E?` is in the
-consolidation's track 2. std's I/O sets (R3-3) wait for the owner's
-names, and come after the round.
+Two pieces remain: the oracle's model of the hidden `E?`, and std's I/O
+sets (R3-3), which wait for the owner's names.
 
 ## Next, in order
 
-After the consolidation round, in the owner's order:
+In the owner's order:
 
 1. **APIs Stage 3,** by the build plan's six phases
    ([docs/history/records/2026-10/apis-stage3/build-plan.md](docs/history/records/2026-10/apis-stage3/build-plan.md)).
@@ -89,9 +91,14 @@ After the consolidation round, in the owner's order:
    parameters (`Slot[n]`, `Table[T, n]`), is built
    ([phase3-notes.md](docs/history/records/2026-10/apis-stage3/phase3-notes.md)).
    Phase 4, associated types and `Iter` with std.iter, is built
-   ([phase4-notes.md](docs/history/records/2026-10/apis-stage3/phase4-notes.md)).
-   Phase 5 (the Lean lemma) and phase 6 (public generics state their
-   bounds) are next.
+   ([phase4-notes.md](docs/history/records/2026-10/apis-stage3/phase4-notes.md),
+   [review-p34.md](docs/history/records/2026-10/apis-stage3/review-p34.md)).
+   Its rule for an iterator through `[I: Iter]` is strict for now: Map's
+   and Set's iterators do not go through it (a `for` still walks them),
+   as an item viewing into its iterator could outlive the next `next`;
+   the precise rule is the owner's decision. Phase 5 (the Lean lemma) and
+   phase 6 (public generics state their bounds, which needs the owner)
+   are next.
 2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
@@ -138,8 +145,8 @@ bind (about 1.5% of ts-pattern).
 APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
 built in stages. Stage 1, method calls on a type parameter, and Stage 2,
 built-in bounds (`[T: Ord]`, `obj Version: Ord`, a type's own `eq`,
-`hash_into`, `order`, and `print`), are on `main`. Stage 3 is next after the
-consolidation round, and Stages 4 and 5 wait for a program that needs
+`hash_into`, `order`, and `print`), are on `main`, and Stage 3's phases 1
+to 4 with them; Stages 4 and 5 wait for a program that needs
 them; a design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.
@@ -251,5 +258,5 @@ release notes.
 ## Who to ask
 
 For design intent, Core questions, or whether something is a new feature
-or consolidation, send a message to the **"Rig"** session. This file
-states the current facts.
+or consolidation, send a message to the **"Rig (OG)"** session. This
+file states the current facts.
