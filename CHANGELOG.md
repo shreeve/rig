@@ -13,6 +13,17 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Small fixes the Learn Rig journeys found:** a local a closure uses
+  without capturing it is reported once for each closure, at its first
+  use; `List(...)` of objects, and an array lent where a `?List[T]`
+  goes, name the form that works (an empty List pushed into, or a `[]T`
+  parameter); `RIG_LEAK_TRACE=1 rig test` shows each leaked
+  allocation's trace after the summary, and the leak note names the
+  command that was run; what `print` buffers is written out before the
+  program goes idle waiting on I/O or time, so a server piped to another
+  program shows its first line while it waits; and `rig check
+  --facts=proofs` names the file of each line in a directory module.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed
