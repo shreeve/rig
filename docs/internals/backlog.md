@@ -243,9 +243,6 @@ fixing.
   and INTERNALS should say which, or emit should take the mode.
 - **`extern zig` is for std alone,** so a program cannot call Zig of its
   own. Decide whether a program may, and say so either way.
-- **A backgrounded server's first `print` may not appear.** With
-  stdout piped, `rig run server.rig &` showed no "listening on" line;
-  likely buffering, not yet looked at.
 - **An idle worker once missed a run-next fiber for 2 seconds.** The
   unit test "a fiber left in a busy worker's run-next slot is taken by
   an idle worker" failed once in debug on pup's E-cores (12–19) while

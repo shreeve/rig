@@ -5558,8 +5558,9 @@ fn endBy(sig: std.posix.SIG) noreturn {
 
 // Output. `print` writes to one process-wide buffer. It is flushed
 // when the program finishes, before anything is written to stderr (a
-// `warn`, a panic, an error report), and after every `print` when stdout
-// is a terminal.
+// `warn`, a panic, an error report), before a thread waits on I/O or
+// time (`flushBeforeWait`), and after every `print` when stdout is a
+// terminal.
 
 var stdout_buffer: [8192]u8 = undefined;
 var stdout_writer: ?std.Io.File.Writer = null;
@@ -5578,6 +5579,18 @@ fn stdout() *std.Io.Writer {
 /// the program (`stdoutFailed`).
 fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch stdoutFailed();
+}
+
+/// Write out what `print` has buffered before a thread blocks, waiting
+/// on I/O or time: a server's first line, piped to another program,
+/// shows while it waits for a connection. A thread that cannot take the
+/// output lock leaves it to the one printing, which flushes before it
+/// waits in turn. A write that fails is left for the next flush, which
+/// reports it.
+pub fn flushBeforeWait() void {
+    if (concurrent and !output_lock.tryLock()) return;
+    defer unlockOutput();
+    if (stdout_writer) |*w| if (w.interface.end != 0) w.interface.flush() catch {};
 }
 
 /// Write out what `print` has buffered on the way out of a program that

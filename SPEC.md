@@ -10830,7 +10830,10 @@ stdout is buffered: what `print` writes reaches the file when the
 buffer fills, and is written out before anything goes to stderr (a
 `warn`, a `panic`, a runtime panic, a failure that leaves `main`) and on
 every exit, so the two streams read in the order the program wrote
-them.
+them. It is also written out when a core of the program goes idle,
+waiting on I/O or time with nothing else to run, so a server's first
+line shows while it waits for a connection; and after every `print`
+when stdout is a terminal.
 
 When stdout is a pipe whose reader has closed it (`prog | head -1`), the
 program ends at once with status 0 and writes nothing more: its drops,
