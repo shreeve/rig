@@ -3101,7 +3101,9 @@ parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`)
 would need ever deeper instances, and is rejected rather than expanded
 forever: at an instance, or, for a `pub` generic and the generic
 methods of a `pub` type, whose instances other modules make, where it
-is declared.
+is declared. A chain of distinct generics, each instantiating the next
+with its type arguments nested one deeper, is rejected too once an
+instance's type arguments nest more than 24 deep.
 
 ```rig reject
 obj Point

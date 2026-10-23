@@ -194,13 +194,17 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
     address, while the runtime's `ReadView(T)` copies any pointer.
   - Make the two rules one. This changes how such views are held, so it
     is its own round.
-- The "ever deeper instances" message fires on finite chains. Thirty
-  generic functions, each calling the next at `^T` of its `T`
-  (`f0[T](x: T)` calls `f1(^x)`, ...), are rejected at the 25th
-  with "a generic function cannot call itself with its own type
-  parameters nested deeper". No function there calls itself. Say that
-  instances nest more than 24 deep instead. The same limit also rejects
-  `$name(Wrap[T?])` inside `Wrap`'s own method.
+- A release build of a chain of objects nested by value grows faster
+  than the chain: 100 objects, each made by a function calling the next
+  one's, cloned, compared, and hashed, build in 6 s, 200 in 13 s, 400 in
+  56 s, and 1000 (the depth limit) ran past 20 minutes on the Mac. A debug
+  build of 1000 takes 2 s. Find which LLVM pass, or what emit gives it,
+  grows so.
+- A type only named in a generic type's method is expanded as an
+  instance. `$name(Wrap[T?])` inside `Wrap[T]`'s own method is rejected
+  as "ever deeper instances of generic types", since `Wrap[Int?]`'s
+  methods are expanded too and name `Wrap[Int??]`, though nothing calls
+  them. Expand an instance's methods only where the program uses them.
 - Lending a handle parameter to write is accepted as `!c` but rejected
   as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter

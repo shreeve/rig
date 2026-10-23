@@ -4239,8 +4239,46 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// An instance to expand: its parameters' arguments, where the program
-/// makes it, and the instance written there that it is reached from.
-const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot };
+/// makes it, the instance written there that it is reached from, and
+/// the generics between the two (`Trail`).
+const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot, trail: ?*const Trail = null };
+
+/// The generics an expansion passed through to reach an instance, each
+/// named by its parameters, nearest first: whether one repeats tells a
+/// generic that nests itself from a long chain of distinct ones
+/// (`deepInstance`).
+const Trail = struct { params: []const SymbolId, up: ?*const Trail };
+
+/// The instance at `item.trail` plus `item` itself, as the trail of an
+/// instance reached from `item`.
+fn trailFrom(ctx: *SemContext, item: ExpandItem) std.mem.Allocator.Error!*const Trail {
+    const t = try ctx.arena.allocator().create(Trail);
+    t.* = .{ .params = item.subst.params, .up = item.trail };
+    return t;
+}
+
+/// Report the root of `item`, which reaches an instance (through
+/// `through`, a use in the body `item` expands, of the generic with
+/// parameters `callee`) whose type arguments nest more than
+/// `max_instance_depth` deep. When a generic on the way, the callee
+/// among them, is reached twice, it nests itself (`why`) and would
+/// expand forever; otherwise the chain of distinct generics is only too
+/// deep.
+fn deepInstance(ctx: *SemContext, item: ExpandItem, callee: []const SymbolId, kind: []const u8, through: []const u8, why: []const u8) std.mem.Allocator.Error!void {
+    const root = try rootName(ctx, item.root);
+    const body: Trail = .{ .params = item.subst.params, .up = item.trail };
+    const head: Trail = .{ .params = callee, .up = &body };
+    var a: ?*const Trail = &head;
+    const nests = while (a) |x| : (a = x.up) {
+        var b = x.up;
+        const again = while (b) |y| : (b = y.up) {
+            if (std.mem.eql(SymbolId, x.params, y.params)) break true;
+        } else false;
+        if (again) break true;
+    } else false;
+    if (!nests) return ctx.err(item.site, "`{s}` leads to instances of generic {s} whose type arguments nest more than {d} deep (through `{s}`)", .{ root, kind, max_instance_depth, through });
+    try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic {s} (through `{s}`); {s}", .{ root, kind, through, why });
+}
 
 /// The instances an expansion over type parameters has reached
 /// (`checkSelfNesting`), which the program does not make.
@@ -4282,10 +4320,10 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             // A generic function that calls itself with its parameters
             // nested deeper (`f[Wrap[T]]` in `f[T]`), or a generic type
             // whose methods do so with its own instances, would expand
-            // forever.
+            // forever; a long chain of distinct ones is cut off too.
             if (deepest > max_instance_depth) {
                 const why = if (item.root == .func) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
-                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic functions (through `{s}`); {s}", .{ try rootName(ctx, item.root), try formatFnInstance(ctx, use), why });
+                try deepInstance(ctx, item, use.params, "functions", try formatFnInstance(ctx, use), why);
                 return true;
             }
             // An instance at a renaming of the callee's parameters expands
@@ -4312,7 +4350,8 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             // A generic whose body uses ever-deeper instances of itself
             // (`Wrap[T]` using `Wrap[Wrap[T]]`) would expand forever.
             if (info.depth > max_instance_depth) {
-                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try rootName(ctx, item.root), try formatType(ctx, use) });
+                const callee = if (typeItem(ctx, concrete)) |t| t.params else &.{};
+                try deepInstance(ctx, item, callee, "types", try formatType(ctx, use), "a generic type's body cannot nest itself in its own type arguments");
                 return true;
             }
             const inst = switch (ctx.types.get(concrete)) {
