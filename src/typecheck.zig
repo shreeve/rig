@@ -12419,6 +12419,7 @@ const Checker = struct {
             .pos = self.startOf(call),
             .recv = try a.dupe(u8, self.sourceText(stripSigil(obj))),
             .call = try a.dupe(u8, self.sourceText(call)),
+            .owned_recv = if (self.ctx.typeOf(stripSigil(obj))) |recv_ty| self.ctx.types.get(recv_ty) == .type_var else false,
         });
         return returns;
     }
@@ -19025,6 +19026,11 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
             .none => "",
         } });
         if (m.field.inline_marked) break :blk try a.print("and `{s}` is marked `inline`, and a call on a `{s}` is not inlined", .{ owner, pname });
+        // A view kept in a `T` the body holds by value is a loan the body
+        // does not track, which a move of the value could carry out of
+        // the function; through a write view, the function's own `keeps`
+        // says what may be stored.
+        if (c.owned_recv and m.field.origins.stores & m.field.origins.lent != 0) break :blk try a.print("and `{s}` keeps a view of an argument in `{s}`, a `{s}` the body holds, whose loans it does not track", .{ owner, c.recv, pname });
         if (sema.isGenericFn(ctx, m.fn_ty)) break :blk try a.print("and `{s}` takes compile-time parameters of its own, which a call on a `{s}` does not give", .{ owner, pname });
         const params = m.fn_ty.params[1..];
         if (params.len != args.len) break :blk try a.print("with {d} argument{s}, and `{s}` takes {d}", .{ args.len, if (args.len == 1) "" else "s", owner, params.len });

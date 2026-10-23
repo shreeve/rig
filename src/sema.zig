@@ -2566,6 +2566,9 @@ pub const GenericMethodCall = struct {
     /// The module whose source `pos` is in: 0 for this one, or the
     /// module that declares the body of a proxy's call.
     module_id: u32 = 0,
+    /// The call is made on a `T` the body holds by value, whose loans
+    /// the body does not track, rather than through a view of one.
+    owned_recv: bool = false,
 
     pub const Result = union(enum) {
         /// The type the body takes the result as.
