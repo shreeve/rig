@@ -20,13 +20,6 @@ changed the language since it:
   fails with that set when it holds `task.Stop` (for `task.all`, the one
   of its tasks' sets that holds the others), as a set of tasks does.
 
-- **An error widens to a union that holds it where a view of the union
-  goes:** `m.get(B.y)` for a `Map[L, Int]` of `error L = A | B`, and
-  `take(B.y)` for a `?L` parameter, were rejected with a hint, `?B.y`,
-  that led to another error; `o == A.x` for an `L?` was "cannot compare".
-  Each now takes the member as a value of `L`. A member without fields
-  where a union with fields goes says to bind it as one first.
-
 - **An error code widens to a union that holds it where a view of the
   union goes:** for sets without fields, `m.get(B.y)` for a
   `Map[L, Int]` of `error L = A | B`, and `take(B.y)` for a `?L`
