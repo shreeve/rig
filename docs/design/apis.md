@@ -943,23 +943,38 @@ sub main()
 
 ## Stage 4: API objects *(planned)*
 
-An **API object** is a value of some type that provides an API, chosen
-when the program runs. It is written as the API in braces, behind a
-view or a box:
+An **API object** is a value of some type that provides an API, the
+type chosen when the program runs. It is written as the API in braces,
+behind a view or a box:
 
 ```text
+api Shape
+  fun area(?@) -> Float
+
+  fun describe(?@) -> String              # a default
+    String("a shape of area ", @area())
+
 fun area_of(s: ?{Shape}) -> Float
-  s.area()
+  s.area()                                # an indirect call, through the table
 
 sub main()
   sq = Square(side: 2.0)
-  print(area_of(sq))                    # lends `?{Shape}`, unmarked like any read
+  print(area_of(sq))                      # lends `?{Shape}`, unmarked like any read
   shapes: List[^{Shape}] = List()
-  !shapes.push(^Square(side: 3.0))
-  !shapes.push(^Circle(r: 1.0))
+  !shapes.push(^Square(side: 3.0))        # boxed where the `^` is written
+  c = ^Circle(r: 1.0)
+  !shapes.push(<c)                        # a `^Circle` moved in, its allocation kept
   for s in ?shapes
     print(s.describe())
 ```
+
+An object is made from a conformance, and its table from that
+conformance's witness: each entry calls the method the witness names, a
+type's own, an addition's, or a default. So everything Stage 3 checks
+of a conformance (the same self, parameters, names, result, and set;
+`from` and `keeps` within the API's) holds of every object made from
+it, and a call through an object is checked as a call through a bound
+is.
 
 **The braces.** `{Shape}` reads as set notation: some member of the set
 of types that are `Shape`. Braces hold only APIs, so `{T}` of a type
@@ -971,16 +986,84 @@ holding sigils keep their meanings, so no new rule is needed for them:
 |---|---|---|---|
 | `?{Shape}` | a read view | `?@` | yes, as a read view does |
 | `!{Shape}` | a write view | `?@`, `!@` | never |
-| `^{Shape}` | a box, an owner | `?@`, `!@` (through `!b`), `<@` (`<b.m()` frees the box) | `+b` only when the API requires `Clone` |
+| `^{Shape}` | a box, an owner | `?@`, `!@` (through `!b`), `<@` (`<b.m()` frees the box) | `+b` only with `Clone` (below) |
+
+The braces name one API of a program's own, which may build on others,
+and beside it the built-in APIs an object serves itself: `Owned`,
+checked where the type is erased, and `Print` and `Clone`, each an
+entry of the table, `^{Shape + Owned + Print}`. An object has one
+table, so two APIs of a program's own are joined by name first,
+`api Both: Shape + Named`, then `?{Both}`. `Copy` is rejected in the
+braces, since each form copies or not by its own kind; so are `Eq`,
+`Hash`, and `Ord`, since two objects may hide two types, which `==`
+and `<` cannot compare; and the number APIs, which only numbers
+provide. `Moves` and `Shares` are Stage 5's.
 
 Braces mean nothing else in Rig, outside string escapes, so they cannot
-be misread. A map or set literal, if Rig ever has one, sits in an
-expression, where a type never does.
+be misread. Anywhere but a type, a brace keeps its message, "Rig has no
+braces: a block is the lines indented under its header". A map or set
+literal, if Rig ever has one, sits in an expression, where a type never
+does.
 
-**Making one.** At an expected type, by an ordinary lend or move:
-`area_of(sq)` lends a `?{Shape}`, and `b: ^{Shape} = ^<c` moves a box
-in, reusing its allocation. No sigil marks the erasure; the braces in
-the expected type do.
+**Making one.** At an expected type, by an ordinary lend or move. The
+lend table gains one row: a value of a type that provides `Shape` lends
+`?{Shape}` to read and `!{Shape}` to write. The rows compose as they do
+today, so `?b` of a `^Square`, `?h` of a `*Square`, and `?f` of a
+`*Frozen[Square]` lend a `?{Shape}` of the value they reach, and `?b`
+of a `^{Shape}` lends the `?{Shape}` it holds. A box is made by moving
+one in: `<c` of a `c: ^Square`, where a `^{Shape}` is expected, keeps
+its allocation, and `^Square(side: 3.0)` and `^<sq` box a new one
+where the `^` is written. A bounded `T` erases through its witness, as
+it calls through it; a `T` with no bound has none, so it erases to no
+object, as it meets no bound by an API (Stage 3). The built-in APIs in
+the braces are checked here, where the type is still known:
+`^{Shape + Owned}` of a `Note` holding a `?String` is rejected. No
+sigil marks the erasure; the braces in the expected type do. One
+object form never converts to another API's: a `?{Named}` is not a
+`?{Shape}`, even where `Named` builds on `Shape`.
+
+**What a call through an object can reach.** Each method of the API and
+of those it builds on, defaults included, except one that takes
+compile-time parameters of its own (types, values, or sets, which each
+call passes and a table cannot) or names `Self` anywhere but self (a
+`?Self` parameter, a `-> Self` result), which the hidden type alone
+could give. Every API method takes self, so none is left out for
+lacking one. The rest of the API forms objects; calling a method left
+out says why, and that it is called through a bound. One function
+decides which methods an object reaches and in which order, and the
+table's entries follow it.
+
+**Calls.** `s.area()` through an object is checked against the API's
+declaration, `Self` hidden: how it takes self, each parameter by the
+API's names, `once`, its result and how it fails, and its `from` and
+`keeps`, which every implementation is within. Self goes by its sigil,
+as the form allows: a `?{Shape}` reaches `?@` methods, a `!{Shape}` and
+`!b` of a `^{Shape}` reach `!@` ones too, and `<b.m()` of a `^{Shape}`
+reaches `<@` ones, taking the value out and freeing the box first, as
+`<b.m()` of any box does. `Shape.area(s)` names the API, as through a
+bound, where two APIs an object's API builds on both declare `area`.
+Every call through an object records the dispatch fact `dynamic`, with
+the method's place in the table.
+
+**How a method fails through an object.** As through a bound: with the
+API's set, union, or `T!`, which every implementation declares the
+same, so an entry has one type whatever type is erased to it. `!`
+passes the set on into a frame whose set holds it, and `catch |e|`
+gives `e` the API's set, matched without `_` when it is a declared one.
+A set with fields reaches the caller through the slot, as from any call
+that may fail with fields: an entry for a fallible method takes the
+slot, as a callable view of a fallible function does
+([SPEC, Generic sets](../../SPEC.md#generic-sets)), and gives it to the
+method where the method takes one. A method with a set parameter of
+its own, `fun each[E](...)`, is called through a bound.
+
+**Associated types.** An API that declares `type Item` forms objects
+only with the type named in the braces, `^{Source[Item: Int]}`, the
+spelling kept for it ("The words"): each entry then has one type, and
+a conversion checks that what the conformance gives `Item` is that
+type. `Iter` is the same: `!{Iter[Item: Int]}` advances an iterator of
+any type through its table's `next`. Without the type named, an object
+of such an API is rejected with the spelling.
 
 **What a call costs.** A load from a table in cache and an indirect
 call: a few cycles, but no inlining, no constant folding, and no
@@ -990,34 +1073,97 @@ numeric code, prefer a bound.
 
 **Rules that keep it sound:**
 
-- Through a `!{Shape}` a program only calls methods. Assigning,
-  swapping, or moving out of one is rejected: the value it views may be
-  of another type. `!b` of a `b: ^{Shape}` may still replace the whole
-  box.
-- A method with compile-time parameters of its own, with `Self` outside
-  `@`, or with no self, is not callable through an object; the rest of
-  the API is, and the error says why for that method.
+- Through a `!{Shape}` a program only calls methods. Assigning to it
+  (`w = c`, `w += x`), swapping, moving out of it, and reading its value
+  into a binding (`x = w`, which copies or moves a value of a known
+  type) are rejected: the value it views may be of another type, and
+  its size is not known. `!b` of a `b: ^{Shape}` may still replace the
+  whole box, `b = ^Circle(r: 1.0)`.
+- A method a call through an object cannot reach is rejected at the
+  call, with the reason; the rest of the API is callable.
 - A call through an object uses the API method's `from` and `keeps`,
   which every implementation is within. An owned closure is the case of
   one method with no clauses, so today's closure rules are unchanged.
 - A `^{Shape}` carries the loans of what it was made from, as a `^T`
   does. With no bound saying otherwise, it may hold a loan and its drop
-  may read one, so those loans last to its drop.
+  may read one, so those loans last to its drop. `^{Shape + Owned}`
+  holds none, checked at the erasure, and goes where no loan may: an
+  owned closure's environment, an actor's state.
+- An erasure needs an address. A read view the program holds as a copy
+  (a `?Int`, or a `?Point` of small plain data, as `rig.ReadView` holds
+  it) and a `?T` of a type parameter, which may be one, erase to an
+  object of that copy in the function's frame: it is used there and
+  never leaves it, returned or stored beyond it, and the error says to
+  lend the owner where it lives, or to take a `?{Shape}`. A temporary
+  lent as an object is a temporary of its statement, as any lent
+  temporary is (CORE §3).
 - Built-in bounds on an object are set only where a concrete type is
-  erased, written in the braces: `^{Shape + Owned}`. They never widen
-  from one object type to another, and a marker supertrait never makes
-  an object form `Copy` or crossing: each form takes its facts from its
-  own kind.
-- A API object does not cross to another task in this stage; a task
-  that takes one is local.
+  erased, written in the braces. They never widen from one object type
+  to another, and a marker supertrait never makes an object form `Copy`
+  or crossing: each form takes its facts from its own kind. `Print` and
+  `Clone`, which a table entry serves, an object has when its braces
+  name them or its API builds on them.
+- An object meets no bound by an API: `T = ^{Shape}` does not meet
+  `[T: Shape]`, and the error says to take a `?{Shape}`. A call on a `T`
+  with no bound (Stage 1) at an instance whose `T` is an object is
+  rejected, as at a built-in type.
+- An object is never frozen: whether a value can be frozen is a fact of
+  its type's parts, gone with the type. Freeze the value first; `?f` of
+  the `*Frozen[Square]` lends a `?{Shape}`.
+- An API object does not cross to another task in this stage: a task
+  that takes one is local, as one over a call through an object is
+  (`s.area()&`), and a channel send, an actor's argument, and
+  `par.each` reject it.
+- A closure captures an object as it captures any view or owner, and an
+  owned closure takes a `^{Shape}` only with `+ Owned`. A closure is
+  never erased to an object, since a function value provides no API of
+  a program's own. A closure parameter of an API method, `once`
+  included, passes through its entry untouched.
 
-**Lowering.** A API object is a fat pointer, `{ptr, vt}`, sixteen
-bytes, with one static table per API and type, made only where a
-conversion to that object is written. Each table entry calls the method
-through a small function, since Zig takes no address of an inline
-function, so the method stays inlinable everywhere else. A pointer to
-the table inside each value would change the layout of plain data, and
-is not used.
+**Frozen values and Stage 5.** A `*Frozen[T]` stays a handle to a value
+whose type is known, read by many tasks; it lends a `?T`, which erases
+as any read view of its value does, inside one task. Stage 4 has no
+counted object: an erased value many tasks read, and `*{Shape}` itself,
+are Stage 5's, their crossing checked where the type is erased.
+
+**Lowering.** An API object is a fat pointer, `{ptr, vt}`, sixteen
+bytes, with one static table per API and type. The API's module writes
+the table's type beside its defaults, `__rig_table_Shape`: one function
+per method an object reaches, in the order that decides them, then the
+drop a box needs and the `print` and `clone` an object serves. A
+compile-time function of that module, `__rig_table_Shape_of(T, W)`,
+gives the table of type `T` by its witness `W`, and Zig makes it once
+per type and only where a conversion names it. Each entry is a small
+function: it casts `ptr` to `T` and calls `W.area(rig.selfArg(W.area,
+p))`, the witness's member, as a call through a bound does, passing the
+arguments and, where the method takes one, the slot; Zig takes no
+address of an inline function, so the method stays inlinable everywhere
+else. A `<@` entry moves the value out of the box and frees it first.
+`?{Shape}` is `rig.ApiView(__rig_table_Shape, .read)`, `!{Shape}` its
+`.write` form, and `^{Shape}` `rig.ApiBox(__rig_table_Shape)`, whose
+drop is the table's: the value's drop and the free, through the queue a
+`^T` uses, so long chains are released without deep recursion. A
+conversion writes `.{ .ptr = &sq, .vt = __rig_table_Shape_of(Square,
+__rig_impl_Shape_Square) }`, and a call `s.vt.area(s.ptr)`, the third of
+the shapes `rig emit` shows. A pointer to the table inside each value
+would change the layout of plain data, and is not used. Emit writes
+each from facts: the erasure, the dispatch, and the methods an object
+reaches.
+
+**The errors a reader meets first**, each with its fix:
+
+```text
+`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`
+braces hold APIs, and `Square` is a type: write `?Square` for a view of it, or name an API it provides, `?{Shape}`
+`{Shape + Named}` names two APIs of a program's own, and an object has one table: declare `api Both: Shape + Named` and write `?{Both}`
+`area_of(?l)` cannot lend `l` as a `?{Shape}`: `Label` does not provide `Shape`; declare `obj Label: Shape`
+`Shape.scale` takes compile-time parameters, which a call through `?{Shape}` cannot pass: call it through a bound, `[T: Shape]`
+cannot assign through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box
+`Note` is erased to `^{Shape + Owned}`, which holds no loan, but its field `text` is a `?String`
+`+b` makes a new owner, and a `^{Shape}` is not cloned: its type is erased; write `^{Shape + Clone}`, or build `Shape` on `Clone`
+`?{Shape}` of `p` would view a copy held in this function, since a `?Point` is passed as a copy, so it cannot leave the function; lend the owner where it lives, or take `p: ?{Shape}`
+`Source` declares `type Item`, so an object of it names that type: `^{Source[Item: Int]}`
+```
 
 ## Stage 5: shared objects, and crossing tasks *(planned)*
 
@@ -1035,6 +1181,11 @@ is not used.
 - `*Frozen[T]` already gives a value whose type is known to many tasks,
   counted atomically. An erased value read by many tasks is the case
   left here, its crossing checked where the type is erased.
+- An API that builds on a crossing fact, `api Job: Moves`, describes
+  every type that provides it; whether `^{Job}` then moves without
+  `+ Moves` in its braces is this stage's to decide.
+- The owner may rename `Moves` to `Sends` before this stage is built;
+  this page says `Moves` until he decides.
 
 ## What each checker and proof adds
 
@@ -1043,7 +1194,7 @@ is not used.
 | 1 | per-instance typing of the call; the function-value ownership rule | the same rule, read from the call's facts | nothing |
 | 2 | bounded parameters held to their bounds; marker facts | computes the marker facts itself; a copy of a bounded `T` needs `Copy` | `Copy` only of plain kinds |
 | 3 | conformance, coherence, clauses within the API's by position, the same failure as the API's; one dispatch fact per call | conformance clauses checked on its own; a call through a bound read with the API's clauses | a subsumption lemma, proved: a call checked against wider clauses is sound for any callee within them (formal/LambdaRig/Calls.lean: `within_live` for loans, both clauses; `api_calls_run` for programs whose calls take read views) |
-| 4 | object facts; no assignment through `!{...}` | object facts computed itself; abstains on a dynamic call until then | erasing a type keeps its loans |
+| 4 | object facts; the erasure's lend; no assignment through `!{...}`; a dynamic call checked with the API's clauses; an object of a copy stays in its frame | object facts computed itself; a dynamic call read with the API's clauses from its dispatch fact; abstains only on what is not built | erasing a type keeps its loans, and a box of erased type keeps them to its drop |
 | 5 | count operations in the table; crossing bounds at erasure | crossing facts of objects | crossing obligations |
 
 ## Alternatives considered
