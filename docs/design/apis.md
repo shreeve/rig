@@ -1032,7 +1032,7 @@ is not used.
 |---|---|---|---|
 | 1 | per-instance typing of the call; the function-value ownership rule | the same rule, read from the call's facts | nothing |
 | 2 | bounded parameters held to their bounds; marker facts | computes the marker facts itself; a copy of a bounded `T` needs `Copy` | `Copy` only of plain kinds |
-| 3 | conformance, coherence, clauses within the API's by position, the same failure as the API's; one dispatch fact per call | conformance clauses checked on its own; a call through a bound read with the API's clauses | a subsumption lemma: a call checked against wider clauses is sound for any callee within them |
+| 3 | conformance, coherence, clauses within the API's by position, the same failure as the API's; one dispatch fact per call | conformance clauses checked on its own; a call through a bound read with the API's clauses | a subsumption lemma, proved: a call checked against wider clauses is sound for any callee within them (formal/LambdaRig/Calls.lean: `within_live` for loans, both clauses; `api_calls_run` for programs whose calls take read views) |
 | 4 | object facts; no assignment through `!{...}` | object facts computed itself; abstains on a dynamic call until then | erasing a type keeps its loans |
 | 5 | count operations in the table; crossing bounds at erasure | crossing facts of objects | crossing obligations |
 

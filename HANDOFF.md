@@ -96,9 +96,10 @@ In the owner's order:
    Its rule for an iterator through `[I: Iter]` is strict for now: Map's
    and Set's iterators do not go through it (a `for` still walks them),
    as an item viewing into its iterator could outlive the next `next`;
-   the precise rule is the owner's decision. Phase 5 (the Lean lemma) and
-   phase 6 (public generics state their bounds, which needs the owner)
-   are next.
+   the precise rule is the owner's decision. Phase 5, the Lean lemma, is
+   built (formal/LambdaRig/Calls.lean; formal/README.md, "Calls through
+   an API"). Phase 6 (public generics state their bounds, which needs the
+   owner) is next.
 2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
