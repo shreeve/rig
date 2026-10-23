@@ -14079,6 +14079,19 @@ const Checker = struct {
             },
             else => {},
         }
+        // An array or a slice lent where a view of a List goes: a slice
+        // views either.
+        if (self.ctx.types.get(expected) == .read_view) if (sema.listElem(self.ctx, self.ctx.types.get(expected).read_view)) |elem| {
+            const given: ?TypeId = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, actual))) {
+                .array => |a| a.elem,
+                .slice => |sl| sl.elem,
+                else => null,
+            };
+            if (given == elem) {
+                const shown = try self.tyName(elem);
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a `{s}` views a List alone: declare `[]{s}`, which views an array or a List", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(expected), shown });
+            }
+        };
         try self.mismatch(e, expected, actual);
     }
 
@@ -16271,7 +16284,15 @@ const Checker = struct {
             return self.t().invalid_id;
         };
         if (!sema.isPlainData(self.ctx, elem) or sema.mayHoldView(self.ctx, elem)) {
-            try self.errAt(arg, "`List(...)` copies each element, and a `{s}` cannot be copied so: make the List with `List[{s}]()`, then `!xs.push(+x)` each", .{ try self.tyName(elem), try self.tyName(elem) });
+            // The form that works: an empty List, then a push of each
+            // element, made in the call where the literal makes them.
+            const name = try self.tyName(elem);
+            const why = if (sema.mayHoldView(self.ctx, elem)) "holds a view" else self.movesBecause(elem);
+            if (arg.isKind(.array) and sema.isObject(self.ctx, elem)) {
+                try self.errAt(arg, "`List(...)` copies plain data, and `{s}` {s}: make the List with `List[{s}]()`, then push each element, `!xs.push({s}(...))`", .{ name, why, name, name });
+            } else {
+                try self.errAt(arg, "`List(...)` copies plain data, and `{s}` {s}: make the List with `List[{s}]()`, then push a copy of each element, `!xs.push(+x)`", .{ name, why, name });
+            }
             return self.t().invalid_id;
         }
         return want orelse try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{elem}) } });

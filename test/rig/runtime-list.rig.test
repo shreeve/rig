@@ -757,10 +757,29 @@ fail "list from array not elements", "`List(...)` copies the elements of an arra
   xs = List(3)
   print(xs)
 
-fail "list from array owners", "`List(...)` copies each element, and a `String` cannot be copied so: make the List with `List[String]()`, then `!xs.push(+x)` each", errors: 1
+fail "list from array owners", "`List(...)` copies plain data, and `String` owns a resource: make the List with `List[String]()`, then push a copy of each element, `!xs.push(+x)`", errors: 1
   a = [String("x"), String("y")]
   xs = List(?a[..])
   print(xs)
+
+fail "list from a literal of objects", "5:15: `List(...)` copies plain data, and `Order` holds a view: make the List with `List[Order]()`, then push each element, `!xs.push(Order(...))`", errors: 1
+  obj Order
+    who: ?String
+    qty: Int
+
+  orders = List([Order(who: "ada", qty: 3), Order(who: "bob", qty: 1)])
+  print(orders.len)
+
+fail "an array lent as a List", "9:13: type mismatch: expected `?List[Order]`, got `?[2]Order`; a `?List[Order]` views a List alone: declare `[]Order`, which views an array or a List", errors: 1
+  obj Order
+    who: ?String
+    qty: Int
+
+  fun total(orders: ?List[Order]) -> Int
+    orders.len
+
+  orders = [Order(who: "ada", qty: 3), Order(who: "bob", qty: 1)]
+  print(total(?orders))
 
 fail "list from array element type", "type mismatch: expected `Int`, got `Float`", errors: 1
   xs = List[Int]([1.5])

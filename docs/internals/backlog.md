@@ -243,10 +243,6 @@ fixing.
   and INTERNALS should say which, or emit should take the mode.
 - **`extern zig` is for std alone,** so a program cannot call Zig of its
   own. Decide whether a program may, and say so either way.
-- **A list of objects is refused in a way that does not lead to the
-  fix.** `List([Order(...)])` is rejected for objects, and an array
-  lent with `?orders` needs a `[]Order` parameter; the messages should
-  name the form that works.
 - **A backgrounded server's first `print` may not appear.** With
   stdout piped, `rig run server.rig &` showed no "listening on" line;
   likely buffering, not yet looked at.
