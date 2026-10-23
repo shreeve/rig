@@ -39,6 +39,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Fix: `Stop.canceled` after a failed `par.map` | a waiter takes no cancel from the task it waits on; `par.map`, `par.each`, and `http.serve` were affected | [fixes/parmap-cancel.md](2026-10/fixes/parmap-cancel.md) |
 | The consolidation round (ready, 2026-10-23) | the brief for a fresh session after errors with data: one classifier per fact, no bug open, docs, tooling, speed baseline, and optionally v0.3.0 | [consolidation/PLAN.md](2026-10/consolidation/PLAN.md) |
 | pup's memory rule (consolidation track 4) | a proposal for Trig: `tools/release-slot` takes a slot only with 12 GB available and at most one other release build | [consolidation/pup-slot-memory.md](2026-10/consolidation/pup-slot-memory.md) |
+| APIs Stage 3's refresh (2026-10-23) | Stage 3 of docs/design/apis.md for this period's changes: an API method fails with exactly the API's set, witnesses of a generic type are its parameters, facts no API names stay per instance, public generics state their bounds as the last step; a six-phase build plan and 15 questions with defaults | [apis-stage3/](2026-10/apis-stage3/) |
 
 ## Every record
 
@@ -47,6 +48,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [ab-pf.txt](2026-10/allocator-g9/ab-pf.txt)
 - [prefault-benches.log](2026-10/allocator-g9/prefault-benches.log)
 - [scale-e.txt](2026-10/allocator-g9/scale-e.txt)
+
+### 2026-10/apis-stage3/
+
+- [build-plan.md](2026-10/apis-stage3/build-plan.md): where Stages 1 and 2 live, where each Stage 3 piece goes, six phases with their cases, risks, and sizes; the count of `pub` generics needing bounds
+- [open-questions.md](2026-10/apis-stage3/open-questions.md): what the record does not settle, each with a default
 
 ### 2026-10/clone/
 
