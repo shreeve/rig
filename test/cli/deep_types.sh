@@ -6,7 +6,12 @@
 # `[]U8`, and the proxies of another module's generic types). Each chain
 # is longer than the one that overflowed the compiler's stack. An alias
 # may not name a type nested more than `sema.max_alias_height` deep,
-# which every walk over a type's structure would follow.
+# which every walk over a type's structure would follow, and no type may
+# nest more than `sema.max_value_depth` (1000) deep by value, which Zig
+# cannot compile: a longer chain by value is rejected once, at the
+# first type past it, and every pass still walks the whole chain. The
+# cases of objects nested by value near the limit, which a program
+# builds and runs, are test/cli/value_depth.sh.
 # timeout: 120
 source "$ROOT/test/cli/_lib.sh"
 
@@ -53,13 +58,15 @@ for shape in 'List[A%d]' '[1]A%d' 'fun(A%d) -> Int' 'A%d?'; do
     expect_eq "$(grep -c 'error:' <<<"$out")" 1 "errors for aliases nesting 20,000 deep through $shape"
 done
 
-# A generic type, each holding the next: its instance is sized from the
-# last one up.
+# A generic type, each holding the next: its instance is sized and
+# measured from the last one up, and nests too deep.
 {
     decls 20000 'obj G%d[T]\n  a: G%d[T]\n' 'obj G%d[T]\n  v: T'
     printf '\nsub main()\n  print($size(G0[Int]) > 0)\n'
 } >generic.rig
-out=$("$TIMEOUT_CMD" 120 "$RIG" check generic.rig 2>&1); expect_rc $? 0 "a chain of 20,000 generic types: $out"
+out=$("$TIMEOUT_CMD" 120 "$RIG" check generic.rig 2>&1); expect_rc $? 1 "a chain of 20,000 generic types: $out"
+expect_has "$out" 'generic.rig:60002:15: error: `G18999[Int]` nests 1001 types deep by value; a value nests at most 1000 deep' "a chain of 20,000 generic types"
+expect_eq "$(grep -c 'error:' <<<"$out")" 1 "errors for a chain of 20,000 generic types"
 
 # A chain of 300 generic instances, made, compared, kept, and dropped.
 {
@@ -79,18 +86,24 @@ expect_eq "$out" $'true\n1' "a chain of 300 generic instances"
     decls 100000 'obj A%d\n  a: A%d\n' 'obj A%d\n  s: String\n'
     printf 'fun g(a: ?A0) -> ?A1\n  ?a.a\n\nsub h(a: !A0, b: A0)\n  print(1)\n\nsub main()\n  print(1)\n'
 } >signature.rig
-out=$("$TIMEOUT_CMD" 120 "$RIG" check signature.rig 2>&1); expect_rc $? 0 "a chain of 100,000 types in a signature: $out"
+out=$("$TIMEOUT_CMD" 120 "$RIG" check signature.rig 2>&1); expect_rc $? 1 "a chain of 100,000 types in a signature: $out"
+expect_has "$out" 'signature.rig:296998:5: error: `A98999` nests 1001 types deep by value' "a chain of 100,000 types in a signature"
+expect_eq "$(grep -c 'error:' <<<"$out")" 1 "errors for a chain of 100,000 types in a signature"
 
 # `print` of a value of such a type looks through it for a `[]U8`.
 {
     decls 300000 'obj A%d\n  a: A%d\n' 'obj A%d\n  s: String\n'
     printf 'sub main()\n  x: A0? = none\n  print(x)\n'
 } >printed.rig
-out=$("$TIMEOUT_CMD" 120 "$RIG" check printed.rig 2>&1); expect_rc $? 0 "print of a chain of 300,000 types: $out"
+out=$("$TIMEOUT_CMD" 120 "$RIG" check printed.rig 2>&1); expect_rc $? 1 "print of a chain of 300,000 types: $out"
+expect_has "$out" 'printed.rig:896998:5: error: `A298999` nests 1001 types deep by value' "print of a chain of 300,000 types"
+expect_eq "$(grep -c 'error:' <<<"$out")" 1 "errors for print of a chain of 300,000 types"
 
 # Another module's generic types, each holding the next: each one's proxy
 # is made here.
 mkdir -p module
 decls 20000 'pub obj G%d[T]\n  pub a: G%d[T]\n' 'pub obj G%d[T]\n  pub v: T' >module/lib.rig
 printf 'use lib\n\nsub main()\n  print($size(lib.G0[Int]) > 0)\n' >module/main.rig
-out=$("$TIMEOUT_CMD" 120 "$RIG" check module/main.rig 2>&1); expect_rc $? 0 "a chain of 20,000 generic types in another module: $out"
+out=$("$TIMEOUT_CMD" 120 "$RIG" check module/main.rig 2>&1); expect_rc $? 1 "a chain of 20,000 generic types in another module: $out"
+expect_has "$out" 'main.rig:4:15: error: `lib.G18999[Int]` nests 1001 types deep by value' "a chain of 20,000 generic types in another module"
+expect_eq "$(grep -c 'error:' <<<"$out")" 1 "errors for a chain of 20,000 generic types in another module"

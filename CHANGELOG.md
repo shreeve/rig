@@ -82,6 +82,23 @@ changed the language since it:
   with fields compared with one of its members (`o == .w`) failed in
   Zig.
 
+- **Three programs `rig check` accepted that Zig rejected, and a message
+  that blamed recursion on a chain.** A vector's and a number's built-in
+  methods (`with`, `select`, `bits`, `lookup`, `lag`, `not`,
+  `count_ones`, `to_bits`, ...) read their `self` through a call's
+  write view (`vs(!v, 0).with(0, 7)`), as an operator's operand is
+  read. The runtime's walk over a type's parts (`rig.needsDrop`) takes
+  the budget an emitted function does, so an object of many fields, or
+  a chain of objects, kept in a `List` compiles. A type nests at most
+  1000 levels by value (an object, enum, optional, array, or vector each
+  a level), past which Zig's compiler runs out of stack; a deeper one is
+  rejected once, at the first type past it. A clone, an error's fields,
+  and the drop-body check follow a type to any depth, not only 32
+  types down. A chain of distinct generic functions whose type arguments
+  nest more than 24 deep is reported as that, not as a function calling
+  itself. *Rejected now:* a type nesting more than 1000 levels by value,
+  which Zig could not compile past about 1250.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed

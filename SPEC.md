@@ -598,7 +598,10 @@ A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
 array, an object or an enum, and each instance of a generic type or
 function, for the arrays it makes and, for a type, for itself. A
 `Cell` or `Signal` holds its value inline, so it counts at the size of
-what it holds. The values a function keeps on its stack take at most 13 MiB together:
+what it holds. A type nests at most 1000 levels by value, an object, an
+enum, an optional, an array, or a vector holding another each a level,
+and each instance of a generic type too; a part held in a box or a
+`List` is on the heap and adds none. The values a function keeps on its stack take at most 13 MiB together:
 the bindings it declares and its by-value parameters, each once, every
 array literal and fill whose value no binding takes directly, and every
 call of a function or method (twice when a binding takes its result,
@@ -3125,7 +3128,9 @@ parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`)
 would need ever deeper instances, and is rejected rather than expanded
 forever: at an instance, or, for a `pub` generic and the generic
 methods of a `pub` type, whose instances other modules make, where it
-is declared.
+is declared. A chain of distinct generics, each instantiating the next
+with its type arguments nested one deeper, is rejected too once an
+instance's type arguments nest more than 24 deep.
 
 ```rig reject
 obj Point

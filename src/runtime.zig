@@ -669,8 +669,11 @@ fn isShared(comptime T: type) bool {
 /// when it declares `__rig_drop`, is a strong handle, or (for structs,
 /// tagged unions, arrays, and optionals) contains something that does.
 /// The mirror of sema's `typeHasDropGlue` for a Zig type: a unique type
-/// that needs no cleanup drops nothing.
+/// that needs no cleanup drops nothing. It walks every type `T` holds by
+/// value, which may nest hundreds deep, so it sets the budget an emitted
+/// function does (`eval_quota`).
 pub fn needsDrop(comptime T: type) bool {
+    @setEvalBranchQuota(eval_quota);
     if (comptime isOptStruct(T)) return needsDrop(Payload(T));
     return switch (@typeInfo(T)) {
         .pointer => isShared(T),

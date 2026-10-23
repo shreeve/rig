@@ -156,24 +156,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
   `Set.add` take a `?K` and copy the key only when it is stored (owner
   approved); today they take an owned `K`.
-- A lane method on a call's write view of a `Simd` reads through it:
-  `vs(!v, 0).with(0, 7)`, where `vs` returns `!Simd[I8, 4]`, is
-  accepted, and emit writes `rig.withLane(rig.rt(vs(&v, 0)), ...)`
-  with no dereference, which Zig rejects.
-- Objects nested by value, deep or wide, fail inside Zig, not in Rig
-  (rule 2), found by #270.
-  - Probe: a chain `obj A0` .. `obj A99`, each with nine `Int` fields and
-    `a: A<i+1>` (the last `s: String`), then in `main`, `x: A0? = none`
-    pushed into a `List[A0?]`.
-  - Today Zig reports `evaluation exceeded 1000 backwards branches` in
-    the runtime's `needsDrop`, reached from `List.clear`. A chain with
-    one field per object fails near 950 deep, and past about 1500 Zig
-    itself crashes.
-  - Fix:
-    - give the runtime's recursive reflective helpers `rig.eval_quota`,
-      as emitted functions have;
-    - add a sema limit on how deeply types nest by value, below where
-      Zig crashes.
 - Compiler memory on two generated shapes, the same on main, found by
   #270's review.
   - One straight-line function of 10,000 bindings takes 2.6 GB, and one
@@ -190,13 +172,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
     address, while the runtime's `ReadView(T)` copies any pointer.
   - Make the two rules one. This changes how such views are held, so it
     is its own round.
-- The "ever deeper instances" message fires on finite chains. Thirty
-  generic functions, each calling the next at `^T` of its `T`
-  (`f0[T](x: T)` calls `f1(^x)`, ...), are rejected at the 25th
-  with "a generic function cannot call itself with its own type
-  parameters nested deeper". No function there calls itself. Say that
-  instances nest more than 24 deep instead. The same limit also rejects
-  `$name(Wrap[T?])` inside `Wrap`'s own method.
 - An error of a set without fields where a view of a union with fields
   goes (`code(B.y)` for `code(k: ?L)` of `error L = A | B`, `A` with
   fields) is rejected with "bind it first". Emit takes the code's
@@ -205,6 +180,17 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   member with fields is lent (`Checker.widenedError`). The case
   `sets a member without fields lent where a union with fields goes`
   of test/rig/errors-sets.rig.test.
+- A release build of a chain of objects nested by value grows faster
+  than the chain: 100 objects, each made by a function calling the next
+  one's, cloned, compared, and hashed, build in 6 s, 200 in 13 s, 400 in
+  56 s, and 1000 (the depth limit) ran past 20 minutes on the Mac. A debug
+  build of 1000 takes 2 s. Find which LLVM pass, or what emit gives it,
+  grows so.
+- A type only named in a generic type's method is expanded as an
+  instance. `$name(Wrap[T?])` inside `Wrap[T]`'s own method is rejected
+  as "ever deeper instances of generic types", since `Wrap[Int?]`'s
+  methods are expanded too and name `Wrap[Int??]`, though nothing calls
+  them. Expand an instance's methods only where the program uses them.
 - Lending a handle parameter to write is accepted as `!c` but rejected
   as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter

@@ -9560,8 +9560,8 @@ const Checker = struct {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
         if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
-        if (op == .to_bits) return self.toBitsCall(callee, obj, value, method, pos, args);
-        if (op == .fraction or op == .exponent) return self.frexpCall(callee, obj, value, op, method, pos, args);
+        if (op == .to_bits) return self.toBitsCall(callee, obj, obj_ty, value, method, pos, args);
+        if (op == .fraction or op == .exponent) return self.frexpCall(callee, obj, obj_ty, value, op, method, pos, args);
         // `v.not()` of a vector: lane by lane, of integer or `Bool` lanes.
         // A mask's bits are counted as `bits()`'s.
         const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else {
@@ -9572,6 +9572,7 @@ const Checker = struct {
         const is_bool = lane == self.t().bool_id;
         if (!(is_bool and op == .not) and !sema.isInteger(self.ctx, lane)) return null;
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
         if (value == self.t().int_literal_id) try self.defaultIntLiteral(obj);
         const ty = if (value == self.t().int_literal_id) self.t().int_id else value;
         const result = switch (op) {
@@ -9589,12 +9590,13 @@ const Checker = struct {
 
     /// `f.to_bits()`: the IEEE bits of a float as the unsigned integer of
     /// its width. Null when the receiver is not a float.
-    fn toBitsCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn toBitsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, value: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const info = switch (self.ctx.types.get(value)) {
             .float => |f| f,
             else => return null,
         };
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
         const result = try self.bitsType(info);
         if (args.len > 0) {
             try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
@@ -9727,9 +9729,10 @@ const Checker = struct {
     /// Python, and Go call `frexp`: the fraction, a float of the
     /// receiver's type, and the exponent, an `Int`. Null when the
     /// receiver is not a float.
-    fn frexpCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, op: sema.ElemOp, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+    fn frexpCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, value: TypeId, op: sema.ElemOp, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         if (self.ctx.types.get(value) != .float) return null;
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
         const result = if (op == .fraction) value else self.t().int_id;
         if (args.len > 0) {
             try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
@@ -10023,6 +10026,7 @@ const Checker = struct {
         const mask_op = op == .bits or op == .first or op == .any or op == .all or op == .select;
         if (mask_op and v.elem != self.t().bool_id) return try self.badCall(args, pos, "`{s}` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `{s}`", .{ method, try self.tyName(vt) });
         if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "reads `self` as a value");
+        _ = try self.readThrough(obj, obj_ty, vt);
         if (op == .lag) {
             const b = ct orelse return try self.badCall(args, pos, "`lag` takes how many lanes back in brackets: `v.lag[1](prev)`", .{});
             return try self.lagCall(callee, vt, b, pos, args);
@@ -18799,7 +18803,8 @@ fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?
 }
 
 /// The arrays a generic declaration makes, in one instance, and a generic
-/// type's instance itself, must fit `sema.max_value_bytes`.
+/// type's instance itself, must fit `sema.max_value_bytes`; the instance
+/// must also nest at most `sema.max_value_depth` deep.
 fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
     for (args) |a| if (sema.containsPoison(ctx, a)) return;
     const subst: sema.TypeSubst = .{ .params = params, .args = args };
@@ -18821,6 +18826,10 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         const sym = ctx.types.get(of.type).parameterized_nominal.sym;
         if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
             try sema.reportOversized(ctx, at, of.type, bytes);
+            return;
+        }
+        if (try sema.tooDeepByItself(ctx, of.type, sym, subst)) |depth| {
+            try sema.reportTooDeep(ctx, at, of.type, depth);
             return;
         }
     }
