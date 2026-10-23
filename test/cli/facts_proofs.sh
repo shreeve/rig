@@ -1,6 +1,7 @@
 # `rig check --facts=proofs` checks the program, then prints each test of
 # the root module known to pass, which emit omits (docs/internals/INTERNALS.md,
-# "Proven checks"), one per line in source order: `L:C KIND TESTS`.
+# "Proven checks"), one per line in source order: `L:C KIND TESTS`, with
+# the file first in a directory module.
 source "$ROOT/test/cli/_lib.sh"
 
 # The loops of test/cli/fixtures/swar.rig, line by line: every test in
@@ -57,6 +58,23 @@ for f in "$RIG_TESTS"/behavior/proofs/*.rig "$RIG_TESTS"/behavior/proofs/*/main.
     done < <(grep -nE '# (proves|keeps): ' "$f")
 done
 [[ $marked -ge 48 ]] || fail "only $marked marked uses in the proofs tests"
+
+# A directory module's lines each name their file, with the line and
+# column in it: `FILE:L:C KIND TESTS`, in the order of the files' names.
+mkdir -p dir
+cat >dir/a.rig <<'EOF2'
+sub main()
+  print(first([1, 2, 3]))
+EOF2
+cat >dir/b.rig <<'EOF2'
+fun first(xs: []Int) -> Int
+  n = 0
+  for i in 0..xs.len
+    n = xs[i]
+  n
+EOF2
+"$RIG" check --facts=proofs dir >dir.txt 2>err.txt || fail "rig check --facts=proofs dir: $(cat err.txt)"
+expect_eq "$(cat dir.txt)" "dir/b.rig:4:9 index lower upper" "a directory module's proofs"
 
 # A check of the program alone prints nothing more.
 cat >plain.rig <<'EOF2'

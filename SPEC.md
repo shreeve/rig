@@ -4740,11 +4740,11 @@ sub main()
 `name[(?Int)?]` cannot use `T = (?Int)?`
 ```
 
-Every other builtin is Zig's, keeps its Zig name, and works only
-inside a `raw` block ([§15](#15-raw-code-and-ffi)): the casts
-`@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`,
-`@floatFromInt`, and `@fromBackingInt`, and Zig's names for Rig's
-four, `@sizeOf`, `@alignOf`, `@typeName`, and `@TypeOf`, which mean
+Every other builtin is Zig's, keeps its Zig name after Rig's `$`, and
+works only inside a `raw` block ([§15](#15-raw-code-and-ffi)): the
+casts `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`,
+`$floatFromInt`, and `$fromBackingInt`, and Zig's names for Rig's
+four, `$sizeOf`, `$alignOf`, `$typeName`, and `$TypeOf`, which mean
 what Rig's do, except that `$typeName(T)` is the name the emitted Zig
 gives the type (`i64` for `Int`). Rig's names work inside `raw` too.
 Outside it, Zig's name for one of Rig's is rejected, with the call to
@@ -10566,7 +10566,7 @@ module with it.
 A `raw` block is the boundary of what the checker guarantees. Inside
 it, and only there, a program may:
 
-- call one of Zig's builtins (`@intCast`, `@bitCast`, ...;
+- call one of Zig's builtins (`$intCast`, `$bitCast`, ...;
   [§5](#builtins));
 - call an `extern` function.
 
@@ -11005,7 +11005,10 @@ stdout is buffered: what `print` writes reaches the file when the
 buffer fills, and is written out before anything goes to stderr (a
 `warn`, a `panic`, a runtime panic, a failure that leaves `main`) and on
 every exit, so the two streams read in the order the program wrote
-them.
+them. It is also written out when a core of the program goes idle,
+waiting on I/O or time with nothing else to run, so a server's first
+line shows while it waits for a connection; and after every `print`
+when stdout is a terminal.
 
 When stdout is a pipe whose reader has closed it (`prog | head -1`), the
 program ends at once with status 0 and writes nothing more: its drops,

@@ -253,8 +253,10 @@ function but with the error at the call
 
 ### What a program becomes
 
-`rig emit file.rig` prints the Zig a program becomes. The main
-correspondences:
+`rig emit file.rig` prints the Zig a program becomes, the same Zig
+for a debug build and `--release`: a build mode changes only how Zig
+compiles it, and the runtime reads the mode to choose its allocator and
+whether it checks for leaks. The main correspondences:
 
 | Rig | Zig |
 |---|---|

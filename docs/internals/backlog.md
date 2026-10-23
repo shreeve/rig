@@ -211,26 +211,6 @@ fixing.
   as a statement drops its `Bool` with no error, while a bare `0` is
   rejected. Make the rule one: a statement whose value is not `Void`
   needs `_ =`, or say in SPEC why a call's result may go unused.
-- **SPEC writes Zig's builtins as `@bitCast` and `@intCast`** *(checked)*
-  in two places, where Rig spells them `$bitCast` and `$intCast`; in
-  `raw`, `@bitCast(x)` is "use of unbound name `@`".
-- **`rig check --facts=proofs` names no file in a directory module.**
-  Its lines are positions in the module's joined source (its files in
-  byte order of their names), so a reader maps them back by hand; each
-  line should name its file.
-- **`rig emit` takes no `--release`,** so it shows one build's Zig; WELCOME
-  and INTERNALS should say which, or emit should take the mode.
-- **A capture error inside an `http.serve` closure is reported twice.**
-- **`RIG_LEAK_TRACE=1 rig test` prints no allocation trace,** though
-  `rig run` of the same body does, and the leak note says to use
-  `rig run`.
-- **A list of objects is refused in a way that does not lead to the
-  fix.** `List([Order(...)])` is rejected for objects, and an array
-  lent with `?orders` needs a `[]Order` parameter; the messages should
-  name the form that works.
-- **A backgrounded server's first `print` may not appear.** With
-  stdout piped, `rig run server.rig &` showed no "listening on" line;
-  likely buffering, not yet looked at.
 - **An idle worker once missed a run-next fiber for 2 seconds.** The
   unit test "a fiber left in a busy worker's run-next slot is taken by
   an idle worker" failed once in debug on pup's E-cores (12–19) while
@@ -241,7 +221,5 @@ fixing.
   work made into the global queue that the model closes only with a
   `relook` step, which `src/sched.zig` does not have, and which neither
   HANDOFF nor ROADMAP mentions.
-- **design/formal-plan.md describes `RIG_SANITIZE=views`,** which `src/`
-  does not have; mark it planned or remove it.
 - **`rig check --tasks`,** to list each local task and what pins it, was
   decided by the concurrency panel and is not built.

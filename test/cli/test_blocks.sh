@@ -71,6 +71,26 @@ expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycl
 expect_has "$(cat err.txt)" "memory leak detected: 2 allocations" "leak detail"
 expect_has "$(cat err.txt)" "index out of bounds" "panic detail"
 
+# With RIG_LEAK_TRACE=1 set, a test's leak comes with the trace of each
+# allocation it left, shown after the summary.
+cat >leak.rig <<'EOF'
+obj Node
+  next: *Cell[*Node?]
+
+test "passes"
+  true
+
+test "leaks a cycle"
+  a = *Node(next: *Cell(none))
+  !a.next.set(+a)
+EOF
+rig test leak.rig >out.txt 2>err.txt; expect_rc $? 1 "a leaking test"
+expect_has "$(cat err.txt)" "RIG_LEAK_TRACE=1 rig test" "hint names rig test"
+RIG_LEAK_TRACE=1 rig test leak.rig >out.txt 2>err.txt; expect_rc $? 1 "a leaking test, traced"
+expect_eq "$(cat out.txt)" $'ok    test "passes"\nFAIL  test "leaks a cycle": memory leak\n1 passed, 1 failed\nseed 1: `rig test --seed=1` runs these tests the same way again' "traced report"
+expect_has "$(cat err.txt)" "error(SafeAllocator): leaked" "traced leak report"
+expect_has "$(cat err.txt)" "__rig_main.zig:" "trace into the test"
+
 # A test's value decides it: a `Bool` last line, or a `return`'s.
 # The program extends SPEC.md's (Tests).
 cat >bool.rig <<'EOF'

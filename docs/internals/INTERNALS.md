@@ -152,7 +152,12 @@ cannot say what it is builds every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
 or `-Ofast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
-package directory on stderr; `build` names it when Zig fails.
+package directory on stderr; `build` names it when Zig fails. The
+package is the same in every mode, so `emit` takes none: a mode is
+only Zig's `-O` flag, which the runtime reads (`builtin.mode`) to
+choose its allocator and leak checker. What `run` and `test` add to
+the root module (`__rig_run_started`, below) is not in what `emit`
+prints.
 `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
 module, `RIG_SANITIZE=1` adds `__rig_sanitize` (see
 [the runtime](#the-runtime)), and `RIG_VERIFY_PROOFS=1` adds
@@ -2016,7 +2021,9 @@ fail a run rather than a proof:
 
 `rig check --facts=proofs` prints each node with a test known to pass,
 `L:C KIND TESTS` (`index`, `read`, `write`, `+`, or `+=`, then `lower`,
-`upper`, `no_overflow`), in source order. `test/cli/facts_proofs.sh`
+`upper`, `no_overflow`), in source order; in a directory module each
+line names its file first, `FILE:L:C KIND TESTS`, the line and column
+in that file. `test/cli/facts_proofs.sh`
 compares it on `test/cli/fixtures/swar.rig` line by line and checks
 the `# proves:` and `# keeps:` marks of every `proofs` case.
 `test/matrix.py`'s `proof.` grid puts each guard, write, and use
@@ -4643,7 +4650,7 @@ reviewed.
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer, written under `output_lock` in a program that makes tasks; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer, written under `output_lock` in a program that makes tasks; flushed by `finish`, before a panic message, before a thread blocks on I/O or time (`flushBeforeWait`, from the scheduler's poller, a socket's wait outside it, and a sleep outside it), and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
 | `warn`, `fail` | `warn(a, b)` and `panic(a, b)`: `flush`, then the pieces `print` takes written to stderr under `std.debug.lockStderr`; `warn` writes through a 4 KiB buffer, so a line up to that size is one write. `fail` reports the test it ended (`beginPanic`) and ends the program by `std.process.abort`, status 134, after the line |
 | `concurrent`, `TaskState`, `task` | in a program that makes tasks (its root module declares `__rig_tasks`) and in the runtime's unit tests, each task is a fiber on the scheduler (`sched.zig`, [docs/internals/scheduler.md](scheduler.md)), run by one of its worker threads, so `TaskState`, what the runtime keeps for one task (the depth and queue of nested `*T` releases, the nesting of `print`, the guard below the task's stack, the deadline of `time.within`), is the fiber's (`Fiber.state`), and output and the debug leak checker take a lock (`output_lock`, `alloc_lock`); any other program compiles as if there were one thread, at no cost |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |

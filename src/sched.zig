@@ -855,6 +855,7 @@ const Poller = struct {
         // moment in its poller after a look (`advanceClock`), which a
         // kick left there would end.
         const look = timeout != null and timeout.? == 0 and !deterministic;
+        if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
         var kicked = false;
         defer if (kicked) p.kick();
         if (look) {
