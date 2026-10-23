@@ -5733,7 +5733,11 @@ const Checker = struct {
         // Text beside an optional of text compares by its bytes, whatever
         // its type, as two texts do.
         if (isText(self.ctx, inner) and isText(self.ctx, value) and value != inner) return true;
-        if (value != inner and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
+        // An error of a set the optional's holds compares as one of it,
+        // a code beside a code: neither set has fields.
+        const widens = sema.isErrorSet(self.ctx, value) and sema.isErrorSet(self.ctx, inner) and sema.errorSubset(self.ctx, value, inner) and
+            !sema.setHasFields(self.ctx, value) and !sema.setHasFields(self.ctx, inner);
+        if (value != inner and !widens and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
         return true;
@@ -14158,6 +14162,28 @@ const Checker = struct {
         try self.mismatch(e, expected, actual);
     }
 
+    /// The set an error of set `from` widens to where a read view of it
+    /// goes, `?S` of a set or union `S` that holds `from`, when neither
+    /// has fields: a code, which copies and is lent by value, with no
+    /// temporary to outlive. Null for any other (`mismatch` says how to
+    /// lend it).
+    fn widenedError(self: *Checker, from: TypeId, expected: TypeId) ?TypeId {
+        const want = self.unionViewed(from, expected) orelse return null;
+        return if (!sema.setHasFields(self.ctx, from) and !sema.setHasFields(self.ctx, want)) want else null;
+    }
+
+    /// The set or union `S` of a `?S` that `expected` is, which holds
+    /// the other set `from`; null for any other.
+    fn unionViewed(self: *Checker, from: TypeId, expected: TypeId) ?TypeId {
+        if (!sema.isErrorSet(self.ctx, from)) return null;
+        const want = switch (self.ctx.types.get(expected)) {
+            .read_view => |inner| inner,
+            else => return null,
+        };
+        if (want == from or !sema.isErrorSet(self.ctx, want)) return null;
+        return if (sema.errorSubset(self.ctx, from, want)) want else null;
+    }
+
     /// An array literal or fill lent as a `[]T` argument: its elements
     /// take the slice's element type. True when handled.
     fn lentTempLiteral(self: *Checker, e: Sexp, expected: TypeId) Error!bool {
@@ -14183,10 +14209,17 @@ const Checker = struct {
     /// a lend written here (`?a`, `!b`), a view `e` already is (a `?String`
     /// a call returns, a held `![]T`), or a function. True when handled.
     fn lendView(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-        const kind: sema.LendKind, const from: TypeId = switch (self.ctx.types.get(actual)) {
+        const kind: sema.LendKind, var from: TypeId = switch (self.ctx.types.get(actual)) {
             .read_view => |inner| .{ .read, inner },
             .write_view => |inner| .{ .write, inner },
             else => .{ .read, actual },
+        };
+        // An error where a view of a set or union that holds it goes is a
+        // value of that set, lent as one is: `m.get(B.y)` for a
+        // `Map[L, Int]` of `error L = A | B`.
+        if (kind == .read and actual == from) if (self.widenedError(from, expected)) |set| {
+            try self.recordCodeWidening(e, from, set);
+            from = set;
         };
         // A slice argument is lent the way its name is: `total(w[1..3])`
         // is `total(?w[1..3])`, whose slice `synthSlice` made, so the
@@ -14504,6 +14537,12 @@ const Checker = struct {
                 const call = diag.textBetween(self.ctx.source, start, end);
                 return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to lend the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, self.sourceText(ir.Read.operand(recv)), call });
             }
+        }
+        // An error where a view of a union with fields goes: a value of
+        // the union is bound first, and lent.
+        if (self.unionViewed(actual, expected)) |set| {
+            const src = self.sourceText(e);
+            return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; bind it first, `k: {s} = {s}`, then lend `?k`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(set), src });
         }
         // A place where a view of it is expected: the sigil is missing.
         // (A literal is no place to lend.)
