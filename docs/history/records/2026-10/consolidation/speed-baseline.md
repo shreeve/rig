@@ -111,10 +111,10 @@ every file but twitterescaped: twitter 7.7317, twitterescaped 9.3740
 
 - **pup safe** comes back to within 2% of the reference on five files
   (citm 1.7% and github_events 1.1% faster than it), but twitterescaped
-  stays 2.5% slower; against main the range is 3.9-6.2% faster.
-- **pup fast** keeps #538's gain (1-2% above main).
-- **Mac safe** loses: the range is 4.8% (twitter), 4.6% (citm_catalog),
-  5.3% (github_events), and 2.1% (canada) slower than main, and twitter
+  stays 2.5% slower; against main the range is 0.8-6.3% faster.
+- **pup fast** keeps #538's gain (0.5-2.1% above main).
+- **Mac safe** loses: the range is 5.1% (twitter), 4.8% (citm_catalog),
+  5.6% (github_events), and 2.1% (canada) slower than main, and twitter
   2.0% and citm_catalog 2.1% slower than the reference. Fewer
   instructions, slower: layout again.
 - **Trig on pup** (current Trig 37f9e6b, release builds, core 6, 10
