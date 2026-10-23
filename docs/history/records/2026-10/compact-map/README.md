@@ -93,14 +93,15 @@ language rule. Estimated against Trig's numbers above:
   could trim it, as a `shrink` would.
 
 Together they come to about 7-10 MiB of Trig's 334 (2-3%), each adding
-code a later change carries. Trig will also move its read-only member
-tables into an arena as spans, which takes most of these 106,106 maps
-off the heap: what is left after that move is what a compact Map would
-save.
+code a later change carries. Trig tried moving its read-only member
+tables into an arena as spans, which took most of these maps off the
+heap (ts-pattern 334 → 321 MB, 1% faster), but two smaller projects ran
+1-2% slower, and the owner dropped it (shreeve/trig#188): the maps
+above stand.
 
 ## Recommendation
 
-Park NEEDS 58 until Trig's arena move lands, then measure the maps that
-remain. If they still cost several percent of Trig's memory, build the
-boxed table first (one change, measured on bench/hash's large maps and
-on Trig), then the narrow indexes, each on its own.
+Build the boxed table first, as one change: the header from 104 to 64
+bytes, measured on bench/hash's million-key rows (the extra pointer a
+lookup with a table follows) and on Trig's projects for time and peak
+RSS. If it pays, the narrow slot indexes follow, on their own.
