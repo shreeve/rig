@@ -103,8 +103,23 @@ pub const ErrData = extern struct {
 };
 
 /// Where a function that may fail with fields writes them: the hidden
-/// last parameter emit gives it, a slot its catching frame owns.
-pub const ErrSlot = *ErrData;
+/// last parameter emit gives it, a slot its catching frame owns. In a
+/// program whose sets have no fields it has no bits at all (`NoFields`),
+/// so it costs a call nothing.
+pub const ErrSlot = if (@sizeOf(ErrData) > 0) *ErrData else NoFields;
+
+/// The slot of a program with no fields to hold.
+pub const NoFields = struct {};
+
+/// The slot of the bytes `data`.
+pub inline fn failSlot(data: *ErrData) ErrSlot {
+    return if (comptime @sizeOf(ErrData) > 0) data else .{};
+}
+
+/// A failure's fields, in `data`, moved into slot `out`.
+pub inline fn putFields(out: ErrSlot, data: *const ErrData) void {
+    if (comptime @sizeOf(ErrData) > 0) out.* = data.*;
+}
 
 /// What a wait is given in place of an `ErrSlot` when no one takes the
 /// failure's fields: a compile-time choice, so a plain wait has no slot
@@ -195,7 +210,7 @@ pub inline fn dropFailure(code: anyerror, data: *ErrData) bool {
 /// A failing `return` of member `code` with `fields`: they go into the
 /// caller's slot `out`, and the code is what the function fails with.
 pub inline fn failWith(out: ErrSlot, code: anyerror, members_fields: anytype) anyerror {
-    writeErrorFields(out, members_fields);
+    if (comptime @sizeOf(ErrData) > 0) writeErrorFields(out, members_fields);
     return code;
 }
 
@@ -236,7 +251,7 @@ pub inline fn argsWithSlot(comptime F: type, args: anytype, slot: ErrSlot) if (c
 /// A failing `return` of `v`, an error value the function holds: its
 /// fields go into the caller's slot `out`, and it is moved.
 pub inline fn failValue(out: ErrSlot, v: ErrorValue) anyerror {
-    out.* = v.data;
+    putFields(out, &v.data);
     return v.code;
 }
 
@@ -2630,7 +2645,12 @@ fn errorSetName(comptime error_name: []const u8, comptime names: anytype) []cons
 /// function's (`?type`).
 fn fnName(comptime params: anytype, comptime R: type, comptime names: anytype) []const u8 {
     var list: []const u8 = "";
-    inline for (params, 0..) |P, i| list = list ++ (if (i > 0) ", " else "") ++ nameOf(if (@TypeOf(P) == type) P else P.?, names);
+    inline for (params, 0..) |P, i| {
+        const T = if (@TypeOf(P) == type) P else P.?;
+        // The slot a failure's fields go in is no parameter Rig writes.
+        if (T == ErrSlot and i == params.len - 1) continue;
+        list = list ++ (if (i > 0) ", " else "") ++ nameOf(T, names);
+    }
     if (R == void) return "sub(" ++ list ++ ")";
     if (@typeInfo(R) == .error_union and @typeInfo(R).error_union.payload == void) return "sub(" ++ list ++ ")!";
     return "fun(" ++ list ++ ") -> " ++ nameOf(R, names);
@@ -3126,14 +3146,28 @@ pub fn sum(items: anytype, from: std.meta.Elem(@TypeOf(items))) std.meta.Elem(@T
 /// A fallible `f` makes it fallible, failing with `f`'s first failure.
 /// Inline, so a closure written at the call is called directly.
 pub inline fn reduce(items: anytype, first: anytype, f: anytype) @typeInfo(@TypeOf(@TypeOf(f).call)).@"fn".return_type.? {
-    const R = @typeInfo(@TypeOf(@TypeOf(f).call)).@"fn".return_type.?;
+    return reduceInto(items, first, f, no_slot);
+}
+
+/// `reduce` where `f`'s failure's fields go into the caller's slot `out`,
+/// or are dropped where it has none.
+pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytype) @typeInfo(@TypeOf(@TypeOf(f).call)).@"fn".return_type.? {
+    const F = @TypeOf(f);
+    const R = @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
     const A = if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
     var acc: A = first;
     // A receiver held apart is a pointer to its slice.
     const P = @typeInfo(@TypeOf(items));
     const xs = if (P == .pointer and P.pointer.size == .one and @typeInfo(P.pointer.child) == .pointer) items.* else items;
+    var own: ErrData = undefined;
+    const slot: ErrSlot = if (comptime @TypeOf(out) == ErrSlot) out else failSlot(&own);
     for (xs) |*x| {
-        acc = if (comptime @typeInfo(R) == .error_union) try f.call(.{ acc, lend(x) }) else f.call(.{ acc, lend(x) });
+        if (comptime @typeInfo(R) == .error_union) {
+            acc = f.call(argsWithSlot(F, .{ acc, lend(x) }, slot)) catch |err| {
+                if (comptime @TypeOf(out) != ErrSlot) dropErrorData(err, &own);
+                return err;
+            };
+        } else acc = f.call(.{ acc, lend(x) });
     }
     return acc;
 }
@@ -5969,7 +6003,7 @@ fn runTestsHere(modules: []const TestModule) void {
         const before = usage();
         test_false = null;
         var slot: ErrData = undefined;
-        const result = t.func(&slot);
+        const result = t.func(failSlot(&slot));
         current_test = null;
         flush();
         if (result) |_| {

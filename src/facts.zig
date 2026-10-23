@@ -445,6 +445,9 @@ pub const Facts = struct {
     pub fn memberCompares(f: Facts, member: sema.Field) sema.MemberCompares {
         return f.c().memberCompares(member);
     }
+    pub fn isCodeWidening(f: Facts, node: Sexp) bool {
+        return f.c().isCodeWidening(node);
+    }
     pub fn isFailingLeaf(f: Facts, node: Sexp) bool {
         return f.c().isFailingLeaf(node);
     }

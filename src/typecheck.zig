@@ -5424,7 +5424,7 @@ const Checker = struct {
                 const subject = sema.unwrapViews(self.ctx, if (self.ctx.types.get(reached) == .optional) self.ctx.types.get(reached).optional else reached);
                 // Beside an error that may carry fields, `.name` tests the
                 // member, of the one set the error may be that has it.
-                if (sema.setHasFields(self.ctx, subject) or (subject == self.t().any_error_id and sema.declaresErrorFields(self.ctx))) {
+                if (sema.setHasFields(self.ctx, subject) or subject == self.t().any_error_id) {
                     const name = ir.EnumLit.name(lit);
                     const set = if (sema.isErrorUnion(self.ctx, subject)) try self.unionMemberSet(subject, name) else if (subject == self.t().any_error_id) try self.resolveErrorName(name) else blk: {
                         if ((try sema.lookupVariant(self.ctx, subject, self.text(name))) == null) {
@@ -14638,6 +14638,16 @@ const Checker = struct {
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         try self.recordAdaptedType(e, actual, expected);
         try self.recordLift(e, self.ctx.typeOf(e) orelse actual, expected);
+        try self.recordCodeWidening(e, actual, expected);
+    }
+
+    /// An error whose set has no fields, where an error that may carry
+    /// them goes (`error`, or a set or union with fields), through any
+    /// optionals: a code that becomes a `rig.ErrorValue` with no fields.
+    fn recordCodeWidening(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        if (!sema.isErrorSet(self.ctx, actual) or sema.setHasFields(self.ctx, actual)) return;
+        const into = sema.unwrapOptionals(self.ctx, expected);
+        if (into == self.t().any_error_id or (sema.isErrorSet(self.ctx, into) and sema.setHasFields(self.ctx, into))) try self.ctx.recordCodeWidening(e);
     }
 
     /// Record the optional `e`'s value becomes where `expected` goes

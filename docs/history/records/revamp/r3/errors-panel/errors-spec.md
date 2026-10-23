@@ -359,6 +359,12 @@ the slot. Measured alternatives: a tagged Result up to 31% slower; a
 slot found through the fiber state unsound across `isolate` and slower;
 a side channel overwritten by nested failures (L2's bug).
 
+*Superseded 2026-10-22 (owner's decision on the design check,
+errors-r3/design-check-u.md): `error` is always a `rig.ErrorValue`, and
+every `T!` function and fallible function-value type takes `__out`,
+which has no bits where no set has fields. The narrowing below, never
+built, is dropped.*
+
 Where `__out` appears (changed from A1's "every fallible function"):
 
 - a named function declaring a set gets it only when that set has a
@@ -469,7 +475,9 @@ measured null in ReleaseSafe and ReleaseFast), never printed. Mapping
 their frames to Rig lines when a failure leaves `main` is a decision
 (§15).
 
-**7.10 Equivalence gate.** `tools/equiv.py` shows no emit difference
+**7.10 Equivalence gate.** *Superseded 2026-10-22 (design-check-u.md):
+the gate is the json instruction guard, with Trig's and std.json's
+timing on both machines.*  `tools/equiv.py` shows no emit difference
 for any program that declares no set (R2), and none for any program in
 which no member with fields reaches `error` beyond the declared-set
 functions that carry it (R3), including a program whose only fields

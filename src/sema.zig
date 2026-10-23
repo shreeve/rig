@@ -1119,6 +1119,11 @@ pub const Facts = struct {
     /// `T!` goes (`SemContext.recordFailingLeaf`). Emit stores the fields
     /// of one with fields through the function's `__out`.
     failing_leaves: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The errors of a set without fields that go where an error that
+    /// carries fields goes, `error` or a set with fields
+    /// (`SemContext.recordCodeWidening`). Emit makes each a
+    /// `rig.ErrorValue` with none.
+    code_widenings: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// Whether the fields of each error-set member that has them compare
     /// with `==` and hash, by the member's name in its declaration
     /// (`SemContext.recordMemberCompares`): the program's glue compares
@@ -3179,6 +3184,14 @@ pub const SemContext = struct {
         return self.facts.member_compares.get(member.decl_pos) orelse .{};
     }
 
+    pub fn recordCodeWidening(self: *SemContext, node: Sexp) !void {
+        try self.facts.code_widenings.put(self.allocator, exprKey(node) orelse return, {});
+    }
+
+    pub fn isCodeWidening(self: *const SemContext, node: Sexp) bool {
+        return self.facts.code_widenings.contains(exprKey(node) orelse return false);
+    }
+
     pub fn recordFailingLeaf(self: *SemContext, node: Sexp) !void {
         try self.facts.failing_leaves.put(self.allocator, exprKey(node) orelse return, {});
     }
@@ -4628,7 +4641,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         .string => .{ .glue = true },
         // An error of any set is owning in every program, whatever the
         // program's sets hold (Core §2, "A failure moves its error").
-        .any_error => .{ .any_error = true },
+        .any_error => .{ .glue = true, .any_error = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
         // Lanes of a number or `Bool`: one plain value.
@@ -8367,6 +8380,9 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
     if (!info.glue and !info.holds_type_var) return true;
     return switch (ctx.types.get(ty)) {
         .string, .shared, .weak => true,
+        // An error's fields always clone (the field rule), through the
+        // program's glue.
+        .any_error => true,
         .optional => |inner| deepCloneable(ctx, inner, frame, seen),
         .array => |a| deepCloneable(ctx, a.elem, frame, seen),
         .parameterized_nominal => |pn| blk: {

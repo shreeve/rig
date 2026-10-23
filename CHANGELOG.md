@@ -13,6 +13,16 @@ changed the language since it:
 
 ### Language and compiler
 
+- **One representation for `error`:** an `error` is always an error value
+  that may carry fields, and every `T!` function takes the hidden slot,
+  which has no bits in a program whose sets have none. A program's code
+  no longer changes because another module declares a member with
+  fields. Fixed with it: a value of a set without fields put where
+  `error`, or a set with fields, goes; a temporary `error` that leaked;
+  the slot passed to a built-in type's method or a runtime call (a
+  `Chan`, `http.serve`, `io.copy`); function-value types without the
+  slot; a `catch` read in place; `reduce` with a fallible function.
+
 - **A task set of a declared set:** `Tasks[Int!L]()` and `Task[T!E]`
   parse in an expression, as in a type.
 

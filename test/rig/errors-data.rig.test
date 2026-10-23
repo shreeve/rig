@@ -778,6 +778,79 @@ test "a function without fields lent where one with them goes", '''
       -2
     print(r)
 
+test "a set without fields widens into a union with fields", '''
+  M.plain
+  M.plain
+  M.plain
+'''
+  error E
+    bad(msg: String)
+
+  error M
+    plain
+
+  error L = E | M
+
+  fun m(n: Int) -> Int!M
+    return M.plain if n > 0
+    n
+
+  sub main()
+    x: L = M.plain
+    print(x)
+    m(1) catch |e|
+      y: L = e
+      print(y)
+      z: error = e
+      print(z)
+
+test "an error a call makes is dropped where it is printed", "E.bad(msg: \"r\")"
+  error E
+    bad(msg: String)
+
+  fun mk() -> error
+    E.bad(msg: String("r"))
+
+  sub main()
+    print(mk())
+
+test "one module's fields and another's sets without them", '''
+  M.plain
+  3
+  true
+  F.odd(msg: "x")
+'''
+  use lib
+
+  error M
+    plain
+    other
+
+  fun keep(n: Int) -> error?
+    return M.plain if n == 1
+    none
+
+  fun g(n: Int) -> Int!
+    return M.plain if n == 1
+    lib.f(n)!
+
+  sub main()
+    if keep(1) as e
+      print(e)
+    print(lib.f(3) catch 0)
+    g(1) catch |e|
+      print(e == .plain)
+    g(7) catch |e|
+      print(e)
+
+  file "lib.rig"
+    pub error F
+      odd(msg: String)
+
+    pub fun f(n: Int) -> Int!
+      return F.odd(msg: String("x")) if n == 7
+      n
+
 fail "a field holding a loan", "an error's field never holds a loan: hold a `String` or a `Static`"
   error E
     bad(names: List[?String])
