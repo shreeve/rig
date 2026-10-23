@@ -71,7 +71,7 @@ pub fn Task(comptime T: type) type {
                     defer control.finish();
                     // A call that may fail with fields writes them into
                     // the task's record.
-                    if (comptime takesSlot(@TypeOf(f))) return @call(.auto, f, a ++ .{&control.err});
+                    if (comptime takesSlot(@TypeOf(f))) return @call(.auto, f, a ++ .{rt.failSlot(&control.err)});
                     return @call(.auto, f, a);
                 }
             };
@@ -213,9 +213,8 @@ pub fn Task(comptime T: type) type {
 
 /// Whether a function of type `F` takes the slot its failure's fields go
 /// in (`rt.ErrSlot`), as its last parameter: one that may fail with
-/// fields, in a program with error glue.
+/// fields.
 fn takesSlot(comptime F: type) bool {
-    if (comptime rt.error_glue == null) return false;
     const info = switch (@typeInfo(F)) {
         .@"fn" => |f| f,
         .pointer => |p| switch (@typeInfo(p.child)) {
@@ -251,7 +250,7 @@ fn keepResult(comptime T: type, result: T, data: *rt.ErrData, out: anytype) T {
 fn keepFailure(comptime T: type, result: *const T, data: *rt.ErrData, out: anytype) void {
     if (comptime @typeInfo(T) == .error_union) {
         if (result.*) |_| {} else |err| {
-            if (comptime @TypeOf(out) == rt.ErrSlot) out.* = data.* else rt.dropErrorData(err, data);
+            if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, data) else rt.dropErrorData(err, data);
         }
     }
 }
@@ -756,7 +755,7 @@ pub fn Tasks(comptime T: type) type {
                 if (left == 0) {
                     s.items.items.len = 0;
                     const l = last.?;
-                    if (comptime @TypeOf(out) == rt.ErrSlot) out.* = last_data else rt.dropErrorData(l, &last_data);
+                    if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, &last_data) else rt.dropErrorData(l, &last_data);
                     return l;
                 }
                 rt.sched.block(&b);
@@ -880,8 +879,8 @@ fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, compt
     if (count <= 1 or chunk >= n) {
         if (comptime !fallible) return callChunk(body, ctx, 0, n, undefined) catch unreachable;
         var slot: rt.ErrData = undefined;
-        callChunk(body, ctx, 0, n, &slot) catch |err| {
-            if (comptime @TypeOf(out) == rt.ErrSlot) out.* = slot else rt.dropErrorData(err, &slot);
+        callChunk(body, ctx, 0, n, rt.failSlot(&slot)) catch |err| {
+            if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, &slot) else rt.dropErrorData(err, &slot);
             return err;
         };
         return;
@@ -898,7 +897,7 @@ fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, compt
                     // Each chunk fails into a slot of its own, which the
                     // run keeps if it fails first.
                     var slot: rt.ErrData = undefined;
-                    callChunk(body, c, lo, hi, &slot) catch |err| return s.fail(err, &slot);
+                    callChunk(body, c, lo, hi, rt.failSlot(&slot)) catch |err| return s.fail(err, &slot);
                 } else callChunk(body, c, lo, hi, undefined) catch unreachable;
             }
         }
@@ -910,7 +909,7 @@ fn parRunInto(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, compt
     if (fallible and state.failed.load(.acquire)) for (helpers) |t| t.control.cancel();
     for (helpers) |t| t.wait();
     if (comptime fallible) if (state.failed.load(.acquire)) {
-        if (comptime @TypeOf(out) == rt.ErrSlot) out.* = state.failure_data else rt.dropErrorData(state.failure, &state.failure_data);
+        if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, &state.failure_data) else rt.dropErrorData(state.failure, &state.failure_data);
         return state.failure;
     };
 }
@@ -1063,7 +1062,7 @@ pub fn isolate(f: anytype) IsolateOut(@TypeOf(f)) {
 /// or are dropped where it has none.
 pub fn isolateInto(f: anytype, out: anytype) IsolateOut(@TypeOf(f)) {
     var own: rt.ErrData = undefined;
-    const slot: rt.ErrSlot = if (comptime @TypeOf(out) == rt.ErrSlot) out else &own;
+    const slot: rt.ErrSlot = if (comptime @TypeOf(out) == rt.ErrSlot) out else rt.failSlot(&own);
     const result = isolateWith(f, slot);
     if (comptime @TypeOf(out) != rt.ErrSlot) if (result) |_| {} else |err| rt.dropErrorData(err, &own);
     return result;
@@ -1111,9 +1110,9 @@ pub fn superviseInto(f: anytype, restarts: Int, per: Int, out: anytype) IsolateO
     var window: i96 = 0;
     while (true) {
         var own: rt.ErrData = undefined;
-        if (isolateWith(f, &own)) |v| return v else |err| {
+        if (isolateWith(f, rt.failSlot(&own))) |v| return v else |err| {
             errdefer if (comptime @TypeOf(out) == rt.ErrSlot) {
-                out.* = own;
+                rt.putFields(out, &own);
             } else rt.dropErrorData(err, &own);
             if (err == canceled_error or err == timeout_error) return err;
             if (restarts >= 0) {
@@ -2355,7 +2354,7 @@ test "a task's failure data moves to the waiter's slot, and is dropped wherever 
             G.drops.store(0, .seq_cst);
             var slot: rt.ErrData = undefined;
             const a = Task(anyerror!i64).spawn(fails, .{});
-            if (a.waitInto(&slot)) |_| {} else |_| kept = slot.bytes[0];
+            if (a.waitInto(rt.failSlot(&slot))) |_| {} else |_| kept = slot.bytes[0];
             drops_after_into = G.drops.load(.seq_cst);
             const b = Task(anyerror!i64).spawn(fails, .{});
             _ = b.wait() catch {};
@@ -2395,7 +2394,7 @@ test "a set of tasks keeps the failure it gives and drops every other one's data
             var slot: rt.ErrData = undefined;
             var a: Tasks(anyerror!i64) = .{};
             a.add(Task(anyerror!i64).spawn(fails, .{5}));
-            if (a.wait_allInto(&slot)) |l| {
+            if (a.wait_allInto(rt.failSlot(&slot))) |l| {
                 var v = l;
                 v.__rig_drop();
             } else |_| all_kept = slot.bytes[0];
@@ -2403,7 +2402,7 @@ test "a set of tasks keeps the failure it gives and drops every other one's data
             var b: Tasks(anyerror!i64) = .{};
             b.add(Task(anyerror!i64).spawn(fails, .{1}));
             b.add(Task(anyerror!i64).spawn(fails, .{2}));
-            if (b.wait_firstInto(&slot)) |_| {} else |_| first_kept = slot.bytes[0];
+            if (b.wait_firstInto(rt.failSlot(&slot))) |_| {} else |_| first_kept = slot.bytes[0];
             drops_after_first = G.drops.load(.seq_cst);
             var c: Tasks(anyerror!i64) = .{};
             c.add(Task(anyerror!i64).spawn(fails, .{3}));
@@ -2439,7 +2438,7 @@ test "a par run keeps its first chunk's failure data and drops every later one's
             G.drops.store(0, .seq_cst);
             const ctx: Ctx = .{};
             var slot: rt.ErrData = undefined;
-            parRunInto(true, 64, 4, &ctx, chunk, &slot) catch {
+            parRunInto(true, 64, 4, &ctx, chunk, rt.failSlot(&slot)) catch {
                 failed = true;
                 kept = slot.bytes[0];
             };

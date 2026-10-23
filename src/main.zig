@@ -1571,7 +1571,8 @@ fn makesTasks(graph: *const modules.ModuleGraph) bool {
 }
 
 /// Whether some module declares an error member with fields: the program
-/// then carries error data (`emit.Emitter.error_data`), with its glue.
+/// then has error glue, which sizes every error's fields
+/// (`emit.writeErrorGlue`); without it an error is its code alone.
 fn declaresErrorFields(graph: *const modules.ModuleGraph) bool {
     for (graph.modules.items) |*m| if (sema.declaresErrorFields(m.sema)) return true;
     return false;
@@ -1615,7 +1616,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     var uses_symbols = false;
     const tasks = makesTasks(graph);
     const task_guard = taskGuardOf(graph);
-    const error_data = declaresErrorFields(graph);
+    const glue = declaresErrorFields(graph);
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));
@@ -1624,7 +1625,6 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
         em.yield_checks = tasks;
-        em.error_data = error_data;
         em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
         // A debug build of the compiler checks that emit writes the units
@@ -1648,7 +1648,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
         }
         // A program with error fields reads them through its glue.
-        if (i == 0 and error_data) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
+        if (i == 0 and glue) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| {
             // A shim beside the runtime imports it by its path; in a batch
@@ -1659,7 +1659,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         if (i == 0) root_source = file_buffer.written();
     }
     // The program's error glue (`emit.writeErrorGlue`).
-    if (error_data) {
+    if (glue) {
         const mods = try allocator.alloc(emit.GlueModule, graph.modules.items.len);
         for (graph.modules.items, mods) |*m, *g| g.* = .{ .facts = emit_facts.Facts.of(m.sema), .path = m.out_basename };
         var out: std.Io.Writer.Allocating = .init(allocator);

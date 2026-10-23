@@ -401,6 +401,8 @@ pub const Emitter = struct {
     lending: Sexp = .nil,
     /// The error value a failing `return` is sending through `__out`.
     failing: Sexp = .nil,
+    /// The code-only error being made a `rig.ErrorValue` (`isCodeWidening`).
+    widening: Sexp = .nil,
     /// The scalar operand being written splatted (`sema.splatOf`).
     splatting: Sexp = .nil,
     /// Arguments and receivers of the calls being emitted that were
@@ -470,10 +472,6 @@ pub const Emitter = struct {
     /// check for work left waiting (`rig.tickCall`), so no task keeps
     /// the others waiting for long.
     yield_checks: bool = false,
-    /// The program declares an error member with fields, in some module
-    /// (`main.zig`, as `yield_checks`): a value of `error` then carries
-    /// fields, and a `T!` function takes `__out` (errors-spec §7).
-    error_data: bool = false,
     /// While a `T!E`'s error set is written: the Zig set of its codes,
     /// never the `rig.ErrorValue` a value of it is.
     error_codes: bool = false,
@@ -775,7 +773,7 @@ pub const Emitter = struct {
         // A test that may fail with fields is given the slot they go in,
         // which `rig.runTests` shows and drops.
         try self.w.print("fn {s}(__out: rig.ErrSlot) anyerror!void ", .{func});
-        self.fun = .{ .has_out = self.error_data, .out_unmarked = true };
+        self.fun = .{ .has_out = true, .out_unmarked = true };
         try self.emitBlock(ir.Test.body(node));
         try self.w.writeAll("\n");
     }
@@ -966,11 +964,11 @@ pub const Emitter = struct {
         }
     }
 
-    /// Whether a value of `ty` is a `rig.ErrorValue`: of a set with a
-    /// member with fields, a union of one, or `error` in a program that
-    /// declares one.
+    /// Whether a value of `ty` is a `rig.ErrorValue`: `error`, or of a set
+    /// with a member with fields, or a union of one. (With no field in
+    /// the program, an `ErrorValue` is its code.)
     fn isErrorValueTy(self: *Emitter, ty: TypeId) bool {
-        if (ty == self.facts.types.any_error_id) return self.error_data;
+        if (ty == self.facts.types.any_error_id) return true;
         // A view of one is a pointer to it, not one.
         return switch (self.facts.types.get(ty)) {
             .read_view, .write_view => false,
@@ -1226,7 +1224,10 @@ pub const Emitter = struct {
         const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
         self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .recursive = recursive };
         // `main` holds the slot its failure's fields go in.
-        if (is_main and main_fails and self.error_data) {
+        // (A `main` that declares no failure but uses `!` fails with any
+        // error.)
+        const main_fields = if (return_ty) |r| (if (self.facts.types.get(r) == .fallible) self.failsWithFields(r) else true) else true;
+        if (is_main and main_fails and main_fields) {
             self.fun.main_slot = true;
             self.fun.has_out = true;
             self.fun.out_unmarked = true;
@@ -1247,8 +1248,8 @@ pub const Emitter = struct {
         if (self.fun.main_slot) {
             const ret = if (main_status) "u8" else "void";
             try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) {s} {{\n    return rig.onOwnStack(__rig_fail_main, .{{__rig_init}});\n}}\n\n", .{ret});
-            try self.w.print("fn __rig_fail_main(__rig_init: std.process.Init.Minimal) {s} {{\n    var slot: rig.ErrData = undefined;\n", .{ret});
-            try self.w.writeAll("    const result = __rig_run_main(__rig_init, &slot) catch |e| {\n        rig.reportFailure(e, &slot);\n        rig.finish();\n        rig.failMainReported(e);\n    };\n    rig.finish();\n");
+            try self.w.print("fn __rig_fail_main(__rig_init: std.process.Init.Minimal) {s} {{\n    var __rig_main_slot: rig.ErrData = undefined;\n", .{ret});
+            try self.w.writeAll("    const result = __rig_run_main(__rig_init, rig.failSlot(&__rig_main_slot)) catch |e| {\n        rig.reportFailure(e, &__rig_main_slot);\n        rig.finish();\n        rig.failMainReported(e);\n    };\n    rig.finish();\n");
             try self.w.writeAll(if (main_status) "    return rig.exitStatus(result);\n}\n\n" else "    return result;\n}\n\n");
             try self.w.writeAll("fn __rig_run_main(");
         } else if (is_main) {
@@ -4754,6 +4755,17 @@ pub const Emitter = struct {
         // helpers is packed into it.
         // (A temporary that holds an assignment's new value holds it packed.)
         if (!self.want_ptr and !sameNode(sexp, self.lifting) and !(if (self.hoistedOf(sexp)) |h| h.lifted else false)) if (self.facts.liftOf(sexp)) |lift| if (self.liftRouted(lift)) return self.emitLift(sexp, lift, tail);
+        // An error of a set without fields where one that carries fields
+        // goes: a `rig.ErrorValue` of its code and none (inside the
+        // optional it is lifted into).
+        if (!sameNode(sexp, self.widening) and self.facts.isCodeWidening(sexp)) {
+            const saved = self.widening;
+            defer self.widening = saved;
+            self.widening = sexp;
+            try self.w.writeAll("rig.ErrorValue.of(");
+            try self.emitValue(sexp, tail);
+            return self.w.writeAll(", .{})");
+        }
         // A part of the value whose use is known has that use; any other
         // value has the use its own context recorded.
         const saved_use = self.use;
@@ -5950,6 +5962,15 @@ pub const Emitter = struct {
         // through the glue (`ErrorValue.__rig_own_eq`).
         if (is_eq and (self.holdsErrorValue(operands[0]) or self.holdsErrorValue(operands[1]))) {
             if (kind == .@"!=") try self.w.writeAll("!");
+            // Beside a code-only error, an error that carries fields
+            // compares its code, as its member's fields are none.
+            for ([2]usize{ 0, 1 }) |i| if (!self.holdsErrorValue(operands[i])) {
+                try self.w.writeAll("rig.isError(");
+                try self.emitExpr(operands[1 - i]);
+                try self.w.writeAll(", ");
+                try self.emitExpr(operands[i]);
+                return self.w.writeAll(")");
+            };
             return self.emitCall2("rig.eql(", operands, ")");
         }
         if (is_eq and self.comparesStructurally(operands)) {
@@ -6568,6 +6589,13 @@ pub const Emitter = struct {
                 const holder = if (e.isKind(.@"??")) ir.@"??".left(e) else ir.Catch.value(e);
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
                 const routed = e.isKind(.@"??") and self.routedOptional(self.typeOf(holder));
+                // A catch of a call that may fail with fields holds its
+                // slot in a block around the `if`; the value it reaches is
+                // kept in the statement's slot, outside the block.
+                const slot = if (e.isKind(.@"catch")) try self.openCatchSlot(holder) else null;
+                defer if (slot) |sl| {
+                    self.fail_slot = sl.saved;
+                };
                 try self.w.writeAll(if (routed) "(if (rig.somePtr(&" else "(if (");
                 try self.emitPayloadHolder(holder);
                 try self.w.print("{s} |{s}{s}| {s} else ", .{ if (routed) "))" else ")", if (routed) "" else "*", v, v });
@@ -6578,24 +6606,34 @@ pub const Emitter = struct {
                 const name = ir.Catch.name(e);
                 const handler = ir.Catch.handler(e);
                 const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
-                if (self.failsWithFieldsCall(holder)) return self.unsupported(e, "a catch of an error with fields whose value is read in place");
                 if (sym != null and self.usage.used.contains(sym.?)) {
                     const tmp = try self.hiddenStorage(e, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
-                    const binding = try self.catchBinding(sym.?, name, tmp, null);
+                    const binding = try self.catchBinding(sym.?, name, tmp, if (slot) |sl| sl.name else null);
                     try self.emitYieldBlock(handler, binding, ty, .leaf_ptr);
                     try self.popScope();
+                } else if (slot) |sl| {
+                    // A catch that binds no error drops its fields first.
+                    try self.w.print("|{s}_c| if (rig.dropFailure({s}_c, &{s})) ", .{ sl.name, sl.name, sl.name });
+                    try self.emitYieldBlock(handler, .{}, ty, .leaf_ptr);
+                    try self.w.writeAll(" else unreachable");
                 } else {
                     try self.w.writeAll("|_| ");
                     try self.emitYieldBlock(handler, .{}, ty, .leaf_ptr);
                 }
-                return self.w.writeAll(")");
+                try self.w.writeAll(")");
+                if (slot != null) try self.w.writeAll("; })");
             },
             .unwrap => {
                 const operand = if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e);
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
                 if (e.isKind(.propagate)) {
+                    // `e!` reached by address lends its call this
+                    // function's slot, as a `!` anywhere does.
+                    const saved = self.fail_slot;
+                    defer self.fail_slot = saved;
+                    if (self.fun.has_out and self.failsWithFieldsCall(operand)) self.fail_slot = .{ .call = operand, .expr = self.fun.out_name };
                     try self.w.writeAll("(if (");
                     try self.emitPayloadHolder(operand);
                     return self.w.print(") |*{s}| {s} else |__rig_failed| return __rig_failed)", .{ v, v });
@@ -7789,6 +7827,8 @@ pub const Emitter = struct {
         // `task.select(arm, ...)`: each arm a channel operation and the
         // function the runtime calls when it is the one that commits.
         if (self.facts.isSelect(sexp)) {
+            // The runtime's own call, which takes no slot.
+            _ = self.takeFailSlot(sexp);
             try self.w.writeAll("rig.select(.{ ");
             for (args, 0..) |arm, i| {
                 if (i > 0) try self.w.writeAll(", ");
@@ -7808,6 +7848,8 @@ pub const Emitter = struct {
         }
         // `http.serve(<listener, f)`: the runtime's server.
         if (self.facts.isHttpServe(sexp)) {
+            // The runtime's own call, which takes no slot.
+            _ = self.takeFailSlot(sexp);
             try self.w.writeAll("rig.httpServe(");
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
@@ -7815,13 +7857,18 @@ pub const Emitter = struct {
         // `io.copy(!from, !to)`: the runtime's, for files and sockets.
         // `xs.reduce(start, f)`: `rig.reduce(elems, start, f)`.
         if (self.facts.isReduceCall(sexp)) {
-            try self.w.writeAll("rig.reduce(");
+            // A failure's fields go to the slot its `!` or `catch` lends.
+            const out = self.takeFailSlot(sexp);
+            try self.w.writeAll(if (out != null) "rig.reduceInto(" else "rig.reduce(");
             try self.emitElems(ir.Member.object(callee));
             try self.w.writeAll(", ");
             try self.emitArgs(sexp);
+            if (out) |o| try self.w.print(", {s}", .{o});
             return self.w.writeAll(")");
         }
         if (self.facts.isIoCopy(sexp)) {
+            // The runtime's own call, which takes no slot.
+            _ = self.takeFailSlot(sexp);
             try self.w.writeAll("rig.net.copy(");
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
@@ -8081,11 +8128,42 @@ pub const Emitter = struct {
             } else try self.emitArg(args[i], params, i);
         }
         // The slot its `!` or `catch` lends a call that may fail with
-        // fields.
+        // fields, when the callee takes one: a Rig function or a function
+        // value, never a method of a built-in type.
         if (self.fail_slot) |s| if (sameNode(s.call, call)) {
             self.fail_slot = null;
-            try self.w.print("{s}{s}", .{ if (written > 0) ", " else "", s.expr });
+            if (self.calleeTakesSlot(call)) try self.w.print("{s}{s}", .{ if (written > 0) ", " else "", s.expr });
         };
+    }
+
+    /// Whether `call`'s callee takes the slot a failure's fields go in:
+    /// a Rig function (`callTargetOf`), or a function value, whose type
+    /// takes it (`emitCallableTy`). A built-in type's method, and a call
+    /// the runtime makes itself, take none.
+    fn calleeTakesSlot(self: *Emitter, call: Sexp) bool {
+        if (self.facts.callTargetOf(call)) |t| if (t == .function) return true;
+        // An actor's method, which the actor calls with the arguments.
+        if (self.facts.isActorCall(call)) return true;
+        const callee = self.facts.calleeOf(call);
+        // A method of a type parameter's instance, in a generic body: the
+        // instance's own Rig method, as the body requires of it.
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |obj_ty| {
+            if (self.facts.types.get(self.peelViews(obj_ty)) == .type_var) return true;
+        };
+        if (callee == .src) if (self.localOf(callee)) |local| if (local.stack_closure) return true;
+        const ty = self.typeOf(callee) orelse return false;
+        if (self.facts.callableFn(ty) != null or self.facts.ownedClosureFn(ty) != null) return true;
+        if (self.facts.types.get(self.peelViews(ty)) != .function) return false;
+        // A plain function value, held by a name or a field of an object;
+        // never a method of a built-in type.
+        if (callee == .src) return true;
+        if (!callee.isKind(.member)) return false;
+        const obj_ty = self.typeOf(ir.Member.object(callee)) orelse return false;
+        const name = self.srcText(ir.Member.name(callee));
+        for (self.declFields(self.peelViews(obj_ty))) |f| {
+            if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return true;
+        }
+        return false;
     }
 
     /// What a `catch |name|` handler starts with: `name` bound to the
@@ -8146,7 +8224,7 @@ pub const Emitter = struct {
         const id = self.nextId();
         const slot: CatchSlot = .{ .name = try self.fmt("__rig_fail_{d}", .{id}), .label = try self.fmt("__rig_fb_{d}", .{id}), .saved = self.fail_slot };
         try self.w.print("({s}: {{ var {s}: rig.ErrData = undefined; break :{s} ", .{ slot.label, slot.name, slot.label });
-        self.fail_slot = .{ .call = value, .expr = try self.fmt("&{s}", .{slot.name}) };
+        self.fail_slot = .{ .call = value, .expr = try self.fmt("rig.failSlot(&{s})", .{slot.name}) };
         return slot;
     }
 
@@ -9287,6 +9365,9 @@ pub const Emitter = struct {
             .function => |f| {
                 try self.w.writeAll("*const fn (");
                 try self.emitTypeList(f.params);
+                // A function that may fail with fields takes the slot they
+                // go in, last (`emitCallableTy`).
+                if (self.failsWithFields(f.returns)) try self.w.writeAll(if (f.params.len > 0) ", rig.ErrSlot" else "rig.ErrSlot");
                 try self.w.writeAll(") ");
                 try self.emitTypeTy(f.returns);
             },
