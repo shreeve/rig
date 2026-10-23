@@ -82,7 +82,10 @@ changed the language since it:
   checked and lowered: a default as a method generic over `Self`. Every
   method call records how it dispatches, `direct` or `static`, and `rig
   check --facts=sema` prints it. A call through a bound that would store
-  a view of a local in a value of a type parameter's type is rejected.
+  a view of a local in a value of a type parameter's type is rejected. A
+  type parameter with no bound meets no bound by an API (`Bag[U]` or
+  `total(x)` in a body whose `U` has none), which phase 1 left to each
+  instance: the error gives the bound to write.
 
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call

@@ -1128,8 +1128,8 @@ pub const Emitter = struct {
 
     /// `W_T_Shape`: type parameter `sym`'s witness for `api`.
     fn witnessParamName(self: *Emitter, sym: SymbolId, api: facts.ApiRef) Error![]const u8 {
-        const api_sym = self.facts.apiSymbol(api) orelse return self.unsupported(.nil, "a bound by an unknown API");
-        return self.fmt("W_{s}_{s}", .{ self.facts.symbols.items[sym].name, api_sym.name });
+        if (self.facts.apiSymbol(api) == null) return self.unsupported(.nil, "a bound by an unknown API");
+        return self.facts.witnessParamName(self.arena.allocator(), sym, api);
     }
 
     /// A witness as a compile-time argument: a type parameter's own,
@@ -1197,7 +1197,14 @@ pub const Emitter = struct {
             try self.w.print("pub fn {s}(", .{name});
             for (params, 0..) |p, i| {
                 if (i > 0) try self.w.writeAll(", ");
-                try self.w.print("comptime {f}: type", .{ident(self.facts.symbols.items[p].name)});
+                try self.w.print("comptime {f}: ", .{ident(self.facts.symbols.items[p].name)});
+                // A compile-time value parameter (`Grid[n: Int, T]`) has
+                // its type; a type parameter is a type, with its witnesses.
+                if (self.facts.symbols.items[p].kind != .generic_param) {
+                    try self.emitTypeTy(self.symType(p) orelse return self.unsupported(.nil, "an untyped compile-time parameter"));
+                    continue;
+                }
+                try self.w.writeAll("type");
                 try self.writeWitnessParams(p);
             }
             try self.w.writeAll(") type {\n");
@@ -1208,11 +1215,28 @@ pub const Emitter = struct {
             try self.w.writeAll("    return struct {\n");
         } else try self.w.print("pub const {s} = struct {{\n", .{name});
         const depth: u32 = if (params.len > 0) 2 else 1;
-        // The first conformance an addition writes holds its methods; the
-        // others name them there.
+        // The first conformance an addition writes holds its methods, those
+        // only the addition's other APIs declare included; the others name
+        // them there.
         const first: u32 = for (self.facts.conformances(), 0..) |c, i| {
             if (c.kind == .add and c.pos == conf.pos) break @intCast(i);
         } else index;
+        if (conf.kind == .add and first == index) {
+            var written: std.ArrayList([]const u8) = .empty;
+            for (self.facts.conformances()) |c| {
+                if (c.kind != .add or c.pos != conf.pos) continue;
+                for (c.members) |m| {
+                    if (m.from != .added) continue;
+                    const seen = for (written.items) |n| {
+                        if (std.mem.eql(u8, n, m.name)) break true;
+                    } else false;
+                    if (seen) continue;
+                    try written.append(a, m.name);
+                    const node = self.additionMethod(conf.pos, m.name) orelse return self.unsupported(.nil, "an addition's method without its declaration");
+                    try self.emitAddedMethod(conf, node, depth);
+                }
+            }
+        }
         for (conf.members) |m| switch (m.from) {
             .own => {
                 try self.writeIndent(depth);
@@ -1220,10 +1244,7 @@ pub const Emitter = struct {
                 try self.emitTypeTy(conf.ty);
                 try self.w.print(".{f};\n", .{ident(m.name)});
             },
-            .added => if (first == index) {
-                const node = self.additionMethod(conf.pos, m.name) orelse return self.unsupported(.nil, "an addition's method without its declaration");
-                try self.emitAddedMethod(conf, node, depth);
-            } else {
+            .added => if (first != index) {
                 try self.writeIndent(depth);
                 try self.w.print("pub const {f} = {s}", .{ ident(m.name), try self.facts.witnessName(a, self.facts.moduleId(), first) });
                 if (params.len > 0) {

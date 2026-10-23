@@ -2285,16 +2285,48 @@ pub fn writeStorageDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp
 /// type it is for.
 fn writeWitness(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Writer, wit: Witness) !void {
     switch (wit) {
-        .param => |p| try w.print("W_{s}_{s}", .{ ctx.symbols.items[p.sym].name, (apiSymbol(ctx, p.api) orelse return).name }),
+        .param => |p| try w.writeAll(try witnessParamName(ctx, a, p.sym, p.api)),
         .conformance => |c| try w.print("{s}({s})", .{ try witnessName(ctx, a, c.module_id, c.index), try formatTypeIn(ctx, a, c.ty) }),
     }
 }
 
+/// `W_T_Shape`: the witness parameter type parameter `sym` takes for
+/// `api`, one of its bounds. Two bounds by APIs of one name (`[T: Shape
+/// + geo.Shape]`) are told apart by their place among the bounds,
+/// `W_T_Shape_1`, so no two parameters share a name.
+pub fn witnessParamName(ctx: *const SemContext, a: std.mem.Allocator, sym: SymbolId, api: ApiRef) std.mem.Allocator.Error![]const u8 {
+    const p = ctx.symbols.items[sym];
+    const name = (apiSymbol(ctx, api) orelse return "W_unknown").name;
+    var at: ?usize = null;
+    var shared = false;
+    for (p.user_apis, 0..) |b, i| {
+        if (b.eql(api)) {
+            at = i;
+        } else if (apiSymbol(ctx, b)) |other| {
+            if (std.mem.eql(u8, other.name, name)) shared = true;
+        }
+    }
+    if (shared) if (at) |i| return a.print("W_{s}_{s}_{d}", .{ p.name, name, i });
+    return a.print("W_{s}_{s}", .{ p.name, name });
+}
+
 /// The name of the witness of conformance `index` of module
 /// `module_id`, as its module declares it: `__rig_impl_Shape_Square`,
-/// `__rig_impl_Shape_Int`, `__rig_impl_Shape_geo_Circle`.
+/// `__rig_impl_Shape_Int`, `__rig_impl_Shape_geo_Circle`. Two of one
+/// module whose names would be the same (two APIs named `Shape`, or the
+/// types `geo_Circle` and `geo.Circle`) are told apart by their place,
+/// `__rig_impl_Shape_Square_1`.
 pub fn witnessName(ctx: *const SemContext, a: std.mem.Allocator, module_id: u32, index: u32) std.mem.Allocator.Error![]const u8 {
     const home: *const SemContext = if (module_id == ctx.module_id) ctx else ctx.foreign_semas.get(module_id) orelse return "__rig_impl_unknown";
+    const name = try witnessBaseName(home, a, index);
+    for (home.conformances.items, 0..) |_, j| {
+        if (j == index) continue;
+        if (std.mem.eql(u8, try witnessBaseName(home, a, @intCast(j)), name)) return a.print("{s}_{d}", .{ name, index });
+    }
+    return name;
+}
+
+fn witnessBaseName(home: *const SemContext, a: std.mem.Allocator, index: u32) std.mem.Allocator.Error![]const u8 {
     const conf = home.conformances.items[index];
     const api = (apiSymbol(home, conf.api) orelse return "__rig_impl_unknown").name;
     var shown: []const u8 = switch (home.types.get(conf.ty)) {
@@ -6506,9 +6538,10 @@ pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const Typ
         if (!hasBounds(sym)) continue;
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
+        // A type parameter with no bound is no exception: the witness the
+        // bound takes would come from its own bounds, and it has none.
         for (sym.user_apis) |api| {
             if (try provides(ctx, arg, api) != null) continue;
-            if (unboundedParam(ctx, arg)) continue;
             try reportUnprovided(ctx, at, of, sym.name, arg, api);
             return false;
         }
@@ -6527,15 +6560,6 @@ pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const Typ
     return true;
 }
 
-/// Whether `ty` is a type parameter with no bounds, which each of its
-/// instances decides.
-fn unboundedParam(ctx: *const SemContext, ty: TypeId) bool {
-    return switch (ctx.types.get(ty)) {
-        .type_var => |p| !hasBounds(ctx.symbols.items[p]),
-        else => false,
-    };
-}
-
 /// `of` cannot use `pname = arg`, which does not provide `api`, an API
 /// of the program's own, at `at`; the fix names the header or the
 /// addition that would provide it, or the bound.
@@ -6549,6 +6573,7 @@ fn reportUnprovided(ctx: *SemContext, at: u32, of: InstanceRoot, pname: []const 
         switch (ctx.types.get(arg)) {
             .type_var => |p| {
                 const sym = ctx.symbols.items[p];
+                if (!hasBounds(sym)) break :fix try a.print("; give it the bound: `[{s}: {s}]`", .{ sym.name, iname });
                 break :fix try a.print("; add `{s}` to its bounds: `[{s}: {s} + {s}]`", .{ iname, sym.name, try formatBounds(ctx, a, sym, null), iname });
             },
             else => {},

@@ -3386,7 +3386,9 @@ it is passed says what with `from`. A method that meets a `pub` API on a
 default writes the method to choose.
 
 A bound by an API holds at each instance, and a bounded `T` does what
-its bounds name and no more. `api` and `add` are keywords only at the
+its bounds name and no more. A type parameter meets a bound by an API
+only through bounds of its own: `Bag[U]` or `total(x)` in a body whose
+`U` has no bound is rejected with the bound to write. `api` and `add` are keywords only at the
 start of a module-level declaration, so `user.api` and `!set.add(x)`
 stay names.
 

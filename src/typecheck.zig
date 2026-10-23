@@ -19556,10 +19556,12 @@ fn checkMethodMeets(ctx: *SemContext, conf: sema.Conformance, tname: []const u8,
         return;
     }
     // The same names: a call through the API passes its arguments by the
-    // API's names, which are the implementation's.
+    // API's names, which are the implementation's. A parameter its body
+    // ignores may be `_`, as in any function (SPEC "Functions").
     const api_names = w.field.param_names orelse &.{};
     for (names, 0..) |n, i| {
         if (i == 0 or i >= api_names.len or std.mem.eql(u8, n, api_names[i])) continue;
+        if (std.mem.eql(u8, n, "_") or std.mem.eql(u8, api_names[i], "_")) continue;
         try ctx.err(have.decl_pos, "`{s}` names its parameter `{s}` where `{s}` declares `{s}`; a method meets its API with the same names: write `{s}`", .{ owner, n, aname, api_names[i], header });
         return;
     }

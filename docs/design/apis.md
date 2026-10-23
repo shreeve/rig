@@ -715,7 +715,11 @@ is a generic function of the API's module, checked once as
 `describe[Self: Shape](?@)`, and written in a namespace of the API's
 defaults, `__rig_defaults_Shape(Self, W_Self_Shape)`, which each witness
 that takes a default names. An addition's methods are written in its
-witness. The built-in bounds take no witness: the
+witness, the first of them when it gives several APIs. Two names that
+would be the same in one module, of two APIs named `Shape` or of the
+types `geo_Circle` and `geo.Circle`, are told apart by their place
+(`__rig_impl_Shape_Square_1`, `W_T_Shape_1`). A type parameter with no
+bound has no witness to give, so it meets no bound by an API. The built-in bounds take no witness: the
 runtime's `rig.eql`, `rig.hash`, and `rig.compare` still serve them.
 Every method call records how it dispatches, `direct`, `static`, or
 `dynamic` (Stage 4's), and `rig check --facts=sema` prints it; in `rig

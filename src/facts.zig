@@ -414,6 +414,11 @@ pub const Facts = struct {
     pub fn witnessName(f: Facts, a: std.mem.Allocator, module_id: u32, index: u32) ![]const u8 {
         return sema.witnessName(f.c(), a, module_id, index);
     }
+    /// `W_T_Shape`: type parameter `sym`'s witness parameter for `api`
+    /// (`sema.witnessParamName`).
+    pub fn witnessParamName(f: Facts, a: std.mem.Allocator, sym: SymbolId, api: ApiRef) ![]const u8 {
+        return sema.witnessParamName(f.c(), a, sym, api);
+    }
     /// The conformance `index` of module `module_id`, with that module's
     /// facts.
     pub fn conformanceAt(f: Facts, module_id: u32, index: u32) ?struct { facts: Facts, conf: Conformance } {
