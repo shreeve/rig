@@ -224,9 +224,6 @@ fixing.
   neither SPEC nor STD says how to write one; journey 06 built its text
   with `String(a, b, c)`. Either let raw strings span lines or name the
   way in SPEC's string section.
-- **SPEC writes Zig's builtins as `@bitCast` and `@intCast`** *(checked)*
-  in two places, where Rig spells them `$bitCast` and `$intCast`; in
-  `raw`, `@bitCast(x)` is "use of unbound name `@`".
 - **The bounds-check proof uses a guard only on the true edge**
   *(checked)*. `return 0 if i < 0 or i >= s.len` before `s[i]` proves
   nothing, while `if i >= 0 and i < s.len` then `s[i]` does
