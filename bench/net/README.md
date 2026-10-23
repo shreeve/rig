@@ -33,9 +33,14 @@ server echoes.
 
 `pingpong` is the latency of one wake each way. `echo` is throughput
 with many sockets ready at once. `connect` adds accepting and closing.
-Each run leaves its connections in TIME_WAIT for a while, so many runs
-in a row can use up the system's ports for outgoing connections; the
-driver's runs stay well under that.
+Each run leaves its connections in TIME_WAIT for a while (30 seconds on
+macOS, 60 on Linux), so about 27 runs in a row use up macOS's 16,384
+ports for outgoing connections, and the next connect fails with
+`EADDRNOTAVAIL`, which `std.net` reports as `NetError.failed`. Before
+each run the driver waits until the system's TCP sockets leave room
+for one more. A harness of your own should wait the same way: macOS's
+`netstat` shows no Internet sockets to some programs (Homebrew's
+Python among them), so count with `sysctl net.inet.tcp.pcbcount`.
 
 ## The rules
 
