@@ -8,7 +8,7 @@
 #   it may write.
 #
 # `f` is a closure written in the call, or a function's name. Every task
-# reads what the closure captures, so each capture must share, and none
+# reads what the closure captures, so each capture must sync, and none
 # is a write view. When `f` can fail, so can the call: the first failure
 # cancels the other tasks, and the call fails with it. `limit` is how
 # many tasks run at once, by default one per worker; with one, or few

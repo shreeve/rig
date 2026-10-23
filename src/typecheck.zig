@@ -8853,7 +8853,7 @@ const Checker = struct {
         if (!self.ctx.isLocalTask(node)) {
             const result = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.ok else ty;
             if (try sema.crossingBlocker(self.ctx, result, .moves)) |blocker| {
-                try self.errAt(callee, "`{s}` may run on another core, so what it gives must move to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
+                try self.errAt(callee, "`{s}` may run on another core, so what it gives must be sent to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
                 return self.t().invalid_id;
             }
         }
@@ -13456,8 +13456,8 @@ const Checker = struct {
     /// is typed here, as `taskJoin` types its own: `f` is a closure written
     /// in the call, whose result decides whether it fails, or a function's
     /// name. Every task reads what `f` captures, and `map`'s elements, so
-    /// these must share; `each`'s elements and `map`'s values go to other
-    /// tasks, so these must move. Null when `module_sym` is not `std.par`,
+    /// these must sync; `each`'s elements and `map`'s values go to other
+    /// tasks, so these must be sendable. Null when `module_sym` is not `std.par`,
     /// or `name` neither.
     fn parCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
@@ -13744,7 +13744,7 @@ const Checker = struct {
     /// `net.Listener`, which it takes, and answer each request with what
     /// `f` gives for it, a `fun(?http.Request) -> http.Response`: a
     /// closure written in the call, or a function's name. Every
-    /// connection's task calls `f`, so each capture must share and none
+    /// connection's task calls `f`, so each capture must sync and none
     /// is a write view, as `par.map`'s. It fails as the listener fails, or
     /// when its task is canceled. Null when `module_sym` is not
     /// `std.http`, or `name` not `serve`.
@@ -19301,7 +19301,7 @@ fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, a
 /// type shares, never one a method's own bounds add.
 fn ownershipApi(api: sema.Api) bool {
     return switch (api) {
-        .Copy, .Clone, .Owned, .Moves, .Shares => true,
+        .Copy, .Clone, .Owned, .Sends, .Syncs => true,
         else => false,
     };
 }

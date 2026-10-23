@@ -185,7 +185,7 @@ fail "apis parameter case", "a type parameter starts with a capital letter: `[T]
 
   print(f(1), h[2]())
 
-fail "apis names", "`Copy` is a fact the compiler derives from a type's parts, and a type never names it; `A` provides it where its parts do", "`Num` is provided by the built-in numbers alone", "`Shape` names no API; a type's header names an API the program declares with `api`, or `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", "`Shape` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`"
+fail "apis names", "`Copy` is a fact the compiler derives from a type's parts, and a type never names it; `A` provides it where its parts do", "`Num` is provided by the built-in numbers alone", "`Shape` names no API; a type's header names an API the program declares with `api`, or `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", "`Shape` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Sends`, `Syncs`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`"
   # A header names the APIs a type provides or gives a meaning of its
   # own, and a bound names APIs; `Shape` here is declared nowhere.
 
@@ -462,10 +462,10 @@ test "apis own builds on", "1 7"
     print(ids(?xs), xs[0].id())
 
 test "apis own moves", "2"
-  # `api Job: Moves`: every provider moves to another task, as plain
+  # `api Job: Sends`: every provider moves to another task, as plain
   # data does, and a `[T: Job]` crosses.
 
-  api Job: Moves
+  api Job: Sends
     fun cost(?@) -> Int
 
   obj Plain: Job
@@ -845,10 +845,10 @@ test "apis own same set", "1"
 
   print(1)
 
-fail "apis own marker", "`Pool` provides `Job`, which builds on `Moves`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`"
+fail "apis own marker", "`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot be sent to another task: its field `cache` is a `*Cell[List[Int]]`"
   # An API may build on a fact the compiler derives; each provider meets it.
 
-  api Job: Moves
+  api Job: Sends
     sub run(!@)
 
   obj Pool: Job
@@ -1380,7 +1380,7 @@ test "apis own closures and tasks", "8.0 4.0 4.0"
     f = |?x| x.area() * 2.0
     f()
 
-  fun spawned[T: Shape + Shares](x: ?T) -> Float
+  fun spawned[T: Shape + Syncs](x: ?T) -> Float
     t = x.area()&
     >t
 
@@ -2210,11 +2210,11 @@ fail "apis own method bounds repeated", "`Box.a` repeats `T: Shape`, which `obj 
 
   print(1)
 
-fail "apis own method bounds of how a value moves", "`Box.c` bounds `T` by `Copy`, which says how a `T` is copied, kept, or sent, the same in every method: bound the type, `obj Box[T: Copy]`", "`Box.d` bounds `T` by `Job`, which builds on `Moves`, which says how a `T` is copied, kept, or sent, the same in every method: bound the type, `obj Box[T: Job]`"
+fail "apis own method bounds of how a value moves", "`Box.c` bounds `T` by `Copy`, which says how a `T` is copied, kept, or sent, the same in every method: bound the type, `obj Box[T: Copy]`", "`Box.d` bounds `T` by `Job`, which builds on `Sends`, which says how a `T` is copied, kept, or sent, the same in every method: bound the type, `obj Box[T: Job]`"
   # Copying, keeping, and crossing are facts of the type's values, which
   # every method shares: a method's bound names none of them.
 
-  api Job: Moves
+  api Job: Sends
     fun cost(?@) -> Int
 
   obj Box[T]
@@ -2926,5 +2926,22 @@ fail "apis iter is derived", "`Iter` is derived, and a type never names it: `X` 
 
     fun name(?@) -> Int
       1
+
+  print(1)
+
+fail "apis old name moves", "`Moves` is now `Sends`: a type that may go to another task"
+  # The task bounds are `Sends` and `Syncs`: the sigils `<` and `*` name
+  # moves and sharing within a task, the bounds name crossing to tasks.
+
+  fun f[T: Moves](x: T) -> T
+    x
+
+  print(1)
+
+fail "apis old name shares", "`Shares` is now `Syncs`: a type several tasks may read at once"
+  # The old name is rejected toward the new one.
+
+  fun f[T: Shares](x: ?T) -> Int
+    1
 
   print(1)

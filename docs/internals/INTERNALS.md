@@ -2539,7 +2539,7 @@ the latter with the innermost type that stops it, through one walk,
   as what they hold moves; a set of tasks, a `Cell`, and a `Signal`
   never cross;
 - a type parameter with no bound is decided in each instance, and one
-  with bounds as they say (`Moves`, `Shares`, `boundBlocker`).
+  with bounds as they say (`Sends`, `Syncs`, `boundBlocker`).
 
 `sema.localBlocker` is the same walk with `local` set: what even a
 task pinned to this thread may not take. A part that crosses no core

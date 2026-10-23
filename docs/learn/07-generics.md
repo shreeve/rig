@@ -405,7 +405,7 @@ sub main()
 `T` is bounded by `Ord`, which does not give a value that copies; add `Copy` to its bounds: `[T: Copy + Ord]`
 ```
 
-`Copy`, `Clone`, `Owned`, `Moves`, and `Shares` are facts of a type's
+`Copy`, `Clone`, `Owned`, `Sends`, and `Syncs` are facts of a type's
 parts, which no type declares. `Eq`, `Hash`, `Ord`, and `Print` are
 capabilities a type may give its own meaning, and `Num` is arithmetic.
 Bounds are optional: a parameter with none keeps the per-instance

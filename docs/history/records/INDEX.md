@@ -66,6 +66,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [review-p1.md](2026-10/apis-stage3/review-p1.md): the adversarial review of phase 1: findings by severity with their fixes and cases, points for phase 2, and what was probed without findings
 - [review-p2.md](2026-10/apis-stage3/review-p2.md): the adversarial review of phase 2: findings by severity with their fixes and cases, decisions 8 and 9 checked, what was parked, and what was probed without findings
 - [review-p34.md](2026-10/apis-stage3/review-p34.md): the adversarial review of phases 3 and 4: findings by severity with their fixes and cases (an item viewing its iterator's own memory, witnesses of methods with no self or beside the type's bounds, `Iter` met by a view), decisions checked, what was parked, and what was probed without findings
+- [naming-sends-syncs.md](2026-10/apis-stage3/naming-sends-syncs.md): the owner's decision to name the task bounds `Sends` and `Syncs`, not `Moves` and `Shares`, and why (Rust's words; the sigils name moves and sharing within a task)
 
 ### 2026-10/clone/
 

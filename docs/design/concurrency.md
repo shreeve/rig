@@ -31,7 +31,7 @@ A programmer learns three things, and the checker enforces a fourth:
    gives a shared handle to it. A method called through the handle is a
    message, and the actor runs one at a time, each to its end.
 4. **What may cross.** The checker knows, for every type, whether its
-   value may move to another core and whether two cores may read it at
+   value may be sent to another core and whether two cores may read it at
    once. A programmer meets these facts only as error messages.
 
 State that many tasks change is shared as Rig already shares state that
@@ -178,7 +178,7 @@ calls the handler for each request, so every request changes `hits` and
 `rooms` through the handles the handler holds: `!hits.add(1)` and
 `(!rooms).join(...)` are marked changes to shared state, as `!c.set(5)`
 is on a `*Cell`. Every connection's task calls the one handler, so its
-captures must share, as `par.map`'s do.
+captures must sync, as `par.map`'s do.
 
 ## Tasks
 
@@ -352,29 +352,29 @@ a canceled task still running after a while.
 A task or an actor may run on another core, so what it takes must be safe
 there. The checker derives two facts for every type:
 
-- **moves:** the value can be handed whole to another thread.
-- **shares:** another thread may read the value through a view while this
+- **sends:** the value can be handed whole to another thread.
+- **syncs:** another thread may read the value through a view while this
   one also reads it.
 
-| Type | moves | shares |
+| Type | sends | syncs |
 |---|---|---|
-| plain data, `String`, `List[T]`, `^T`, objects and enums | when every part moves | when every part shares |
-| `?T` (a read view) | when `T` shares | when `T` shares |
-| `!T` (a write view) | when `T` moves | never |
+| plain data, `String`, `List[T]`, `^T`, objects and enums | when every part sends | when every part syncs |
+| `?T` (a read view) | when `T` syncs | when `T` syncs |
+| `!T` (a write view) | when `T` sends | never |
 | `*T` and `~T` of a type that is not synchronized, `Cell[T]`, `Signal[T]` | never | never |
 | a function value, `fun(A) -> R` or `sub(A)`: a named function's address | yes | yes |
 | a callable view `?fun`, which may view a stack closure's captures; an owned closure `*fun` or `~fun` | never | never |
 | `*Cell[T]`, for a one-word plain `T` | yes | yes |
-| `*Chan[T]` | when `T` moves | when `T` moves |
+| `*Chan[T]` | when `T` sends | when `T` sends |
 | `*Actor[T]` | yes | yes |
-| `Task[T]` | when `T` and its loans' views move | never |
+| `Task[T]` | when `T` and its loans' views send | never |
 | a Zig-backed type | as declared | as declared |
 
 A task's argument is given to it, moved (`<x`) or copied, when its type
-moves. Otherwise it is lent: to read (`?x`) when its type shares, and to
-write (`!x`) when its type moves. A closure called as a task follows the
+sends. Otherwise it is lent: to read (`?x`) when its type syncs, and to
+write (`!x`) when its type sends. A closure called as a task follows the
 same rules for its captures. What a task gives goes back to the task
-that waits for it, so its type moves, as `par.map`'s values and an
+that waits for it, so its type sends, as `par.map`'s values and an
 actor call's result do; a local task's result stays on its thread and
 need not.
 
@@ -383,10 +383,10 @@ type. The checker reads the requirement from the library's body, as it
 reads what a generic function needs of its type parameters, and checks
 the closure where the library is called, with the closure in hand:
 - `par.map`'s body lends `f` to several tasks at once, so the closure
-  passed to `par.map` must share: its captures share, and it captures
+  passed to `par.map` must sync: its captures sync, and it captures
   nothing with `!`;
 - `http.serve` gives every connection's task the one handler, so, as
-  with `par.map`, its captures must share and none is a write view.
+  with `par.map`, its captures must sync and none is a write view.
 
 A closure that breaks the rule is rejected where it is passed:
 

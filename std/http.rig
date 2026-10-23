@@ -4,7 +4,7 @@
 # until the call is canceled or the listener fails. The checker types
 # `serve`, as it does `par.map`: the handler is a closure written in the
 # call, or a function's name, and every connection's task calls it, so
-# each capture must share and none is a write view. Each request runs
+# each capture must sync and none is a write view. Each request runs
 # isolated (`task.isolate`): a panic in the handler answers 500, and the
 # server goes on.
 

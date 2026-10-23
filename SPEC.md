@@ -3199,8 +3199,8 @@ capital letter and a value parameter with a lowercase one.
 | `Copy` | a bare use copies: plain data and read views |
 | `Clone` | `+x` makes a new owner; implied by `Copy` |
 | `Owned` | holds no loan: no part is a view (a `Static` is fine) |
-| `Moves` | may move to another task ([§18](#18-tasks)) |
-| `Shares` | may be read by several tasks |
+| `Sends` | may go to another task ([§18](#18-tasks)) |
+| `Syncs` | may be read by several tasks at once |
 | `Eq` | `==` and `!=` |
 | `Hash` | `.hash()`; implies `Eq` |
 | `Ord` | `<`, `<=`, `>`, `>=`; implies `Eq` |
@@ -3227,7 +3227,7 @@ A body may do with a bounded `T` what its bounds name and no more: copy
 a `T: Copy`, compare a `T: Ord`, hash a `T: Hash`, and call no method
 on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
-name, and one without `Moves` or `Shares` does not cross to another
+name, and one without `Sends` or `Syncs` does not cross to another
 task. A comparison reads its operands where they are and drops none: a
 `T` made for one, `key(a) < key(b)`, is a temporary that may own, so
 `==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
@@ -3390,7 +3390,7 @@ at the top of a module: a method with no body is required, and one with
 a body is a default, which a type may leave out. Each method takes self
 first, as `?@`, `!@`, or `<@`, and `Self` in its signature is the type
 that provides the API. An API may build on others, `api Named: Shape`,
-and on the built-in APIs, `api Job: Moves`; it takes their methods as
+and on the built-in APIs, `api Job: Sends`; it takes their methods as
 they are, and a type that provides it provides them too. An API holds
 no fields and is no type: a value's type, a variable's, and a field's
 name a type, and a bound names the API.
@@ -3609,7 +3609,7 @@ and these, and a call's type argument provides them; a type parameter
 with no bound provides none, and a call on a `T` with no bound reaches
 no such method. Its bounds add to the type's: one the type gives
 already, written or through an API it builds on, is an error, and so
-are `Copy`, `Clone`, `Owned`, `Moves`, and `Shares`, and an API that
+are `Copy`, `Clone`, `Owned`, `Sends`, and `Syncs`, and an API that
 builds on them, which say how a value of the type is copied, kept, and
 sent in every method, and go in the type's own brackets. A conformance
 is met only by methods its own bounds imply: such a method meets no API
@@ -11606,24 +11606,24 @@ the others, the wait fails with any error (`error`).
 
 **What a task may take.** A task may run on another core, so each
 argument, and a method's self (`@`), must be able to go there as it is
-passed. A value *moves* when it can be handed whole to another thread,
-and *shares* when another thread may read it through a view while this
+passed. A value *sends* when it can be handed whole to another thread,
+and *syncs* when another thread may read it through a view while this
 one also reads it:
 
-- given, moved or copied, it must move;
-- lent to read, `?x` or a `?@` method's self, it must share;
-- lent to write, `!x` or a `!@` method's self, what it views must move.
+- given, moved or copied, it must be sendable;
+- lent to read, `?x` or a `?@` method's self, it must sync;
+- lent to write, `!x` or a `!@` method's self, what it views must be sendable.
 
 What the task gives goes back to the task that waits for it, so it must
-move too, unless the task is local (below) and runs on the waiter's
+be sendable too, unless the task is local (below) and runs on the waiter's
 thread.
 
-| Type | moves | shares |
+| Type | sends | syncs |
 |---|---|---|
-| plain data, `String`, `List[T]`, `^T`, objects and enums | when every part moves | when every part shares |
-| `?T` | when `T` shares | when `T` shares |
-| `!T` | when `T` moves | never |
-| `Task[T]` | when `T` moves | never |
+| plain data, `String`, `List[T]`, `^T`, objects and enums | when every part sends | when every part syncs |
+| `?T` | when `T` syncs | when `T` syncs |
+| `!T` | when `T` sends | never |
+| `Task[T]` | when `T` sends | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
@@ -12104,11 +12104,11 @@ array, or a slice, on several tasks at once:
 
 `f` is a closure written in the call, which can fail when its body
 propagates with `!`, or a function's name. Every task reads what the
-closure captures, so each capture must share, and none is a write
+closure captures, so each capture must sync, and none is a write
 view; a named closure (`?f`) or an owned one (`?cb`) is rejected,
 since its type does not show its captures. `par.map`'s elements must
-share, as every task reads them, and its values must move, as they come
-from other tasks; `par.each`'s elements must move.
+sync, as every task reads them, and its values must be sendable, as they come
+from other tasks; `par.each`'s elements must be sendable.
 
 ```rig
 use std.par

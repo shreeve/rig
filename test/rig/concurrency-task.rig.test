@@ -350,7 +350,7 @@ fail "task closure literal writes a capture", "this closure is lent to a task to
   total += 1
   print(>t, total)
 
-fail "task result moves", "`make(1)&` may run on another core, so what it gives must move to the task that waits for it: `*Node` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+fail "task result moves", "`make(1)&` may run on another core, so what it gives must be sent to the task that waits for it: `*Node` is a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
   # A task that may run on another core hands what it gives back to the
   # task that waits for it, so it moves, as `par.map`'s values do.
   obj Node
@@ -362,7 +362,7 @@ fail "task result moves", "`make(1)&` may run on another core, so what it gives 
   t = make(1)&
   print((>t).v)
 
-fail "task result holds a local task's handle", "`make()&` may run on another core, so what it gives must move to the task that waits for it: `Pair` holds `*Node`", errors: 1
+fail "task result holds a local task's handle", "`make()&` may run on another core, so what it gives must be sent to the task that waits for it: `Pair` holds `*Node`", errors: 1
   # A free task gives `+n` to a local task, pinned to its worker, and
   # returns `n`: the waiter, on another core, would change its count
   # while the local task does.
