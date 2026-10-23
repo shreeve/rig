@@ -89,8 +89,9 @@ read keeps a range fact for LLVM in safe builds, is the owner's call.
 A follow-up, to give the owner data. Main (4f832692f) with #538's test
 still gone, but in safe builds only `heldLen` tells LLVM the range the
 test gave it, with no compare (`if (n > max_len) unreachable` under
-`@setRuntimeSafety(false)`, inside `if (builtin.mode == .safe)`; branch
-`consol-len-range`, not pushed). Fast builds are unchanged.
+`@setRuntimeSafety(false)`, inside `if (builtin.mode == .safe)`; the
+change is [len-range.patch](len-range.patch), which `git apply` puts back
+on main at 4f832692f). Fast builds are unchanged.
 
 **Instructions (Mac, rig-safe, per byte):** below the reference on
 every file but twitterescaped: twitter 7.7317, twitterescaped 9.3740
