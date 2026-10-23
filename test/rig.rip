@@ -653,7 +653,7 @@ setup = ->
       slots.get(c).push(p)
   for plan in plans
     for c, i in plan.all
-      job = { file: plan.label ?? basename(plan.file), name: c.name, verb: c.verb, line: c.line, bodyLine: c.bodyLine, args: c.args, opts: c.opts, map: c.map, path: c.path, out: c.out, err: c.err }
+      job = { file: plan.label ?? basename(plan.file), name: c.name, verb: c.verb, line: c.line, bodyLine: c.bodyLine, args: c.args, opts: c.opts, map: c.map, path: c.path, out: c.out, err: c.err, given: c.given }
       id = "#{plan.area}.#{String(i).padStart(3, '0')}"
       unless c.verb in ['test', 'bomb']
         todo(id, JSON.stringify(job))
@@ -783,7 +783,7 @@ checkFail = (c) ->
 
 checkCode = (c) ->
   throw new Error('a `code` case gives the Zig it must emit') unless c.args.length > 0
-  r = run([rig, 'emit', c.path], { RIG_OUT_DIR: c.path + '.out' }, 120)
+  r = run([rig, 'emit', c.path], { RIG_OUT_DIR: outDirOf(c, '.out') }, 120)
   throw new Error("rejected: #{firstLine(r.err)}") unless r.code is 0
   norm = (l) -> l.replace(/\s+/g, ' ').trim()
   got = r.out.split('\n').map(norm).filter((l) -> l isnt '').join('\n')
@@ -850,6 +850,12 @@ checkRun = (c) ->
     for s in [1..Number(c.opts.seeds)]
       await checkRunWith(c, { RIG_SEED: String(s) }, " (seed #{s})")
 
+# Where a case's package goes: beside the case's file in the work tree,
+# or, for a program read where it is (examples/), under the work tree,
+# so a run leaves nothing in the checkout.
+outDirOf = (c, suffix) ->
+  if c.given then join(work, 'given', relative(root, c.path) + suffix) else c.path + suffix
+
 checkRunWith = (c, seedEnv, seedNote) ->
   panic = if c.verb is 'bomb' then (if c.args.length > 0 then printed(c.args[0]) else null) else null
   throw new Error('a `bomb` names its panic') if c.verb is 'bomb' and not panic?
@@ -862,7 +868,7 @@ checkRunWith = (c, seedEnv, seedNote) ->
   # As the suite always has, a case that ends a program on purpose runs
   # with RIG_NO_CRASH_REPORT=1.
   quiet = if c.verb is 'bomb' or c.opts.exit? then { RIG_NO_CRASH_REPORT: '1' } else {}
-  r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: c.path + (if c.release then '.release' else '.debug'), ...quiet, ...seedEnv }, seconds)
+  r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: outDirOf(c, (if c.release then '.release' else '.debug')), ...quiet, ...seedEnv }, seconds)
   mode = (if c.release then ' (release)' else '') + seedNote
   throw new Error("timed out after #{seconds}s#{mode}") unless r.code?
   rejected = r.err.match(/(\S+\.rig):(\d+):(\d+): error: (.*)/)
