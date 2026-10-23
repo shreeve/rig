@@ -20,7 +20,6 @@ items, with their probe cases, are in
 - **More compile-time functions** (the first form is built, SPEC "Compile-time functions"): a call over an enclosing generic's parameter and arithmetic on one in a type (`[cap[n]]Int`, `[n * 2]Int`), by hidden compile-time arguments the checker computes per instance; then text parameters (`hash[s: Static]`), plain objects, and reading module array constants in a body.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Drop bodies for enums and generic types.**
-- **A view of part of self**: a method's view result names the field it views, `-> ?String from @text`, so the caller may write self's other fields while the result lives; today the result keeps all of self lent (SPEC §7, "Places", pending example).
 - **A generic body's holding of a held `T`**: `*<x` in a body whose instance's `T` is already held (`T = ~N`) is rejected at that instance, as `*~N` written out is ("stacks one heap holding on another"); today the instance is accepted, and runs clean (SPEC §10, "Boxes, `^T`", pending example).
 - **A read view of a branch**: `?(a if c else b)` lends whichever name the branch picks, with no copy; today each branch is lent, `?a if c else ?b` (CORE §3, pending example).
 - **A `for` over a made List of owners**: `for x in names()` walks the List a call makes and drops it after the loop, as a `for` over plain elements does; today the List is bound to a name first (CORE §3, pending example).

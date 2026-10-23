@@ -3500,6 +3500,12 @@ test/reject/ownership/origin_holder_owns_target.rig main
 test/reject/ownership/origin_keyword_argument_mapping.rig main
 test/reject/ownership/origin_receiver_stored_in_argument.rig main
 test/reject/ownership/origin_same_type_keeps_both.rig main
+test/reject/ownership/origin_self_path_handle.rig main
+test/reject/ownership/origin_self_path_held_views.rig main
+test/reject/ownership/origin_self_path_kept_map.rig main
+test/reject/ownership/origin_self_path_loans_stay.rig main
+test/reject/ownership/origin_self_path_temporary_owner.rig main
+test/reject/ownership/origin_self_path_whole_self.rig main
 test/reject/ownership/origin_stores_before_result.rig main
 test/reject/ownership/origin_write_cursor_keeps_holder.rig main
 test/reject/ownership/owned_closure_captures_view.rig keep

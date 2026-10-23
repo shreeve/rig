@@ -491,3 +491,449 @@ fail "origin write cursor keeps holder", "9:10: a write view is never stored ins
   a = [Item(n: 1), Item(n: 2)]
   c = Cursor(items: !a, i: 0)
   print(c.i)
+
+test "origin self path reader", "hi 7 8"
+  # `from @seen` and `from @text` name the path of self a result views
+  # (Core sentence 7): `seen` holds a read view, so the items view the
+  # List, not the reader; `word` views `text` alone, so `at` may be
+  # written while it lives.
+
+  obj Reader
+    text: String
+    seen: ?List[Int]
+    at: Int
+
+    fun next(!@) -> ?Int from @seen
+      @at += 1
+      ?@seen[@at - 1]
+
+    fun word(?@) -> ?String from @text
+      ?@text[..2]
+
+  v: List[Int] = List()
+  !v.push(7)
+  !v.push(8)
+  r = Reader(text: String("hi there"), seen: ?v, at: 0)
+  a = (!r).next()
+  b = (!r).next()
+  w = ?r.word()
+  r.at = 0
+  print(w, a, b)
+
+test "origin self path scanner", "12 50"
+  # A self that is itself a view lends what that view carries: `number`
+  # lends `@` to write again while `whole` lives, since `digits` views
+  # only what `@text` views.
+
+  obj Scanner
+    text: ?String
+    pos: Int
+    value: String
+
+    fun digits(!@) -> ?String from @text
+      start = @pos
+      while @pos < @text.len and @text[@pos] >= 0x30 and @text[@pos] <= 0x39
+        @pos += 1
+      @text[start..@pos]
+
+    sub number(!@)
+      whole = (!@).digits()
+      @pos += 1
+      frac = (!@).digits()
+      print(whole, frac)
+
+  s = Scanner(text: "12.50", pos: 0, value: String())
+  !s.number()
+
+test "origin self path items held", "30"
+  # A Map's iterator views the Map, not itself (`from @map`): a function
+  # lent one to write holds two of its items at once.
+
+  fun both(it: !Items[Int, Int]) -> Int
+    a = (!it).next() ?? return 0
+    b = (!it).next() ?? return 0
+    a.value + b.value
+
+  m: Map[Int, Int] = Map()
+  !m.put(1, 10)
+  !m.put(2, 20)
+  k = ?m.items()
+  print(both(!k))
+
+test "origin self path loans copied", '''
+  1
+  10
+'''
+  # A result through a read-view field carries the loans self holds as
+  # the call runs: pointing the field at a shorter-lived Map afterwards
+  # leaves the item viewing the first.
+
+  obj Walk
+    map: ?Map[Int, Int]
+    at: Int
+
+    fun next(!@) -> (?Int)? from @map
+      @at += 1
+      @map.get(@at)
+
+  m1: Map[Int, Int] = Map()
+  !m1.put(1, 10)
+  it = Walk(map: ?m1, at: 0)
+  a = (!it).next()
+  if it.at == 1
+    m2: Map[Int, Int] = Map()
+    !m2.put(2, 20)
+    it.map = ?m2
+    print(it.map.len)
+  if a as x
+    print(x)
+
+fail "origin self path loans stay", "cannot lend `m1` to write while a read loan is live"
+  # The item keeps the first Map lent after the field is pointed away.
+
+  obj Walk
+    map: ?Map[Int, Int]
+    at: Int
+
+    fun next(!@) -> (?Int)? from @map
+      @at += 1
+      @map.get(@at)
+
+  m1: Map[Int, Int] = Map()
+  m2: Map[Int, Int] = Map()
+  !m1.put(1, 10)
+  it = Walk(map: ?m1, at: 0)
+  a = (!it).next()
+  it.map = ?m2
+  !m1.put(3, 30)
+  print(a)
+
+fail "origin self path kept map", "cannot lend `m1` to write while a read loan is live"
+  # A method that re-points the field (`keeps m`) may run while an item
+  # lives, and the item still keeps the first Map lent.
+
+  obj Walk
+    map: ?Map[Int, Int]
+    at: Int
+
+    fun next(!@) -> (?Int)? from @map
+      @at += 1
+      @map.get(@at)
+
+    sub retarget(!@, m: ?Map[Int, Int]) keeps m
+      @map = m
+
+  m1: Map[Int, Int] = Map()
+  m2: Map[Int, Int] = Map()
+  !m1.put(1, 10)
+  it = Walk(map: ?m1, at: 0)
+  a = (!it).next()
+  !it.retarget(?m2)
+  !m1.put(3, 30)
+  print(a)
+
+test "origin self path temporary iterator", "1 10"
+  # An item of a temporary iterator views the Map, so it outlives the
+  # iterator's statement.
+
+  m: Map[Int, Int] = Map()
+  !m.put(1, 10)
+  e = (!(m.items())).next()
+  if e as x
+    print(x.key, x.value)
+
+fail "origin self path temporary owner", "a view of the temporary `mk()` outlives its statement"
+  # A result viewing an owned field of a temporary views the temporary.
+
+  obj Reader
+    text: String
+
+    fun word(!@) -> ?String from @text
+      ?@text[..2]
+
+  fun mk() -> Reader
+    Reader(text: String("hi there"))
+
+  w = (!mk()).word()
+  print(w)
+
+test "origin self path other field", "ab 1 3"
+  # An owned path lends that field alone: self's other fields may be
+  # written while the result lives, and `from @text, k` carries both.
+
+  obj Buf
+    text: String
+    n: Int
+
+    fun head(?@) -> ?String from @text
+      ?@text[..2]
+
+    fun pick(?@, k: ?String) -> ?String from @text, k
+      return k if k.len > @n
+      ?@text[..1]
+
+  b = Buf(text: String("abc"), n: 0)
+  h = ?b.head()
+  b.n = 1
+  k = String("xyz")
+  p = ?b.pick(?k)
+  b.n = p.len
+  print(h, b.n - 2, p.len)
+
+test "origin self path write view and api", '''
+  2
+  11 5
+'''
+  # A write view of one field leaves the others free, and a path is
+  # narrower than an API's `from @`, which a call through the bound uses.
+
+  api Source
+    fun take(!@) -> (?Int)? from @
+
+  obj Walk: Source
+    items: ?List[Int]
+    at: Int
+
+    fun take(!@) -> (?Int)? from @items
+      return none if @at >= @items.len
+      @at += 1
+      ?@items[@at - 1]
+
+  obj B
+    a: Int
+    c: Int
+
+    fun slot(!@) -> !Int from @a
+      !@a
+
+  fun pull[S: Source](s: !S) -> Int
+    n = 0
+    while (!s).take() as _
+      n += 1
+    n
+
+  l: List[Int] = List()
+  !l.push(1)
+  !l.push(2)
+  w = Walk(items: ?l, at: 0)
+  print(pull(!w))
+  b = B(a: 1, c: 2)
+  s = (!b).slot()
+  b.c = 5
+  s += 10
+  print(b.a, b.c)
+
+fail "origin self path whole self", "cannot lend `s` to write while a read loan on `s.text` is live"
+  # A use of all of self touches the path: `reset` may change `@text`.
+
+  obj Scanner
+    text: String
+    pos: Int
+
+    fun digits(!@) -> ?String from @text
+      @pos += 1
+      ?@text[..@pos]
+
+    sub reset(!@)
+      @text = String("")
+
+  s = Scanner(text: String("12"), pos: 0)
+  r = (!s).digits()
+  !s.reset()
+  print(r)
+
+test "origin self path view self reset", "1"
+  # A read-view path leaves self free, even to write: `reset` may point
+  # `@text` elsewhere, and `r` keeps viewing what it viewed.
+
+  obj Scanner
+    text: ?String
+    pos: Int
+
+    fun digits(!@) -> ?String from @text
+      @pos += 1
+      @text[..@pos]
+
+    sub reset(!@)
+      @text = ""
+      @pos = 0
+
+  src = String("12")
+  s = Scanner(text: ?src, pos: 0)
+  r = (!s).digits()
+  !s.reset()
+  print(r)
+
+fail "origin self path held views", "cannot lend `w` to write while a read loan is live"
+  # An owned path's result also carries the loans self holds: `words`
+  # holds views of `w`, which stays lent while `r` lives.
+
+  obj Bag
+    words: List[?String]
+    n: Int
+
+    fun first(?@) -> ?String from @words
+      @words[0]
+
+  w = String("hi")
+  l: List[?String] = List()
+  !l.push(?w)
+  b = Bag(words: <l, n: 0)
+  r = ?b.first()
+  b.n = 1
+  !w.add("!")
+  print(r)
+
+fail "origin self path handle", "while `s.h` is lent"
+  # A handle field is an owned path: replacing it would drop what the
+  # result views.
+
+  obj Buf
+    t: String
+
+  obj S
+    h: *Buf
+    n: Int
+
+    fun view(?@) -> ?String from @h
+      ?@h.t[..]
+
+  s = S(h: *Buf(t: String("abc")), n: 0)
+  r = ?s.view()
+  s.n = 1
+  s.h = *Buf(t: String("x"))
+  print(r)
+
+fail "origin self path body", "`word` returns a view of `@name`, but its signature says it views only `@text`"
+  # The body is checked against the path it names.
+
+  obj Reader
+    text: String
+    name: String
+
+    fun word(?@) -> ?String from @text
+      ?@name[..2]
+
+  print(1)
+
+fail "origin self path body call", "`word` returns a view of `@name`, but its signature says it views only `@text`"
+  # A view a call returns counts for each path it was lent.
+
+  fun pick(a: ?String, b: ?String) -> ?String
+    return a if a.len > b.len
+    b
+
+  obj Reader
+    text: String
+    name: String
+
+    fun word(?@) -> ?String from @text
+      pick(?@text, ?@name)
+
+  print(1)
+
+fail "origin self path body bound", "`next` returns a view of `@b`, but its signature says it views only `@a`"
+  # A call through a bound views its receiver: `(!@b).next()` views `@b`.
+
+  obj Two[I: Iter]
+    a: I
+    b: I
+
+    fun next(!@) -> I.Item? from @a
+      (!@b).next()
+
+  print(1)
+
+test "origin self path view of view", "ab"
+  # A read view of a read-view field is that same view.
+
+  obj Reader
+    text: ?String
+
+    fun rest(?@) -> ?String from @text
+      @text
+
+  r = Reader(text: "ab")
+  print(r.rest())
+
+fail "origin self path no field", "`Reader` has no field `nope`"
+  obj Reader
+    text: String
+
+    fun word(?@) -> ?String from @nope
+      ?@text[..2]
+
+  print(1)
+
+fail "origin self path cannot hold", "`@at: Int` cannot hold a view of what `word` returns, so its result never views it"
+  obj Reader
+    text: String
+    at: Int
+
+    fun word(?@) -> ?String from @at
+      ?@text[..2]
+
+  print(1)
+
+fail "origin self path past a view", "write `from @inner`"
+  obj Inner
+    v: List[Int]
+
+  obj Outer
+    inner: ?Inner
+
+    fun items(?@) -> ?List[Int] from @inner.v
+      ?@inner.v
+
+  print(1)
+
+fail "origin self path holds another", "`from @, @text`"
+  obj Reader
+    text: String
+
+    fun word(?@) -> ?String from @, @text
+      ?@text[..2]
+
+  print(1)
+
+fail "origin self path in an api", "an API names no fields: write `from @`"
+  api Source
+    fun take(!@) -> (?String)? from @text
+
+  print(1)
+
+fail "origin self path in keeps", "`keeps @text`"
+  obj Holder
+    text: ?String
+
+    sub watch(!@, s: ?String) keeps @text
+      @text = s
+
+  print(1)
+
+code "origin self path names no function", "pub inline fn set("
+  # A path in `from` names a field, never a function: `from @set` leaves
+  # a method named `set` free to be inlined.
+
+  obj Bag
+    set: ?List[Int]
+    at: Int
+
+    fun next(!@) -> (?Int)? from @set
+      return none if @at >= @set.len
+      @at += 1
+      ?@set[@at - 1]
+
+  obj Box
+    n: Int
+
+    sub set(!@, v: Int)
+      @n = v
+
+  l: List[Int] = List()
+  !l.push(4)
+  b = Bag(set: ?l, at: 0)
+  x = Box(n: 0)
+  if (!b).next() as v
+    !x.set(v)
+  print(x.n)

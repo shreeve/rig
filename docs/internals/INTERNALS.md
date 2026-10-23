@@ -3166,8 +3166,24 @@ the parameters it names (`sema.declOrigins`, `Origins.declared`); a
 name that is no parameter, one whose type cannot hold what the result
 views, and a clause on a result that views nothing are reported there.
 Resolve records each clause (`declared_origins`) before types are
-complete. The built-in generics' methods keep every argument's
-(`all_params`). A
+complete. A method's clause may name a path of self (`from @text`,
+`from @a.b`; the grammar's `oname`): `declaredOrigins` checks it once
+(`selfPathIn`: fields through objects and boxes, the last able to hold
+what the result views, no path in an API, through a read view, or
+beside `@`), keeps self's bit in `result`, and records each path in
+`Origins.self_paths` with `via_view`, whether its last field is
+declared as a read view (`sema.readViewField`). A call's result then
+carries the loans the receiver holds and, for each path not `via_view`,
+a loan on that path of the receiver's place, never one on all of it
+(`ownership.selfPathsResult`); a receiver that is no place gives the
+loans it holds, or its whole lend for such a path. In the body, the
+caller's loan on self is tagged with the path of each place of self a
+value comes from (`tagSelf`, gated on the method having paths, so
+`lendOn` stays one compare otherwise), and `checkSelfPaths` reports a
+returned view, or a value of a type parameter's type a returned one was
+reached from, outside the paths. `[I: Iter]` takes an instance whose
+`next` has only `via_view` paths (`assocViewsBase`). The built-in
+generics' methods keep every argument's (`all_params`). A
 call of a function value (a closure, a lent callable) takes the origins
 of its type, computed at the call; the body of every function and
 closure is checked against the same ones, so every body satisfies the

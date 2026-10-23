@@ -181,7 +181,8 @@ pub const Copies = enum { pending, none, some };
 
 /// The parameters a function's `from` clause names (`-> T from a, b`),
 /// a bit each, read from the declaration in its module's IR: the
-/// function or method whose name is at `pos`. Null when it writes none.
+/// function or method whose name is at `pos`. A path of self (`from
+/// @text`) names self. Null when it writes none.
 fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
     const m = for (program_modules) |*m| {
         if (m.sema == ctx) break m;
@@ -193,13 +194,67 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
     if (names == .nil) return null;
     var mask: u64 = 0;
     for (names.items()) |n| {
-        const text = leafText(n, m.source);
+        var root = n;
+        while (root.isKind(.member)) root = ir.Member.object(root);
+        const text = leafText(root, m.source);
         for (ir.get(d, .params).items(), 0..) |p, i| {
             const pn = sema.paramNameNode(p) orelse continue;
             if (std.mem.eql(u8, leafText(pn, m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
         }
     }
     return mask;
+}
+
+/// A path of self a method's `from` names (Core s7: `from @text`,
+/// `from @a.b`): its fields, and whether the last is declared as a read
+/// view (`?T`, `[]T`, `?String`, or an optional of one). The result
+/// carries the loans self holds and, for a path that is no read view, a
+/// loan on that path, never one on all of self.
+pub const FromPath = struct { fields: []const []const u8, through_view: bool };
+
+/// The paths of self the `from` clause of the method whose name is at
+/// `pos` names, read from its declaration and its field types.
+fn declaredPaths(a: std.mem.Allocator, ctx: *const sema.SemContext, pos: u32) Error![]const FromPath {
+    const m = for (program_modules) |*m| {
+        if (m.sema == ctx) break m;
+    } else return &.{};
+    if (m.ir == .nil) return &.{};
+    const d = findFun(m.ir, pos) orelse return &.{};
+    if (!d.isKind(.fun)) return &.{};
+    const names = ir.get(d, .origins);
+    if (names == .nil) return &.{};
+    // Self's type, from the `@` parameter's symbol.
+    const self_ty = for (ir.get(d, .params).items()) |p| {
+        const pn = sema.paramNameNode(p) orelse continue;
+        if (!std.mem.eql(u8, leafText(pn, m.source), "@")) continue;
+        const id = ctx.symbolOf(pn) orelse return abstain("a path of self whose self has no type");
+        break ctx.symbols.items[id].ty;
+    } else return &.{};
+    var out: std.ArrayList(FromPath) = .empty;
+    for (names.items()) |n| {
+        if (!n.isKind(.member)) continue;
+        var fields: std.ArrayList([]const u8) = .empty;
+        var at = n;
+        while (at.isKind(.member)) : (at = ir.Member.object(at)) try fields.insert(a, 0, leafText(ir.Member.name(at), m.source));
+        var t = sema.unwrapViews(ctx, self_ty);
+        for (fields.items) |name| {
+            while (sema.boxedType(ctx, t)) |inner| t = inner;
+            const f = sema.lookupDataFieldConst(ctx, t, name) orelse return abstain("a path of self through no field");
+            t = f.ty;
+        }
+        try out.append(a, .{ .fields = fields.items, .through_view = readViewField(ctx, t) });
+    }
+    return out.items;
+}
+
+/// Whether a field of type `t` is declared as a read view: `?T`, `[]T`,
+/// `?String`, or an optional of one (Core s7).
+fn readViewField(ctx: *const sema.SemContext, t: TypeId) bool {
+    return switch (ctx.types.get(t)) {
+        .read_view, .slice, .string_view => true,
+        .optional => |inner| readViewField(ctx, inner),
+        else => false,
+    };
 }
 
 /// The lent parameters a function's `keeps` clause names (`keeps s,
@@ -3133,6 +3188,14 @@ const Lowerer = struct {
         // The receiver's vars in `reads` and `moves`, and whether its
         // write lend's loan is the call's own.
         var recv_vars: std.ArrayList(VarId) = .empty;
+        // For a `from` that names paths of self (`FromPath`): what the
+        // receiver is, whose loans the result carries, and its place,
+        // whose paths the result's loans are on (a receiver that is no
+        // place: its lend, `recv_lent`).
+        var recv_held: ?VarId = null;
+        var recv_place: ?Place = null;
+        var recv_lent: ?VarId = null;
+        var recv_deref = false;
 
         if (callee == .src) {
             const name = leafText(callee, self.src);
@@ -3226,7 +3289,7 @@ const Lowerer = struct {
                     // keep (Core s7).
                     if (fp.type_param) {
                         sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true };
-                    } else if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.ctx, fp.decl_pos) orelse 0 };
+                    } else if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.ctx, fp.decl_pos) orelse 0, .paths = try declaredPaths(self.a, fp.ctx, fp.decl_pos) };
                     // A built-in generic's `T` parameter stores what it is
                     // given (`push`, `insert`, a Cell's `set`).
                     const st = try self.a.alloc(bool, fp.params.len);
@@ -3278,6 +3341,9 @@ const Lowerer = struct {
                         try uses.append(self.a, r);
                         try reads.append(self.a, p.root);
                         try recv_vars.append(self.a, p.root);
+                        recv_held = p.root;
+                        recv_place = p;
+                        recv_deref = deref;
                         if (try self.storesViews(p)) try gains.append(self.a, p.root);
                         recv_root = p.root;
                         // Through a write view, the call may store into
@@ -3294,8 +3360,24 @@ const Lowerer = struct {
                         if (try self.place(obj)) |p| {
                             r = try self.lend(p, .read, obj, p.ty);
                             if (elem_method) elem_from = p.root;
+                            recv_held = p.root;
+                            // Through a read view, a lend copies the view.
+                            if (p.via != .read and (try self.kinds.of(p.ty)).kind != .read_view) {
+                                recv_place = p;
+                                recv_deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
+                            }
                         } else {
                             r = try self.eval(obj, .read, null);
+                            recv_held = r;
+                            // `(?p).m()`: the lend is of place `p`, whose
+                            // fields alone a path of self names.
+                            if (obj.isKind(.read) and fieldsOnly(recv_obj)) if (try self.place(recv_obj)) |p| {
+                                recv_held = p.root;
+                                if (p.via != .read and (try self.kinds.of(p.ty)).kind != .read_view) {
+                                    recv_place = p;
+                                    recv_deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
+                                }
+                            };
                             // A value made there is a temporary of the
                             // statement, which the method sees where it is
                             // (Core §3): what it returns may view it.
@@ -3308,6 +3390,7 @@ const Lowerer = struct {
                         if (r) |rv| {
                             try reads.append(self.a, rv);
                             try recv_vars.append(self.a, rv);
+                            if (recv_place == null) recv_lent = rv;
                         }
                     },
                     .value => {
@@ -3433,7 +3516,9 @@ const Lowerer = struct {
         // What the result carries, or each of several results (Core s7,
         // per result).
         const whole = try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
+        const narrowed = whole.by_paths and recv_held != null;
         const part_carry = try self.a.alloc(core.Part, parts.len);
+        if (narrowed and parts.len > 0) return abstain("several results through a path of self");
         if (parts.len > 0) {
             if (elem_from != null or taken != null) return abstain("several results of a built-in");
             const declared: ?[]const TypeId = if (sig) |sg| sema.resultsOf(sg.ctx, sg.f.returns) else null;
@@ -3471,8 +3556,8 @@ const Lowerer = struct {
             .gains = gains.items,
             .through = through.items,
             .no_loans = cell_store,
-            .no_result = whole.no_result,
-            .result_loan = whole.result_loan,
+            .no_result = if (narrowed) try self.withAll(whole.no_result, recv_vars.items) else whole.no_result,
+            .result_loan = whole.result_loan and !narrowed,
             .no_store = no_store.items,
             .store_loan = store_loan or sig == null,
             .recv_view = recv_view,
@@ -3481,6 +3566,10 @@ const Lowerer = struct {
         if (elem_from) |from| if (result) |r| {
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(from), .def = r });
         };
+        // A `from` that names paths of self (Core s7): the result carries
+        // the loans self holds, and a loan on each path that is no read
+        // view, not one on all of self.
+        if (narrowed) if (result) |r| try self.pathsResult(sig.?.paths, r, recv_held.?, recv_place, recv_lent, recv_deref, pos);
         // `swap` exchanges what its places hold (Core s6): each place's
         // holder then holds the views the other held, not the call's own
         // lends of them. A swap with a value stores it in its place, above.
@@ -3511,7 +3600,56 @@ const Lowerer = struct {
         return std.mem.findScalar(VarId, moves[spans[0].moves..], v) != null;
     }
 
-    const Carry = struct { no_result: []const VarId, result_loan: bool };
+    /// Whether `e` is a name or its fields, a place found without
+    /// running anything.
+    fn fieldsOnly(e: Sexp) bool {
+        var at = e;
+        while (at.isKind(.member)) at = ir.Member.object(at);
+        return at == .src;
+    }
+
+    const Carry = struct { no_result: []const VarId, result_loan: bool, by_paths: bool = false };
+
+    /// `a` and each of `b` not in it.
+    fn withAll(self: *Lowerer, a: []const VarId, b: []const VarId) Error![]const VarId {
+        var out: std.ArrayList(VarId) = .empty;
+        try out.appendSlice(self.a, a);
+        for (b) |v| if (std.mem.findScalar(VarId, out.items, v) == null) try out.append(self.a, v);
+        return out.items;
+    }
+
+    /// What result `r` of a call whose callee's `from` names paths of
+    /// self carries of its receiver (Core s7): the loans self holds, what
+    /// `held` carries, and for each path that is no read view, a loan on
+    /// that path of the receiver's place `at`; a receiver that is no
+    /// place, `lent`, is lent whole for such a path.
+    fn pathsResult(self: *Lowerer, paths: []const FromPath, r: VarId, held: VarId, at: ?Place, lent: ?VarId, deref: bool, pos: u32) Error!void {
+        try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(held), .weak = r });
+        const rv = self.f.vars.items[r];
+        const mode: core.Mode = if (rv.kind == .write_view or rv.holds_writes) .write else .read;
+        for (paths) |fp| {
+            if (fp.through_view) continue;
+            const p = at orelse {
+                if (lent) |l| try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(l), .weak = r });
+                continue;
+            };
+            const path = try self.a.alloc(Step, p.path.len + fp.fields.len);
+            @memcpy(path[0..p.path.len], p.path);
+            var t = p.ty;
+            for (fp.fields, path[p.path.len..]) |name, *step| {
+                step.* = .{ .field = name };
+                var holder = sema.unwrapViews(self.ctx, t);
+                while (sema.boxedType(self.ctx, holder)) |inner| holder = inner;
+                const f = sema.lookupDataFieldConst(self.ctx, holder, name) orelse return abstain("a path of self through no field");
+                t = f.ty;
+            }
+            var pp = p;
+            pp.path = path;
+            pp.ty = t;
+            const loan = try self.lentLoan(pp, mode, deref, pos);
+            try self.emit(.{ .pos = pos, .what = .lend, .loan = loan, .weak = r });
+        }
+    }
 
     /// Which of a call's vars a result of type `view`, as the callee
     /// declares it, carries (Core s7): the receiver's and each
@@ -3523,10 +3661,12 @@ const Lowerer = struct {
         var carried: std.ArrayList(VarId) = .empty;
         var uncarried: std.ArrayList(VarId) = .empty;
         var result_loan = true;
+        var by_paths = false;
         if (sg.receiver and sg.f.params.len > 0) {
             const to = if (sg.from) |m| m & 1 != 0 else try reach.leads(sg.ctx, sg.f.params[0], view);
             try (if (to) &carried else &uncarried).appendSlice(self.a, recv_vars);
             result_loan = to;
+            by_paths = to and sg.paths.len > 0;
         }
         for (spans, 0..) |sp, si| {
             const to = if (sp.param) |fi| (if (sg.from) |m| fi < 64 and m & (@as(u64, 1) << @intCast(fi)) != 0 else try reach.leads(sg.ctx, sg.f.params[fi], view)) else true;
@@ -3541,7 +3681,7 @@ const Lowerer = struct {
             if (std.mem.findScalar(VarId, uncarried.items, v) == null) continue;
             if (std.mem.findScalar(VarId, carried.items, v) == null and std.mem.findScalar(VarId, no_result.items, v) == null) try no_result.append(self.a, v);
         };
-        return .{ .no_result = no_result.items, .result_loan = result_loan };
+        return .{ .no_result = no_result.items, .result_loan = result_loan, .by_paths = by_paths };
     }
 
     /// Whether `ty` is a List, or a view of one.
@@ -3891,6 +4031,8 @@ const Lowerer = struct {
         /// as `from`; null for a function called as a value, which keeps
         /// what its type could hold.
         keeps: ?u64 = null,
+        /// The paths of self its `from` names (`declaredPaths`).
+        paths: []const FromPath = &.{},
 
         /// Whether a call may keep parameter `i` where its type fits: a
         /// lent one only where `keeps` names it.

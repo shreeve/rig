@@ -2163,7 +2163,31 @@ pub const Origins = struct {
     /// `f: once ?fun() -> T`: a closure literal passed to one may move
     /// what it captures out (`|<t| >t!`), as its own parameters.
     once: ParamMask = 0,
+    /// The paths of self a method's `from` names (`from @text`), when it
+    /// names paths rather than all of self; `result` keeps self's bit,
+    /// so a reader of the mask alone sees all of self.
+    self_paths: []const SelfPath = &.{},
 };
+
+/// A path of self a method's `from` names (Core sentence 7, `from
+/// @text`, `from @a.b`): its fields from self, and whether the last is
+/// declared as a read view (`readViewField`). A call's result carries
+/// the loans self holds and, unless `via_view`, a loan on the path.
+pub const SelfPath = struct {
+    fields: []const []const u8,
+    via_view: bool,
+};
+
+/// Whether a field of type `ty` is declared as a read view: a `?T`, a
+/// `[]T`, a `?String`, or an optional of one. What a result views
+/// through it is what the view views, never a part of its holder.
+pub fn readViewField(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .read_view, .slice, .string_view => true,
+        .optional => |inner| readViewField(ctx, inner),
+        else => false,
+    };
+}
 
 /// A function's `from` clause: the names it lists (empty for `from
 /// static`), and the function's parameters.
@@ -6826,12 +6850,22 @@ pub fn withAssoc(ctx: *SemContext, params: []const SymbolId, args: []const TypeI
 /// memory that base owns; null otherwise. A generic body tracks no view
 /// a value of a type parameter holds (docs/design/apis.md, Stage 3), so
 /// it may hold an item across the next `next`, which a loop over the base
-/// itself would reject as the ownership checker does (`viewReach`).
-fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, base: SymbolId, item: TypeId) std.mem.Allocator.Error!?TypeId {
-    const i = std.mem.findScalar(SymbolId, params, base) orelse return null;
+/// itself would reject as the ownership checker does (`viewReach`). An
+/// iterator whose `next` names only paths of self declared as read views
+/// (`from @map`, `SelfPath.via_view`) gives items that view what it
+/// only views, never itself (Core sentence 7), and is taken.
+fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, assoc: AssocOf, item: TypeId) std.mem.Allocator.Error!?TypeId {
+    const i = std.mem.findScalar(SymbolId, params, assoc.base) orelse return null;
     if (i >= args.len) return null;
     const base_ty = args[i];
     if (containsTypeVar(ctx, item) or containsTypeVar(ctx, base_ty)) return null;
+    if (assoc.api == .iter) if (try lookupMethod(ctx, base_ty, "next")) |next| {
+        const paths = next.field.origins.self_paths;
+        const through_views = paths.len > 0 and for (paths) |sp| {
+            if (!sp.via_view) break false;
+        } else true;
+        if (through_views) return null;
+    };
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     return if (try viewReach(ctx, scratch.allocator(), base_ty, item) == .owned) base_ty else null;
@@ -6853,7 +6887,7 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
         if (!hasBounds(sym)) continue;
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
-        if (sym.assoc_of) |assoc| if (try assocViewsBase(ctx, params, args, assoc.base, arg)) |base| {
+        if (sym.assoc_of) |assoc| if (try assocViewsBase(ctx, params, args, assoc, arg)) |base| {
             const shown = try formatType(ctx, base);
             try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, which a generic body does not track, so one could outlive the next call that changes `{s}`; use `{s}` itself, or give items that own what they hold", .{ try rootName(ctx, of), sym.name, try formatType(ctx, arg), try formatType(ctx, arg), shown, shown, shown });
             return false;
@@ -9293,8 +9327,8 @@ pub fn isViewType(ctx: *const SemContext, ty: TypeId) bool {
 /// A name that is no parameter, or one whose type cannot hold what the
 /// result views, is reported, as is a clause on a result that views
 /// nothing.
-fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, param_names: ?[]const []const u8) std.mem.Allocator.Error!Origins {
-    const o = try declaredOrigins(ctx, a, name, pos, f);
+fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, param_names: ?[]const []const u8, in_api: bool) std.mem.Allocator.Error!Origins {
+    const o = try declaredOrigins(ctx, a, name, pos, f, in_api);
     if (resultsOf(ctx, f.returns)) |parts| try checkResultViews(ctx, a, name, pos, f, parts, o.result, param_names orelse &.{});
     return o;
 }
@@ -9326,8 +9360,11 @@ fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, po
     }
 }
 
-/// `declOrigins` without the check of several results.
-fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
+/// `declOrigins` without the check of several results. A path of self
+/// (`from @text`) keeps self's bit and is recorded in `self_paths`
+/// (`selfPathIn`); `@` beside a path, or two paths one of which holds
+/// the other, are reported.
+fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, in_api: bool) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
     try declKeeps(ctx, name, pos, f, &o);
     o.once = ctx.declared_once.get(pos) orelse 0;
@@ -9338,8 +9375,28 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
         return o;
     }
     var named: ParamMask = 0;
+    var whole_self: ?Sexp = null;
+    var paths: std.ArrayList(SelfPath) = .empty;
+    var path_nodes: std.ArrayList(Sexp) = .empty;
     for (d.names.items()) |n| {
+        if (n.isKind(.member)) {
+            const found = (try selfPathIn(ctx, a, name, f, d.params, results, n, in_api)) orelse continue;
+            for (paths.items, path_nodes.items) |q, qn| {
+                const later = found.path.fields.len >= q.fields.len;
+                if (!fieldsPrefix((if (later) q else found.path).fields, (if (later) found.path else q).fields)) continue;
+                const first = try selfPathText(ctx, qn);
+                const second = try selfPathText(ctx, n);
+                try ctx.errAt(n, "`from {s}, {s}`: `{s}` holds `{s}`; name one of them", .{ first, second, if (later) first else second, if (later) second else first });
+                break;
+            } else {
+                try paths.append(a, found.path);
+                try path_nodes.append(a, n);
+                named |= paramBit(found.index);
+            }
+            continue;
+        }
         const text = identAt(ctx.source, n) orelse continue;
+        if (std.mem.eql(u8, text, "@")) whole_self = n;
         const i = for (d.params.items(), 0..) |p, i| {
             if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
         } else {
@@ -9354,9 +9411,91 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
         }
         named |= paramBit(i);
     }
+    if (whole_self != null and path_nodes.items.len > 0) {
+        const p = try selfPathText(ctx, path_nodes.items[0]);
+        try ctx.errAt(path_nodes.items[0], "`from @, {s}`: `@` holds `{s}`; name one of them", .{ p, p });
+        paths.clearRetainingCapacity();
+    }
     o.result &= named;
     o.declared = true;
+    if (paths.items.len > 0) o.self_paths = try ctx.arena.allocator().dupe(SelfPath, paths.items);
     return o;
+}
+
+/// Whether path `short` is `long` or one of its prefixes.
+fn fieldsPrefix(short: []const []const u8, long: []const []const u8) bool {
+    if (short.len > long.len) return false;
+    for (short, long[0..short.len]) |x, y| if (!std.mem.eql(u8, x, y)) return false;
+    return true;
+}
+
+/// A path of self, `@a.b`, as written.
+fn selfPathText(ctx: *SemContext, n: Sexp) std.mem.Allocator.Error![]const u8 {
+    if (!n.isKind(.member)) return identAt(ctx.source, n) orelse "@";
+    return memberText(ctx.arena.allocator(), try selfPathText(ctx, ir.Member.object(n)), identAt(ctx.source, ir.Member.name(n)) orelse "?");
+}
+
+/// The path of self `n` names in the `from` of method `name` of type
+/// `f`, whose parameters are `params` and whose result views `results`
+/// (Core sentence 7): fields from `@` through objects and boxes, as Core
+/// §5 defines a path, whose last field's type could hold what the result
+/// views. Null after reporting a path that names a parameter's part, one
+/// in an API, one past a read view (whose result views what the view
+/// views), one past anything else that ends a path, a field no type
+/// has, or one that cannot hold the result.
+fn selfPathIn(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, f: FunctionType, params: Sexp, results: ViewTargets, n: Sexp, in_api: bool) std.mem.Allocator.Error!?struct { path: SelfPath, index: usize } {
+    const text = try selfPathText(ctx, n);
+    var steps: std.ArrayList(Sexp) = .empty;
+    var root = n;
+    while (root.isKind(.member)) : (root = ir.Member.object(root)) try steps.insert(a, 0, root);
+    const root_text = identAt(ctx.source, root) orelse return null;
+    if (!std.mem.eql(u8, root_text, "@")) {
+        try ctx.errAt(n, "`from {s}`: `from` names a parameter, or a path of self (`from @text`); write `from {s}`", .{ text, root_text });
+        return null;
+    }
+    if (in_api) {
+        try ctx.errAt(n, "`from {s}`: an API names no fields: write `from @`", .{text});
+        return null;
+    }
+    const index = for (params.items(), 0..) |p, i| {
+        if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, "@")) break i;
+    } else {
+        try ctx.errAt(n, "`{s}` has no `@`, so `from {s}` names nothing; a path of self is a method's", .{ name, text });
+        return null;
+    };
+    if (index >= f.params.len) return null;
+    const fields = try ctx.arena.allocator().alloc([]const u8, steps.items.len);
+    var t = unwrapViews(ctx, f.params[index]);
+    for (steps.items, fields, 0..) |step, *field, k| {
+        field.* = identAt(ctx.source, ir.Member.name(step)) orelse return null;
+        const before = ir.Member.object(step);
+        if (k > 0 and readViewField(ctx, t)) {
+            const held = try selfPathText(ctx, before);
+            try ctx.errAt(n, "`from {s}`: `{s}` is a read view, so a result views what it views, not a part of self; write `from {s}`", .{ text, held, held });
+            return null;
+        }
+        var holder = t;
+        while (boxedType(ctx, holder)) |inner| holder = inner;
+        const ok = switch (ctx.types.get(holder)) {
+            .nominal, .imported_nominal => true,
+            .parameterized_nominal => |pn| !isBuiltinGeneric(ctx, pn.sym),
+            else => false,
+        };
+        if (!ok) {
+            try ctx.errAt(n, "`from {s}`: `{s}` is a `{s}`, and a path of self goes only through fields of objects and boxes", .{ text, try selfPathText(ctx, before), try formatType(ctx, t) });
+            return null;
+        }
+        const fld = lookupDataFieldConst(ctx, holder, field.*) orelse {
+            try ctx.errAt(n, "`{s}` has no field `{s}`, so `from {s}` names nothing", .{ try formatType(ctx, holder), field.*, text });
+            return null;
+        };
+        t = fld.ty;
+    }
+    if (try reachTargets(ctx, a, t, results, .all) == .none) {
+        try ctx.errAt(n, "`{s}: {s}` cannot hold a view of what `{s}` returns, so its result never views it", .{ text, try formatType(ctx, t), name });
+        return null;
+    }
+    return .{ .path = .{ .fields = fields, .via_view = readViewField(ctx, t) }, .index = index };
 }
 
 /// Narrow `o.stores` to the parameters a call of function `name`,
@@ -9372,6 +9511,11 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
     var named: ParamMask = 0;
     if (ctx.declared_keeps.get(pos)) |d| {
         for (d.names.items()) |n| {
+            if (n.isKind(.member)) {
+                const text = try selfPathText(ctx, n);
+                try ctx.errAt(n, "`keeps {s}`: `keeps` names lent parameters, not their parts; write `keeps @`", .{text});
+                continue;
+            }
             const text = identAt(ctx.source, n) orelse continue;
             const i = for (d.params.items(), 0..) |p, i| {
                 if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
@@ -9412,10 +9556,10 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                     .function => |f| f,
                     else => continue,
                 };
-                sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f, sym.param_names);
+                sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f, sym.param_names, false);
                 _ = scratch.reset(.retain_capacity);
             },
-            .nominal_type, .generic_type, .api => sym.fields = try methodOrigins(ctx, &scratch, sym.fields orelse continue),
+            .nominal_type, .generic_type, .api => sym.fields = try methodOrigins(ctx, &scratch, sym.fields orelse continue, sym.kind == .api),
             else => {},
         }
     }
@@ -9426,14 +9570,14 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
         if (c.kind != .add or c.methods.len == 0) continue;
         if (done == null or done.?.ptr != c.methods.ptr) {
             done = c.methods;
-            with = try methodOrigins(ctx, &scratch, c.methods);
+            with = try methodOrigins(ctx, &scratch, c.methods, false);
         }
         c.methods = with;
     }
 }
 
 /// `fields` with each method's origins set (`declOrigins`).
-fn methodOrigins(ctx: *SemContext, scratch: *std.heap.ArenaAllocator, fields: []const Field) std.mem.Allocator.Error![]const Field {
+fn methodOrigins(ctx: *SemContext, scratch: *std.heap.ArenaAllocator, fields: []const Field, in_api: bool) std.mem.Allocator.Error![]const Field {
     const out = try ctx.arena.allocator().dupe(Field, fields);
     for (out) |*fld| {
         if (!fld.is_method or fld.is_drop_method) continue;
@@ -9441,7 +9585,7 @@ fn methodOrigins(ctx: *SemContext, scratch: *std.heap.ArenaAllocator, fields: []
             .function => |f| f,
             else => continue,
         };
-        fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f, fld.param_names);
+        fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f, fld.param_names, in_api);
         _ = scratch.reset(.retain_capacity);
     }
     return out;

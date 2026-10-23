@@ -68,9 +68,9 @@ test "iter every std iterator", '''
 '''
   # Each std iterator is an `Iter` whose item is what the loop gives: a
   # body bounded by `Iter` prints its count and first item, and a loop
-  # over another of the same prints the same. A Map's and a Set's, whose
-  # items may view memory the iterator owns, a body bounded by `Iter`
-  # does not take ("iter a map's iterator"); a loop walks them.
+  # over another of the same prints the same. A Map's and a Set's are
+  # walked by a loop here, and by a body bounded by `Iter` in "iter a
+  # map's iterator".
   use std.text
   use std.utf8
 
@@ -120,11 +120,76 @@ test "iter every std iterator", '''
   for x in !e2
     print(2, x) if x == 1
 
-fail "iter a map's iterator", "`iter.count[Keys[Int, Int]]` cannot use `I.Item = ?Int`: a `?Int` may view memory `Keys[Int, Int]` owns, which a generic body does not track, so one could outlive the next call that changes `Keys[Int, Int]`; use `Keys[Int, Int]` itself, or give items that own what they hold"
-  # A Map's iterator gives views its type does not show to be outside
-  # it, which a body bounded by `Iter` could hold across `next`: such an
-  # instance is rejected, and a loop over the iterator itself walks it.
+test "iter a map's iterator", "2 1 2"
+  # A Map's and a Set's iterators view the Map or Set, not themselves
+  # (`next(!@) -> (?K)? from @map`), so a body bounded by `Iter` takes
+  # them.
   m: Map[Int, Int] = Map()
   !m.put(1, 10)
+  !m.put(2, 20)
   k = ?m.keys()
-  print(iter.count(!k))
+  st: Set[Int] = Set()
+  !st.add(5)
+  e = ?st.items()
+  v = ?m.values()
+  print(iter.count(!k), iter.count(!e), iter.count(!v))
+
+test "iter holds two items", '''
+  1 2
+  10 20
+  5 6
+  7 8
+'''
+  # A body bounded by `Iter` may hold two items at once: each views what
+  # the iterator views, never the iterator, over a Map's, a Set's, and a
+  # List cursor's items.
+
+  obj Cursor
+    items: ?List[Int]
+    at: Int
+
+    fun next(!@) -> (?Int)? from @items
+      return none if @at >= @items.len
+      @at += 1
+      ?@items[@at - 1]
+
+  sub two[I: Iter, I.Item: Print + Copy](it: !I)
+    a = (!it).next()
+    b = (!it).next()
+    if a as x
+      if b as y
+        print(x, y)
+
+  m: Map[Int, Int] = Map()
+  !m.put(1, 10)
+  !m.put(2, 20)
+  k = ?m.keys()
+  two(!k)
+  vs = ?m.values()
+  two(!vs)
+  st: Set[Int] = Set()
+  !st.add(5)
+  !st.add(6)
+  ms = ?st.items()
+  two(!ms)
+  l: List[Int] = List()
+  !l.push(7)
+  !l.push(8)
+  c = Cursor(items: ?l, at: 0)
+  two(!c)
+
+fail "iter an owned path", "`iter.count[Own]` cannot use `I.Item = ?String`: a `?String` may view memory `Own` owns"
+  # An item that views a field the iterator owns (`from @buf`) still
+  # views the iterator, which a body bounded by `Iter` does not track.
+
+  obj Own
+    buf: String
+    at: Int
+
+    fun next(!@) -> (?String)? from @buf
+      return none if @at >= 2
+      @at += 1
+      ?@buf[..@at]
+
+  o = Own(buf: String("ab"), at: 0)
+  print(iter.count(!o))

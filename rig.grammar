@@ -756,8 +756,13 @@ returns  = "->" type                                → 2
 origins  = FROM onames                              → (...2)
          | FROM STATIC                              → ()
 
-onames   = name                                     → (1)
-         | onames "," name                          → (...1 3)
+onames   = oname                                    → (1)
+         | onames "," oname                         → (...1 3)
+
+# A name in `from` or `keeps`: a parameter, or a path of self (`from
+# @text`, `from @a.b`), which only `from` takes.
+oname    = name
+         | object:oname "." name:name               → (member)
 
 # The lent parameters a function may keep, at the end of its header: it
 # may store what each views in what its write receiver and write

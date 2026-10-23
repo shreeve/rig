@@ -473,11 +473,23 @@ returns a view only of what it was lent, or of something that lives for
 the whole program: a `Static` (a text literal is one), a module
 constant, or `os.args()`. Its result carries the loans of the arguments
 whose types could hold what it views, or, when the result says
-`from a`, of `a` alone. A result that holds no write view carries its
-loans as read loans, even one of an argument lent to write, whose write
-lend then ends as the call returns unless the call keeps it: after
-`head(!v)`, in its own statement or through `r = head(!v)`, `v` may be
-read, but not written, while the result lives. A view reached through a
+`from a`, of `a` alone. A method's `from` may also name a path of
+self, as §5 defines one (`from @text`, `from @a.b`), whose type could
+hold what the result views. The result then carries the loans self
+holds and a loan on that path alone, not on all of self, so a use of
+self's other paths may go on while it lives; a use of all of self
+(`(!s).m()`, `!s.m()`, `<s`, `s = x`) still touches the path. When the
+path is a field declared as a read view (`?T`, `[]T`, `?String`, or an
+optional of one), the result carries the loans self holds and none on
+self, so self may be lent again, even to write, while the result lives;
+when self is itself a view, its loans are the loans that view carries.
+The body is checked against the path: each view it returns comes from
+that path, a view a call through a bound returns included. *(built)* A
+result that holds no write view carries its loans as read loans, even
+one of an argument lent to write, whose write lend then ends as the
+call returns unless the call keeps it: after `head(!v)`, in its own
+statement or through `r = head(!v)`, `v` may be read, but not written,
+while the result lives. A view reached through a
 read view that a value holds carries that view's loans, not a loan on
 the holder. What a call stores in what a write view lent to it sees
 carries, in the same way, the loans of the arguments whose types could
@@ -530,6 +542,52 @@ sub main()
 
 ```output
 1 2
+```
+
+`seen` holds a view, so `next`'s items view the List and not the
+reader. `word` views `text` alone, so `at` may be written while it
+lives:
+
+```rig
+obj Reader
+  text: String
+  seen: ?List[Int]
+  at: Int
+
+  fun next(!@) -> ?Int from @seen
+    @at += 1
+    ?@seen[@at - 1]
+
+  fun word(?@) -> ?String from @text
+    ?@text[..2]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(7)
+  !v.push(8)
+  r = Reader(text: String("hi there"), seen: ?v, at: 0)
+  a = (!r).next()
+  b = (!r).next()
+  w = ?r.word()
+  r.at = 0
+  print(w, a, b)
+```
+
+```output
+hi 7 8
+```
+
+```rig reject
+obj Reader
+  text: String
+  name: String
+
+  fun word(?@) -> ?String from @text
+    ?@name[..2]
+```
+
+```error
+`word` returns a view of `@name`, but its signature says it views only `@text`
 ```
 
 ```rig

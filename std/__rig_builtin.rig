@@ -619,7 +619,7 @@ pub obj Items[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!@) -> Item[?K, ?V]?
+  pub fun next(!@) -> Item[?K, ?V]? from @map
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -633,7 +633,7 @@ pub obj Keys[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!@) -> (?K)?
+  pub fun next(!@) -> (?K)? from @map
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -645,7 +645,7 @@ pub obj Values[K, V]
   map: ?Map[K, V]
   next_at: Int
 
-  pub fun next(!@) -> (?V)?
+  pub fun next(!@) -> (?V)? from @map
     while @next_at < @map.es.len
       j = @next_at
       @next_at += 1
@@ -659,7 +659,7 @@ pub obj Members[K]
   set: ?Set[K]
   next_at: Int
 
-  pub fun next(!@) -> (?K)?
+  pub fun next(!@) -> (?K)? from @set
     while @next_at < @set.ks.len
       j = @next_at
       @next_at += 1

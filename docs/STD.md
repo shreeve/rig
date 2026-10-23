@@ -928,9 +928,10 @@ sub main()
 Functions over any iterator, a value of a type that declares
 `next(!@) -> T?` ([SPEC, APIs](../SPEC.md#apis): it provides `Iter`,
 and its `Item` is `T`). Each takes the iterator lent to write and
-advances it to its end. An iterator whose items may view memory it owns,
-a Map's or a Set's among them, is walked with a loop instead
-([SPEC, APIs](../SPEC.md#apis)).
+advances it to its end. An iterator whose items may view memory it owns
+is walked with a loop instead ([SPEC, APIs](../SPEC.md#apis)); a Map's
+and a Set's view the Map or Set (`next(!@) -> (?K)? from @map`), so
+these take them.
 
 | Function | Result |
 |---|---|
@@ -984,7 +985,7 @@ a Set.
 | `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry was taken since the entries were last compacted; else it counts the entries before |
 | `(!m).take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!@)` | drops every entry |
-| `?m.items()` | `fun items(?@) -> Items[K, V] from @` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
+| `?m.items()` | `fun items(?@) -> Items[K, V] from @` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) views `m` (`next(!@) -> Item[?K, ?V]? from @map`), and keeps it lent to read while it lives |
 | `?m.keys()`, `?m.values()` | `fun keys(?@) -> Keys[K, V] from @` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!@, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 | `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
@@ -1057,11 +1058,12 @@ same parts holding a `?String` is another type. A key object that
 holds a `?String` looks up with no copy, and its Map holds views, as a
 `Map[?String, V]` does.
 
-A view an iterator gives comes from `next`, which takes the iterator
-lent to write, so it lasts until the loop takes the next one: it can
-be read and passed on in the loop's body, but not kept past it (`keep =
-e.value` in the loop is rejected). To keep a value, clone it (`+e.value`),
-or look it up again with `get`.
+A view an iterator gives views the Map or Set, not the iterator: each
+`next` says `from @map` (`from @set`), which names the iterator's field
+holding a view of it (Core sentence 7). An item may be kept past its
+step of the loop, `keep = e.value`, and keeps the Map lent to read
+while it lives, so `!m.put(...)` waits until it is last used. To keep a
+value while the Map changes, clone it (`+e.value`).
 
 ```rig
 
