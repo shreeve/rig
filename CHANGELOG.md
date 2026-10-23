@@ -13,6 +13,11 @@ changed the language since it:
 
 ### Language and compiler
 
+- **`std.json`'s `JsonError`:** `(!doc).load(?src)` parses as `parse`
+  does and fails with `JsonError.bad(kind:, at:)`, the first error and
+  its byte offset, where `parse` answers `false`. `parse`, a `Bool`,
+  stays as it was.
+
 - **One representation for `error`:** an `error` is always an error value
   that may carry fields, and every `T!` function takes the hidden slot,
   which has no bits in a program whose sets have none. A program's code

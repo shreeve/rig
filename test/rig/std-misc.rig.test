@@ -902,6 +902,31 @@ test "json partial tape", '''
   again = "{\"x\": [\"\\u00e9\", 1.5"
   print((!doc).parse(?again), json.error_name(doc.error), doc.error_pos, doc.size())
 
+test "json load fails with the error parse records", '''
+  3
+  JsonError.bad(kind: .unexpected, at: 4)
+  unexpected 4 0
+  -1
+'''
+  # `load` is `parse` failing with `JsonError.bad(kind:, at:)`; the tape
+  # is empty after it fails, as after `parse`.
+
+  fun size_of(doc: !json.Doc, src: ?String) -> Int!json.JsonError keeps src
+    (!doc).load(src)!
+    doc.size()
+
+  sub main()
+    doc = json.new_doc()
+    good = "[1]"
+    print(size_of(!doc, ?good) catch -1)
+    bad = "[1, x]"
+    n = size_of(!doc, ?bad) catch |e|
+      print(e)
+      match e
+        .bad(kind, at) => print(json.error_name(kind), at, doc.size())
+      -1
+    print(n)
+
 test "json scan edges", "checked 358940 mismatches 0", release: true
   # Every place a string scan can stop, from every start: the scan starts
   # at `at` (1 to 18, after spaces and `\"` escapes, so special bytes lie
