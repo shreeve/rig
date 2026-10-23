@@ -1118,7 +1118,28 @@ verdict = ->
   process.stdout.write("\x1b[31m#{died.length} died:\x1b[0m\n" + shown.map((l) -> "  #{l}\n").join('') + (if reasons.length > shown.length then "  ... and #{reasons.length - shown.length} more in #{relative(process.cwd(), join(here, 'errors.log'))}\n" else ''))
   process.exit(1)
 
+# What the checkout holds beyond its commit (`git status --porcelain`,
+# untracked files listed one by one), or null outside a repository.
+loose = ->
+  r = Bun.spawnSync({ cmd: ['git', 'status', '--porcelain', '--untracked-files=all'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+  return null unless r.exitCode is 0
+  r.stdout.toString().split('\n').filter((l) -> l.trim() isnt '')
+
+# A run writes only into .swarm, .zig-cache, and its out dirs: a file it
+# leaves in the checkout fails it, as a died job does, so nothing a run
+# makes can be committed by `git add` after it.
+leftBefore = loose()
+leftBehind = ->
+  return unless leftBefore?
+  now = loose() or []
+  had = new Set(leftBefore)
+  extra = now.filter((l) -> not had.has(l))
+  return if extra.length is 0
+  process.stdout.write("\x1b[31mthe run left #{extra.length} file(s) in the checkout:\x1b[0m\n" + extra.slice(0, 20).map((l) -> "  #{l}\n").join(''))
+  process.exit(1)
+
 # Inside a cpuq lease, as many workers as it granted cores; elsewhere,
 # Swarm's own default, one per CPU (`-w N` chooses either way).
 await swarm { setup, perform, workers: (if process.env.CPUQ_CORES then Number(process.env.CPUQ_CORES.split('-')[0]) else undefined) }
 verdict()
+leftBehind()
