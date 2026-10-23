@@ -765,3 +765,36 @@ test "drop parts made before a part that fails", '''
   print(joined(1) catch -1, joined(0) catch -1)
   print(results(1) catch -1, results(0) catch -1)
   print(method(1) catch -1, method(0) catch -1)
+
+test "drop of compared temporaries", '''
+  false true false true true false
+  true true true
+  false true true
+  false true true
+  false true
+'''
+  # Each owned temporary beside `<`, `<=`, `>`, `>=`, `==`, and `!=` is
+  # dropped with its statement: a String, an optional, an object that
+  # names `Ord`, and an array.
+
+  obj P: Ord
+    s: String
+
+  fun mk() -> String
+    String("a")
+
+  fun mo() -> String?
+    String("a")
+
+  fun mp() -> P
+    P(s: String("a"))
+
+  fun ma() -> [2]String
+    [String("a"), String("b")]
+
+  s = String("b")
+  print(mk() < mk(), mk() <= mk(), mk() > mk(), mk() >= mk(), mk() == mk(), mk() != mk())
+  print(mk() < s, s > mk(), mk() != s)
+  print(mo() < mo(), mo() == mo(), mo() >= mo())
+  print(mp() < mp(), mp() == mp(), mp() >= mp())
+  print(ma() < ma(), ma() == ma())

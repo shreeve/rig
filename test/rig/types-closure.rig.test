@@ -265,6 +265,17 @@ fail "closure uses uncaptured local", "`m` is a local of the enclosing function;
     print(n + m)
   f()
 
+fail "closure uses an uncaptured local twice", "5:14: `m` is a local of the enclosing function; capture it", "7:20: `m` is a local", "8:10: `m` is a local", errors: 3
+  # The error is reported once for each closure and local, at its first
+  # use; a nested closure that also uses the local has an error of its own.
+
+  m = 2
+  f = |x: Int| m + x * m
+  g = |x: Int|
+    h = |y: Int| y + m
+    h(x) + m
+  print(f(1), g(1))
+
 test "closure after keyword arguments", '''
   run 1
   run 2

@@ -6148,8 +6148,9 @@ pub fn namedNoneOf(ctx: *const SemContext, ty: TypeId) ?NamedNone {
     };
 }
 
-/// An enum all of whose variants are bare (no payloads): comparable
-/// with `==`.
+/// An enum all of whose variants are bare (no payloads, or an empty one,
+/// `a()`): comparable with `==`, and its values integers (`enumValues`),
+/// which resolve gives it. The one classifier of a plain enum.
 pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
     const decl = nominalDecl(ctx, ty) orelse return false;
     const fields = decl.symbol().fields orelse return false;
@@ -6166,17 +6167,14 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
 /// values are integers (`Int(x)`): true for a plain enum, false for one
 /// with payload variants or type parameters; null for any other type.
 pub fn enumValues(ctx: *const SemContext, ty: TypeId) ?bool {
-    const decl = nominalDecl(ctx, unwrapViews(ctx, ty)) orelse return null;
+    const base = unwrapViews(ctx, ty);
+    const decl = nominalDecl(ctx, base) orelse return null;
     const sym = decl.symbol();
     if (sym.flags.error_set) return null;
     const fields = sym.fields orelse return null;
-    var any = false;
-    for (fields) |f| {
-        if (!f.is_variant) continue;
-        any = true;
-        if (f.value == null) return false;
-    }
-    return if (any) true else null;
+    // A generic enum's variants have no values, bare or not.
+    for (fields) |f| if (f.is_variant) return sym.kind != .generic_type and isPlainEnum(ctx, base);
+    return null;
 }
 
 /// A declared enum whose values are integers (`enumValues`), itself and
@@ -6713,7 +6711,8 @@ fn heldLack(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?Lac
 
 /// Why `ty` has no order (`lacks` of `Ord`): numbers, `Bool`, text, and
 /// plain enums are ordered; an object or an enum whose header names
-/// `Ord`; and an optional, an array, or a slice of ordered values.
+/// `Ord`; an optional, an array, or a slice of ordered values; and a
+/// frozen value's handle when its value is ordered.
 fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?Lack {
     if (depth > 64) return .{ .ty = ty };
     if (isText(ctx, ty)) return null;
@@ -6722,6 +6721,9 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
         .int, .float, .int_literal, .float_literal, .bool, .slot => return null,
         .read_view, .write_view => |inner| return ordLack(ctx, inner, depth + 1),
         .optional => |inner| return ordLack(ctx, inner, depth + 1),
+        // A frozen value never changes, so its handles order by what they
+        // reach, as they compare and hash.
+        .shared => |inner| return if (frozenValue(ctx, inner)) |value| ordLack(ctx, value, depth + 1) else .{ .ty = ty },
         .array => |arr| return ordLack(ctx, arr.elem, depth + 1),
         .slice => |sl| return ordLack(ctx, sl.elem, depth + 1),
         .nominal, .imported_nominal => {

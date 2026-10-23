@@ -212,9 +212,9 @@ It replaces `bin/rig-oracle` over time rather than becoming a third
 checker. Its first slice is built: [`formal/`](../../formal/README.md) has λRig
 with boxes, plain numbers and views, an interpreter, an ownership
 checker, and a proof (`accepts_runs`) that every program the checker
-accepts runs without a fault or a leak (stage 3 for that slice). A cheaper version of the same check also goes into the emitted
-code (`RIG_SANITIZE=views`): each owner counts its writes, and a view
-checks the count it was lent at on every read.
+accepts runs without a fault or a leak (stage 3 for that slice). A cheaper version of the same check is to go into the emitted
+code as `RIG_SANITIZE=views` *(planned)*: each owner counts its writes,
+and a view checks the count it was lent at on every read.
 
 **Stage 3: soundness.** Progress and preservation for λRig over that
 interpreter, in the style of Oxide (Weiss et al., 2019). The proof must

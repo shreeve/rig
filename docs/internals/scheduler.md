@@ -70,7 +70,11 @@ a program that makes none starts no workers.
   proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
   searching at once; one that finds work wakes one more; workers with no
-  work sleep in their poller (below).
+  work sleep in their poller (below). A worker about to sleep lists
+  itself as asleep, then, when none searches, looks once more at the
+  global queue and every ring; one that finds work there counts itself
+  as searching again, so taking it wakes another for the rest
+  (`sched.sleep`, checked in formal/Models/Sleep.lean as `relook`).
 
 ## Stacks
 
@@ -171,12 +175,22 @@ fails, and yields only when other work waits.
   (the flag below).
 - **Recursion.** A function on a cycle of calls (`inlining.decide`)
   starts by reading one flag, `sched.waiting`, on a cache line of its
-  own. Work woken or made while every worker is busy sets it. The first
-  check to see it clears it and yields to that work: its own worker's,
-  or half of another busy worker's ring, stolen. A worker that finds no
-  work and sleeps clears it too. A task that yields only puts itself
-  back in line, so it never sets the flag, and busy tasks do not keep
-  yielding to each other.
+  own. Work woken or made while every worker is busy sets it, and so
+  does a fiber that fills its worker's "run next" slot and runs on. The
+  first check to see it clears it and yields to that work: its own
+  worker's, or half of another busy worker's ring, stolen. A worker
+  that finds no work and sleeps clears it too. The flag is one bit for
+  many notices, and a fiber in a slot is seen by no sleeper and by its
+  maker's recursive checks only through it, so whoever clears it, a
+  check or a sleeper, sets it again while any other worker's slot holds
+  a fiber (`sched.takeWaiting`). Four accesses make that handshake, all
+  sequentially consistent: the clearer's swap of the flag to 0 and its
+  reads of the slots after it, and the maker's swap into its slot and
+  its read of the flag after that. So the clearer sees the fiber, or
+  the maker sees the flag clear and sets it (the stores that set it
+  need no stronger order). A task that yields only puts itself back in
+  line, so it never sets the flag, and busy tasks do not keep yielding
+  to each other.
 
 A loop's check also keeps its worker's timers and descriptors going
 while it computes (`sched.serviceBusy`): it wakes the fibers whose

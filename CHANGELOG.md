@@ -20,6 +20,52 @@ changed the language since it:
   fails with that set when it holds `task.Stop` (for `task.all`, the one
   of its tasks' sets that holds the others), as a set of tasks does.
 
+- **A generic body takes a `T`'s failure as the value's fallible:** a
+  call on a `T` caught in a `-> Int!` body was taken as an `Int!!`, which
+  the message showed; it is an `Int!`. A body declaring a set of its own
+  that passes such a failure on with `!` is told that a call on a `T` is
+  taken to fail with any error.
+
+- **A frozen value's handles order by what they reach,** as they compare
+  and hash: `*Frozen[T]` provides `Ord` when `T` does, so `<`, a `T: Ord`
+  bound, and `sort` take it.
+
+- **A variant written with an empty payload, `a()`, is bare:** an enum
+  of `a()` and `b` compared with `==` but was refused `<` and `Int(x)` as
+  having payloads. One classifier now says an enum is plain
+  (`sema.isPlainEnum`), and the values `Int(x)`, ordering, and
+  `$variants` read go through it.
+
+- **Small fixes the Learn Rig journeys found:** a local a closure uses
+  without capturing it is reported once for each closure, at its first
+  use; `List(...)` of objects, and an array lent where a `?List[T]`
+  goes, name the form that works (an empty List pushed into, or a `[]T`
+  parameter); `RIG_LEAK_TRACE=1 rig test` shows each leaked
+  allocation's trace after the summary, and the leak note names the
+  command that was run; what `print` buffers is written out before the
+  program goes idle waiting on I/O or time, so a server piped to another
+  program shows its first line while it waits; and `rig check
+  --facts=proofs` names the file of each line in a directory module.
+
+- **An ordering in a generic body reads its operands as `==` does:** a
+  made `T` beside `<`, `<=`, `>`, or `>=` is a temporary of `T`, which an
+  instance that owns a resource cannot leave, and which a body bounded by
+  `Ord` alone cannot leave either (`[K: Copy + Ord]`, or bind it to a
+  name). Before, `f() < f()` with `K = String` leaked both Strings, and
+  so did `sort.sort_by_key` with an owned key; it now binds each key to a
+  name and drops it. A generic body that ordered made values of a type
+  parameter without `Copy` is now rejected.
+
+- **An error code widens to a union that holds it where a view of the
+  union goes:** for sets without fields, `m.get(B.y)` for a
+  `Map[L, Int]` of `error L = A | B`, and `take(B.y)` for a `?L`
+  parameter, were rejected with a hint, `?B.y`, that led to another
+  error, and `o == A.x` for an `L?` was "cannot compare". Each now takes
+  the member as a value of `L`. Where the union has fields, the error
+  says to bind it as the union first. Fixed with it: an `L?` of a union
+  with fields compared with one of its members (`o == .w`) failed in
+  Zig.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed
@@ -480,7 +526,12 @@ first step is on `main` (SPEC §18):
   on one worker, with no system call to wake another, and fork-join
   (`t = f()&; g(); >t`) spreads at `g`'s first yield check. The worker
   watching busy workers' pollers keeps the watch while they wake, so
-  they kick no one as they do (`sched.sleepIn`).
+  they kick no one as they do (`sched.sleepIn`). A worker going to
+  sleep, or a check that takes the notice of waiting work, leaves that
+  notice set while another worker's run-next slot holds a task
+  (`sched.takeWaiting`), so a maker computing in recursion, whose checks
+  read only the notice, hands the task on; one that cleared it left the
+  task waiting until the maker finished.
 - **Each worker on cache lines of its own:** no line holds two
   workers' fields (`sched.Worker`), so a yield takes about 5 ns on the
   Mac and 22 on pup's two hyperthreads, 45% and 12% less (bench/tasks).

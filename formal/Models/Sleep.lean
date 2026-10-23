@@ -115,7 +115,7 @@ structure Config where
   /-- The thread outside makes work into a pinned queue. -/
   outsideHome : Bool := false
   /-- A worker that finds work in its last look before sleeping counts
-  itself as searching again. -/
+  itself as searching again, as `sleep` in src/sched.zig does. -/
   relook : Bool := false
   /-- Every worker but the first begins asleep in its poller, listed in
   `sleepers`, rather than looking for work. -/

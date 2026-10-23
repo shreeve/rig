@@ -157,6 +157,7 @@ fn waitFor(fd: i32, reg: i64, interest: u32, limit: Limit) rig.Stop!void {
     }
     // An interrupt ends the poll (EINTR) to cancel `main`
     // (`rig.cancelOnInterrupt`), which Zig's `poll` would only restart.
+    rig.flushBeforeWait();
     while (true) {
         const rc = sys.poll(&fds, fds.len, ms);
         switch (posix.errno(rc)) {

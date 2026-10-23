@@ -226,6 +226,9 @@ const Checker = struct {
     /// The calls whose lasting lends were reported (`keptLends`), so that
     /// one reached from two kept values is reported once.
     kept_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The closures and outer locals whose missing capture was reported
+    /// (`useName`), each a closure's scope above a local's symbol.
+    uncaptured_reported: std.AutoHashMapUnmanaged(u64, void) = .empty,
     /// The `!x` being checked where a write view is expected, the one
     /// place a write view of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
@@ -4788,6 +4791,11 @@ const Checker = struct {
                 }
                 if (crossed_lambda != null and s != self.module_scope and (kind == .local or kind == .param or kind == .capture)) {
                     if (try self.pastPathCapture(leaf, name, crossed_lambda.?)) return id;
+                    // One error for each closure and local, at its first
+                    // use: the capture it names fixes every use.
+                    const key = (@as(u64, crossed_lambda.?) << 32) | id;
+                    if (self.uncaptured_reported.contains(key)) return id;
+                    if (self.ctx.quiet == 0) try self.uncaptured_reported.put(self.ctx.arena.allocator(), key, {});
                     try self.errAt(leaf, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` lends it, `|~{s}|` holds it weakly)", .{ name, name, name, name, name, name });
                 }
                 return id;
@@ -5102,14 +5110,17 @@ const Checker = struct {
         // Two values of one type that provides `Ord` beside the numbers
         // and text: `Bool`, a String, an optional, an array, or a slice of
         // ordered values, and an object or an enum whose header names `Ord`.
-        if (try self.orderedBeside(a, b)) {
+        // A type parameter's instances or bounds order it, and its value
+        // may own a resource too.
+        const ordered = try self.orderedBeside(a, b);
+        if (ordered or sema.containsTypeVar(self.ctx, a) or sema.containsTypeVar(self.ctx, b)) {
             // An operand whose value may move is read where it is, and a
             // temporary of it is dropped with its statement, as beside `==`.
             for ([2]Sexp{ l, r }) |operand| {
                 const own = self.ctx.typeOf(operand) orelse continue;
                 if (!self.isPoison(own) and sema.moves(self.ctx, own) != .no) try self.readLeaf(operand);
             }
-            return self.t().bool_id;
+            if (ordered) return self.t().bool_id;
         }
         if (self.enumValues(a) != null or self.enumValues(b) != null) {
             if (a != b) {
@@ -5722,7 +5733,11 @@ const Checker = struct {
         // Text beside an optional of text compares by its bytes, whatever
         // its type, as two texts do.
         if (isText(self.ctx, inner) and isText(self.ctx, value) and value != inner) return true;
-        if (value != inner and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
+        // An error of a set the optional's holds compares as one of it,
+        // a code beside a code: neither set has fields.
+        const widens = sema.isErrorSet(self.ctx, value) and sema.isErrorSet(self.ctx, inner) and sema.errorSubset(self.ctx, value, inner) and
+            !sema.setHasFields(self.ctx, value) and !sema.setHasFields(self.ctx, inner);
+        if (value != inner and !widens and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
         return true;
@@ -6027,6 +6042,11 @@ const Checker = struct {
         const fname = try self.bodyName();
         const declared = try self.tyName(self.body.ret);
         if (set == self.t().any_error_id) {
+            // A call on a type parameter's instance: the body knows no set
+            // its method fails with, so it takes any.
+            if (operand.isKind(.call) and ir.Call.callee(operand).isKind(.member)) if (self.ctx.typeOf(ir.Member.object(ir.Call.callee(operand)))) |recv_ty| if (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty)) == .type_var) {
+                return self.errAt(operand, "`{s}` is a call on a `{s}`, whose method the body takes to fail with any error, and {s} declares `{s}`: catch it, or declare `{s}`", .{ callee, try self.tyName(sema.unwrapViews(self.ctx, recv_ty)), fname, declared, try self.anyErrorHeader() });
+            };
             return self.errAt(operand, "`{s}` may fail with any error, and {s} declares `{s}`: catch it, or declare `{s}`", .{ callee, fname, declared, try self.anyErrorHeader() });
         }
         // A union joins declared sets, never a set parameter.
@@ -12312,12 +12332,16 @@ const Checker = struct {
     /// `ty`, what `value` gives, as the type of the call `call` that
     /// `value` is or wraps: through `!` and `catch` a fallible `ty!`,
     /// through `?` and `??` an optional `ty?`. Null for any other form.
+    /// A `ty` that is itself fallible, a `-> T!` function's result that
+    /// `value` stands for, is its value `T` there: `x.m() catch |e| 0`
+    /// gives a `T`, and the tail wraps it.
     fn wrapResult(self: *Checker, value: Sexp, call: Sexp, ty: TypeId) Error!?TypeId {
         if (sameNode(value, call)) return ty;
         const kind = value.kind() orelse return null;
+        const ok = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.ok else ty;
         return switch (kind) {
-            .propagate => try self.wrapResult(ir.Propagate.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ty } })),
-            .@"catch" => try self.wrapResult(ir.Catch.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ty } })),
+            .propagate => try self.wrapResult(ir.Propagate.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ok } })),
+            .@"catch" => try self.wrapResult(ir.Catch.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ok } })),
             .propagate_none => try self.wrapResult(ir.PropagateNone.value(value), call, try self.ctx.intern(.{ .optional = ty })),
             .@"??" => try self.wrapResult(ir.@"??".left(value), call, try self.ctx.intern(.{ .optional = ty })),
             else => null,
@@ -14122,7 +14146,42 @@ const Checker = struct {
             },
             else => {},
         }
+        // An array or a slice lent where a view of a List goes: a slice
+        // views either.
+        if (self.ctx.types.get(expected) == .read_view) if (sema.listElem(self.ctx, self.ctx.types.get(expected).read_view)) |elem| {
+            const given: ?TypeId = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, actual))) {
+                .array => |a| a.elem,
+                .slice => |sl| sl.elem,
+                else => null,
+            };
+            if (given == elem) {
+                const shown = try self.tyName(elem);
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a `{s}` views a List alone: declare `[]{s}`, which views an array or a List", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(expected), shown });
+            }
+        };
         try self.mismatch(e, expected, actual);
+    }
+
+    /// The set an error of set `from` widens to where a read view of it
+    /// goes, `?S` of a set or union `S` that holds `from`, when neither
+    /// has fields: a code, which copies and is lent by value, with no
+    /// temporary to outlive. Null for any other (`mismatch` says how to
+    /// lend it).
+    fn widenedError(self: *Checker, from: TypeId, expected: TypeId) ?TypeId {
+        const want = self.unionViewed(from, expected) orelse return null;
+        return if (!sema.setHasFields(self.ctx, from) and !sema.setHasFields(self.ctx, want)) want else null;
+    }
+
+    /// The set or union `S` of a `?S` that `expected` is, which holds
+    /// the other set `from`; null for any other.
+    fn unionViewed(self: *Checker, from: TypeId, expected: TypeId) ?TypeId {
+        if (!sema.isErrorSet(self.ctx, from)) return null;
+        const want = switch (self.ctx.types.get(expected)) {
+            .read_view => |inner| inner,
+            else => return null,
+        };
+        if (want == from or !sema.isErrorSet(self.ctx, want)) return null;
+        return if (sema.errorSubset(self.ctx, from, want)) want else null;
     }
 
     /// An array literal or fill lent as a `[]T` argument: its elements
@@ -14150,10 +14209,17 @@ const Checker = struct {
     /// a lend written here (`?a`, `!b`), a view `e` already is (a `?String`
     /// a call returns, a held `![]T`), or a function. True when handled.
     fn lendView(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-        const kind: sema.LendKind, const from: TypeId = switch (self.ctx.types.get(actual)) {
+        const kind: sema.LendKind, var from: TypeId = switch (self.ctx.types.get(actual)) {
             .read_view => |inner| .{ .read, inner },
             .write_view => |inner| .{ .write, inner },
             else => .{ .read, actual },
+        };
+        // An error where a view of a set or union that holds it goes is a
+        // value of that set, lent as one is: `m.get(B.y)` for a
+        // `Map[L, Int]` of `error L = A | B`.
+        if (kind == .read and actual == from) if (self.widenedError(from, expected)) |set| {
+            try self.recordCodeWidening(e, from, set);
+            from = set;
         };
         // A slice argument is lent the way its name is: `total(w[1..3])`
         // is `total(?w[1..3])`, whose slice `synthSlice` made, so the
@@ -14471,6 +14537,12 @@ const Checker = struct {
                 const call = diag.textBetween(self.ctx.source, start, end);
                 return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to lend the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, self.sourceText(ir.Read.operand(recv)), call });
             }
+        }
+        // An error where a view of a union with fields goes: a value of
+        // the union is bound first, and lent.
+        if (self.unionViewed(actual, expected)) |set| {
+            const src = self.sourceText(e);
+            return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; bind it first, `k: {s} = {s}`, then lend `?k`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(set), src });
         }
         // A place where a view of it is expected: the sigil is missing.
         // (A literal is no place to lend.)
@@ -16314,7 +16386,15 @@ const Checker = struct {
             return self.t().invalid_id;
         };
         if (!sema.isPlainData(self.ctx, elem) or sema.mayHoldView(self.ctx, elem)) {
-            try self.errAt(arg, "`List(...)` copies each element, and a `{s}` cannot be copied so: make the List with `List[{s}]()`, then `!xs.push(+x)` each", .{ try self.tyName(elem), try self.tyName(elem) });
+            // The form that works: an empty List, then a push of each
+            // element, made in the call where the literal makes them.
+            const name = try self.tyName(elem);
+            const why = if (sema.mayHoldView(self.ctx, elem)) "holds a view" else self.movesBecause(elem);
+            if (arg.isKind(.array) and sema.isObject(self.ctx, elem)) {
+                try self.errAt(arg, "`List(...)` copies plain data, and `{s}` {s}: make the List with `List[{s}]()`, then push each element, `!xs.push({s}(...))`", .{ name, why, name, name });
+            } else {
+                try self.errAt(arg, "`List(...)` copies plain data, and `{s}` {s}: make the List with `List[{s}]()`, then push a copy of each element, `!xs.push(+x)`", .{ name, why, name });
+            }
             return self.t().invalid_id;
         }
         return want orelse try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{elem}) } });

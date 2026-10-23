@@ -160,14 +160,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `vs(!v, 0).with(0, 7)`, where `vs` returns `!Simd[I8, 4]`, is
   accepted, and emit writes `rig.withLane(rig.rt(vs(&v, 0)), ...)`
   with no dereference, which Zig rejects.
-- One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
-  emit's scalar test read) counts a variant with an empty payload,
-  `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,
-  `$variants`, and ordering read) does not, as resolve gives it no
-  value. So for `enum E` of `a()` and `b`, `x == E.b` is accepted and
-  `x > E.b` and `Int(x)` are rejected as "variants with payloads".
-  Decide once whether `a()` is bare (or reject the empty payload), and
-  have both read it.
 - Objects nested by value, deep or wide, fail inside Zig, not in Rig
   (rule 2), found by #270.
   - Probe: a chain `obj A0` .. `obj A99`, each with nine `Int` fields and
@@ -205,6 +197,14 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   parameters nested deeper". No function there calls itself. Say that
   instances nest more than 24 deep instead. The same limit also rejects
   `$name(Wrap[T?])` inside `Wrap`'s own method.
+- An error of a set without fields where a view of a union with fields
+  goes (`code(B.y)` for `code(k: ?L)` of `error L = A | B`, `A` with
+  fields) is rejected with "bind it first". Emit takes the code's
+  address before widening it to an error value; the lend should widen
+  through the coercion fact into the statement's temporary first, as a
+  member with fields is lent (`Checker.widenedError`). The case
+  `sets a member without fields lent where a union with fields goes`
+  of test/rig/errors-sets.rig.test.
 - Lending a handle parameter to write is accepted as `!c` but rejected
   as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
@@ -219,58 +219,5 @@ fixing.
   as a statement drops its `Bool` with no error, while a bare `0` is
   rejected. Make the rule one: a statement whose value is not `Void`
   needs `_ =`, or say in SPEC why a call's result may go unused.
-- **No way to write a long literal over several lines** *(checked)*. A
-  `'...'` raw string that crosses a line is "unterminated string", and
-  neither SPEC nor STD says how to write one; journey 06 built its text
-  with `String(a, b, c)`. Either let raw strings span lines or name the
-  way in SPEC's string section.
-- **SPEC writes Zig's builtins as `@bitCast` and `@intCast`** *(checked)*
-  in two places, where Rig spells them `$bitCast` and `$intCast`; in
-  `raw`, `@bitCast(x)` is "use of unbound name `@`".
-- **The bounds-check proof uses a guard only on the true edge**
-  *(checked)*. `return 0 if i < 0 or i >= s.len` before `s[i]` proves
-  nothing, while `if i >= 0 and i < s.len` then `s[i]` does
-  (`rig check --facts=proofs`). A `for i in 0..xs.len` over a List or a
-  slice is proven. A constant index after a length test is never proven,
-  even `xs[0]` inside `if xs.len >= 2`. Measured, and not worth building
-  for Trig: its checker has one index after such a guard on its index,
-  and about 121 constant indexes after a length test, beside the 437 it
-  proves (166 on both bounds); building Trig with `RIG_NO_PROOFS=1` made
-  ts-pattern only 0.5% slower and zod3 0.7% (pup, core 3, fastest of 10),
-  so the 121 would be worth about 0.1%.
-- **`rig check --facts=proofs` names no file in a directory module.**
-  Its lines are positions in the module's joined source (its files in
-  byte order of their names), so a reader maps them back by hand; each
-  line should name its file.
-- **`rig emit` takes no `--release`,** so it shows one build's Zig; WELCOME
-  and INTERNALS should say which, or emit should take the mode.
-- **`extern zig` is for std alone,** so a program cannot call Zig of its
-  own. Decide whether a program may, and say so either way.
-- **A capture error inside an `http.serve` closure is reported twice.**
-- **`RIG_LEAK_TRACE=1 rig test` prints no allocation trace,** though
-  `rig run` of the same body does, and the leak note says to use
-  `rig run`.
-- **A list of objects is refused in a way that does not lead to the
-  fix.** `List([Order(...)])` is rejected for objects, and an array
-  lent with `?orders` needs a `[]Order` parameter; the messages should
-  name the form that works.
-- **A backgrounded server's first `print` may not appear.** With
-  stdout piped, `rig run server.rig &` showed no "listening on" line;
-  likely buffering, not yet looked at.
-- **An idle worker once missed a run-next fiber for 2 seconds.** The
-  unit test "a fiber left in a busy worker's run-next slot is taken by
-  an idle worker" failed once in debug on pup's E-cores (12–19) while
-  the machine was loaded, then passed 20 of 20. Its bound is 2 s, so the
-  idle worker slept through the wake for that long: check it against
-  the sleep handshake below before calling it load.
-- **The scheduler's sleep handshake.** formal/README records a gap for
-  work made into the global queue that the model closes only with a
-  `relook` step, which `src/sched.zig` does not have, and which neither
-  HANDOFF nor ROADMAP mentions.
-- **design/formal-plan.md describes `RIG_SANITIZE=views`,** which `src/`
-  does not have; mark it planned or remove it.
-- **A debug panic prints Zig stack frames with local paths,** so a doc
-  block cannot hold one and a panicking program cannot be shown with
-  its exact stderr; there is no way to turn the frames off.
 - **`rig check --tasks`,** to list each local task and what pins it, was
   decided by the concurrency panel and is not built.

@@ -56,7 +56,7 @@ open Models
 #eval IO.println (explore (Sleep.system { workers := 3, budget := 2, home := true, asleep := true, firstMakes := true })).summary
 
 -- Work into the global queue, from the thread outside, as a blocking
--- call's end makes it. As the code is, a worker can sleep while it
+-- call's end makes it. Without `relook`, a worker can sleep while it
 -- waits: worker 0 searches and finds nothing; worker 1, seeing a worker
 -- searching, sleeps without a last look; two pieces of work arrive, and
 -- `notifyNew`, seeing worker 0 searching, wakes no one; worker 0 stops
@@ -69,8 +69,8 @@ open Models
 #eval IO.println (explore (Sleep.system { workers := 2, budget := 2, global := true })).summary
 
 -- With a worker that finds work in its last look counting itself as
--- searching again (`relook`), as Go's scheduler does, it notifies once
--- it takes one, and no worker sleeps while work waits.
+-- searching again (`relook`), as `sched.sleep` and Go's scheduler do,
+-- it notifies once it takes one, and no worker sleeps while work waits.
 /-- info: ok: 623085 states, 1788286 steps, 74 with no step enabled -/
 #guard_msgs in
 #eval IO.println (explore (Sleep.system { workers := 2, budget := 2, global := true, relook := true })).summary

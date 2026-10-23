@@ -363,6 +363,23 @@ it yields its bytes as `U8`. `s.is_empty()` is `s.len == 0`; it works
 the same on a List, an array, a slice, and a `Cell[List[T]]`, and a
 type's own `is_empty` method wins on that type.
 
+A string literal, in either quotes, ends on its line. A text longer than
+a line is made of several, `String(a, b, c)`, one String of their bytes
+in order.
+
+```rig
+sub main()
+  usage = String(
+    "usage: tool [flags] FILE\n",
+    "  -v  say more\n",
+  )
+  print(usage.len)
+```
+
+```output
+40
+```
+
 ```rig
 sub main()
   s = ""
@@ -2917,7 +2934,11 @@ result's type, and the call is rejected. Each instance's type must be an
 `obj` or an `enum` that declares the method, visible from the body's
 module, taking self as the sigil does, and the arguments with the types
 the body passes (a literal as `Int` or `Float`), and giving exactly the
-result the body takes. The method of a built-in type, one marked
+result the body takes. Through `!` and `catch` the body takes the result
+to fail with any error, so a method failing with a declared set does not
+fit it, and a body declaring a set of its own cannot pass such a failure
+on with `!`, and catches it. The
+method of a built-in type, one marked
 `inline`, and one with compile-time parameters of its own are not
 reached through a `T`. The body's ownership check treats the call as a
 call of a function value with no `from` or `keeps`: its result may
@@ -4719,11 +4740,11 @@ sub main()
 `name[(?Int)?]` cannot use `T = (?Int)?`
 ```
 
-Every other builtin is Zig's, keeps its Zig name, and works only
-inside a `raw` block ([§15](#15-raw-code-and-ffi)): the casts
-`@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`,
-`@floatFromInt`, and `@fromBackingInt`, and Zig's names for Rig's
-four, `@sizeOf`, `@alignOf`, `@typeName`, and `@TypeOf`, which mean
+Every other builtin is Zig's, keeps its Zig name after Rig's `$`, and
+works only inside a `raw` block ([§15](#15-raw-code-and-ffi)): the
+casts `$bitCast`, `$intCast`, `$floatCast`, `$truncate`, `$trunc`,
+`$floatFromInt`, and `$fromBackingInt`, and Zig's names for Rig's
+four, `$sizeOf`, `$alignOf`, `$typeName`, and `$TypeOf`, which mean
 what Rig's do, except that `$typeName(T)` is the name the emitted Zig
 gives the type (`i64` for `Int`). Rig's names work inside `raw` too.
 Outside it, Zig's name for one of Rig's is rejected, with the call to
@@ -10545,7 +10566,7 @@ module with it.
 A `raw` block is the boundary of what the checker guarantees. Inside
 it, and only there, a program may:
 
-- call one of Zig's builtins (`@intCast`, `@bitCast`, ...;
+- call one of Zig's builtins (`$intCast`, `$bitCast`, ...;
   [§5](#builtins));
 - call an `extern` function.
 
@@ -10984,7 +11005,10 @@ stdout is buffered: what `print` writes reaches the file when the
 buffer fills, and is written out before anything goes to stderr (a
 `warn`, a `panic`, a runtime panic, a failure that leaves `main`) and on
 every exit, so the two streams read in the order the program wrote
-them.
+them. It is also written out when a core of the program goes idle,
+waiting on I/O or time with nothing else to run, so a server's first
+line shows while it waits for a connection; and after every `print`
+when stdout is a terminal.
 
 When stdout is a pipe whose reader has closed it (`prog | head -1`), the
 program ends at once with status 0 and writes nothing more: its drops,
@@ -11784,7 +11808,7 @@ element, or type argument by value.
   whichever task drops it, drops the value.
 - The handles move and share: they go to any task, by value, through a
   view, in a field, or through a channel, and never make a task local.
-- They compare and hash as the value they reach, so `*Frozen[String]`
+- They compare, order, and hash as the value they reach, so `*Frozen[String]`
   keys a Map; no other handle has `==`.
 - A frozen value has no weak handle, and is never frozen again: `+f`
   shares it.

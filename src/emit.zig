@@ -1031,6 +1031,12 @@ pub const Emitter = struct {
         return self.isErrorValueTy(self.peelViews(ty));
     }
 
+    /// `holdsErrorValue`, or an optional of an error value.
+    fn holdsErrorValueOpt(self: *Emitter, sexp: Sexp) bool {
+        const ty = self.typeOf(sexp) orelse return false;
+        return self.isErrorValueTy(self.unwrapOptionals(self.peelViews(ty)));
+    }
+
     /// Whether `sexp` names an error member, `E.name` or `E.name(fields)`,
     /// which emit writes as what the function fails with itself.
     fn namesErrorMember(self: *Emitter, sexp: Sexp) bool {
@@ -5964,12 +5970,13 @@ pub const Emitter = struct {
             return self.w.print(", .{f})", .{ident(self.srcText(ir.Member.name(operands[i])))});
         }
         // Two errors that may carry fields compare member and fields
-        // through the glue (`ErrorValue.__rig_own_eq`).
-        if (is_eq and (self.holdsErrorValue(operands[0]) or self.holdsErrorValue(operands[1]))) {
+        // through the glue (`ErrorValue.__rig_own_eq`); an optional of
+        // one holds one too, which `rig.eql` unwraps.
+        if (is_eq and (self.holdsErrorValueOpt(operands[0]) or self.holdsErrorValueOpt(operands[1]))) {
             if (kind == .@"!=") try self.w.writeAll("!");
             // Beside a code-only error, an error that carries fields
             // compares its code, as its member's fields are none.
-            for ([2]usize{ 0, 1 }) |i| if (!self.holdsErrorValue(operands[i])) {
+            for ([2]usize{ 0, 1 }) |i| if (!self.holdsErrorValueOpt(operands[i])) {
                 try self.w.writeAll("rig.isError(");
                 try self.emitExpr(operands[1 - i]);
                 try self.w.writeAll(", ");
@@ -9725,7 +9732,8 @@ pub const Emitter = struct {
                 } else {
                     values = true;
                 },
-                .type_var, .nominal, .imported_nominal, .parameterized_nominal, .bool, .string, .optional, .array => values = true,
+                // A frozen value's handle orders by what it reaches.
+                .type_var, .nominal, .imported_nominal, .parameterized_nominal, .bool, .string, .optional, .array, .shared => values = true,
                 else => {},
             }
         }

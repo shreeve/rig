@@ -167,6 +167,34 @@ test "frozen compares and keys a Map", "true false 2 3"
   !m.put(+c, 3)
   print(a == b, a == c, m.len, m.get(?c) ?? 0)
 
+test "frozen orders by what it reaches", '''
+  true false true true
+  true true
+'''
+  # A frozen value's handles order by what they reach, as they compare
+  # and hash: `<`, a generic `T: Ord`, and `sort`.
+  use std.sort
+
+  fun least[T: Ord](a: ?T, b: ?T) -> Bool
+    a < b
+
+  a = *Frozen(String("x"))
+  c = *Frozen(String("y"))
+  n = *Frozen(3)
+  m = *Frozen(5)
+  print(a < c, c < a, n < m, least(?n, ?m))
+  fs = [*Frozen(String("c")), *Frozen(String("a")), *Frozen(String("b"))]
+  sort.sort(!fs)
+  print(fs[0] < fs[1], fs[1] < fs[2])
+
+fail "frozen orders only an ordered value", "`*Frozen[P]` cannot be ordered", errors: 1
+  obj P
+    x: Int
+
+  a = *Frozen(P(x: 1))
+  b = *Frozen(P(x: 2))
+  print(a < b)
+
 test "frozen methods, Maps, and lends", '''
   4 9 9 1
   1 false 1

@@ -154,10 +154,12 @@ var searching: std.atomic.Value(u32) = .init(0);
 var stopping: std.atomic.Value(bool) = .init(false);
 /// Set when work is made while every worker is busy, or a fiber that
 /// goes on running fills its worker's "run next" slot (`wake`); the first
-/// yield check to see it clears it and takes that work (`claimWaiting`), and
-/// a worker that finds no work and sleeps clears it too. A recursive
-/// call only reads it (`rt.tickCall`), on a cache line of its own, so
-/// what the scheduler writes beside it never slows those reads.
+/// yield check to see it clears it and takes that work (`claimWaiting`),
+/// and a worker that finds no work and sleeps clears it too; either sets
+/// it again while another worker's "run next" slot holds a fiber
+/// (`takeWaiting`). A recursive call only reads it (`rt.tickCall`), on a
+/// cache line of its own, so what the scheduler writes beside it never
+/// slows those reads.
 pub var waiting: Flag = .{};
 
 const Flag = extern struct {
@@ -211,7 +213,9 @@ pub fn wake(f: *Fiber) void {
         }
     }
     if (f.home != null or w.current == null or w.servicing) return;
-    if (waiting.load(.monotonic) == 0) waiting.store(1, .monotonic);
+    // After the slot is filled, so a worker that cleared `waiting` either
+    // sees the slot full or sees the flag clear here (`takeWaiting`).
+    if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
 }
 
 /// Make `f` ready to run after the fibers already ready on this worker.
@@ -303,7 +307,7 @@ pub noinline fn tickCall() void {
 /// waits: this worker's own, or half of another's ring, stolen as a
 /// searching worker would.
 fn claimWaiting(w: *Worker) void {
-    if (waiting.swap(0, .monotonic) == 0) return;
+    if (!takeWaiting(w)) return;
     if (hasOwnWork(w)) return yield();
     if (workers.len < 2) return;
     for (workers) |*v| {
@@ -855,6 +859,7 @@ const Poller = struct {
         // moment in its poller after a look (`advanceClock`), which a
         // kick left there would end.
         const look = timeout != null and timeout.? == 0 and !deterministic;
+        if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
         var kicked = false;
         defer if (kicked) p.kick();
         if (look) {
@@ -1893,12 +1898,12 @@ fn wakeWorker(w: *Worker) void {
 /// for work made meanwhile, in its poller. Work a worker searching will
 /// find needs no last look: only work made when none searches, which
 /// woke no one (`notify`), keeps this worker up. A worker with no work
-/// to find clears `waiting`. While it sleeps, it wakes the fibers whose
-/// timers come due on any worker, and those its poller's events make
-/// ready, and goes back to running them.
+/// to find clears `waiting` (`takeWaiting`). While it sleeps, it wakes
+/// the fibers whose timers come due on any worker, and those its
+/// poller's events make ready, and goes back to running them.
 fn sleep(w: *Worker) void {
     w.slept.store(w.slept.raw + 1, .monotonic);
-    if (waiting.load(.monotonic) != 0) waiting.store(0, .monotonic);
+    _ = takeWaiting(w);
     w.woken.store(0, .seq_cst);
     w.idle.store(1, .seq_cst);
     defer w.idle.store(0, .seq_cst);
@@ -1944,6 +1949,27 @@ fn sleep(w: *Worker) void {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
+}
+
+/// Clear `waiting`, for `w`'s check that takes its notice (`claimWaiting`)
+/// or as `w` goes to sleep, and give whether it was set. The flag is one
+/// bit for many notices, and a fiber in another worker's "run next" slot
+/// is seen by no sleeper and by its maker's recursive checks only through
+/// it, so the flag is set again while any other worker's slot holds a
+/// fiber. The clearing swap and the slot reads after it, against a
+/// maker's swap into its slot and its read of the flag after that
+/// (`wake`), are sequentially consistent, so one side sees the other: the
+/// clearer sees the fiber, or the maker sees the flag clear and sets it.
+fn takeWaiting(w: *Worker) bool {
+    if (waiting.load(.monotonic) == 0) return false;
+    if (waiting.swap(0, .seq_cst) == 0) return false;
+    for (workers) |*v| {
+        if (v != w and v.lifo.load(.seq_cst) != null) {
+            waiting.store(1, .monotonic);
+            break;
+        }
+    }
+    return true;
 }
 
 fn waitWoken(w: *Worker) void {
@@ -3619,6 +3645,132 @@ test "a run-next fiber that wakes no worker is handed on at its maker's next rec
             in_time = ran.load(.seq_cst);
             _ = j.join();
             j.free();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.in_time);
+}
+
+test "a run-next fiber made as the other worker goes to sleep is handed on at its maker's next recursive check" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var ended = std.atomic.Value(bool).init(false);
+        var ran = std.atomic.Value(bool).init(false);
+        var misses: u32 = 0;
+        const Unit = struct {};
+        fn helper(_: *Unit) u8 {
+            ended.store(true, .seq_cst);
+            return 0;
+        }
+        fn mark(_: *Unit) u8 {
+            ran.store(true, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            testNap(20 * std.time.ns_per_ms);
+            for (0..4000) |round| {
+                ended.store(false, .seq_cst);
+                ran.store(false, .seq_cst);
+                // A task the other worker runs, which ends at once: that
+                // worker then looks for work, finds none, and sleeps.
+                const h = spawn(u8, Unit, helper, .{}, .{}, false).job;
+                yield();
+                while (!ended.load(.seq_cst)) std.atomic.spinLoopHint();
+                // Made a little later each round, so some round makes it
+                // as that worker goes to sleep.
+                const until = nowNs() + @as(i96, @intCast(round % 80)) * 100;
+                while (nowNs() < until) std.atomic.spinLoopHint();
+                const j = spawn(u8, Unit, mark, .{}, .{}, false).job;
+                // Computing in recursion: each call reads `waiting`, as
+                // `rt.tickCall` does.
+                const give_up = nowNs() + 50 * std.time.ns_per_ms;
+                while (!ran.load(.seq_cst) and nowNs() < give_up) {
+                    if (waiting.load(.monotonic) != 0) tickCall();
+                }
+                // One check more, in case this thread lost the CPU past
+                // the deadline before it made one.
+                if (waiting.load(.monotonic) != 0) tickCall();
+                if (!ran.load(.seq_cst)) misses += 1;
+                _ = j.join();
+                j.free();
+                _ = h.join();
+                h.free();
+                if (misses != 0) break;
+            }
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u32, 0), Run.misses);
+}
+
+test "a run-next fiber whose notice another worker's check took is handed on at the next recursive check" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var y_ready = std.atomic.Value(bool).init(false);
+        var m_filled = std.atomic.Value(bool).init(false);
+        var y_claimed = std.atomic.Value(bool).init(false);
+        var ran = std.atomic.Value(bool).init(false);
+        var in_time = false;
+        const Unit = struct {};
+        fn tiny(_: *Unit) u8 {
+            return 0;
+        }
+        fn mark(_: *Unit) u8 {
+            ran.store(true, .seq_cst);
+            return 0;
+        }
+        /// Spin as recursion does, reading `waiting` each call, until
+        /// `mark` has run or 50 ms pass.
+        fn recurse() void {
+            const until = nowNs() + 50 * std.time.ns_per_ms;
+            while (!ran.load(.seq_cst) and nowNs() < until) {
+                if (waiting.load(.monotonic) != 0) tickCall();
+            }
+            // One check more, in case this thread lost the CPU past the
+            // deadline before it made one.
+            if (waiting.load(.monotonic) != 0) tickCall();
+        }
+        /// On the other worker: make a task into its own slot, setting
+        /// `waiting`; once the maker has filled its slot too, take the
+        /// flag at a recursive check, which yields to its own task.
+        fn other(_: *Unit) u8 {
+            const g = spawn(u8, Unit, tiny, .{}, .{}, false).job;
+            y_ready.store(true, .seq_cst);
+            while (!m_filled.load(.seq_cst)) std.atomic.spinLoopHint();
+            tickCall();
+            y_claimed.store(true, .seq_cst);
+            recurse();
+            _ = g.join();
+            g.free();
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            testNap(20 * std.time.ns_per_ms);
+            const y = spawn(u8, Unit, other, .{}, .{}, false).job;
+            // Off to the other worker: this one takes `other` from its
+            // slot, and the woken one this fiber from the ring.
+            yield();
+            while (!y_ready.load(.seq_cst)) std.atomic.spinLoopHint();
+            // The flag is set already, so filling the slot leaves it.
+            const j = spawn(u8, Unit, mark, .{}, .{}, false).job;
+            m_filled.store(true, .seq_cst);
+            while (!y_claimed.load(.seq_cst)) std.atomic.spinLoopHint();
+            recurse();
+            in_time = ran.load(.seq_cst);
+            _ = j.join();
+            j.free();
+            _ = y.join();
+            y.free();
         }
     };
     workers_override = 2;

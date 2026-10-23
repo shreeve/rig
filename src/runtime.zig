@@ -1190,6 +1190,8 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     // Text orders by its bytes, a String, a view of one, or a `?String`;
     // a view held as a pointer orders as the value it reaches.
     if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
+    // A frozen value's handles order by what they reach, as they compare.
+    if (comptime isCountedPointer(A) and isCountedPointer(B)) return compare(a.value, op, b.value);
     if (comptime isValuePointer(A)) return compare(a.*, op, b);
     if (comptime isValuePointer(B)) return compare(a, op, b.*);
     const T = @TypeOf(a, b);
@@ -1215,6 +1217,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
     };
     if (comptime isStringView(T)) return std.mem.order(u8, a, b);
     if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
+    if (comptime isCountedPointer(T)) return order(a.value, b.value);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return if (some(b) == null) .eq else .lt;
         const y = some(b) orelse return .gt;
@@ -5032,7 +5035,7 @@ fn reportLeaks(before: Usage) bool {
 noinline fn leakReport(n: usize, bytes: usize) void {
     @branchHint(.cold);
     std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{ n, if (n == 1) "" else "s", bytes });
-    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
+    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig {s} ...`) to see where each was allocated\n", .{if (running_tests) "test" else "run"});
 }
 
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
@@ -5558,8 +5561,9 @@ fn endBy(sig: std.posix.SIG) noreturn {
 
 // Output. `print` writes to one process-wide buffer. It is flushed
 // when the program finishes, before anything is written to stderr (a
-// `warn`, a panic, an error report), and after every `print` when stdout
-// is a terminal.
+// `warn`, a panic, an error report), before a thread waits on I/O or
+// time (`flushBeforeWait`), and after every `print` when stdout is a
+// terminal.
 
 var stdout_buffer: [8192]u8 = undefined;
 var stdout_writer: ?std.Io.File.Writer = null;
@@ -5578,6 +5582,18 @@ fn stdout() *std.Io.Writer {
 /// the program (`stdoutFailed`).
 fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch stdoutFailed();
+}
+
+/// Write out what `print` has buffered before a thread blocks, waiting
+/// on I/O or time: a server's first line, piped to another program,
+/// shows while it waits for a connection. A thread that cannot take the
+/// output lock leaves it to the one printing, which flushes before it
+/// waits in turn. A write that fails is left for the next flush, which
+/// reports it.
+pub fn flushBeforeWait() void {
+    if (concurrent and !output_lock.tryLock()) return;
+    defer unlockOutput();
+    if (stdout_writer) |*w| if (w.interface.end != 0) w.interface.flush() catch {};
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -5998,6 +6014,7 @@ var running_tests = false;
 fn runTestsHere(modules: []const TestModule) void {
     const w = stdout();
     running_tests = true;
+    var leaked = false;
     for (modules) |m| for (m.tests) |t| {
         const name: TestName = .{ .module = m.module, .name = t.name };
         current_test = name;
@@ -6014,6 +6031,7 @@ fn runTestsHere(modules: []const TestModule) void {
             } else if (reportLeaks(before)) {
                 w.print("FAIL  {f}: memory leak\n", .{name}) catch {};
                 tests_failed += 1;
+                leaked = true;
             } else {
                 w.print("ok    {f}\n", .{name}) catch {};
                 tests_passed += 1;
@@ -6033,6 +6051,10 @@ fn runTestsHere(modules: []const TestModule) void {
     if (tests_failed > 0) printSeed(w);
     flush();
     releaseProcess();
+    // Built with `RIG_LEAK_TRACE`, what the leaking tests left is still
+    // live, and each allocation is shown with its trace, as `finish`
+    // shows a program's.
+    if (leak_trace and leaked) _ = trace_allocator.deinit();
     if (tests_failed > 0) std.process.exit(1);
 }
 

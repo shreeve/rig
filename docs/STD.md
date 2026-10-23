@@ -1306,7 +1306,7 @@ sub main()
 | `f.field`, `f.m()`, `f[i]` | reads through the handle, as through any `*T`; nothing writes through it |
 | `?f` | lends the frozen value as a `?T` |
 | `+f` | another handle, in one atomic step; the last one dropped, on any task, drops the value |
-| `f == g`, hashing | compare and hash the values the handles reach, so `*Frozen[String]` keys a Map |
+| `f == g`, `f < g`, hashing | compare, order, and hash the values the handles reach, so `*Frozen[String]` keys a Map and sorts |
 
 ## reduce
 

@@ -2327,6 +2327,7 @@ fn sleepHere(ns: i64) Stop!void {
     const posix = std.posix;
     if (canceledHere()) return canceled_error;
     var left: posix.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@rem(ns, std.time.ns_per_s)) };
+    rt.flushBeforeWait();
     while (true) {
         switch (posix.errno(posix.system.nanosleep(&left, &left))) {
             .INTR => if (canceledHere()) return canceled_error,
