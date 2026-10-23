@@ -29,7 +29,12 @@ pub sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
 # by `<`, keeping elements of equal keys in the order they had. Allocates
 # nothing; `key` is called twice for each comparison.
 pub sub sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)
-  sort_by(!xs, |?key, a, b| key(a) < key(b))
+  # Each key is bound to a name, which drops a key that owns a resource.
+  sort_by(!xs, |?key, a, b|
+    ka = key(a)
+    kb = key(b)
+    ka < kb
+  )
 
 fun min(a: Int, b: Int) -> Int
   a if a < b else b

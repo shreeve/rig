@@ -5110,14 +5110,17 @@ const Checker = struct {
         // Two values of one type that provides `Ord` beside the numbers
         // and text: `Bool`, a String, an optional, an array, or a slice of
         // ordered values, and an object or an enum whose header names `Ord`.
-        if (try self.orderedBeside(a, b)) {
+        // A type parameter's instances or bounds order it, and its value
+        // may own a resource too.
+        const ordered = try self.orderedBeside(a, b);
+        if (ordered or sema.containsTypeVar(self.ctx, a) or sema.containsTypeVar(self.ctx, b)) {
             // An operand whose value may move is read where it is, and a
             // temporary of it is dropped with its statement, as beside `==`.
             for ([2]Sexp{ l, r }) |operand| {
                 const own = self.ctx.typeOf(operand) orelse continue;
                 if (!self.isPoison(own) and sema.moves(self.ctx, own) != .no) try self.readLeaf(operand);
             }
-            return self.t().bool_id;
+            if (ordered) return self.t().bool_id;
         }
         if (self.enumValues(a) != null or self.enumValues(b) != null) {
             if (a != b) {
