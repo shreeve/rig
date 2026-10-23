@@ -117,25 +117,63 @@ worker asleep (`idle` 1, listed), and no worker searching.
 
 ### The fix
 
-`clearWaiting`, as a worker goes to sleep: clear `waiting`, then read
-every worker's slot, and set `waiting` again if one holds a fiber.
-`wake` fills the slot, then reads `waiting` (now `.seq_cst`, was
-`.monotonic`) and sets it if 0. With the store, the slot reads, the
-swap, and that load all sequentially consistent: if the sleeper's read
-of the maker's slot comes before the fill in the total order, its clear
-comes before the maker's load, which reads 0 or later and sets the
-flag; otherwise the sleeper sees the fiber and sets it back. A slot
-whose fiber its owner then takes leaves the flag set; the next check to
-see it finds nothing and clears it, as a stale flag always did.
+`takeWaiting(w)`, for both clearers: a worker going to sleep, and a
+check that takes the notice (`claimWaiting`). It swaps `waiting` to 0,
+then reads every other worker's slot, and sets `waiting` again if one
+holds a fiber (any fiber, pinned or not). `wake` swaps the fiber into
+its slot, then reads `waiting` (now `.seq_cst`, was `.monotonic`) and
+sets it if 0. The four accesses that make the handshake are
+`.seq_cst`: the clearer's swap of the flag and its slot reads, the
+maker's swap into the slot and its read of the flag. If the clearer's
+read of the maker's slot comes before the fill in the total order, its
+swap comes before the maker's read, which reads 0 or a later 1 and sets
+the flag; otherwise the clearer sees the fiber and sets it back. The
+two stores that set the flag are `.monotonic`: each follows a
+sequentially consistent read of the flag on its own thread, and a lost
+store would need a later clear, which runs the same handshake again. A
+slot whose fiber its owner then takes leaves the flag set; the next
+check to see it finds nothing and clears it, as a stale flag always
+did.
 
 A sleeper does not take the slot's fiber itself (a last look at the
 slots, then a relook, would also close it): the slot is for the maker,
-so two tasks that answer each other stay on one worker (#541), and a
-worker's fiber waits at most until its maker's next check, loop or
-recursive.
+so two tasks that answer each other stay on one worker (#541).
 
-With the fix the new test passes 30 of 30 on the Mac and every run on
-pup (below).
+### The sibling the review found: a check that takes the notice
+
+The first version of the fix (ca7ee6da9) set the flag again only as a
+worker went to sleep (`clearWaiting`). The independent review found the
+same race through the other clearer, `claimWaiting`, which swapped the
+flag to 0 and then served one piece of work:
+
+1. Worker Y, in recursion, fills its own slot with `g`; `waiting` is set.
+2. Worker M, in recursion, fills its slot with `f`; the flag is set
+   already, so it stores nothing.
+3. Y's recursive check takes the flag and yields to `g`, its own work.
+4. `f` waits in M's slot with the flag clear: M's checks read 0, and a
+   worker going to sleep finds the flag clear and no slot in its last
+   look. With every worker busy, `f` waits for M's recursion to end.
+
+The unit test "a run-next fiber whose notice another worker's check
+took is handed on at the next recursive check" orders those steps with
+flags, so it needs no timing: it failed 8 of 8 runs on the Mac with
+`clearWaiting`, and passes 30 of 30 with `takeWaiting`, where Y's
+check, seeing `f` in M's slot, sets the flag again, and M's next check
+yields to `f`.
+
+With both clearers sharing the rule, a fiber in a slot waits until its
+maker's next check, loop or recursive, or a searching worker's
+`stealNext`, with one exception the review noted (Low, unchanged):
+when the fill pushes an earlier fiber out to the ring, `wake` returns
+through `notifyNew` without setting the flag for the new one. A
+sleeper is woken for the ring's fiber, or a worker searches, and either
+one's `stealNext` can take the slot's fiber, so no worker sleeps beside
+it; but when every worker is busy it waits for its maker's recursion to
+end. That costs fairness, not a sleeping worker, and is left as it is.
+
+The review counted wakes in the 2,000-trip socket pingpong unit test:
+2 `wakeWorker` calls a run on main and on the first version, with 0
+flags set again and 0 claims; `takeWaiting` adds no wake.
 
 ## Under load on pup's E-cores
 

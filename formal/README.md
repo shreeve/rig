@@ -249,10 +249,11 @@ never kicks leaves pinned work.
 Not modeled: the run-next slot, timers, the poller's events, `waiting`
 and the yield checks, `stopping`, and the blocking pool. A fiber in a
 busy worker's run-next slot wakes no worker: its maker's next yield
-check hands it on, a recursive one only through `waiting`, so a worker
-going to sleep clears `waiting` unless a slot holds a fiber
-(`clearWaiting`; docs/internals/scheduler.md, "Yield checks"). That
-handshake is checked by a unit test in `src/sched.zig`, not here.
+check hands it on, a recursive one only through `waiting`, so a check
+or a sleeper that clears `waiting` sets it again while another
+worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
+"Yield checks"). That handshake is checked by unit tests in
+`src/sched.zig`, not here.
 
 ## What is not proved
 

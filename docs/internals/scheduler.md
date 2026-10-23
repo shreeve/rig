@@ -179,14 +179,18 @@ fails, and yields only when other work waits.
   does a fiber that fills its worker's "run next" slot and runs on. The
   first check to see it clears it and yields to that work: its own
   worker's, or half of another busy worker's ring, stolen. A worker
-  that finds no work and sleeps clears it too, unless a fiber waits in
-  a busy worker's "run next" slot, which no sleeper takes
-  (`sched.clearWaiting`): it clears the flag, then reads every slot,
-  and sets the flag again if one holds a fiber, while a maker fills its
-  slot, then reads the flag, all sequentially consistent, so one of the
-  two sees the other. A task that yields only puts itself back in line,
-  so it never sets the flag, and busy tasks do not keep yielding to
-  each other.
+  that finds no work and sleeps clears it too. The flag is one bit for
+  many notices, and a fiber in a slot is seen by no sleeper and by its
+  maker's recursive checks only through it, so whoever clears it, a
+  check or a sleeper, sets it again while any other worker's slot holds
+  a fiber (`sched.takeWaiting`). Four accesses make that handshake, all
+  sequentially consistent: the clearer's swap of the flag to 0 and its
+  reads of the slots after it, and the maker's swap into its slot and
+  its read of the flag after that. So the clearer sees the fiber, or
+  the maker sees the flag clear and sets it (the stores that set it
+  need no stronger order). A task that yields only puts itself back in
+  line, so it never sets the flag, and busy tasks do not keep yielding
+  to each other.
 
 A loop's check also keeps its worker's timers and descriptors going
 while it computes (`sched.serviceBusy`): it wakes the fibers whose
