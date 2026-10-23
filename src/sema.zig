@@ -7078,6 +7078,13 @@ pub fn recordTypeWitnesses(ctx: *SemContext) std.mem.Allocator.Error!void {
             if (p != symbol_invalid and ctx.symbols.items[p].user_apis.len > 0) break true;
         } else false;
         if (!bounded or ctx.type_witnesses.contains(ty)) continue;
+        // A type whose parameters carry a method's bounds just now
+        // (`widenOwnerBounds`) takes the witnesses its declaration names,
+        // which the record after that method's check gives it.
+        const widened = for (params) |p| {
+            if (p != symbol_invalid and ownerWidened(ctx, p)) break true;
+        } else false;
+        if (widened) continue;
         const ws = (try typeWitnesses(ctx, ty)) orelse continue;
         try ctx.type_witnesses.put(ctx.allocator, ty, ws);
     }

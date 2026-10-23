@@ -2017,6 +2017,98 @@ test "apis own method bounds through a bound", '''
   k = ?p.doubled()&
   print(>k)
 
+test "apis own method bounds with no self", "2.0 2.0 5.0\n9.0\n1.0"
+  # A method under a bound that takes no self takes its witnesses first,
+  # as its call passes them, by the type's name, inferred or given, in
+  # another method under the bound, and in a bounded body.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Sq: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side
+
+  obj Wrap[T]
+    x: T
+
+  fun Wrap[T: Shape].mk(x: T) -> Wrap[T]
+    Wrap(x: <x)
+
+  fun Wrap[T: Shape].mk2[U: Shape](x: T, u: ?U) -> Wrap[T]
+    print(u.area())
+    Wrap(x: <x)
+
+  fun Wrap[T: Shape].again(?@) -> Float
+    w = Wrap[T].mk(+@x)
+    w.x.area()
+
+  fun build[T: Shape](x: T) -> Float
+    w = Wrap[T].mk(<x)
+    w.x.area()
+
+  a = Wrap.mk(Sq(side: 2.0))
+  print(a.x.area(), a.again(), build(Sq(side: 5.0)))
+  b = Wrap[Sq].mk2(Sq(side: 1.0), ?Sq(side: 9.0))
+  print(b.x.area())
+
+test "apis own method bounds beside the type's", "22.0 22.0\n22.0 22.0"
+  # A method's bound beside its type's: an instance of the type takes the
+  # witnesses its declaration names, wherever it is named, and the method
+  # takes its own.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Named
+    fun id(?@) -> Int
+
+  api Titled: Shape
+    fun id(?@) -> Int
+
+  obj Both: Shape + Named
+    v: Int
+
+    fun area(?@) -> Float
+      Float(@v)
+
+    fun id(?@) -> Int
+      @v * 10
+
+  obj Sub: Titled
+    v: Int
+
+    fun area(?@) -> Float
+      Float(@v)
+
+    fun id(?@) -> Int
+      @v * 10
+
+  obj Box[T: Shape]
+    x: T
+
+    fun a(?@) -> Float
+      @x.area()
+
+  fun Box[T: Named].f(?@) -> Float
+    @a() + Float(@x.id())
+
+  fun Box[T: Titled].g(?@) -> Float
+    Float(@x.id()) + @x.area() * 2.0 - @a()
+
+  fun viaBoth[T: Shape + Named](b: ?Box[T]) -> Float
+    b.f()
+
+  fun viaSub[T: Titled](b: ?Box[T]) -> Float
+    b.g()
+
+  b = Box(x: Both(v: 2))
+  print(b.f(), viaBoth(?b))
+  s = Box(x: Sub(v: 2))
+  print(s.g(), viaSub(?s))
+
 test "apis own method bounds by built-in APIs", "true false 3"
   # A built-in bound on a method: its body compares, orders, or prints a
   # `T`, and an instance that cannot is still a value of the type.

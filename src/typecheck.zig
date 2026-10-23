@@ -14109,7 +14109,7 @@ const Checker = struct {
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv);
                 if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
-                if (!try self.meetsOwnerBounds(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv.args, pos, true)) return self.skipCall(args);
+                if (!try self.meetsOwnerBounds(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv.args, pos, m.receiver != .none)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
