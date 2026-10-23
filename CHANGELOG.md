@@ -63,6 +63,13 @@ changed the language since it:
   program shows its first line while it waits; and `rig check
   --facts=proofs` names the file of each line in a directory module.
 
+- **`rig check --tasks` lists each local task,** each task that stays
+  on its maker's thread, in source order, module by module: its file,
+  line, and column, the call that makes it, the part that pins it, and
+  the type in that part that cannot go to another core. A directory
+  module's lines name their file; a program with no local task prints
+  nothing.
+
 - **An ordering in a generic body reads its operands as `==` does:** a
   made `T` beside `<`, `<=`, `>`, or `>=` is a temporary of `T`, which an
   instance that owns a resource cannot leave, and which a body bounded by
