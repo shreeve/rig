@@ -111,6 +111,12 @@ pub const ErrSlot = if (@sizeOf(ErrData) > 0) *ErrData else NoFields;
 /// The slot of a program with no fields to hold.
 pub const NoFields = struct {};
 
+/// The slot a function that fails without fields lends a call that takes
+/// one: a callable view, or a function generic over its set, bound here
+/// to a set without fields. Nothing writes it.
+pub const unwritten_slot: ErrSlot = if (@sizeOf(ErrData) > 0) &unwritten_data else .{};
+var unwritten_data: ErrData = undefined;
+
 /// The slot of the bytes `data`.
 pub inline fn failSlot(data: *ErrData) ErrSlot {
     return if (comptime @sizeOf(ErrData) > 0) data else .{};

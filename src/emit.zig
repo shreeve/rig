@@ -968,7 +968,7 @@ pub const Emitter = struct {
     /// with a member with fields, or a union of one. (With no field in
     /// the program, an `ErrorValue` is its code.)
     fn isErrorValueTy(self: *Emitter, ty: TypeId) bool {
-        if (ty == self.facts.types.any_error_id) return true;
+        if (ty == self.facts.types.any_error_id or self.facts.isSetParam(ty)) return true;
         // A view of one is a pointer to it, not one.
         return switch (self.facts.types.get(ty)) {
             .read_view, .write_view => false,
@@ -5614,8 +5614,10 @@ pub const Emitter = struct {
                 const operand = ir.Propagate.value(sexp);
                 const saved = self.fail_slot;
                 defer self.fail_slot = saved;
-                // The function's own slot goes on to the call.
-                if (self.fun.has_out and self.failsWithFieldsCall(operand)) self.fail_slot = .{ .call = operand, .expr = self.fun.out_name };
+                // The function's own slot goes on to the call; a function
+                // with none fails with no fields, and lends the slot nothing
+                // writes.
+                if (self.failsWithFieldsCall(operand)) self.fail_slot = .{ .call = operand, .expr = if (self.fun.has_out) self.fun.out_name else "rig.unwritten_slot" };
                 try self.w.writeAll("try ");
                 try self.emitExpr(operand);
             },
@@ -6633,7 +6635,7 @@ pub const Emitter = struct {
                     // function's slot, as a `!` anywhere does.
                     const saved = self.fail_slot;
                     defer self.fail_slot = saved;
-                    if (self.fun.has_out and self.failsWithFieldsCall(operand)) self.fail_slot = .{ .call = operand, .expr = self.fun.out_name };
+                    if (self.failsWithFieldsCall(operand)) self.fail_slot = .{ .call = operand, .expr = if (self.fun.has_out) self.fun.out_name else "rig.unwritten_slot" };
                     try self.w.writeAll("(if (");
                     try self.emitPayloadHolder(operand);
                     return self.w.print(") |*{s}| {s} else |__rig_failed| return __rig_failed)", .{ v, v });
@@ -8189,7 +8191,8 @@ pub const Emitter = struct {
     /// codes, so a `switch` on a declared set names every member.
     fn writeErrorCode(self: *Emitter, viewed: TypeId, place: []const u8) Error!void {
         const ty = self.peelViews(viewed);
-        if (ty == self.facts.types.any_error_id) return self.w.print("{s}.code", .{place});
+        // A set parameter's code may be of any set, as `error`'s is.
+        if (ty == self.facts.types.any_error_id or self.facts.isSetParam(ty)) return self.w.print("{s}.code", .{place});
         const saved = self.error_codes;
         self.error_codes = true;
         defer self.error_codes = saved;
@@ -8240,7 +8243,13 @@ pub const Emitter = struct {
     /// may fail with fields, to which they lend a slot.
     fn failsWithFieldsCall(self: *Emitter, value: Sexp) bool {
         if (!value.isKind(.call)) return false;
-        return self.failsWithFields(self.typeOf(value));
+        if (self.failsWithFields(self.typeOf(value))) return true;
+        // A function generic over its set takes the slot whatever set the
+        // call binds, as a callable view of a fallible function does
+        // (`emitCallableTy`).
+        if (self.facts.genericCallOf(value)) |g| if (g.fails_by_set) return true;
+        const f = self.facts.callableFn(self.typeOf(self.facts.calleeOf(value)) orelse return false) orelse return false;
+        return self.facts.types.get(f.returns) == .fallible;
     }
 
     /// A field or parameter default, `e`, declared in module `decl`: a
@@ -8345,6 +8354,12 @@ pub const Emitter = struct {
         for (0..n) |j| {
             if (j > 0) try self.w.writeAll(", ");
             const ty = if (generic) |g| g.type_args[j] else facts.type_invalid;
+            // A set parameter takes the set's Zig error set, not its value.
+            const saved = self.error_codes;
+            defer self.error_codes = saved;
+            if (generic) |g| if (j < 64 and g.sets & (@as(u64, 1) << @intCast(j)) != 0) {
+                self.error_codes = true;
+            };
             if (ty != facts.type_invalid) try self.emitTypeTy(ty) else try self.emitComptime(given[j]);
         }
         return n;
@@ -9166,8 +9181,14 @@ pub const Emitter = struct {
             try self.emitTypeTy(p);
         }
         // A function that may fail with fields takes the slot they go in,
-        // last, as a declared one does.
-        const out = self.failsWithFields(f.returns);
+        // last, as a declared one does. A callable view of any fallible
+        // function takes it, whatever its set: `FnRef` drops it for a
+        // function that takes none, and a view typed `!E`, a set
+        // parameter, is one type in every instance.
+        const out = if (comptime std.mem.eql(u8, runtime_type, "FnRef"))
+            self.facts.types.get(f.returns) == .fallible
+        else
+            self.failsWithFields(f.returns);
         if (out) try self.w.writeAll(if (f.params.len > 0) ", rig.ErrSlot" else " rig.ErrSlot");
         try self.w.writeAll(if (f.params.len > 0 or out) " }, " else "}, ");
         if (f.is_sub and f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
@@ -9594,7 +9615,7 @@ pub const Emitter = struct {
     /// spelled `error.name`.
     fn isErrorSetTy(self: *Emitter, ty: TypeId) bool {
         const t = self.peelViews(ty);
-        return self.facts.types.get(t) == .any_error or self.facts.isErrorSet(t);
+        return self.facts.types.get(t) == .any_error or self.facts.isErrorSet(t) or self.facts.isSetParam(t);
     }
 
     /// The type an integer literal takes in arithmetic of `e`'s type: a

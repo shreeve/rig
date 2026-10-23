@@ -324,7 +324,28 @@ const SymbolResolver = struct {
         const tparams = sema.tparamsOf(node);
         try self.bindParams(tparams, .compile_time, .nil, &.{});
         try self.bindParams(ir.get(node, .params), .run_time, tparams, &.{});
+        if (tparams != .nil) {
+            for (ir.get(node, .params).items()) |p| self.markSetParams(p);
+            self.markSetParams(rig.returnType(node));
+            if (rig.subFails(node)) self.markSetParam(rig.failSet(ir.Sub.fails(node)));
+        }
         try self.walk(ir.get(node, .body));
+    }
+
+    /// Each of the function's type parameters that `node`, part of its
+    /// signature, writes after `!` (`T!E`, `sub(...)!E`): a set
+    /// parameter, marked before any type names it.
+    fn markSetParams(self: *SymbolResolver, node: Sexp) void {
+        if (node.isKind(.error_union)) self.markSetParam(ir.ErrorUnion.set(node));
+        if (node.isKind(.fun_type)) self.markSetParam(rig.failSet(ir.FunType.fails(node)));
+        for (node.items()) |child| self.markSetParams(child);
+    }
+
+    fn markSetParam(self: *SymbolResolver, set: Sexp) void {
+        if (set != .src) return;
+        const name = identAt(self.ctx.source, set) orelse return;
+        const id = self.ctx.lookupInScopeOnly(self.scope, name) orelse return;
+        if (self.ctx.symbols.items[id].kind == .generic_param) self.ctx.symbols.items[id].flags.set_param = true;
     }
 
     fn walkTest(self: *SymbolResolver, node: Sexp) Error!void {
@@ -1606,6 +1627,8 @@ pub const TypeResolver = struct {
                 if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             }
         }
+        for (params.items(), param_types.items) |p, pty| try self.setParamAsValue(p, pty);
+        if (returns != .nil) try self.setParamAsValue(returns, return_ty);
         const fn_ty = try self.ctx.intern(.{ .function = .{
             .params = try self.ctx.dupeIds(param_types.items),
             .returns = return_ty,
@@ -1623,6 +1646,19 @@ pub const TypeResolver = struct {
             }
         }
         return fn_ty;
+    }
+
+    /// A set parameter written in a signature as a value's type: a value
+    /// of one is only caught (errors-spec §3.5).
+    fn setParamAsValue(self: *TypeResolver, node: Sexp, ty: TypeId) Error!void {
+        if (sema.setParamAsValue(self.ctx, ty)) |sym| {
+            const name = self.ctx.symbols.items[sym].name;
+            return self.ctx.errAt(node, "`{s}` is an error set: it goes after `!` (`T!{s}`), and a value of it is caught (`catch |e|`)", .{ name, name });
+        }
+        if (sema.setParamUnlent(self.ctx, ty)) |sym| {
+            const name = self.ctx.symbols.items[sym].name;
+            return self.ctx.errAt(node, "a function that fails with `{s}`, a set parameter, is lent: take it as `?fun(...) -> T!{s}`, which lends a function of any set", .{ name, name });
+        }
     }
 
     /// A compile-time parameter's slot in `FunctionType.ct_params`: a
@@ -1682,6 +1718,15 @@ pub const TypeResolver = struct {
         if (node == .nil) return self.ctx.types.any_error_id;
         const ty = try self.resolveType(node);
         if (ty == self.ctx.types.invalid_id) return ty;
+        // A set parameter: each instance must bind it to an error set.
+        if (sema.isSetParam(self.ctx, ty)) {
+            const param = self.ctx.types.get(ty).type_var;
+            for (self.ctx.generic_requirements.items) |r| {
+                if (r.param == param and r.req == .error_set) return ty;
+            }
+            try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = .error_set, .pos = self.ctx.startOf(node), .op = "`!`" });
+            return ty;
+        }
         if (!sema.isErrorSet(self.ctx, ty)) {
             try self.ctx.errAt(node, "`{s}` is not an error set: `T!E` names a set declared with `error`, or a union of sets", .{try sema.formatType(self.ctx, ty)});
             return self.ctx.types.invalid_id;

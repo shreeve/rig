@@ -789,6 +789,9 @@ pub const Facts = struct {
     pub fn isErrorValue(f: Facts, ty: TypeId) bool {
         return sema.isErrorValue(f.c(), ty);
     }
+    pub fn isSetParam(f: Facts, ty: TypeId) bool {
+        return sema.isSetParam(f.c(), ty);
+    }
     pub fn hoistsResults(f: Facts, results: Sexp) bool {
         return storage.hoistsResults(f.c(), results);
     }

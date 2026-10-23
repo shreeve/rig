@@ -2588,7 +2588,8 @@ set: `A.timeout` and `B.timeout` of two sets, or of two modules, are
 different errors. The type `error` holds an error of any set
 ([Any error](#any-error)). `error L = A | B` names a union of sets,
 which lists no members of its own, and a function may declare the set
-or union it fails with, `-> T!E` ([Declared sets and fields](#declared-sets-and-fields)).
+or union it fails with, `-> T!E` ([Declared sets and fields](#declared-sets-and-fields)),
+or take it as a type parameter, `-> T!E` with `E` its own ([Generic sets](#generic-sets)).
 As with a variant, no error is named `none`.
 
 ```rig
@@ -9932,6 +9933,76 @@ sub main()
 
 ```error
 use of `err` after move
+```
+
+### Generic sets
+
+A function may take the set it fails with as a type parameter written
+after `!`: `fun total[E](xs: []?String, f: ?fun(?String) -> Int!E) -> Int!E`.
+Such a parameter is bound only to a set, a union, or `error`, and a
+call binds it from the failure of a callback, as `T` binds from a
+value: one failing with `Bad` gives `E = Bad`, one failing with any
+error `E = error`. Two callbacks of different sets conflict, and the
+caller names a union that holds both, `total[L](...)`; so does a call
+whose only callback is a closure literal, which fails with any error
+otherwise. The call fails with the set it binds, so its `catch` names
+`Bad`'s members and needs no `_`.
+
+In the body, `!` passes a failure of `E` into a function that declares
+`E`, and no other set fits: `E` may be any set, and only `E` and
+`error` hold it. `catch |e|` of such a call gives `e: E`, which does
+what an `error` does (a `match` with `_`, narrowing, printing, widening
+to `error`), and `return e` fails with it again. A signature writes the
+parameter only after `!` and only in a callable view: `e: E`,
+`List[E]`, `-> E`, and `fun(Int) -> Int!E` or `*fun(Int) -> Int!E` as
+a parameter's type are rejected. A task over such a function needs a
+set that holds `task.Stop`, as every task does.
+
+```rig
+error Bad
+  empty
+  long(n: Int)
+
+fun size(s: ?String) -> Int!Bad
+  return Bad.empty if s.len == 0
+  return Bad.long(n: s.len) if s.len > 3
+  s.len
+
+fun total[E](xs: []?String, f: ?fun(?String) -> Int!E) -> Int!E
+  n = 0
+  for x in xs
+    n += f(x)!
+  n
+
+sub main()
+  for xs in [["ab", "c"], ["ab", "abcde"], ["", "a"]]
+    v = total(xs, size) catch |e|
+      match e
+        .empty => -1
+        .long(n) => -n
+    print(v)
+```
+
+```output
+3
+-5
+-1
+```
+
+```rig reject
+error Bad
+  empty
+
+fun g(n: Int) -> Int!Bad
+  return Bad.empty if n == 0
+  n
+
+fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+  g(n)! + f(n)!
+```
+
+```error
+`g` may fail with `Bad`, which `E`, the error set `apply` declares, does not hold
 ```
 
 ---
