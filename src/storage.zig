@@ -1017,7 +1017,13 @@ pub const SetOrder = packed struct(u8) {
     /// after the new one is made), the storage is dropped on the way out
     /// unless the store takes it.
     guard: bool = false,
-    _: u5 = 0,
+    /// The assignment replaces a value that moves (`sema.resourceKind`):
+    /// the place, a field or element of a type that moves (or of a type
+    /// sema does not know), a local that owns, or what a `!T` local
+    /// writes through when it owns. The new value is made first, then
+    /// the old one is dropped and the new one stored.
+    drops_old: bool = false,
+    _: u4 = 0,
 };
 
 /// How assignment `set` runs, decided once.
@@ -1059,7 +1065,43 @@ fn decideSetOrder(ctx: *const SemContext, set: Sexp) SetOrder {
         .held = held,
         .base = held and sc.base != .nil and sc.held_index and !baseStays(sc.base),
         .guard = sc.leaves and ownsValue(ctx, ir.Set.value(set)),
+        .drops_old = dropsOld(ctx, set),
     };
+}
+
+/// Whether assignment `set` replaces a value that moves (`SetOrder.drops_old`).
+fn dropsOld(ctx: *const SemContext, set: Sexp) bool {
+    const kind = rig.bindingKindOf(ir.Set.op(set));
+    if (kind.operator() != null) return false;
+    const target = ir.Set.target(set);
+    if (target != .src) {
+        if (kind != .default) return false;
+        // A target assigned through, a call's write view, writes the
+        // value the view reaches.
+        const place_ty = if (assignedThrough(target)) (if (typeOf(ctx, target)) |t| sema.writtenThrough(ctx, t) else null) else typeOf(ctx, target);
+        return if (place_ty) |t| owns(ctx, t) else true;
+    }
+    if (std.mem.eql(u8, srcText(ctx, target), "_")) return false;
+    const sym = ctx.symbolOf(target) orelse return false;
+    const s = ctx.symbols.items[sym];
+    if (s.decl_pos == target.src.pos) return false;
+    const ty = known(ctx, s.ty) orelse return false;
+    if (!isPtrViewTy(ctx, ty)) return owns(ctx, ty);
+    const pointee = sema.writtenThrough(ctx, ty);
+    return ctx.writesThrough(set) and !isPtrViewTy(ctx, pointee) and owns(ctx, pointee);
+}
+
+/// How the value of `e`, which emit holds in hidden storage or
+/// discards, is held and dropped when nothing takes it, decided once
+/// (`sema.resourceKind` of its type): the base a header holds, an
+/// assignment's new value, an argument or receiver a call holds, and the
+/// value of `_ = e` or `<e`.
+pub fn dropKind(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
+    return decide(ctx, e, .drop_kind);
+}
+
+fn decideDropKind(ctx: *const SemContext, e: Sexp) ?sema.ResourceKind {
+    return sema.resourceKind(ctx, typeOf(ctx, e) orelse return null);
 }
 
 /// Whether step `e` of an assignment can act when it runs: call, assign,
@@ -1242,6 +1284,7 @@ pub fn Answer(comptime q: sema.Question) type {
         .subject_hold => ?StorageBy,
         .set_order => SetOrder,
         .step_point => StepPoint,
+        .drop_kind => ?sema.ResourceKind,
     };
 }
 
@@ -1284,6 +1327,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .set_order => Node.of(decideSetOrder),
         .step_point => Node.of(decideStepPoint),
         .fills_in_place => Node.of(decideFillsInPlace),
+        .drop_kind => Node.of(decideDropKind),
     };
 }
 
@@ -1358,10 +1402,21 @@ pub fn plan(ctx: *SemContext, tree: Sexp) !void {
     var names = ctx.facts.names.iterator();
     while (names.next()) |e| if (ctx.symbols.items[e.value_ptr.*].decl_pos != e.key_ptr.*) p.used.set(e.value_ptr.*);
     for (ctx.symbols.items) |s| if (s.kind == .capture and s.origin < p.used.bit_length) p.used.set(s.origin);
+    planHolds(ctx);
     try p.walk(tree);
     try planConsumed(ctx, tree);
     try rig.eachBody(tree, ctx, planUnits);
     verifyDecisions(ctx);
+}
+
+/// Record how each parameter, local, and capture holds its value
+/// (`Symbol.hold`), which emit reads to give a binding `var` storage and
+/// a drop guard.
+fn planHolds(ctx: *SemContext) void {
+    for (ctx.symbols.items) |*s| switch (s.kind) {
+        .param, .local, .capture => s.hold = if (known(ctx, s.ty)) |t| sema.resourceKind(ctx, t) else null,
+        else => {},
+    };
 }
 
 /// Record the units of a body (`rig.eachUnit`): the innermost one
@@ -1442,9 +1497,36 @@ pub fn lambdaYields(ctx: *const SemContext, lambda: Sexp) bool {
 const Planner = struct {
     ctx: *SemContext,
     used: std.bit_set.Dynamic = .{},
+    /// The several results of the function or closure being walked.
+    results: ?[]const TypeId = null,
 
     fn record(p: *Planner, node: Sexp, kind: sema.StorageKind, by: StorageBy, life: sema.StorageLife) !void {
         try p.ctx.recordStorage(node, .{ .kind = kind, .by = by, .life = life });
+        // How the storage drops the value it holds, for emit to read.
+        switch (kind) {
+            .held => _ = dropKind(p.ctx, p.ctx.heldBaseOf(node) orelse return),
+            .new_value, .argument, .receiver => _ = dropKind(p.ctx, node),
+            else => {},
+        }
+    }
+
+    /// How each of the parts `tys` that `node` holds is held
+    /// (`SemContext.part_drops`).
+    fn partDrops(p: *Planner, node: Sexp, tys: []const TypeId) !void {
+        const kinds = try p.ctx.allocator.alloc(?sema.ResourceKind, tys.len);
+        defer p.ctx.allocator.free(kinds);
+        for (tys, kinds) |t, *k| k.* = sema.resourceKind(p.ctx, t);
+        try p.ctx.recordPartDrops(node, kinds);
+    }
+
+    /// The several results a function or closure gives, or null.
+    fn resultsOf(ctx: *const SemContext, e: Sexp) ?[]const TypeId {
+        const f = switch (e.kind() orelse return null) {
+            .fun, .sub => fnType(ctx, typeOf(ctx, ir.get(e, .name))),
+            .lambda => fnType(ctx, typeOf(ctx, e)),
+            else => return null,
+        } orelse return null;
+        return sema.resultsOf(ctx, f.returns);
     }
 
     fn isUsed(p: *Planner, name: Sexp) bool {
@@ -1455,7 +1537,12 @@ const Planner = struct {
 
     fn walk(p: *Planner, e: Sexp) std.mem.Allocator.Error!void {
         switch (e) {
-            .list => for (if (e.kind() == null) e.items() else rig.children(e)) |c| try p.walk(c),
+            .list => {
+                const saved = p.results;
+                defer p.results = saved;
+                if (e.isKind(.fun) or e.isKind(.sub) or e.isKind(.lambda)) p.results = resultsOf(p.ctx, e);
+                for (if (e.kind() == null) e.items() else rig.children(e)) |c| try p.walk(c);
+            },
             .src => {},
             else => return,
         }
@@ -1513,10 +1600,24 @@ const Planner = struct {
             // How an array literal holds its elements, for emit to read.
             .array => try p.array(e),
             // The call's results, which each target takes in its turn.
-            .destructure => try p.record(e, .results, .owned, .statement),
+            .destructure => {
+                try p.record(e, .results, .owned, .statement);
+                if (typeOf(ctx, ir.Destructure.value(e))) |t| switch (ctx.types.get(t)) {
+                    .results => |parts| try p.partDrops(e, parts),
+                    else => {},
+                };
+            },
             // The parts of `return a, b`, made first when a later one can
-            // leave.
+            // leave, each held as the function's result in its place.
             .results => if (hoistsResults(ctx, e)) try p.record(e, .argument, .owned, .call),
+            .@"return" => {
+                const value = ir.Return.value(e);
+                if (value.isKind(.results) and hoistsResults(ctx, value)) if (p.results) |tys| try p.partDrops(value, tys);
+            },
+            // `<e` of anything but a name drops what it takes.
+            .drop => if (ir.Drop.target(e) != .src) {
+                _ = dropKind(ctx, ir.Drop.target(e));
+            },
             .box => _ = fillsInPlace(ctx, e),
             .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
@@ -1766,18 +1867,17 @@ const Planner = struct {
             if (kind == .default) try p.placeAssign(set, order);
             return;
         }
-        if (std.mem.eql(u8, srcText(ctx, target), "_")) return;
+        // `_ = e` drops what it takes.
+        if (std.mem.eql(u8, srcText(ctx, target), "_")) {
+            _ = dropKind(ctx, value);
+            return;
+        }
         const sym = ctx.symbolOf(target) orelse return;
-        const s = ctx.symbols.items[sym];
-        if (s.decl_pos == target.src.pos) return;
+        if (ctx.symbols.items[sym].decl_pos == target.src.pos) return;
         // A reassigned resource's new value is made before the old one
         // is dropped. Any other store whose value can act makes its value
         // first, as every assignment does (`storesAfterValue`).
-        const ty = known(ctx, s.ty) orelse return;
-        const ptr = isPtrViewTy(ctx, ty);
-        const writes_through = ctx.writesThrough(set);
-        const pointee = sema.writtenThrough(ctx, ty);
-        if ((ptr and writes_through and !isPtrViewTy(ctx, pointee) and owns(ctx, pointee)) or (!ptr and owns(ctx, ty)) or storesAfterValue(ctx, set))
+        if (order.drops_old or storesAfterValue(ctx, set))
             try p.record(value, .new_value, .owned, .assignment);
     }
 
@@ -1792,7 +1892,7 @@ const Planner = struct {
         if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(set, order);
         const holds_view = if (through) (if (place_ty) |t| isPtrViewTy(ctx, t) else false) else (target != .src and isPtrViewExpr(ctx, target));
         if (holds_view) return p.openAssign(set, order);
-        if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(set, order);
+        if (!order.drops_old) return p.openAssign(set, order);
         try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
         if (order.held) try p.targetSteps(set, order);
         try p.record(target, .slot, .pointer, .assignment);

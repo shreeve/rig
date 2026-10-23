@@ -12,7 +12,7 @@
 //! `resolve.zig`, so the classifiers there are out of its reach: a call of
 //! `sema.copies` or `storage.matchesInPlace` from emit does not compile. A
 //! unit test below fails if emit imports anything else. What `Facts` offers
-//! is of three kinds:
+//! is of two kinds:
 //!
 //! - **Node facts**: what the checkers recorded about a node, read from the
 //!   facts table (docs/internals/INTERNALS.md, "The facts table") and the storage
@@ -22,10 +22,11 @@
 //!   whose answer is how values of that type are spelled in Zig (whether a
 //!   view is a pointer, whether a pointer to it is mutable, what `+x`
 //!   lowers to): one answer per type, read the same way by every pass.
-//! - **Pending** (`Facts.pending`): the node decisions emit still makes
-//!   itself, with the classifiers the checkers also call. It is the
-//!   allowlist this file's test counts: each entry is a decision that
-//!   should become a recorded node fact, and the list only shrinks.
+//!
+//! Emit makes no decision of its own with a classifier the checkers also
+//! call: whether a binding or a hidden storage holds a value that moves,
+//! and how it drops it, is recorded by the storage plan (`Symbol.hold`,
+//! `dropKind`, `partDrops`, `SetOrder.drops_old`).
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -94,6 +95,7 @@ pub const MatchMode = storage.MatchMode;
 pub const ReceiverHold = storage.ReceiverHold;
 pub const ArgumentHold = storage.ArgumentHold;
 pub const SetOrder = storage.SetOrder;
+pub const ResourceKind = sema.ResourceKind;
 pub const SetStep = storage.SetStep;
 pub const StepPoint = storage.StepPoint;
 pub const JumpDest = sema.JumpDest;
@@ -135,8 +137,6 @@ pub const Facts = struct {
     printer_sym_id: SymbolId,
     hasher_sym_id: SymbolId,
     arch_sym_id: SymbolId,
-    /// The decisions emit still makes itself (the allowlist).
-    pending: Pending,
 
     pub fn of(ctx: *const SemContext) Facts {
         return .{
@@ -162,7 +162,6 @@ pub const Facts = struct {
             .printer_sym_id = ctx.printer_sym_id,
             .hasher_sym_id = ctx.hasher_sym_id,
             .arch_sym_id = ctx.arch_sym_id,
-            .pending = .{ .sema_context = ctx },
         };
     }
 
@@ -556,6 +555,17 @@ pub const Facts = struct {
     }
     pub fn storageOf(f: Facts, node: Sexp, kind: StorageKind) ?Storage {
         return f.c().storageOf(node, kind);
+    }
+    /// How hidden storage holding the value of `node`, or a discard of
+    /// it, drops it (`storage.dropKind`, a recorded decision); null when
+    /// no checker decided it.
+    pub fn dropKind(f: Facts, node: Sexp) ??ResourceKind {
+        return storage.decided(f.c(), node, .drop_kind);
+    }
+    /// How each part of the several results `node` holds is held
+    /// (`SemContext.partDrops`), recorded by the storage plan.
+    pub fn partDrops(f: Facts, node: Sexp) ?[]const ?ResourceKind {
+        return f.c().partDrops(node);
     }
     /// How the walk that reaches a value by address reaches `e`
     /// (`storage.leafStep`, a recorded decision); null when no checker
@@ -1019,22 +1029,6 @@ pub const Facts = struct {
     }
 };
 
-/// The node decisions emit still makes itself, by calling a classifier the
-/// checkers also call, or by a rule of its own over a type's facts. Each is
-/// a decision that belongs in a recorded node fact; when one moves there,
-/// its entry here is deleted, and the test below counts what is left.
-pub const Pending = struct {
-    sema_context: *const anyopaque,
-
-    fn c(p: Pending) *const SemContext {
-        return @ptrCast(@alignCast(p.sema_context));
-    }
-
-    pub fn moves(p: Pending, ty: TypeId) Answer {
-        return sema.moves(p.c(), ty);
-    }
-};
-
 /// The syntax helpers emit shares with the checkers: functions of the IR
 /// alone, which read no fact and decide nothing a fact owns.
 pub const syntax = struct {
@@ -1069,10 +1063,6 @@ pub const syntax = struct {
     pub const isFloatLiteralText = sema.isFloatLiteralText;
     pub const isNumericTypeName = resolve.isNumericTypeName;
 };
-
-/// The node decisions `Pending` may still offer emit: this number only
-/// goes down, as each moves into a recorded fact.
-const pending_budget = 1;
 
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
@@ -1111,14 +1101,11 @@ test "emit reads the checkers' decisions only through Facts" {
             return error.TestUnexpectedResult;
         }
     }
-    // Every pending decision is one emit still makes, and there are no more
-    // of them than the budget: a decision moved into a recorded fact leaves
-    // the list.
-    const decls = @typeInfo(Pending).@"struct".decl_names;
-    try std.testing.expect(decls.len <= pending_budget);
-    inline for (decls) |name| {
-        if (std.mem.indexOf(u8, emit_source, ".pending." ++ name ++ "(") == null) {
-            std.debug.print("Pending.{s} is no longer used by emit: delete it\n", .{name});
+    // Nor does it call a classifier the checkers also call: what it would
+    // decide with one is recorded.
+    for ([_][]const u8{ ".pending.", "moves(" }) |word| {
+        if (std.mem.indexOf(u8, emit_source, word)) |i| {
+            std.debug.print("emit.zig decides at byte {d}: {s}\n", .{ i, word });
             return error.TestUnexpectedResult;
         }
     }

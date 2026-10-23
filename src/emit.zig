@@ -138,18 +138,8 @@ pub const UnitEvent = facts.UnitEvent;
 const check_units = facts.check_units;
 const self_check = facts.self_check;
 
-/// How a resource binding is released.
-const ResourceKind = enum {
-    /// `*T`: `x.dropStrong()`.
-    shared,
-    /// `~T`: `x.dropWeak()`.
-    weak,
-    /// A value with drop glue (`List`, a struct owning resources, ...):
-    /// `rig.drop(&x)`. Needs `var` storage.
-    value,
-    /// An optional resource such as `*T?`: `rig.drop(&x)`. Needs `var`.
-    optional,
-};
+/// How a resource binding is released (`sema.ResourceKind`).
+const ResourceKind = facts.ResourceKind;
 
 /// How a binding's scope-exit drop is armed.
 const Guard = enum {
@@ -1605,7 +1595,7 @@ pub const Emitter = struct {
             const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
             const unused = std.mem.eql(u8, rig_name, "_");
             var local: Local = .{ .sym = sym, .ty = ty };
-            if (!self.isPtrViewTy(ty)) local.kind = self.kindOf(ty);
+            if (!self.isPtrViewTy(ty)) local.kind = self.holdOf(sym);
             if (local.kind != null) {
                 local.guard = self.resourceGuard(sym);
                 if (unused) local.zig_name = try self.fresh("__rig_unused");
@@ -1958,8 +1948,7 @@ pub const Emitter = struct {
         try self.emitBare(base);
         try self.w.writeAll(";\n");
         try self.poisonAtExit(name);
-        const k = if (self.typeOf(base)) |t| self.kindOf(t) else null;
-        if (k) |kind| {
+        if (try self.dropKind(base)) |kind| {
             try self.writeIndent(self.indent);
             try self.w.writeAll("defer ");
             try self.writeDrop(name, kind);
@@ -2314,8 +2303,9 @@ pub const Emitter = struct {
             else => return self.unsupported(value, "a destructure of one value"),
         };
         if (parts.len != targets.len) return self.unsupported(node, "a destructure of the wrong arity");
+        const kinds = try self.need(self.facts.partDrops(node), node);
         var drops = false;
-        for (targets, parts) |t, part| if (!t.isKind(.set) and self.kindOf(part) != null) {
+        for (targets, kinds) |t, k| if (!t.isKind(.set) and k != null) {
             drops = true;
         };
         const name = try self.hiddenStorage(node, .results, .owned, .next);
@@ -2337,7 +2327,7 @@ pub const Emitter = struct {
         while (j > 0) {
             j -= 1;
             if (targets[j].isKind(.set)) continue;
-            const kind = self.kindOf(parts[j]) orelse continue;
+            const kind = kinds[j] orelse continue;
             try self.w.writeAll(" ");
             try self.writeDrop(try self.fmt("{s}[{d}]", .{ name, j }), kind);
             try self.w.writeAll(";");
@@ -2357,11 +2347,11 @@ pub const Emitter = struct {
             try self.emitBare(expr);
             return self.w.writeAll(");");
         }
-        if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
+        if (try self.dropKind(expr) != null) {
             try self.w.writeAll("rig.discard(");
             try self.emitBare(expr);
             return self.w.writeAll(");");
-        };
+        }
         // A named place is discarded by address: it may be used
         // elsewhere, and Zig rejects discarding a used name. (A clone,
         // or a move the checker did not record as a take, of a value
@@ -2420,9 +2410,7 @@ pub const Emitter = struct {
         // A write view is held as a pointer however it was obtained.
         const holds_ptr = is_lend or (ty != null and self.isPtrViewTy(ty.?));
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
-        if (!holds_ptr) {
-            if (ty) |t| local.kind = self.kindOf(t);
-        }
+        if (!holds_ptr) local.kind = self.holdOf(sym);
         if (local.kind != null) local.guard = self.resourceGuard(sym);
 
         const needs_ptr_self = local.kind == .value or local.kind == .optional;
@@ -2517,7 +2505,7 @@ pub const Emitter = struct {
                 try self.emitWriteViewPtr(value);
                 return self.w.writeAll(";");
             }
-            if (pointee != null and self.kindOf(pointee.?) != null) {
+            if ((try self.need(self.facts.setOrder(set), set)).drops_old) {
                 const new = try self.openNewValue(pointee, value);
                 return self.w.print("; rig.drop({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
             }
@@ -2585,7 +2573,7 @@ pub const Emitter = struct {
         const order = try self.need(self.facts.setOrder(set), set);
         const id = self.nextId();
         const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = id });
-        const kind: ?ResourceKind = if (order.guard) (if (self.typeOf(value)) |t| self.kindOf(t) else null) else null;
+        const kind: ?ResourceKind = if (order.guard) try self.dropKind(value) else null;
         if (order.guard and kind == null) return self.unsupported(value, "a guarded assignment value that owns nothing");
         try self.w.print("{{ {s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", name });
         if (ty) |t| {
@@ -2642,7 +2630,7 @@ pub const Emitter = struct {
             try self.w.writeAll(";");
             return self.closeAssign(order);
         }
-        const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
+        const may_own = (try self.need(self.facts.setOrder(set), set)).drops_old;
         if (!may_own) {
             const order = try self.openAssign(set, place_ty, .value);
             try self.emitTarget(target);
@@ -3031,10 +3019,11 @@ pub const Emitter = struct {
         const id = self.nextId();
         const names = try self.arena.allocator().alloc([]const u8, parts.len);
         const flags = try self.arena.allocator().alloc(?[]const u8, parts.len);
+        const kinds = try self.need(self.facts.partDrops(value), value);
+        if (kinds.len != parts.len) return self.unsupported(value, "results of another arity than the function's");
         try self.openBrace();
-        for (parts, tys, names, flags, 0..) |p, ty, *name, *flag, i| {
+        for (parts, tys, kinds, names, flags, 0..) |p, ty, kind, *name, *flag, i| {
             name.* = try self.hiddenStorage(value, .argument, .owned, .{ .pair = .{ id, @intCast(i) } });
-            const kind = self.kindOf(ty);
             try self.writeIndent(self.indent);
             try self.w.print("{s} {s}: ", .{ if (kind != null) "var" else "const", name.* });
             try self.emitTypeTy(ty);
@@ -3792,7 +3781,7 @@ pub const Emitter = struct {
         const body = try self.openLoopBody(lp);
         const sym = self.facts.symbolOf(binding);
         const ty: ?TypeId = if (sym) |s| self.symType(s) else null;
-        if (ty != null and self.kindOf(ty.?) != null) {
+        if (sym != null and self.holdOf(sym.?) != null) {
             try self.bindOptionalResource(.{ .cond = sexp, .name = binding, .tmp = tmp });
         } else if (sym != null and self.usage.used.contains(sym.?)) {
             const local = try self.declare(.{ .sym = sym.?, .ty = ty }, self.srcText(binding));
@@ -4690,7 +4679,7 @@ pub const Emitter = struct {
         const sym = self.facts.symbolOf(name_node) orelse return null;
         if (!self.usage.used.contains(sym)) return null;
         const ty = self.symType(sym);
-        return .{ .sym = sym, .ty = ty, .kind = if (ty) |t| self.kindOf(t) else null };
+        return .{ .sym = sym, .ty = ty, .kind = self.holdOf(sym) };
     }
 
     /// `|name| ` for a payload or catch-all binding that the body uses:
@@ -4920,7 +4909,7 @@ pub const Emitter = struct {
             .optional => |inner| inner,
             else => null,
         } else null;
-        if (ty != null and self.kindOf(ty.?) != null) {
+        if (if (self.facts.storageOf(cond, .as_value)) |st| st.by == .owned else false) {
             const tmp = try self.hiddenStorage(cond, .as_value, .owned, .next);
             try self.w.print("|{s}| ", .{tmp});
             return .{ .optional = .{ .cond = cond, .name = if (sym != null) name else .nil, .tmp = tmp } };
@@ -4990,7 +4979,7 @@ pub const Emitter = struct {
         if (o.name == .nil) return self.line("rig.discard({s});", .{o.tmp});
         const sym = self.facts.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
-        const kind = self.kindOf(ty).?;
+        const kind = self.holdOf(sym) orelse return self.unsupported(o.name, "an owned `as` binding that holds nothing");
         const local = try self.declare(.{
             .sym = sym,
             .ty = ty,
@@ -8513,7 +8502,7 @@ pub const Emitter = struct {
             const local = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(name));
             return .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp, .ty = ty } };
         }
-        var l: Local = .{ .sym = sym, .ty = ty, .kind = self.kindOf(ty) };
+        var l: Local = .{ .sym = sym, .ty = ty, .kind = self.holdOf(sym) };
         if (l.kind != null) l.guard = self.resourceGuard(sym);
         const stored = try self.declare(l, self.srcText(name));
         const expr = try self.fmt("rig.ErrorValue.taken({s}, &{s})", .{ tmp, slot orelse "rig.no_error_data" });
@@ -8816,7 +8805,7 @@ pub const Emitter = struct {
         }
         const ty = self.typeOf(recv);
         const ptr = if (ty) |t| self.isPtrViewTy(t) else false;
-        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
+        const kind: ?ResourceKind = if (ptr) null else try self.dropKind(recv);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr)) "var" else "const", name });
         if (ty) |t| {
             try self.w.writeAll(": ");
@@ -8913,7 +8902,7 @@ pub const Emitter = struct {
         // A temporary array lent as a slice stays in its slot, which owns
         // nothing to release: an array holds no value that needs cleanup.
         const lent_array = self.facts.lendsTempArray(h.node);
-        const kind: ?ResourceKind = if (ptr or lent or lent_array) null else if (ty) |t| self.kindOf(t) else null;
+        const kind: ?ResourceKind = if (ptr or lent or lent_array) null else try self.dropKind(h.node);
         if (suffix) |sx| h.name = try self.hiddenStorage(h.node, .argument, if (ptr or lent) .pointer else .owned, sx);
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
@@ -9263,7 +9252,7 @@ pub const Emitter = struct {
     fn emitClosureBinding(self: *Emitter, name_node: Sexp, sym: SymbolId, lambda: Sexp) Error!void {
         var local: Local = .{ .sym = sym, .stack_closure = true };
         for (try self.captureInfo(ir.Lambda.captures(lambda))) |c| {
-            if (self.kindOf(c.ty) != null) local.kind = .value;
+            if (self.holdOf(c.sym) != null) local.kind = .value;
         }
         if (local.kind != null) local.guard = self.resourceGuard(sym);
         const stored = try self.declare(local, self.srcText(name_node));
@@ -9285,7 +9274,7 @@ pub const Emitter = struct {
         try self.emitClosureStruct(lambda, caps);
         try self.emitCaptureInit(caps);
         try self.w.writeAll(";");
-        for (caps) |c| if (self.kindOf(c.ty) != null) return true;
+        for (caps) |c| if (self.holdOf(c.sym) != null) return true;
         return false;
     }
 
@@ -9308,7 +9297,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(c.ty);
             try self.w.writeAll(",\n");
             const field = try self.fmt("{s}.{s}", .{ env, try self.capField(c.name) });
-            const kind = if (self.isPtrViewTy(c.ty)) null else self.kindOf(c.ty);
+            const kind = if (self.isPtrViewTy(c.ty)) null else self.holdOf(c.sym);
             if (kind != null and self.facts.isOnceCapture(c.sym)) {
                 // A closure called once takes a capture it owns from its
                 // environment into a binding of its body, which drops it
@@ -9851,20 +9840,19 @@ pub const Emitter = struct {
         return self.facts.variantPayload(enum_ty, vname);
     }
 
-    /// How a value of this type that moves (`sema.moves`) is held and
-    /// released, or null for a value that copies. A value that moves gets
-    /// `var` storage, owned `as` and payload bindings, and an owned
-    /// closure environment; the kind picks its drop call. `rig.drop`
-    /// releases only what needs cleanup: a unique value, or a value of a
-    /// type parameter whose instance needs none, drops nothing.
-    fn kindOf(self: *Emitter, ty: TypeId) ?ResourceKind {
-        if (self.facts.pending.moves(ty) == .no) return null;
-        return switch (self.facts.types.get(ty)) {
-            .shared => .shared,
-            .weak => .weak,
-            .optional => .optional,
-            else => .value,
-        };
+    /// How binding `sym` holds its value (`Symbol.hold`, recorded by the
+    /// storage plan), or null for one that owns nothing to drop. A
+    /// binding that holds one gets `var` storage and a drop guard, owned
+    /// `as` and payload bindings, and an owned closure environment; the
+    /// kind picks its drop call.
+    fn holdOf(self: *Emitter, sym: SymbolId) ?ResourceKind {
+        return self.facts.symbols.items[sym].hold;
+    }
+
+    /// How hidden storage holding the value of `e`, or a discard of it,
+    /// drops it (`storage.dropKind`), or null when it owns nothing.
+    fn dropKind(self: *Emitter, e: Sexp) Error!?ResourceKind {
+        return self.need(self.facts.dropKind(e), e);
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {

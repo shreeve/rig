@@ -199,7 +199,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
 | `src/symbols.zig` | the program's symbols: every `:name` of every module, numbered once for the whole program, and `__rig_symbols.zig`, which holds them ([Symbols](#symbols)) |
 | `src/proofs.zig` | the proven checks: which index, byte-access, and add tests a guard or a check already made |
-| `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decision emit still makes itself (`Pending`: `moves`) |
+| `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
 | `src/sched.zig` | the scheduler: fibers, workers, rings and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
@@ -1630,7 +1630,8 @@ emitter ask these, never a predicate built for another question:
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, `List.filled`, `resize`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or an object or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
-| `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
+| `readByAddress` | moves (`moves` is not `no`): `print` and a read argument read it where it is, by address, so a later argument may not change it first |
+| `resourceKind` | how a value that moves is held and dropped: a shared handle (`dropStrong`), a weak one (`dropWeak`), an optional, or a value `rig.drop` releases; null for one that copies. The storage plan records it for each binding and each value emit holds or discards (Storage facts) |
 | `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell and a Signal hold |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
 | `readsAsValue` | a scalar (`isScalar`) or a plain enum: an operator, generic inference, and a binding with no type read a read view of one as the value |
@@ -1745,7 +1746,17 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 `owned` storage holds a value of its own, made there or taken; `copy`
 holds a copy of a value still held where it was, so a view of the
 storage views the copy; `pointer` holds the address of a place, or of
-storage another fact records. Two kinds are facts the table already
+storage another fact records. How storage and bindings drop what they
+hold is recorded by the plan too, from `sema.resourceKind`: for each
+parameter, local, and capture, `Symbol.hold`, which gives the binding
+`var` storage and a drop guard of its kind, and which the ownership
+checker asserts, in self-check builds, it treats as owning exactly when
+set; for a value held in storage or discarded (a header's held base, an
+assignment's new value, an argument or receiver a call holds, the value
+of `_ = e` or `<e`), the decision `drop_kind` (`storage.dropKind`); for
+the parts of a destructure's `results` and of `return a, b` made in
+their turn, `partDrops`; and whether an assignment drops the value it
+replaces, `SetOrder.drops_old`. Two kinds are facts the table already
 keeps: `temp` is `dropsTemp` and `header_copy` is `copiesHeader`, which
 typecheck records where it decides them (`recordTempDrop`,
 `rejectHeaderCopy`). Bookkeeping that holds no value of the program is
@@ -3869,18 +3880,18 @@ constant pointer, what `+x` lowers to). Whether an assignment writes
 through a `!T` binding is recorded where typecheck decides it
 (`writesThrough`, with the binding's `rebound` flag for its Zig `var`),
 and whether an element read copies the element where its type is
-recorded (`copiesElem`). The node decision emit still makes itself,
-with a classifier the checkers also call, is listed in `Pending`
-(whether a value of a type `moves`, which picks how a binding is held
-and dropped), which a unit test of `facts.zig` keeps from growing: it
-reads `emit.zig` with Zig's tokenizer and fails if emit imports any
-other file of the compiler, reaches the context behind `Facts`, or keeps
-a `Pending` entry it no longer uses. `Facts` also answers a few node
+recorded (`copiesElem`), and how a binding or a hidden storage holds a
+value that moves where the storage plan decides it (`Symbol.hold`,
+`dropKind`, `partDrops`, `SetOrder.drops_old`; "Storage facts"). Emit
+makes no decision with a classifier the checkers also call: a unit test
+of `facts.zig` reads `emit.zig` with Zig's tokenizer and fails if emit
+imports any other file of the compiler, reaches the context behind
+`Facts`, or asks whether a type moves. `Facts` also answers a few node
 queries that combine recorded facts without a classifier of their own
 (`stmtTemps` and `firstStmtTemp` list the `dropsTemp` facts in the order
 the IR makes them; `receiverOf`, `argParams`, and `receiverWrites` read
 `callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
-symbols); a query that decides more than that belongs in `Pending`.
+symbols); a query that decides more than that is a recorded fact.
 
 - **Names.** One function decides how a Rig name becomes a Zig name,
   `rig.writeZigIdent`, and every declaration and every use of a name

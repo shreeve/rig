@@ -61,7 +61,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `src/ownership.zig` | the ownership checker: moves, loans, drops |
 | `src/proofs.zig` | the index, byte, and add checks known to pass, which emit omits |
 | `src/inlining.zig`, `symbols.zig` | program-wide inlining decisions; the program's `:name` symbols |
-| `src/facts.zig` | emit's read-only view of a checked module; decisions emit still makes itself are `Pending` |
+| `src/facts.zig` | emit's read-only view of a checked module: the checkers' recorded decisions, and how each type is held in Zig |
 | `src/emit.zig` | Zig code generation, one file per module |
 | `src/runtime.zig`, `sched.zig`, `tasks.zig`, `net.zig`, `alloc.zig` | the runtime, scheduler, tasks and actors, sockets, and the allocator of release builds (a heap per thread), embedded in `bin/rig` and written beside each program |
 | `src/main.zig`, `lsp.zig`, `editor.zig` | the CLI (`rig --help`), the language server, editor support |
