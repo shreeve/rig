@@ -147,7 +147,7 @@ test "a plain list"
 ```text
 $ rig test leak.rig
 error: rig: memory leak detected: 3 allocations (128 bytes) never freed
-note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated
+note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig test ...`) to see where each was allocated
 FAIL  test "a file in a folder": memory leak
 ok    test "a plain list"
 1 passed, 1 failed
@@ -157,9 +157,9 @@ seed 1: `rig test --seed=1` runs these tests the same way again
 The first test ends in `true` and still fails: the folder holds the
 file and the file holds the folder, so neither is ever released. The
 second test is not blamed. The check runs after each test, so a leak is
-pinned to the test that made it. The note names `rig run`: to see where
-the leaked blocks came from, move the body into `sub main()` and run it
-with `RIG_LEAK_TRACE=1`.
+pinned to the test that made it. To see where the leaked blocks came
+from, run the tests again with `RIG_LEAK_TRACE=1` set: after the
+summary, each allocation a test left is shown with its stack trace.
 
 `rig test --release` builds in Zig's safe mode, which records nothing.
 The same file then reports `2 passed, 0 failed`. Run the suite in the
@@ -529,9 +529,9 @@ same run, and a failing run names the seed that repeats it.**
   pick one by name.
 - `--seeds=K` stops at the first failing seed, so it names one race at a
   time.
-- `RIG_LEAK_TRACE=1` traces leaks under `rig run` and not under
-  `rig test`, so a leak in a test is traced by moving its body to
-  `main`.
+- `RIG_LEAK_TRACE=1` shows a test's leaks with their traces only after
+  the summary, all together, and only when the run ends without a
+  panic.
 - Tests run tasks on one thread. They find races of order, and never
   run two tasks at the same instant on two cores.
 - A doc block cannot run `rig test`, so no suite checks the reports in

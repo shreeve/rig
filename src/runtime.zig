@@ -5032,7 +5032,7 @@ fn reportLeaks(before: Usage) bool {
 noinline fn leakReport(n: usize, bytes: usize) void {
     @branchHint(.cold);
     std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{ n, if (n == 1) "" else "s", bytes });
-    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
+    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig {s} ...`) to see where each was allocated\n", .{if (running_tests) "test" else "run"});
 }
 
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
@@ -5998,6 +5998,7 @@ var running_tests = false;
 fn runTestsHere(modules: []const TestModule) void {
     const w = stdout();
     running_tests = true;
+    var leaked = false;
     for (modules) |m| for (m.tests) |t| {
         const name: TestName = .{ .module = m.module, .name = t.name };
         current_test = name;
@@ -6014,6 +6015,7 @@ fn runTestsHere(modules: []const TestModule) void {
             } else if (reportLeaks(before)) {
                 w.print("FAIL  {f}: memory leak\n", .{name}) catch {};
                 tests_failed += 1;
+                leaked = true;
             } else {
                 w.print("ok    {f}\n", .{name}) catch {};
                 tests_passed += 1;
@@ -6033,6 +6035,10 @@ fn runTestsHere(modules: []const TestModule) void {
     if (tests_failed > 0) printSeed(w);
     flush();
     releaseProcess();
+    // Built with `RIG_LEAK_TRACE`, what the leaking tests left is still
+    // live, and each allocation is shown with its trace, as `finish`
+    // shows a program's.
+    if (leak_trace and leaked) _ = trace_allocator.deinit();
     if (tests_failed > 0) std.process.exit(1);
 }
 
