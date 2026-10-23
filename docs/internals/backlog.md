@@ -235,8 +235,6 @@ fixing.
   proves (166 on both bounds); building Trig with `RIG_NO_PROOFS=1` made
   ts-pattern only 0.5% slower and zod3 0.7% (pup, core 3, fastest of 10),
   so the 121 would be worth about 0.1%.
-- **`rig emit` takes no `--release`,** so it shows one build's Zig; WELCOME
-  and INTERNALS should say which, or emit should take the mode.
 - **`extern zig` is for std alone,** so a program cannot call Zig of its
   own. Decide whether a program may, and say so either way.
 - **An idle worker once missed a run-next fiber for 2 seconds.** The

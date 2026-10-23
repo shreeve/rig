@@ -152,7 +152,12 @@ cannot say what it is builds every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
 or `-Ofast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
-package directory on stderr; `build` names it when Zig fails.
+package directory on stderr; `build` names it when Zig fails. The
+package is the same in every mode, so `emit` takes none: a mode is
+only Zig's `-O` flag, which the runtime reads (`builtin.mode`) to
+choose its allocator and leak checker. What `run` and `test` add to
+the root module (`__rig_run_started`, below) is not in what `emit`
+prints.
 `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
 module, `RIG_SANITIZE=1` adds `__rig_sanitize` (see
 [the runtime](#the-runtime)), and `RIG_VERIFY_PROOFS=1` adds
