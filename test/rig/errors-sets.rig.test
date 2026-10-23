@@ -578,3 +578,79 @@ fail "a declared set in an expression's type argument", "5:13: a fallible type `
     xs = List[Int!E]()
     ys = Tasks[Int!E]()
     m = Map[Int, Int!E]()
+
+test "sets a member widens to its union where a view of it goes", '''
+  2 2
+  1
+  false true
+'''
+  # An error of a set is a value of a union that holds it: lent where a
+  # `?L` goes, a key of a `Map[L, ...]` too, and compared with an `L?`.
+  error A
+    x
+    w
+
+  error B
+    y
+
+  error L = A | B
+
+  fun take(k: ?L) -> Int
+    1
+
+  m: Map[L, Int] = Map()
+  !m.put(A.x, 1)
+  !m.put(B.y, 2)
+  print(m.len, m.get(B.y) ?? -1)
+  print(take(B.y))
+  o: L? = A.w
+  print(o == A.x, o == .w)
+
+test "sets a member with fields widens to its union where a view of it goes", "7"
+  error A
+    x(n: Int)
+
+  error B
+    y
+
+  error L = A | B
+
+  fun code(k: ?L) -> Int
+    match k
+      A.x(n) => n
+      B.y => 0
+
+  print(code(A.x(n: 7)))
+
+fail "sets a member without fields lent where a union with fields goes", "14:12: type mismatch: expected `?L`, got `B`; bind it first, `k: L = B.y`, then lend `?k`", errors: 1
+  # A value of the union, which carries fields, is made from the code
+  # first; the hint's form checks.
+  error A
+    x(n: Int)
+
+  error B
+    y
+
+  error L = A | B
+
+  fun code(k: ?L) -> Int
+    0
+
+  print(code(B.y))
+
+test "sets a member bound as its union and lent", "0"
+  error A
+    x(n: Int)
+
+  error B
+    y
+
+  error L = A | B
+
+  fun code(k: ?L) -> Int
+    match k
+      A.x(n) => n
+      B.y => 0
+
+  k: L = B.y
+  print(code(?k))
