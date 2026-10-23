@@ -375,7 +375,7 @@ test "review-rule2-cell-handle-module", '''
     print(bx.c.get())
 
   file "lib.rig"
-    pub obj Box[T]
+    pub obj Box[T: Copy + Owned]
       pub c: *Cell[T]
 
       pub sub put(?@, v: T)
@@ -515,7 +515,7 @@ test "review-rule2-name-module", '''
     pub fun hnm[T](x: T) -> ?String
       $name(*T)
 
-    pub fun deeper[T](x: T) -> ?String
+    pub fun deeper[T: Copy](x: T) -> ?String
       y: T? = none
       nm(y)
 

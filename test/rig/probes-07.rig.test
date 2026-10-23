@@ -951,7 +951,7 @@ test "c9", "3 2 4 6 1.5"
     print(w.v, p.b, q.a, r.b, f)
 
   file "lib.rig"
-    pub obj Pair[T]
+    pub obj Pair[T: Copy]
       pub a: T
       pub b: T
 

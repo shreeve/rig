@@ -100,8 +100,13 @@ In the owner's order:
    ([records](docs/history/records/2026-10/from-field/approved.md)).
    Phase 5, the Lean lemma, is
    built (formal/LambdaRig/Calls.lean; formal/README.md, "Calls through
-   an API"). Phase 6 (public generics state their bounds, which needs the
-   owner) is next.
+   an API"). Phase 6, implied bounds and the rule that public generics
+   state their bounds, is built
+   ([phase6-notes.md](docs/history/records/2026-10/apis-stage3/phase6-notes.md)):
+   it rejects programs a release accepted, so Trig takes its migration
+   (`tools/state-bounds.py`; the diff is
+   [trig-migration.diff](docs/history/records/2026-10/apis-stage3/trig-migration.diff))
+   when it lands. Stage 3 is then complete.
 2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved

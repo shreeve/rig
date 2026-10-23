@@ -150,7 +150,7 @@ fail "imported bare method", "method `get` must be called; to pass it as a funct
       fun get(?@) -> Int
         @n
 
-    pub obj Wrap[T]
+    pub obj Wrap[T: Copy]
       v: T
 
       fun get(?@) -> T

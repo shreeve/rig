@@ -1,4 +1,4 @@
 use util
 
-pub fun quad[T](x: T) -> T
+pub fun quad[T: Copy + Num](x: T) -> T
   util.twice(util.twice(x))

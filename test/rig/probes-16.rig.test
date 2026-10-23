@@ -392,7 +392,7 @@ test "rev224-called-rarely", '''
     print(a.count(), a.first() ?? 0, sq(16.0))
 
   file "lib.rig"
-    pub obj Box[T]
+    pub obj Box[T: Copy]
       pub v: T
 
       pub called fun get(?@) -> T
@@ -402,7 +402,7 @@ test "rev224-called-rarely", '''
         rarely
         @v = v
 
-    pub called fun twice[T](x: T) -> T
+    pub called fun twice[T: Num](x: T) -> T
       x + x
 
     pub fun scaled[k: Int](x: Int) -> Int
@@ -2360,7 +2360,7 @@ fail "rev255-m01", "cannot drop `n` while it is lent"
     print(bag.last)
 
   file "b.rig"
-    pub obj Bag[T]
+    pub obj Bag[T: Print]
       pub last: (?T)?
 
       pub sub put(!@, x: ?T) keeps x

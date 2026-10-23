@@ -203,7 +203,7 @@ inline fun g(i: Int) -> Int
   w(i) + 1
 RIG
 {
-    echo 'pub fun gen[T](x: T, i: Int) -> Int'
+    echo 'pub fun gen[T: Copy](x: T, i: Int) -> Int'
     echo '  s = m(x, i)'
     pile '  '
     echo '  s'

@@ -5,9 +5,9 @@
 source "$ROOT/test/cli/_lib.sh"
 
 {
-  printf 'pub fun f0[T](a: T, b: T) -> Int\n  1\n'
+  printf 'pub fun f0[T: Copy](a: T, b: T) -> Int\n  1\n'
   for ((i = 1; i < 1200; i++)); do
-    printf '\npub fun f%d[T](a: T, b: T) -> Int\n  f%d(a, b) + 1\n' $i $((i - 1))
+    printf '\npub fun f%d[T: Copy](a: T, b: T) -> Int\n  f%d(a, b) + 1\n' $i $((i - 1))
   done
   printf '\npub obj S0[T]\n  pub v: T\n'
   for ((i = 1; i < 400; i++)); do

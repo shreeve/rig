@@ -3289,16 +3289,17 @@ fail "type param method dropped failure", "`run[C]` cannot use `T = C`: the gene
   c = C(n: 1)
   run(?c)
 
-fail "type param method private", "`lib.size_of[geo.Sq]` cannot use `T = geo.Sq`: the generic body calls `x.size()`, and `geo.Sq.size` is private to module `geo`; declare it `pub` there"
+fail "type param method private", "`size_of[geo.Sq]` cannot use `T = geo.Sq`: the generic body calls `x.size()`, and `geo.Sq.size` is private to module `geo`; declare it `pub` there"
   # The method is visible from the body's module, as a call written
-  # there would need.
+  # there would need. The generic is private, so each instance decides:
+  # a `pub` one calls a method through a bound.
 
   use geo
   use lib
 
   sub main()
     s = geo.Sq(n: 2)
-    print(lib.size_of(?s))
+    print(lib.sq_size(?s))
 
   file "geo.rig"
     pub obj Sq
@@ -3308,11 +3309,16 @@ fail "type param method private", "`lib.size_of[geo.Sq]` cannot use `T = geo.Sq`
         @n
 
   file "lib.rig"
-    pub fun size_of[T](x: ?T) -> Int
+    use geo
+
+    fun size_of[T](x: ?T) -> Int
       x.size()
 
-test "type param method across modules", "2 3"
-  # A generic body in one module calls the `pub` method of a type
+    pub fun sq_size(x: ?geo.Sq) -> Int
+      size_of(x)
+
+test "type param method across modules", "23"
+  # A private generic body in one module calls the `pub` method of a type
   # another declares, and of one its own module declares.
 
   use geo
@@ -3321,7 +3327,7 @@ test "type param method across modules", "2 3"
   sub main()
     s = geo.Sq(n: 2)
     o = lib.Own(n: 3)
-    print(lib.size_of(?s), lib.size_of(?o))
+    print(lib.sizes(?s, ?o))
 
   file "geo.rig"
     pub obj Sq
@@ -3331,14 +3337,19 @@ test "type param method across modules", "2 3"
         @n
 
   file "lib.rig"
+    use geo
+
     pub obj Own
       pub n: Int
 
       fun size(?@) -> Int
         @n
 
-    pub fun size_of[T](x: ?T) -> Int
+    fun size_of[T](x: ?T) -> Int
       x.size()
+
+    pub fun sizes(s: ?geo.Sq, o: ?Own) -> Int
+      size_of(s) * 10 + size_of(o)
 
 test "type param method wrapped results", "3 -1 4 -5 2.5"
   # Through `??` the call gives an optional, through `!` and `catch` a

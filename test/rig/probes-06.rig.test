@@ -2960,7 +2960,7 @@ test "audit-ownership-perf views50", '''
   print(v48.b.n)
   print(v49.b.n)
 
-fail "audit-ownership-q02", "`lib.Holder[*Tok]` cannot use `T = *Tok`: the generic body copies a `T`, which would duplicate the resource `*Tok` owns"
+fail "audit-ownership-q02", "`lib.Holder[*Tok]` cannot use `T = *Tok`: `*Tok` cannot be copied"
   use lib
 
   obj Tok
@@ -2975,10 +2975,10 @@ fail "audit-ownership-q02", "`lib.Holder[*Tok]` cannot use `T = *Tok`: the gener
     print(t.n)
 
   file "lib.rig"
-    pub fun get[T](v: ?List[T], i: Int) -> T
+    pub fun get[T: Copy](v: ?List[T], i: Int) -> T
       v[i]
 
-    pub obj Holder[T]
+    pub obj Holder[T: Copy]
       pub x: T
 
       pub fun peek(?@) -> T
@@ -2987,7 +2987,7 @@ fail "audit-ownership-q02", "`lib.Holder[*Tok]` cannot use `T = *Tok`: the gener
     pub fun pick[T](a: ?T, b: ?T) -> ?T
       a
 
-    pub fun each_first[T](v: ?List[T]) -> T?
+    pub fun each_first[T: Copy](v: ?List[T]) -> T?
       for x in v
         return x
       none

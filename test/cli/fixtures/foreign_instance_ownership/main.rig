@@ -1,7 +1,8 @@
-# The ownership checker checks each instance of another module's
-# generic against that module's body: an owning argument where the body
-# copies a `T` (the note points into the body). A read view is a fine
-# `T` there, of a generic function or of a type with methods.
+# Each instance of another module's `pub` generic meets the bounds that
+# module states: an owning argument where the body copies a `T`, which
+# it states as `Copy`. A read view is a fine `T` there, of a generic
+# function or of a type with methods. What no bound names, an array
+# length, is checked against the body (the note points into it).
 
 use lib
 
@@ -17,7 +18,8 @@ sub main()
   b = lib.same(?r)
   print(a.n, b.n, lib.twice(3))
   c = lib.Wrap[?Res](v: ?r)
-  print(c.v.n)
+  print(c.v.n, lib.filled[Int, -1](0).len)
 
-# error: 16:11: `lib.twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
-# error: 2:7: `T` copied here; move it with `<` instead
+# error: 17:11: `lib.twice[Res]` cannot use `T = Res`: `Res` cannot be copied
+# error: 21:20: `lib.filled[Int, -1]` cannot use `n = -1`: the generic body uses `n` as an array length, which runs from 0 to 4294967295
+# error: 15:43: `n` used as an array length here

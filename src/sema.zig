@@ -714,7 +714,12 @@ pub const SymbolFlags = packed struct(u64) {
     /// (`sub each[E](f: ?sub()!E)!E`): bound only to an error set, and
     /// a value of it is an error (errors-spec §3.5).
     set_param: bool = false,
-    _: u15 = 0,
+    /// A type parameter of a `pub` declaration: a function's, a type's,
+    /// or a method's own (docs/design/apis.md, Stage 3, "Public generics
+    /// state their bounds"). Its body is checked against its bounds alone,
+    /// as a bounded parameter's is (`checkedByBounds`).
+    states_bounds: bool = false,
+    _: u14 = 0,
     /// Room for flags to come.
     spare: u31 = 0,
 };
@@ -861,6 +866,11 @@ pub const Symbol = struct {
     /// Shape]`), a type's header (`obj Square: Shape`), an API's
     /// (`api Named: Shape`).
     user_apis: []const ApiRef = &.{},
+    /// A type parameter: the built-in bounds its declaration's signature
+    /// already requires, which count as stated (`resolve.TypeResolver.implyBounds`):
+    /// `K` named in `Map[K, V]` is `K: Hash`. Never written, and never a
+    /// reason to check a body by its bounds.
+    implied: Apis = .empty,
     /// A union of error sets (`error L = A | B`): the sets it joins, each
     /// a declared set or another union. Null for every other symbol.
     error_parts: ?[]const TypeId = null,
@@ -978,10 +988,19 @@ pub fn hasBounds(sym: Symbol) bool {
     return sym.apis.count() > 0 or sym.user_apis.len > 0 or sym.assoc_of != null;
 }
 
+/// Whether a body's use of type parameter `sym` is checked against its
+/// bounds alone: it has bounds, or it is a parameter of a `pub`
+/// declaration, which states them (`SymbolFlags.states_bounds`). Any
+/// other is checked at each instance.
+pub fn checkedByBounds(sym: Symbol) bool {
+    return hasBounds(sym) or sym.flags.states_bounds;
+}
+
 /// The built-in APIs type parameter `sym`'s bounds give, those its
-/// own APIs build on included, with what they imply.
+/// own APIs build on and those its signature implies included, with what
+/// they imply.
 pub fn boundApis(ctx: *const SemContext, sym: Symbol) Apis {
-    var out = implied(sym.apis);
+    var out = implied(sym.apis.unionWith(sym.implied));
     if (sym.user_apis.len > 0) out.setUnion(builtInSupers(ctx, sym.user_apis) catch .empty);
     return out;
 }
@@ -1011,6 +1030,103 @@ pub fn unboundedMessage(ctx: *const SemContext, a: std.mem.Allocator, sym: Symbo
     const written = try formatBounds(ctx, a, sym, null);
     if (written.len == 0) return a.print("`{s}` has no bound, so it does not give {s}; give it one: `[{s}: {s}]`", .{ sym.name, what, sym.name, @tagName(api) });
     return a.print("`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, written, what, @tagName(api), sym.name, try formatBounds(ctx, a, sym, api) });
+}
+
+/// What a body does with a `T` that `api` gives, as the error that a
+/// `pub` generic does not state the bound says it: `adds `T`s`. `op` is
+/// the operator or method the body applies, or empty.
+pub fn boundUse(a: std.mem.Allocator, api: Api, tname: []const u8, op: []const u8) std.mem.Allocator.Error![]const u8 {
+    const verbs = [_]struct { []const u8, []const u8 }{ .{ "+", "adds" }, .{ "-", "subtracts" }, .{ "*", "multiplies" }, .{ "/", "divides" } };
+    for (verbs) |v| if ((api == .Num or api == .Integer) and std.mem.eql(u8, op, v[0])) return a.print("{s} `{s}`s", .{ v[1], tname });
+    const operator = op.len > 0 and op.len <= 3 and !std.ascii.isAlphabetic(op[0]);
+    return switch (api) {
+        .Num, .Integer => if (operator) a.print("applies `{s}` to `{s}`s", .{ op, tname }) else a.print("does arithmetic on `{s}`s", .{tname}),
+        .Signed => a.print("negates a `{s}`", .{tname}),
+        .Eq => a.print("compares `{s}`s with `==`", .{tname}),
+        .Ord => a.print("orders `{s}`s", .{tname}),
+        .Hash => a.print("hashes a `{s}`", .{tname}),
+        .Print => a.print("prints a `{s}`", .{tname}),
+        .Copy => a.print("copies a `{s}`", .{tname}),
+        .Clone => a.print("clones a `{s}`", .{tname}),
+        .Owned => a.print("keeps a `{s}` where no loan is tracked", .{tname}),
+        .Sends => a.print("sends a `{s}` to another task", .{tname}),
+        .Syncs => a.print("lets several tasks read a `{s}`", .{tname}),
+        .Iter => a.print("iterates a `{s}`", .{tname}),
+    };
+}
+
+/// A bound a `pub` declaration's error asks for: a built-in API, or an
+/// API of a program's own.
+pub const StatedBound = union(enum) { api: Api, user: ApiRef };
+
+/// The error that `pub` declaration's body does with its type parameter
+/// `param` what `api` gives (`does`, from `boundUse`), and its bounds do
+/// not name it, with the bounds to write: `` `pub fun sum[T]` adds `T`s:
+/// write `[T: Num]` ``. The bounds are those written with `api` added,
+/// less one another implies (`Hash` gives `Eq`); `user` adds an API of a
+/// program's own instead. Reported at the parameter, in the brackets the
+/// fix rewrites (`tools/state-bounds.py`); null for a parameter that is
+/// not one of a `pub` declaration of this module.
+pub fn statedMessage(ctx: *const SemContext, a: std.mem.Allocator, param: SymbolId, add: StatedBound, does: []const u8) std.mem.Allocator.Error!?[]const u8 {
+    const sym = ctx.symbols.items[param];
+    if (!sym.flags.states_bounds) return null;
+    const decl = ctx.stated.get(param) orelse return null;
+    var shown = sym;
+    switch (add) {
+        .api => |api| {
+            var all = sym.apis;
+            all.insert(api);
+            shown.apis = all;
+            var it = all.iterator();
+            while (it.next()) |x| {
+                var others = all;
+                others.remove(x);
+                if (implied(others).contains(x)) shown.apis.remove(x);
+            }
+        },
+        .user => |ref| shown.user_apis = try std.mem.concat(a, ApiRef, &.{ sym.user_apis, &.{ref} }),
+    }
+    return try a.print("`{s}` {s}: write `[{s}: {s}]`", .{ decl, does, sym.name, try formatBounds(ctx, a, shown, null) });
+}
+
+/// Reports, when type parameter `param` is one of a `pub` declaration of
+/// this module, that its body does at `at` what `does` says, and its
+/// bounds do not name `add`: at the parameter, with a note where the body
+/// does it. False otherwise, for the caller's own error.
+fn reportStatedBound(ctx: *SemContext, at: u32, param: SymbolId, add: StatedBound, does: []const u8) std.mem.Allocator.Error!bool {
+    const a = ctx.arena.allocator();
+    const sym = ctx.symbols.items[param];
+    const msg = (try statedMessage(ctx, a, param, add, does)) orelse return false;
+    const before = ctx.diagnostics.items.len;
+    try ctx.err(sym.decl_pos, "{s}", .{msg});
+    if (ctx.diagnostics.items.len > before) try ctx.note(at, "here", .{});
+    return true;
+}
+
+/// `reportStatedBound` for a built-in API, the body applying `op` (an
+/// operator or method, or empty).
+pub fn reportStated(ctx: *SemContext, at: u32, param: SymbolId, api: Api, op: []const u8) std.mem.Allocator.Error!bool {
+    return reportStatedBound(ctx, at, param, .{ .api = api }, try boundUse(ctx.arena.allocator(), api, ctx.symbols.items[param].name, op));
+}
+
+/// `reportStatedBound` for `lack`, when it is a bound of a type parameter
+/// (`Lack.bound`), the body doing what `does` says, or what `boundUse`
+/// says of `api` when null.
+pub fn reportStatedLack(ctx: *SemContext, at: u32, api: Api, lack: Lack, does: ?[]const u8) std.mem.Allocator.Error!bool {
+    if (!lack.bound) return false;
+    return switch (ctx.types.get(lack.ty)) {
+        .type_var => |p| reportStatedBound(ctx, at, p, .{ .api = api }, does orelse try boundUse(ctx.arena.allocator(), api, ctx.symbols.items[p].name, "")),
+        else => false,
+    };
+}
+
+/// `reportStatedBound` for `api`, an API of a program's own that type
+/// parameter `arg` does not provide, the body doing what `does` says.
+pub fn reportStatedUser(ctx: *SemContext, at: u32, arg: TypeId, api: ApiRef, does: []const u8) std.mem.Allocator.Error!bool {
+    return switch (ctx.types.get(arg)) {
+        .type_var => |p| reportStatedBound(ctx, at, p, .{ .user = api }, does),
+        else => false,
+    };
 }
 
 /// How a type provides an API of a program's own: by its header (`obj
@@ -2869,6 +2985,14 @@ pub const SemContext = struct {
     /// parameters is -> those bounds, as resolve reads them, for the
     /// method's `Field` (`Field.owner_bounds`).
     owner_bounds: std.AutoHashMapUnmanaged(u32, []const OwnerBound) = .empty,
+    /// Each type parameter of a `pub` declaration of this module
+    /// (`SymbolFlags.states_bounds`) -> the declaration as written, `pub
+    /// fun sum[T]`, as the error that it states its bounds names it.
+    stated: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
+    /// Each generic type named in a signature with a type parameter of
+    /// the declaration as its argument `index`: the parameter has the
+    /// built-in bounds of the one it fills (`resolve.TypeResolver.implyBounds`).
+    implications: std.ArrayList(struct { param: SymbolId, generic: SymbolId, index: u32 }) = .empty,
     /// The type parameters that carry the bounds of the method being
     /// checked as well as their own (`widenOwnerBounds`).
     widened: []const SymbolId = &.{},
@@ -3116,6 +3240,8 @@ pub const SemContext = struct {
         self.conformances.deinit(self.allocator);
         self.type_witnesses.deinit(self.allocator);
         self.owner_bounds.deinit(self.allocator);
+        self.stated.deinit(self.allocator);
+        self.implications.deinit(self.allocator);
         self.assoc_bound_decls.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
@@ -6890,7 +7016,8 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
         const sym = ctx.symbols.items[param];
-        if (!hasBounds(sym)) continue;
+        // A parameter with no bound meets those its signature implies.
+        if (!hasBounds(sym) and sym.implied.count() == 0) continue;
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
         if (sym.assoc_of) |assoc| if (try assocViewsBase(ctx, params, args, assoc, arg)) |base| {
@@ -6902,6 +7029,7 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
         // bound takes would come from its own bounds, and it has none.
         for (sym.user_apis) |api| {
             if (try provides(ctx, arg, api) != null) continue;
+            if (try reportStatedUser(ctx, at, arg, api, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (of == .func) "calls" else "names", try rootName(ctx, of), sym.name, try apiName(ctx, api) }))) return false;
             try reportUnprovided(ctx, at, of, sym.name, arg, api);
             return false;
         }
@@ -6912,6 +7040,7 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
             var it = set.iterator();
             while (it.next()) |api| {
                 const lack = (try lacks(ctx, arg, api)) orelse continue;
+                if (try reportStatedLack(ctx, at, api, lack, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (of == .func) "calls" else "names", try rootName(ctx, of), sym.name, @tagName(api) }))) return false;
                 try reportLack(ctx, at, try rootName(ctx, of), sym.name, arg, api, lack);
                 return false;
             }
@@ -7657,15 +7786,16 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
 }
 
 /// A type parameter `ty` (`sym`): what its bounds name; with no bound,
-/// nothing, since each instance decides.
+/// nothing, since each instance decides, unless it is a `pub`
+/// declaration's (`checkedByBounds`).
 fn boundLack(ctx: *const SemContext, ty: TypeId, sym: SymbolId, api: Api) ?Lack {
-    if (!hasBounds(ctx.symbols.items[sym]) or boundApis(ctx, ctx.symbols.items[sym]).contains(api)) return null;
+    if (!checkedByBounds(ctx.symbols.items[sym]) or boundApis(ctx, ctx.symbols.items[sym]).contains(api)) return null;
     return .{ .ty = ty, .bound = true };
 }
 
 fn paramsLack(ctx: *SemContext, params: []const SymbolId, api: Api) std.mem.Allocator.Error!?Lack {
     for (params) |p| {
-        if (!hasBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(api)) continue;
+        if (!checkedByBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(api)) continue;
         return .{ .ty = try ctx.intern(.{ .type_var = p }), .bound = true };
     }
     return null;
@@ -8589,15 +8719,15 @@ fn blockerOf(ctx: *const SemContext, ty: TypeId, how: Crossing) ?Blocker {
 }
 
 /// A type parameter `ty` reaches whose bounds do not name `Sends` (or
-/// `Syncs`, by `how`): a bounded `T` crosses only as its bounds say; one
-/// with no bound as each instance does.
+/// `Syncs`, by `how`): a bounded `T`, or a `pub` declaration's, crosses
+/// only as its bounds say; any other as each instance does.
 fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     if (!ctx.typeInfo(ty).has_type_var) return null;
     var params: std.ArrayList(SymbolId) = .empty;
     defer params.deinit(ctx.allocator);
     reachedTypeVars(ctx, ty, &params, ctx.allocator) catch return null;
     for (params.items) |p| {
-        if (!hasBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(if (how == .moves) .Sends else .Syncs)) continue;
+        if (!checkedByBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(if (how == .moves) .Sends else .Syncs)) continue;
         return ctx.types.find(.{ .type_var = p }) orelse ty;
     }
     return null;
@@ -10267,11 +10397,12 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
         .ty = ctx.types.unknown_id,
         .decl_pos = imported_decl_pos,
         .scope = scope_invalid,
-        .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known, .per_target = fsym.flags.per_target, .set_param = fsym.flags.set_param },
+        .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known, .per_target = fsym.flags.per_target, .set_param = fsym.flags.set_param, .states_bounds = fsym.flags.states_bounds },
         .contents = fsym.contents,
         .from = origin,
         .apis = fsym.apis,
         .user_apis = fsym.user_apis,
+        .implied = fsym.implied,
     });
     // Recorded first: the members of a generic type name the type.
     try ctx.imported.put(ctx.allocator, origin, id);
