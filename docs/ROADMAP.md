@@ -28,6 +28,7 @@ items, with their probe cases, are in
 
 - **std's I/O sets**: declared error sets for std's I/O functions and its other fallible ones, which fail with any error today (`text.parse_int -> Int!`, `std.file`, `std.net`, `std.io`), so a caller can match their members and a function that declares a set can pass their failures on with `!` rather than catch them ([SPEC §13](../SPEC.md#declared-sets-and-fields)); they wait for the owner's names.
 - **Constant tables**: module constants built from constructors of plain types, for Trig's diagnostics catalog.
+- **Text over several lines**: a literal that spans lines, for help text and templates; today each line is a literal and `String(a, b, c)` joins them (SPEC "Strings").
 - **Several results**, after their first form (SPEC "Several results"):
   in registers when small, `from` per result, and a `for` that binds
   them each step.
@@ -40,6 +41,7 @@ items, with their probe cases, are in
   and move std/terminal.zig's `widen` back into std/terminal.rig.
 - **Checker-proved check elimination** through handles into stores (`@store.lists[Int(list.start) + k]`), which no local fact bounds; locals, Lists, field paths, `for` ranges, and flags are built ([internals/INTERNALS](internals/INTERNALS.md), "Proven checks").
 - **A frame-size guard** for every function.
+- **Bounds proofs from a guard's false edge** (`return 0 if i >= s.len` before `s[i]`) and constant indexes after a length test (`xs[0]` inside `if xs.len >= 2`): measured on Trig at about 0.1% (121 constant indexes after a test, beside 437 proven; `RIG_NO_PROOFS=1` costs ts-pattern 0.5% and zod3 0.7%), so they wait for a program they pay for.
 
 ## Concurrency
 
@@ -71,6 +73,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 ## Tooling
 
 - **Assertions** for `test` blocks, and running one test by name.
+- **A panic's report without Zig's frames**: a debug panic prints Zig stack frames with the machine's own paths, so no doc can show a panicking program's exact stderr; a switch (or a default for `rig test`) that prints only Rig's own lines.
 - **Facts for tools**: `rig check --facts=sema` prints sema's facts for the compiler's own debugging; tools need them (symbols, types, ownership operations, captures) in a versioned format.
 - **A formatter** that writes the canonical style, such as one blank line between top-level declarations.
 - **Machine-readable diagnostics**: `rig check --json`, with machine-applicable fixes. Many diagnostics already name the fix, such as "write `rd(?n)`"; the JSON gives each fix as an edit to apply. Later, `rig explain`.

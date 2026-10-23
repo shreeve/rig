@@ -219,33 +219,15 @@ fixing.
   as a statement drops its `Bool` with no error, while a bare `0` is
   rejected. Make the rule one: a statement whose value is not `Void`
   needs `_ =`, or say in SPEC why a call's result may go unused.
-- **No way to write a long literal over several lines** *(checked)*. A
-  `'...'` raw string that crosses a line is "unterminated string", and
-  neither SPEC nor STD says how to write one; journey 06 built its text
-  with `String(a, b, c)`. Either let raw strings span lines or name the
-  way in SPEC's string section.
 - **SPEC writes Zig's builtins as `@bitCast` and `@intCast`** *(checked)*
   in two places, where Rig spells them `$bitCast` and `$intCast`; in
   `raw`, `@bitCast(x)` is "use of unbound name `@`".
-- **The bounds-check proof uses a guard only on the true edge**
-  *(checked)*. `return 0 if i < 0 or i >= s.len` before `s[i]` proves
-  nothing, while `if i >= 0 and i < s.len` then `s[i]` does
-  (`rig check --facts=proofs`). A `for i in 0..xs.len` over a List or a
-  slice is proven. A constant index after a length test is never proven,
-  even `xs[0]` inside `if xs.len >= 2`. Measured, and not worth building
-  for Trig: its checker has one index after such a guard on its index,
-  and about 121 constant indexes after a length test, beside the 437 it
-  proves (166 on both bounds); building Trig with `RIG_NO_PROOFS=1` made
-  ts-pattern only 0.5% slower and zod3 0.7% (pup, core 3, fastest of 10),
-  so the 121 would be worth about 0.1%.
 - **`rig check --facts=proofs` names no file in a directory module.**
   Its lines are positions in the module's joined source (its files in
   byte order of their names), so a reader maps them back by hand; each
   line should name its file.
 - **`rig emit` takes no `--release`,** so it shows one build's Zig; WELCOME
   and INTERNALS should say which, or emit should take the mode.
-- **`extern zig` is for std alone,** so a program cannot call Zig of its
-  own. Decide whether a program may, and say so either way.
 - **A capture error inside an `http.serve` closure is reported twice.**
 - **`RIG_LEAK_TRACE=1 rig test` prints no allocation trace,** though
   `rig run` of the same body does, and the leak note says to use
@@ -269,8 +251,5 @@ fixing.
   HANDOFF nor ROADMAP mentions.
 - **design/formal-plan.md describes `RIG_SANITIZE=views`,** which `src/`
   does not have; mark it planned or remove it.
-- **A debug panic prints Zig stack frames with local paths,** so a doc
-  block cannot hold one and a panicking program cannot be shown with
-  its exact stderr; there is no way to turn the frames off.
 - **`rig check --tasks`,** to list each local task and what pins it, was
   decided by the concurrency panel and is not built.

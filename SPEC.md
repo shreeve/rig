@@ -363,6 +363,23 @@ it yields its bytes as `U8`. `s.is_empty()` is `s.len == 0`; it works
 the same on a List, an array, a slice, and a `Cell[List[T]]`, and a
 type's own `is_empty` method wins on that type.
 
+A string literal, in either quotes, ends on its line. A text longer than
+a line is made of several, `String(a, b, c)`, one String of their bytes
+in order.
+
+```rig
+sub main()
+  usage = String(
+    "usage: tool [flags] FILE\n",
+    "  -v  say more\n",
+  )
+  print(usage.len)
+```
+
+```output
+40
+```
+
 ```rig
 sub main()
   s = ""
