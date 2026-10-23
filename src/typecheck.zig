@@ -3574,12 +3574,25 @@ const Checker = struct {
             }
         };
         if (scrutinee == self.t().int_literal_id) try self.defaultIntLiteral(subject);
+        // A value of a set parameter is matched as an error of any set.
+        scrutinee = try self.setParamAsError(scrutinee);
         const matchable = isText(self.ctx, scrutinee) or switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
             .int, .int_literal, .bool, .symbol, .invalid, .unknown, .any_error => true,
             .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null or sema.isErrorUnion(self.ctx, sema.unwrapViews(self.ctx, scrutinee)),
             else => false,
         };
         return .{ .mode = mode, .scrutinee = scrutinee, .hands = subject_hands, .pos = scrut_pos, .matchable = matchable };
+    }
+
+    /// `ty`, or, where it is a set parameter `E` or a view of one,
+    /// `error` in its place: what may be done with a value of `E` is
+    /// what may be done with an error of any set.
+    fn setParamAsError(self: *Checker, ty: TypeId) Error!TypeId {
+        return switch (self.ctx.types.get(ty)) {
+            .read_view => |inner| if (sema.isSetParam(self.ctx, inner)) self.ctx.intern(.{ .read_view = self.t().any_error_id }) else ty,
+            .write_view => |inner| if (sema.isSetParam(self.ctx, inner)) self.ctx.intern(.{ .write_view = self.t().any_error_id }) else ty,
+            else => if (sema.isSetParam(self.ctx, ty)) self.t().any_error_id else ty,
+        };
     }
 
     fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
@@ -5994,6 +6007,10 @@ const Checker = struct {
         const declared = try self.tyName(self.body.ret);
         if (set == self.t().any_error_id) {
             return self.errAt(operand, "`{s}` may fail with any error, and {s} declares `{s}`: catch it, or declare `{s}`", .{ callee, fname, declared, try self.anyErrorHeader() });
+        }
+        // A union joins declared sets, never a set parameter.
+        if (sema.isSetParam(self.ctx, set) or sema.isSetParam(self.ctx, ret.fallible.set)) {
+            return self.errAt(operand, "`{s}` may fail with `{s}`, which `{s}`, the error set {s} declares, does not hold: catch it", .{ callee, try self.tyName(set), try self.tyName(ret.fallible.set), fname });
         }
         return self.errAt(operand, "`{s}` may fail with `{s}`, which `{s}`, the error set {s} declares, does not hold: catch it, or declare a set that holds both (`error L = {s} | {s}`)", .{ callee, try self.tyName(set), try self.tyName(ret.fallible.set), fname, try self.tyName(ret.fallible.set), try self.tyName(set) });
     }
@@ -10605,7 +10622,7 @@ const Checker = struct {
         };
         if (bad) return null;
         if (own.items.len == 0) {
-            if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+            if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f) });
             self.inst_own = .empty;
             return f;
         }
@@ -10622,7 +10639,7 @@ const Checker = struct {
             return null;
         };
         const result = self.ctx.types.get(instance).function;
-        try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+        try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f) });
         self.inst_own = .{ .params = own.items, .args = own_args };
         if (self.tentative == 0) {
             const inst: sema.FnInstance = .{
@@ -10707,6 +10724,13 @@ const Checker = struct {
         exact: u8 = 0,
         /// `bindArg` is matching the `T` of a `?T` against a `?String`.
         viewing: bool = false,
+        /// `bindArg` is matching a closure literal, whose failure binds
+        /// no set parameter (`bindSet`).
+        lambda: bool = false,
+        /// Bit `i`: a closure literal fails where set parameter `own[i]`
+        /// goes; with nothing else to bind it, it is `error`.
+        lambda_sets: u64 = 0,
+        lambda_arg: u32 = 0,
     };
 
     /// Match each argument's type against the field or parameter it
@@ -10796,9 +10820,17 @@ const Checker = struct {
             for (lambdas.items, done) |l, *d| {
                 if (d.*) continue;
                 const actual = (try self.lentLambdaType(&inf, l.pattern, l.lambda)) orelse continue;
+                inf.lambda = true;
+                defer inf.lambda = false;
                 try self.bindArg(&inf, l.pattern, actual, l.arg, 1);
                 d.* = true;
                 progress = true;
+            }
+        }
+        for (inf.bound, 0..) |*b, i| {
+            if (i < 64 and b.ty == sema.type_invalid and inf.lambda_sets & (@as(u64, 1) << @intCast(i)) != 0) {
+                b.ty = self.t().any_error_id;
+                b.arg = inf.lambda_arg;
             }
         }
         // A `T` that a `Static` argument and a `?String` argument both
@@ -11254,7 +11286,10 @@ const Checker = struct {
                     else => actual,
                 }, arg, depth + 1);
             },
-            .fallible => |p| if (at == .fallible) try self.bindArg(inf, p.ok, at.fallible.ok, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            .fallible => |p| if (at == .fallible) {
+                try self.bindArg(inf, p.ok, at.fallible.ok, arg, depth + 1);
+                try self.bindSet(inf, p.set, at.fallible.set, arg);
+            } else self.noteMismatch(inf, pattern, actual, arg),
             .shared => |p| if (at == .shared) {
                 inf.exact += 1;
                 defer inf.exact -= 1;
@@ -11333,6 +11368,7 @@ const Checker = struct {
         var p = pattern;
         var a = actual;
         if (self.ctx.types.get(p) == .fallible and self.ctx.types.get(a) == .fallible) {
+            try self.bindSet(inf, self.ctx.types.get(p).fallible.set, self.ctx.types.get(a).fallible.set, arg);
             p = self.ctx.types.get(p).fallible.ok;
             a = self.ctx.types.get(a).fallible.ok;
         }
@@ -11348,6 +11384,46 @@ const Checker = struct {
             b.arg = arg;
         } else if (b.ty != a and b.conflict == sema.type_invalid) {
             b.conflict = a;
+            b.conflict_arg = arg;
+        }
+    }
+
+    /// Which of `f`'s compile-time parameters are set parameters, as
+    /// `GenericCall.sets` records them.
+    fn setArgs(self: *Checker, f: sema.FunctionType) u64 {
+        var sets: u64 = 0;
+        for (f.ct_params, 0..) |slot, i| {
+            if (i < 64 and sema.isSetParam(self.ctx, slot)) sets |= @as(u64, 1) << @intCast(i);
+        }
+        return sets;
+    }
+
+    /// Whether `f` fails with one of its set parameters (`GenericCall.fails_by_set`).
+    fn failsBySet(self: *Checker, f: sema.FunctionType) bool {
+        const ret = self.ctx.types.get(f.returns);
+        return ret == .fallible and sema.isSetParam(self.ctx, ret.fallible.set);
+    }
+
+    /// The set a function-typed argument fails with, `actual`, where
+    /// the set parameter `pattern` goes: a callback failing with `Bad`
+    /// binds `E = Bad`, and one failing with any error `E = error`. A
+    /// closure literal's set is what it is checked against, so it binds
+    /// none: the set comes from another argument, the expected result,
+    /// or brackets.
+    fn bindSet(self: *Checker, inf: *Inference, pattern: TypeId, actual: TypeId, arg: u32) Error!void {
+        if (!sema.isSetParam(self.ctx, pattern) or self.isPoison(actual)) return;
+        const i = std.mem.findScalar(SymbolId, inf.own, self.ctx.types.get(pattern).type_var) orelse return;
+        if (inf.lambda) {
+            if (i < 64) inf.lambda_sets |= @as(u64, 1) << @intCast(i);
+            inf.lambda_arg = arg;
+            return;
+        }
+        const b = &inf.bound[i];
+        if (b.ty == sema.type_invalid) {
+            b.ty = actual;
+            b.arg = arg;
+        } else if (b.ty != actual and b.conflict == sema.type_invalid) {
+            b.conflict = actual;
             b.conflict_arg = arg;
         }
     }
@@ -16943,7 +17019,7 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         // no loan. Only where the text is read: a place that can be
         // written (`!x`) holds exactly its type.
         .string_view => if (a == .static) return true,
-        .read_view => |inner| if (sema.readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
+        .read_view => |inner| if (sema.readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner else if (inner == ts.any_error_id and a == .read_view and sema.isSetParam(ctx, a.read_view)) return true,
         // A `T!` holds a `T`; an error value meets it only as `return`'s
         // operand (`Checker.isReturnLeaf`).
         .fallible => |inner| {
@@ -16951,8 +17027,8 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
             if (a == .fallible) return a.fallible.ok == inner.ok and sema.errorSubset(ctx, a.fallible.set, inner.set);
             return meets(ctx, actual, inner.ok);
         },
-        // `error` holds an error of any set.
-        .any_error => if (sema.isErrorSet(ctx, actual)) return true,
+        // `error` holds an error of any set, a set parameter's included.
+        .any_error => if (sema.isErrorSet(ctx, actual) or sema.isSetParam(ctx, actual)) return true,
         // A `![]T` (or a `?[]T`) reads as the `[]T` it views.
         .slice => |want| switch (a) {
             .read_view, .write_view => |inner| if (inner == expected) return true,
@@ -18275,6 +18351,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .printable => try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and {s} would {s} as text, like a `?String`", .{ inst, pname, aname, req.op, pname, if (std.mem.eql(u8, aname, "[]U8")) "a `[]U8`" else try ctx.arena.allocator().print("the `[]U8` a `{s}` holds", .{aname}), req.op }),
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
+                .error_set => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` names an error set, and `{s}` is not one", .{ inst, pname, aname, pname, aname }),
                 .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
                 .named => {
                     const held = sema.unnameable(ctx, arg).?;
@@ -18293,6 +18370,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .slot_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a slot count here", .{pname}),
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
+                .error_set => try ctx.noteIn(req.module_id, req.pos, "`!{s}` here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
                 .named => try ctx.noteIn(req.module_id, req.pos, "`$name` here", .{}),
                 .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
@@ -18462,7 +18540,7 @@ fn apiOf(req: Requirement) ?sema.Api {
         .hashable => .Hash,
         .copies, .no_cleanup => .Copy,
         .printable => .Print,
-        .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .not_function, .named, .frozen => null,
+        .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .error_set, .not_function, .named, .frozen => null,
     };
 }
 
@@ -18650,6 +18728,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .whole_division => sema.isInteger(ctx, ty),
         .printable => try sema.printable(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
+        .error_set => sema.isErrorValue(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,
         .named => sema.unnameable(ctx, ty) == null,
         .frozen => (try sema.frozenBlocker(ctx, ty)) == null,

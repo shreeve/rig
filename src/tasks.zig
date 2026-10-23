@@ -1595,13 +1595,21 @@ fn unlockAt(arms: anytype, key: usize) void {
 /// channel is closed and empty; for `on_send`, called once the value is
 /// sent. The values of the sending arms that lose are dropped.
 pub fn select(arms_in: anytype) SelectOut(@TypeOf(arms_in)) {
+    var data: rt.ErrData = undefined;
+    return selectInto(arms_in, rt.failSlot(&data));
+}
+
+/// `select`, giving a failure's fields to the slot `slot` its `!` or
+/// `catch` lends, as a fallible arm's function takes one.
+pub fn selectInto(arms_in: anytype, slot: rt.ErrSlot) SelectOut(@TypeOf(arms_in)) {
     var arms = arms_in;
     const n = @typeInfo(@TypeOf(arms)).@"struct".field_types.len;
     const winner = try selectArms(&arms);
     inline for (0..n) |k| if (k == winner) {
         const A = @TypeOf(arms[k]);
-        if (@hasDecl(A, "Value")) return arms[k].f.call(.{arms[k].got});
-        return arms[k].f.call(.{});
+        const F = @TypeOf(arms[k].f);
+        if (@hasDecl(A, "Value")) return arms[k].f.call(rt.argsWithSlot(F, .{arms[k].got}, slot));
+        return arms[k].f.call(rt.argsWithSlot(F, .{}, slot));
     };
     unreachable;
 }

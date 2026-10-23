@@ -645,7 +645,7 @@ pub const SymbolKind = enum {
     capture,
 };
 
-pub const SymbolFlags = packed struct(u16) {
+pub const SymbolFlags = packed struct(u32) {
     /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
@@ -693,6 +693,11 @@ pub const SymbolFlags = packed struct(u16) {
     /// A function declared `inline fun`: it has no address, so it is only
     /// called, never a value.
     inline_marked: bool = false,
+    /// A function's type parameter its signature writes after `!`
+    /// (`sub each[E](f: ?sub()!E)!E`): bound only to an error set, and
+    /// a value of it is an error (errors-spec §3.5).
+    set_param: bool = false,
+    _: u15 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -1748,6 +1753,12 @@ pub const GenericCall = struct {
     /// (`Point.scale[2](p)`); Zig takes the receiver first, then the
     /// compile-time arguments.
     receiver_arg: bool = false,
+    /// Bit `i`: type argument `i` binds a set parameter
+    /// (`SymbolFlags.set_param`), which Zig takes as the set's error set.
+    sets: u64 = 0,
+    /// The function fails with a set parameter (`-> T!E`): its frame
+    /// takes the slot, whatever set the call binds.
+    fails_by_set: bool = false,
 };
 
 /// A generic function at particular type arguments: `params[i]` is
@@ -2096,6 +2107,8 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         GenericCall => {
             for (v.type_args) |ty| try w.print(" {s}", .{if (ty == type_invalid) "_" else try formatTypeIn(ctx, a, ty)});
             if (v.receiver_arg) try w.writeAll(" receiver");
+            if (v.sets != 0) try w.print(" sets={b}", .{v.sets});
+            if (v.fails_by_set) try w.writeAll(" fails_by_set");
         },
         // A field a pattern leaves out shows as `-`.
         []const Sexp => for (v) |b| try w.print(" {s}", .{identAt(ctx.source, b) orelse "-"}),
@@ -2187,6 +2200,9 @@ pub const Requirement = union(enum) {
     /// Not an error: the signature returns the parameter as a fallible
     /// `T!`, whose failure and success would both be errors.
     not_error,
+    /// An error set (`isErrorValue`): the signature writes the parameter
+    /// after `!`, as the set a function fails with (errors-spec §3.5).
+    error_set,
     /// Not a function type: the declaration makes a shared or weak handle
     /// of the parameter (`*T`, `~T`), and `*fun(...)` is an owned
     /// closure, not a handle of a function.
@@ -2222,6 +2238,7 @@ pub const Requirement = union(enum) {
             .bytes => "an integer or float in bytes",
             .whole_division => "a division of whole numbers",
             .not_error => "a fallible return",
+            .error_set => "an error set",
             .not_function => "a handle",
             .named => "a type name",
             .printable => "printing",
@@ -4656,7 +4673,9 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
             const c = contentsOf(decl.ctx, decl.sym);
             break :blk .{ .glue = c.glue, .plain = c.plain, .vector = c.vector, .any_error = c.any_error };
         },
+        // A set parameter's value is an error, whatever set binds it.
         .type_var => |sym| blk: {
+            if (ctx.symbols.items[sym].flags.set_param) break :blk .{ .glue = true, .any_error = true };
             const i = std.mem.findScalar(SymbolId, params, sym) orelse break :blk .{ .type_var = true };
             held[i] = true;
             break :blk .{ .plain = true, .type_var = true };
@@ -5085,7 +5104,8 @@ pub fn proxyOrigin(ctx: *const SemContext, sym: Symbol) ?struct { module_id: u32
 }
 
 /// The types a type is built from, in order: a wrapper's inner type, a
-/// slice's element, an array's element then its length, a function's
+/// fallible's value then its set, a slice's element, an array's element
+/// then its length, a function's
 /// parameters then its return type, a generic instance's arguments.
 pub const TypeChildren = struct {
     ty: Type,
@@ -5096,7 +5116,7 @@ pub const TypeChildren = struct {
         self.i += 1;
         return switch (self.ty) {
             .optional, .read_view, .write_view, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
-            .fallible => |inner| if (i == 0) inner.ok else null,
+            .fallible => |inner| if (i == 0) inner.ok else if (i == 1) inner.set else null,
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .simd => |v| if (i == 0) v.elem else if (i == 1) v.len else null,
@@ -5116,7 +5136,8 @@ pub fn holdsTypeParam(ctx: *const SemContext, ty: TypeId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
     const t = ctx.types.get(ty);
     switch (t) {
-        .type_var => return true,
+        // A set parameter's value is an error, whatever set binds it.
+        .type_var => |sym| return !ctx.symbols.items[sym].flags.set_param,
         .function, .ct_param => return false,
         else => {},
     }
@@ -5617,7 +5638,17 @@ pub const held_callable = "a callable view `{s}` is only a parameter's, a local'
 /// A value of an error set, or any error: what a fallible function
 /// fails with.
 pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
-    return ctx.types.get(ty) == .any_error or isErrorSet(ctx, ty);
+    return ctx.types.get(ty) == .any_error or isErrorSet(ctx, ty) or isSetParam(ctx, ty);
+}
+
+/// Whether `ty` is a function's set parameter (`SymbolFlags.set_param`):
+/// an error of a set its caller names, which only that set and `error`
+/// hold.
+pub fn isSetParam(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .type_var => |sym| ctx.symbols.items[sym].flags.set_param,
+        else => false,
+    };
 }
 
 /// Whether error set `set` holds `task.Stop`, `std.task`'s set, which
@@ -5819,6 +5850,8 @@ fn setInAt(ctx: *const SemContext, key: SetKey, outer: TypeId, depth: u32) bool 
 pub fn errorSubset(ctx: *const SemContext, inner: TypeId, outer: TypeId) bool {
     if (outer == type_any_error) return true;
     if (inner == type_any_error) return false;
+    // A set parameter may be any set: only itself holds it.
+    if (isSetParam(ctx, inner) or isSetParam(ctx, outer)) return inner == outer;
     return subsetAt(ctx, inner, ctx, outer, 0);
 }
 
@@ -8369,6 +8402,8 @@ fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, 
     if (seen.len > 32) return false;
     switch (ctx.types.get(ty)) {
         .type_var => |sym| {
+            // A set parameter's value is an error, which clones.
+            if (ctx.symbols.items[sym].flags.set_param) return true;
             const f = frame orelse return false;
             const i = std.mem.findScalar(SymbolId, f.params, sym) orelse return false;
             return deepCloneable(f.args_ctx, f.args[i], f.parent, seen);
@@ -8487,6 +8522,70 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
         .parameterized_nominal => |pn| for (pn.args) |arg| try reachedTypeVars(ctx, arg, out, a),
         else => {},
     }
+}
+
+/// A set parameter `ty` names other than after `!`, as a value's type
+/// (`e: E`, `List[E]`, `-> E`), or null: a signature writes one only as
+/// the set a function fails with (errors-spec §3.5).
+pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
+    if (!ctx.typeInfo(ty).has_type_var) return null;
+    return switch (ctx.types.get(ty)) {
+        .type_var => |sym| if (ctx.symbols.items[sym].flags.set_param) sym else null,
+        .optional, .read_view, .write_view, .shared, .weak, .callable, .range, .slot => |inner| setParamAsValue(ctx, inner),
+        .fallible => |f| setParamAsValue(ctx, f.ok),
+        .array => |arr| setParamAsValue(ctx, arr.elem),
+        .slice => |sl| setParamAsValue(ctx, sl.elem),
+        .simd => |v| setParamAsValue(ctx, v.elem),
+        .parameterized_nominal => |pn| for (pn.args) |arg| {
+            if (setParamAsValue(ctx, arg)) |sym| break sym;
+        } else null,
+        .results => |parts| for (parts) |part| {
+            if (setParamAsValue(ctx, part)) |sym| break sym;
+        } else null,
+        .function => |f| for (f.params) |param| {
+            if (setParamAsValue(ctx, param)) |sym| break sym;
+        } else setParamAsValue(ctx, f.returns),
+        else => null,
+    };
+}
+
+/// A set parameter `ty` names as the set of a function value or an owned
+/// closure, not of a callable view (`?fun(...) -> T!E`), or null: only a
+/// view lends a function of any set at one type.
+pub fn setParamUnlent(ctx: *const SemContext, ty: TypeId) ?SymbolId {
+    if (!ctx.typeInfo(ty).has_type_var) return null;
+    return switch (ctx.types.get(ty)) {
+        .callable => |inner| switch (ctx.types.get(inner)) {
+            .function => |f| for (f.params) |param| {
+                if (setParamUnlent(ctx, param)) |sym| break sym;
+            } else setParamUnlent(ctx, okOf(ctx, f.returns)),
+            else => setParamUnlent(ctx, inner),
+        },
+        .function => |f| blk: {
+            const ret = ctx.types.get(f.returns);
+            if (ret == .fallible and isSetParam(ctx, ret.fallible.set)) break :blk ctx.types.get(ret.fallible.set).type_var;
+            for (f.params) |param| if (setParamUnlent(ctx, param)) |sym| break :blk sym;
+            break :blk setParamUnlent(ctx, okOf(ctx, f.returns));
+        },
+        .optional, .read_view, .write_view, .shared, .weak => |inner| setParamUnlent(ctx, inner),
+        .fallible => |f| setParamUnlent(ctx, f.ok),
+        .array => |arr| setParamUnlent(ctx, arr.elem),
+        .slice => |sl| setParamUnlent(ctx, sl.elem),
+        .parameterized_nominal => |pn| for (pn.args) |arg| {
+            if (setParamUnlent(ctx, arg)) |sym| break sym;
+        } else null,
+        .results => |parts| for (parts) |part| {
+            if (setParamUnlent(ctx, part)) |sym| break sym;
+        } else null,
+        else => null,
+    };
+}
+
+fn okOf(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .fallible => |f| f.ok,
+        else => ty,
+    };
 }
 
 /// Copy a type from another module's store into `local_ctx`. Nominals
@@ -8608,7 +8707,7 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
         .ty = ctx.types.unknown_id,
         .decl_pos = imported_decl_pos,
         .scope = scope_invalid,
-        .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known, .per_target = fsym.flags.per_target },
+        .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known, .per_target = fsym.flags.per_target, .set_param = fsym.flags.set_param },
         .contents = fsym.contents,
         .from = origin,
         .apis = fsym.apis,

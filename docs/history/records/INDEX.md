@@ -34,6 +34,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | CORE's "A failure moves its error" | a panel of four, and the final text | [errors-core/](2026-10/errors-core/) |
 | Errors that carry fields (R3, #555) | its design, and a review of eight findings, all fixed before it landed | [errors-r3/](2026-10/errors-r3/) |
 | One representation for `error` (Option U) | the design check of R3's mode switch: `error` is always an `ErrorValue`, the slot has no bits without fields, and 7 latent bug classes | [errors-r3/design-check-u.md](2026-10/errors-r3/design-check-u.md) |
+| Generic sets (R2.5, #569) | a function takes its set as a type parameter after `!`; a callable view of any fallible function takes the slot, so one view type serves every instance; a review of six findings, resolved | [errors-r25/](2026-10/errors-r25/) |
 | Frozen values (`*Frozen[T]`) | a handle counted atomically for a value no one changes, read by many tasks; Rig's review | [frozen/](2026-10/frozen/) |
 | Fix: `Stop.canceled` after a failed `par.map` | a waiter takes no cancel from the task it waits on; `par.map`, `par.each`, and `http.serve` were affected | [fixes/parmap-cancel.md](2026-10/fixes/parmap-cancel.md) |
 | The consolidation round (planned) | the brief for a fresh session after errors with data: one classifier per fact, no bug open, docs, tooling, and optionally v0.3.0 | [consolidation/PLAN.md](2026-10/consolidation/PLAN.md) |
@@ -67,6 +68,11 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [review-1.md](2026-10/errors-r3/review-1.md): Review: errors that carry fields (PR #555), and how each finding was fixed
 - [design-check-u.md](2026-10/errors-r3/design-check-u.md): the design check that dissolved R3's `error_data` switch (Option U)
 - [u-timing.md](2026-10/errors-r3/u-timing.md): Option U against main: std.json on both machines, the instruction guard, and the micro-benchmarks
+
+### 2026-10/errors-r25/
+
+- [design.md](2026-10/errors-r25/design.md): R2.5, generic sets: the rules, what they lower to, and where they are built
+- [review-1.md](2026-10/errors-r25/review-1.md): its review: two HIGH (a re-raise into a read-only slot, `select`'s fallible arms), one MEDIUM, three LOW, and how each was resolved
 
 ### 2026-10/errors-r2/
 

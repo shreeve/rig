@@ -38,6 +38,7 @@ pub const superviseInto = tasks.superviseInto;
 pub const chan = tasks.chan;
 pub const Chan = tasks.Chan;
 pub const select = tasks.select;
+pub const selectInto = tasks.selectInto;
 pub const recvArm = tasks.recvArm;
 pub const sendArm = tasks.sendArm;
 pub const actorSupervised = tasks.actorSupervised;

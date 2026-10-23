@@ -50,13 +50,12 @@ newest entry summarizes the latest rounds.
   failure moves its error", revised by a panel of four
   (docs/history/records/2026-10/errors-core/), and R3 (#555): fields on
   members wherever a failure goes (calls, function values, closures,
-  tasks, actors, `par`, `isolate`, `main`, tests). One representation
-  for `error` (Option U, errors-r3/design-check-u.md), which removes R3's
-  program-wide switch and fixes the 7 classes it hid, and R4 (#565, on
-  top of it: std.json's `JsonError`, by `load` beside a `Bool` `parse`
-  kept for speed) are in review; R2.5 follows them. Next are the oracle's
-  model of the hidden `E?` and std's I/O sets (R3-3), R4 (std.json),
-  and R2.5 (generic sets).
+  tasks, actors, `par`, `isolate`, `main`, tests), one representation
+  for `error` (Option U, #566), and R4 (#565: std.json's `JsonError`, by
+  `load` beside a `Bool` `parse` kept for speed). R2.5, generic sets
+  (`fun total[E](f: ?fun() -> Int!E) -> Int!E`,
+  docs/history/records/2026-10/errors-r25/), is in review. Next are the
+  oracle's model of the hidden `E?` and std's I/O sets (R3-3).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

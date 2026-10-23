@@ -1,0 +1,545 @@
+# errors: a function generic over its error set (`sub each[E](f: ?sub()!E)!E`),
+# what binds the set, what its body may do with it, and what it lowers to.
+
+test "a callback's set is the set the call fails with", '''
+  empty
+  long
+  done
+'''
+  error Bad
+    empty
+    long
+
+  sub check(s: ?String)!Bad
+    return Bad.empty if s.len == 0
+    return Bad.long if s.len > 3
+
+  sub each[E](xs: []?String, f: ?sub(?String)!E)!E
+    for x in xs
+      f(x)!
+
+  for xs in [["a", ""], ["abcd", "b"], ["ab", "c"]]
+    each(xs, check) catch |e|
+      match e
+        .empty => print("empty")
+        .long => print("long")
+  print("done")
+
+test "a set with fields passes them through", '''
+  long 5
+  2
+'''
+  error Bad
+    empty
+    long(n: Int)
+
+  fun size(s: ?String) -> Int!Bad
+    return Bad.empty if s.len == 0
+    return Bad.long(n: s.len) if s.len > 3
+    s.len
+
+  fun total[E](xs: []?String, f: ?fun(?String) -> Int!E) -> Int!E
+    n = 0
+    for x in xs
+      n += f(x)!
+    n
+
+  _ = total(["ab", "abcde"], size) catch |e|
+    match e
+      .empty => print("empty")
+      .long(n) => print("long", n)
+    0
+  print(total(["a", "b"], size) catch -1)
+
+test "a `T!` callback makes the set `error`", '''
+  other
+'''
+  error Odd
+    other
+
+  fun strict(s: ?String) -> Int!Odd
+    return Odd.other if s.len == 0
+    s.len
+
+  fun loose(s: ?String) -> Int!
+    strict(s)!
+
+  fun total[E](xs: []?String, f: ?fun(?String) -> Int!E) -> Int!E
+    n = 0
+    for x in xs
+      n += f(x)!
+    n
+
+  _ = total([""], loose) catch |e|
+    match e
+      .other => print("other")
+      _ => print("else")
+    0
+
+test "the set named in brackets, a union, and one generic calling another", '''
+  io
+  bad
+  3
+'''
+  error IoError
+    closed
+
+  error ParseError
+    bad
+
+  error L = IoError | ParseError
+
+  fun step(n: Int) -> Int!L
+    return IoError.closed if n == 1
+    return ParseError.bad if n == 2
+    n
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  fun twice[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    apply(n, f)! + apply[E](n, f)! - n
+
+  for n in [1, 2, 3]
+    v = twice[L](n, step) catch |e|
+      match e
+        .closed => print("io")
+        .bad => print("bad")
+      0
+    print(v) if v > 0
+
+test "the body catches a value of the set and fails with it again", '''
+  saw long 9
+  long 9
+'''
+  error Bad
+    long(n: Int)
+
+  fun size(s: ?String) -> Int!Bad
+    return Bad.long(n: s.len) if s.len > 3
+    s.len
+
+  fun first[E](xs: []?String, f: ?fun(?String) -> Int!E) -> Int!E
+    for x in xs
+      n = f(x) catch |e|
+        match e
+          g: Bad => match g
+            .long(n) => print("saw long", n)
+          _ => print("saw another")
+        return e
+      return n if n > 0
+    0
+
+  _ = first(["", "abcdefghi"], size) catch |e|
+    match e
+      .long(n) => print("long", n)
+    0
+
+test "a value of the set widens to `error`", '''
+  1
+  empty
+'''
+  error Bad
+    empty
+
+  fun size(s: ?String) -> Int!Bad
+    return Bad.empty if s.len == 0
+    s.len
+
+  fun collect[E](xs: []?String, f: ?fun(?String) -> Int!E, into: !List[error]) -> Int
+    n = 0
+    for x in xs
+      n += f(x) catch |e|
+        !into.push(<e)
+        0
+    n
+
+  errs = List[error]()
+  print(collect(["a", ""], size, !errs))
+  for e in errs
+    match e
+      Bad.empty => print("empty")
+      _ => print("other")
+
+test "a callback of a set without fields, in a program with fields", '''
+  2 0 -1 4
+  3 9
+  10
+  1000
+'''
+  # A callable view of a fallible function takes the slot whatever its
+  # set; a frame that has none lends one nothing writes.
+  error Bad
+    empty
+
+  error Wide
+    big(n: Int)
+
+  fun g(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    n
+
+  fun w(n: Int) -> Int!Wide
+    return Wide.big(n: n) if n > 9
+    n
+
+  fun via(n: Int, f: ?fun(Int) -> Int!Bad) -> Int!Bad
+    f(n)! + 1
+
+  fun caught(n: Int, f: ?fun(Int) -> Int!Bad) -> Int
+    f(n) catch -1
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  fun forward(n: Int, f: ?fun(Int) -> Int!Bad) -> Int!Bad
+    apply(n, f)!
+
+  print(via(1, g) catch 0, via(0, g) catch 0, caught(0, g), caught(4, g))
+  print(forward(3, g) catch 0, forward(0, g) catch 9)
+  print(apply(5, |x| g(x)! * 2) catch 0)
+  v = apply(10, w) catch |e|
+    match e
+      .big(n) => n * 100
+  print(v)
+
+test "a closure failing with the set, and a view of a value of it", '''
+  3
+  5
+  huge
+  0
+'''
+  error Bad
+    empty
+    big(msg: String)
+
+  fun h(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    return Bad.big(msg: String("huge")) if n > 9
+    n
+
+  fun spin[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  fun show(e: ?error) -> Int
+    print("saw", e)
+    1
+
+  fun outer[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    m = spin[E](n, |?f, x| f(x)! + 1)!
+    v = f(n) catch |e|
+      show(?e)
+      return e
+    m + v
+
+  print(spin(3, h) catch 0)
+  print(outer(2, h) catch -1)
+  r = outer(12, h) catch |e|
+    match e
+      .big(msg) => print(msg)
+      .empty => print("empty")
+    0
+  print(r)
+
+test "a set that holds `task.Stop` binds a task's set", '''
+  2
+  3
+'''
+  use std.task
+
+  error Bad
+    empty
+
+  error L = Bad | task.Stop
+
+  fun g(n: Int) -> Int!L
+    return Bad.empty if n == 0
+    n
+
+  fun h(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    n
+
+  fun two[E](n: Int, f: ?fun(Int) -> Int!E, k: ?fun(Int) -> Int!E) -> Int!E
+    f(n)! + k(n)!
+
+  fun spin[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  sub main()!
+    print(two[L](1, g, h) catch 0)
+    t = spin(3, g)&
+    print(>t catch 0)
+
+test "a generic over its set from another module", '''
+  3
+  1
+  12
+'''
+  use lib
+
+  error Bad
+    empty
+    big(n: Int)
+
+  fun g(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    return Bad.big(n: n) if n > 9
+    n
+
+  sub main()
+    print(lib.apply(3, g) catch 0)
+    for xs in [[0, 12], [12, 0]]
+      v = lib.first(xs, g) catch |e|
+        match e
+          .empty => 1
+          .big(n) => n
+      print(v)
+
+  file "lib.rig"
+    pub fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+      f(n)!
+
+    pub fun first[E](xs: []Int, f: ?fun(Int) -> Int!E) -> Int!E
+      for x in xs
+        v = f(x) catch |e|
+          return e
+        return v if v > 0
+      0
+
+fail "a set parameter in a function value's type", "a function that fails with `E`, a set parameter, is lent: take it as `?fun(...) -> T!E`, which lends a function of any set"
+  fun raw_apply[E](n: Int, f: fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  print(0)
+
+fail "two callbacks of different sets", "conflicting types for `E` in the call to `two`: `A` (argument 2) and `B` (argument 3)"
+  error A
+    x
+
+  error B
+    y
+
+  fun f(n: Int) -> Int!A
+    return A.x if n == 0
+    n
+
+  fun g(n: Int) -> Int!B
+    return B.y if n == 0
+    n
+
+  fun two[E](n: Int, a: ?fun(Int) -> Int!E, b: ?fun(Int) -> Int!E) -> Int!E
+    a(n)! + b(n)!
+
+  print(two(1, f, g) catch 0)
+
+fail "a task over a set without `task.Stop`", "`spin` fails with `Bad`, and waiting for it also fails with `task.Stop`"
+  error Bad
+    empty
+
+  fun h(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    n
+
+  fun spin[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  t = spin(3, h)&
+  print(>t catch 0)
+
+test "a re-raise in a frame of a set without fields, in a program with fields", '''
+  -1
+  -1
+  -2
+  -3
+  1
+'''
+  # A frame with no slot of its own lends its call one, which a re-raise
+  # writes: directly, through a closure, and in a task.
+  use std.task
+
+  error Bad
+    empty
+
+  error Wide
+    big(n: Int)
+
+  error L = Bad | task.Stop
+
+  fun g(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    n
+
+  fun gl(n: Int) -> Int!L
+    g(n)!
+
+  fun w(n: Int) -> Int!Wide
+    return Wide.big(n: n) if n > 9
+    n
+
+  fun first[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    v = f(n) catch |e|
+      return e
+    v
+
+  fun outer(n: Int) -> Int!Bad
+    first(n, g)!
+
+  fun via(n: Int, f: ?fun(Int) -> Int!Bad) -> Int!Bad
+    f(n)!
+
+  sub main()
+    print(outer(0) catch -1)
+    t = first(0, gl)&
+    print(>t catch -1)
+    print(via(0, |x| first(x, g)!) catch -2)
+    print(via(0, |x| outer(x)!) catch -3)
+    print(w(1) catch -9)
+
+test "a closure's set from the expected result", '''
+  3
+  -12
+'''
+  error Wide
+    big(n: Int)
+
+  fun w(n: Int) -> Int!Wide
+    return Wide.big(n: n) if n > 9
+    n
+
+  fun first[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  fun outer(n: Int) -> Int!Wide
+    first(n, |x| w(x)!)!
+
+  for n in [3, 12]
+    v = outer(n) catch |e|
+      match e
+        .big(m) => -m
+    print(v)
+
+test "a fallible arm of `task.select`", '''
+  7
+  bad 9
+'''
+  use std.task
+
+  error Bad
+    empty
+    big(n: Int)
+
+  fun pick(v: Int?) -> Int!Bad
+    return Bad.empty if v == none
+    n = v ?? 0
+    return Bad.big(n: n) if n > 8
+    n
+
+  sub main()!
+    ch = *Chan[Int](4)
+    quit = *Chan[Int](1)
+    for x in [7, 9]
+      !ch.send(x)!
+      r = task.select(
+        (!ch).on_recv(pick),
+        (!quit).on_recv(|v| pick(v)!),
+      ) catch |e|
+        match e
+          Bad.big(n) => print("bad", n)
+          _ => print("other")
+        0
+      print(r) if r > 0
+
+fail "a set parameter bound to a type that is not a set", "`E` names an error set, and `Int` is not one"
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  fun one(n: Int) -> Int
+    n
+
+  print(apply[Int](1, one) catch 0)
+
+fail "a set parameter as a value's type", "`E` is an error set: it goes after `!` (`T!E`), and a value of it is caught (`catch |e|`)"
+  fun keep[E](e: E, f: ?fun() -> Int!E) -> Int!E
+    f()!
+
+  print(0)
+
+fail "another set into the parameter's", "`g` may fail with `Bad`, which `E`, the error set `apply` declares, does not hold"
+  error Bad
+    empty
+
+  fun g(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    n
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    g(n)! + f(n)!
+
+  print(0)
+
+fail "any error into the parameter's set", "`g` may fail with any error, and `apply` declares `Int!E`"
+  error Odd
+    empty
+
+  fun h(n: Int) -> Int!Odd
+    return Odd.empty if n == 0
+    n
+
+  fun g(n: Int) -> Int!
+    h(n)!
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    g(n)! + f(n)!
+
+  print(0)
+
+fail "a match on the parameter's set needs `_`", "`match` on `error` is not exhaustive; add `_ =>` for the values its arms miss"
+  error Bad
+    empty
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int
+    f(n) catch |e|
+      match e
+        Bad.empty => 0
+
+  print(0)
+
+fail "a `_` the substituted set makes dead", "this arm never runs: the arms before it cover every value"
+  error Bad
+    empty
+
+  fun g(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    n
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  v = apply(0, g) catch |e|
+    match e
+      .empty => 1
+      _ => 2
+  print(v)
+
+code "the set is a comptime parameter and the call passes its Zig set", "fn apply(comptime E: type, n: i64, f: rig.FnRef(&.{ i64, rig.ErrSlot }, E!i64), __out: rig.ErrSlot) E!i64 {", "apply(Bad, 0, rig.FnRef(&.{ i64, rig.ErrSlot }, Bad!i64).ofFn(g), rig.failSlot(&__rig_fail_1))"
+  error Bad
+    empty
+
+  fun g(n: Int) -> Int!Bad
+    return Bad.empty if n == 0
+    n
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!E
+    f(n)!
+
+  print(apply(0, g) catch -1)
+
+fail "the parameter's set into a declared set", "`f` may fail with `E`, which `Bad`, the error set `apply` declares, does not hold: catch it"
+  error Bad
+    empty
+
+  fun apply[E](n: Int, f: ?fun(Int) -> Int!E) -> Int!Bad
+    f(n)!
+
+  print(0)

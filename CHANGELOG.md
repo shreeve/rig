@@ -13,6 +13,15 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Generic sets:** a function may take the set it fails with as a type
+  parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
+  binds it from its callbacks' sets (`error` for a `T!` callback), and
+  fails with that set; in the body `!` passes only `E`, and `catch |e|`
+  gives an `e: E` that `return e` fails with again. A callable view of a
+  fallible function always takes the hidden slot, which has no bits in a
+  program whose sets have none. A fallible arm of `task.select` hands its
+  failure's fields to whoever catches it.
+
 - **`std.json`'s `JsonError`:** `(!doc).load(?src)` parses as `parse`
   does and fails with `JsonError.bad(kind:, at:)`, the first error and
   its byte offset, where `parse` answers `false`. `parse`, a `Bool`,
