@@ -224,7 +224,13 @@ const SymbolResolver = struct {
         };
         // `String`, `Static`, and `Symbol` are built-in types, like `List`,
         // though no symbol holds them.
-        const reserved = self.scope == self.module_scope and isNominalBuiltinName(name);
+        // So are `Int`, `Float`, `Bool`, and the sized numbers, which no
+        // type or API a module declares may take.
+        const names_type = switch (kind) {
+            .nominal_type, .generic_type, .type_alias, .api => true,
+            else => false,
+        };
+        const reserved = self.scope == self.module_scope and (isNominalBuiltinName(name) or (names_type and isBuiltinTypeName(self.ctx, name)));
         if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
@@ -610,7 +616,12 @@ const SymbolResolver = struct {
         const bounds = p.boundsAt(name_node.src.pos);
         if (bounds.len != 1) return null;
         const leaf = bounds[0];
-        if (leaf != .src) return if (leaf.isKind(.member) and !self.foreignApi(leaf)) leaf else null;
+        if (leaf != .src) {
+            if (!leaf.isKind(.member) or self.foreignApi(leaf)) return null;
+            // `geo.Shape` with no `geo` in scope is reported as a bound.
+            const object = identAt(self.ctx.source, ir.Member.object(leaf)) orelse return null;
+            return if (self.ctx.lookupAt(self.scope, object, srcPos(ir.Member.object(leaf), 0)) != null) leaf else null;
+        }
         const text = identAt(self.ctx.source, leaf) orelse return null;
         if (rig.Api.named(text) != null) return null;
         if (isBuiltinTypeName(self.ctx, text) or isNominalBuiltinName(text)) return leaf;
@@ -1041,6 +1052,11 @@ fn apiNamed(ctx: *SemContext, scope: ScopeId, leaf: Sexp) Error!ApiNamed {
         return .{ .user = .{ .module_id = ctx.module_id, .sym = id } };
     }
     if (!leaf.isKind(.member)) return .none;
+    const object = ir.Member.object(leaf);
+    if (identAt(ctx.source, object)) |m| if (ctx.lookupAt(scope, m, srcPos(object, 0)) == null) {
+        try ctx.errAt(object, "use of unbound name `{s}`{s}", .{ m, try ctx.otherFileUse(m) });
+        return .reported;
+    };
     const d = foreignSymbol(ctx, scope, leaf) orelse return .none;
     if (d.sym.kind != .api) return .none;
     if (!d.sym.flags.is_public) {
@@ -1987,6 +2003,10 @@ pub const TypeResolver = struct {
             break :blk id;
         };
         const tparams = self.ctx.symbols.items[gid].type_params orelse &.{};
+        for (tparams) |tp| if (self.ctx.symbols.items[tp].kind != .generic_param) {
+            try self.ctx.errAt(tnode, "an addition to a type with a compile-time value parameter is not built yet", .{});
+            return null;
+        };
         const args = ir.GenericInst.args(tnode);
         var tys: std.ArrayList(TypeId) = .empty;
         defer tys.deinit(self.ctx.allocator);
@@ -1994,7 +2014,12 @@ pub const TypeResolver = struct {
             const leaf = if (arg.isKind(.kwarg)) ir.Kwarg.name(arg) else arg;
             const pid = self.ctx.symbolOf(leaf);
             if (pid == null or self.ctx.symbols.items[pid.?].kind != .generic_param) {
-                try self.ctx.errAt(arg, "an addition covers every instance of its type: name each of its type parameters, `add {s}[T]: {s}`", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), apis_text });
+                var names: std.ArrayList(u8) = .empty;
+                for (tparams, 0..) |tp, i| {
+                    if (i > 0) try names.appendSlice(self.ctx.arena.allocator(), ", ");
+                    try names.appendSlice(self.ctx.arena.allocator(), self.ctx.symbols.items[tp].name);
+                }
+                try self.ctx.errAt(arg, "an addition covers every instance of its type: name each of its type parameters, `add {s}[{s}]: {s}`", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), names.items, apis_text });
                 return null;
             }
             try params.append(self.ctx.allocator, pid.?);
@@ -2004,10 +2029,6 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(tnode, "`{s}` takes {d} compile-time parameter{s}, and `add` names {d}", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), tparams.len, if (tparams.len == 1) "" else "s", args.len });
             return null;
         }
-        for (tparams) |tp| if (self.ctx.symbols.items[tp].kind != .generic_param) {
-            try self.ctx.errAt(tnode, "an addition to a type with a compile-time value parameter is not built yet", .{});
-            return null;
-        };
         return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gid, .args = tys.items } });
     }
 
@@ -3103,6 +3124,8 @@ pub const TypeResolver = struct {
             .read_view => .read,
             .write_view => .write,
             .nominal, .parameterized_nominal => .value,
+            // `add String`'s `?@`: a `?String` is a view of text.
+            .string_view => if (self.nominal.self_type == self.ctx.types.string_id) .read else .none,
             // An API's or an addition's `<@`: its `Self`.
             else => if (first == self.nominal.self_type) .value else .none,
         };

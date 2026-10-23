@@ -6400,6 +6400,18 @@ fn reportUnprovided(ctx: *SemContext, at: u32, of: InstanceRoot, pname: []const 
             },
             else => {},
         }
+        // A view, an optional, a handle, a function, an array, or a slice
+        // takes its facts from its parts, and no addition names one.
+        const unnamed: ?[]const u8 = switch (ctx.types.get(arg)) {
+            .read_view, .write_view, .string_view => "a view",
+            .optional => "an optional",
+            .shared, .weak => "a handle",
+            .function, .callable => "a function type",
+            .array => "an array",
+            .slice => "a slice",
+            else => null,
+        };
+        if (unnamed) |what| break :fix try a.print("; {s} provides no API of a program's own", .{what});
         // An addition under a bound the argument does not meet.
         if (try conditionalConformance(ctx, arg, api)) |c| break :fix try a.print("; `{s}` provides `{s}` only where {s}", .{ try formatTypeIn(c.home, a, c.conf.ty), iname, try conditionsText(c.home, a, c.conf) });
         const decl = nominalDecl(ctx, arg) orelse break :fix try a.print("; write `add {s}: {s}` in the module of `{s}`", .{ aname, iname, iname });

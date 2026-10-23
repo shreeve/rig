@@ -3370,12 +3370,15 @@ type. `add` names a type by its name, never a view, an optional, a
 handle, an array, a slice, or a function type, and a type of the
 module itself only under a bound, since its header says the rest. A
 type provides an API once in the whole program, in its own module or
-the API's.
+the API's; an addition gives the APIs its API builds on too, so it is
+written where each of them may be. An addition names no member the type
+has already, a built-in type's included (a String's `push` and `len`).
 
 A method meets its API exactly: in how it takes self, in each
 parameter's type and mode, in `once`, in its compile-time parameters,
 and in its result, how it fails included: the same set, union, `T!`, or
-set parameter. Only `from` and `keeps` may be narrower than the API's,
+set parameter. Its compile-time parameters are each the same kind, of
+the same type, with the same bounds. Only `from` and `keeps` may be narrower than the API's,
 compared by position, never wider: a call through the API keeps and
 views what the API says. An API's method whose result could view what
 it is passed says what with `from`. A method that meets a `pub` API on a

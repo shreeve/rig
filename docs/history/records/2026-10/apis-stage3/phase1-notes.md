@@ -29,8 +29,11 @@ a `rig pending` call through a bound; SYNTAX the forms and keywords.
 
 ## Decisions beyond the design
 
-1. **Defaults' bodies and additions' methods are resolved, not
-   typechecked.** A default is written in terms of the API's methods
+1. **Defaults' bodies and additions' methods are not checked yet.**
+   Their scopes are made, but a name in them that names nothing is not
+   reported either, since that is the typechecker's (case "apis own
+   default unchecked", `known: true`; [review-p1.md](review-p1.md)).
+   A default is written in terms of the API's methods
    (`@area()`), which is a call through a bound, phase 2's. Checking
    bodies now would reject the design's own example, or need a partial
    branch phase 2 replaces. They are never emitted and nothing calls
@@ -39,13 +42,17 @@ a `rig pending` call through a bound; SYNTAX the forms and keywords.
 2. **A type that provides an API provides those it builds on** (Swift's
    rule): `obj Tile: Named` with `api Named: Shape` meets `[T: Shape]`.
    The design says a subtrait inherits its supertraits' methods; this
-   makes the bound follow.
+   makes the bound follow. So an addition gives the APIs its API builds
+   on too, and is written where each of them may be: in the type's
+   module, or in a module that declares every API it gives
+   ([review-p1.md](review-p1.md), finding 1).
 3. **"No overlap" is one addition per API and type constructor.**
    Conditions are never compared: `add List[T: Print]: Shape` and `add
    List[T: Eq]: Shape` are two, an error. A header and an addition of an
    API, or of one it builds on, are two. Duplicates across modules cannot
-   arise: an addition is written in the type's module or the API's, and
-   imports have no cycles, so the check is per module.
+   arise: each provision, those an API builds on included, is written in
+   the type's module or the API's, and imports have no cycles, so the
+   check is per module.
 4. **An API's method takes self.** A method without `@` ("static") has
    no lowering in the design; rejected.
 5. **No `pub` inside `api` or `add`, and no `pub add`.** An API's

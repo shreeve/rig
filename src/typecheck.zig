@@ -18892,9 +18892,10 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
             if (std.mem.eql(u8, w.field.name, m.name)) break true;
         } else false;
         if (!declared and !try anotherApiDeclares(ctx, conf, m.name)) try ctx.err(m.decl_pos, "`add {s}: {s}` declares `{s}`, which `{s}` does not: an addition's methods are its API's", .{ tname, api_name, m.name, api_name });
-        if (declared) if (decl) |d| if (typeHasMethod(d.symbol(), m.name)) {
+        const has = if (decl) |d| typeHasMethod(d.symbol(), m.name) else false;
+        if (declared and (has or builtinMember(ctx, conf.ty, m.name))) {
             try ctx.err(m.decl_pos, "`add {s}: {s}` declares `{s}`, which `{s}` has already: an addition neither adopts nor replaces a method of its type", .{ tname, api_name, m.name, tname });
-        };
+        }
     };
     for (wanted.items, 0..) |w, wi| {
         // Each name once, by the first API that declares it.
@@ -18987,6 +18988,24 @@ fn typeHasMethod(sym: sema.Symbol, name: []const u8) bool {
     return findMethod(sym.fields orelse &.{}, name) != null;
 }
 
+/// Whether built-in type `ty` has a member `name` no declaration holds:
+/// the `len` and `is_empty` of text, an array, a slice, or a List, a
+/// String's `add`, `push`, `reserve`, and `clear`, a `Symbol`'s `text`.
+fn builtinMember(ctx: *SemContext, ty: TypeId, name: []const u8) bool {
+    const t = ctx.types.get(ty);
+    const has_len = switch (t) {
+        .array, .slice, .string_view, .static, .string => true,
+        .parameterized_nominal => listElementType(ctx, ty) != null or cellListElement(ctx, ty) != null,
+        else => false,
+    };
+    if (has_len and (std.mem.eql(u8, name, "len") or std.mem.eql(u8, name, "is_empty"))) return true;
+    if (t == .string) if (std.meta.stringToEnum(sema.StringCall, name)) |op| switch (op) {
+        .add, .push, .reserve, .clear => return true,
+        else => {},
+    };
+    return t == .symbol and std.mem.eql(u8, name, "text");
+}
+
 /// Whether API `a` is `b` or builds on it.
 fn buildsOn(ctx: *SemContext, x: sema.ApiRef, y: sema.ApiRef) Error!bool {
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
@@ -19033,9 +19052,22 @@ fn checkAddHome(ctx: *SemContext, conf: sema.Conformance, tname: []const u8, api
         try ctx.err(conf.pos, "`{s}` is declared in this module, so it names `{s}` on its header: `{s} {s}{s}: {s}`; `add` is for a type of another module, a built-in type, or an API a type provides only under a bound", .{ decl.name, api_name, if (is_enum) "enum" else "obj", decl.name, params, api_name });
         return false;
     }
-    if (conf.api.module_id == ctx.module_id) return true;
-    try ctx.err(conf.pos, "`add {s}: {s}` is written in the module that declares `{s}`, or the one that declares `{s}`", .{ tname, api_name, api_name, tname });
-    return false;
+    if (conf.api.module_id != ctx.module_id) {
+        try ctx.err(conf.pos, "`add {s}: {s}` is written in the module that declares `{s}`, or the one that declares `{s}`", .{ tname, api_name, api_name, tname });
+        return false;
+    }
+    // It provides the APIs its API builds on too, each of which it may
+    // provide only here as well: elsewhere two modules could each give
+    // the type one, neither seeing the other.
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    for (try sema.apiClosure(ctx, scratch.allocator(), conf.api)) |c| {
+        if (c.module_id == ctx.module_id) continue;
+        const cname = try sema.apiName(ctx, c);
+        try ctx.err(conf.pos, "`add {s}: {s}` gives `{s}` `{s}` too, which `{s}` builds on, outside the module of `{s}` and of `{s}`: a type provides an API once in the whole program, in its own module or the API's", .{ tname, api_name, tname, cname, api_name, cname, tname });
+        return false;
+    }
+    return true;
 }
 
 fn tparamNames(ctx: *SemContext, sym: sema.Symbol) []const u8 {
@@ -19131,6 +19163,28 @@ fn checkMethodMeets(ctx: *SemContext, conf: sema.Conformance, tname: []const u8,
         try ctx.err(have.decl_pos, "`{s}` takes {d} compile-time parameter{s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, got.ct_params.len, plural(got.ct_params.len), aname, signatureText(src, pos, true), header });
         return;
     }
+    // Each the same kind, of the same type, with the same bounds: a call
+    // through the API passes what its brackets promise.
+    const api_ct_syms = switch (w.home.types.get(w.field.ty)) {
+        .function => |f| f.ct_syms,
+        else => &.{},
+    };
+    for (want.ct_params, got.ct_params, 0..) |wc, gc, i| {
+        const gsym: ?sema.Symbol = if (i < got.ct_syms.len and got.ct_syms[i] != sema.symbol_invalid) ctx.symbols.items[got.ct_syms[i]] else null;
+        const gname = if (gsym) |s| s.name else "?";
+        if (wc != gc) {
+            const as: []const u8 = if (ctx.types.get(gc) == .type_var) "a type" else try a.print("`{s}`", .{try sema.formatType(ctx, gc)});
+            try ctx.err(have.decl_pos, "`{s}` takes `{s}` as {s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, gname, as, aname, signatureText(src, pos, true), header });
+            return;
+        }
+        if (ctx.types.get(gc) != .type_var or i >= api_ct_syms.len or api_ct_syms[i] == sema.symbol_invalid) continue;
+        const g = gsym orelse continue;
+        if (try sameBounds(w.home, w.home.symbols.items[api_ct_syms[i]], ctx, g)) continue;
+        const written = try sema.formatBounds(ctx, a, g, null);
+        const by: []const u8 = if (written.len == 0) "nothing" else try a.print("`{s}`", .{written});
+        try ctx.err(have.decl_pos, "`{s}` bounds `{s}` by {s}, but `{s}` declares `{s}`; a method meets its API with the same compile-time parameters: write `{s}`", .{ owner, gname, by, aname, signatureText(src, pos, true), header });
+        return;
+    }
     if (want.params.len != got.params.len) {
         try ctx.err(have.decl_pos, "`{s}` takes {d} parameter{s}, but `{s}` declares `{s}`; a method meets its API with the same parameters: write `{s}`", .{ owner, got.params.len - 1, plural(got.params.len - 1), aname, signatureText(src, pos, false), header });
         return;
@@ -19184,6 +19238,30 @@ fn checkMethodMeets(ctx: *SemContext, conf: sema.Conformance, tname: []const u8,
             try a.print("write `from {s}` on `{s}`", .{ try maskList(a, api_names, w.field.origins.result & paramsMask(got.params.len)), owner });
         try ctx.err(have.decl_pos, "`{s}` may give a view of `{s}`, but `{s}.{s}` does not: a call through `{s}` would end the loan on `{s}` while the result still views it; {s}", .{ owner, pname, aname, w.field.name, aname, pname, fix });
     }
+}
+
+/// Whether type parameters `x` (of module `xc`) and `y` (of `yc`) are
+/// bounded alike: the same built-in APIs and the same of a program's own,
+/// with what each implies and builds on (`[K: Hash]` is `[K: Hash +
+/// Eq]`).
+fn sameBounds(xc: *const SemContext, x: sema.Symbol, yc: *const SemContext, y: sema.Symbol) Error!bool {
+    if (!sema.boundApis(xc, x).eql(sema.boundApis(yc, y))) return false;
+    var scratch = std.heap.ArenaAllocator.init(xc.allocator);
+    defer scratch.deinit();
+    const a = scratch.allocator();
+    var xs: std.ArrayList(sema.ApiRef) = .empty;
+    var ys: std.ArrayList(sema.ApiRef) = .empty;
+    for (x.user_apis) |r| try xs.appendSlice(a, try sema.apiClosure(xc, a, r));
+    for (y.user_apis) |r| try ys.appendSlice(a, try sema.apiClosure(yc, a, r));
+    for ([_][2][]const sema.ApiRef{ .{ xs.items, ys.items }, .{ ys.items, xs.items } }) |pair| {
+        for (pair[0]) |r| {
+            const found = for (pair[1]) |o| {
+                if (o.eql(r)) break true;
+            } else false;
+            if (!found) return false;
+        }
+    }
+    return true;
 }
 
 fn selfSigil(r: sema.MethodReceiver) []const u8 {

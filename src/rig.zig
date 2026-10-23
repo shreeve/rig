@@ -48,7 +48,6 @@ pub fn isCtFun(decl: Sexp) bool {
     return def.isKind(.fun) and ir.Fun.params(def) == .nil and ir.Fun.tparams(def) != .nil;
 }
 
-/// A declaration without its `pub`.
 /// Whether `decl` declares an API (`api Shape`) or adds one to a type
 /// (`add Int: Shape`): methods no pass but the checker of conformances
 /// reads, and nothing emits (docs/design/apis.md, Stage 3).
@@ -57,6 +56,7 @@ pub fn isApiDecl(decl: Sexp) bool {
     return d.isKind(.api) or d.isKind(.api_add);
 }
 
+/// A declaration without its `pub`.
 pub fn unpub(decl: Sexp) Sexp {
     return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
 }
