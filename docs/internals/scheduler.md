@@ -70,7 +70,11 @@ a program that makes none starts no workers.
   proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
   searching at once; one that finds work wakes one more; workers with no
-  work sleep in their poller (below).
+  work sleep in their poller (below). A worker about to sleep lists
+  itself as asleep, then, when none searches, looks once more at the
+  global queue and every ring; one that finds work there counts itself
+  as searching again, so taking it wakes another for the rest
+  (`sched.sleep`, checked in formal/Models/Sleep.lean as `relook`).
 
 ## Stacks
 
@@ -171,12 +175,18 @@ fails, and yields only when other work waits.
   (the flag below).
 - **Recursion.** A function on a cycle of calls (`inlining.decide`)
   starts by reading one flag, `sched.waiting`, on a cache line of its
-  own. Work woken or made while every worker is busy sets it. The first
-  check to see it clears it and yields to that work: its own worker's,
-  or half of another busy worker's ring, stolen. A worker that finds no
-  work and sleeps clears it too. A task that yields only puts itself
-  back in line, so it never sets the flag, and busy tasks do not keep
-  yielding to each other.
+  own. Work woken or made while every worker is busy sets it, and so
+  does a fiber that fills its worker's "run next" slot and runs on. The
+  first check to see it clears it and yields to that work: its own
+  worker's, or half of another busy worker's ring, stolen. A worker
+  that finds no work and sleeps clears it too, unless a fiber waits in
+  a busy worker's "run next" slot, which no sleeper takes
+  (`sched.clearWaiting`): it clears the flag, then reads every slot,
+  and sets the flag again if one holds a fiber, while a maker fills its
+  slot, then reads the flag, all sequentially consistent, so one of the
+  two sees the other. A task that yields only puts itself back in line,
+  so it never sets the flag, and busy tasks do not keep yielding to
+  each other.
 
 A loop's check also keeps its worker's timers and descriptors going
 while it computes (`sched.serviceBusy`): it wakes the fibers whose

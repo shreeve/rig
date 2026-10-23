@@ -453,7 +453,12 @@ first step is on `main` (SPEC §18):
   on one worker, with no system call to wake another, and fork-join
   (`t = f()&; g(); >t`) spreads at `g`'s first yield check. The worker
   watching busy workers' pollers keeps the watch while they wake, so
-  they kick no one as they do (`sched.sleepIn`).
+  they kick no one as they do (`sched.sleepIn`). A worker going to
+  sleep leaves the notice of a task waiting in a busy worker's run-next
+  slot set (`sched.clearWaiting`), so a maker computing in recursion,
+  whose checks read only that notice, hands the task on; a worker that
+  cleared it as it slept left the task waiting until the maker
+  finished.
 - **Each worker on cache lines of its own:** no line holds two
   workers' fields (`sched.Worker`), so a yield takes about 5 ns on the
   Mac and 22 on pup's two hyperthreads, 45% and 12% less (bench/tasks).

@@ -221,7 +221,11 @@ global queue pass 30 million states, too many to finish.
 The pinned queue's `idle` handshake holds (as the panel found by
 reading). So does the `searching`/`sleepers` handshake for work made
 into a ring. Work made into the global queue (a blocking call's end,
-or a thread outside the workers) can wait while a worker sleeps:
+or a thread outside the workers) needs one more step, which
+`src/sched.zig` takes (`sleep`) and the model calls `relook`: a worker
+that finds work in its last look before sleeping counts itself as
+searching again, as Go's scheduler does. Without it, work can wait
+while a worker sleeps:
 
 1. Worker 0 searches and finds nothing.
 2. Worker 1 sees a worker searching and sleeps without a last look.
@@ -233,9 +237,9 @@ or a thread outside the workers) can wait while a worker sleeps:
    until worker 0's next yield check.
 
 Work found in that last look is not taken while searching, so no
-`notify` follows. With `relook` (a worker that finds work in its last
-look counts itself as searching again, as Go's scheduler does) the
-check passes. `Checks.lean` pins both.
+`notify` follows. With `relook`, taking it while counted as searching
+notifies, and the check passes. `Checks.lean` pins both: the check
+without `relook` fails with this trace, and the checks with it pass.
 
 Each check is shown not to be vacuous by breaking the protocol on
 purpose: a thief that claims with a plain store takes a fiber twice, a
@@ -243,7 +247,12 @@ purpose: a thief that claims with a plain store takes a fiber twice, a
 never kicks leaves pinned work.
 
 Not modeled: the run-next slot, timers, the poller's events, `waiting`
-and the yield checks, `stopping`, and the blocking pool.
+and the yield checks, `stopping`, and the blocking pool. A fiber in a
+busy worker's run-next slot wakes no worker: its maker's next yield
+check hands it on, a recursive one only through `waiting`, so a worker
+going to sleep clears `waiting` unless a slot holds a fiber
+(`clearWaiting`; docs/internals/scheduler.md, "Yield checks"). That
+handshake is checked by a unit test in `src/sched.zig`, not here.
 
 ## What is not proved
 
