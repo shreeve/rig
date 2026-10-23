@@ -1,0 +1,395 @@
+diff --git a/std/__rig_builtin.rig b/std/__rig_builtin.rig
+index 265d38127..060efcd3d 100644
+--- a/std/__rig_builtin.rig
++++ b/std/__rig_builtin.rig
+@@ -84,7 +84,9 @@ pub obj Map[K: Hash, V]
+   pub ?len: Int = 0
+   es: List[Entry[K, V]] = List()
+   hs: List[U64] = List()
+-  table: Table = Table()
++  # The table, built once more than `SMALL` entries are held: behind a
++  # box, so a Map without one keeps 8 bytes for it, not two Lists.
++  table: ^Table? = none
+ 
+   # An empty Map, as `Map[K, V]()` is, with room for `capacity` entries.
+   pub fun new(capacity: Int = 0) -> Map[K, V]
+@@ -99,8 +101,8 @@ pub obj Map[K: Hash, V]
+     !@hs.reserve(n) if stores_hashes[K]()
+     want = @es.len + n
+     if want > SMALL
+-      size = table_size(want, @table.tags.len)
+-      !@rebuild(size) if size > @table.tags.len
++      size = table_size(want, @slots())
++      !@rebuild(size) if size > @slots()
+ 
+   # Whether the Map holds the key `k`.
+   pub fun has(?@, k: ?K) -> Bool
+@@ -244,7 +246,7 @@ pub obj Map[K: Hash, V]
+         @len += 1
+       else
+         <e
+-    !@rebuild(@table.tags.len) if @table.tags.len > 0
++    !@rebuild(@slots()) if @slots() > 0
+ 
+   # Take the entry of the key `k` out: its value is handed back. Its key
+   # is dropped when the entries are next compacted, as the Map grows,
+@@ -253,7 +255,7 @@ pub obj Map[K: Hash, V]
+     h = k.hash()
+     if @find(k, h) as j
+       @len -= 1
+-      !@unlink(j, h) if @table.tags.len > 0
++      !@unlink(j, h) if @slots() > 0
+       return <@es[j].value
+     none
+ 
+@@ -261,8 +263,9 @@ pub obj Map[K: Hash, V]
+   pub sub clear(!@)
+     !@es.clear()
+     !@hs.clear()
+-    !@table.tags.clear()
+-    !@table.at.clear()
++    if !@table as t
++      !t.tags.clear()
++      !t.at.clear()
+     @len = 0
+ 
+   # The entry at index `i` in the order the keys were first put in: its
+@@ -313,48 +316,58 @@ pub obj Map[K: Hash, V]
+   # Map, by the stored hashes in turn; in a larger one, by a probe of
+   # its table from the slot `h` names to the end, then from the start,
+   # each pass a loop whose test is the bounds test.
++  # The table's slots: none before it is built.
++  fun slots(?@) -> Int
++    if @table as t
++      return t.tags.len
++    0
++
+   fun find(?@, k: ?K, h: U64) -> Int?
+-    if @table.tags.len == 0
+-      if stores_hashes[K]()
+-        hs = ?@hs[..]
+-        j = 0
+-        while 0 <= j and j < hs.len
+-          if hs[j] == h and @es[j].value != none
+-            return j if @es[j].key == k
+-          j += 1
+-      else
+-        es = ?@es[..]
+-        j = 0
+-        while 0 <= j and j < es.len
+-          if es[j].key == k
+-            return j if es[j].value != none
+-          j += 1
+-      return none
+-    ts = ?@table.tags[..]
+-    tag = tag_of(h)
+-    i = Int(h & U64(ts.len - 1))
+-    for _ in 0..2
+-      while 0 <= i and i < ts.len
+-        t = ts[i]
+-        return none if t == 0
+-        if t == tag
+-          j = Int(@table.at[i])
++    if @table as tb
++      if tb.tags.len > 0
++        ts = ?tb.tags[..]
++        tag = tag_of(h)
++        i = Int(h & U64(ts.len - 1))
++        for _ in 0..2
++          while 0 <= i and i < ts.len
++            t = ts[i]
++            return none if t == 0
++            if t == tag
++              j = Int(tb.at[i])
++              return j if @es[j].key == k
++            i += 1
++          i = 0
++        return none
++    if stores_hashes[K]()
++      hs = ?@hs[..]
++      j = 0
++      while 0 <= j and j < hs.len
++        if hs[j] == h and @es[j].value != none
+           return j if @es[j].key == k
+-        i += 1
+-      i = 0
++        j += 1
++    else
++      es = ?@es[..]
++      j = 0
++      while 0 <= j and j < es.len
++        if es[j].key == k
++          return j if es[j].value != none
++        j += 1
+     none
+ 
+   # Add the entry `k`, `v`, whose key is new and hashes to `h`: the body
+   # of `add_new` and `add_made`.
+   sub insert(!@, k: K, v: V, h: U64)
+-    if @table.tags.len == 0
++    n = @slots()
++    if n == 0
+       !@grow() if @es.len >= SMALL
+-    else if (@es.len + 1) * 5 > @table.tags.len * 4
++    else if (@es.len + 1) * 5 > n * 4
+       !@grow()
+     !@es.push(Entry(key: <k, value: <v))
+     !@hs.push(h) if stores_hashes[K]()
+     @len += 1
+-    !@table.place(@es.len - 1, h) if @table.tags.len > 0
++    j = @es.len - 1
++    if !@table as t
++      !t.place(j, h) if t.tags.len > 0
+ 
+   # Make room for one more entry: drop the entries taken, and build the
+   # table, or double it, when the entries left would fill more than two
+@@ -363,8 +376,8 @@ pub obj Map[K: Hash, V]
+   sub grow(!@)
+     rarely
+     !@compact() if @len < @es.len
+-    return if @table.tags.len == 0 and @len < SMALL
+-    !@rebuild(table_size(@len + 1, @table.tags.len))
++    return if @slots() == 0 and @len < SMALL
++    !@rebuild(table_size(@len + 1, @slots()))
+ 
+   # Drop the entries taken, keeping the rest in order: every entry is
+   # popped off the end and the live ones pushed back the other way, so
+@@ -385,10 +398,14 @@ pub obj Map[K: Hash, V]
+   # dropped, each entry's slot placed again from its stored hash.
+   sub rebuild(!@, n: Int)
+     !@compact() if @len < @es.len
+-    !@table.reset(n)
++    # Out of its field while it is placed, as each place reads the
++    # entries' hashes (`hash_at`).
++    t = <@table ?? ^Table()
++    !t.reset(n)
+     for j in 0..@es.len
+       h = @hash_at(j)
+-      !@table.place(j, h)
++      !t.place(j, h)
++    @table = <t
+ 
+   # The hash of entry `j`'s key: the one kept beside it, or, where the
+   # Map keeps none (`stores_hashes`), the key hashed again.
+@@ -400,19 +417,23 @@ pub obj Map[K: Hash, V]
+   # each slot after it that would otherwise no longer be found from where
+   # its key hashes to (`hash_at`), so the table keeps no tombstones.
+   sub unlink(!@, j: Int, h: U64)
+-    mask = @table.tags.len - 1
++    # Out of its field while its slots move, as each move reads a key's
++    # hash (`hash_at`).
++    t = <@table ?? return
++    mask = t.tags.len - 1
+     hole = Int(h & U64(mask))
+-    while @table.tags[hole] == 0 or @table.at[hole] != U32(j)
++    while t.tags[hole] == 0 or t.at[hole] != U32(j)
+       hole = (hole + 1) & mask
+     s = (hole + 1) & mask
+-    while 0 <= s and s < @table.tags.len and @table.tags[s] != 0
+-      home = Int(@hash_at(Int(@table.at[s])) & U64(mask))
++    while 0 <= s and s < t.tags.len and t.tags[s] != 0
++      home = Int(@hash_at(Int(t.at[s])) & U64(mask))
+       if ((s - home) & mask) >= ((s - hole) & mask)
+-        @table.tags[hole] = @table.tags[s]
+-        @table.at[hole] = @table.at[s]
++        t.tags[hole] = t.tags[s]
++        t.at[hole] = t.at[s]
+         hole = s
+       s = (s + 1) & mask
+-    @table.tags[hole] = 0
++    t.tags[hole] = 0
++    @table = <t
+ 
+ # A set of keys, kept in the order they were first added. Its keys are
+ # held as a Map's entries are, each a `K?` that is `none` once taken.
+@@ -424,7 +445,9 @@ pub obj Set[K: Hash]
+   pub ?len: Int = 0
+   ks: List[K?] = List()
+   hs: List[U64] = List()
+-  table: Table = Table()
++  # The table, built once more than `SMALL` entries are held: behind a
++  # box, so a Map without one keeps 8 bytes for it, not two Lists.
++  table: ^Table? = none
+ 
+   # An empty Set, as `Set[K]()` is, with room for `capacity` keys.
+   pub fun new(capacity: Int = 0) -> Set[K]
+@@ -439,8 +462,8 @@ pub obj Set[K: Hash]
+     !@hs.reserve(n) if stores_hashes[K]()
+     want = @ks.len + n
+     if want > SMALL
+-      size = table_size(want, @table.tags.len)
+-      !@rebuild(size) if size > @table.tags.len
++      size = table_size(want, @slots())
++      !@rebuild(size) if size > @slots()
+ 
+   # Whether the Set holds the key `k`.
+   pub fun has(?@, k: ?K) -> Bool
+@@ -459,7 +482,7 @@ pub obj Set[K: Hash]
+     h = k.hash()
+     if @find(k, h) as j
+       @len -= 1
+-      !@unlink(j, h) if @table.tags.len > 0
++      !@unlink(j, h) if @slots() > 0
+       return <@ks[j]
+     none
+ 
+@@ -483,14 +506,15 @@ pub obj Set[K: Hash]
+         @len += 1
+       else
+         <k
+-    !@rebuild(@table.tags.len) if @table.tags.len > 0
++    !@rebuild(@slots()) if @slots() > 0
+ 
+   # Drop every key. The Set keeps the memory it has.
+   pub sub clear(!@)
+     !@ks.clear()
+     !@hs.clear()
+-    !@table.tags.clear()
+-    !@table.at.clear()
++    if !@table as t
++      !t.tags.clear()
++      !t.at.clear()
+     @len = 0
+ 
+   # The keys, in the order they were first added, each viewed where the
+@@ -498,52 +522,62 @@ pub obj Set[K: Hash]
+   pub fun items(?@) -> Members[K] from @
+     Members(set: ?@, next_at: 0)
+ 
++  # The table's slots: none before it is built.
++  fun slots(?@) -> Int
++    if @table as t
++      return t.tags.len
++    0
++
+   fun find(?@, k: ?K, h: U64) -> Int?
+-    if @table.tags.len == 0
+-      if stores_hashes[K]()
+-        hs = ?@hs[..]
+-        j = 0
+-        while 0 <= j and j < hs.len
+-          if hs[j] == h
+-            return j if @ks[j] == k
+-          j += 1
+-      else
+-        j = 0
+-        while 0 <= j and j < @ks.len
++    if @table as tb
++      if tb.tags.len > 0
++        ts = ?tb.tags[..]
++        tag = tag_of(h)
++        i = Int(h & U64(ts.len - 1))
++        for _ in 0..2
++          while 0 <= i and i < ts.len
++            t = ts[i]
++            return none if t == 0
++            if t == tag
++              j = Int(tb.at[i])
++              return j if @ks[j] == k
++            i += 1
++          i = 0
++        return none
++    if stores_hashes[K]()
++      hs = ?@hs[..]
++      j = 0
++      while 0 <= j and j < hs.len
++        if hs[j] == h
+           return j if @ks[j] == k
+-          j += 1
+-      return none
+-    ts = ?@table.tags[..]
+-    tag = tag_of(h)
+-    i = Int(h & U64(ts.len - 1))
+-    for _ in 0..2
+-      while 0 <= i and i < ts.len
+-        t = ts[i]
+-        return none if t == 0
+-        if t == tag
+-          j = Int(@table.at[i])
+-          return j if @ks[j] == k
+-        i += 1
+-      i = 0
++        j += 1
++    else
++      j = 0
++      while 0 <= j and j < @ks.len
++        return j if @ks[j] == k
++        j += 1
+     none
+ 
+   # Add the key `k`, which is new and hashes to `h`; out of line and hot,
+   # as a Map's `add_new` is.
+   called sub add_new(!@, k: K, h: U64)
+-    if @table.tags.len == 0
++    n = @slots()
++    if n == 0
+       !@grow() if @ks.len >= SMALL
+-    else if (@ks.len + 1) * 5 > @table.tags.len * 4
++    else if (@ks.len + 1) * 5 > n * 4
+       !@grow()
+     !@ks.push(<k)
+     !@hs.push(h) if stores_hashes[K]()
+     @len += 1
+-    !@table.place(@ks.len - 1, h) if @table.tags.len > 0
++    j = @ks.len - 1
++    if !@table as t
++      !t.place(j, h) if t.tags.len > 0
+ 
+   sub grow(!@)
+     rarely
+     !@compact() if @len < @ks.len
+-    return if @table.tags.len == 0 and @len < SMALL
+-    !@rebuild(table_size(@len + 1, @table.tags.len))
++    return if @slots() == 0 and @len < SMALL
++    !@rebuild(table_size(@len + 1, @slots()))
+ 
+   # Drop the keys taken, keeping the rest in order, in the Lists the Set
+   # has, so they keep the room they have: every key is popped off the
+@@ -564,10 +598,14 @@ pub obj Set[K: Hash]
+   # dropped, each key's slot placed again from its stored hash.
+   sub rebuild(!@, n: Int)
+     !@compact() if @len < @ks.len
+-    !@table.reset(n)
++    # Out of its field while it is placed, as each place reads the
++    # entries' hashes (`hash_at`).
++    t = <@table ?? ^Table()
++    !t.reset(n)
+     for j in 0..@ks.len
+       h = @hash_at(j)
+-      !@table.place(j, h)
++      !t.place(j, h)
++    @table = <t
+ 
+   # The hash of key `j`: the one kept beside it, or, where the Set keeps
+   # none (`stores_hashes`), the key hashed again.
+@@ -582,19 +620,23 @@ pub obj Set[K: Hash]
+   # after it that would otherwise no longer be found from where its key
+   # hashes to (`hash_at`), so the table keeps no tombstones.
+   sub unlink(!@, j: Int, h: U64)
+-    mask = @table.tags.len - 1
++    # Out of its field while its slots move, as each move reads a key's
++    # hash (`hash_at`).
++    t = <@table ?? return
++    mask = t.tags.len - 1
+     hole = Int(h & U64(mask))
+-    while @table.tags[hole] == 0 or @table.at[hole] != U32(j)
++    while t.tags[hole] == 0 or t.at[hole] != U32(j)
+       hole = (hole + 1) & mask
+     s = (hole + 1) & mask
+-    while 0 <= s and s < @table.tags.len and @table.tags[s] != 0
+-      home = Int(@hash_at(Int(@table.at[s])) & U64(mask))
++    while 0 <= s and s < t.tags.len and t.tags[s] != 0
++      home = Int(@hash_at(Int(t.at[s])) & U64(mask))
+       if ((s - home) & mask) >= ((s - hole) & mask)
+-        @table.tags[hole] = @table.tags[s]
+-        @table.at[hole] = @table.at[s]
++        t.tags[hole] = t.tags[s]
++        t.at[hole] = t.at[s]
+         hole = s
+       s = (s + 1) & mask
+-    @table.tags[hole] = 0
++    t.tags[hole] = 0
++    @table = <t
+ 
+ # The slots a table needs to hold `want` entries at most two fifths
+ # full: a power of two, at least 16, and at least `now`.

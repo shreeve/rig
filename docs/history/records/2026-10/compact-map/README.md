@@ -2,8 +2,8 @@
 
 Trig asked for a Map that costs tens of bytes and one allocation when
 it is empty or small, as a general capability. This round measured
-where a Map's memory goes, tried the cheapest change, and records what
-the rest would take. Nothing landed in std.
+where a Map's memory goes, tried two changes, and records what the rest
+would take. Nothing landed in std.
 
 ## Where the memory goes
 
@@ -77,10 +77,8 @@ Each piece is in std alone (`std/__rig_builtin.rig`) and changes no
 language rule. Estimated against Trig's numbers above:
 
 - **The table behind a box:** a Map of `len`, `es`, `hs`, and a
-  `^Table?` (an optional box takes 8 bytes), so a Map with no table
-  pays no table header: 104 → 64 bytes, about 4 MiB for Trig (1.2%).
-  Every lookup in a Map with a table then follows one more pointer;
-  bench/hash's million-key rows judge that.
+  `^Table?`, so a Map with no table pays no table header. Tried below:
+  it costs more than it saves.
 - **Narrow slot indexes:** a table of fewer than 65,536 slots indexes
   its entries in 2 bytes, not 4: about 3.3 MiB for Trig's 27,000
   mid-size maps (1%). This needs a table whose index width follows its
@@ -99,9 +97,63 @@ heap (ts-pattern 334 → 321 MB, 1% faster), but two smaller projects ran
 1-2% slower, and the owner dropped it (shreeve/trig#188): the maps
 above stand.
 
+## Tried: the table behind a box
+
+The Map's table became a `^Table?`, made when the table is first built:
+[boxed-table.patch](boxed-table.patch). An optional box is 16 bytes in
+the Zig emitted, not 8, so the header went from 104 to 72 bytes, not
+64. Every lookup in a Map with a table follows one more pointer, and
+such a Map pays for the box, a block of two List headers, on top.
+
+Trig, fastest of 10 on pup (core 3), output identical:
+
+| Project | Time | Instructions | Peak RSS |
+|---|---|---|---|
+| ts-pattern | 1226 → 1229 ms | 13.49G → 13.51G | 336 → 334 MB |
+| zod3 | 243 → 242 ms | 2.76G → 2.73G | 88 → 87 MB |
+| tiny-invariant | 106 → 107 ms | 1.40G → 1.40G | 54 → 54 MB |
+| superstruct | 39.8 → 39.2 ms | 0.36G → 0.37G | 25 → 24 MB |
+
+bench/hash, a million keys, pup (core 6), main against the patch,
+fastest of 11 and 21, interleaved:
+
+| Rows | Safe build | Fast build |
+|---|---|---|
+| Int insert, hit, miss | 1-2% slower | 4.5-6% slower |
+| String insert, hit, miss | 1-2.6% slower | 1-4% slower |
+| the write rows (`ensure`, `edit` then `put`) | up to 3.6% slower | Int 4-7% slower |
+| small, 4 and 8 entries | 2-8% faster | 9-16% slower |
+
+The harness above ([gen.py](gen.py), [run.sh](run.sh)), pup quiet:
+
+| Keys, entries | Lookups | RSS |
+|---|---|---|
+| Int, 4 | 4% faster | 15% less |
+| Int, 8 | see below | 10% less |
+| Int, 12 to 64 | within 1.6% | 0.2-2% more |
+| String, 4 and 8 | same to 3% slower | 5-8% less |
+| String, 12 to 64 | 1.6-3.6% slower | 0.1-1% more |
+
+Int maps of 8 entries looked up 28% more slowly with the patch, and
+27% faster once the harness reserved its List of Maps up front: where
+the heap put each Map's entries decided it, not the Map. A harness of
+many small maps measures the allocator's placement as much as the Map.
+
+**Not landed.** A Map with no table is smaller and builds faster, but a
+Map with one is slower to probe and uses more memory, and the Map's
+rule is never slower. Trig saves 2 MB of 335 (0.6%), within its noise
+for time.
+
+What would keep the saving without the extra pointer is the table as
+one block: its tags and entry indexes in a single allocation, whose
+pointer and slot count sit in the Map (16 bytes). A probe then loads as
+many pointers as it does now, and a table is one allocation, not two.
+std has no safe form for a block holding a `U8` array and a `U32` array
+together, so it would be `raw` code in the Map, or a new built-in.
+
 ## Recommendation
 
-Build the boxed table first, as one change: the header from 104 to 64
-bytes, measured on bench/hash's million-key rows (the extra pointer a
-lookup with a table follows) and on Trig's projects for time and peak
-RSS. If it pays, the narrow slot indexes follow, on their own.
+Leave the Map as it is. The box costs more than it saves, and Trig's
+small maps gain too little for the one-block table to pay for its code
+now. Narrow slot indexes (above) stand alone and could be measured on
+their own, if Trig's memory becomes the goal.
