@@ -5463,6 +5463,21 @@ const Checker = struct {
             const owns = !self.isPoison(ty) and sema.moves(self.ctx, ty) != .no;
             if (owns and (lit.isKind(.call) or self.hands(other).kind != .made)) try self.readLeaf(other);
             const reached = try self.readThrough(other, ty, sema.unwrapViews(self.ctx, ty));
+            // Beside an error, a member with fields is named with its set
+            // (`A.x(n: 3)`), as it is made where it fails.
+            if (lit.isKind(.call) and ir.Call.callee(lit).isKind(.enum_lit) and !self.isPoison(reached)) {
+                const subject = sema.unwrapOptionals(self.ctx, sema.unwrapViews(self.ctx, reached));
+                if (sema.isErrorSet(self.ctx, subject) or subject == self.t().any_error_id) {
+                    const name = ir.EnumLit.name(ir.Call.callee(lit));
+                    const set = if (sema.isErrorUnion(self.ctx, subject)) try self.unionMemberSet(subject, name) else if (subject == self.t().any_error_id) try self.resolveErrorName(name) else subject;
+                    if (self.isPoison(set)) return self.t().bool_id;
+                    const named = try self.ctx.arena.allocator().print("{s}{s}", .{ try self.tyName(set), self.sourceText(lit) });
+                    if (self.ctx.types.get(sema.unwrapViews(self.ctx, reached)) == .optional) {
+                        try self.errAt(lit, "an error member compared is named with its set, beside the error an optional holds: `if {s} as e`, then `e == {s}`", .{ self.sourceText(other), named });
+                    } else try self.errAt(lit, "an error member compared is named with its set: write `{s}`", .{named});
+                    return self.t().bool_id;
+                }
+            }
             // A bare `.name` tests which variant the value holds, one
             // with a payload too (SPEC §5, "Comparing").
             if (lit.isKind(.enum_lit) and !self.isPoison(reached)) {

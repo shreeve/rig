@@ -13,6 +13,16 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Errors compared with a member:** an `L?` of a union with fields
+  tested with a member of a set without fields (`o == .y`) failed in
+  Zig; it tests the member. A member with fields written as a shorthand
+  beside an error (`l == .x(n: 3)`) failed in Zig or with an internal
+  error; it is told to name the set, `A.x(n: 3)`, and beside an
+  optional, to unwrap it first. SPEC says that a comparison of made
+  `T`s in a generic body needs `Copy`, or a binding of each. The HTTP
+  server test's descriptor check waits up to 2 s for the server to
+  accept again.
+
 - **A wait fails with the set its work declares:** `task.all`,
   `par.map`, `par.each`, `task.isolate`, and `task.supervise` failed with
   any error even where what they wait for declares a set, so a function
