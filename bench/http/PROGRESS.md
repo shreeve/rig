@@ -19,6 +19,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-22 | #541: a run-next fill wakes no worker | rig-fast | 168668 | 357 us | 930 us | 16.6 KiB |
 | 2026-10-22 | main before #552, interleaved | rig-fast | 171811 | 363 us | 671 us | 16.6 KiB |
 | 2026-10-22 | #552: each worker on cache lines of its own | rig-fast | 172733 | 360 us | 817 us | 16.6 KiB |
+| 2026-10-23 | main before #581, interleaved | rig-fast | 180389 | 322 us | 1248 us | 16.6 KiB |
+| 2026-10-23 | #581: a sleeping worker leaves the run-next notice set | rig-fast | 181146 | 295 us | 1797 us | 16.6 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 
@@ -34,6 +36,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-22 | #541: a run-next fill wakes no worker (pup cores 8,9) | rig-fast | 194189 | 198 us | 3512 us | 8.6 KiB |
 | 2026-10-22 | main before #552, interleaved (pup cores 8,9) | rig-fast | 211565 | 177 us | 3424 us | 8.6 KiB |
 | 2026-10-22 | #552: each worker on cache lines of its own (pup cores 8,9) | rig-fast | 211728 | 186 us | 3415 us | 8.6 KiB |
+| 2026-10-23 | main before #581, interleaved (pup cores 8,9) | rig-fast | 197925 | 195 us | 3482 us | 8.6 KiB |
+| 2026-10-23 | #581: a sleeping worker leaves the run-next notice set (pup cores 8,9) | rig-fast | 196492 | 202 us | 3445 us | 8.6 KiB |
 
 The "buffers held only per request" rows (#402) ran on a build that
 pinned every task to the worker that made it, a slip of #401 that #405
