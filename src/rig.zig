@@ -49,6 +49,14 @@ pub fn isCtFun(decl: Sexp) bool {
 }
 
 /// A declaration without its `pub`.
+/// Whether `decl` declares an API (`api Shape`) or adds one to a type
+/// (`add Int: Shape`): methods no pass but the checker of conformances
+/// reads, and nothing emits (docs/design/apis.md, Stage 3).
+pub fn isApiDecl(decl: Sexp) bool {
+    const d = unpub(decl);
+    return d.isKind(.api) or d.isKind(.api_add);
+}
+
 pub fn unpub(decl: Sexp) Sexp {
     return if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
 }
@@ -283,7 +291,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each
         // before any pass reads a statement.
@@ -1266,7 +1274,10 @@ pub const Lexer = struct {
             self.column = width;
             self.takes_else[self.depth] = false;
             self.in_arms[self.depth] = self.line_match;
-            self.in_members[self.depth] = self.line_head == .obj or switch (self.line_head) {
+            self.in_members[self.depth] = switch (self.line_head) {
+                .obj, .api, .add => true,
+                else => false,
+            } or switch (self.line_head) {
                 .@"enum", .@"error" => true,
                 else => false,
             };
@@ -1410,7 +1421,7 @@ pub const Lexer = struct {
             else => {},
         }
         switch (out.cat) {
-            .fun, .sub, .@"enum", .@"error", .@"if", .@"else", .@"while", .@"for", .match, .@"test", .raw, .@"extern", .drop, .obj => self.line_opens = true,
+            .fun, .sub, .@"enum", .@"error", .@"if", .@"else", .@"while", .@"for", .match, .@"test", .raw, .@"extern", .drop, .obj, .api, .add => self.line_opens = true,
             else => {},
         }
         if (out.cat == .match) self.line_match = true;
@@ -1514,6 +1525,10 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, word, "new")) return if (self.stmtStart() and self.nextIsName()) .new else .ident;
         if (std.mem.eql(u8, word, "of") and self.isFillOf()) return .of;
         if (std.mem.eql(u8, word, "obj")) return if ((self.stmtStart() or self.last_cat == .@"pub") and self.nextIsName()) .obj else .ident;
+        // `api` and `add` start a module-level declaration, and are
+        // names everywhere else: `user.api`, `!set.add(x)`, `add = 2`.
+        if (std.mem.eql(u8, word, "api")) return if (self.moduleDeclStart(true) and self.nextIsName()) .api else .ident;
+        if (std.mem.eql(u8, word, "add")) return if (self.moduleDeclStart(true) and self.nextStartsType()) .add else .ident;
         if (isMarker(word)) {
             if (!(self.stmtStart() or self.last_cat == .@"pub") or !self.nextIsFunOrSub()) return .ident;
             return if (word[0] == 'i') .@"inline" else .called;
@@ -1857,6 +1872,26 @@ pub const Lexer = struct {
     fn literalFollows(self: *const Lexer) bool {
         return switch (self.nextJoined().cat) {
             .integer, .real, .string_sq, .string_dq, .lbracket => true,
+            else => false,
+        };
+    }
+
+    /// A declaration at the module's margin starts here: at the start of a
+    /// line outside any block or bracket, or after its `pub` when
+    /// `after_pub`.
+    fn moduleDeclStart(self: *const Lexer, after_pub: bool) bool {
+        if (self.depth != 0 or self.nesting != 0) return false;
+        return (self.stmtStart() and !self.after_label) or (after_pub and self.last_cat == .@"pub");
+    }
+
+    /// A type starts next: a name, or a sigil or bracket a type may start
+    /// with (`add ?Square: Shape` parses, to be rejected).
+    fn nextStartsType(self: *const Lexer) bool {
+        var probe = self.base;
+        const t = probe.next();
+        return switch (t.cat) {
+            .ident => !std.mem.eql(u8, probe.text(t), "new"),
+            .question, .not_sym, .star, .caret, .tilde, .lbracket, .lparen => true,
             else => false,
         };
     }
@@ -2725,7 +2760,8 @@ pub const Parser = struct {
         .{ "const", Foreign{ .fix = "write `x =! e` for a binding that never changes", .alone = true } },
         .{ "class", Foreign{ .fix = "declare a type with `obj`" } },
         .{ "struct", Foreign{ .fix = "write `obj Name`: `struct` is spelled `obj`" } },
-        .{ "impl", Foreign{ .fix = "methods go in the `obj` body", .alone = true } },
+        .{ "impl", Foreign{ .fix = "write `add`: `add Int: Shape` adds an API to a type, and `obj Square: Shape` names one on its header", .alone = true } },
+        .{ "trait", Foreign{ .fix = "write `api`: `api Shape` declares the methods a type provides", .alone = true } },
         .{ "switch", Foreign{ .fix = "write `match`" } },
         .{ "case", Foreign{ .fix = "a match arm is `pattern => ...`" } },
         .{ "elif", Foreign{ .fix = "write `else if`" } },
@@ -3160,7 +3196,7 @@ pub const Parser = struct {
         }
         const walked = try self.allocator().alloc(Sexp, items.len);
         const in_type = switch (sexp.kind() orelse .module) {
-            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => true,
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .api, .api_add => true,
             else => false,
         };
         if (in_type) self.type_depth += 1;
@@ -3175,7 +3211,7 @@ pub const Parser = struct {
                 self.moduleConsts(out);
                 return self.builtinRefs(try self.attachMethods(out));
             },
-            .@"struct", .@"enum", .errors => try self.pubMembers(out),
+            .@"struct", .@"enum", .errors, .api, .api_add => try self.pubMembers(out),
             .generic_struct => {
                 try self.tparamBounds(walked, ir.slot(.generic_struct, .tparams));
                 try self.pubMembers(out);
@@ -3342,10 +3378,12 @@ pub const Parser = struct {
 
     /// The type parameters among `walked[slot]`, a declaration's
     /// compile-time parameters, written with bounds: `[T: Ord]`, whose
-    /// name after the colon is a built-in API (`Api`), and `[K: Hash +
-    /// Print]`. Each becomes a bare name, as `[T]`, and its bounds are
-    /// recorded by where its name is (`bounds`). `[n: Int]` names a type
-    /// and stays a compile-time value.
+    /// name after the colon is a built-in API (`Api`), `[T: Shape]`, a
+    /// type parameter (a capital letter) named after the colon, and `[K:
+    /// Hash + Print]`. Each becomes a bare name, as `[T]`, and its bounds
+    /// are recorded by where its name is (`bounds`); resolve tells an API
+    /// from a type. `[n: Int]` names a type and stays a compile-time
+    /// value.
     fn tparamBounds(self: *Parser, walked: []Sexp, slot: usize) std.mem.Allocator.Error!void {
         const group = walked[slot];
         if (group != .list) return;
@@ -3355,8 +3393,12 @@ pub const Parser = struct {
             const name: Sexp, const apis: []const Sexp = switch (p.kind() orelse continue) {
                 .@":" => blk: {
                     const ty = ir.get(p.*, .type);
-                    if (ty != .src or Api.named(leafText(self.base.source, ty.src)) == null) continue;
-                    break :blk .{ ir.get(p.*, .name), try self.allocator().dupe(Sexp, &.{ty}) };
+                    const pname = ir.get(p.*, .name);
+                    const builtin = ty == .src and Api.named(leafText(self.base.source, ty.src)) != null;
+                    const capital = pname == .src and std.ascii.isUpper(leafText(self.base.source, pname.src)[0]);
+                    const named = (ty == .src and std.ascii.isUpper(leafText(self.base.source, ty.src)[0])) or ty.isKind(.member);
+                    if (!builtin and !(capital and named)) continue;
+                    break :blk .{ pname, try self.allocator().dupe(Sexp, &.{ty}) };
                 },
                 .bound => .{ ir.get(p.*, .name), ir.get(p.*, .apis).items() },
                 else => continue,
@@ -4448,7 +4490,7 @@ test "keywords are reserved; `new` only at statement start" {
     // `rarely` is a lexer rule.
     for (@intFromEnum(TokenCat.true)..@intFromEnum(TokenCat.yield) + 1) |c| {
         const cat: TokenCat = @enumFromInt(c);
-        if (cat == .obj or cat == .@"inline" or cat == .called or cat == .rarely) continue;
+        if (cat == .obj or cat == .api or cat == .add or cat == .@"inline" or cat == .called or cat == .rarely) continue;
         try testing.expectEqual(cat, keyword(@tagName(cat)).?);
         if (cat != .new) try expectCats(@tagName(cat), &.{cat});
     }

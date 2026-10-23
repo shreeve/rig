@@ -15,7 +15,7 @@ a prefix sigil touching its operand (`<x` `?x` `!x` `+x` `^x` `*x`
 or array type, `[]?T`), the wait sigil `>t` and `>ts`, a suffix `?` or `!`
 (`f()!`, `T?`), and the dispatch sigil `&` that makes a call a task, `f(x)&`. So
 `a > b`, `a >= b`, `a >> b`, `a & b` and `f()&b` stay operators. A
-contextual word (`new`, `obj`, `of`, `unique`, `from`, `static`,
+contextual word (`new`, `obj`, `api`, `add`, `of`, `unique`, `from`, `static`,
 `keeps`, `inline` and `called` before `fun` or `sub`, and `rarely`
 alone on a line) is
 a keyword where its line shows the parser reads one, and a name

@@ -54,6 +54,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [build-plan.md](2026-10/apis-stage3/build-plan.md): where Stages 1 and 2 live, where each Stage 3 piece goes, six phases with their cases, risks, and sizes; the count of `pub` generics needing bounds
 - [open-questions.md](2026-10/apis-stage3/open-questions.md): what the record does not settle, each with a default
+- [phase1-notes.md](2026-10/apis-stage3/phase1-notes.md): phase 1 as built (declarations and conformance), its decisions beyond the design, its new messages, and what each later phase takes
 
 ### 2026-10/clone/
 

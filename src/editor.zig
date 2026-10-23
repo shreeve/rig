@@ -270,7 +270,7 @@ fn colourOf(cat: TokenCat) Colour {
         .kwarg_name => .{ .class = .{ .kind = .parameter } },
         .true, .false => .uncoloured,
         .@"if", .@"else", .@"while", .@"for", .in, .match, .@"return", .@"break", .@"continue", .panic, .pass, .@"defer", .@"errdefer", .@"catch", .catch_jump, .catch_block, .@"try", .await, .yield, .post_if, .ternary_if, .task_amp => .{ .class = control },
-        .as, .drop, .@"enum", .@"error", .@"extern", .fun, .new, .obj, .rarely, .called, .@"inline", .@"pub", .raw, .sub, .@"test", .type, .use, .zig, .async, .@"const", .impl, .trait, .when, .where, .of => .{ .class = keyword },
+        .as, .drop, .@"enum", .@"error", .@"extern", .fun, .new, .obj, .api, .add, .rarely, .called, .@"inline", .@"pub", .raw, .sub, .@"test", .type, .use, .zig, .async, .@"const", .impl, .trait, .when, .where, .of => .{ .class = keyword },
         .@"and", .@"or", .not => .{ .class = operator },
         .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap, .plus_sat, .minus_sat, .power => .{ .class = operator },
         .eq, .ne, .lt, .gt, .le, .ge, .and_sym, .or_sym, .not_sym, .question, .nullish, .nullish_jump => .{ .class = operator },

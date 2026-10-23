@@ -3156,7 +3156,8 @@ sub main()
 
 A bound names, in the brackets, what a body does with a type parameter:
 `[T: Ord]`, and several joined with `+`, `[K: Hash + Print]`. A bound is
-a built-in API ([docs/design/apis.md](docs/design/apis.md)), and the
+a built-in API ([docs/design/apis.md](docs/design/apis.md)) or an API of
+the program's own ([APIs](#apis)), and the
 name after the colon tells `[T: Ord]`, a type parameter with a bound,
 from `[n: Int]`, a compile-time value. A type parameter starts with a
 capital letter and a value parameter with a lowercase one.
@@ -3345,6 +3346,156 @@ sub main()
 
 ```error
 `Version.order` takes `other` as `Version`, but `Ord` fixes `fun order(?@, other: ?Self) -> Order`
+```
+
+### APIs
+
+An API is a named set of methods a type provides, declared with `api`
+at the top of a module: a method with no body is required, and one with
+a body is a default, which a type may leave out. Each method takes self
+first, as `?@`, `!@`, or `<@`, and `Self` in its signature is the type
+that provides the API. An API may build on others, `api Named: Shape`,
+and on the built-in APIs, `api Job: Moves`; it takes their methods as
+they are, and a type that provides it provides them too. An API holds
+no fields and is no type: a value's type, a variable's, and a field's
+name a type, and a bound names the API.
+
+A type provides an API by naming it on its header, beside the built-in
+ones, `obj Square: Shape + Print`, and declaring its methods among its
+own. `add` gives an API to a type the header cannot name: a built-in
+type or another module's, written in the API's module, `add Int:
+Shape`, or a type only under a bound, `add Wrap[T: Shape]: Shape`. An
+addition's methods belong to the API and never become methods of the
+type. `add` names a type by its name, never a view, an optional, a
+handle, an array, a slice, or a function type, and a type of the
+module itself only under a bound, since its header says the rest. A
+type provides an API once in the whole program, in its own module or
+the API's.
+
+A method meets its API exactly: in how it takes self, in each
+parameter's type and mode, in `once`, in its compile-time parameters,
+and in its result, how it fails included: the same set, union, `T!`, or
+set parameter. Only `from` and `keeps` may be narrower than the API's,
+compared by position, never wider: a call through the API keeps and
+views what the API says. An API's method whose result could view what
+it is passed says what with `from`. A method that meets a `pub` API on a
+`pub` type is `pub`. A type that provides two APIs giving one method a
+default writes the method to choose.
+
+A bound by an API holds at each instance, and a bounded `T` does what
+its bounds name and no more. `api` and `add` are keywords only at the
+start of a module-level declaration, so `user.api` and `!set.add(x)`
+stay names. A call through a bound, and an API's defaults, are checked
+and lowered as [docs/design/apis.md](docs/design/apis.md) builds them
+in stages; until then such a call is rejected.
+
+```rig
+api Shape
+  fun area(?@) -> Float
+
+  fun sides(?@) -> Int          # a default
+    4
+
+obj Square: Shape + Print
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+add Int: Shape
+  fun area(?@) -> Float
+    Float(@) * Float(@)
+
+fun count[T: Shape](xs: ?List[T]) -> Int
+  xs.len
+
+sub main()
+  squares: List[Square] = List()
+  !squares.push(Square(side: 2.0))
+  ints = List([1, 2, 3])
+  print(count(?squares), count(?ints), squares[0].area())
+```
+
+```output
+1 3 4.0
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Label
+  text: Int
+
+fun count[T: Shape](xs: ?List[T]) -> Int
+  xs.len
+
+sub main()
+  labels: List[Label] = List()
+  print(count(?labels))
+```
+
+```error
+`count[Label]` cannot use `T = Label`: `count` needs `T: Shape`, and `Label` does not provide `Shape`; declare `obj Label: Shape`
+```
+
+```rig reject
+api Source
+  fun next(!@) -> Int?
+
+obj Counter: Source
+  n: Int
+
+  fun next(?@) -> Int?
+    @n
+
+sub main()
+  print(Counter(n: 1).n)
+```
+
+```error
+`Counter.next` takes `self` as `?@`, but `Source` declares `next(!@)`; a method meets its API with the same self: write `fun next(!@) -> Int?`
+```
+
+```rig reject
+api Watcher
+  sub watch(!@, s: ?String)
+
+obj Log: Watcher
+  seen: ?String
+
+  sub watch(!@, s: ?String) keeps s
+    @seen = s
+
+sub main()
+  print(1)
+```
+
+```error
+`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
+```
+
+A call through a bound comes with the next stage:
+
+```rig pending
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+fun total[T: Shape](xs: ?List[T]) -> Float
+  t = 0.0
+  for x in xs
+    t += x.area()
+  t
+
+sub main()
+  squares = List([Square(side: 1.0), Square(side: 2.0)])
+  print(total(?squares))
 ```
 
 ### Type aliases
@@ -11742,6 +11893,7 @@ not parse, and their words and sigils stay reserved:
 | `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
 | `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
 | `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
+| `trait Shape`, `impl Shape for Square` | `` Rig has no `trait`; write `api`: `api Shape` declares the methods a type provides ``, and `impl`'s toward `add` ([APIs](#apis)) |
 | float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet

@@ -533,8 +533,9 @@ pub const Emitter = struct {
         try scan.walk(sexp);
         for (decls) |decl| {
             // A compile-time function runs in the checker; its calls are
-            // the values it computed.
-            if (rig.isCtFun(decl)) continue;
+            // the values it computed. An API and an addition declare
+            // methods no call reaches yet (docs/design/apis.md, Stage 3).
+            if (rig.isCtFun(decl) or rig.isApiDecl(decl)) continue;
             try self.w.writeAll("\n");
             try self.emitDecl(decl);
         }
@@ -9952,8 +9953,10 @@ const Scan = struct {
                 try s.put(&s.e.usage.used, s.e.facts.symbols.items[cap].origin);
                 return;
             },
-            // A compile-time function is not emitted.
+            // A compile-time function is not emitted, nor is an API or an
+            // addition, which no call reaches yet.
             .fun => if (rig.isCtFun(sexp)) return,
+            .api, .api_add => return,
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);
