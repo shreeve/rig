@@ -6444,6 +6444,36 @@ const Checker = struct {
         return sym.flags.closure and self.ctx.types.get(sym.ty) == .function;
     }
 
+    /// What a function value is where a call runs it: the one classifier
+    /// for every call that runs a function on another task or on several
+    /// at once (a task's or an actor's argument, `par.map` and
+    /// `par.each`, `http.serve`, `task.isolate` and `task.supervise`) and
+    /// for `task.select`'s arms.
+    const FnArg = enum {
+        /// A closure written in the call: its captures are checked
+        /// where it goes.
+        literal,
+        /// A function's name, which captures nothing.
+        named,
+        /// A closure binding, `g`: it holds its captures and goes
+        /// nowhere; its view `?g` is what reaches a call.
+        binding,
+        /// A closure's or a function's callable view (`?g`), or an owned
+        /// closure (`*|...| body`), whose type does not show what it
+        /// captures.
+        view,
+        /// No function value.
+        other,
+    };
+
+    /// What `f`, of type `ty`, is as a function value (`FnArg`).
+    fn fnArg(self: *Checker, f: Sexp, ty: TypeId) FnArg {
+        if (f.isKind(.lambda)) return .literal;
+        if (self.closureBinding(f)) return .binding;
+        if (sema.callableFnTy(self.ctx, ty) != null or sema.ownedClosureFn(self.ctx, ty) != null) return .view;
+        return if (self.ctx.types.get(ty) == .function) .named else .other;
+    }
+
     /// A value no binding holds, or a part of one: a view of it lives
     /// only until the end of its statement. A view made here views
     /// what it views, which outlives the statement.
@@ -8596,7 +8626,7 @@ const Checker = struct {
         const k = self.ctx.types.get(part_ty);
         // A closure binding is typed as a function value but holds its
         // captures; only its callable view `?g` reaches a call.
-        if (k == .function and self.closureBinding(part)) {
+        if (self.fnArg(part, part_ty_in) == .binding) {
             try self.errAt(part, "closure `{s}` stays in its binding, so it goes to no task; a task takes a named function by value", .{self.sourceText(part)});
             return false;
         }
@@ -8630,7 +8660,7 @@ const Checker = struct {
     /// it views what it captures. The one classifier for both
     /// (`crossCheck`, `actorCall`).
     fn crossingTypeOf(self: *Checker, part: Sexp, ty: TypeId) Error!TypeId {
-        if (!part.isKind(.lambda)) return ty;
+        if (self.fnArg(part, ty) != .literal) return ty;
         const fn_ty = sema.unwrapViews(self.ctx, ty);
         return switch (self.ctx.types.get(fn_ty)) {
             .callable => try self.ctx.intern(.{ .read_view = fn_ty }),
@@ -12430,8 +12460,13 @@ const Checker = struct {
         // What crosses to the actor's task.
         for (args) |a| {
             const arg = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
-            const ty = try self.crossingTypeOf(arg, self.ctx.typeOf(arg) orelse continue);
-            if (self.isPoison(ty)) continue;
+            const arg_ty = self.ctx.typeOf(arg) orelse continue;
+            if (self.isPoison(arg_ty)) continue;
+            if (self.fnArg(arg, arg_ty) == .binding) {
+                try self.errAt(arg, "closure `{s}` stays in its binding, so it goes to no actor; an actor's method takes a named function by value", .{self.sourceText(arg)});
+                return self.t().invalid_id;
+            }
+            const ty = try self.crossingTypeOf(arg, arg_ty);
             const k = self.ctx.types.get(ty);
             if (k == .write_view) {
                 try self.errAt(arg, "a method an actor runs takes no write view: `{s}` lends `{s}` to write", .{ self.sourceText(arg), try self.plainText(stripSigil(arg)) });
@@ -12966,10 +13001,10 @@ const Checker = struct {
         } else {
             const ty = try self.argType(f);
             if (self.isPoison(ty)) return try self.skipCall(args);
-            if (sema.callableFnTy(self.ctx, ty) != null or sema.ownedClosureFn(self.ctx, ty) != null) {
+            if (self.fnArg(f, ty) == .view or self.fnArg(f, ty) == .binding) {
                 return try self.badCall(args, f, "`{s}` drops what a panic in `{s}` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `{s}(|| ...)`", .{ shown, self.sourceText(f), shown });
             }
-            if (self.ctx.types.get(ty) != .function or self.ctx.types.get(ty).function.params.len != 0) {
+            if (self.fnArg(f, ty) != .named or self.ctx.types.get(ty).function.params.len != 0) {
                 return try self.badCall(args, f, "`{s}` runs a function that takes nothing, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ shown, self.sourceText(f), try self.tyName(ty) });
             }
             fn_ty = ty;
@@ -13107,8 +13142,14 @@ const Checker = struct {
         }
         const ty = try self.argType(f);
         if (self.isPoison(ty)) return null;
-        if (self.ctx.types.get(ty) == .function) return self.ctx.types.get(ty).function.returns;
-        try self.errAt(f, "an arm of `task.select` calls a closure written in it, or a function's name; `{s}` is a `{s}`", .{ self.sourceText(f), try self.tyName(ty) });
+        // The arm runs on the task that selects, so a closure's view
+        // goes to it as to any call; a binding is lent by `checkArgs`.
+        switch (self.fnArg(f, ty)) {
+            .named, .binding => return self.ctx.types.get(ty).function.returns,
+            .view => if (sema.callableFnTy(self.ctx, ty)) |c| return self.ctx.types.get(c).function.returns else if (sema.ownedClosureFn(self.ctx, ty)) |c| return c.returns,
+            .literal, .other => {},
+        }
+        try self.errAt(f, "an arm of `task.select` calls a closure written in it, a closure's view, or a function's name; `{s}` is a `{s}`", .{ self.sourceText(f), try self.tyName(ty) });
         return null;
     }
 
@@ -13134,6 +13175,17 @@ const Checker = struct {
         if (self.isPoison(listener)) return try self.skipCall(args);
         if (!self.namesForeignType(listener, "std.net", "Listener")) return try self.badCall(args, args[0], "`http.serve` takes connections on a `net.Listener`, which it takes: `http.serve(<l, ...)`; `{s}` is a `{s}`", .{ self.sourceText(args[0]), try self.tyName(listener) });
         const f = args[1];
+        if (!f.isKind(.lambda)) {
+            const f_ty = try self.argType(f);
+            if (self.isPoison(f_ty)) return try self.skipCall(args);
+            switch (self.fnArg(f, f_ty)) {
+                .binding, .view => {
+                    try self.manyTasksClosure(f, "http.serve", "http.serve(<l, |req| ...)");
+                    return try self.skipCall(args);
+                },
+                .literal, .named, .other => {},
+            }
+        }
         const fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = req })}), .returns = resp, .is_sub = false } });
         const result = try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } });
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ listener, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = true };
@@ -13218,21 +13270,28 @@ const Checker = struct {
         }
         const ty = try self.argType(f);
         if (self.isPoison(ty)) return null;
-        if (self.ctx.types.get(ty) == .function) {
-            const got = self.ctx.types.get(ty).function;
-            if (got.params.len == 1) return ty;
-            try self.errAt(f, "`{s}` calls `{s}` with one element at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
-            return null;
+        switch (self.fnArg(f, ty)) {
+            .named => {
+                const got = self.ctx.types.get(ty).function;
+                if (got.params.len == 1) return ty;
+                try self.errAt(f, "`{s}` calls `{s}` with one element at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
+            },
+            .binding, .view => try self.manyTasksClosure(f, shown, if (kind == .map) "par.map(?xs, |x| ...)" else "par.each(!xs, |x| ...)"),
+            .literal, .other => try self.errAt(f, "`{s}` calls a function on each element, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ shown, self.sourceText(f), try self.tyName(ty) }),
         }
-        if (sema.callableFnTy(self.ctx, ty) != null or sema.ownedClosureFn(self.ctx, ty) != null) {
-            try self.errAt(f, "`{s}` calls `{s}` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `{s}`", .{ shown, self.sourceText(f), if (kind == .map) "par.map(?xs, |x| ...)" else "par.each(!xs, |x| ...)" });
-            return null;
-        }
-        try self.errAt(f, "`{s}` calls a function on each element, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ shown, self.sourceText(f), try self.tyName(ty) });
         return null;
     }
 
     const ParLambda = struct { ty: TypeId, clean: bool };
+
+    /// Reports `f`, a closure that is not written in the call `shown`,
+    /// which runs it on several tasks at once (`FnArg.binding`,
+    /// `FnArg.view`): every task would read what it captures, which its
+    /// type does not show, so the closure is written in the call, as
+    /// `example`.
+    fn manyTasksClosure(self: *Checker, f: Sexp, shown: []const u8, example: []const u8) Error!void {
+        try self.errAt(f, "`{s}` calls `{s}` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `{s}`", .{ shown, self.sourceText(f), example });
+    }
 
     /// The type closure literal `f` has where `par.map` or `par.each` lends
     /// it each element as `each_param`, checked quietly; one that `fails`

@@ -199,6 +199,42 @@ fail "http serve captures share", "`http.serve` calls the closure on several tas
   l = net.listen("127.0.0.1:0")!
   _ = run(<l)
 
+fail "http serve a closure's view", "9:18: `http.serve` calls `?g` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `http.serve(<l, |req| ...)`"
+  # Every connection's task calls the function, so a closure that is not
+  # written in the call, whose type does not show what it captures, is
+  # refused, as `par.map` refuses one.
+  fun run(l: net.Listener) -> Int!
+    n = 0
+    g: fun(?http.Request) -> http.Response = |!n, req|
+      n += 1
+      http.text(String(req.path))
+    http.serve(<l, ?g)!
+    n
+
+  l = net.listen("127.0.0.1:0")!
+  _ = run(<l)
+
+fail "http serve a closure binding", "6:18: `http.serve` calls `g` on several tasks at once"
+  fun run(l: net.Listener) -> Int!
+    n = 0
+    g: fun(?http.Request) -> http.Response = |!n, req|
+      n += 1
+      http.text(String(req.path))
+    http.serve(<l, g)!
+    n
+
+  l = net.listen("127.0.0.1:0")!
+  _ = run(<l)
+
+fail "http serve an owned closure", "3:18: `http.serve` calls `?cb` on several tasks at once"
+  fun run(l: net.Listener) -> Int!
+    cb: *fun(?http.Request) -> http.Response = *|req| http.text(String(req.path))
+    http.serve(<l, ?cb)!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  _ = run(<l)
+
 fail "http serve takes a listener", "`http.serve` takes connections on a `net.Listener`, which it takes"
   fun run() -> Int!
     http.serve(":8080", |req| http.text(req.path))!

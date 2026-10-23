@@ -120,6 +120,13 @@ fail "isolate named closure", "`task.isolate` drops what a panic in `?f` half-ch
   b = task.isolate(?f) catch 0
   print(b)
 
+fail "isolate closure binding", "`task.isolate` drops what a panic in `f` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", errors: 1
+  use std.task
+
+  f = || 3
+  b = task.isolate(f) catch 0
+  print(b)
+
 fail "isolate gives a task", "a task started in `task.isolate` ends in it, and `|| sq(2)&` gives a `Task[Int]`, which holds one: wait for it inside", errors: 1
   use std.task
 
