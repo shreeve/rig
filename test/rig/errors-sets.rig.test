@@ -606,7 +606,9 @@ test "sets a member widens to its union where a view of it goes", '''
   o: L? = A.w
   print(o == A.x, o == .w)
 
-test "sets a member with fields widens to its union where a view of it goes", "7"
+fail "sets a member with fields is bound before it is lent as its union", "14:10: type mismatch: expected `?L`, got `A`; bind it first, `k: L = A.x(n: 3)`, then lend `?k`", errors: 1
+  # A value of a union with fields made where its view goes would be a
+  # temporary a view could outlive: it is bound first.
   error A
     x(n: Int)
 
@@ -615,12 +617,24 @@ test "sets a member with fields widens to its union where a view of it goes", "7
 
   error L = A | B
 
-  fun code(k: ?L) -> Int
-    match k
-      A.x(n) => n
-      B.y => 0
+  fun thru(e: ?L) -> ?L
+    e
 
-  print(code(A.x(n: 7)))
+  v = thru(A.x(n: 3))
+  print(v)
+
+fail "sets an optional union with fields compares with its own members", "11:7: cannot compare `L?` with `A`", errors: 1
+  error A
+    x(s: String)
+    w
+
+  error B
+    y
+
+  error L = A | B
+
+  p: L? = A.w
+  print(p == A.w)
 
 fail "sets a member without fields lent where a union with fields goes", "14:12: type mismatch: expected `?L`, got `B`; bind it first, `k: L = B.y`, then lend `?k`", errors: 1
   # A value of the union, which carries fields, is made from the code
@@ -654,3 +668,19 @@ test "sets a member bound as its union and lent", "0"
 
   k: L = B.y
   print(code(?k))
+
+test "sets an optional union with fields compares with a member", "true false false true"
+  # An `L?` whose union carries fields compares with one of its members
+  # as an error value does: the member, then its fields.
+  error A
+    x(n: Int)
+    w
+
+  error B
+    y
+
+  error L = A | B
+
+  o: L? = A.w
+  n: L? = none
+  print(o == .w, o != .w, n == .w, n != .w)

@@ -5722,8 +5722,10 @@ const Checker = struct {
         // Text beside an optional of text compares by its bytes, whatever
         // its type, as two texts do.
         if (isText(self.ctx, inner) and isText(self.ctx, value) and value != inner) return true;
-        // An error of a set the optional's holds compares as one of it.
-        const widens = sema.isErrorSet(self.ctx, value) and sema.isErrorSet(self.ctx, inner) and sema.errorSubset(self.ctx, value, inner);
+        // An error of a set the optional's holds compares as one of it,
+        // a code beside a code: neither set has fields.
+        const widens = sema.isErrorSet(self.ctx, value) and sema.isErrorSet(self.ctx, inner) and sema.errorSubset(self.ctx, value, inner) and
+            !sema.setHasFields(self.ctx, value) and !sema.setHasFields(self.ctx, inner);
         if (value != inner and !widens and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
@@ -14128,12 +14130,13 @@ const Checker = struct {
     }
 
     /// The set an error of set `from` widens to where a read view of it
-    /// goes, `?S` of a set or union `S` that holds `from`, when an `S`
-    /// holds it as it is: both sets with fields, or both without. Null
-    /// for any other (`mismatch` says how to lend it).
+    /// goes, `?S` of a set or union `S` that holds `from`, when neither
+    /// has fields: a code, which copies and is lent by value, with no
+    /// temporary to outlive. Null for any other (`mismatch` says how to
+    /// lend it).
     fn widenedError(self: *Checker, from: TypeId, expected: TypeId) ?TypeId {
         const want = self.unionViewed(from, expected) orelse return null;
-        return if (sema.setHasFields(self.ctx, from) == sema.setHasFields(self.ctx, want)) want else null;
+        return if (!sema.setHasFields(self.ctx, from) and !sema.setHasFields(self.ctx, want)) want else null;
     }
 
     /// The set or union `S` of a `?S` that `expected` is, which holds
@@ -14502,8 +14505,8 @@ const Checker = struct {
                 return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to lend the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, self.sourceText(ir.Read.operand(recv)), call });
             }
         }
-        // An error of a set without fields where a view of a union with
-        // fields goes: a value of the union is made first, and lent.
+        // An error where a view of a union with fields goes: a value of
+        // the union is bound first, and lent.
         if (self.unionViewed(actual, expected)) |set| {
             const src = self.sourceText(e);
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; bind it first, `k: {s} = {s}`, then lend `?k`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(set), src });

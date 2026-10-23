@@ -27,6 +27,16 @@ changed the language since it:
   Each now takes the member as a value of `L`. A member without fields
   where a union with fields goes says to bind it as one first.
 
+- **An error code widens to a union that holds it where a view of the
+  union goes:** for sets without fields, `m.get(B.y)` for a
+  `Map[L, Int]` of `error L = A | B`, and `take(B.y)` for a `?L`
+  parameter, were rejected with a hint, `?B.y`, that led to another
+  error, and `o == A.x` for an `L?` was "cannot compare". Each now takes
+  the member as a value of `L`. Where the union has fields, the error
+  says to bind it as the union first. Fixed with it: an `L?` of a union
+  with fields compared with one of its members (`o == .w`) failed in
+  Zig.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed
