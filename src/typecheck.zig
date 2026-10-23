@@ -6279,8 +6279,8 @@ const Checker = struct {
     /// included (Core §3, planned). Each branch is lent instead, which the
     /// error writes out in `whole` (the operand, or the slice it is the
     /// object of). Decided once per branch (`branch_lends`), so a lend
-    /// that asks again, as a slice's object does, reports nothing new.
-    /// False after reporting.
+    /// that asks again, as a slice's object does, reports nothing new;
+    /// a verdict reached quietly is not kept. False after reporting.
     fn lendsBranch(self: *Checker, operand: Sexp, whole: Sexp, kind: LendKind) Error!bool {
         const lent = lentBranch(operand);
         if (lent == .nil) return true;
@@ -6300,7 +6300,9 @@ const Checker = struct {
                 break;
             },
         };
-        try self.branch_lends.put(self.ctx.allocator, nodeId(lent), place == .nil);
+        // A verdict reached while diagnostics are dropped is not kept: the
+        // check that keeps them decides again, and reports.
+        if (self.ctx.quiet == 0) try self.branch_lends.put(self.ctx.allocator, nodeId(lent), place == .nil);
         if (place == .nil) return true;
         const a = self.ctx.arena.allocator();
         const sigil: u8 = if (kind == .write) '!' else '?';

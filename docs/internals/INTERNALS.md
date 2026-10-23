@@ -1190,7 +1190,8 @@ elements, and method receivers (`!(a if c else b).w`,
 `(!(o ?? d)).gvw()`). Lending it whole would lend a copy of a leaf
 that is a place, which holds no loan on the place, and under `!` a
 write view of that copy. One decider answers it, once per branch, by a
-positive list (`Checker.lendsBranch`, recorded in `branch_lends`): a
+positive list (`Checker.lendsBranch`, recorded in `branch_lends` only
+from a check that reports, never a quiet one's): a
 lend whose operand's base (`Checker.lentBranch`) is a branching value
 is accepted only when every leaf (`sema.valueLeaves`) is made there, is
 a constant, is a lend itself, or jumps; otherwise it is rejected with
@@ -3044,7 +3045,10 @@ In debug and test builds, `sema.checkBindingAccess` checks after type
 checking that every binding's type is the one its access gives
 (`.write` a write view; `.read` a read view, a slice, a `?String`, or a
 type parameter's value read in place; none a value), reporting an
-internal error where one is not. `SemContext.bindingAccess` reads the fact, and gives a
+internal error where one is not. `sema.checkTypedClean` checks too that
+a module typecheck accepted types no expression `invalid`: a rejection
+reports why, so an `invalid` with no error is a verdict whose diagnostic
+a quiet check dropped. `SemContext.bindingAccess` reads the fact, and gives a
 parameter's or local's from its type. Every pass reads it, and none
 decides a binding's mode another way (a unit test checks the sources):
 

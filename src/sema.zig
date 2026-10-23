@@ -4082,7 +4082,10 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
-    if (@import("build_options").self_check or zig_builtin.is_test) try checkBindingAccess(&ctx);
+    if (@import("build_options").self_check or zig_builtin.is_test) {
+        try checkBindingAccess(&ctx);
+        try checkTypedClean(&ctx, tree);
+    }
     timing.stop(opts.timing, .typecheck, t0);
     t0 = timing.start(opts.timing);
     try storage.plan(&ctx, tree);
@@ -4118,6 +4121,23 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
         const a = ctx.arena.allocator();
         try ctx.err(sym.decl_pos, "internal error: binding `{s}` has type `{s}`, which its access ({s}) does not give", .{ sym.name, try formatTypeIn(ctx, a, sym.ty), if (sym.access) |x| @tagName(x) else "none" });
     }
+}
+
+/// A module typecheck accepted types no expression `invalid`: a check
+/// that rejects reports why, so an `invalid` with no error is a verdict
+/// whose diagnostic was dropped (a quiet check's, kept and reused), and
+/// emit would write what nothing checked. Reported at the first such
+/// expression. Debug and test builds only.
+fn checkTypedClean(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
+    if (ctx.hasErrors()) return;
+    if (typedInvalid(ctx, tree)) |e| try ctx.err(ctx.span(e).start, "internal error: `{s}` is typed `invalid`, and no error says why", .{diag.textOf(ctx.source, ctx.span(e))});
+}
+
+fn typedInvalid(ctx: *const SemContext, node: Sexp) ?Sexp {
+    if (ctx.typeOf(node)) |ty| if (ty == ctx.types.invalid_id) return node;
+    if (node != .list) return null;
+    for (node.items()) |child| if (typedInvalid(ctx, child)) |e| return e;
+    return null;
 }
 
 /// A local binding must be read: a name that is only ever assigned is
