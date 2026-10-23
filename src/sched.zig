@@ -3691,6 +3691,9 @@ test "a run-next fiber made as the other worker goes to sleep is handed on at it
                 while (!ran.load(.seq_cst) and nowNs() < give_up) {
                     if (waiting.load(.monotonic) != 0) tickCall();
                 }
+                // One check more, in case this thread lost the CPU past
+                // the deadline before it made one.
+                if (waiting.load(.monotonic) != 0) tickCall();
                 if (!ran.load(.seq_cst)) misses += 1;
                 _ = j.join();
                 j.free();
@@ -3731,6 +3734,9 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
             while (!ran.load(.seq_cst) and nowNs() < until) {
                 if (waiting.load(.monotonic) != 0) tickCall();
             }
+            // One check more, in case this thread lost the CPU past the
+            // deadline before it made one.
+            if (waiting.load(.monotonic) != 0) tickCall();
         }
         /// On the other worker: make a task into its own slot, setting
         /// `waiting`; once the maker has filled its slot too, take the
