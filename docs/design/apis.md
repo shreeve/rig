@@ -661,7 +661,11 @@ compile-time function checks its arguments with `panic` (`cap[0]`). An
 API declares methods, never a compile-time function or a constant. An
 API's method may take compile-time parameters of its own, types, values,
 and sets, and a call through a bound passes them as at any call, since
-the API declares them. `Slot[n]` meets the bounds a number does but the
+the API declares them. The implementation's method, a default or an
+addition's included, is checked at them as a call of it is, at each
+instance of the body that makes the call: a private one keeps
+per-instance checking, and Zig is never left to find what it does not
+allow. `Slot[n]` meets the bounds a number does but the
 number APIs: it copies, compares, orders, hashes, prints, and crosses.
 
 **Tasks, function values, and closures.** `Sends` and `Syncs` stay

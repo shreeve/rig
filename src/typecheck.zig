@@ -12729,6 +12729,7 @@ const Checker = struct {
         }
         const info = methodParams(m.field, true, m.home.source);
         const f = (try self.instantiateCall(fn_ty, ct, args, info, 1, method, pos, false, .empty)) orelse return self.skipCall(args);
+        const own_args = self.inst_own.args;
         if (sema.isGenericFn(self.ctx, fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub };
         // A temporary self the result or an argument may keep a view of
@@ -12754,7 +12755,16 @@ const Checker = struct {
             if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
         }
         if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_mode = receiver } });
+        try self.recordApiCall(self_ty, m, own_args, pos);
         return f.returns;
+    }
+
+    /// Record a call through API method `m` on `self_ty`, at the method's
+    /// own compile-time arguments `own_args` (`instantiateCall`), whose
+    /// instance of the implementation is checked (`sema.ApiCall`).
+    fn recordApiCall(self: *Checker, self_ty: TypeId, m: ApiMethod, own_args: []const TypeId, pos: u32) Error!void {
+        if (self.tentative != 0 or self.isPoison(self_ty)) return;
+        try self.ctx.recordApiCall(.{ .recv = self_ty, .api = m.api, .method = m.field.name, .args = own_args, .pos = pos });
     }
 
     /// `c.area()` on a value of a type that has no method `area` of its
@@ -12833,10 +12843,12 @@ const Checker = struct {
         const info = methodParams(m.field, false, m.home.source);
         const shown = try self.ctx.arena.allocator().print("{s}.{s}", .{ api_text, method });
         const f = (try self.instantiateCall(fn_ty, ct, args, info, 0, shown, pos, true, .empty)) orelse return self.skipCall(args);
+        const own_args = self.inst_own.args;
         try self.noteCallee(f);
         self.lend_call = true;
         try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
         if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .receiver_arg = true, .self_mode = m.field.receiver } });
+        try self.recordApiCall(value, m, own_args, pos);
         return f.returns;
     }
 
@@ -18415,12 +18427,15 @@ fn plural(n: usize) []const u8 {
 /// after all bodies, against every instance the module's code makes.
 /// An instance's type arguments, each standing as one (`sema.misplaced`):
 /// a value holding a Cell by value, or a write view, is no type argument.
-/// True when one was reported, at the instance's `site`.
-fn misplacedArgs(ctx: *SemContext, args: []const TypeId, site: u32) Error!bool {
+/// True when one stands misplaced, reported at the instance's site when
+/// `report` gives one.
+fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!bool {
     for (args) |arg| {
         if (sema.containsPoison(ctx, arg)) continue;
+        const why = sema.misplaced(ctx, arg, .type_arg) orelse continue;
+        const site = report orelse return true;
         const shown = try sema.formatType(ctx, arg);
-        switch (sema.misplaced(ctx, arg, .type_arg) orelse continue) {
+        switch (why) {
             .cell => try ctx.err(site, sema.cell_misplaced, .{ shown, shown }),
             .write_view => try ctx.err(site, sema.write_view_misplaced, .{shown}),
         }
@@ -18429,10 +18444,16 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, site: u32) Error!bool {
     return false;
 }
 
-pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
+/// What the module's generic bodies, headers, APIs, and conformances
+/// declare, checked before the instances are expanded, which read what
+/// each conformance's witness names (`sema.Conformance.members`).
+pub fn checkDeclaredApis(ctx: *SemContext) Error!void {
     try checkBoundedBodies(ctx);
     try checkHeaders(ctx);
     try checkApis(ctx);
+}
+
+pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     var reqs: Requirements = .empty;
     defer {
         var lists = reqs.valueIterator();
@@ -18463,10 +18484,15 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     var i: usize = 0;
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
-        if (try misplacedArgs(ctx, f.inst.ownArgs(), f.site)) continue;
+        // An implementation's method reached through an API has the
+        // arguments the call's instance of the API's method checks and
+        // reports.
+        if (try misplacedArgs(ctx, f.inst.ownArgs(), if (f.through_api) null else f.site)) continue;
         const of: sema.InstanceRoot = .{ .func = f.inst };
-        if (!try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) {
-            if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
+        // So are its bounds, which are the API's method's.
+        const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);
+        if (!bounded) {
+            if (!f.through_api) if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
         } else if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
             try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))
         {
@@ -19191,23 +19217,6 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
     return ok;
 }
 
-/// A method an instance's type declares, as a call on a type parameter
-/// reaches it: its signature at the type's arguments, and the module
-/// that declares it (null for this one or a proxy's).
-const InstanceMethod = struct { field: Field, fn_ty: FunctionType, owner: sema.Symbol, module: ?u32 };
-
-fn instanceMethod(ctx: *SemContext, ty: TypeId, name: []const u8) Error!?InstanceMethod {
-    if (try sema.lookupMethod(ctx, ty, name)) |m| return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = ctx.symbols.items[m.nominal_sym], .module = null };
-    const decl = sema.nominalDecl(ctx, ty) orelse return null;
-    const module_id = decl.module_id orelse return null;
-    const foreign = ctx.foreign_semas.get(module_id) orelse return null;
-    const fields = decl.symbol().fields orelse &.{};
-    const f = fields[(try sema.findMember(ctx, fields, name, .method)) orelse return null];
-    const fty = ctx.types.get(try sema.importType(ctx, foreign, f.ty, module_id));
-    if (fty != .function) return null;
-    return .{ .field = f, .fn_ty = fty.function, .owner = decl.symbol(), .module = module_id };
-}
-
 /// Whether `ty` is an `obj` or an `enum` a module declares, whose
 /// methods a call on a type parameter reaches as Zig resolves it in each
 /// instance; a built-in type's methods are lowered by emit at a call of
@@ -19294,7 +19303,7 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
         try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
         return false;
     }
-    const m = (try instanceMethod(ctx, base, c.method)) orelse {
+    const m = (try sema.typeMethod(ctx, base, c.method)) orelse {
         try ctx.err(at, cannot ++ "calls `{s}` on a `{s}`, and `{s}` has no method `{s}`", .{ inst, pname, aname, c.method, pname, bname, c.method });
         try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});
         return false;
@@ -19345,7 +19354,7 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
 /// that declares it (a default, or an addition's method): only a bound
 /// reaches it, so the error says to write one. False when that is not so.
 fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
-    if (try instanceMethod(ctx, base, c.method) != null) return false;
+    if (try sema.typeMethod(ctx, base, c.method) != null) return false;
     const a = ctx.arena.allocator();
     var refs: std.ArrayList(sema.ApiRef) = .empty;
     for (ctx.symbols.items, 0..) |sym, i| {

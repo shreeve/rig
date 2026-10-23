@@ -2883,9 +2883,32 @@ pub const PlainRequirement = struct {
 
 /// The lists of what generic bodies do over their type parameters, which
 /// each instance makes concrete: `generic_fn_uses`, `generic_uses`,
-/// `generic_arrays`, `generic_frames`. Each entry is added through
-/// `SemContext.addGeneric`, which indexes it.
-pub const GenericList = enum(u8) { fn_uses, uses, arrays, frames };
+/// `generic_arrays`, `generic_frames`, `generic_api_calls`. Each entry is
+/// added through `SemContext.addGeneric`, which indexes it.
+pub const GenericList = enum(u8) { fn_uses, uses, arrays, frames, api_calls };
+
+/// A call through an API of a program's own (`t.look(?k)` on a bounded
+/// `T`, `c.look(?k)` on a type that provides the API, `Keyed.look(?c,
+/// ?k)`), as the instance it reaches is checked: that instance is the
+/// implementation's method (`implInstance`), which the witness names,
+/// and its body is checked at the type that provides the API and at the
+/// method's own compile-time arguments, as a call of the method itself
+/// is. One whose types are known is in `SemContext.api_calls`; one over
+/// a body's parameters in `generic_api_calls`, which each instance of
+/// the body makes concrete (`expandInstantiations`).
+pub const ApiCall = struct {
+    /// The type that provides the API: a type parameter it bounds, or a
+    /// type that provides it, which may name a body's parameters.
+    recv: TypeId,
+    api: ApiRef,
+    method: []const u8,
+    /// The method's own type and integer arguments, in order, as the API
+    /// declares its parameters, which every implementation has exactly.
+    args: []const TypeId,
+    /// Where the call is, in module `module_id` (0 for this one).
+    pos: u32,
+    module_id: u32 = 0,
+};
 
 /// An entry of one of another module's lists of what its generic bodies
 /// do (`importParam`), copied here once.
@@ -3022,7 +3045,15 @@ pub const SemContext = struct {
     generic_uses: std.ArrayList(TypeId) = .empty,
     /// The instances of generic functions the module's calls make, each
     /// with the position of its first call, in the order found.
-    fn_instances: std.ArrayList(struct { inst: FnInstance, site: u32, via: ?InstanceRoot = null }) = .empty,
+    fn_instances: std.ArrayList(struct {
+        inst: FnInstance,
+        site: u32,
+        via: ?InstanceRoot = null,
+        /// The implementation's method a call through an API reaches
+        /// (`implInstance`): the call's instance of the API's method
+        /// checks the bounds and the arguments it is given.
+        through_api: bool = false,
+    }) = .empty,
     /// Every instance in `fn_instances` and `generic_fn_uses`.
     fn_instance_set: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
     /// Instances of generic functions called with type parameters, inside
@@ -3058,6 +3089,11 @@ pub const SemContext = struct {
     /// generic types' methods, whose sizes depend on their parameters:
     /// each instance checks them against `max_frame_bytes`.
     generic_frames: std.ArrayList(Frame) = .empty,
+    /// The calls through an API of a program's own made in generic
+    /// bodies, over their parameters (`ApiCall`).
+    generic_api_calls: std.ArrayList(ApiCall) = .empty,
+    /// The calls through an API of a program's own whose types are known.
+    api_calls: std.ArrayList(ApiCall) = .empty,
     /// For each `GenericList` and each type or integer parameter, the
     /// positions of the list's entries that mention the parameter, in
     /// order: an instance visits only the entries over its own parameters
@@ -3277,6 +3313,8 @@ pub const SemContext = struct {
         self.named_nones.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
+        self.generic_api_calls.deinit(self.allocator);
+        self.api_calls.deinit(self.allocator);
         var index = self.generic_index.valueIterator();
         while (index.next()) |at| at.deinit(self.allocator);
         self.generic_index.deinit(self.allocator);
@@ -4520,6 +4558,17 @@ pub const SemContext = struct {
     /// (`expandInstantiations`, which gives the instance written at
     /// `site` that it is made `via`). Whether it was new.
     pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32, via: ?InstanceRoot) !bool {
+        return self.recordInstanceOf(inst, site, via, false);
+    }
+
+    /// Record the concrete instance `implInstance` gives a call through
+    /// an API, made at `site` (`via` the instance written there). Whether
+    /// it was new.
+    pub fn recordImplInstance(self: *SemContext, inst: FnInstance, site: u32, via: ?InstanceRoot) !bool {
+        return self.recordInstanceOf(inst, site, via, true);
+    }
+
+    fn recordInstanceOf(self: *SemContext, inst: FnInstance, site: u32, via: ?InstanceRoot, through_api: bool) !bool {
         if (self.fn_instance_set.contains(inst)) return false;
         const owned = try self.ownFnInstance(inst);
         try self.fn_instance_set.put(self.allocator, owned, {});
@@ -4527,8 +4576,21 @@ pub const SemContext = struct {
             try self.addGeneric(.fn_uses, owned);
             return true;
         };
-        try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site, .via = via });
+        try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site, .via = via, .through_api = through_api });
         return true;
+    }
+
+    /// Record a call through an API of a program's own (`ApiCall`): one
+    /// whose types are known, or one over the parameters of the generic
+    /// body it is in.
+    pub fn recordApiCall(self: *SemContext, call: ApiCall) !void {
+        var owned = call;
+        owned.args = try self.arena.allocator().dupe(TypeId, call.args);
+        const generic = for (call.args) |a| {
+            if (self.typeInfo(a).has_type_var) break true;
+        } else self.typeInfo(call.recv).has_type_var;
+        if (generic) return self.addGeneric(.api_calls, owned);
+        try self.api_calls.append(self.allocator, owned);
     }
 
     /// Add `entry` to `list`, indexed by the type and integer parameters
@@ -4542,6 +4604,10 @@ pub const SemContext = struct {
             .arrays => try self.indexParams(list, at, entry.ty),
             .fn_uses => for (entry.args) |ty| try self.indexParams(list, at, ty),
             .frames => for (entry.tys) |ty| try self.indexParams(list, at, ty),
+            .api_calls => {
+                try self.indexParams(list, at, entry.recv);
+                for (entry.args) |ty| try self.indexParams(list, at, ty);
+            },
         }
         try items.append(self.allocator, entry);
     }
@@ -4722,6 +4788,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try typecheck.recordFrameOwners(&ctx, tree);
     try typecheck.checkFrames(&ctx);
     try checkUnreadLocals(&ctx);
+    try typecheck.checkDeclaredApis(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
     if (@import("build_options").self_check or zig_builtin.is_test) {
@@ -4831,7 +4898,11 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// element rules checked for the argument. Then the public generics are
 /// checked for nesting themselves (`checkSelfNesting`).
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
-    if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0) return;
+    // The instances calls through an API reach where every type is known.
+    for (ctx.api_calls.items) |c| if (try implInstance(ctx, c)) |inst| {
+        _ = try ctx.recordImplInstance(inst, c.pos, null);
+    };
+    if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0 and ctx.generic_api_calls.items.len == 0) return;
     var work: std.ArrayList(ExpandItem) = .empty;
     defer work.deinit(ctx.allocator);
     var it = ctx.instantiation_sites.iterator();
@@ -4984,8 +5055,131 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             }
             try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
         }
+        // A call through an API on the body's parameters reaches, at this
+        // instance, the method of the type that provides the API.
+        if (reached != null) continue;
+        try ctx.genericEntries(.api_calls, item.subst.params, &entries);
+        for (entries.items) |i| {
+            var call = ctx.generic_api_calls.items[i];
+            call.recv = try substituteType(ctx, call.recv, item.subst);
+            if (ctx.typeInfo(call.recv).has_type_var) continue;
+            const args = try ctx.arena.allocator().alloc(TypeId, call.args.len);
+            for (call.args, args) |a, *out| out.* = try substituteType(ctx, a, item.subst);
+            if (argsHaveTypeVar(ctx, args)) continue;
+            call.args = args;
+            const concrete = (try implInstance(ctx, call)) orelse continue;
+            var deepest: u8 = 0;
+            for (concrete.args) |a| deepest = @max(deepest, ctx.typeInfo(a).depth);
+            if (deepest > max_instance_depth) {
+                const why = if (item.root == .func) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
+                try deepInstance(ctx, item, concrete.params, "functions", try formatFnInstance(ctx, concrete), why);
+                return true;
+            }
+            if (!try ctx.recordImplInstance(concrete, item.site, item.root)) continue;
+            try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
+        }
     }
     return false;
+}
+
+/// The instance of the method a call through an API reaches (`ApiCall`,
+/// every type known), as the witness names it: the type's own method
+/// after the type's parameters, which the type's instance checks; an
+/// addition's after the addition's, which no type's instance checks, so
+/// this one checks them as its own; or the API's default after its
+/// `Self`, whose own parameters the call's instance of the API's method
+/// checks, so this one only reaches what the body calls on `Self`. Null
+/// when the type does not provide the API, which the bound's check
+/// reports, or when the instance binds nothing.
+pub fn implInstance(ctx: *SemContext, call: ApiCall) std.mem.Allocator.Error!?FnInstance {
+    if (containsPoison(ctx, call.recv)) return null;
+    for (call.args) |a| if (containsPoison(ctx, a)) return null;
+    const w = switch ((try witnessFor(ctx, call.recv, call.api)) orelse return null) {
+        .conformance => |c| c,
+        .param => return null,
+    };
+    const found = conformanceOf(ctx, .{ .conformance = .{ .module_id = w.module_id, .index = w.index } }) orelse return null;
+    const member = for (found.conf.members) |m| {
+        if (std.mem.eql(u8, m.name, call.method)) break m;
+    } else return null;
+    const a = ctx.arena.allocator();
+    const shown = try formatType(ctx, call.recv);
+    const base = shown[0 .. std.mem.findScalar(u8, shown, '[') orelse shown.len];
+    const name = try a.print("{s}.{s}", .{ base, call.method });
+    var outer: TypeSubst = .empty;
+    var fn_ty: FunctionType = undefined;
+    switch (member.from) {
+        .own => {
+            const m = (try typeMethod(ctx, call.recv, call.method)) orelse return null;
+            fn_ty = m.fn_ty;
+            outer = m.subst;
+        },
+        .added => {
+            const f = for (found.conf.methods) |f| {
+                if (std.mem.eql(u8, f.name, call.method)) break f;
+            } else return null;
+            const local = found.home == @as(*const SemContext, ctx);
+            const ty = if (local) f.ty else try importType(ctx, found.home, f.ty, w.module_id);
+            if (ctx.types.get(ty) != .function) return null;
+            fn_ty = ctx.types.get(ty).function;
+            const params = try a.alloc(SymbolId, found.conf.params.len);
+            for (found.conf.params, params) |p, *out| out.* = if (local) p else try proxyOf(ctx, .{ .module_id = w.module_id, .sym = p });
+            outer = .{ .params = params, .args = try conformanceArgs(ctx, a, call.recv) };
+            if (outer.params.len != outer.args.len) return null;
+        },
+        .default => |ref| {
+            const home = apiContext(ctx, ref) orelse return null;
+            const sym = apiSymbol(ctx, ref) orelse return null;
+            const f = for (sym.fields orelse &.{}) |f| {
+                if (f.is_method and std.mem.eql(u8, f.name, call.method)) break f;
+            } else return null;
+            const local = home == @as(*const SemContext, ctx);
+            const ty = if (local) f.ty else try importType(ctx, home, f.ty, ref.module_id);
+            if (ctx.types.get(ty) != .function) return null;
+            fn_ty = ctx.types.get(ty).function;
+            const home_self = (sym.type_params orelse return null)[0];
+            const self_param = if (local) home_self else try proxyOf(ctx, .{ .module_id = ref.module_id, .sym = home_self });
+            outer = .{ .params = try a.dupe(SymbolId, &.{self_param}), .args = try a.dupe(TypeId, &.{call.recv}) };
+        },
+    }
+    var own: std.ArrayList(SymbolId) = .empty;
+    for (fn_ty.ct_params, 0..) |slot, i| {
+        if (typeParamOf(ctx, slot)) |p| {
+            try own.append(a, p);
+        } else if (i < fn_ty.ct_syms.len and fn_ty.ct_syms[i] != symbol_invalid and ctx.types.get(slot) == .int) try own.append(a, fn_ty.ct_syms[i]);
+    }
+    if (own.items.len != call.args.len) return null;
+    const own_n: u32 = switch (member.from) {
+        .own => @intCast(own.items.len),
+        .added => @intCast(outer.params.len + own.items.len),
+        .default => 0,
+    };
+    if (own_n == 0 and member.from != .default) return null;
+    return .{
+        .name = name,
+        .params = try std.mem.concat(a, SymbolId, &.{ outer.params, own.items }),
+        .args = try std.mem.concat(a, TypeId, &.{ outer.args, call.args }),
+        .own = own_n,
+    };
+}
+
+/// A method a type declares, as a call reaches it: its signature at the
+/// type's arguments, those arguments, the field, the declaring type, and
+/// the module that declares it (null for this one or a proxy's).
+pub const TypeMethod = struct { field: Field, fn_ty: FunctionType, subst: TypeSubst, owner: Symbol, module: ?u32 };
+
+/// The method `name` that `ty`, an `obj` or an `enum` a module declares,
+/// declares itself; null when it declares none.
+pub fn typeMethod(ctx: *SemContext, ty: TypeId, name: []const u8) std.mem.Allocator.Error!?TypeMethod {
+    if (try lookupMethod(ctx, ty, name)) |m| return .{ .field = m.field, .fn_ty = m.fn_ty, .subst = m.subst, .owner = ctx.symbols.items[m.nominal_sym], .module = null };
+    const decl = nominalDecl(ctx, ty) orelse return null;
+    const module_id = decl.module_id orelse return null;
+    const foreign = ctx.foreign_semas.get(module_id) orelse return null;
+    const fields = decl.symbol().fields orelse &.{};
+    const f = fields[(try findMember(ctx, fields, name, .method)) orelse return null];
+    const fty = ctx.types.get(try importType(ctx, foreign, f.ty, module_id));
+    if (fty != .function) return null;
+    return .{ .field = f, .fn_ty = fty.function, .subst = .empty, .owner = decl.symbol(), .module = module_id };
 }
 
 /// A public generic function or type, or a generic method of a public
@@ -5124,6 +5318,8 @@ pub fn formatFnInstance(ctx: *SemContext, inst: FnInstance) std.mem.Allocator.Er
 
 /// `formatFnInstance` with a caller-chosen allocator.
 pub fn formatFnInstanceIn(ctx: *const SemContext, a: std.mem.Allocator, inst: FnInstance) std.mem.Allocator.Error![]const u8 {
+    // A default reached through an API binds only its `Self` (`implInstance`).
+    if (inst.own == 0) return inst.name;
     return a.print("{s}[{s}]", .{ inst.name, try formatTypeList(ctx, a, inst.ownArgs()) });
 }
 
@@ -7016,6 +7212,17 @@ fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const Type
 /// Ord]`), after their bases', at what each argument gives them. False
 /// after a diagnostic.
 pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args: []const TypeId, at: u32, of: InstanceRoot) std.mem.Allocator.Error!bool {
+    return boundsHold(ctx, given_params, given_args, .{ .at = at, .of = of });
+}
+
+/// Whether `given_args` meet the bounds of `given_params`, as
+/// `checkBounds` decides, with nothing reported: for an instance whose
+/// bounds another instance checks and reports (`implInstance`).
+pub fn boundsMet(ctx: *SemContext, given_params: []const SymbolId, given_args: []const TypeId) std.mem.Allocator.Error!bool {
+    return boundsHold(ctx, given_params, given_args, null);
+}
+
+fn boundsHold(ctx: *SemContext, given_params: []const SymbolId, given_args: []const TypeId, report: ?struct { at: u32, of: InstanceRoot }) std.mem.Allocator.Error!bool {
     const all = try withAssoc(ctx, given_params, given_args);
     const params = all.params;
     const args = all.args;
@@ -7027,16 +7234,18 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
         if (sym.assoc_of) |assoc| if (try assocViewsBase(ctx, params, args, assoc, arg)) |base| {
+            const r = report orelse return false;
             const shown = try formatType(ctx, base);
-            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, which a generic body does not track, so one could outlive the next call that changes `{s}`; use `{s}` itself, or give items that own what they hold", .{ try rootName(ctx, of), sym.name, try formatType(ctx, arg), try formatType(ctx, arg), shown, shown, shown });
+            try ctx.err(r.at, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, which a generic body does not track, so one could outlive the next call that changes `{s}`; use `{s}` itself, or give items that own what they hold", .{ try rootName(ctx, r.of), sym.name, try formatType(ctx, arg), try formatType(ctx, arg), shown, shown, shown });
             return false;
         };
         // A type parameter with no bound is no exception: the witness the
         // bound takes would come from its own bounds, and it has none.
         for (sym.user_apis) |api| {
             if (try provides(ctx, arg, api) != null) continue;
-            if (try reportStatedUser(ctx, at, arg, api, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (of == .func) "calls" else "names", try rootName(ctx, of), sym.name, try apiName(ctx, api) }))) return false;
-            try reportUnprovided(ctx, at, of, sym.name, arg, api);
+            const r = report orelse return false;
+            if (try reportStatedUser(ctx, r.at, arg, api, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (r.of == .func) "calls" else "names", try rootName(ctx, r.of), sym.name, try apiName(ctx, api) }))) return false;
+            try reportUnprovided(ctx, r.at, r.of, sym.name, arg, api);
             return false;
         }
         // What the bounds name, written or implied, first, then what they
@@ -7047,8 +7256,9 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
             var it = set.iterator();
             while (it.next()) |api| {
                 const lack = (try lacks(ctx, arg, api)) orelse continue;
-                if (try reportStatedLack(ctx, at, api, lack, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (of == .func) "calls" else "names", try rootName(ctx, of), sym.name, @tagName(api) }))) return false;
-                try reportLack(ctx, at, try rootName(ctx, of), sym.name, arg, api, lack);
+                const r = report orelse return false;
+                if (try reportStatedLack(ctx, r.at, api, lack, try ctx.arena.allocator().print("{s} `{s}`, which needs `{s}: {s}`", .{ if (r.of == .func) "calls" else "names", try rootName(ctx, r.of), sym.name, @tagName(api) }))) return false;
+                try reportLack(ctx, r.at, try rootName(ctx, r.of), sym.name, arg, api, lack);
                 return false;
             }
         }
@@ -10567,6 +10777,13 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     for (foreign.paramEntries(.uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .uses, i)) continue;
         try ctx.addGeneric(.uses, try importType(ctx, foreign, foreign.generic_uses.items[i], m));
+    }
+    for (foreign.paramEntries(.api_calls, origin.sym)) |i| {
+        if (!try firstImport(ctx, m, .api_calls, i)) continue;
+        const c = foreign.generic_api_calls.items[i];
+        const args = try a.alloc(TypeId, c.args.len);
+        for (c.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
+        try ctx.addGeneric(.api_calls, .{ .recv = try importType(ctx, foreign, c.recv, m), .api = c.api, .method = c.method, .args = args, .pos = c.pos, .module_id = if (c.module_id == 0) m else c.module_id });
     }
 }
 
