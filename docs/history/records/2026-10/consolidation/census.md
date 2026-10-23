@@ -41,6 +41,12 @@ total; "Trig run" is ts-pattern and zod3.
 | 2026-10-22 | before #565 | Mac | 1-4% faster | 1-4% faster; canada 1.8% slower | | | | |
 | 2026-10-23 | c77a86b07 | Mac | 0.2-4.5% faster | canada 2.7% slower; rest 0.7% slower to 4.6% faster | within 2%, or faster (spawn, yield, hog, pingpong) | 0.3% faster | 6.6% faster, 0.1% faster | canada fast: #538 |
 | 2026-10-23 | c77a86b07 | pup | twitter 5.6%, twitterescaped 6.3%, citm 2.7%, gsoc 2.3%, github 2.4% slower; canada 2.7% faster | 2.3-14.8% faster | within 2%, or faster (spawn, pingpong 2.17x, http 5.6%) | 0.8% slower | 1.0% faster, 1.4% faster | safe: #538, and R4's accepted shift on twitter |
+| 2026-10-23 night | e03bceffd, against 463de5898 | Mac | 0.5% slower to 0.5% faster | 0.2% slower to 0.3% faster | | | 0.6% slower, 0.1% slower | none |
+| 2026-10-23 night | e03bceffd, against 463de5898 | pup | 1.1% slower to 0.2% faster | 0.6% slower to 0.2% faster | | | 0.5% slower, 0.5% slower | none |
+
+The night rows time the round's merges alone: their reference is
+463de5898, main before the round, which already holds #538, so #538's
+cost is in neither column (speed-baseline.md, "After the night").
 
 Watch: twitter, citm_catalog, and github_events on pup (R4's placement
 swing); `rig check`'s storage pass (2% slower on both machines, at the

@@ -256,6 +256,32 @@ build on the Mac is 7.8% slower than main's (4357 → 4016 MB/s), and
 pup's fast builds up to 5.7% slower; and std has no way to ask for a
 function's alignment without a new language feature.
 
+## After the night (2026-10-23)
+
+The round's merges, #571 to #595, timed alone: main at e03bceffd
+against 463de5898, main before the round. Main moved on to 5134b26fc
+(#593, whose emitted Zig is byte-identical, and #597, tests) during the
+run; e03bceffd was timed on both machines. Both trees hold #538, so its
+safe-build cost on pup is in neither column. Method as above: std.json
+10 rounds of `--reps 3`, the fastest of 30; Trig 37f9e6b, release
+builds, `--singleThreaded` (one checker, as in the baseline), 10
+rounds. The Mac ran under `tools/low` at a load of 2 to 4; pup on core
+6, its sibling idle, at a load under 2, with no build or Trig run beside
+it (a Trig run that overlapped a light gate's build was discarded and
+rerun).
+
+- **std.json, Mac:** safe 0.5% slower to 0.5% faster, fast 0.2% slower
+  to 0.3% faster, on every file.
+- **std.json, pup:** safe 1.1% slower (github_events) to 0.2% faster,
+  fast 0.6% slower to 0.2% faster; twitter, citm_catalog, and
+  github_events, the files R4's placement swing moves, all within 1.1%.
+- **Trig:** ts-pattern 0.712 / 0.716 s and zod3 0.154 / 0.155 s on the
+  Mac (the same instructions); 1.258 / 1.264 s and 0.248 / 0.249 s on
+  pup.
+
+Every row is within 2%, so nothing was bisected: the round slowed none
+of these measures.
+
 ## The scripts
 
 `census/census.py` (build and time std.json and the concurrent
