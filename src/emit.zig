@@ -1249,7 +1249,7 @@ pub const Emitter = struct {
             const ret = if (main_status) "u8" else "void";
             try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) {s} {{\n    return rig.onOwnStack(__rig_fail_main, .{{__rig_init}});\n}}\n\n", .{ret});
             try self.w.print("fn __rig_fail_main(__rig_init: std.process.Init.Minimal) {s} {{\n    var __rig_main_slot: rig.ErrData = undefined;\n", .{ret});
-            try self.w.writeAll("    const result = __rig_run_main(__rig_init, rig.failSlot(&__rig_main_slot)) catch |e| {\n        rig.reportFailure(e, &__rig_main_slot);\n        rig.finish();\n        rig.failMainReported(e);\n    };\n    rig.finish();\n");
+            try self.w.writeAll("    const result = __rig_run_main(__rig_init, rig.failSlot(&__rig_main_slot)) catch |__rig_failed| {\n        rig.reportFailure(__rig_failed, &__rig_main_slot);\n        rig.finish();\n        rig.failMainReported(__rig_failed);\n    };\n    rig.finish();\n");
             try self.w.writeAll(if (main_status) "    return rig.exitStatus(result);\n}\n\n" else "    return result;\n}\n\n");
             try self.w.writeAll("fn __rig_run_main(");
         } else if (is_main) {
@@ -6921,7 +6921,9 @@ pub const Emitter = struct {
             // writes no symbol need not import them.
             if (t == .symbol) continue;
             try self.w.writeAll("        .{ ");
-            try self.emitBuiltinTy(t);
+            // `error` is a `rig.ErrorValue` (an error of any set, with its
+            // fields).
+            if (t == .any_error) try self.w.writeAll("rig.ErrorValue") else try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
         for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id, ctx.order_sym_id, ctx.printer_sym_id, ctx.hasher_sym_id }) |sym| {

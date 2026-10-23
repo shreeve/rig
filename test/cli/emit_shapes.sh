@@ -45,10 +45,10 @@ sub main()
   print(x)
 EOF
 out=$("$RIG" emit fallible.rig 2>/dev/null) || fail "rig emit fallible.rig"
-expect_has "$out" 'try rig.rt(bar())' "propagate"
-expect_has "$out" 'pub inline fn foo() anyerror!i64' "fallible return type"
-expect_has "$out" 'rig.onOwnStack(__rig_run_main, .{__rig_init}) catch |__rig_failed| rig.failMain(__rig_failed);' "fallible main"
-expect_has "$out" 'fn __rig_run_main(__rig_init: std.process.Init.Minimal) anyerror!void' "fallible main body"
+expect_has "$out" 'try rig.rt(bar(__out))' "propagate, lending the slot"
+expect_has "$out" 'pub inline fn foo(__out: rig.ErrSlot) anyerror!i64' "fallible return type, with the slot"
+expect_has "$out" 'rig.onOwnStack(__rig_fail_main, .{__rig_init})' "fallible main"
+expect_has "$out" 'fn __rig_run_main(__rig_init: std.process.Init.Minimal, __out: rig.ErrSlot) anyerror!void' "fallible main body"
 
 cat >names.rig <<'EOF'
 sub main()

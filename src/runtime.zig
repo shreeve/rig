@@ -2561,9 +2561,6 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
     if (@TypeOf(x) != type) return std.fmt.comptimePrint("{d}", .{x});
     const T = x;
     if (builtinName(T, names)) |name| return name;
-    // An error that may carry fields: `error`, or its set's name, which
-    // the type a program names it by gives.
-    if (T == ErrorValue) return "error";
     if (comptime isOptStruct(T)) return suffixedName(Payload(T), "?", names);
     return switch (@typeInfo(T)) {
         .optional => |o| suffixedName(o.child, "?", names),
