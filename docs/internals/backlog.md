@@ -205,6 +205,14 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   parameters nested deeper". No function there calls itself. Say that
   instances nest more than 24 deep instead. The same limit also rejects
   `$name(Wrap[T?])` inside `Wrap`'s own method.
+- An error of a set without fields where a view of a union with fields
+  goes (`code(B.y)` for `code(k: ?L)` of `error L = A | B`, `A` with
+  fields) is rejected with "bind it first". Emit takes the code's
+  address before widening it to an error value; the lend should widen
+  through the coercion fact into the statement's temporary first, as a
+  member with fields is lent (`Checker.widenedError`). The case
+  `sets a member without fields lent where a union with fields goes`
+  of test/rig/errors-sets.rig.test.
 - Lending a handle parameter to write is accepted as `!c` but rejected
   as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
