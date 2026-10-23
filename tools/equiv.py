@@ -262,12 +262,13 @@ def compare(old, new, f, tmp):
 
 def cache_dir():
     """rig-equiv-cache in the repository's git directory, shared by its
-    worktrees; None outside a git checkout."""
-    if not os.path.exists(os.path.join(ROOT, ".git")):
-        return None
-    r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                       cwd=ROOT, capture_output=True, text=True)
-    return os.path.join(r.stdout.strip(), "rig-equiv-cache") if r.returncode == 0 else None
+    worktrees, from tools/gitdir; from a plain copy of Rig it stops with
+    that script's message unless GIT_DIR is set (or --no-cache)."""
+    r = subprocess.run([os.path.join(ROOT, "tools", "gitdir"), "tools/equiv.py"], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        sys.exit(2)
+    return os.path.join(r.stdout.strip(), "rig-equiv-cache")
 
 
 def main():

@@ -148,17 +148,24 @@ def optn(ty, n):
     return ty
 
 
+def git_dir():
+    """The git directory of this Rig checkout, which its worktrees share,
+    from tools/gitdir; from a plain copy of Rig it stops with that
+    script's message unless GIT_DIR is set."""
+    r = subprocess.run([os.path.join(ROOT, "tools", "gitdir"), "test/matrix.py"], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        sys.exit(2)
+    return r.stdout.strip()
+
+
 def build_store():
     """Where programs build: RIG_BUILD_STORE, else the
     store in the repository's git directory that its worktrees share;
     empty builds each program in its own output directory."""
     if "RIG_BUILD_STORE" in os.environ:
         return os.environ["RIG_BUILD_STORE"]
-    if not os.path.exists(os.path.join(ROOT, ".git")):
-        return ""
-    r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                       cwd=ROOT, capture_output=True, text=True)
-    return os.path.join(r.stdout.strip(), "rig-build-store") if r.returncode == 0 else ""
+    return os.path.join(git_dir(), "rig-build-store")
 
 
 STORE = build_store()
@@ -166,14 +173,10 @@ STORE = build_store()
 
 def results_cache():
     """The results cache: RIG_RESULTS_CACHE, else rig-results-cache
-    in the repository's git directory; None when empty or outside git."""
+    in the repository's git directory; None when empty."""
     if "RIG_RESULTS_CACHE" in os.environ:
         return os.environ["RIG_RESULTS_CACHE"] or None
-    if not os.path.exists(os.path.join(ROOT, ".git")):
-        return None
-    r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                       cwd=ROOT, capture_output=True, text=True)
-    return os.path.join(r.stdout.strip(), "rig-results-cache") if r.returncode == 0 else None
+    return os.path.join(git_dir(), "rig-results-cache")
 
 
 def sha256(*parts):

@@ -293,7 +293,9 @@ and commits nothing; `-k` picks cells by id and `-v` lists every result.
 Its programs build in `rig-build-store` in the repository's git
 directory (or `$RIG_BUILD_STORE`), and a passing run is recorded in
 `rig-results-cache` beside it (or `$RIG_RESULTS_CACHE`), so `--delta`
-runs only the programs whose emitted Zig changed. The suite's core runs
+runs only the programs whose emitted Zig changed. The repository is
+the one `tools/gitdir` finds; from a plain copy of Rig, matrix.py stops
+unless `GIT_DIR`, or both variables, are set. The suite's core runs
 the reference checker over its programs (`oracle.matrix`).
 
 ## The reference ownership checker

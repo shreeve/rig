@@ -134,7 +134,11 @@ crashes on fails too.
    `$RIG_BUILD_STORE`; empty, in the pack's own directory), under a hash
    of what Zig compiles, so a pack that any worktree has built, with the
    same Zig, is never compiled again: a new worktree's first run
-   compiles only what its changes changed. Within a pack, a file that
+   compiles only what its changes changed. The repository is the one
+   `tools/gitdir` finds, whose top level is Rig's: from a plain copy
+   of Rig, with no `.git` of its own, the run stops unless `GIT_DIR` or
+   `RIG_BUILD_STORE` is set, rather than build in a repository that
+   encloses the copy. Within a pack, a file that
    several cases' programs share (a module of the standard library, for
    one) is one file that Zig compiles once, not once a case. The runner
    removes the store's entries that no build has used for five days.

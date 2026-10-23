@@ -11,7 +11,8 @@ is the pinned one: ziglang.org keeps only recent nightlies, so the mirror
 is what keeps a pin buildable. The check runs in a copy of the commit
 checked out (`git archive HEAD`, under the mirror's trees/), so this
 checkout's bin/, .zig-cache, and .swarm stay 0.17's; uncommitted changes
-are not in it. With the nightly first on PATH and in $ZIG, it builds rig
+are not in it. Its suite builds in the mirror's build-store/ unless
+RIG_BUILD_STORE names another. With the nightly first on PATH and in $ZIG, it builds rig
 (`zig build`), then runs the core suite (`swarm test/rig.rip -q`) unless
 the build failed, and reports the first errors, and the failed cases by
 test file. `--bench` also times bench/terminal's rig-fast built with each
@@ -85,7 +86,11 @@ def nightly():
 
 
 def tree():
-    """A copy of the commit checked out, made once a commit."""
+    """A copy of the commit checked out, made once a commit, from this
+    Rig checkout's repository (tools/gitdir), never one enclosing it."""
+    r = subprocess.run([os.path.join(ROOT, "tools", "gitdir"), "zig-next"], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(r.stderr.strip())
     rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     path = os.path.join(MIRROR, "trees", rev[:12])
     if not os.path.exists(os.path.join(path, "build.zig")):
@@ -118,6 +123,9 @@ def with_zig(zig):
     env["PATH"] = os.path.dirname(zig) + os.pathsep + env.get("PATH", "")
     env["ZIG"] = zig
     env["NEXUS"] = nexus()
+    # The copy has no repository, so its suite builds in a store of the
+    # mirror's own, apart from 0.17's.
+    env.setdefault("RIG_BUILD_STORE", os.path.join(MIRROR, "build-store"))
     return env
 
 

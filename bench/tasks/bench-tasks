@@ -50,8 +50,11 @@ OPS = {
 def tokio_source(given):
     if given:
         return given
-    common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=HERE, capture_output=True, text=True).stdout.strip()
-    clone = os.path.join(os.path.dirname(os.path.abspath(os.path.join(HERE, common))), "misc", "tokio", "tokio")
+    # Beside Rig's repository (tools/gitdir), never one enclosing a copy.
+    r = subprocess.run([os.path.join(HERE, "..", "..", "tools", "gitdir")], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    clone = os.path.join(os.path.dirname(r.stdout.strip()), "misc", "tokio", "tokio")
     return clone if os.path.isfile(os.path.join(clone, "Cargo.toml")) else None
 
 

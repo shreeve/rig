@@ -304,6 +304,12 @@ changed the language since it:
   with Nexus, which is co-developed with Rig; and `tools/migrate-0.3.py`
   migrates 0.2 programs, each rename an independent pass (box, list,
   string, `obj`).
+- **Rig's own repository:** `tools/heavy`, `test/rig.rip`,
+  `test/matrix.py`, `tools/equiv.py`, and `tools/zig-next.py` find their
+  git directory through `tools/gitdir`, which takes only a repository
+  whose top level is Rig's. From a plain copy of Rig they stop with a
+  message naming `GIT_DIR`, rather than keep a lock or a build store in
+  a repository that encloses the copy.
 
 ### `std.json` (experimental)
 
