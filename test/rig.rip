@@ -40,19 +40,22 @@ root = resolve(import.meta.dir, '..')
 rig  = join(root, 'bin', 'rig')
 work = join(root, '.zig-cache', 'rig-tests')
 
-# The repository's git directory, which its worktrees share; null
-# outside git.
-gitCommon = ->
-  r = Bun.spawnSync({ cmd: ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
-  if r.exitCode is 0 then r.stdout.toString().trim() else null
-gitDir = gitCommon()
+# The git directory of this Rig checkout, which its worktrees share,
+# from tools/gitdir: from a plain copy of Rig, with no repository of its
+# own, the run stops with its message unless GIT_DIR or RIG_BUILD_STORE
+# is set, so that no store lands in a repository that encloses the copy.
+gitDir = ->
+  r = Bun.spawnSync({ cmd: [join(root, 'tools', 'gitdir'), 'test/rig.rip'], stdout: 'pipe', stderr: 'pipe' })
+  return r.stdout.toString().trim() if r.exitCode is 0
+  process.stderr.write(r.stderr.toString())
+  process.exit(2)
 
 # Where the packs build: RIG_BUILD_STORE (empty: in each pack's own
 # directory), else `rig-build-store` in the repository's git directory,
 # the store test/matrix.py builds in, so a pack any worktree has built,
 # or this one before a change that left its programs' Zig the same, is
 # not built again (`rig batch build`).
-store = process.env.RIG_BUILD_STORE ?? (if gitDir? then join(gitDir, 'rig-build-store') else '')
+store = process.env.RIG_BUILD_STORE ?? join(gitDir(), 'rig-build-store')
 
 # The store's entries (each named by a hash, which `rig run`, `build`,
 # `test`, and `batch build` mark used each time in its `used`) that no

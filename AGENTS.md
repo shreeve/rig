@@ -71,7 +71,7 @@ The compiler is one pipeline; [docs/internals/INTERNALS.md](docs/internals/INTER
 | `test/cli/*.sh`, `test/torture/`, `test/oracle/` | command-line scripts, bad input, the reference ownership checker |
 | `examples/` | whole programs, each run by the suite against its `# expect:` block |
 | `bench/` | benchmarks against Zig, Tokio, Go, serde_json and others; each has a README, and the concurrency ones a PROGRESS.md |
-| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`), `equiv.py`, and `heavy` and `low` for sharing a machine |
+| `tools/` | generators, migration scripts (`migrate-0.3.py`, `migrate-builtin-map.py`, `rename-interner.py`, `rarely-body.py`), `equiv.py`, `heavy` and `low` for sharing a machine, and `gitdir`, which finds Rig's git directory for them |
 | `ZIG-0.17.md` | the Zig 0.17 reference every project's agents read, edited only here; after a change lands on `main`, `gh gist edit 57a74df35e17dacb30dcaa5d5164a27f -f ZIG-0.17.md ZIG-0.17.md` copies it to the gist the other projects link (Rig's own Zig notes are docs/internals/zig-0.17.md) |
 | `formal/` | λRig in Lean 4 (`cd formal && lake build`) |
 
@@ -175,10 +175,19 @@ until its rule is built. docs/internals/tests.md has the rest.
    is now true. Building a planned rule turns its `rig pending` example
    into an ordinary one and its *(planned)* into *(built)*. CHANGELOG gets
    the change, and HANDOFF the status.
-6. **The full suite:** `swarm test/rig.rip all`, green. A change to the
+6. **The gates.** Rig's full suite, `swarm test/rig.rip all`, green.
+   A change to the compiler, the runtime, or std also passes Trig's
+   light gate before it merges: from a Trig checkout, `tools/pup-rig
+   COMMIT` builds the Rig under test on pup, then
+   `PUP_RIG=/zfs/trig-pup/rig-next/bin/rig tools/light` runs a debug
+   trig on Trig's six cli projects four ways each (own config, Trig's,
+   `--pretty`, `--checkers 4`), byte-identical to tsc, in about a
+   minute, and ends GREEN or RED. A change to tools, tests, or docs
+   alone needs no light gate, and its PR says so. A change to the
    runtime or scheduler is also checked on pup (below).
 7. **PR,** opened early as a draft whose body is a checklist of the
-   steps; `gh pr ready` when done. Commit only when the owner asks.
+   steps, the gates among them; `gh pr ready` when done. Commit only
+   when the owner asks.
 8. **The owner merges.** Afterwards `wt done NAME` removes the worktree
    and local branch; delete the GitHub branch if the merge did not.
 
@@ -192,6 +201,13 @@ until its rule is built. docs/internals/tests.md has the rest.
   comments.
 - **Timeless prose.** Docs and comments describe what is, never what
   changed; history belongs in git.
+- **Trig tests Rig in two tiers.** The light gate (`tools/light`, step
+  6) runs before each compiler, runtime, or std PR merges. Trig's full
+  suites run on pup against Trig's main and Rig's main: by cron every
+  four hours, and on demand with `ssh pup
+  /zfs/trig-pup/full/trig/tools/full-main` (`fresh` to run every job).
+  `/zfs/trig-pup/full/LATEST` on pup holds the last result, and
+  `history` beside it every run's.
 - **A speed feature pays for its lines.** It lands when its gain,
   measured on a real program (Trig) on runs it was not trained on, is
   worth the code every later change carries. A small gain woven
@@ -237,8 +253,12 @@ Machine-specific practice (the owner's machines):
 - **Several agents on one machine:** run builds and Swarm runs through
   `tools/heavy CMD`, which takes them one at a time in the order they
   ask, across every worktree; run proof runs, benchmarks, and profiles
-  through `tools/low CMD`. While iterating, run single areas; the full
-  suite runs once, before landing.
+  through `tools/low CMD`. Heavy's lock and the suite's build store live
+  in Rig's git directory, which `tools/gitdir` finds: from a plain copy
+  of Rig with no `.git` of its own, these tools stop unless `GIT_DIR`
+  (or, for the suite, `RIG_BUILD_STORE`) is set, never using a
+  repository that encloses the copy. While iterating, run single
+  areas; the full suite runs once, before landing.
 - Before builds, tests, or benchmarks on the Mac, check
   `~/Data/Code/mumps-compare/.mac-quiet`; hold off while it exists.
 - **pup** (`ssh pup`) is a 22-core x86-64 Linux machine. A change to the

@@ -34,10 +34,12 @@ newest entry summarizes the latest rounds.
   full suite (`swarm test/rig.rip all`, with the doc examples, their
   pending examples the planned Core rules), `test/matrix.py`, the unit
   tests, and the oracle floors in `test/oracle/coverage`. A change to
-  the compiler, the runtime, or std also passes Trig's light gate before
-  it merges: Trig's release build, and its six projects run five ways,
-  byte-identical to `main`; Trig's full suites run on `main` every few
-  hours or on demand. No case is marked `known: true`: no bug is open.
+  the compiler, the runtime, or std also passes Trig's light gate
+  (`tools/light`, AGENTS.md step 6) before it merges: a debug trig on
+  Trig's six cli projects, four ways each, byte-identical to tsc, in
+  about a minute. Trig's full suites run on both mains on pup every four
+  hours or on demand (`tools/full-main`); the last result is in
+  `/zfs/trig-pup/full/LATEST`. No case is marked `known: true`: no bug is open.
 
 ## In flight
 

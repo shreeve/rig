@@ -1,0 +1,28 @@
+#!/bin/bash
+# tools/gitdir [NAME]: print the git directory of the Rig checkout this
+# script is in, the one its worktrees share, where tools/heavy keeps its
+# lock and test/rig.rip and test/matrix.py their build store and caches.
+# Every tool that keeps something there asks this script, never git alone.
+#
+# git looks for a repository from a folder upward, so from a plain copy
+# of Rig (a `git archive` snapshot, with no .git of its own) it answers
+# with whatever repository encloses the copy. This script takes the
+# repository git finds only when it is Rig's: its top level holds
+# rig.grammar, with src/rig.zig beside it. An explicit GIT_DIR names the
+# repository to use instead. Otherwise it stops, with status 2 and a
+# message that begins with NAME (default tools/gitdir), the tool asking.
+name=${1:-tools/gitdir}
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+if [[ -n ${GIT_DIR:-} ]]; then
+    given=$GIT_DIR
+    GIT_DIR=$(cd "$given" 2>/dev/null && pwd -P) &&
+        git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null && exit 0
+    echo "$name: GIT_DIR=$given is not a git directory" >&2
+    exit 2
+fi
+top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)
+if [[ -n $top && -f $top/rig.grammar && -f $top/src/rig.zig ]]; then
+    git -C "$root" rev-parse --path-format=absolute --git-common-dir && exit 0
+fi
+echo "$name: not inside a Rig checkout ($root${top:+, which is in $top}): run from a worktree, or set GIT_DIR=~/Data/Code/rig/.git" >&2
+exit 2

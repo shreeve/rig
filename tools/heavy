@@ -3,9 +3,11 @@
 # builds and Swarm runs from several worktrees or agents on one machine
 # go one at a time, in the order they asked. The lock is a directory in
 # the repository's shared git directory, which every worktree sees; a
-# holder that died leaves it, and the next waiter clears it.
-G=$(git rev-parse --git-common-dir 2>/dev/null) || { echo "tools/heavy: not in a git checkout" >&2; exit 2; }
-G=$(cd "$G" && pwd)
+# holder that died leaves it, and the next waiter clears it. The
+# repository is the one this script is in, found by tools/gitdir: from a
+# plain copy of Rig, set GIT_DIR, or the runs would not queue with the
+# worktrees'.
+G=$("$(dirname "${BASH_SOURCE[0]}")/gitdir" tools/heavy) || exit 2
 L=$G/rig-heavy.lock
 Q=$L.q
 mkdir -p "$Q"
