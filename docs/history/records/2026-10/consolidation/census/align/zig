@@ -1,0 +1,18 @@
+#!/bin/sh
+# A `zig` first on PATH (bench-json's zig-jobs wrapper calls `zig`): aligns
+# std.json's hot functions (document, escaped, skip_plain_ascii) to ALIGN
+# bytes (default 64) in the package's json module (json.zig, as bench-json
+# builds it, or __rig_std_json.zig), once, then runs REAL_ZIG.
+A=${ALIGN:-64}
+for a in "$@"; do
+  case "$a" in
+    *.zig) d=$(dirname "$a")
+      for f in "$d/json.zig" "$d/__rig_std_json.zig"; do
+        if [ -f "$f" ] && ! grep -q "align($A) i64" "$f"; then
+          perl -0pi -e "s/(pub fn (?:document|escaped|skip_plain_ascii)\([^)]*\)) i64 \{/\$1 align($A) i64 {/g" "$f"
+          [ "$(grep -c "align($A) i64" "$f")" = 3 ] || { echo "alignpatch: expected 3 functions in $f" >&2; exit 1; }
+        fi
+      done;;
+  esac
+done
+exec "$REAL_ZIG" "$@"
