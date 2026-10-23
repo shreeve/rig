@@ -19,3 +19,5 @@ bench/json/cbench/upstream/
 bench/json/cbench/prog-*
 bench/json/cbench/*.o
 .swarm/
+*.rig.debug/
+*.rig.release/
