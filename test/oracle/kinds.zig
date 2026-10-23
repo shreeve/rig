@@ -396,9 +396,13 @@ pub const Reach = struct {
     }
 
     fn fieldsOf(self: *Reach, ctx: *const SemContext, sym_id: sema.SymbolId, n: Node, s: ?*const Subst, out: *std.ArrayList(Node)) std.mem.Allocator.Error!void {
-        for (ctx.symbols.items[sym_id].fields orelse &.{}) |*f| {
+        const sym = ctx.symbols.items[sym_id];
+        for (sym.fields orelse &.{}) |*f| {
             for (sema.dataFields(f)) |d| try out.append(self.a, .{ .ctx = ctx, .ty = d.ty, .subst = s, .past_read = n.past_read, .past_view = n.past_view });
         }
+        // A union of error sets holds an error of each of its sets, as an
+        // enum of them (Core §2, "A failure moves its error").
+        for (sym.error_parts orelse &.{}) |part| try out.append(self.a, .{ .ctx = ctx, .ty = part, .subst = s, .past_read = n.past_read, .past_view = n.past_view });
     }
 
     /// `n`, or what the type parameter it is stands for.
@@ -505,6 +509,14 @@ pub const Reach = struct {
                 if (n.past_view or anything(n)) r.viewed = true;
             }
             if (anything(n)) continue;
+            // An `error` holds an error of any set, whose fields may be
+            // of any type that holds no loan (Core §2): it may own what
+            // any view points into, but views nothing itself.
+            if (n.ctx.types.get(n.ty) == .any_error) {
+                if (!n.past_read) r.owned = true;
+                if (n.past_view) r.viewed = true;
+                continue;
+            }
             const k = try std.fmt.allocPrint(self.a, "{s}|{}{}{}", .{ try self.key(n.ctx, n.ty, n.subst), n.past_read, n.past_view, n.elem });
             if ((try seen.getOrPut(self.a, k)).found_existing) continue;
             switch (n.ctx.types.get(n.ty)) {

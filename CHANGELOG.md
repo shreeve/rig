@@ -13,6 +13,17 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A narrowed error is a view of the caught one:** a `g: E =>` arm
+  under `match e` bound nothing the ownership checker saw, so `<g`,
+  `y = g`, and a `?g` kept past the handler were accepted and read
+  freed memory. The arm binds `g` as a payload is bound: a view of `e`
+  under `match e`, the error itself under `match <e`. The reference
+  checker (`bin/rig-oracle`) found it, now that it models CORE's "A
+  failure moves its error": the hidden `E?` a fallible call's statement
+  holds, which `!` returns, `catch |e|` moves into the handler's own
+  binding, and a nameless catch drops, and the `g: E =>` arm, on which
+  it abstained.
+
 - **A generic body hands its caller no view it never declared:** a body
   that called a `keeps` method on a `T` it held by value, then moved the
   value into its caller's List, let the caller drop what the view read

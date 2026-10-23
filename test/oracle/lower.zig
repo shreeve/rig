@@ -907,13 +907,15 @@ const Lowerer = struct {
             .call => return self.callParts(value, region),
             .propagate, .propagate_none => {
                 // `e!` and `e?` leave the function on failure or absence,
-                // dropping every temporary and binding so far (Core s10).
+                // dropping every temporary and binding so far (Core s10);
+                // `e!` returns the error its statement holds.
+                const slot = if (k == .propagate) try self.errorSlot(ir.get(value, .value), pos) else null;
                 const parts = try self.resultsValue(ir.get(value, .value), region);
                 const exit = try self.newBlock();
                 const on = try self.newBlock();
                 try self.branch(on, exit);
                 self.cur = exit;
-                try self.ret(&.{}, pos, if (k == .propagate) .yes else .no);
+                if (slot) |sl| try self.propagateError(sl, pos) else try self.ret(&.{}, pos, .no);
                 self.cur = on;
                 return parts;
             },
@@ -921,19 +923,14 @@ const Lowerer = struct {
                 const left = if (k == .@"??") ir.get(value, .left) else ir.Catch.value(value);
                 const handler = if (k == .@"??") ir.get(value, .right) else ir.Catch.handler(value);
                 if (!rig.leaves(handler)) return abstain("a fallback of several results that does not jump");
+                const slot = if (k == .@"catch") try self.errorSlot(left, pos) else null;
                 const parts = try self.resultsValue(left, region);
                 const ok = try self.newBlock();
                 const other = try self.newBlock();
                 try self.branch(ok, other);
                 self.cur = other;
                 // The error a `catch` binds lives in its handler.
-                const name: Sexp = if (k == .@"catch") ir.Catch.name(value) else .nil;
-                const binds = name != .nil and !std.mem.eql(u8, leafText(name, self.src), "_");
-                if (binds) {
-                    try self.pushRegion();
-                    const err = try self.bind(name, 0);
-                    try self.emit(.{ .pos = pos, .what = .make, .def = err });
-                }
+                const binds = if (slot) |sl| try self.catchError(sl, ir.Catch.name(value), pos) else false;
                 if (handler.isKind(.@"return") or handler.isKind(.panic)) try self.stmtIn(handler) else try self.jump(handler);
                 if (binds) try self.popRegion(pos);
                 self.cur = ok;
@@ -1577,6 +1574,12 @@ const Lowerer = struct {
                     if (alt.isKind(.variant_pattern) and ir.VariantPattern.bindings(alt).len > 0) return abstain("alternatives that bind");
                     if (alt == .src and self.bindsName(alt)) return abstain("alternatives that bind");
                 },
+                // `g: E =>` narrows the subject, an `error` or a union of
+                // sets, to the set `E`: matched as an enum of its sets
+                // (Core §2), the arm binds the whole subject as a variant
+                // pattern binds a payload, a view of it under `match e`,
+                // the value itself under `match <e`.
+                .set_pattern => try self.bindHeld(ir.SetPattern.name(pattern), h, null),
                 .enum_lit, .symbol, .member, .range_pattern, .neg => {},
                 else => return abstain("an unusual pattern"),
             },
@@ -2016,6 +2019,7 @@ const Lowerer = struct {
     fn fallback(self: *Lowerer, e: Sexp, how: How, j: VarId) Error!void {
         const pos = self.posOf(e);
         const left = if (e.isKind(.@"??")) ir.get(e, .left) else ir.Catch.value(e);
+        const slot = if (e.isKind(.@"catch")) try self.errorSlot(left, pos) else null;
         // The left value is unwrapped, not the value itself: a bare name
         // there never moves (SPEC §7: `(<o)?`, not `<o?`).
         const v = try self.eval(left, if (how == .ret) .take else how, self.f.vars.items[j].ty);
@@ -2030,18 +2034,64 @@ const Lowerer = struct {
         // The fallback is no statement of its own (Core §3), as an `if`
         // branch is not (`ifInto`): its temporaries are its statement's,
         // and only the error a `catch` binds leaves with it.
-        const name: Sexp = if (e.isKind(.@"catch")) ir.Catch.name(e) else .nil;
-        const binds = name != .nil and !std.mem.eql(u8, leafText(name, self.src), "_");
-        if (binds) {
-            try self.pushRegion();
-            const err = try self.bind(name, 0);
-            try self.emit(.{ .pos = pos, .what = .make, .def = err });
-        }
+        const binds = if (slot) |sl| try self.catchError(sl, ir.Catch.name(e), pos) else false;
         const handler = if (e.isKind(.@"??")) ir.get(e, .right) else ir.Catch.handler(e);
         try self.valueInto(handler, if (how == .ret) .take else how, j);
         if (binds) try self.popRegion(pos);
         try self.goto(x);
         self.cur = x;
+    }
+
+    /// The hidden `E?` of a fallible call's statement, `E` the call's set
+    /// (Core §2, "A failure moves its error"): a var of the statement's
+    /// temporaries, made before the call's own, so it is dropped after
+    /// them, and empty until the call fails. The call is lent it to
+    /// write, the lend its `!` or `catch` marks, but an error holds no
+    /// loan, so the call keeps nothing there and its result views none
+    /// of it: the lend ends with the call and adds no loan. A wait on a
+    /// task (`>t!`, `>t catch`) is a call of the task's `wait`, which the
+    /// oracle does not model yet, so the function abstains there.
+    fn errorSlot(self: *Lowerer, value: Sexp, pos: u32) Error!VarId {
+        const err_set = switch (self.ctx.types.get(try self.typeOf(value))) {
+            .fallible => |f| f.set,
+            else => return abstain("a `catch` or `!` of a value that cannot fail"),
+        };
+        const v = try self.newVar("the error", err_set, true, pos);
+        try self.regions.items[self.regions.items.len - 1].vars.append(self.a, v);
+        return v;
+    }
+
+    /// The failure edge of a call lent `slot`: the callee's failing
+    /// `return` stored its error there.
+    fn failed(self: *Lowerer, slot: VarId, pos: u32) Error!void {
+        try self.emit(.{ .pos = pos, .what = .make, .def = slot });
+    }
+
+    /// `e!` on failure: the caller takes the error out of `slot` with
+    /// `<` and returns it, the same error, before the scopes it leaves
+    /// end (Core §2).
+    fn propagateError(self: *Lowerer, slot: VarId, pos: u32) Error!void {
+        try self.failed(slot, pos);
+        const out = try self.newVar("the failure", self.f.vars.items[slot].ty, true, pos);
+        try self.emit(.{ .pos = pos, .what = .move, .moves = try self.one(slot), .def = out, .access = .{ .root = slot, .kind = .whole } });
+        try self.ret(try self.one(out), pos, .yes);
+    }
+
+    /// A `catch`'s failure edge: `catch |err|` takes the error out of
+    /// `slot` with `<` into the handler's own binding, in a region of its
+    /// own that ends with the handler (true: the caller pops it); a
+    /// `catch` that binds no name, or `_`, takes it nowhere, a statement
+    /// `<`, so it drops before the handler runs (Core §2).
+    fn catchError(self: *Lowerer, slot: VarId, name: Sexp, pos: u32) Error!bool {
+        try self.failed(slot, pos);
+        if (name == .nil or std.mem.eql(u8, leafText(name, self.src), "_")) {
+            try self.emit(.{ .pos = pos, .what = .kill, .kill = slot, .access = .{ .root = slot, .kind = .whole } });
+            return false;
+        }
+        try self.pushRegion();
+        const err = try self.bind(name, 0);
+        try self.emit(.{ .pos = pos, .what = .move, .moves = try self.one(slot), .def = err, .access = .{ .root = slot, .kind = .whole } });
+        return true;
     }
 
     fn storeTaken(self: *Lowerer, e: Sexp, j: VarId) Error!void {
@@ -2163,13 +2213,15 @@ const Lowerer = struct {
             .propagate, .propagate_none => {
                 // `e!` and `e?` leave the function on failure or absence,
                 // dropping every temporary and binding so far (Core s10, §3).
+                const slot = if (k == .propagate) try self.errorSlot(ir.get(e, .value), pos) else null;
                 const v = try self.eval(ir.get(e, .value), if (how == .ret) .take else how, want);
                 const exit = try self.newBlock();
                 const on = try self.newBlock();
                 try self.branch(on, exit);
                 self.cur = exit;
-                // `e!` fails the function; `e?` returns `none`.
-                try self.ret(&.{}, pos, if (k == .propagate) .yes else .no);
+                // `e!` fails the function with the error its statement
+                // holds; `e?` returns `none`.
+                if (slot) |sl| try self.propagateError(sl, pos) else try self.ret(&.{}, pos, .no);
                 self.cur = on;
                 return v;
             },

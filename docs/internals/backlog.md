@@ -73,6 +73,10 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   draws Zig's warning, and one that large fails to build).
   With it, build debug programs for x86_64 with `-fllvm`, as aarch64's
   are.
+- The reference checker (`bin/rig-oracle`) models no tasks: a wait's
+  failure (`>t!`, `>t catch`) and the loans a task keeps while it runs
+  have no second opinion beside the compiler's. Teach it CORE's rules
+  for them, as it learned "A failure moves its error" (#601).
 - The reference checker (`bin/rig-oracle`) takes memory quadratic in
   the exits of one `match` arm. For an arm `.one(_, n)` of `match <e`
   with that many `return ... if ...` lines, its peak resident memory:
