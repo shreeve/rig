@@ -170,6 +170,13 @@ fail "par owned closure", "`par.map` calls `?cb` on several tasks at once, and e
   cb: *fun(?Int) -> Int = *|a| a - 1
   ys = par.map(?xs, ?cb)
 
+fail "par closure binding", "`par.map` calls `add` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `par.map(?xs, |x| ...)`", errors: 1
+  use std.par
+
+  xs = List([1, 2, 3])
+  add = |a: ?Int| a + 1
+  ys = par.map(?xs, add)
+
 fail "par map gives nothing", "`par.map` gives each call's value, and `|x| print(x)` gives none: to call it on each element, `par.each(!xs, ...)`", errors: 1
   use std.par
 

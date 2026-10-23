@@ -71,6 +71,25 @@ test "chan select", seeds: 20, '''
   closed = task.select((!b).on_recv(|v| "none" if v == none else "value"))!
   print(closed)
 
+test "chan select a closure's view in any arm", seeds: 20, "1007 2007"
+  # An arm runs on the task that selects, so a closure's view goes to
+  # any arm, the first as well as the rest.
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  k = 1000
+  g = |?k, v: Int?| (v ?? 0) + k
+  !b.send(7)!
+  first = task.select(
+    (!b).on_recv(?g),
+    (!a).on_recv(|v| (v ?? 0) + 100),
+  )!
+  !b.send(7)!
+  second = task.select(
+    (!a).on_recv(|v| (v ?? 0) + 100),
+    (!b).on_recv(?g),
+  )!
+  print(first, second + 1000)
+
 test "chan deadline and cancel", seeds: 20, '''
   -9
   Stop.canceled

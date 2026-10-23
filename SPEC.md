@@ -11336,9 +11336,12 @@ so the call fails as `f` fails too; it always can fail.
   leads to. A debug build reports it apart from leaks, as left by a
   panic.
 - Nothing outside `f` is lent to it to write, so all a panic could have
-  half-changed is `f`'s own: `f` is a closure written in the call with
-  no `|!x|` capture, or a function's name. A shared `*Cell` it changes
-  keeps the changes made before the panic.
+  half-changed is `f`'s own: `f` is a closure written in the call, or a
+  function's name. The closure has no `|!x|` capture, and no capture
+  that could write for it: a closure's view or binding, whose type does
+  not show what it writes, or a value that holds a write view. A shared
+  `*Cell` it changes, or an owned closure it calls, keeps the changes
+  made before the panic.
 - A task started in `f` ends in it: `f` gives no value that holds one.
 - Inside another isolate, the nearest one stops a panic. With none, a
   panic ends the program as before.
@@ -11561,8 +11564,9 @@ commits that one alone, and gives what its function gives:
 - `(!ch).on_send(<v, f)` sends `v`; `f` takes nothing. A send arm that
   loses drops its value.
 
-Each `f` is a closure written in the arm, or a function's name, and all
-give the same type. Of arms ready at once, the select takes them in an
+Each `f` is a closure written in the arm, a closure's view (`?g`), or a
+function's name, and all give the same type; the select calls it on its
+own task. Of arms ready at once, the select takes them in an
 order that turns, so none starves. It is a fallible waiting point too.
 
 ```rig

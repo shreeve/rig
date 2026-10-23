@@ -13,6 +13,17 @@ changed the language since it:
 
 ### Language and compiler
 
+- **What a function value is where a call runs it** is decided once
+  (`Checker.fnArg`): a closure written in the call, a function's name, a
+  closure binding, a closure's view or an owned closure, or none. Fixed
+  with it: `http.serve` took a closure's view or binding whose captures it
+  could not check, so a closure lending a local to write ran on every
+  connection's task at once; it now refuses one, as `par.map` does.
+  `task.isolate` and `task.supervise` refuse a closure written in the call
+  that captures a closure or a write view, which could write outside
+  them and leave the change half made after a panic. Every arm of
+  `task.select` takes a closure's view, the first as well as the rest.
+
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
   binds it from its callbacks' sets (`error` for a `T!` callback), and
