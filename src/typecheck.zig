@@ -13048,12 +13048,12 @@ const Checker = struct {
             if (self.isPoison(sym.ty)) continue;
             const inner = sema.unwrapViews(self.ctx, sym.ty);
             const why: []const u8 = if (sema.holdsWriteView(self.ctx, sym.ty))
-                "holds a write view"
+                "holds a write view: give the change back as its value, or keep the state in a `*Cell`"
             else if (self.ctx.types.get(inner) == .callable or (self.ctx.types.get(inner) == .function and sym.flags.closure))
-                "is a closure, which may write what it captures, and its type does not show it"
+                "is a closure, whose type does not show what it writes: keep the state it changes in a `*Cell`, or capture an owned closure, `*|...| body`"
             else
                 continue;
-            try self.errAt(name_node, "`{s}` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `{s}` {s}: give the change back as its value, or keep it in a `*Cell`", .{ shown, n, why });
+            try self.errAt(name_node, "`{s}` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `{s}` {s}", .{ shown, n, why });
             return self.t().invalid_id;
         };
         if (self.current_call) |c| try if (supervise) self.ctx.recordSuperviseCall(c) else self.ctx.recordIsolateCall(c);

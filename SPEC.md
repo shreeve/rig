@@ -11336,9 +11336,12 @@ so the call fails as `f` fails too; it always can fail.
   leads to. A debug build reports it apart from leaks, as left by a
   panic.
 - Nothing outside `f` is lent to it to write, so all a panic could have
-  half-changed is `f`'s own: `f` is a closure written in the call with
-  no `|!x|` capture, or a function's name. A shared `*Cell` it changes
-  keeps the changes made before the panic.
+  half-changed is `f`'s own: `f` is a closure written in the call, or a
+  function's name. The closure has no `|!x|` capture, and no capture
+  that could write for it: a closure's view or binding, whose type does
+  not show what it writes, or a value that holds a write view. A shared
+  `*Cell` it changes, or an owned closure it calls, keeps the changes
+  made before the panic.
 - A task started in `f` ends in it: `f` gives no value that holds one.
 - Inside another isolate, the nearest one stops a panic. With none, a
   panic ends the program as before.
