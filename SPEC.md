@@ -8182,8 +8182,9 @@ are; a slot is plain data.
 | `Int(s)` | the slot's number (any integer type: `U32(s)`) |
 | a literal `k` | a `Slot[n]` where `0 <= k < n`, checked at compile time; inside a generic body, where `n` is a parameter, write `Slot[n].of(k)` |
 
-A slot copies, compares with `==` and `<`, hashes, and prints as its
-number, so it keys a `Map`. It has no arithmetic, and nothing converts
+A slot copies, compares with `==` and `<` (with another slot, or a
+literal below `n`, which is a slot there: `s == 0`), hashes, and prints
+as its number, so it keys a `Map`. It has no arithmetic, and nothing converts
 another value to it but `of`: `Slot[8](3)`, `s + 1`, and an `Int` where a
 `Slot[8]` goes are rejected. A slot of one `n` indexes only a table of
 the same `n`; convert with `Slot[m].of(Int(s))`. Its value is the

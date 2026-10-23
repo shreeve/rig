@@ -488,3 +488,24 @@ fail "table a slot of another count is refused", "6:7: conflicting values for `n
   t: Table[Int, 8] = Table()
   s: Slot[4] = 1
   print(get(?t, s))
+
+test "table a slot compares with a literal below its count", "true false true true true false true"
+  # A literal below `n` is a `Slot[n]` where one is expected, beside a
+  # slot in a comparison as at an assignment: `t == 0` tests for the
+  # first slot, the zero a record's slot fields start at.
+  t: Table[Int, 8] = Table()
+  _ = (!t).push(1)
+  s = (!t).push(2)
+  z: Slot[8] = 0
+  print(z == 0, s == 0, s != 3, 1 == s, s < 3, s >= 2 and s > 1 and s <= 1, 0 <= z)
+
+fail "table a literal compared with a slot fits below its count", "3:12: integer value `8` does not fit in `Slot[8]`", errors: 1
+  t: Table[Int, 8] = Table()
+  s = (!t).push(1)
+  print(s == 8)
+
+fail "table no literal is a slot of no slots", "1:13: a `Slot` names one of `n` slots; `n` is at least 1", errors: 1
+  fun zero(s: Slot[0]) -> Bool
+    s == 0
+
+  print(true)

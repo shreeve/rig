@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A slot compares with a literal below its count:** `s == 0`,
+  `0 == s`, `s != 3`, and `s < 3` for a `Slot[n]` were "cannot compare",
+  though the literal is a `Slot[n]` at an assignment, an argument, and a
+  return; beside a slot in a comparison it is one too, checked to fit
+  below `n`.
+
 - **A narrowed error is a view of the caught one:** a `g: E =>` arm
   under `match e` bound nothing the ownership checker saw, so `<g`,
   `y = g`, and a `?g` kept past the handler were accepted and read

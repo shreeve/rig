@@ -5151,6 +5151,7 @@ const Checker = struct {
         self.beside = saved;
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
+        if (try self.literalBesideSlot(l, r, a, b)) return self.t().bool_id;
         if (sema.unwrapViews(self.ctx, a) == self.t().symbol_id or sema.unwrapViews(self.ctx, b) == self.t().symbol_id) {
             try self.errAt(l, "operator `{s}` is not defined for `Symbol`: a symbol has no order; compare with `==` and `!=`", .{op});
             return self.t().bool_id;
@@ -5190,6 +5191,26 @@ const Checker = struct {
         const b_read = if (b == self.t().static_id) self.t().string_view_id else b;
         if (a_read != b_read) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
         return self.t().bool_id;
+    }
+
+    /// An integer literal beside a slot in a comparison, `s == 0` or
+    /// `s < 3`: it is a `Slot[n]` there, as where one is expected, and
+    /// checked to fit below `n` (`checkExpr`, as a literal beside a number
+    /// is in `checkNumericComparison`). True when one side was such a
+    /// literal.
+    fn literalBesideSlot(self: *Checker, l: Sexp, r: Sexp, a: TypeId, b: TypeId) Error!bool {
+        const lit = self.t().int_literal_id;
+        const slot_l = self.ctx.types.get(sema.unwrapViews(self.ctx, a)) == .slot;
+        const slot_r = self.ctx.types.get(sema.unwrapViews(self.ctx, b)) == .slot;
+        if (a == lit and slot_r) {
+            try self.checkExpr(l, sema.unwrapViews(self.ctx, b));
+            return true;
+        }
+        if (b == lit and slot_l) {
+            try self.checkExpr(r, sema.unwrapViews(self.ctx, a));
+            return true;
+        }
+        return false;
     }
 
     /// Whether `a` and `b`, an ordering's operands, are one type that
@@ -5733,6 +5754,7 @@ const Checker = struct {
     /// `l == r` once both operands are typed, `a` and `b`.
     fn finishEquality(self: *Checker, e: Sexp, l: Sexp, r: Sexp, a: TypeId, b: TypeId, op: []const u8) Error!TypeId {
         if (try self.byteBeside(.{ l, r }, a, b) != null) return self.t().bool_id;
+        if (try self.literalBesideSlot(l, r, a, b)) return self.t().bool_id;
         // Lane by lane: a mask. (An optional vector has no `==`, which
         // the optional's comparison reports.)
         const optional = self.ctx.types.get(a) == .optional or self.ctx.types.get(b) == .optional;
