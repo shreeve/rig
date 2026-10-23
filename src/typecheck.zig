@@ -13001,10 +13001,11 @@ const Checker = struct {
         } else {
             const ty = try self.argType(f);
             if (self.isPoison(ty)) return try self.skipCall(args);
-            if (self.fnArg(f, ty) == .view or self.fnArg(f, ty) == .binding) {
+            const kind = self.fnArg(f, ty);
+            if (kind == .view or kind == .binding) {
                 return try self.badCall(args, f, "`{s}` drops what a panic in `{s}` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `{s}(|| ...)`", .{ shown, self.sourceText(f), shown });
             }
-            if (self.fnArg(f, ty) != .named or self.ctx.types.get(ty).function.params.len != 0) {
+            if (kind != .named or self.ctx.types.get(ty).function.params.len != 0) {
                 return try self.badCall(args, f, "`{s}` runs a function that takes nothing, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ shown, self.sourceText(f), try self.tyName(ty) });
             }
             fn_ty = ty;
@@ -13034,9 +13035,25 @@ const Checker = struct {
         try self.noteCallee(call);
         try self.checkArgs(args, call, .{ .names = names }, shown, pos, .{ .declared = call.params });
         if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
-            if (sema.captureModeOf(cap) != .cap_write) continue;
-            const n = self.text(sema.captureNameNode(cap).?);
-            try self.errAt(sema.captureNameNode(cap).?, "`{s}` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!{s}|` lends `{s}` so: give the change back as its value, or keep it in a `*Cell`, captured `|+{s}|`", .{ shown, n, n, n });
+            const name_node = sema.captureNameNode(cap) orelse continue;
+            const n = self.text(name_node);
+            if (sema.captureModeOf(cap) == .cap_write) {
+                try self.errAt(name_node, "`{s}` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!{s}|` lends `{s}` so: give the change back as its value, or keep it in a `*Cell`, captured `|+{s}|`", .{ shown, n, n, n });
+                return self.t().invalid_id;
+            }
+            // What a capture holds may write for it: a write view, or a
+            // closure, whose type does not show what it writes.
+            const id = self.ctx.symbolOf(name_node) orelse continue;
+            const sym = self.ctx.symbols.items[id];
+            if (self.isPoison(sym.ty)) continue;
+            const inner = sema.unwrapViews(self.ctx, sym.ty);
+            const why: []const u8 = if (sema.holdsWriteView(self.ctx, sym.ty))
+                "holds a write view"
+            else if (self.ctx.types.get(inner) == .callable or (self.ctx.types.get(inner) == .function and sym.flags.closure))
+                "is a closure, which may write what it captures, and its type does not show it"
+            else
+                continue;
+            try self.errAt(name_node, "`{s}` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `{s}` {s}: give the change back as its value, or keep it in a `*Cell`", .{ shown, n, why });
             return self.t().invalid_id;
         };
         if (self.current_call) |c| try if (supervise) self.ctx.recordSuperviseCall(c) else self.ctx.recordIsolateCall(c);
@@ -13065,8 +13082,8 @@ const Checker = struct {
     /// function gives. An arm is `(!ch).on_recv(f)`, whose `f` takes the
     /// value received as `T?`, none once the channel is closed and empty,
     /// or `(!ch).on_send(<v, f)`, whose `f` takes nothing; every `f` gives
-    /// the same type, and is a closure written in the arm or a function's
-    /// name. A fallible waiting point. Null when `module_sym` is not
+    /// the same type, and is a closure written in the arm, a closure's
+    /// view, or a function's name. A fallible waiting point. Null when `module_sym` is not
     /// `std.task`, or `name` not `select`.
     fn taskSelect(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
@@ -13120,8 +13137,8 @@ const Checker = struct {
     }
 
     /// What the first arm's function `f`, given `params`, gives: a closure
-    /// written there, checked quietly first as one that cannot fail, or a
-    /// function's name.
+    /// written there, checked quietly first as one that cannot fail, a
+    /// closure's view, or a function's name.
     fn armResult(self: *Checker, f: Sexp, params: []const TypeId) Error!?TypeId {
         if (f.isKind(.lambda)) {
             const quiet = blk: {
@@ -13143,7 +13160,7 @@ const Checker = struct {
         const ty = try self.argType(f);
         if (self.isPoison(ty)) return null;
         // The arm runs on the task that selects, so a closure's view
-        // goes to it as to any call; a binding is lent by `checkArgs`.
+        // goes to it as to any call; `checkArgs` refuses a binding.
         switch (self.fnArg(f, ty)) {
             .named, .binding => return self.ctx.types.get(ty).function.returns,
             .view => if (sema.callableFnTy(self.ctx, ty)) |c| return self.ctx.types.get(c).function.returns else if (sema.ownedClosureFn(self.ctx, ty)) |c| return c.returns,

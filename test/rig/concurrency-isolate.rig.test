@@ -127,6 +127,38 @@ fail "isolate closure binding", "`task.isolate` drops what a panic in `f` half-c
   b = task.isolate(f) catch 0
   print(b)
 
+fail "isolate captures a closure that writes", "7:20: `task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `g` is a closure, which may write what it captures, and its type does not show it: give the change back as its value, or keep it in a `*Cell`", errors: 1
+  # A closure written in the call that captures another closure could
+  # write through it what a panic would leave half made.
+  use std.task
+
+  v: List[String] = List()
+  g = |!v| !v.push(String("half"))
+  r = task.isolate(|?g| g()) catch print("no")
+  print(v.len)
+
+fail "supervise captures a closure that writes", "`task.supervise` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `g` is a closure", errors: 1
+  use std.task
+
+  n = 0
+  g = |!n| n += 1
+  task.supervise(|?g| g(), restarts: 1) catch |e| print(e)
+  print(n)
+
+fail "isolate captures a write view", "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `v` holds a write view", errors: 1
+  use std.task
+
+  sub fill(v: !List[String])
+    r = task.isolate(|<v|
+      !v.push(String("half"))
+      v.len
+    ) catch 0
+    print(r)
+
+  v: List[String] = List()
+  fill(!v)
+  print(v.len)
+
 fail "isolate gives a task", "a task started in `task.isolate` ends in it, and `|| sq(2)&` gives a `Task[Int]`, which holds one: wait for it inside", errors: 1
   use std.task
 
