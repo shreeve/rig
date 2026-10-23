@@ -4424,40 +4424,53 @@ symbols); a query that decides more than that belongs in `Pending`.
 
 ### Errors that carry fields
 
-A program in which some error set's member declares fields
-(`sema.declaresErrorFields`) carries them past the Zig error code.
+An error's representation follows its type alone; nothing reads a
+program-wide mode.
 
-- **The value.** A Zig error is a code; an error of a set with fields,
-  or `error` in such a program, is a `rig.ErrorValue`: the code and
-  `ErrData`, bytes sized and aligned for the largest member's fields.
-  Emit writes each member's fields as a struct, `Set__member`, and the
-  program's glue, `__rig_errors.zig`, which the root names as
-  `__rig_error_glue`: the size, alignment, and the drop, clone, `==`,
-  and print of each member's fields, chosen by code.
-- **The slot.** A function that may fail with fields takes `__out:
-  rig.ErrSlot` last (a closure `__out_N`, by its depth, since Zig lets
-  no parameter shadow another), as do function values' types, closures,
-  zig-extern wrappers, and test functions. A failing `return` of a
+- **The value.** An error of a set without fields is its Zig code. An
+  error of a set with fields, a union of one, or `error` is a
+  `rig.ErrorValue`: the code and `ErrData`, bytes sized and aligned for
+  the program's largest member's fields, none where no set has fields.
+  Emit writes each member's fields as a struct, `Set__member`, and, when
+  some set has fields, the program's glue, `__rig_errors.zig`, which the
+  root names as `__rig_error_glue`: the size, alignment, and the drop,
+  clone, `==`, hash, and print of each member's fields, chosen by code.
+  `error` is owning (`holdsIn` gives it glue) and clones.
+- **Coercion.** A value of a set without fields that goes where an
+  `ErrorValue` goes (`error`, a set or union with fields, through any
+  optionals) is recorded where the checker adapts it
+  (`recordCodeWidening`, in `recordAdapted`), and emit makes it
+  `rig.ErrorValue.of(code, .{})` at `emitValue`, inside any optional it
+  is lifted into.
+- **The slot.** Every function whose failure is an `ErrorValue` (`T!`, or
+  a set with fields) takes `__out: rig.ErrSlot` last (a closure
+  `__out_N`, by its depth), as do function values' types, closures,
+  zig-extern wrappers, and test functions. `ErrSlot` is a pointer to
+  `ErrData`, and an empty struct with no bits where `ErrData` has none
+  (`rig.failSlot` makes one of a slot's bytes). A failing `return` of a
   member writes its fields there (`rig.failWith`), and one of an error
   it holds moves them (`rig.failValue`); sema records which leaves fail
   (`isFailingLeaf`). `e!` hands its call the function's own slot; a
   `catch` holds a slot of its statement's in a block around the call
   (`openCatchSlot`), and its binding takes code and bytes as an owned
   `ErrorValue` (`ErrorValue.taken`), while a nameless catch drops them
-  (`rig.dropFailure`).
+  (`rig.dropFailure`). A call is given the slot only when its callee
+  takes one (`calleeTakesSlot`): a Rig function, a function value, an
+  actor's method, or a type parameter's method; a built-in type's method
+  and the runtime's own calls take none.
 - **Matching.** A `switch` on an error value is on its code; an arm's
   fields are read through its bytes (`fieldsAs`), in place, or taken by
   `match <e`, and a member's set comes from its pattern
   (`variantPatternSet`), which may name it, `E.name(...)`.
-- **Leaving.** `main` runs inside `__rig_fail_main`, which holds the
-  slot, shows a failure with its fields after the body's drops and
-  defers, then runs `rig.finish`; `rig.runTests` gives each test a slot.
-  A runtime wait has an `Into` variant taking the waiter's slot
+- **Leaving.** A failing `main` runs inside `__rig_fail_main`, which
+  holds the slot, shows a failure with its fields after the body's drops
+  and defers, then runs `rig.finish`; `rig.runTests` gives each test a
+  slot. A runtime wait has an `Into` variant taking the waiter's slot
   (`waitInto`, `wait_allInto`, `waitTasksInto`, `parMapInto`,
-  `isolateInto`, `superviseInto`), and a spawned call that takes a slot
-  is given its task's (`takesSlot`).
-- **Batches.** A batch has one root, so `rig batch build` leaves such a
-  program out, to be built alone with its glue.
+  `isolateInto`, `superviseInto`, `reduceInto`), and a spawned call that
+  takes a slot is given its task's (`takesSlot`).
+- **Batches.** A batch has one root, so `rig batch build` leaves out a
+  program with glue, to be built alone.
 
 ### Symbols
 
