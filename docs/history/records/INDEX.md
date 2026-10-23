@@ -65,6 +65,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [design-r3-1.md](2026-10/errors-r3/design-r3-1.md): R3, fields on error members: calls, catch, match, print, main
 - [review-1.md](2026-10/errors-r3/review-1.md): Review: errors that carry fields (PR #555), and how each finding was fixed
 - [design-check-u.md](2026-10/errors-r3/design-check-u.md): the design check that dissolved R3's `error_data` switch (Option U)
+- [u-timing.md](2026-10/errors-r3/u-timing.md): Option U against main: std.json on both machines, the instruction guard, and the micro-benchmarks
 
 ### 2026-10/errors-r2/
 
