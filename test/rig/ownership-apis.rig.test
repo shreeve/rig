@@ -1,0 +1,95 @@
+# ownership: a call through a bound is checked with the API method's
+# `from` and `keeps`, which every implementation is within, never the
+# instance's (docs/design/apis.md, Stage 3).
+
+fail "apis a result from the API's parameter", "16:4: cannot drop `t` while it is lent"
+  # `pick`'s result views `other`, as the API declares, so `t` stays lent
+  # while `v` lives.
+
+  api Store
+    fun pick(?@, other: ?String) -> ?String from other
+
+  obj Shelf: Store
+    n: Int
+
+    fun pick(?@, other: ?String) -> ?String from other
+      other
+
+  fun take[T: Store](s: ?T) -> Int
+    t = String("ab")
+    v = s.pick(?t)
+    <t
+    v.len
+
+  print(take(?Shelf(n: 1)))
+
+fail "apis the API's keeps, not the instance's", "16:3: cannot let this call store a view of `t` in `w`: `w` outlives it", "22:3: cannot let this call store a view of `t` in `y`, a `T`: a generic body tracks no view a value of a type parameter holds"
+  # `Log.watch` keeps nothing, but a call through `Watcher` keeps what the
+  # API says it may: `s`, stored in self, the caller's value or one this
+  # body owns.
+
+  api Watcher
+    sub watch(!@, s: ?String) keeps s
+
+  obj Log: Watcher
+    n: Int
+
+    sub watch(!@, s: ?String)
+      @n += s.len
+
+  fun run[T: Watcher](w: !T) -> Int
+    t = String("ab")
+    !w.watch(?t)
+    t.len
+
+  sub mine[T: Watcher](x: T)
+    new y = <x
+    t = String("ab")
+    !y.watch(?t)
+
+  l = Log(n: 0)
+  print(run(!l))
+
+fail "apis the API's keeps, said by the caller", "`pass_on` stores a view of `s` in `w`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`"
+  # A view the caller passed in, stored through the API, is kept by the
+  # signature that passes it on.
+
+  api Watcher
+    sub watch(!@, s: ?String) keeps s
+
+  sub pass_on[T: Watcher](w: !T, s: ?String)
+    !w.watch(s)
+
+  print(1)
+
+test "apis a bounded owner moves through a witness", '''
+  closed a
+  closed c
+  kept b
+'''
+  # A `T` that owns a resource moves into a method that consumes self, and
+  # one never moved is dropped where its body ends.
+
+  api Closer
+    sub close(<@)
+
+    fun name(?@) -> ?String from @
+
+  obj File: Closer
+    title: String
+
+    sub close(<@)
+      print("closed", @title)
+
+    fun name(?@) -> ?String from @
+      ?@title
+
+  sub shut[T: Closer](x: T)
+    <x.close()
+
+  sub keep[T: Closer](x: T, also: T)
+    <also.close()
+    print("kept", x.name())
+
+  shut(File(title: String("a")))
+  keep(File(title: String("b")), File(title: String("c")))

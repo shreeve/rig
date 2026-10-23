@@ -62,6 +62,37 @@ EOF2
 "$RIG" check --facts=sema ct.rig >ct.txt 2>err.txt || fail "rig check --facts=sema ct.rig: $(cat err.txt)"
 expect_has "$(cat ct.txt)" 'ct_calls ct_call 8:9-8:19 "squares[3]" [0, 1, 4]' "a compile-time call's value"
 
+# How each method call dispatches: `direct` to the method the value's
+# type declares, `static` through a witness, the bound's own or a
+# conformance's (docs/design/apis.md, Stage 3).
+cat >dispatch.rig <<'EOF2'
+api Shape
+  fun area(?@) -> Float
+
+  fun twice(?@) -> Float
+    2.0 * @area()
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+fun total[T: Shape](x: ?T) -> Float
+  x.area()
+
+sub main()
+  s = Square(side: 2.0)
+  print(s.area(), s.twice(), total(?s))
+EOF2
+"$RIG" check --facts=sema dispatch.rig >dispatch.txt 2>err.txt || fail "rig check --facts=sema dispatch.rig: $(cat err.txt)"
+out=$(cat dispatch.txt)
+expect_has "$out" 'dispatch call 5:11-5:18 "@area()" static W_Self_Shape Shape.area' "a default's call through its own bound"
+expect_has "$out" 'dispatch call 14:3-14:11 "x.area()" static W_T_Shape Shape.area' "a call through a bound"
+expect_has "$out" 'dispatch call 18:9-18:17 "s.area()" direct' "a type's own method"
+expect_has "$out" 'dispatch call 18:19-18:28 "s.twice()" static __rig_impl_Shape_Square(Square) Shape.twice' "a default on a provider"
+expect_has "$out" 'generic_calls call 18:30-18:39 "total(?s)" Square witness __rig_impl_Shape_Square(Square)' "a witness among a call's compile-time arguments"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)

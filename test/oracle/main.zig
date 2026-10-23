@@ -444,7 +444,9 @@ fn collectDecl(a: std.mem.Allocator, m: *const modules.Module, decl: Sexp, owner
                 .@"test" => lower.leafText(ir.Test.name(decl), m.source),
                 else => lower.leafText(ir.get(decl, .name), m.source),
             };
-            var name = if (owner != .nil)
+            var name = if (owner.isKind(.api_add))
+                try std.mem.concat(a, u8, &.{ "add_", lib.diag.textOf(m.source, m.sema.span(ir.ApiAdd.type(owner))), ".", base })
+            else if (owner != .nil)
                 try std.mem.concat(a, u8, &.{ lower.leafText(ir.get(owner, .name), m.source), ".", base })
             else if (kind == .@"test")
                 try std.mem.concat(a, u8, &.{ "test", base })
@@ -465,6 +467,10 @@ fn collectDecl(a: std.mem.Allocator, m: *const modules.Module, decl: Sexp, owner
         },
         .@"struct", .@"enum" => for (ir.rest(decl, .members)) |member| try collectDecl(a, m, member, decl, false, units, names),
         .generic_struct, .generic_enum => for (ir.rest(decl, .members)) |member| try collectDecl(a, m, member, decl, true, units, names),
+        // An API's defaults are generic over `Self`; an addition's methods
+        // over its own type parameters, when it has them.
+        .api => for (ir.rest(decl, .members)) |member| try collectDecl(a, m, member, decl, true, units, names),
+        .api_add => for (ir.rest(decl, .members)) |member| try collectDecl(a, m, member, decl, ir.ApiAdd.type(decl).isKind(.generic_inst), units, names),
         else => {},
     }
 }

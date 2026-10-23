@@ -221,3 +221,14 @@ fixing.
   needs `_ =`, or say in SPEC why a call's result may go unused.
 - **`rig check --tasks`,** to list each local task and what pins it, was
   decided by the concurrency panel and is not built.
+- **A generic body with no bound can hand its caller a view it never
+  declared.** `stash[T](out: !List[T], w: T, s: ?String)` calls
+  `!x.watch(s)` on an owned `x = <w`, whose instance's method keeps `s`,
+  then `!out.push(<x)`; the caller drops `s`'s value and reads freed
+  memory. The call through a bound is rejected for this (APIs Stage 3,
+  phase 2, decision 8); the call on a `T` with no bound is not. Case
+  "type param method stores through an owned value" (`known: true`).
+- **The shorthand `c.area()` does not see through a box,** though the
+  type's own methods do (`b.area()` on a `^Square`); `b.describe()`, a
+  default, says "no method `describe` on type `Square`". Decide whether
+  a box takes the shorthand, and name the API in the message either way.

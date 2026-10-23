@@ -79,9 +79,13 @@ After the consolidation round, in the owner's order:
    ([docs/history/records/2026-10/apis-stage3/build-plan.md](docs/history/records/2026-10/apis-stage3/build-plan.md)).
    Phase 1, declarations and conformance, is built: `api`, headers and
    `add` checked but not lowered, coherence, and bounds by a program's
-   own APIs at each instance, with a call through such a bound rejected
+   own APIs at each instance
    ([phase1-notes.md](docs/history/records/2026-10/apis-stage3/phase1-notes.md)).
-   Phase 2, calls through a bound and their witnesses, is next.
+   Phase 2, calls through a bound and their witnesses, is built:
+   defaults, additions, `Shape.area(c)`, error sets and the
+   API's clauses through a bound
+   ([phase2-notes.md](docs/history/records/2026-10/apis-stage3/phase2-notes.md)).
+   Phase 3 (method-level bounds, additions to `Slot[n]`) is next.
 2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved

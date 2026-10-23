@@ -710,6 +710,23 @@ pub inline fn viewOf(comptime T: type, p: *const T) ReadView(T) {
     return if (comptime ReadView(T) == *const T) p else p.*;
 }
 
+/// The self a witness's method `f` takes (docs/design/apis.md, Stage 3,
+/// "Lowering"), from `recv`, the address of the receiver or of a view of
+/// it: the pointer, or the value where `f` takes self by value, as Zig's
+/// method call would give it (`W.area(rig.selfArg(W.area, &x))`). A read
+/// view held as a copy (`ReadView`) is given as it is.
+pub inline fn selfArg(comptime f: anytype, recv: anytype) @typeInfo(@TypeOf(f)).@"fn".param_types[0].? {
+    const P = @TypeOf(recv);
+    if (comptime @typeInfo(P) != .pointer or P == []const u8) return recv;
+    const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
+    const ptr: Ptr = if (Ptr == P) recv else recv.*;
+    const Self = @typeInfo(@TypeOf(f)).@"fn".param_types[0].?;
+    // A `String`'s read view is its bytes, the one text view.
+    if (comptime Self == []const u8 and @typeInfo(Ptr) == .pointer and @typeInfo(Ptr).pointer.size == .one and @typeInfo(Ptr).pointer.child == String) return ptr.bytes();
+    if (comptime @typeInfo(Self) == .pointer) return ptr;
+    return ptr.*;
+}
+
 /// Whether type `T` gives `api` (`__rig_own_eq`, `__rig_own_hash`,
 /// `__rig_own_order`, `__rig_own_print`) a meaning of its own: its header
 /// names the API and it declares the method (docs/design/apis.md).

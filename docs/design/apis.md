@@ -456,18 +456,17 @@ and `rig.compare` call a type's own methods where it declares them.
 
 ## Stage 3: APIs of your own *(in part)*
 
-*Built:* `api` with required methods and defaults' signatures, APIs
-that build on others and on the built-in ones, headers and `add`
-(checked, not yet lowered), how an implementation must match its API,
-coherence, `pub` on a method that meets a `pub` API, and a bound by an
-API checked at each instance ([SPEC, APIs](../../SPEC.md#apis)).
-*Not yet:* a call through a bound, which is rejected until it is
-lowered, the bodies of defaults and of additions' methods, which are
-resolved and checked with it, `Shape.area(c)`, witnesses, associated
-types and `Iter`, method-level bounds, and the rule that public
-generics state their bounds.
+*Built:* `api` with required methods and defaults, APIs that build on
+others and on the built-in ones, headers and `add`, how an
+implementation must match its API, coherence, `pub` on a method that
+meets a `pub` API, a bound by an API checked at each instance, a call
+through a bound with the API's clauses and set, `Shape.area(c)` and the
+shorthand `c.area()`, and witnesses, a generic type's among its
+arguments ([SPEC, APIs](../../SPEC.md#apis)). *Not yet:* associated
+types and `Iter`, method-level bounds, additions to `Slot[n]` and
+`Table[T, n]`, and the rule that public generics state their bounds.
 
-```text
+```rig
 pub api Shape
   fun area(?@) -> Float
 
@@ -485,6 +484,14 @@ fun total[T: Shape](xs: ?List[T]) -> Float
   for x in xs
     t += x.area()
   t
+
+sub main()
+  squares = List([Square(side: 1.0), Square(side: 2.0)])
+  print(total(?squares), squares[0].describe())
+```
+
+```output
+5.0 a shape of area 1.0
 ```
 
 **An API** is a named set of methods: a member without a body is
@@ -579,20 +586,40 @@ to fail with any error, so a body that declares a set of its own,
 must fail with any error. A bound says how the method fails, in the
 signature, once, and a frame whose set holds the API's passes it on:
 
-```text
+```rig
 error Bad
   empty
+
+error Disk
+  full
 
 error Load = Bad | Disk
 
 api Sized
   fun size(?@) -> Int!Bad
 
-fun total[T: Sized](xs: []T) -> Int!Load
+obj Word: Sized
+  s: String
+
+  fun size(?@) -> Int!Bad
+    return Bad.empty if @s.len == 0
+    @s.len
+
+fun total[T: Sized](xs: ?List[T]) -> Int!Load
   n = 0
   for x in xs
     n += x.size()!                    # `Bad` passes into `Load`, which holds it
   n
+
+sub main()
+  words: List[Word] = List()
+  !words.push(Word(s: String("ab")))
+  !words.push(Word(s: String("abc")))
+  print(total(?words) catch -1)
+```
+
+```output
+5
 ```
 
 **Bounds.** In the brackets, always, since brackets mean compile time:
@@ -677,18 +704,28 @@ members name the type's methods and the defaults it takes:
 on an API of a program's own adds one compile-time parameter, its
 witness, after the type it bounds, to the declaration that states it: a
 function, a method's own brackets, or a generic type. The call is
-written `W_T_Shape.area(x)`. A type provides an API once in the
-program, so its witness follows from it: `Bag[Square]` is one Zig type,
-with the witness among its arguments, and its `drop`, its own `print`,
-and a Stage 1 call that reaches its methods find the witness in the
-type. Instances stay one per type, so code size does not change. A
-default is a generic function of the API's module, checked once as
-`describe[Self: Shape](?@)`. The built-in bounds take no witness: the
+written `W_T_Shape.area(rig.selfArg(W_T_Shape.area, &x))`, where
+`rig.selfArg` gives self as the method takes it, a pointer or a copy. A
+type provides an API once in the program, so its witness follows from
+it: `Bag[Square]` is one Zig type, `Bag(Square,
+__rig_impl_Shape_Square)`, with the witness among its arguments, and
+its methods, its own `print` among them, find the witness in the type.
+Instances stay one per type, so code size does not change. A default
+is a generic function of the API's module, checked once as
+`describe[Self: Shape](?@)`, and written in a namespace of the API's
+defaults, `__rig_defaults_Shape(Self, W_Self_Shape)`, which each witness
+that takes a default names. An addition's methods are written in its
+witness, the first of them when it gives several APIs. Two names that
+would be the same in one module, of two APIs named `Shape` or of the
+types `geo_Circle` and `geo.Circle`, are told apart by their place
+(`__rig_impl_Shape_Square_1`, `W_T_Shape_1`). A type parameter with no
+bound has no witness to give, so it meets no bound by an API. The built-in bounds take no witness: the
 runtime's `rig.eql`, `rig.hash`, and `rig.compare` still serve them.
 Every method call records how it dispatches, `direct`, `static`, or
-`dynamic`, and `rig check --facts=sema` prints it; in `rig emit` the
-three read `x.area()`, `W.area(x)`, and `s.vt.area(s.ptr)`. A call on a
-`T` with no bound, which Zig resolves at each instance, is `direct`.
+`dynamic` (Stage 4's), and `rig check --facts=sema` prints it; in `rig
+emit` the three read `x.area()`, `W.area(x)`, and `s.vt.area(s.ptr)`. A
+call on a `T` with no bound, which Zig resolves at each instance, is
+`direct`.
 
 **The errors a reader meets first**, each with its fix:
 
@@ -704,6 +741,193 @@ three read `x.area()`, `W.area(x)`, and `s.vt.area(s.ptr)`. A call on a
 `Pool` provides `Job`, which builds on `Moves`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
 `add` names a type, and `?Square` is a view: write `add Square: Shape`
 `filter` is `pub`, so it states what its body does with `E`: it copies an `E`; write `[E: Copy]`
+```
+
+Those built so far, each from a program that meets it:
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+fun total(x: Shape) -> Float
+  1.0
+
+sub main()
+  print(1)
+```
+
+```error
+`Shape` is an API, not a type: write `[T: Shape]` for one type known when compiling, or `?{Shape}` for any type at run time
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+add Int: Shape
+  fun area(?@) -> Float
+    Float(@)
+
+fun total[T](x: ?T) -> Float
+  x.area()
+
+sub main()
+  n = 3
+  print(total(?n))
+```
+
+```error
+`T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Label
+  text: Int
+
+fun total[T: Shape](x: ?T) -> Float
+  x.area()
+
+sub main()
+  print(total(?Label(text: 1)))
+```
+
+```error
+`total[Label]` cannot use `T = Label`: `total` needs `T: Shape`, and `Label` does not provide `Shape`; declare `obj Label: Shape`
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+sub main()
+  print(Square(side: 1.0).side)
+```
+
+```error
+`Square` provides `Shape` but has no method `area`; declare `fun area(?@) -> Float` in `Square`
+```
+
+```rig reject
+api Source
+  fun next(!@) -> Int?
+
+obj Counter: Source
+  n: Int
+
+  fun next(?@) -> Int?
+    @n
+
+sub main()
+  print(Counter(n: 1).n)
+```
+
+```error
+`Counter.next` takes `self` as `?@`, but `Source` declares `next(!@)`; a method meets its API with the same self: write `fun next(!@) -> Int?`
+```
+
+```rig reject
+api Watcher
+  sub watch(!@, s: ?String)
+
+obj Log: Watcher
+  seen: ?String
+
+  sub watch(!@, s: ?String) keeps s
+    @seen = s
+
+sub main()
+  print(1)
+```
+
+```error
+`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+api Region
+  fun area(?@) -> Float
+
+add Int: Shape + Region
+  fun area(?@) -> Float
+    Float(@)
+
+sub main()
+  c = 3
+  print(c.area())
+```
+
+```error
+`c.area()` could call `Shape.area` or `Region.area`, which both apply to `Int`; name the API: `Shape.area(c)`
+```
+
+```rig reject
+error Bad
+  empty
+
+error Io
+  lost
+
+api Sized
+  fun size(?@) -> Int!Bad
+
+obj Disk: Sized
+  n: Int
+
+  fun size(?@) -> Int!Io
+    @n
+
+sub main()
+  print(1)
+```
+
+```error
+`Disk.size` fails with `Int!Io`, but `Sized` declares `size(?@) -> Int!Bad`; a method meets its API with the same set: write `-> Int!Bad`
+```
+
+```rig reject
+api Job: Moves
+  fun cost(?@) -> Int
+
+obj Pool: Job
+  cache: *Cell[List[Int]]
+
+  fun cost(?@) -> Int
+    1
+
+sub main()
+  print(1)
+```
+
+```error
+`Pool` provides `Job`, which builds on `Moves`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Square
+  side: Float
+
+add ?Square: Shape
+  fun area(?@) -> Float
+    1.0
+
+sub main()
+  print(1)
+```
+
+```error
+`add` names a type, and `?Square` is a view: write `add Square: Shape`
 ```
 
 ## Stage 4: API objects *(planned)*

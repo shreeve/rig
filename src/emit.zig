@@ -366,6 +366,9 @@ pub const Emitter = struct {
     /// inside another does not shadow the outer one's.
     closure_depth: u32 = 0,
     nominal: ?Nominal = null,
+    /// The module's additions (`add Int: Shape`), whose methods its
+    /// witnesses hold (`emitWitnesses`).
+    additions: std.ArrayList(Sexp) = .empty,
     /// The next expression sits in a delimited position (after `=`,
     /// between commas, inside parentheses) and needs no outer parentheses.
     bare: bool = false,
@@ -533,12 +536,17 @@ pub const Emitter = struct {
         try scan.walk(sexp);
         for (decls) |decl| {
             // A compile-time function runs in the checker; its calls are
-            // the values it computed. An API and an addition declare
-            // methods no call reaches yet (docs/design/apis.md, Stage 3).
-            if (rig.isCtFun(decl) or rig.isApiDecl(decl)) continue;
+            // the values it computed. An addition's methods are written in
+            // its witnesses (`emitWitnesses`).
+            if (rig.isCtFun(decl)) continue;
+            if (rig.unpub(decl).isKind(.api_add)) {
+                try self.additions.append(self.allocator, rig.unpub(decl));
+                continue;
+            }
             try self.w.writeAll("\n");
             try self.emitDecl(decl);
         }
+        try self.emitWitnesses();
         try self.emitCtHidden();
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
@@ -581,6 +589,7 @@ pub const Emitter = struct {
             .error_join => try self.emitErrorJoin(sexp),
             .generic_struct => try self.emitGenericStruct(sexp),
             .generic_enum => try self.emitGenericEnum(sexp),
+            .api => try self.emitApi(sexp),
             .type => try self.emitTypeAlias(sexp),
             .@"test" => try self.emitTest(sexp),
             .set => try self.emitConst(sexp),
@@ -1067,10 +1076,285 @@ pub const Emitter = struct {
             try self.w.print("comptime {f}: ", .{ident(facts.syntax.paramName(self.source, p).?)});
             if (p == .src) {
                 try self.w.writeAll("type");
+                if (self.facts.symbolOf(p)) |sym| try self.writeWitnessParams(sym);
             } else try self.emitTypeTy(try self.declType(ir.get(p, .name)));
         }
         try self.w.writeAll(") type {\n");
+        for (params.items()) |p| if (p == .src) if (self.facts.symbolOf(p)) |sym| try self.discardWitnesses(sym, 1);
         try self.w.print("    return {s} {{\n        const __rig_Self = @This();\n\n", .{container});
+    }
+
+    // -------------------------------------------------------------------------
+    // APIs of a program's own: witnesses (docs/design/apis.md, Stage 3)
+    // -------------------------------------------------------------------------
+
+    /// `api Shape`: its defaults, each a method generic over `Self`, the
+    /// type that provides the API, and that type's witness, through which
+    /// the body calls the API's methods: `pub fn __rig_defaults_Shape(comptime
+    /// Self: type, comptime W_Self_Shape: type) type`. A witness names each
+    /// default it takes (`emitWitness`). An API without defaults writes
+    /// nothing.
+    fn emitApi(self: *Emitter, node: Sexp) Error!void {
+        const name_node = ir.Api.name(node);
+        const id = self.facts.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved API");
+        const sym = self.facts.symbols.items[id];
+        var defaults: std.ArrayList(Sexp) = .empty;
+        for (ir.rest(node, .members)) |m| {
+            if ((m.isKind(.fun) or m.isKind(.sub)) and ir.get(m, .body) != .nil) try defaults.append(self.arena.allocator(), m);
+        }
+        if (defaults.items.len == 0) return;
+        const self_param = (sym.type_params orelse return self.unsupported(name_node, "an API without its `Self`"))[0];
+        const prev = try self.enterNominal(name_node, false, defaults.items);
+        defer self.nominal = prev;
+        try self.w.print("pub fn __rig_defaults_{s}(comptime Self: type", .{sym.name});
+        try self.writeWitnessParams(self_param);
+        try self.w.writeAll(") type {\n");
+        try self.discardWitnesses(self_param, 1);
+        try self.w.writeAll("    return struct {\n");
+        try self.emitMethods(defaults.items, 2);
+        try self.w.writeAll("    };\n}\n");
+    }
+
+    /// The witness parameters of type parameter `sym`, after its own: one
+    /// for each API of a program's own its bounds name, `, comptime
+    /// W_T_Shape: type`.
+    fn writeWitnessParams(self: *Emitter, sym: SymbolId) Error!void {
+        for (self.facts.symbols.items[sym].user_apis) |api| try self.w.print(", comptime {s}: type", .{try self.witnessParamName(sym, api)});
+    }
+
+    /// Type parameter `sym`'s witnesses, which a body may not call
+    /// through: read by their type, so Zig finds each used and none
+    /// discarded in vain.
+    fn discardWitnesses(self: *Emitter, sym: SymbolId, depth: u32) Error!void {
+        for (self.facts.symbols.items[sym].user_apis) |api| {
+            try self.writeIndent(depth);
+            try self.w.print("_ = @TypeOf({s});\n", .{try self.witnessParamName(sym, api)});
+        }
+    }
+
+    /// `W_T_Shape`: type parameter `sym`'s witness for `api`.
+    fn witnessParamName(self: *Emitter, sym: SymbolId, api: facts.ApiRef) Error![]const u8 {
+        if (self.facts.apiSymbol(api) == null) return self.unsupported(.nil, "a bound by an unknown API");
+        return self.facts.witnessParamName(self.arena.allocator(), sym, api);
+    }
+
+    /// A witness as a compile-time argument: a type parameter's own,
+    /// `W_T_Shape`, or a conformance's namespace, `__rig_impl_Shape_Square`,
+    /// another module's through that module, and a generic type's applied
+    /// to its arguments and their witnesses.
+    fn writeWitness(self: *Emitter, w: facts.Witness) Error!void {
+        switch (w) {
+            .param => |p| try self.w.writeAll(try self.witnessParamName(p.sym, p.api)),
+            .conformance => |c| {
+                if (c.module_id != self.facts.moduleId()) {
+                    try self.writeModuleRef(c.module_id);
+                    try self.w.writeAll(".");
+                }
+                try self.w.writeAll(try self.facts.witnessName(self.arena.allocator(), c.module_id, c.index));
+                const found = self.facts.conformanceAt(c.module_id, c.index) orelse return self.unsupported(.nil, "a witness of an unknown conformance");
+                if (found.facts.types.get(found.conf.ty) != .parameterized_nominal) return;
+                const args = switch (self.facts.types.get(c.ty)) {
+                    .parameterized_nominal => |pn| pn.args,
+                    else => return self.unsupported(.nil, "a generic type's witness for another type"),
+                };
+                try self.w.writeAll("(");
+                try self.writeArgsWithWitnesses(args, c.args);
+                try self.w.writeAll(")");
+            },
+        }
+    }
+
+    /// Type arguments `args`, each followed by the witnesses `ws` give it.
+    fn writeArgsWithWitnesses(self: *Emitter, args: []const TypeId, ws: []const facts.ArgWitness) Error!void {
+        for (args, 0..) |arg, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            try self.emitTypeTy(arg);
+            for (ws) |aw| if (aw.arg == i) {
+                try self.w.writeAll(", ");
+                try self.writeWitness(aw.witness);
+            };
+        }
+    }
+
+    /// The arguments of `ty`, an instance of generic type `sym`: with the
+    /// witnesses its bounds take, so one Rig type is one Zig type.
+    fn emitTypeArgs(self: *Emitter, ty: TypeId, sym: SymbolId, args: []const TypeId) Error!void {
+        if (!self.facts.takesWitnesses(sym)) return self.emitTypeList(args);
+        const ws = self.facts.typeWitnesses(ty) orelse return self.unsupported(.nil, "an instance of a generic type whose witnesses no check recorded");
+        try self.writeArgsWithWitnesses(args, ws);
+    }
+
+    /// The witness of each conformance this module writes: a namespace
+    /// declared beside it, `__rig_impl_Shape_Square`, whose members name
+    /// the type's methods, an addition's methods, and the defaults it
+    /// takes. A generic type's, or an addition's under a bound, is a
+    /// function of the type's arguments and the witnesses its bounds ask
+    /// for.
+    fn emitWitnesses(self: *Emitter) Error!void {
+        for (self.facts.conformances(), 0..) |conf, i| try self.emitWitness(conf, @intCast(i));
+    }
+
+    fn emitWitness(self: *Emitter, conf: facts.Conformance, index: u32) Error!void {
+        const a = self.arena.allocator();
+        const name = try self.facts.witnessName(a, self.facts.moduleId(), index);
+        const params = self.witnessTypeParams(conf);
+        try self.w.writeAll("\n");
+        if (params.len > 0) {
+            try self.w.print("pub fn {s}(", .{name});
+            for (params, 0..) |p, i| {
+                if (i > 0) try self.w.writeAll(", ");
+                try self.w.print("comptime {f}: ", .{ident(self.facts.symbols.items[p].name)});
+                // A compile-time value parameter (`Grid[n: Int, T]`) has
+                // its type; a type parameter is a type, with its witnesses.
+                if (self.facts.symbols.items[p].kind != .generic_param) {
+                    try self.emitTypeTy(self.symType(p) orelse return self.unsupported(.nil, "an untyped compile-time parameter"));
+                    continue;
+                }
+                try self.w.writeAll("type");
+                try self.writeWitnessParams(p);
+            }
+            try self.w.writeAll(") type {\n");
+            for (params) |p| {
+                try self.w.print("    _ = @TypeOf({f});\n", .{ident(self.facts.symbols.items[p].name)});
+                try self.discardWitnesses(p, 1);
+            }
+            try self.w.writeAll("    return struct {\n");
+        } else try self.w.print("pub const {s} = struct {{\n", .{name});
+        const depth: u32 = if (params.len > 0) 2 else 1;
+        // The first conformance an addition writes holds its methods, those
+        // only the addition's other APIs declare included; the others name
+        // them there.
+        const first: u32 = for (self.facts.conformances(), 0..) |c, i| {
+            if (c.kind == .add and c.pos == conf.pos) break @intCast(i);
+        } else index;
+        if (conf.kind == .add and first == index) {
+            var written: std.ArrayList([]const u8) = .empty;
+            for (self.facts.conformances()) |c| {
+                if (c.kind != .add or c.pos != conf.pos) continue;
+                for (c.members) |m| {
+                    if (m.from != .added) continue;
+                    const seen = for (written.items) |n| {
+                        if (std.mem.eql(u8, n, m.name)) break true;
+                    } else false;
+                    if (seen) continue;
+                    try written.append(a, m.name);
+                    const node = self.additionMethod(conf.pos, m.name) orelse return self.unsupported(.nil, "an addition's method without its declaration");
+                    try self.emitAddedMethod(conf, node, depth);
+                }
+            }
+        }
+        for (conf.members) |m| switch (m.from) {
+            .own => {
+                try self.writeIndent(depth);
+                try self.w.print("pub const {f} = ", .{ident(m.name)});
+                try self.emitTypeTy(conf.ty);
+                try self.w.print(".{f};\n", .{ident(m.name)});
+            },
+            .added => if (first != index) {
+                try self.writeIndent(depth);
+                try self.w.print("pub const {f} = {s}", .{ ident(m.name), try self.facts.witnessName(a, self.facts.moduleId(), first) });
+                if (params.len > 0) {
+                    try self.w.writeAll("(");
+                    for (params, 0..) |p, i| {
+                        if (i > 0) try self.w.writeAll(", ");
+                        try self.w.print("{f}", .{ident(self.facts.symbols.items[p].name)});
+                        for (self.facts.symbols.items[p].user_apis) |api| try self.w.print(", {s}", .{try self.witnessParamName(p, api)});
+                    }
+                    try self.w.writeAll(")");
+                }
+                try self.w.print(".{f};\n", .{ident(m.name)});
+            },
+            .default => |api| {
+                try self.writeIndent(depth);
+                try self.w.print("pub const {f} = ", .{ident(m.name)});
+                if (api.module_id != self.facts.moduleId()) {
+                    try self.writeModuleRef(api.module_id);
+                    try self.w.writeAll(".");
+                }
+                const api_sym = self.facts.apiSymbol(api) orelse return self.unsupported(.nil, "a default of an unknown API");
+                try self.w.print("__rig_defaults_{s}(", .{api_sym.name});
+                try self.emitTypeTy(conf.ty);
+                try self.w.print(", @This()).{f};\n", .{ident(m.name)});
+            },
+        };
+        try self.w.writeAll(if (params.len > 0) "    };\n}\n" else "};\n");
+    }
+
+    /// The type parameters a witness takes: a generic type's, for a
+    /// header, or an addition's own.
+    fn witnessTypeParams(self: *Emitter, conf: facts.Conformance) []const SymbolId {
+        if (conf.kind == .add) return conf.params;
+        return switch (self.facts.types.get(conf.ty)) {
+            .parameterized_nominal => |pn| self.facts.symbols.items[pn.sym].type_params orelse &.{},
+            else => &.{},
+        };
+    }
+
+    /// The method `name` of the addition written at `pos`.
+    fn additionMethod(self: *Emitter, pos: u32, name: []const u8) ?Sexp {
+        for (self.additions.items) |add| {
+            if (self.facts.startOf(add) != pos) continue;
+            for (ir.rest(add, .members)) |m| {
+                if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
+                if (std.mem.eql(u8, self.srcText(ir.get(m, .name)), name)) return m;
+            }
+        }
+        return null;
+    }
+
+    /// An addition's method, in its witness: a method of the type it adds
+    /// the API to, `@` a view of that type.
+    fn emitAddedMethod(self: *Emitter, conf: facts.Conformance, node: Sexp, depth: u32) Error!void {
+        const prev = self.nominal;
+        defer self.nominal = prev;
+        self.nominal = .{ .name = "@This()", .sym = conf.self_sym, .members = &.{node}, .methods = &.{try self.fmt("{f}", .{ident(self.srcText(ir.get(node, .name)))})} };
+        try self.emitMethods(&.{node}, depth);
+    }
+
+    /// `x.area()` or `Shape.area(x)` through a witness: `W.area(self,
+    /// args)`, self given as the method takes it (`emitWitnessSelf`).
+    fn emitWitnessCall(self: *Emitter, call: Sexp, s: facts.Dispatch.Static) Error!void {
+        try self.writeWitnessMethod(s);
+        try self.w.writeAll("(");
+        if (!s.receiver_arg) {
+            const recv = self.receiverOf(call) orelse return self.unsupported(call, "a call through a witness without its receiver");
+            try self.emitWitnessSelf(call, recv, s);
+            // `emitArgs` writes the separators between what it writes.
+            const slots = self.facts.callSlotsOf(call);
+            const runtime = if (slots) |sl| sl.len else ir.Call.args(call).len;
+            const slot = if (self.fail_slot) |f| sameNode(f.call, call) else false;
+            if (runtime > 0 or ctArgCount(self.facts.genericCallOf(call), self.facts.ctArgsOf(call)) > 0 or slot) try self.w.writeAll(", ");
+            try self.emitArgs(call);
+        } else try self.emitArgs(call);
+        try self.w.writeAll(")");
+    }
+
+    /// `W.area`: the method of the witness a call reaches.
+    fn writeWitnessMethod(self: *Emitter, s: facts.Dispatch.Static) Error!void {
+        try self.writeWitness(s.witness);
+        try self.w.print(".{f}", .{ident(s.method)});
+    }
+
+    /// The self of a call through a witness: a value it consumes, moved
+    /// in; otherwise the receiver's address, which `rig.selfArg` gives as
+    /// the method takes self, a pointer or a copy.
+    fn emitWitnessSelf(self: *Emitter, call: Sexp, recv: Sexp, s: facts.Dispatch.Static) Error!void {
+        if (s.self_mode == .value) return self.emitExpr(recv);
+        try self.w.writeAll("rig.selfArg(");
+        try self.writeWitnessMethod(s);
+        try self.w.writeAll(", ");
+        _ = call;
+        try self.emitReceiverAddress(recv, s);
+        try self.w.writeAll(")");
+    }
+
+    /// The address of the receiver of a call through a witness, or of the
+    /// view it is, as a task's method receiver is given (`emitTask`).
+    fn emitReceiverAddress(self: *Emitter, recv: Sexp, s: facts.Dispatch.Static) Error!void {
+        const saved = self.read_place;
+        defer self.read_place = saved;
+        self.read_place = s.self_mode != .write;
+        try self.emitAddressOf(lentPlace(recv));
     }
 
     /// The fields and variants of the nominal type being emitted, in
@@ -1349,7 +1633,10 @@ pub const Emitter = struct {
         const local = self.localOf(facts.syntax.paramNameNode(p).?).?;
         const name = if (local.param_name.len > 0) local.param_name else local.zig_name;
         try self.w.print("{s}{s}: ", .{ if (ct) "comptime " else "", name });
-        if (self.facts.symbols.items[local.sym].kind == .generic_param) return self.w.writeAll("type");
+        if (self.facts.symbols.items[local.sym].kind == .generic_param) {
+            try self.w.writeAll("type");
+            return self.writeWitnessParams(local.sym);
+        }
         try self.emitTypeTy(local.ty.?);
     }
 
@@ -1397,6 +1684,10 @@ pub const Emitter = struct {
             const local = self.localOf(facts.syntax.paramNameNode(p) orelse continue) orelse continue;
             try self.bindParamLocal(local);
         };
+        for (tparams.items()) |p| {
+            const local = self.localOf(facts.syntax.paramNameNode(p) orelse continue) orelse continue;
+            try self.discardWitnesses(local.sym, self.indent);
+        }
         // A closure its callee calls at most once marks its environment
         // called: the call owns what the environment held, which the
         // environment drops only when it was never called.
@@ -7694,6 +7985,28 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
+        // Through a witness: its method, given self as it takes it.
+        if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.receiver_arg and d.static.self_mode != .value) {
+            const recv = self.receiverOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its receiver");
+            try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnWitnessLocal(" else ".spawnWitness(");
+            try self.writeWitnessMethod(d.static);
+            try self.w.writeAll(", ");
+            try self.emitReceiverAddress(recv, d.static);
+            try self.w.writeAll(", .{ ");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(" })");
+        };
+        if (self.facts.dispatchOf(sexp)) |d| if (d == .static) {
+            try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else ".spawn(");
+            try self.writeWitnessMethod(d.static);
+            try self.w.writeAll(", .{ ");
+            if (!d.static.receiver_arg) {
+                try self.emitExpr(self.receiverOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its receiver"));
+                if (ir.Call.args(sexp).len > 0) try self.w.writeAll(", ");
+            }
+            try self.emitArgs(sexp);
+            return self.w.writeAll(" })");
+        };
         if (self.receiverOf(sexp)) |recv| {
             const saved = self.read_place;
             defer self.read_place = saved;
@@ -7739,6 +8052,8 @@ pub const Emitter = struct {
         }
         if (callee.isKind(.enum_lit)) return self.emitVariantLit(sexp);
         if (callee.isKind(.lambda)) return self.emitInlineInvoke(sexp);
+        // A call through an API reaches its method through the witness.
+        if (self.facts.dispatchOf(sexp)) |d| if (d == .static) return self.emitWitnessCall(sexp, d.static);
 
         if (callee == .src) {
             if (self.localOf(callee)) |local| if (local.stack_closure) {
@@ -8161,6 +8476,9 @@ pub const Emitter = struct {
     /// the runtime makes itself, take none.
     fn calleeTakesSlot(self: *Emitter, call: Sexp) bool {
         if (self.facts.callTargetOf(call)) |t| if (t == .function) return true;
+        // A witness's method is a Rig method, or a default or an
+        // addition's.
+        if (self.facts.dispatchOf(call)) |d| if (d == .static) return true;
         // An actor's method, which the actor calls with the arguments.
         if (self.facts.isActorCall(call)) return true;
         const callee = self.facts.calleeOf(call);
@@ -8376,6 +8694,10 @@ pub const Emitter = struct {
                 self.error_codes = true;
             };
             if (ty != facts.type_invalid) try self.emitTypeTy(ty) else try self.emitComptime(given[j]);
+            if (generic) |g| for (g.witnesses) |aw| if (aw.arg == j) {
+                try self.w.writeAll(", ");
+                try self.writeWitness(aw.witness);
+            };
         }
         return n;
     }
@@ -9394,7 +9716,7 @@ pub const Emitter = struct {
                 }
                 try self.writeNominalName(pn.sym);
                 try self.w.writeAll("(");
-                try self.emitTypeList(pn.args);
+                try self.emitTypeArgs(ty, pn.sym, pn.args);
                 try self.w.writeAll(")");
             },
             // A generic function's type parameter is its `comptime`
@@ -9960,10 +10282,8 @@ const Scan = struct {
                 try s.put(&s.e.usage.used, s.e.facts.symbols.items[cap].origin);
                 return;
             },
-            // A compile-time function is not emitted, nor is an API or an
-            // addition, which no call reaches yet.
+            // A compile-time function is not emitted.
             .fun => if (rig.isCtFun(sexp)) return,
-            .api, .api_add => return,
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);
