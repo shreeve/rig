@@ -36,3 +36,20 @@ Instructions retired are within 0.01% of main's in every case. The
 prototype's 4.0% (safe) cost on `fnval` is gone: the slot has no bits
 where no set has fields. `recreach` changes sign between runs, which is
 code placement.
+
+## Trig (pup, by Trig)
+
+Trig main 37f9e6b in release, built with each Rig from the same sources;
+pup core 3 with its sibling idle, `--singleThreaded`, 10 interleaved
+rounds, the fastest task-clock, cycles and instructions (user, P-core).
+The light gate (`tools/light`) was green, 24 of 24.
+
+| project | main → U | cycles | instructions |
+|---|---|---|---|
+| ts-pattern | 1,295.4 → 1,291.8 ms (0.3% faster) | 5.591 → 5.565 G | 14.280 → 14.281 G |
+| zod3 | 256.5 → 257.3 ms (0.3% slower) | 1.085 → 1.089 G | 2.908 → 2.907 G |
+| tiny-invariant | 111.9 → 113.0 ms (1.0% slower) | 0.462 → 0.466 G | 1.458 → 1.475 G (1.2% more) |
+
+Faults and RSS (341 MB on ts-pattern) are the same. tiny-invariant's
+cost is about 1% more instructions where its error paths (lib.dom's
+parse and check) run hottest.
