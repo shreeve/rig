@@ -13,6 +13,13 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A wait fails with the set its work declares:** `task.all`,
+  `par.map`, `par.each`, `task.isolate`, and `task.supervise` failed with
+  any error even where what they wait for declares a set, so a function
+  declaring that set could not pass their failure on with `!`. Each now
+  fails with that set when it holds `task.Stop` (for `task.all`, the one
+  of its tasks' sets that holds the others), as a set of tasks does.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed

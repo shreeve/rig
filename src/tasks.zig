@@ -386,16 +386,32 @@ const Wakeup = struct {
 fn TaskValues(comptime Tup: type) type {
     const tasks = @typeInfo(Tup).@"struct".field_types;
     var values: [tasks.len]type = undefined;
+    var results: [tasks.len]type = undefined;
     var fallible = false;
-    for (tasks, &values) |Tk, *V| {
-        const R = Tk.__rig_args[0];
-        if (@typeInfo(R) == .error_union) {
+    for (tasks, &values, &results) |Tk, *V, *R| {
+        R.* = Tk.__rig_args[0];
+        if (@typeInfo(R.*) == .error_union) {
             fallible = true;
-            V.* = @typeInfo(R).error_union.payload;
-        } else V.* = R;
+            V.* = @typeInfo(R.*).error_union.payload;
+        } else V.* = R.*;
     }
     const Values = @Tuple(&values);
-    return if (fallible) anyerror!Values else Values;
+    return if (fallible) WaitErr(&results)!Values else Values;
+}
+
+/// The error set a wait for work whose results are `Rs` fails with:
+/// their sets and `task.Stop`, which every wait may fail with; `anyerror`
+/// when one of them is a `T!`. The checker gives the wait the one of the
+/// sets that holds the rest and `task.Stop` (`Checker.waitSet`), so the
+/// two agree.
+fn WaitErr(comptime Rs: []const type) type {
+    var E: type = Stop;
+    for (Rs) |R| if (@typeInfo(R) == .error_union) {
+        const S = @typeInfo(R).error_union.error_set;
+        if (S == anyerror) return anyerror;
+        E = E || S;
+    };
+    return E;
 }
 
 /// `task.all(a, b, ...)`: wait for tasks of any
@@ -484,7 +500,8 @@ fn waitTasksWith(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
         ts[i].release();
     };
     inline for (0..n) |i| if (got[i]) dropElement(@TypeOf(values[i]), &values[i]);
-    return err;
+    // Every failure is a task's, or the wait's own `task.Stop`.
+    return @errorCast(err);
 }
 
 /// The monotonic clock, in nanoseconds: the time a deadline counts on,
@@ -823,13 +840,13 @@ fn ReturnOf(comptime F: type) type {
 /// when `f` can.
 fn MapOut(comptime F: type) type {
     const R = ReturnOf(F);
-    if (@typeInfo(R) == .error_union) return anyerror!List(@typeInfo(R).error_union.payload);
+    if (@typeInfo(R) == .error_union) return WaitErr(&.{R})!List(@typeInfo(R).error_union.payload);
     return List(R);
 }
 
 /// What `par.each` gives for `f`: nothing, failing when `f` can.
 fn EachOut(comptime F: type) type {
-    return if (@typeInfo(ReturnOf(F)) == .error_union) anyerror!void else void;
+    return if (@typeInfo(ReturnOf(F)) == .error_union) WaitErr(&.{ReturnOf(F)})!void else void;
 }
 
 /// What the tasks of a `par.map` or `par.each` share: where the next
@@ -965,7 +982,8 @@ pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut
         parRunInto(true, xs.len, limit, &ctx, Ctx.chunk, out_slot) catch |err| {
             if (comptime marked) for (ctx.out, ctx.made) |*v, m| if (m) dropElement(V, v);
             rt.drop(&out);
-            return err;
+            // Every failure is `f`'s, or a wait's `task.Stop` in it.
+            return @errorCast(err);
         };
     } else parRunInto(false, xs.len, limit, &ctx, Ctx.chunk, out_slot);
     out.len = xs.len;
@@ -993,7 +1011,9 @@ pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@T
         }
     };
     const ctx: Ctx = .{ .xs = xs, .f = f };
-    return parRunInto(fallible, xs.len, limit, &ctx, Ctx.chunk, out);
+    if (comptime !fallible) return parRunInto(false, xs.len, limit, &ctx, Ctx.chunk, out);
+    // Every failure is `f`'s, or a wait's `task.Stop` in it.
+    return parRunInto(true, xs.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
 }
 
 /// A boundary a panic stops at: a call of `task.isolate(f)`, which runs
@@ -1135,7 +1155,7 @@ pub fn superviseInto(f: anytype, restarts: Int, per: Int, out: anytype) IsolateO
 /// with `task.Stop.panicked`.
 fn IsolateOut(comptime F: type) type {
     const R = ReturnOf(F);
-    return anyerror!(if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R);
+    return WaitErr(&.{R})!(if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R);
 }
 
 /// `task.Stop.panicked`, what `isolate` fails with when a panic reached
