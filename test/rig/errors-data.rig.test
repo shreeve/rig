@@ -1082,6 +1082,148 @@ fail "a caught error used after it moved", "use of `err` after move"
       0
     print(n)
 
+test "the error a statement holds leaves by every way there is", '''
+  -1 8
+  -1
+  2 0
+  shown Q.q(msg: "q")
+  0
+  an E E.bad(msg: "bad 1")
+  not an E
+  Q.q(msg: "q")
+  1 0
+'''
+  # The reference checker's own verdicts on CORE's "A failure moves its
+  # error": a fallible call's statement holds a hidden `E?`, which `!`
+  # empties into the caller's failure, `catch |e|` into the handler's
+  # own binding, and a nameless catch drops; the binding is moved on,
+  # cloned, lent, and narrowed (`x: E =>`, a view under `match e`, the
+  # error itself under `match <e`).
+  # oracle: passed accept
+  # oracle: returned accept
+  # oracle: kept accept
+  # oracle: dropped accept
+  # oracle: viewed accept
+  # oracle: narrowed accept
+
+  error E
+    bad(msg: String)
+    plain
+
+  error Q
+    q(msg: String)
+
+  error EQ = E | Q
+
+  fun f(n: Int) -> Int!EQ
+    return E.bad(msg: String("bad ", n)) if n == 1
+    return Q.q(msg: String("q")) if n == 2
+    return E.plain if n == 3
+    n
+
+  fun show(e: ?EQ) -> Int
+    print("shown", e)
+    0
+
+  fun passed(n: Int) -> Int!EQ
+    s = String("held")
+    v = f(n)! + s.len
+    v
+
+  fun returned(n: Int) -> Int!EQ
+    v = f(n) catch |e|
+      return e
+    v
+
+  fun kept(n: Int) -> List[EQ]
+    seen: List[EQ] = List()
+    _ = f(n) catch |e|
+      !seen.push(+e)
+      !seen.push(<e)
+      0
+    seen
+
+  fun dropped(n: Int) -> Int
+    a = f(n) catch 0
+    b = f(n) catch |_| 0
+    c = f(n) catch |e| 0
+    a + b + c
+
+  fun viewed(n: Int) -> Int
+    f(n) catch |e| show(?e)
+
+  fun narrowed(n: Int) -> List[E]
+    keep: List[E] = List()
+    _ = f(n) catch |e|
+      match e
+        x: E => print("an E", x)
+        _ => print("not an E")
+      match <e
+        x: E => !keep.push(<x)
+        y: Q => print(y)
+      0
+    keep
+
+  sub main()
+    print(passed(1) catch -1, passed(4) catch -1)
+    print(returned(2) catch -1)
+    print(kept(1).len, dropped(3))
+    print(viewed(2))
+    print(narrowed(1).len, narrowed(2).len)
+
+fail "a narrowed error under `match e` is a view of the caught one", "cannot move out of `x`: it is a view of `e`", "`x` owns an `E`, which can't be copied by `=`: write `<x` to move it, `+x` to clone it, or `?x` to view it", "`x` does not live long enough", errors: 3
+  # `x: E =>` binds the error it narrows as a payload is bound (CORE §2,
+  # "A failure moves its error": matched as an enum of its sets): under
+  # `match e` a view of `e`, which is not moved out of, not copied when
+  # it owns, and not kept past the handler, where `e` drops.
+  # oracle: moved reject C7
+  # oracle: copied reject C2
+  # oracle: escaped reject C5
+
+  error E
+    bad(msg: String)
+
+  error Q
+    q
+
+  error EQ = E | Q
+
+  fun f(n: Int) -> Int!EQ
+    return E.bad(msg: String("x")) if n == 1
+    n
+
+  sub moved()
+    keep: List[E] = List()
+    _ = f(1) catch |e|
+      match e
+        x: E => !keep.push(<x)
+        _ => print("other")
+      0
+    print(keep.len)
+
+  sub copied()
+    _ = f(1) catch |e|
+      match e
+        x: E
+          y = x
+          print(y)
+        _ => print("other")
+      0
+
+  sub escaped()
+    keep: List[?E] = List()
+    _ = f(1) catch |e|
+      match e
+        x: E => !keep.push(?x)
+        _ => print("other")
+      0
+    print(keep.len)
+
+  sub main()
+    moved()
+    copied()
+    escaped()
+
 code "a program with no fields passes no slot", "fn f(__rig_in_n: i64) E!i64 {"
   error E
     bad

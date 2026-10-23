@@ -6209,6 +6209,13 @@ pub const Checker = struct {
                         if (b == .src and !std.mem.eql(u8, self.text(b), "_")) _ = try self.bindPayload(b, info, scrut_value);
                     }
                 }
+                // `g: E =>` binds the whole error, narrowed to a set, as a
+                // payload is bound: a view of the matched value under
+                // `match e`, the value itself under `match <e`.
+                if (pattern.isKind(.set_pattern)) {
+                    const b = ir.SetPattern.name(pattern);
+                    if (b == .src and !std.mem.eql(u8, self.text(b), "_")) _ = try self.bindPayload(b, info, scrut_value);
+                }
                 return false;
             },
             else => return false,

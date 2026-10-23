@@ -4987,6 +4987,24 @@ store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
 
+A failure moves its error (CORE §2). Each `!` or `catch` gives its
+fallible call a hidden var of the call's set in the statement's
+temporaries, made before the call's own, so it drops after them: the
+`E?` the call is lent to write, which adds no loan, since an error holds
+none. On the failure edge the callee has stored the error there; `e!`
+moves it out and returns it before the scopes it leaves end, `catch
+|err|` moves it into the handler's binding, in a region that ends with
+the handler, and a `catch` that binds no name, or `_`, drops it before
+the handler runs. Using `err` after `<err` or `return err` is C1, a bare
+copy of an owning one C2, and a view of it that outlives the handler
+C5. A `g: E =>` arm binds the subject as a variant pattern binds a
+payload (an error matched as an enum of its sets): a view of `err` under
+`match err`, the error itself under `match <err`. In `kinds.Reach` a
+union of sets holds each of its sets, and `error` may own what any view
+points into, but views nothing itself. A wait on a task (`>t!`, `>t
+catch`) is a call of the task's `wait`, which the oracle does not
+model, nor what a task holds of its call's loans, so it abstains there.
+
 Several results are hidden statement temporaries, one a result, each
 carrying the loans its own type could view (Core s7, per result); each
 target takes its own by the `x = e` rule, left to right, so a pending
