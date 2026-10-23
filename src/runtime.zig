@@ -1190,6 +1190,8 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     // Text orders by its bytes, a String, a view of one, or a `?String`;
     // a view held as a pointer orders as the value it reaches.
     if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
+    // A frozen value's handles order by what they reach, as they compare.
+    if (comptime isCountedPointer(A) and isCountedPointer(B)) return compare(a.value, op, b.value);
     if (comptime isValuePointer(A)) return compare(a.*, op, b);
     if (comptime isValuePointer(B)) return compare(a, op, b.*);
     const T = @TypeOf(a, b);
@@ -1215,6 +1217,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
     };
     if (comptime isStringView(T)) return std.mem.order(u8, a, b);
     if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
+    if (comptime isCountedPointer(T)) return order(a.value, b.value);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return if (some(b) == null) .eq else .lt;
         const y = some(b) orelse return .gt;

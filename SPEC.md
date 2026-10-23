@@ -11623,7 +11623,7 @@ element, or type argument by value.
   whichever task drops it, drops the value.
 - The handles move and share: they go to any task, by value, through a
   view, in a field, or through a channel, and never make a task local.
-- They compare and hash as the value they reach, so `*Frozen[String]`
+- They compare, order, and hash as the value they reach, so `*Frozen[String]`
   keys a Map; no other handle has `==`.
 - A frozen value has no weak handle, and is never frozen again: `+f`
   shares it.

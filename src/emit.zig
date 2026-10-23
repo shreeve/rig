@@ -9724,7 +9724,8 @@ pub const Emitter = struct {
                 } else {
                     values = true;
                 },
-                .type_var, .nominal, .imported_nominal, .parameterized_nominal, .bool, .string, .optional, .array => values = true,
+                // A frozen value's handle orders by what it reaches.
+                .type_var, .nominal, .imported_nominal, .parameterized_nominal, .bool, .string, .optional, .array, .shared => values = true,
                 else => {},
             }
         }

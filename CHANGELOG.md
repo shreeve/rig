@@ -13,6 +13,10 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A frozen value's handles order by what they reach,** as they compare
+  and hash: `*Frozen[T]` provides `Ord` when `T` does, so `<`, a `T: Ord`
+  bound, and `sort` take it.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed
