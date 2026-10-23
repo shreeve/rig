@@ -2166,9 +2166,11 @@ pub const TypeResolver = struct {
         const sym_name = self.ctx.symbols.items[sym_id].name;
         if (generic) try self.resolveValueParams(ir.get(node, .tparams));
         // Only a plain enum, without payloads or generic parameters, has
-        // values, which its variants' fields record (`Field.value`).
+        // values, which its variants' fields record (`Field.value`). A
+        // variant written with an empty payload, `a()`, is bare, as
+        // `sema.isPlainEnum` counts it.
         const plain_enum = head == .@"enum" and for (members) |m| {
-            if (m.isKind(.variant)) break false;
+            if (m.isKind(.variant) and ir.Variant.params(m).items().len > 0) break false;
         } else true;
         var values: EnumValues = .{};
         defer values.seen.deinit(self.ctx.allocator);
@@ -2239,7 +2241,18 @@ pub const TypeResolver = struct {
                                 try self.ctx.errAt(m, "only enums declare payload variants", .{});
                                 continue;
                             }
-                            try self.noneMember(head, identAt(self.ctx.source, ir.Variant.name(m)).?, ir.Variant.name(m).src.pos);
+                            const name_node = ir.Variant.name(m);
+                            const vname = identAt(self.ctx.source, name_node).?;
+                            try self.noneMember(head, vname, name_node.src.pos);
+                            if (plain_enum) {
+                                // `a()` of a plain enum: a bare variant, with
+                                // its value.
+                                if (try self.reservedEnumMember(plain_enum, .variant, vname, name_node.src.pos)) continue;
+                                if (try self.checkDuplicateMember(&names, vname, name_node.src.pos, sym_name)) continue;
+                                const value = try self.enumValue(&values, name_node, null);
+                                try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = name_node.src.pos, .is_variant = true, .value = value });
+                                continue;
+                            }
                             try self.resolveVariant(m, &fields, &names, sym_name);
                         },
                         .fun, .sub => {

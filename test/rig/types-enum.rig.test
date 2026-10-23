@@ -944,3 +944,13 @@ test "enum view payload match", '''
   match wrapSlice(?v[..])
     .some(s) => print(s[1])
     .nothing => pass
+
+test "enum a variant with an empty payload is bare", "true 1 true 0 1"
+  # `a()` declares a bare variant, as `a` does: the enum is plain, so its
+  # variants compare, order, and convert to their values alike.
+  enum E
+    a()
+    b
+
+  x = E.b
+  print(x > E.a, Int(x), x == E.b, Int(E.a), $variants(E).len - 1)

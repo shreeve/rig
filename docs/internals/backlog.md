@@ -160,14 +160,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `vs(!v, 0).with(0, 7)`, where `vs` returns `!Simd[I8, 4]`, is
   accepted, and emit writes `rig.withLane(rig.rt(vs(&v, 0)), ...)`
   with no dereference, which Zig rejects.
-- One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
-  emit's scalar test read) counts a variant with an empty payload,
-  `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,
-  `$variants`, and ordering read) does not, as resolve gives it no
-  value. So for `enum E` of `a()` and `b`, `x == E.b` is accepted and
-  `x > E.b` and `Int(x)` are rejected as "variants with payloads".
-  Decide once whether `a()` is bare (or reject the empty payload), and
-  have both read it.
 - Objects nested by value, deep or wide, fail inside Zig, not in Rig
   (rule 2), found by #270.
   - Probe: a chain `obj A0` .. `obj A99`, each with nine `Int` fields and

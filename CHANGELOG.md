@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A variant written with an empty payload, `a()`, is bare:** an enum
+  of `a()` and `b` compared with `==` but was refused `<` and `Int(x)` as
+  having payloads. One classifier now says an enum is plain
+  (`sema.isPlainEnum`), and the values `Int(x)`, ordering, and
+  `$variants` read go through it.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed

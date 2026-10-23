@@ -6004,8 +6004,9 @@ pub fn namedNoneOf(ctx: *const SemContext, ty: TypeId) ?NamedNone {
     };
 }
 
-/// An enum all of whose variants are bare (no payloads): comparable
-/// with `==`.
+/// An enum all of whose variants are bare (no payloads, or an empty one,
+/// `a()`): comparable with `==`, and its values integers (`enumValues`),
+/// which resolve gives it. The one classifier of a plain enum.
 pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
     const decl = nominalDecl(ctx, ty) orelse return false;
     const fields = decl.symbol().fields orelse return false;
@@ -6022,17 +6023,14 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
 /// values are integers (`Int(x)`): true for a plain enum, false for one
 /// with payload variants or type parameters; null for any other type.
 pub fn enumValues(ctx: *const SemContext, ty: TypeId) ?bool {
-    const decl = nominalDecl(ctx, unwrapViews(ctx, ty)) orelse return null;
+    const base = unwrapViews(ctx, ty);
+    const decl = nominalDecl(ctx, base) orelse return null;
     const sym = decl.symbol();
     if (sym.flags.error_set) return null;
     const fields = sym.fields orelse return null;
-    var any = false;
-    for (fields) |f| {
-        if (!f.is_variant) continue;
-        any = true;
-        if (f.value == null) return false;
-    }
-    return if (any) true else null;
+    // A generic enum's variants have no values, bare or not.
+    for (fields) |f| if (f.is_variant) return sym.kind != .generic_type and isPlainEnum(ctx, base);
+    return null;
 }
 
 /// A declared enum whose values are integers (`enumValues`), itself and
