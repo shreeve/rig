@@ -182,8 +182,18 @@ Debug builds, `taskset -c 12-19`, 8 busy loops beside 4 test streams:
 | Build | Tests | Runs | Failures |
 |---|---|---|---|
 | main + the new test | the new test | 200 | 71 |
-| the fix | the new test and main's two slot tests | 1,000 | 0 |
+| the first version (`clearWaiting`) | the new test and main's two slot tests | 1,000 | 0 |
+| `takeWaiting` | both new tests and main's two slot tests | 11,000 | 2 |
+| `takeWaiting`, a check after the deadline | the same | 4,000 | 0 |
 | main | main's two slot tests ("runs beside it", "recursive check") | 2,000 | 0 |
+
+The two misses with `takeWaiting` came in the first 1,000 runs and not
+in the next 10,000 (7,000 of them with probes that print only at a
+miss); both were in the sleep test, whose maker gives up after 50 ms.
+A test thread that loses the CPU past that deadline before it makes a
+check counts a miss the scheduler did not make, so both tests now make
+one check more after their deadline, which still fails when the notice
+was lost.
 
 Unloaded, main fails the new test every run (10 of 10 on pup, 5 of 5
 on the Mac); load spreads the timing, so 36% of loaded runs miss.
@@ -192,7 +202,8 @@ on the Mac); load spreads the timing, so 36% of loaded runs miss.
 
 - `swarm test/rig.rip all` on the Mac: 9,818 jobs, green.
 - pup `zig build test`: debug 252 of 253 pass (1 skipped), safe 251
-  (2 skipped), fast 249 (4 skipped), none failed.
+  (2 skipped), fast 249 (4 skipped), none failed. With `takeWaiting`:
+  253, 252, and 250 of 254, none failed.
 - formal/: comments only; `lake build` not run.
 - Trig's light gate: not run, by the round's instruction; due before
   the merge, as for any runtime change.
@@ -265,3 +276,8 @@ Beyond 2% slower: spawn and http's p99. Both are noise here:
   and 848; requests 177,045 and 178,956 at best.
 
 Nothing measured on either machine moves by more than its noise.
+
+With `takeWaiting`, which changes `sleep` and `claimWaiting` and not
+`wake`, bench/tasks on pup again (cores 8,9, 30 runs, interleaved with
+the same main): spawn 61.8 to 62.9 ns (1.8% slower), chain, fanout,
+yield and hog within 0.3%, memory equal.
