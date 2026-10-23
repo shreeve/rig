@@ -1,0 +1,70 @@
+From a3738bab95029f7055c99f56727fbcf1f3cb9fc2 Mon Sep 17 00:00:00 2001
+From: Steve Shreeve <steve.shreeve@gmail.com>
+Date: Fri, 23 Oct 2026 13:53:35 -0600
+Subject: [PATCH] map: a Map or Set builds its table past 16 entries, the first
+ sized as it would have grown
+
+A Map or Set of up to 16 entries compares its keys, or their stored
+hashes, in turn, rather than building a table past 8: no slower than a
+probe there, and without the table's two blocks. The first table, built
+past 16, has the slots a Map that built one past 8 would hold by then,
+so a larger Map keeps the table it had.
+---
+ std/__rig_builtin.rig | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/std/__rig_builtin.rig b/std/__rig_builtin.rig
+index 479e64c2b..1c544f93b 100644
+--- a/std/__rig_builtin.rig
++++ b/std/__rig_builtin.rig
+@@ -33,8 +33,10 @@ obj Entry[K, V]
+   value: V?
+ 
+ # Entries a Map or Set holds before it builds a table: up to
+-# this many, a lookup compares the stored hashes of the entries in turn.
+-SMALL = 8
++# this many, a lookup compares the stored hashes of the entries in turn,
++# or the keys where it keeps none, which is no slower than a probe and
++# saves the table's two blocks.
++SMALL = 16
+ 
+ # The slots that find the entries of a Map or Set once it
+ # holds more than `SMALL` of them: none before that.
+@@ -364,7 +366,7 @@ pub obj Map[K: Hash, V]
+     rarely
+     !@compact() if @len < @es.len
+     return if @table.tags.len == 0 and @len < SMALL
+-    !@rebuild(table_size(@len + 1, @table.tags.len))
++    !@rebuild(first_table_size(@len + 1) if @table.tags.len == 0 else table_size(@len + 1, @table.tags.len))
+ 
+   # Drop the entries taken, keeping the rest in order: every entry is
+   # popped off the end and the live ones pushed back the other way, so
+@@ -543,7 +545,7 @@ pub obj Set[K: Hash]
+     rarely
+     !@compact() if @len < @ks.len
+     return if @table.tags.len == 0 and @len < SMALL
+-    !@rebuild(table_size(@len + 1, @table.tags.len))
++    !@rebuild(first_table_size(@len + 1) if @table.tags.len == 0 else table_size(@len + 1, @table.tags.len))
+ 
+   # Drop the keys taken, keeping the rest in order, in the Lists the Set
+   # has, so they keep the room they have: every key is popped off the
+@@ -598,6 +600,16 @@ pub obj Set[K: Hash]
+ 
+ # The slots a table needs to hold `want` entries at most two fifths
+ # full: a power of two, at least 16, and at least `now`.
++# The slots of the first table a Map or Set builds as it grows past
++# `SMALL` entries to `want`: the fewest, from 16, that `want` fills at
++# most four fifths of, where `insert` would grow a table. A Map that grew
++# one from fewer entries holds that many slots by then too.
++fun first_table_size(want: Int) -> Int
++  n = 16
++  while want * 5 > n * 4
++    n *= 2
++  n
++
+ fun table_size(want: Int, now: Int) -> Int
+   n = 16 if now < 16 else now
+   while want * 5 > n * 2
+-- 
+2.55.0
+
