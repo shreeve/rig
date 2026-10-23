@@ -684,3 +684,38 @@ test "sets an optional union with fields compares with a member", "true false fa
   o: L? = A.w
   n: L? = none
   print(o == .w, o != .w, n == .w, n != .w)
+
+test "sets an optional union with fields tests a member of a set without", "true false false"
+  error A
+    x(n: Int)
+    w
+
+  error B
+    y
+
+  error L = A | B
+
+  o: L? = B.y
+  n: L? = none
+  print(o == .y, o != .y, n == .y)
+
+fail "sets a member with fields compared is named with its set", "6:12: an error member compared is named with its set: write `A.x(n: 3)`", errors: 1
+  error A
+    x(n: Int)
+    w
+
+  l: A = A.x(n: 3)
+  print(l == .x(n: 3))
+
+fail "sets an optional's member with fields compared is unwrapped first", "an error member compared is named with its set, beside the error an optional holds: `if p as e`, then `e == A.x(n: 3)`", errors: 1
+  error A
+    x(n: Int)
+    w
+
+  error B
+    y
+
+  error L = A | B
+
+  p: L? = A.x(n: 3)
+  print(p == .x(n: 3))

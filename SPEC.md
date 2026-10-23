@@ -3220,7 +3220,10 @@ a `T: Copy`, compare a `T: Ord`, hash a `T: Hash`, and call no method
 on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Moves` or `Shares` does not cross to another
-task. Each instance must provide every bound, checked at the call or
+task. A comparison reads its operands where they are and drops none: a
+`T` made for one, `key(a) < key(b)`, is a temporary that may own, so
+`==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
+binding of each (`ka = key(a)`, then `ka < kb`). Each instance must provide every bound, checked at the call or
 type that makes it, with the fix in the error.
 
 ```rig

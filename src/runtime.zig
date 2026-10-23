@@ -218,6 +218,8 @@ pub inline fn failWith(out: ErrSlot, code: anyerror, members_fields: anytype) an
 /// `e == E.name`: whether `v`, an error value or a code, is `code`.
 pub inline fn isError(v: anytype, code: anyerror) bool {
     const V = @TypeOf(v);
+    // An optional is `code` when it holds an error that is.
+    if (comptime @typeInfo(V) == .optional) return if (v) |e| isError(e, code) else false;
     if (V == ErrorValue) return v.code == code;
     if (V == *ErrorValue or V == *const ErrorValue) return v.code == code;
     return @as(anyerror, v) == code;
