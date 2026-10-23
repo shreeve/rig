@@ -189,7 +189,7 @@ fail "apis a task over a bound's call", "`x.size` fails with `Bad`, and waiting 
   api Sized
     fun size(?@) -> Int!Bad
 
-  fun later[T: Sized + Shares](x: ?T) -> Int!Bad
+  fun later[T: Sized + Syncs](x: ?T) -> Int!Bad
     t = x.size()&
     >t!
 

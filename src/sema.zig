@@ -854,7 +854,7 @@ pub const Symbol = struct {
     /// A type parameter: its bounds (`[T: Ord]`), with what they imply
     /// (`implied`). A nominal or generic type: the APIs its header names
     /// (`obj Name: Eq + Hash`), which it gives a meaning of its own. An
-    /// API: the built-in APIs it builds on (`api Job: Moves`).
+    /// API: the built-in APIs it builds on (`api Job: Sends`).
     apis: Apis = .empty,
     /// The APIs of a program's own that the symbol names where `apis`
     /// names the built-in ones: a type parameter's bounds (`[T:
@@ -958,7 +958,7 @@ pub fn apiClosure(ctx: *const SemContext, a: std.mem.Allocator, ref: ApiRef) std
 }
 
 /// The built-in APIs `refs` and every API they build on name (`api Job:
-/// Moves`), with what those imply.
+/// Sends`), with what those imply.
 pub fn builtInSupers(ctx: *const SemContext, refs: []const ApiRef) std.mem.Allocator.Error!Apis {
     var out: Apis = .empty;
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
@@ -6776,8 +6776,8 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
             if (mayHoldView(ctx, ty)) return .{ .ty = ty };
             return heldLack(ctx, ty, api);
         },
-        .Moves, .Shares => {
-            const found = blockerOf(ctx, ty, if (api == .Moves) .moves else .shares) orelse return heldLack(ctx, ty, api);
+        .Sends, .Syncs => {
+            const found = blockerOf(ctx, ty, if (api == .Sends) .moves else .shares) orelse return heldLack(ctx, ty, api);
             // A blocker inside another module's object is a type of that
             // module's table: the lack names the whole type, which is this
             // module's.
@@ -7570,8 +7570,8 @@ pub fn cannotDo(api: Api) []const u8 {
         .Copy => "cannot be copied",
         .Clone => "cannot be cloned",
         .Owned => "may hold a loan",
-        .Moves => "cannot move to another task",
-        .Shares => "cannot be read by several tasks",
+        .Sends => "cannot move to another task",
+        .Syncs => "cannot be read by several tasks",
         .Eq => "cannot be compared with `==`",
         .Hash => "cannot be hashed",
         .Ord => "cannot be ordered",
@@ -8548,8 +8548,8 @@ fn blockerOf(ctx: *const SemContext, ty: TypeId, how: Crossing) ?Blocker {
     return null;
 }
 
-/// A type parameter `ty` reaches whose bounds do not name `Moves` (or
-/// `Shares`, by `how`): a bounded `T` crosses only as its bounds say; one
+/// A type parameter `ty` reaches whose bounds do not name `Sends` (or
+/// `Syncs`, by `how`): a bounded `T` crosses only as its bounds say; one
 /// with no bound as each instance does.
 fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     if (!ctx.typeInfo(ty).has_type_var) return null;
@@ -8557,7 +8557,7 @@ fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     defer params.deinit(ctx.allocator);
     reachedTypeVars(ctx, ty, &params, ctx.allocator) catch return null;
     for (params.items) |p| {
-        if (!hasBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(if (how == .moves) .Moves else .Shares)) continue;
+        if (!hasBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(if (how == .moves) .Sends else .Syncs)) continue;
         return ctx.types.find(.{ .type_var = p }) orelse ty;
     }
     return null;

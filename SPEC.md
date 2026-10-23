@@ -3199,8 +3199,8 @@ capital letter and a value parameter with a lowercase one.
 | `Copy` | a bare use copies: plain data and read views |
 | `Clone` | `+x` makes a new owner; implied by `Copy` |
 | `Owned` | holds no loan: no part is a view (a `Static` is fine) |
-| `Moves` | may move to another task ([§18](#18-tasks)) |
-| `Shares` | may be read by several tasks |
+| `Sends` | may go to another task ([§18](#18-tasks)) |
+| `Syncs` | may be read by several tasks at once |
 | `Eq` | `==` and `!=` |
 | `Hash` | `.hash()`; implies `Eq` |
 | `Ord` | `<`, `<=`, `>`, `>=`; implies `Eq` |
@@ -3227,7 +3227,7 @@ A body may do with a bounded `T` what its bounds name and no more: copy
 a `T: Copy`, compare a `T: Ord`, hash a `T: Hash`, and call no method
 on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
-name, and one without `Moves` or `Shares` does not cross to another
+name, and one without `Sends` or `Syncs` does not cross to another
 task. A comparison reads its operands where they are and drops none: a
 `T` made for one, `key(a) < key(b)`, is a temporary that may own, so
 `==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
@@ -3390,7 +3390,7 @@ at the top of a module: a method with no body is required, and one with
 a body is a default, which a type may leave out. Each method takes self
 first, as `?@`, `!@`, or `<@`, and `Self` in its signature is the type
 that provides the API. An API may build on others, `api Named: Shape`,
-and on the built-in APIs, `api Job: Moves`; it takes their methods as
+and on the built-in APIs, `api Job: Sends`; it takes their methods as
 they are, and a type that provides it provides them too. An API holds
 no fields and is no type: a value's type, a variable's, and a field's
 name a type, and a bound names the API.
@@ -3609,7 +3609,7 @@ and these, and a call's type argument provides them; a type parameter
 with no bound provides none, and a call on a `T` with no bound reaches
 no such method. Its bounds add to the type's: one the type gives
 already, written or through an API it builds on, is an error, and so
-are `Copy`, `Clone`, `Owned`, `Moves`, and `Shares`, and an API that
+are `Copy`, `Clone`, `Owned`, `Sends`, and `Syncs`, and an API that
 builds on them, which say how a value of the type is copied, kept, and
 sent in every method, and go in the type's own brackets. A conformance
 is met only by methods its own bounds imply: such a method meets no API

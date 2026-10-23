@@ -40,10 +40,10 @@ it.
 | Stage | What it adds | New syntax | Status |
 |---|---|---|---|
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
-| 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
+| 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Sends`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
 | 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(in part: declarations and conformance built)* |
 | 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
-| 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Moves}` | *(planned)* |
+| 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Sends}` | *(planned)* |
 
 Two principles hold across every stage:
 
@@ -68,7 +68,7 @@ obj Square: Shape + Print              # Square provides Shape and Print
 add Int: Shape                         # add Shape to Int, written in Shape's module
 api Widget: Shape + Named + Print      # a named combination
 fun total[T: Shape](xs: ?List[T])      # any T that provides Shape
-?{Shape}   ^{Job + Moves}              # any value that provides Shape
+?{Shape}   ^{Job + Sends}              # any value that provides Shape
 ```
 
 - **`api`** declares a named set of methods a type provides: required
@@ -84,7 +84,7 @@ fun total[T: Shape](xs: ?List[T])      # any T that provides Shape
   signature; a method with a default's name and another signature is an
   error.
 - **The built-in APIs keep short names,** `Eq`, `Hash`, `Ord`, `Print`,
-  `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Num`, `Iter`, and an
+  `Copy`, `Clone`, `Owned`, `Sends`, `Syncs`, `Num`, `Iter`, and an
   error about one says what cannot be done: "`Label` cannot be hashed".
 - **`api` and `add` are keywords only at the start of a
   declaration,** so `user.api` and `!set.add(x)` keep working.
@@ -312,8 +312,8 @@ capabilities a type may give its own meaning.
 | `Copy` | a bare use copies | never: plain data and read views |
 | `Clone` | `+x` makes a new owner | never; implied by `Copy` |
 | `Owned` | holds no loan | never: no part is a view (`Static` is fine) |
-| `Moves` | may move to another task | never: SPEC §18's "moves" column |
-| `Shares` | may be read by several tasks | never: SPEC §18's "shares" column |
+| `Sends` | may go to another task | never: SPEC §18 |
+| `Syncs` | may be read by several tasks at once | never: SPEC §18 |
 | `Eq` | `==`, `!=` | `fun eq(?@, other: ?Self) -> Bool` |
 | `Hash: Eq` | `.hash()` | `sub hash_into(?@, h: !Hasher)` |
 | `Ord: Eq` | `<` and its kin | `fun order(?@, other: ?Self) -> Order` |
@@ -376,7 +376,7 @@ stage: no generic must state them, and std adopts them by choice; the
 rule that a `pub` generic states its bounds comes with Stage 3. A view
 as a type argument, `T = ?X`, meets only these built-in bounds.
 
-**Tasks.** A bounded `T` without `Moves` or `Shares` does not cross, so
+**Tasks.** A bounded `T` without `Sends` or `Syncs` does not cross, so
 a task that takes one is local, as SPEC §18 makes any task whose
 arguments do not cross; a channel send, an actor's argument, and
 `par.each` reject it.
@@ -509,7 +509,7 @@ their own (`api Into[T]`), wait for a later decision.
 **`Iter`** is the built-in API a `for` loop already accepts: `type Item`
 and `fun next(!@) -> Item?`. A type provides it when it declares that
 method, by the one rule the loop uses to find an iterator, and its
-`Item` is what `next` gives; no header names it, as none names `Moves`.
+`Item` is what `next` gives; no header names it, as none names `Sends`.
 It comes with this stage because its useful bound names its item type,
 `[I: Iter, I.Item: Ord]`, and with it come `iter.count` and `iter.sum`.
 
@@ -631,7 +631,7 @@ method that exists only for some instances is written with its bound
 in the type's brackets, `fun Wrap[T: Print].show(?@)`; repeating a
 bound the type already has is rejected, and a conformance is met only
 by methods its own bounds imply. An API may build on the built-in
-facts, `api Job: Moves`: every provider must move, checked at its
+facts, `api Job: Sends`: every provider must move, checked at its
 header, and a `[T: Job]` may be sent to another task.
 
 **What a bounded body may do.** Call what its bounds declare, and use
@@ -659,12 +659,12 @@ and sets, and a call through a bound passes them as at any call, since
 the API declares them. `Slot[n]` meets the bounds a number does but the
 number APIs: it copies, compares, orders, hashes, prints, and crosses.
 
-**Tasks, function values, and closures.** `Moves` and `Shares` stay
+**Tasks, function values, and closures.** `Sends` and `Syncs` stay
 facts of a type's parts ([SPEC §18](../../SPEC.md#18-tasks)): a
 function value moves and shares, a callable view and an owned closure
 do neither, and a `*Frozen[T]` does both. A call through a bound may be
 a task, `x.area()&`, which crosses by the bounds: self lent to read
-needs `Shares`, and a bounded `T` with neither makes the task local, as
+needs `Syncs`, and a bounded `T` with neither makes the task local, as
 in Stage 2. A closure is never generic and takes no bound; one written
 in a bounded body calls through the body's bounds. A function value
 provides no API of a program's own.
@@ -673,7 +673,7 @@ provides no API of a program's own.
 points, and Stage 3 changes neither:
 
 - A `*Frozen[T]` provides `Eq`, `Hash`, and `Print` as its value does,
-  `Moves` and `Shares` always, and no API of a program's own: a handle
+  `Sends` and `Syncs` always, and no API of a program's own: a handle
   is not its value. A generic over `T: Shape` takes `?f`, which lends
   the frozen value as a `?T`, and calls its `?@` methods; nothing
   reaches a `!@` or `<@` method through it.
@@ -682,7 +682,7 @@ points, and Stage 3 changes neither:
 - `*{Shape}` counts as a `*T` does and stays with its task. A value many
   tasks read is a `*Frozen[T]` while its type is known; one whose type
   is erased is Stage 5's case, checked where the type is erased, as
-  `^{Job + Moves}` is.
+  `^{Job + Sends}` is.
 
 **Public generics state their bounds.** A `pub` generic, a function or
 a type, names by bounds everything its body does with each type
@@ -739,7 +739,7 @@ call on a `T` with no bound, which Zig resolves at each instance, is
 `Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
 `c.area()` could call `Shape.area` or `Region.area`, which both apply to `geo.Circle`; name the API: `Shape.area(c)`
 `Disk.size` fails with `Int!Io`, but `Sized` declares `size(?@) -> Int!Bad`; a method meets its API with the same set: write `-> Int!Bad`
-`Pool` provides `Job`, which builds on `Moves`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
+`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
 `add` names a type, and `?Square` is a view: write `add Square: Shape`
 `filter` is `pub`, so it states what its body does with `E`: it copies an `E`; write `[E: Copy]`
 ```
@@ -895,7 +895,7 @@ sub main()
 ```
 
 ```rig reject
-api Job: Moves
+api Job: Sends
   fun cost(?@) -> Int
 
 obj Pool: Job
@@ -909,7 +909,7 @@ sub main()
 ```
 
 ```error
-`Pool` provides `Job`, which builds on `Moves`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
+`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
 ```
 
 ```rig reject
@@ -1017,8 +1017,8 @@ is not used.
   are atomic depend on the hidden type. **`~{Shape}`** is its weak
   handle.
 - **Crossing tasks** is a bound in the braces, checked where the type is
-  erased, where it is still known: `^{Job + Moves}` may move to another
-  task, `?{Job + Shares}` may be read by several. A job queue and an
+  erased, where it is still known: `^{Job + Sends}` may move to another
+  task, `?{Job + Syncs}` may be read by several. A job queue and an
   actor's messages are the cases this serves.
 - Once `*{...}` exists, an owned closure, `*fun`, may be lowered the
   same way, saving one allocation per closure.
@@ -1054,8 +1054,12 @@ is not used.
   hand an API to a type with no values of its own. **`any`**: a word
   where the mantra wants a mark, since dispatch is a mechanic. Braces
   won.
-- **`Move` and `Share`, or `Sends`**: every owner moves, so the task
-  bounds say where to: `Moves` and `Shares`, SPEC §18's own words.
+- **`Sends` and `Syncs` for the task bounds**: the sigils `<` and `*`
+  name moves and sharing within a task, and a bound that reused the
+  words would read as them. The bounds name crossing to other tasks, so
+  they are `Sends` and `Syncs`, Rust's `Send` and `Sync`, which mean
+  the same: `List[*Node]` moves with `<` but is not `Sends`, and a
+  `*<Node(...)` is shared by `*` but is not `Syncs`.
 - **Requiring bounds on every generic**: 300 to 500 of the suite's
   generics would change, for no reader a private generic has. Only
   `pub` generics must state their bounds.

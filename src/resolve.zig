@@ -602,7 +602,7 @@ const SymbolResolver = struct {
                     try user.append(self.ctx.arena.allocator(), ref);
                 },
                 .reported => {},
-                .none => try self.ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`", .{text}),
+                .none => try self.ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Sends`, `Syncs`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`", .{text}),
             }
         }
         out.user = user.items;
@@ -667,7 +667,7 @@ const SymbolResolver = struct {
                 },
             };
             switch (api) {
-                .Copy, .Clone, .Owned, .Moves, .Shares => {
+                .Copy, .Clone, .Owned, .Sends, .Syncs => {
                     try self.ctx.errAt(leaf, "`{s}` is a fact the compiler derives from a type's parts, and a type never names it; `{s}` provides it where its parts do", .{ text, tname });
                     continue;
                 },
@@ -791,7 +791,7 @@ const SymbolResolver = struct {
                 .builtin => |api| b.apis.insert(api),
                 .user => |ref| if (!containsRef(user.items, ref)) try user.append(self.ctx.arena.allocator(), ref),
                 .reported => {},
-                .none => try self.ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`", .{diag.textOf(self.ctx.source, self.ctx.span(leaf))}),
+                .none => try self.ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Sends`, `Syncs`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`", .{diag.textOf(self.ctx.source, self.ctx.span(leaf))}),
             };
             if (try self.declare(pname, .generic_param, .{})) |pid| {
                 self.ctx.symbols.items[pid].apis = b.apis;
@@ -1117,12 +1117,25 @@ const Bounds = struct {
 /// mistake already reported (a module not imported, a private API).
 pub const ApiNamed = union(enum) { builtin: rig.Api, user: sema.ApiRef, none, reported };
 
+/// The old names of the task bounds, rejected toward the new ones.
+fn renamedApi(ctx: *SemContext, leaf: Sexp, text: []const u8) Error!ApiNamed {
+    if (std.mem.eql(u8, text, "Moves")) {
+        try ctx.errAt(leaf, "`Moves` is now `Sends`: a type that may go to another task", .{});
+        return .reported;
+    }
+    if (std.mem.eql(u8, text, "Shares")) {
+        try ctx.errAt(leaf, "`Shares` is now `Syncs`: a type several tasks may read at once", .{});
+        return .reported;
+    }
+    return .none;
+}
+
 pub fn apiNamed(ctx: *SemContext, scope: ScopeId, leaf: Sexp) Error!ApiNamed {
     if (leaf == .src) {
         const text = identAt(ctx.source, leaf) orelse return .none;
         if (rig.Api.named(text)) |api| return .{ .builtin = api };
-        const id = ctx.lookup(scope, text) orelse return .none;
-        if (ctx.symbols.items[id].kind != .api) return .none;
+        const id = ctx.lookup(scope, text) orelse return renamedApi(ctx, leaf, text);
+        if (ctx.symbols.items[id].kind != .api) return renamedApi(ctx, leaf, text);
         try ctx.recordName(leaf, id);
         return .{ .user = .{ .module_id = ctx.module_id, .sym = id } };
     }
@@ -1294,7 +1307,7 @@ fn resolveAssocBounds(ctx: *SemContext) Error!void {
                 },
                 .user => try ctx.errAt(leaf, "a bound by an API of a program's own on an associated type, `{s}.{s}: {s}`, is not built yet: bound it by the built-in APIs, `Ord`, `Print`, ...", .{ owner, name, text }),
                 .reported => {},
-                .none => try ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`", .{text}),
+                .none => try ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Sends`, `Syncs`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`", .{text}),
             }
         }
     }

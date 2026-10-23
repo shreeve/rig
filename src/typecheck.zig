@@ -19301,7 +19301,7 @@ fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, a
 /// type shares, never one a method's own bounds add.
 fn ownershipApi(api: sema.Api) bool {
     return switch (api) {
-        .Copy, .Clone, .Owned, .Moves, .Shares => true,
+        .Copy, .Clone, .Owned, .Sends, .Syncs => true,
         else => false,
     };
 }

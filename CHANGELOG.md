@@ -613,6 +613,10 @@ first step is on `main` (SPEC §18):
   is called at most once, and a closure literal passed to one owns
   what it moves in, so its call may move it out
   (`resolve.recordOnce`, `Origins.once`).
+- **Renamed:** the task bounds `Moves` and `Shares` are `Sends` and
+  `Syncs`, Rust's words: the sigils `<` and `*` name moves and sharing
+  within a task, the bounds name crossing to other tasks. The old names
+  are rejected with the new ones.
 - **Removed:** `within:` on a set's wait, `wait_all`, and `task.both`.
   A deadline is `time.within`'s, a set is waited for with `>ts`, and
   `task.all` takes two tasks; each removed form is rejected with the
