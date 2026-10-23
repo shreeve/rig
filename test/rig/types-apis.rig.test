@@ -2759,6 +2759,107 @@ fail "apis own associated type literal", "`scaled[Bytes]` cannot use `I.Item = U
       _ = x * 300
       1
 
+fail "apis iter a view, a private next, and another shape", "`f[?Count]` cannot use `I = ?Count`: `?Count` is no iterator: a view only reads an iterator, and `next(!@)` advances it; pass the iterator itself, `!it`", "`f[lib.Hidden]` cannot use `I = lib.Hidden`: `lib.Hidden` is no iterator: its `next` is private to module `lib`; declare it `pub fun next` there", "`f[Two]` cannot use `I = Two`: `Two` is no iterator: its `next` takes more than `@`"
+  # A bound by `Iter` takes what a loop advances: the iterator itself,
+  # never a view of it, whose `next` this module may call and has the
+  # loop's shape.
+
+  use lib
+
+  obj Count
+    n: Int
+
+    fun next(!@) -> Int?
+      none
+
+  obj Two
+    n: Int
+
+    fun next(!@, k: Int) -> Int?
+      none
+
+  fun f[I: Iter](it: I) -> Int
+    1
+
+  c = Count(n: 0)
+  print(f(?c))
+  h = lib.make()
+  print(f(h))
+  print(f(Two(n: 0)))
+
+  file "lib.rig"
+    pub obj Hidden
+      n: Int
+
+      fun next(!@) -> Int?
+        none
+
+    pub fun make() -> Hidden
+      Hidden(n: 0)
+
+fail "apis iter an item that views its iterator", "`keep[Buf]` cannot use `I.Item = ?String`: a `?String` may view memory `Buf` owns, which a generic body does not track, so one could outlive the next call that changes `Buf`; use `Buf` itself, or give items that own what they hold", "`first[Buf]` cannot use `S.Item = ?String`: a `?String` may view memory `Buf` owns, which a generic body does not track, so one could outlive the next call that changes `Buf`; use `Buf` itself, or give items that own what they hold"
+  # An item that views memory its iterator owns would dangle once the
+  # next `next` changes it; a generic body holds items across `next`
+  # without seeing that, so such an instance is rejected, by `Iter` and
+  # by an API's associated type alike, as a loop over `Buf` itself would
+  # reject holding one.
+
+  api Source
+    type Item
+
+    fun take(!@) -> Item? from @
+
+  obj Buf: Source
+    buf: String
+    n: Int
+
+    fun next(!@) -> (?String)? from @
+      return none if @n >= 3
+      @n += 1
+      @buf = String("item", @n)
+      ?@buf
+
+    fun take(!@) -> (?String)? from @
+      (!@).next()
+
+  fun keep[I: Iter](it: !I) -> List[I.Item]
+    out: List[I.Item] = List()
+    for x in !it
+      !out.push(<x)
+    out
+
+  fun first[S: Source](s: !S) -> S.Item?
+    a = (!s).take()
+    _ = (!s).take()
+    a
+
+  b = Buf(buf: String(""), n: 0)
+  l = keep(!b)
+  print(l.len, l[0])
+  c = Buf(buf: String(""), n: 0)
+  print(first(!c) ?? "none")
+
+test "apis own associated type behind a text view", "x"
+  # `?Item` at `Item = String` is `?String`, the one text view: a provider
+  # that gives `?String` there gives `Item` its `String`.
+
+  api Holder
+    type Item
+
+    fun first(?@) -> ?Item from @
+
+  obj Strs: Holder
+    s: String
+
+    fun first(?@) -> ?String from @
+      ?@s
+
+  sub show[H: Holder, H.Item: Print](h: ?H)
+    print(h.first())
+
+  s = Strs(s: String("x"))
+  show(?s)
+
 test "apis iter", "3\n1\n4\n3 7"
   # `Iter` is what a `for` loop walks: a type provides it by declaring
   # `next(!@) -> T?`, its `Item` is `T`, and an API may build on it.

@@ -928,7 +928,9 @@ sub main()
 Functions over any iterator, a value of a type that declares
 `next(!@) -> T?` ([SPEC, APIs](../SPEC.md#apis): it provides `Iter`,
 and its `Item` is `T`). Each takes the iterator lent to write and
-advances it to its end.
+advances it to its end. An iterator whose items may view memory it owns,
+a Map's or a Set's among them, is walked with a loop instead
+([SPEC, APIs](../SPEC.md#apis)).
 
 | Function | Result |
 |---|---|

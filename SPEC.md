@@ -3683,6 +3683,15 @@ built-in APIs; it does what those bounds name, and each instance checks
 them at the type its argument gives it. `Iter` is built in: a type that
 declares `next(!@) -> T?`, the iterator a `for` loop walks, provides it
 with `Item` its `T`, and an API may build on it, `api Stream: Iter`.
+A bound by `Iter` takes the iterator itself, never a view of it, whose
+`next` the module may call. A generic body does not track a view a
+value of an associated type holds, so an instance whose associated type
+may view memory its base owns (`next(!@) -> (?String)? from @` over the
+iterator's own `String`) is rejected: the body could hold one across the
+call that changes that memory. Items that own what they hold, or view
+what the iterator only views (`text.split`'s), are taken; a Map's and a
+Set's iterators, whose types do not show their items to be outside
+them, are walked by a loop over the iterator itself.
 std.iter's `count` and `sum` take any iterator ([STD](docs/STD.md#stditer)).
 
 ```rig

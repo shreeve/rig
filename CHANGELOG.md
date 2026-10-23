@@ -199,7 +199,10 @@ changed the language since it:
   `Item` its `T`; `[I: Iter]` loops over and calls `next` on an `I`, an
   API may build on it, and no header names it. std.iter gives `count`
   and `sum` over any iterator; every std iterator is an `Iter` whose item
-  is what the loop gives.
+  is what the loop gives. An instance whose associated type may view
+  memory its base owns is rejected, since a generic body does not track
+  that view across `next`; a Map's and a Set's iterators are walked by a
+  loop instead.
 
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call

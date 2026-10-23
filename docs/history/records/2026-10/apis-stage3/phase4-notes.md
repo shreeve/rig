@@ -67,6 +67,17 @@ rejection; its iterator section names `Iter`; SYNTAX and STD the forms.
    a body bounded by `Iter` needs no witness: `Iter`, like the other
    built-in APIs, takes none.
 
+9. **An instance whose associated type may view memory its base owns
+   is rejected** (added in review, [review-p34.md](review-p34.md)): a
+   body holds items across `next` without tracking them, so an item
+   viewing the iterator's own storage could dangle. Decided at each
+   instance by the ownership checker's own reach (`sema.viewReach`), in
+   `sema.checkBounds`. It rejects a Map's and a Set's iterators too,
+   whose types do not show their items to be outside them, whatever the
+   body does with the items: an interim rule, with the design question in
+   the review. A bound by `Iter` also takes no view of an
+   iterator and no `next` private to another module (`sema.iterLack`).
+
 ## Messages
 
 - `` `Source` declares `type Item`, which none of its required methods names: a provider's `Item` is what its methods give in their place ``

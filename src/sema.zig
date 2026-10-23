@@ -6755,10 +6755,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
             return heldLack(ctx, ty, api);
         },
         .Num => return if (isNumeric(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
-        .Iter => return switch (try iterItem(ctx, ty)) {
-            .item => null,
-            else => .{ .ty = ty },
-        },
+        .Iter => return if (try iterLack(ctx, ty) == null) null else .{ .ty = ty },
         .Integer => return if (isInteger(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
         .Signed => return switch (ctx.types.get(unwrapViews(ctx, ty))) {
             .int => |info| if (info.signed) null else .{ .ty = ty },
@@ -6824,6 +6821,22 @@ pub fn withAssoc(ctx: *SemContext, params: []const SymbolId, args: []const TypeI
     return .{ .params = ps.items, .args = as.items };
 }
 
+/// The type an associated type's base takes (`I = Buf`) when what the
+/// instance gives the associated type (`I.Item = ?String`) may view
+/// memory that base owns; null otherwise. A generic body tracks no view
+/// a value of a type parameter holds (docs/design/apis.md, Stage 3), so
+/// it may hold an item across the next `next`, which a loop over the base
+/// itself would reject as the ownership checker does (`viewReach`).
+fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, base: SymbolId, item: TypeId) std.mem.Allocator.Error!?TypeId {
+    const i = std.mem.findScalar(SymbolId, params, base) orelse return null;
+    if (i >= args.len) return null;
+    const base_ty = args[i];
+    if (containsTypeVar(ctx, item) or containsTypeVar(ctx, base_ty)) return null;
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    return if (try viewReach(ctx, scratch.allocator(), base_ty, item) == .owned) base_ty else null;
+}
+
 /// Each argument of the instance `of`, made at `at`, provides what its
 /// parameter's bounds name: a built-in API (`lacks`) or one of the
 /// program's own (`provides`); the first that does not is reported
@@ -6840,6 +6853,11 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
         if (!hasBounds(sym)) continue;
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
+        if (sym.assoc_of) |assoc| if (try assocViewsBase(ctx, params, args, assoc.base, arg)) |base| {
+            const shown = try formatType(ctx, base);
+            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, which a generic body does not track, so one could outlive the next call that changes `{s}`; use `{s}` itself, or give items that own what they hold", .{ try rootName(ctx, of), sym.name, try formatType(ctx, arg), try formatType(ctx, arg), shown, shown, shown });
+            return false;
+        };
         // A type parameter with no bound is no exception: the witness the
         // bound takes would come from its own bounds, and it has none.
         for (sym.user_apis) |api| {
@@ -7227,6 +7245,29 @@ pub fn iterItem(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!IterShape 
     };
 }
 
+/// Why a type argument `ty` does not provide `Iter`, as the end of an
+/// error says it, or null when it does: what `iterItem` decides, and
+/// two facts a bound adds to the loop's. A view is no iterator, since
+/// `next(!@)` advances the iterator itself (the loop says the same of
+/// `for x in ?it`); and a `next` private to another module is not called
+/// from this one, as a call by name or a loop would not call it.
+pub fn iterLack(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]const u8 {
+    const a = ctx.arena.allocator();
+    if (unwrapViews(ctx, ty) != ty) return "a view only reads an iterator, and `next(!@)` advances it; pass the iterator itself, `!it`";
+    switch (try iterItem(ctx, ty)) {
+        .item => {},
+        .malformed => |why| return try a.print("its `next` {s}", .{why}),
+        .not_iterator => return "it declares no `fun next(!@) -> T?`",
+    }
+    const decl = nominalDecl(ctx, ty) orelse return null;
+    const module = decl.module_id orelse if (isProxy(decl.symbol())) decl.symbol().from.module_id else return null;
+    if (module == ctx.module_id) return null;
+    const next = (try methodOfType(ctx, ty, "next")) orelse return null;
+    if (next.field.is_pub) return null;
+    const foreign = ctx.foreign_semas.get(module) orelse return null;
+    return try a.print("its `next` is private to module `{s}`; declare it `pub fun next` there", .{foreign.name});
+}
+
 /// The method `name` of a value of type `ty`, a type of this module or
 /// another's, with its signature in this module's types.
 pub fn methodOfType(ctx: *SemContext, ty: TypeId, name: []const u8) std.mem.Allocator.Error!?struct { field: Field, fn_ty: FunctionType } {
@@ -7404,6 +7445,8 @@ pub fn matchAssoc(ctx: *const SemContext, pattern: TypeId, actual: TypeId, targe
     const p = ctx.types.get(pattern);
     const x = ctx.types.get(actual);
     if (p == .type_var and p.type_var == target) return actual;
+    // `?String` is the one text view, the type `?Item` takes at `String`.
+    if (p == .read_view and x == .string_view) return matchAssoc(ctx, p.read_view, ctx.types.string_id, target, depth + 1);
     switch (p) {
         inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot => |inner, tag| {
             if (std.meta.activeTag(x) != tag) return null;
@@ -7536,7 +7579,7 @@ pub fn cannotDo(api: Api) []const u8 {
         .Num => "is no number",
         .Integer => "is no integer",
         .Signed => "is no signed number",
-        .Iter => "is no iterator: it declares no `fun next(!@) -> T?`",
+        .Iter => "is no iterator",
     };
 }
 
@@ -7556,6 +7599,7 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
         return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[sym].name, try formatBounds(ctx, a, ctx.symbols.items[sym], api) });
     }
     if (lack.own_eq) return "";
+    if (api == .Iter) return a.print(": {s}", .{(try iterLack(ctx, ty)) orelse "it declares no `fun next(!@) -> T?`"});
     if (lack.path.len > 0) return a.print("; its field `{s}` is a `{s}`", .{ lack.path, try formatType(ctx, lack.ty) });
     if (lack.ty != ty) return a.print("; it holds a `{s}`", .{try formatType(ctx, lack.ty)});
     // A type a module declares gives itself an order, or its own `==`,

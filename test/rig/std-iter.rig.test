@@ -65,13 +65,12 @@ test "iter every std iterator", '''
   3 97
   2 1
   2 1
-  2 1
-  2 1
-  2 2
 '''
   # Each std iterator is an `Iter` whose item is what the loop gives: a
   # body bounded by `Iter` prints its count and first item, and a loop
-  # over another of the same prints the same.
+  # over another of the same prints the same. A Map's and a Set's, whose
+  # items may view memory the iterator owns, a body bounded by `Iter`
+  # does not take ("iter a map's iterator"); a loop walks them.
   use std.text
   use std.utf8
 
@@ -111,19 +110,21 @@ test "iter every std iterator", '''
   m: Map[Int, Int] = Map()
   !m.put(1, 10)
   !m.put(2, 20)
-  k1 = ?m.keys()
-  show(!k1)
   k2 = ?m.keys()
   for x in !k2
     print(2, x) if x == 1
   st: Set[Int] = Set()
   !st.add(1)
   !st.add(2)
-  e1 = ?st.items()
-  show(!e1)
   e2 = ?st.items()
   for x in !e2
     print(2, x) if x == 1
-  v = ?m.values()
-  i = ?m.items()
-  print(iter.count(!v), iter.count(!i))
+
+fail "iter a map's iterator", "`iter.count[Keys[Int, Int]]` cannot use `I.Item = ?Int`: a `?Int` may view memory `Keys[Int, Int]` owns, which a generic body does not track, so one could outlive the next call that changes `Keys[Int, Int]`; use `Keys[Int, Int]` itself, or give items that own what they hold"
+  # A Map's iterator gives views its type does not show to be outside
+  # it, which a body bounded by `Iter` could hold across `next`: such an
+  # instance is rejected, and a loop over the iterator itself walks it.
+  m: Map[Int, Int] = Map()
+  !m.put(1, 10)
+  k = ?m.keys()
+  print(iter.count(!k))
