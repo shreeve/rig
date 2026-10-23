@@ -14,6 +14,6 @@
 # checker decides them. A header whose subject makes a temporary and
 # reaches no place is rejected in sema (`rejectHeaderCopy`), so the
 # programs that have one stop there too.
-tests 22130
-docs 1020
+tests 22163
+docs 1024
 matrix 23361

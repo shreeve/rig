@@ -1235,6 +1235,15 @@ pub const Emitter = struct {
             try self.w.writeAll("    return struct {\n");
         } else try self.w.print("pub const {s} = struct {{\n", .{name});
         const depth: u32 = if (params.len > 0) 2 else 1;
+        // What it gives each associated type, which a body bounded by the
+        // API names through the witness (`W_S_Source.Item`).
+        for (conf.assoc) |b| {
+            if (b.ty == facts.type_invalid) return self.unsupported(.nil, "an associated type no method gives");
+            try self.writeIndent(depth);
+            try self.w.print("pub const {f} = ", .{ident(b.name)});
+            try self.emitTypeTy(b.ty);
+            try self.w.writeAll(";\n");
+        }
         // The first conformance an addition writes holds its methods, those
         // only the addition's other APIs declare included; the others name
         // them there.
@@ -9798,6 +9807,17 @@ pub const Emitter = struct {
     /// A type parameter, or a compile-time value parameter: a generic
     /// function's `comptime` parameter, or a generic type's function's.
     fn writeTypeParam(self: *Emitter, sym: SymbolId) Error!void {
+        // An associated type is named through its base: by the witness of
+        // the bound that declares it (`W_S_Source.Item`), or, for an
+        // iterator's item, by what its `next` gives (`rig.IterItem(I)`).
+        if (self.facts.symbols.items[sym].assoc_of) |of| switch (of.api) {
+            .user => |u| return self.w.print("{s}.{f}", .{ try self.witnessParamName(of.base, u.via), ident(of.name) }),
+            .iter => {
+                try self.w.writeAll("rig.IterItem(");
+                try self.writeTypeParam(of.base);
+                return self.w.writeAll(")");
+            },
+        };
         if (self.localBySym(sym)) |local| return self.w.writeAll(local.zig_name);
         try self.w.print("{f}", .{ident(self.facts.symbols.items[sym].name)});
     }

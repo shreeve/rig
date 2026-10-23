@@ -16,6 +16,11 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   that stores the argument's held loans instead of its lend. Probes:
   the cases `corekeeps-p4 store through view` and `corekeeps-p4b keeps
   through view` of test/rig/probes-08.rig.test.
+- Learn Rig journey 07 teaches APIs' Stages 1 and 2; Stage 3, a
+  program's own APIs (`api Shape`, `[T: Shape]`, `add Int: Shape`,
+  method-level bounds, associated types, `Iter` and std.iter), wants
+  its sections, and with them the trim of journeys 03 and 04
+  (docs/internals/journeys.md).
 - Several results, after v1 (SPEC "Several results"):
   - small results in registers: pack results of up to two words of
     integers, `Bool`s, and pointers into a `u128`, which Zig's default

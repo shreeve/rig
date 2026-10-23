@@ -1,0 +1,17 @@
+# std.iter: functions over any iterator, a value of a type that declares
+# `next(!@) -> T?`, the `Iter` a `for` loop walks, whose items are
+# `I.Item`. Each advances the iterator it is lent to its end.
+
+# How many items `it` gives.
+pub fun count[I: Iter](it: !I) -> Int
+  n = 0
+  for _ in !it
+    n += 1
+  n
+
+# The sum of the items `it` gives, or `none` when it gives none: `iter.sum(!it) ?? 0`.
+pub fun sum[I: Iter, I.Item: Num](it: !I) -> I.Item?
+  t = (!it).next() ?? return none
+  for x in !it
+    t += x
+  t

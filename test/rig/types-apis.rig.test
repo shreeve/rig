@@ -185,7 +185,7 @@ fail "apis parameter case", "a type parameter starts with a capital letter: `[T]
 
   print(f(1), h[2]())
 
-fail "apis names", "`Copy` is a fact the compiler derives from a type's parts, and a type never names it; `A` provides it where its parts do", "`Num` is provided by the built-in numbers alone", "`Shape` names no API; a type's header names an API the program declares with `api`, or `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", "`Shape` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, or `Signed`"
+fail "apis names", "`Copy` is a fact the compiler derives from a type's parts, and a type never names it; `A` provides it where its parts do", "`Num` is provided by the built-in numbers alone", "`Shape` names no API; a type's header names an API the program declares with `api`, or `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", "`Shape` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, `Signed`, or `Iter`"
   # A header names the APIs a type provides or gives a meaning of its
   # own, and a bound names APIs; `Shape` here is declared nowhere.
 
@@ -1002,7 +1002,7 @@ fail "apis own default", "`Square.sides` gives `Float`, but `Shape` declares `si
 
   print(1)
 
-fail "apis own declarations", "`Named` builds on `Shape`, which declares `area`: an API takes the methods of those it builds on as they are, and declares none of them again", "`Loop` builds on itself, through `Ring`: an API builds on others without a cycle", "an API's associated type, `type Item`, is not built yet: its methods name their types", "`Shape.make` takes no self: an API's method takes self first, `fun make(?@)`", "an API's methods take no `pub`: they are as public as the API (`pub api Shape`)"
+fail "apis own declarations", "`Named` builds on `Shape`, which declares `area`: an API takes the methods of those it builds on as they are, and declares none of them again", "`Loop` builds on itself, through `Ring`: an API builds on others without a cycle", "`Source` declares `type Item`, which none of its required methods names: a provider's `Item` is what its methods give in their place", "`Shape.make` takes no self: an API's method takes self first, `fun make(?@)`", "an API's methods take no `pub`: they are as public as the API (`pub api Shape`)"
   # An API declares methods that take self, builds on others without a
   # cycle, and takes their methods as they are.
 
@@ -2511,3 +2511,319 @@ test "apis own method bounds name types", "2.0\n3.0 0.0"
   print(Wrap(x: Square(side: 2.0)).boxed().get())
   m = Maybe[Square].some(v: Square(side: 3.0))
   print(m.size(), Maybe[Square].nothing.size())
+
+test "apis own associated type", "4\nb\n5"
+  # `type Item` names a type each provider chooses, by what its methods
+  # give in the API's place; a body bounded by the API reads it `S.Item`,
+  # and bounds it as an entry of its own.
+
+  api Source
+    type Item
+
+    fun take(!@) -> Item? from @
+
+    fun skip(!@) -> Int              # a default
+      n = 0
+      while (!@).take() as _
+        n += 1
+      n
+
+  obj Count: Source
+    n: Int
+    hi: Int
+
+    fun take(!@) -> Int?
+      return none if @n >= @hi
+      @n += 1
+      @n
+
+  obj Words: Source
+    ws: List[String]
+    at: Int
+
+    fun take(!@) -> String?
+      return none if @at >= @ws.len
+      @at += 1
+      +@ws[@at - 1]
+
+  fun most[S: Source, S.Item: Ord + Copy](s: !S) -> S.Item?
+    best = (!s).take() ?? return none
+    while (!s).take() as x
+      best = x if x > best
+    best
+
+  fun first_of[S: Source](s: !S) -> S.Item?
+    (!s).take()
+
+  c = Count(n: 0, hi: 4)
+  print(most(!c) ?? -1)
+  ws: List[String] = List()
+  !ws.push(String("b"))
+  !ws.push(String("a"))
+  w = Words(ws: <ws, at: 0)
+  print(first_of(!w) ?? String("none"))
+  d = Count(n: 0, hi: 5)
+  print((!d).skip())
+
+test "apis own associated type in a type and a default", "4\n3\n3"
+  # A generic type bounded by the API names `S.Item` in its methods, and a
+  # default names `Item` in its body.
+
+  api Source
+    type Item
+
+    fun take(!@) -> Item? from @
+
+    fun last(!@) -> Item? from @
+      out: Item? = none
+      while (!@).take() as x
+        out = <x
+      out
+
+  obj Count: Source
+    n: Int
+    hi: Int
+
+    fun take(!@) -> Int?
+      return none if @n >= @hi
+      @n += 1
+      @n
+
+  obj Keep[S: Source]
+    src: S
+    seen: Int
+
+    fun pull(!@) -> S.Item?
+      @seen += 1
+      (!@src).take()
+
+  fun drain[S: Source](s: S) -> Int
+    k = Keep(src: <s, seen: 0)
+    while (!k).pull() as _
+      pass
+    k.seen
+
+  fun last_of[S: Source](s: !S) -> S.Item?
+    (!s).last()
+
+  print(drain(Count(n: 0, hi: 3)))
+  d = Count(n: 0, hi: 3)
+  print(last_of(!d) ?? -1)
+  e = Count(n: 0, hi: 3)
+  print((!e).last() ?? -1)
+
+test "apis own associated type across modules", "4 2\n7"
+  # An API's associated type, given by a provider in another module and
+  # read by bodies in a third and in its own.
+
+  use src
+  use nums
+
+  fun most[S: src.Source, S.Item: Ord + Copy](s: !S) -> S.Item?
+    best = (!s).take() ?? return none
+    while (!s).take() as x
+      best = x if x > best
+    best
+
+  c = nums.Count(n: 0, hi: 4)
+  print(most(!c) ?? -1, src.size_of(!(nums.Count(n: 0, hi: 2))))
+  print(nums.biggest())
+
+  file "src.rig"
+    pub api Source
+      type Item
+
+      fun take(!@) -> Item? from @
+
+    pub fun size_of[S: Source](s: !S) -> Int
+      n = 0
+      while (!s).take() as _
+        n += 1
+      n
+
+  file "nums.rig"
+    use src
+
+    pub obj Count: src.Source
+      pub n: Int
+      pub hi: Int
+
+      pub fun take(!@) -> Int?
+        return none if @n >= @hi
+        @n += 1
+        @n
+
+    fun top[S: src.Source](s: !S) -> S.Item?
+      out: S.Item? = none
+      while (!s).take() as x
+        out = <x
+      out
+
+    pub fun biggest() -> Int
+      c = Count(n: 0, hi: 7)
+      top(!c) ?? -1
+
+fail "apis own associated type matched exactly", "`Count.put` takes `x` as `String`, but `Source` declares `put(!@, x: Item)`"
+  # What a provider's methods give an associated type, they give it
+  # everywhere the API names it.
+
+  api Source
+    type Item
+
+    fun take(!@) -> Item? from @
+
+    sub put(!@, x: Item)
+
+  obj Count: Source
+    n: Int
+
+    fun take(!@) -> Int?
+      none
+
+    sub put(!@, x: String)
+      pass
+
+  print(1)
+
+fail "apis own associated type of no bound", "`T` has no associated type `Item`: `T` has no bound; `[T: Iter]` gives it `Item`, and an API gives what it declares with `type Item`", "`T` has no associated type `Elem`: its bounds, `Ord`, declare none; `Iter` gives `Item`, and an API gives what it declares with `type Elem`", "a bound by an API of a program's own on an associated type, `S.Item: Shape`, is not built yet: bound it by the built-in APIs, `Ord`, `Print`, ...", "a method's bound on an associated type is not built yet: bound it in its type's own brackets"
+  # `T.Item` names what `T`'s bounds declare.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Source
+    type Item
+
+    fun take(!@) -> Item? from @
+
+  fun bad[T](x: T) -> T.Item
+    x
+
+  fun bad2[T: Ord](x: T) -> T.Elem
+    x
+
+  fun bad3[S: Source, S.Item: Shape](s: !S) -> Int
+    1
+
+  obj Wrap[T]
+    x: T
+
+  fun Wrap[T: Iter, T.Item: Ord].m(?@) -> Int
+    1
+
+  print(1)
+
+fail "apis own associated type bound unmet", "`big[Floats]` cannot use `I.Item = Float`: `Float` cannot be hashed"
+  # An associated type's bound holds at each instance, at what the
+  # argument gives it.
+
+  obj Floats
+    x: Float
+
+    fun next(!@) -> Float?
+      none
+
+  fun big[I: Iter, I.Item: Hash](it: !I) -> Int
+    1
+
+  f = Floats(x: 1.0)
+  print(big(!f))
+
+fail "apis own associated type literal", "`scaled[Bytes]` cannot use `I.Item = U8`: the generic body applies `*` to a `I.Item` and the literal `300`, which `U8` cannot hold", "`lib.scaled[Bytes]` cannot use `I.Item = U8`: the generic body applies `*` to a `I.Item` and the literal `300`, which `U8` cannot hold"
+  # A fact no API names, here a literal's fit, is checked at each
+  # instance for an associated type as for its base, in another module's
+  # generic too.
+
+  use lib
+
+  obj Bytes
+    n: U8
+
+    fun next(!@) -> U8?
+      return none if @n == 0
+      @n -= 1
+      @n
+
+  fun scaled[I: Iter, I.Item: Num](it: !I) -> I.Item?
+    x = (!it).next() ?? return none
+    x * 300
+
+  b = Bytes(n: 3)
+  print(scaled(!b) ?? 0)
+  c = Bytes(n: 3)
+  print(lib.scaled(!c))
+
+  file "lib.rig"
+    pub fun scaled[I: Iter, I.Item: Num](it: !I) -> Int
+      x = (!it).next() ?? return 0
+      _ = x * 300
+      1
+
+test "apis iter", "3\n1\n4\n3 7"
+  # `Iter` is what a `for` loop walks: a type provides it by declaring
+  # `next(!@) -> T?`, its `Item` is `T`, and an API may build on it.
+
+  obj Count
+    n: Int
+    hi: Int
+
+    fun next(!@) -> Int?
+      return none if @n >= @hi
+      @n += 1
+      @n
+
+  api Stream: Iter
+    fun name(?@) -> Int
+
+  obj Named: Stream
+    n: Int
+
+    fun next(!@) -> Int?
+      return none if @n >= 3
+      @n += 1
+      @n
+
+    fun name(?@) -> Int
+      7
+
+  fun total[I: Iter](it: !I) -> Int
+    n = 0
+    for _ in !it
+      n += 1
+    n
+
+  fun first[I: Iter](it: !I) -> I.Item?
+    (!it).next()
+
+  fun biggest[I: Iter, I.Item: Ord + Copy](it: !I) -> I.Item?
+    best = (!it).next() ?? return none
+    for x in !it
+      best = x if x > best
+    best
+
+  fun named[S: Stream](s: !S) -> Int
+    s.name()
+
+  c = Count(n: 0, hi: 3)
+  print(total(!c))
+  d = Count(n: 0, hi: 3)
+  print(first(!d) ?? -1)
+  e = Count(n: 0, hi: 4)
+  print(biggest(!e) ?? -1)
+  s = Named(n: 0)
+  print(total(!s), named(!s))
+
+fail "apis iter is derived", "`Iter` is derived, and a type never names it: `X` provides it by declaring `fun next(!@) -> T?`, which a `for` loop calls", "`Bad` provides `Stream`, which builds on `Iter`, but `Bad` is no iterator: it declares no `fun next(!@) -> T?`"
+  api Stream: Iter
+    fun name(?@) -> Int
+
+  obj X: Iter
+    n: Int
+
+  obj Bad: Stream
+    n: Int
+
+    fun name(?@) -> Int
+      1
+
+  print(1)

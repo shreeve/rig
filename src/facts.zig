@@ -425,13 +425,13 @@ pub const Facts = struct {
     pub fn witnessParamName(f: Facts, a: std.mem.Allocator, sym: SymbolId, api: ApiRef) ![]const u8 {
         return sema.witnessParamName(f.c(), a, sym, api);
     }
-    /// The conformance `index` of module `module_id`, with that module's
-    /// facts.
     /// The compile-time arguments of `ty` a conformance's own parameters
     /// fill (`sema.conformanceArgs`).
     pub fn conformanceArgs(f: Facts, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const TypeId {
         return sema.conformanceArgs(f.c(), a, ty);
     }
+    /// The conformance `index` of module `module_id`, with that module's
+    /// facts.
     pub fn conformanceAt(f: Facts, module_id: u32, index: u32) ?struct { facts: Facts, conf: Conformance } {
         const home = if (module_id == f.c().module_id) f else f.foreign(module_id) orelse return null;
         return .{ .facts = home, .conf = home.c().conformances.items[index] };

@@ -1,0 +1,129 @@
+# std: std.iter, functions over any iterator (`[I: Iter]`), and every
+# std iterator an `Iter` whose item is what a `for` loop gives.
+
+use std.iter
+
+test "iter count", "4 0"
+  obj Count
+    n: Int
+    hi: Int
+
+    fun next(!@) -> Int?
+      return none if @n >= @hi
+      @n += 1
+      @n
+
+  c = Count(n: 0, hi: 4)
+  e = Count(n: 0, hi: 0)
+  print(iter.count(!c), iter.count(!e))
+
+test "iter sum", "10 7.5 0"
+  obj Count
+    n: Int
+    hi: Int
+
+    fun next(!@) -> Int?
+      return none if @n >= @hi
+      @n += 1
+      @n
+
+  obj Halves
+    x: Float
+
+    fun next(!@) -> Float?
+      return none if @x < 1.0
+      @x = @x / 2.0
+      @x
+
+  c = Count(n: 0, hi: 4)
+  h = Halves(x: 8.0)
+  e = Count(n: 0, hi: 0)
+  print(iter.sum(!c) ?? 0, iter.sum(!h) ?? 0.0, iter.sum(!e) ?? 0)
+
+fail "iter sum of what is no number", "`iter.sum[text.Split]` cannot use `I.Item = ?String`: `?String` is no number"
+  use std.text
+  s = text.split("a b", " ")
+  print(iter.sum(!s))
+
+fail "iter count of what is no iterator", "`iter.count[Label]` cannot use `I = Label`: `Label` is no iterator: it declares no `fun next(!@) -> T?`"
+  obj Label
+    n: Int
+
+  l = Label(n: 1)
+  print(iter.count(!l))
+
+test "iter every std iterator", '''
+  3 a
+  3 a
+  2 x
+  2 x
+  2 p
+  2 p
+  3 a
+  3 a
+  3 97
+  3 97
+  2 1
+  2 1
+  2 1
+  2 1
+  2 2
+'''
+  # Each std iterator is an `Iter` whose item is what the loop gives: a
+  # body bounded by `Iter` prints its count and first item, and a loop
+  # over another of the same prints the same.
+  use std.text
+  use std.utf8
+
+  sub show[I: Iter, I.Item: Print + Copy](a: !I)
+    first = (!a).next()
+    n = 1 + iter.count(!a)
+    if first as f
+      print(n, f)
+
+  s1 = text.split("a b c", " ")
+  show(!s1)
+  s2 = text.split("a b c", " ")
+  k = 0
+  for x in !s2
+    print(3, x) if k == 0
+    k += 1
+  l1 = text.lines("x\ny")
+  show(!l1)
+  l2 = text.lines("x\ny")
+  for x in !l2
+    print(2, x) if x == "x"
+  w1 = text.words("p q")
+  show(!w1)
+  w2 = text.words("p q")
+  for x in !w2
+    print(2, x) if x == "p"
+  c1 = text.chars("abc")
+  show(!c1)
+  c2 = text.chars("abc")
+  for x in !c2
+    print(3, x) if x == "a"
+  r1 = utf8.runes("abc")
+  show(!r1)
+  r2 = utf8.runes("abc")
+  for x in !r2
+    print(3, x) if x == 97
+  m: Map[Int, Int] = Map()
+  !m.put(1, 10)
+  !m.put(2, 20)
+  k1 = ?m.keys()
+  show(!k1)
+  k2 = ?m.keys()
+  for x in !k2
+    print(2, x) if x == 1
+  st: Set[Int] = Set()
+  !st.add(1)
+  !st.add(2)
+  e1 = ?st.items()
+  show(!e1)
+  e2 = ?st.items()
+  for x in !e2
+    print(2, x) if x == 1
+  v = ?m.values()
+  i = ?m.items()
+  print(iter.count(!v), iter.count(!i))

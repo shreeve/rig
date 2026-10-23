@@ -291,7 +291,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each
         // before any pass reads a statement.
@@ -2173,6 +2173,10 @@ pub const Api = enum {
     Num,
     Integer,
     Signed,
+    /// What a `for` loop walks: a type that declares `next(!@) -> T?`,
+    /// whose `Item` is `T` (`sema.iterItem`); derived, never named on a
+    /// header.
+    Iter,
 
     /// The API a name spells, or null.
     pub fn named(text: []const u8) ?Api {
@@ -2353,6 +2357,9 @@ pub const Parser = struct {
     /// bounds one of them (`fun Wrap[T: Print].show(?@)`): each a bare
     /// name, its bounds recorded by where it is (`bounds`).
     owner_bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
+    /// The bounds on associated types (`[S: Source, S.Item: Ord]`), by
+    /// where the name of the parameter whose types they bound is.
+    assoc_bounds: std.AutoHashMapUnmanaged(u32, []const Sexp) = .empty,
 
     /// How many `obj` or `enum` bodies the node being rewritten is in: a
     /// function there is a method.
@@ -3322,10 +3329,24 @@ pub const Parser = struct {
     /// member's name, a field's, a binding's, and a parameter's are names
     /// of their own, and stay. `firsts` gets the position of the first
     /// such name of each file.
-    fn rewriteBuiltin(self: *Parser, node: Sexp, hidden: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
+    fn rewriteBuiltin(self: *Parser, node: Sexp, outer: []const bool, firsts: *std.ArrayList(u32)) std.mem.Allocator.Error!Sexp {
         if (node != .list) return node;
         const kind = node.kind();
         const items = node.items();
+        // An API's associated type (`type Item`) hides a built-in type of
+        // its name in the API.
+        var own: [builtin_type_names.len]bool = undefined;
+        const hidden = if (kind == .api) blk: {
+            @memcpy(&own, outer[0..builtin_type_names.len]);
+            for (ir.rest(node, .members)) |m| {
+                if (!m.isKind(.api_type) or ir.ApiType.name(m) != .src) continue;
+                const text = leafText(self.base.source, ir.ApiType.name(m).src);
+                for (builtin_type_names, 0..) |n, i| if (std.mem.eql(u8, n, text)) {
+                    own[i] = true;
+                };
+            }
+            break :blk own[0..];
+        } else outer;
         var copy: ?[]Sexp = null;
         for (items, 0..) |c, i| {
             if (kind != null and i == 0) continue;
@@ -3415,7 +3436,35 @@ pub const Parser = struct {
             p.* = name;
             changed = true;
         }
-        if (changed) walked[slot] = .{ .list = parser.List.withId(items, group.list.id) };
+        // `S.Item: Ord`: bounds on an associated type of a parameter the
+        // same brackets name, recorded by where that parameter's name is
+        // (`assoc_bounds`), and no parameter of its own.
+        var kept: std.ArrayList(Sexp) = .empty;
+        for (items) |p| {
+            if (!p.isKind(.assoc_bound)) {
+                try kept.append(self.allocator(), p);
+                continue;
+            }
+            changed = true;
+            const owner = ir.get(p, .owner);
+            const base = for (items) |q| {
+                const qn = if (q == .src) q else if (q.isKind(.@":") or q.isKind(.bound)) ir.get(q, .name) else Sexp.nil;
+                if (qn == .src and owner == .src and std.mem.eql(u8, leafText(self.base.source, qn.src), leafText(self.base.source, owner.src))) break qn;
+            } else {
+                self.reject(p, "an associated type's bound names a parameter of the same brackets: `[S: Source, S.Item: Ord]`");
+                continue;
+            };
+            const entry = try self.assoc_bounds.getOrPut(self.allocator(), base.src.pos);
+            if (!entry.found_existing) entry.value_ptr.* = &.{};
+            entry.value_ptr.* = try std.mem.concat(self.allocator(), Sexp, &.{ entry.value_ptr.*, &.{p} });
+        }
+        if (changed) walked[slot] = .{ .list = parser.List.withId(kept.items, group.list.id) };
+    }
+
+    /// The bounds on associated types of the type parameter whose name is
+    /// at `pos`, each an `assoc_bound` (`[S: Source, S.Item: Ord]`).
+    pub fn assocBoundsAt(self: *const Parser, pos: u32) []const Sexp {
+        return self.assoc_bounds.get(pos) orelse &.{};
     }
 
     /// The bounds written on the type parameter whose name is at `pos`

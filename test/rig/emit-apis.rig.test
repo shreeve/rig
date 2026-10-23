@@ -132,3 +132,33 @@ code "apis a slot's witness", "total(rig.SlotOf(4), __rig_impl_Shape_Slot(4), &s
   s = (!t).push(7)
   ss = List([s])
   print(total(?ss))
+
+code "apis an associated type through its witness", "rig.Opt(W_S_Source.Item)", "pub const Item = i64;", "rig.Opt(rig.IterItem(I))"
+  # A body names an associated type through the witness of the bound that
+  # declares it, which carries what each provider gives it; an iterator's
+  # item is what its `next` gives.
+
+  api Source
+    type Item
+
+    fun take(!@) -> Item? from @
+
+  obj Count: Source
+    n: Int
+
+    fun take(!@) -> Int?
+      none
+
+    fun next(!@) -> Int?
+      none
+
+  fun first[S: Source](s: !S) -> S.Item?
+    (!s).take()
+
+  fun head[I: Iter](it: !I) -> I.Item?
+    (!it).next()
+
+  c = Count(n: 0)
+  print(first(!c) ?? -1)
+  d = Count(n: 0)
+  print(head(!d) ?? -1)

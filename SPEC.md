@@ -3672,6 +3672,78 @@ sub main()
 `Wrap[Int].doubled` needs `T: Shape`, and `Int` does not provide `Shape`; write `add Int: Shape` in the module of `Shape`
 ```
 
+An API may name a type each provider chooses, an associated type,
+`type Item`: its methods name it `Item`, and a provider gives it what
+its methods give in their place, so `Count`'s `Item` is `Int` when its
+`take` gives `Int?`. Each required method that names it gives the same
+one, and an API names each of its associated types in a required
+method. A body bounded by the API reads it `S.Item`, and bounds it as an
+entry of its own in the brackets, `[S: Source, S.Item: Ord]`, by the
+built-in APIs; it does what those bounds name, and each instance checks
+them at the type its argument gives it. `Iter` is built in: a type that
+declares `next(!@) -> T?`, the iterator a `for` loop walks, provides it
+with `Item` its `T`, and an API may build on it, `api Stream: Iter`.
+std.iter's `count` and `sum` take any iterator ([STD](docs/STD.md#stditer)).
+
+```rig
+use std.iter
+
+api Source
+  type Item
+
+  fun take(!@) -> Item? from @
+
+obj Count: Source
+  n: Int
+  hi: Int
+
+  fun take(!@) -> Int?
+    return none if @n >= @hi
+    @n += 1
+    @n
+
+  fun next(!@) -> Int?
+    (!@).take()
+
+fun most[S: Source, S.Item: Ord + Copy](s: !S) -> S.Item?
+  best = (!s).take() ?? return none
+  while (!s).take() as x
+    best = x if x > best
+  best
+
+sub main()
+  c = Count(n: 0, hi: 4)
+  print(most(!c) ?? -1)
+  d = Count(n: 0, hi: 4)
+  print(iter.count(!d), iter.sum(!(Count(n: 0, hi: 4))) ?? 0)
+```
+
+```output
+4
+4 10
+```
+
+```rig reject
+use std.iter
+
+obj Floats
+  x: Float
+
+  fun next(!@) -> Float?
+    none
+
+fun distinct[I: Iter, I.Item: Hash](it: !I) -> Int
+  iter.count(!it)
+
+sub main()
+  f = Floats(x: 1.0)
+  print(distinct(!f))
+```
+
+```error
+`distinct[Floats]` cannot use `I.Item = Float`: `Float` cannot be hashed
+```
+
 ### Type aliases
 
 `type Name = T` gives a type a second name. An alias is transparent: it
@@ -5127,7 +5199,10 @@ more than `@`, or one that gives no optional) is not an iterator, and
 a `for` over it is rejected with the shape to write. An element
 (`xs[i]`), whose index the body could change, is bound to a name first.
 An iterator has no index binding. The `List`, array, slice, `?String`, and range sources
-keep the meanings above.
+keep the meanings above. A type that is an iterator provides `Iter`,
+the built-in API a bound names, `[I: Iter]`, whose `I.Item` is the `T`
+its `next` gives: the loop and the bound decide it by one rule
+([APIs](#apis)), and no header names it.
 
 ```rig
 use std.text

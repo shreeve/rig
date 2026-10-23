@@ -471,7 +471,7 @@ A program imports a module with `use std.NAME`
 | System | `std.os` (arguments and environment), `std.file` (files, whole or open, making, moving, and removing them, and what is at a path), `std.io` (copying between files and sockets), `std.time`, `std.target` |
 | Concurrency | `std.task` (cancel, wait, isolate, supervise), `std.par` (parallel `map` and `each`) |
 | Networking | `std.net` (TCP), `std.http` (an HTTP/1.1 server) |
-| Data | `std.sort`, `std.slices`; `Map` and `Set`, in insertion order, are built in |
+| Data | `std.sort`, `std.slices`, `std.iter`; `Map` and `Set`, in insertion order, are built in |
 | Text | `std.text`, `std.utf8`, `std.utf16`, `std.unicode` |
 | Experimental | `std.json` (a fast, validating JSON parser; `load` fails with a `JsonError` naming the first error and its byte offset), `std.terminal` (a terminal emulator as a library) |
 
