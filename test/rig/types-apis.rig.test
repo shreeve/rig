@@ -845,7 +845,7 @@ test "apis own same set", "1"
 
   print(1)
 
-fail "apis own marker", "`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`"
+fail "apis own marker", "`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot be sent to another task: its field `cache` is a `*Cell[List[Int]]`"
   # An API may build on a fact the compiler derives; each provider meets it.
 
   api Job: Sends

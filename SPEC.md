@@ -11606,24 +11606,24 @@ the others, the wait fails with any error (`error`).
 
 **What a task may take.** A task may run on another core, so each
 argument, and a method's self (`@`), must be able to go there as it is
-passed. A value *moves* when it can be handed whole to another thread,
-and *shares* when another thread may read it through a view while this
+passed. A value *sends* when it can be handed whole to another thread,
+and *syncs* when another thread may read it through a view while this
 one also reads it:
 
-- given, moved or copied, it must move;
-- lent to read, `?x` or a `?@` method's self, it must share;
-- lent to write, `!x` or a `!@` method's self, what it views must move.
+- given, moved or copied, it must be sendable;
+- lent to read, `?x` or a `?@` method's self, it must sync;
+- lent to write, `!x` or a `!@` method's self, what it views must be sendable.
 
 What the task gives goes back to the task that waits for it, so it must
-move too, unless the task is local (below) and runs on the waiter's
+be sendable too, unless the task is local (below) and runs on the waiter's
 thread.
 
-| Type | moves | shares |
+| Type | sends | syncs |
 |---|---|---|
-| plain data, `String`, `List[T]`, `^T`, objects and enums | when every part moves | when every part shares |
-| `?T` | when `T` shares | when `T` shares |
-| `!T` | when `T` moves | never |
-| `Task[T]` | when `T` moves | never |
+| plain data, `String`, `List[T]`, `^T`, objects and enums | when every part sends | when every part syncs |
+| `?T` | when `T` syncs | when `T` syncs |
+| `!T` | when `T` sends | never |
+| `Task[T]` | when `T` sends | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
@@ -12104,11 +12104,11 @@ array, or a slice, on several tasks at once:
 
 `f` is a closure written in the call, which can fail when its body
 propagates with `!`, or a function's name. Every task reads what the
-closure captures, so each capture must share, and none is a write
+closure captures, so each capture must sync, and none is a write
 view; a named closure (`?f`) or an owned one (`?cb`) is rejected,
 since its type does not show its captures. `par.map`'s elements must
-share, as every task reads them, and its values must move, as they come
-from other tasks; `par.each`'s elements must move.
+sync, as every task reads them, and its values must be sendable, as they come
+from other tasks; `par.each`'s elements must be sendable.
 
 ```rig
 use std.par

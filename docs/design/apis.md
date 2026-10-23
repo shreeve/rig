@@ -631,7 +631,7 @@ method that exists only for some instances is written with its bound
 in the type's brackets, `fun Wrap[T: Print].show(?@)`; repeating a
 bound the type already has is rejected, and a conformance is met only
 by methods its own bounds imply. An API may build on the built-in
-facts, `api Job: Sends`: every provider must move, checked at its
+facts, `api Job: Sends`: every provider can be sent to another task, checked at its
 header, and a `[T: Job]` may be sent to another task.
 
 **What a bounded body may do.** Call what its bounds declare, and use
@@ -739,7 +739,7 @@ call on a `T` with no bound, which Zig resolves at each instance, is
 `Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
 `c.area()` could call `Shape.area` or `Region.area`, which both apply to `geo.Circle`; name the API: `Shape.area(c)`
 `Disk.size` fails with `Int!Io`, but `Sized` declares `size(?@) -> Int!Bad`; a method meets its API with the same set: write `-> Int!Bad`
-`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
+`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot be sent to another task: its field `cache` is a `*Cell[List[Int]]`
 `add` names a type, and `?Square` is a view: write `add Square: Shape`
 `filter` is `pub`, so it states what its body does with `E`: it copies an `E`; write `[E: Copy]`
 ```
@@ -909,7 +909,7 @@ sub main()
 ```
 
 ```error
-`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
+`Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot be sent to another task: its field `cache` is a `*Cell[List[Int]]`
 ```
 
 ```rig reject
