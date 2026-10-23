@@ -445,3 +445,33 @@ test "table of an object with an empty method", "true 0"
   t: Table[Bag, 4] = Table()
   s: Slot[4] = 3
   print(t[s].empty(), t[s].xs.len)
+
+test "table a slot's count is inferred from its argument", "11 8 4"
+  # A generic call infers `n` from a `Slot[n]` argument, as from a
+  # `Table[T, n]`, and through a view or an optional of one.
+  fun id[n: Int](s: Slot[n]) -> Int
+    Int(s) + n
+
+  fun count[n: Int](s: ?Slot[n]?) -> Int
+    n
+
+  s: Slot[8] = 3
+  o: Slot[4]? = 1
+  p: Slot[8]? = s
+  print(id(s), count(?p), count(?o))
+
+test "table a slot and its table agree on the count", "5"
+  fun get[n: Int](t: ?Table[Int, n], s: Slot[n]) -> Int
+    t[s]
+
+  t: Table[Int, 8] = Table()
+  s = (!t).push(5)
+  print(get(?t, s))
+
+fail "table a slot of another count is refused", "6:7: conflicting values for `n` in the call to `get`: `8` (argument 1) and `4` (argument 2)"
+  fun get[n: Int](t: ?Table[Int, n], s: Slot[n]) -> Int
+    t[s]
+
+  t: Table[Int, 8] = Table()
+  s: Slot[4] = 1
+  print(get(?t, s))

@@ -296,7 +296,8 @@ changed the language since it:
   owner is. A measuring build of Trig whose store indexes were treated
   as proven, a stand-in for tables, ran ts-pattern about 3% faster
   (fastest of 10, 2.8% fewer cycles); Trig's stores move to tables in a
-  change of its own (docs/STD.md, "Table and Slot").
+  change of its own (docs/STD.md, "Table and Slot"). A generic call
+  infers `n` from a `Slot[n]` argument, as from a `Table[T, n]`.
 - **Compile-time functions:** a `fun` with only a bracket parameter
   list, `fun cap[n: Int] -> Int`, runs in the checker, and its call
   `cap[8]` is a constant wherever one may stand: an expression, a module
