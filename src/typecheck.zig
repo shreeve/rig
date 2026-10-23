@@ -11338,6 +11338,11 @@ const Checker = struct {
                     b.conflict_arg = arg;
                 }
             },
+            .slot => |p| if (at == .slot) {
+                inf.exact += 1;
+                defer inf.exact -= 1;
+                try self.bindArg(inf, p, at.slot, arg, depth + 1);
+            } else self.noteMismatch(inf, pattern, actual, arg),
             .parameterized_nominal => |pn| if (self.sameGeneric(at, pn.sym)) |held| {
                 inf.exact += 1;
                 defer inf.exact -= 1;
