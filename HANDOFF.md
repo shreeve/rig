@@ -43,28 +43,53 @@ newest entry summarizes the latest rounds.
 
 ## In flight
 
-- **Errors with data,** from the approved spec
-  (docs/history/records/revamp/r3/errors-panel/): on `main` are declared
-  error sets (R2, #542), clones across modules and Map's `+` (#548), the
-  runtime's error-data plumbing (R3a, #550), and CORE's paragraph "A
-  failure moves its error", revised by a panel of four
-  (docs/history/records/2026-10/errors-core/), and R3 (#555): fields on
-  members wherever a failure goes (calls, function values, closures,
-  tasks, actors, `par`, `isolate`, `main`, tests), one representation
-  for `error` (Option U, #566), and R4 (#565: std.json's `JsonError`, by
-  `load` beside a `Bool` `parse` kept for speed). R2.5, generic sets
-  (`fun total[E](f: ?fun() -> Int!E) -> Int!E`,
-  docs/history/records/2026-10/errors-r25/), is in review. Next are the
-  oracle's model of the hidden `E?` and std's I/O sets (R3-3).
+- **The consolidation round:** no new language features; fixes, docs,
+  tooling, and measurement, in small PRs. Its brief, tracks, and
+  inventory are
+  [docs/history/records/2026-10/consolidation/PLAN.md](docs/history/records/2026-10/consolidation/PLAN.md).
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
 
+Errors with data, from the approved spec
+(docs/history/records/revamp/r3/errors-panel/), is on `main`:
+
+- declared error sets (R2, #542), with clones across modules and Map's
+  `+` (#548);
+- the runtime's error-data plumbing (R3a, #550);
+- CORE's paragraph "A failure moves its error", revised by a panel of
+  four (docs/history/records/2026-10/errors-core/);
+- fields on members wherever a failure goes (R3, #555): calls, function
+  values, closures, tasks, actors, `par`, `isolate`, `main`, and tests;
+- one representation for `error` (Option U, #566);
+- std.json's `JsonError` (R4, #565), by `load` beside a `Bool` `parse`
+  kept for speed;
+- generic sets (R2.5, #569), `fun total[E](f: ?fun() -> Int!E) -> Int!E`
+  (docs/history/records/2026-10/errors-r25/).
+
+Two pieces remain. The oracle's model of the hidden `E?` is in the
+consolidation's track 2. std's I/O sets (R3-3) wait for the owner's
+names, and come after the round.
+
 ## Next, in order
 
-Trig checks with several checkers in tasks, and its output equals tsc's
-at each count. tsrs leads it by 1.69x on one checker on ts-pattern and
-uses about 1.7x less memory. In the owner's order:
+After the consolidation round, in the owner's order:
+
+1. **APIs Stage 3,** from a refresh of
+   [docs/design/apis.md](docs/design/apis.md) for this period's changes
+   (declared error sets on API methods, `*Frozen` beside `*{Shape}`,
+   `Table`). The refresh is docs only and may run during the round.
+2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
+   src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
+   (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
+   text, completion words). Analysis needs an entry to the checker that
+   takes source in memory. Nexus's template already has the fixes from
+   Rig's dry run.
+
+Beside these, Rig supports Trig's speed. Trig checks with several
+checkers in tasks, and its output equals tsc's at each count. tsrs leads
+it by 1.69x on one checker on ts-pattern and uses about 1.7x less
+memory. Trig's needs from Rig, in the owner's order:
 
 1. **Single-thread speed of the checker and of Map/Set,** which carries
    into every checker. With every safety check removed, ts-pattern runs
@@ -100,8 +125,9 @@ bind (about 1.5% of ts-pattern).
 APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
 built in stages. Stage 1, method calls on a type parameter, and Stage 2,
 built-in bounds (`[T: Ord]`, `obj Version: Ord`, a type's own `eq`,
-`hash_into`, `order`, and `print`), are on `main`. Stages 3 to 5 wait
-for a program that needs them; a design question is answered from the
+`hash_into`, `order`, and `print`), are on `main`. Stage 3 is next after the
+consolidation round, and Stages 4 and 5 wait for a program that needs
+them; a design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.
 

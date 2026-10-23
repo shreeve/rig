@@ -17,8 +17,9 @@ change was reviewed and gated, but the pace strained the seams.
 - pup ran out of memory twice under parallel agents.
 
 The owner agreed: one language feature at a time, then a round with
-no new features. This is that round. It starts when errors with data
-is done (R4, R2.5).
+no new features. This is that round. Errors with data finished with
+R2.5 (#569, 2026-10-23), so the round can start; `main` is 463de5898
+or later.
 
 ## Rules for the round
 
@@ -31,9 +32,10 @@ is done (R4, R2.5).
 - **pup:** builds through `/zfs/trig-pup/trial/slot.sh` (slot 0,5), with
   at least 12 GB free and at most one other release build. Rig uses no
   timing cores 3 and 4.
-- **Mac snapshots under ~/Data:** run tools with
-  `GIT_DIR=~/Data/Code/rig/.git` and `RIG_BUILD_STORE` in your own
-  folder, since `~/Data` is itself a git repo. Better: fix it in track 4.
+- **Mac snapshots under ~/Data:** `~/Data` is itself a git repo, so
+  from a plain copy of Rig the tools stop with a message (#564,
+  `tools/gitdir`). Run them with `GIT_DIR=~/Data/Code/rig/.git` and a
+  `RIG_BUILD_STORE` in your own folder.
 - **Records:** every review and measurement goes in
   `docs/history/records/2026-10/consolidation/` with an INDEX.md line.
 
@@ -75,6 +77,15 @@ to true, and clear what reviews left open:
 - `Table`: `n` is not inferred from a `Slot[n]` argument (review 2, N3).
 - `test/cli/match_scale.sh` failed once under a load of about 20; make
   its timing robust (a ratio of fastest runs, or instruction counts).
+- R2.5's review left two diagnostics, both on `main` before it
+  (2026-10/errors-r25/review-1.md, item 6): a bracketed generic call is
+  named `` `expression` `` (`id[Int](n)!`), and a conflict with the
+  expected result says "argument 0".
+- The oracle's model of the hidden `E?`: the last piece of errors with
+  data that is not std (R3-3, 2026-10/errors-r3/design-r3-1.md). The
+  oracle (`bin/rig-oracle`, written from CORE alone) learns CORE's "A
+  failure moves its error", so the compiler's checks of it have a second
+  opinion.
 - The rest of `docs/internals/backlog.md`'s "problems the docs found".
   Among them:
   - a discarded result passes silently;
@@ -110,9 +121,10 @@ and QUICK meets every feature that is built.
 
 ## Track 4: tooling from this period's slips
 
-- `tools/heavy` and `test/rig.rip` find Rig's own repository from a
-  plain folder (a marker such as `rig.grammar` beside them, or an
-  explicit error), never an enclosing repo such as `~/Data/.git`.
+- *(done, #564)* `tools/heavy`, `test/rig.rip`, and `test/matrix.py`
+  find Rig's own repository through `tools/gitdir`, and from a plain
+  copy stop with a message rather than use an enclosing repo such as
+  `~/Data/.git`.
 - Trig's two tiers (`tools/light`, `tools/full-main`): Rig's AGENTS.md
   and HANDOFF name them as the gates.
 - pup's memory rule in the tool: the slot lock waits for free memory,
@@ -157,8 +169,10 @@ the owner wants the tag:
   accepted (CHANGELOG has them);
 - Trig's note and scripts first.
 
-## Inventory (taken 2026-10-22, while R2.5 was being built)
+## Inventory (taken 2026-10-22, while R2.5 was being built; checked 2026-10-23)
 
+- **Repository:** after #569, `main` is the only branch, local and on
+  GitHub, with no open PRs and no change worktrees.
 - **Tests:** no case is marked `known: true`. Several known issues exist
   but have no case, so the round first writes each as a failing case:
   - #542's three bends (any error from `task.all`, `task.isolate`, and
@@ -188,7 +202,7 @@ the owner wants the tag:
 
 ## Order, and what comes after
 
-1. Track 1, while tracks 3 and 4 run beside it (agents, small PRs).
+1. Track 1, while tracks 3, 4, and 6 run beside it (agents, small PRs).
 2. Track 2, once track 1's merges settle.
 3. Track 5 last, if wanted.
 
@@ -198,6 +212,15 @@ Expected: about two to three days. Then, per the owner's plan:
   `traits-panel/`, `naming-panel/`), for this period's changes
   (declared error sets on API methods, `*Frozen` beside `*{Shape}`,
   `Table`), then Stage 3;
+- `rig lsp` moves onto the server Nexus generates
+  (`nexus --editor --lang src/rig.zig rig.grammar DIR`, Nexus's
+  docs/LSP.md). Rig fills in its `hooks.zig`: tokens from
+  `src/editor.zig`'s classifier, syntax errors in Rig's words,
+  analysis of the editor's unsaved text (an entry to the checker that
+  takes source in memory), and completion words. The owner deferred it
+  to after the round, or after Stage 3 (2026-10-22); Nexus knows, and
+  its template has the fixes from Rig's dry run;
+- std's I/O sets (R3-3), once the owner names them;
 - Stage 4 together with the I/O layer, its first real use.
 
 Beside all of this, Rig supports Trig's speed and memory:
