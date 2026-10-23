@@ -488,9 +488,11 @@ from its body. Associated constants, and APIs with parameters of
 their own (`api Into[T]`), wait for a later decision.
 
 **`Iter`** is the built-in API a `for` loop already accepts: `type Item`
-and `fun next(!@) -> Item?`. It comes with this stage because its
-useful bound names its item type, `[I: Iter, I.Item: Ord]`, and with it
-come `iter.count` and `iter.sum`.
+and `fun next(!@) -> Item?`. A type provides it when it declares that
+method, by the one rule the loop uses to find an iterator, and its
+`Item` is what `next` gives; no header names it, as none names `Moves`.
+It comes with this stage because its useful bound names its item type,
+`[I: Iter, I.Item: Ord]`, and with it come `iter.count` and `iter.sum`.
 
 **A type provides an API on its header,** `obj Square: Shape`,
 beside `unique` (`obj Ticket unique: Print`). The type's methods are
@@ -507,9 +509,14 @@ fix.
 An `add` in the type's own module with no bound is rejected toward the
 header form, so each case has one spelling. An addition's methods stay
 inside it and need no `pub`: they belong to the API, and never become
-methods of the type for every importer. `add` says what it does, adds
-`Shape` to `Int`, whoever owns `Int`; Rust's `impl Trait for Type` is
-not used, and `for` is Rig's loop word.
+methods of the type for every importer, so a call on a `T` with no
+bound (Stage 1) never reaches one. `add` names a type by its name: an
+object, an enum, or a built-in type such as `Int`, `String`, `List[T]`,
+or `Slot[n]`. A view, a handle, an optional, an array, a slice, and a
+function type take their facts from their parts, and no `add` names
+one. `add` says what it does, adds `Shape` to `Int`, whoever owns
+`Int`; Rust's `impl Trait for Type` is not used, and `for` is Rig's
+loop word.
 
 **Coherence.** A type provides an API at most once in the whole program,
 in its own module or the API's. There are no additions to a bare
@@ -524,7 +531,8 @@ written as at any call.
 
 **How an implementation must match its API.** Exactly, in how it
 takes self (`?@`, `!@`, `<@`), in each parameter's type and mode, views
-included, in `once`, and in its result. Only `from` and `keeps` may
+included, in `once`, in its compile-time parameters, and in its result,
+how it fails included. Only `from` and `keeps` may
 narrow: an implementation may name fewer than the API, compared by
 parameter position, never more. A call through a bound uses the API's
 clauses, which every implementation is within. In an API, a method
@@ -533,6 +541,49 @@ default. An implementation that keeps what its API does not would let
 a call through the API end a loan the implementation still holds, so
 it is rejected where it is declared.
 
+**How an API's method fails.** As any method does: `-> T!E` with a
+declared set or a union, `-> T!` with any error, or a set parameter of
+its own, `fun each[E](?@, f: ?fun(Item) -> Bool!E) -> Int!E`
+([SPEC, Generic sets](../../SPEC.md#generic-sets)). An implementation
+declares the same: the same set or union, `T!` for `T!`, and the same
+set parameters in the same places. It never fails with a narrower set,
+though `from` and `keeps` may narrow. Those two are facts only the
+checkers read; a set is part of the result's type, which one body
+written for every instance receives, the slot of the members' fields
+included, so every instance must give it the same. A narrower set would
+give a caller through the bound nothing, since that caller sees the
+API's set, and a method may always declare a set wider than the members
+it uses. So a call through a bound is checked as any call is: `!`
+passes the API's set on into a frame whose set holds it, `catch |e|`
+gives `e` the API's set, matched without `_` when it is a declared set,
+and every instance's method fails with exactly that set. A default's
+failures are checked in the API's module, as any body's are. An API
+names no set for each provider to choose; a reader whose set depends on
+its provider waits for the design of std's I/O sets.
+
+**A body that passes a method's failure on.** With no bound, a generic
+body does not know how a `T`'s method fails: Stage 1 takes `x.size()!`
+to fail with any error, so a body that declares a set of its own,
+`-> Int!Bad`, cannot pass the failure on, and each instance's method
+must fail with any error. A bound says how the method fails, in the
+signature, once, and a frame whose set holds the API's passes it on:
+
+```text
+error Bad
+  empty
+
+error Load = Bad | Disk
+
+api Sized
+  fun size(?@) -> Int!Bad
+
+fun total[T: Sized](xs: []T) -> Int!Load
+  n = 0
+  for x in xs
+    n += x.size()!                    # `Bad` passes into `Load`, which holds it
+  n
+```
+
 **Bounds.** In the brackets, always, since brackets mean compile time:
 `[T: Ord + Print]`, a bound on an associated type as an entry of its
 own, `[S: Source, S.Item: Ord]`, and a bound on a method's own
@@ -540,31 +591,93 @@ parameter, `fun map[U: Print](?@, ...)`. There is no `where` clause. A
 method that exists only for some instances is written with its bound
 in the type's brackets, `fun Wrap[T: Print].show(?@)`; repeating a
 bound the type already has is rejected, and a conformance is met only
-by methods its own bounds imply.
+by methods its own bounds imply. An API may build on the built-in
+facts, `api Job: Moves`: every provider must move, checked at its
+header, and a `[T: Job]` may be sent to another task.
 
 **What a bounded body may do.** Call what its bounds declare, and use
 what the built-in bounds name, and no more. Actors never provide a
 user API: `*Actor[A]` meets none, and nothing lends a view of an actor's
 value, so no bound reaches an actor's state around its mailbox.
 
-**Public generics state their bounds.** In this stage a `pub` generic
-must name, by bounds, everything its body does with each type
-parameter; the error carries the fix, and `rig fix` writes the bounds
-across a tree, std first. A private generic may keep per-instance
-checking, since its author sees every instance. The one check that
-stays per instance everywhere is whether a literal fits each instance's
-type (`x * 300` with `T = U8`).
+**Facts no API names.** A bound states what a body does that an API
+names. A few facts of a type's parts have no API: whether a literal
+fits it (`x * 300` with `T = U8`), whether it can be frozen
+(`*Frozen(<x)` holds nothing that changes what it reaches), and whether
+it has a default (`T()`, with which a `Table[T, n]` fills its slots).
+Each is checked at every instance, in every generic body, bounded or
+not, public or not, with the error at the call or type that makes the
+instance and a note at the body line, as Stage 1 reports. An API may
+name one later, when a signature needs to say it.
 
-**Lowering.** A call through a bound is a direct call. Each bound adds
-one compile-time parameter after the type it bounds, its witness, and
-the call is written `W_T_Shape.area(x)`: the type itself for a
-conformance on its header, or a module-level `__rig_impl_Shape_Int` for
-an addition. Instances stay one per type, so code size does not change.
-A generic type's witnesses are compile-time parameters of its methods,
-never of the type, so one Rig type stays one Zig type. Every method
-call records how it dispatches, `direct`, `static`, or `dynamic`, and
-`rig check --facts=sema` prints it; in `rig emit` the three read
-`x.area()`, `W.area(x)`, and `s.vt.area(s.ptr)`.
+**Compile-time values.** A bound applies to a type parameter. `[n: Int]`
+already says what `n` is and takes no bound: a range a value must lie
+in (`n > 0`) is a precondition, for the later `requires`, and a
+compile-time function checks its arguments with `panic` (`cap[0]`). An
+API declares methods, never a compile-time function or a constant. An
+API's method may take compile-time parameters of its own, types, values,
+and sets, and a call through a bound passes them as at any call, since
+the API declares them. `Slot[n]` meets the bounds a number does but the
+number APIs: it copies, compares, orders, hashes, prints, and crosses.
+
+**Tasks, function values, and closures.** `Moves` and `Shares` stay
+facts of a type's parts ([SPEC §18](../../SPEC.md#18-tasks)): a
+function value moves and shares, a callable view and an owned closure
+do neither, and a `*Frozen[T]` does both. A call through a bound may be
+a task, `x.area()&`, which crosses by the bounds: self lent to read
+needs `Shares`, and a bounded `T` with neither makes the task local, as
+in Stage 2. A closure is never generic and takes no bound; one written
+in a bounded body calls through the body's bounds. A function value
+provides no API of a program's own.
+
+**Frozen values.** `*Frozen[T]` and Stage 5's `*{Shape}` meet at a few
+points, and Stage 3 changes neither:
+
+- A `*Frozen[T]` provides `Eq`, `Hash`, and `Print` as its value does,
+  `Moves` and `Shares` always, and no API of a program's own: a handle
+  is not its value. A generic over `T: Shape` takes `?f`, which lends
+  the frozen value as a `?T`, and calls its `?@` methods; nothing
+  reaches a `!@` or `<@` method through it.
+- Freezing a bounded `T` is checked at each instance, as a fact no API
+  names.
+- `*{Shape}` counts as a `*T` does and stays with its task. A value many
+  tasks read is a `*Frozen[T]` while its type is known; one whose type
+  is erased is Stage 5's case, checked where the type is erased, as
+  `^{Job + Moves}` is.
+
+**Public generics state their bounds.** A `pub` generic, a function or
+a type, names by bounds everything its body does with each type
+parameter that an API names; the error carries the fix. The bounds a
+signature's types require are implied: a parameter named in
+`Map[K, V]`, or in the field of a type bounded so, is `K: Hash` without
+saying it, whether or not it has bounds of its own. A private generic
+may keep per-instance checking, since its author sees every instance,
+and facts no API names stay per instance everywhere. The rule rejects
+programs a release accepted, so it is the last step of this stage and
+lands on its own: a migration script writes each bound from the
+compiler's own fix, std first, the release notes list it, and Trig
+gets a note and the script before it merges.
+
+**Lowering.** A call through a bound is a direct call. Each
+conformance has one witness, a namespace declared beside it, whose
+members name the type's methods and the defaults it takes:
+`__rig_impl_Shape_Square` in the type's module for a header, and
+`__rig_impl_Shape_Int` in the API's module for an addition. Each bound
+on an API of a program's own adds one compile-time parameter, its
+witness, after the type it bounds, to the declaration that states it: a
+function, a method's own brackets, or a generic type. The call is
+written `W_T_Shape.area(x)`. A type provides an API once in the
+program, so its witness follows from it: `Bag[Square]` is one Zig type,
+with the witness among its arguments, and its `drop`, its own `print`,
+and a Stage 1 call that reaches its methods find the witness in the
+type. Instances stay one per type, so code size does not change. A
+default is a generic function of the API's module, checked once as
+`describe[Self: Shape](?@)`. The built-in bounds take no witness: the
+runtime's `rig.eql`, `rig.hash`, and `rig.compare` still serve them.
+Every method call records how it dispatches, `direct`, `static`, or
+`dynamic`, and `rig check --facts=sema` prints it; in `rig emit` the
+three read `x.area()`, `W.area(x)`, and `s.vt.area(s.ptr)`. A call on a
+`T` with no bound, which Zig resolves at each instance, is `direct`.
 
 **The errors a reader meets first**, each with its fix:
 
@@ -576,6 +689,10 @@ call records how it dispatches, `direct`, `static`, or `dynamic`, and
 `Counter.next` takes `self` as `?@`, but `Source` declares `next(!@)`; a method meets its API with the same self: write `fun next(!@) -> Item?`
 `Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
 `c.area()` could call `Shape.area` or `Region.area`, which both apply to `geo.Circle`; name the API: `Shape.area(c)`
+`Disk.size` fails with `Int!Io`, but `Sized` declares `size(?@) -> Int!Bad`; a method meets its API with the same set: write `-> Int!Bad`
+`Pool` provides `Job`, which builds on `Moves`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`
+`add` names a type, and `?Square` is a view: write `add Square: Shape`
+`filter` is `pub`, so it states what its body does with `E`: it copies an `E`; write `[E: Copy]`
 ```
 
 ## Stage 4: API objects *(planned)*
@@ -669,6 +786,9 @@ is not used.
   actor's messages are the cases this serves.
 - Once `*{...}` exists, an owned closure, `*fun`, may be lowered the
   same way, saving one allocation per closure.
+- `*Frozen[T]` already gives a value whose type is known to many tasks,
+  counted atomically. An erased value read by many tasks is the case
+  left here, its crossing checked where the type is erased.
 
 ## What each checker and proof adds
 
@@ -676,7 +796,7 @@ is not used.
 |---|---|---|---|
 | 1 | per-instance typing of the call; the function-value ownership rule | the same rule, read from the call's facts | nothing |
 | 2 | bounded parameters held to their bounds; marker facts | computes the marker facts itself; a copy of a bounded `T` needs `Copy` | `Copy` only of plain kinds |
-| 3 | conformance, coherence, clauses within the API's by position | conformance clauses checked on its own | a subsumption lemma: a call checked against wider clauses is sound for any callee within them |
+| 3 | conformance, coherence, clauses within the API's by position, the same failure as the API's; one dispatch fact per call | conformance clauses checked on its own; a call through a bound read with the API's clauses | a subsumption lemma: a call checked against wider clauses is sound for any callee within them |
 | 4 | object facts; no assignment through `!{...}` | object facts computed itself; abstains on a dynamic call until then | erasing a type keeps its loans |
 | 5 | count operations in the table; crossing bounds at erasure | crossing facts of objects | crossing obligations |
 
