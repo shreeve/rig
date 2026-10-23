@@ -708,6 +708,10 @@ pub const Checker = struct {
     binding: ?struct { name: []const u8, value: Sexp, rejected: bool = false } = null,
     /// Walking the arguments of a call the type checker rejected.
     in_rejected_call: bool = false,
+    /// The call being walked reaches its method through an API's witness
+    /// (`sema.Dispatch.static`): what its declaration keeps, it stores,
+    /// in a value of a type parameter's type too (`genericStoreIn`).
+    api_call: bool = false,
     /// The call whose arguments are being walked, for the diagnostic of
     /// an argument that would copy a value that moves.
     arg_call: ?Sexp = null,
@@ -1893,9 +1897,16 @@ pub const Checker = struct {
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
             .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
-            // An API's defaults and an addition's methods are walked where a
-            // call through a bound reaches them (docs/design/apis.md, Stage 3).
-            .api, .api_add => {},
+            // An API's defaults, and an addition's methods (whose origins
+            // its conformance holds, `declOrigins`).
+            .api, .api_add => {
+                const saved = self.decl_owner;
+                defer self.decl_owner = saved;
+                self.decl_owner = if (sexp.isKind(.api)) (if (self.sema) |ctx| ctx.symbolOf(ir.Api.name(sexp)) else null) else null;
+                for (ir.rest(sexp, .members)) |c| {
+                    if ((c.isKind(.fun) or c.isKind(.sub)) and ir.get(c, .body) != .nil) try self.walkDecl(c);
+                }
+            },
             else => try self.walkStmt(sexp),
         }
     }
@@ -4645,6 +4656,9 @@ pub const Checker = struct {
         // value holding one). A built-in element method (`!dst.fill(v)`,
         // `!dst.copy(src)`) stores elements, which hold a view only where
         // the element type does (`storesNothing`).
+        const saved_api = self.api_call;
+        defer self.api_call = saved_api;
+        self.api_call = if (self.sema) |ctx| if (ctx.dispatchOf(node)) |d| d == .static else false else false;
         if ((stored.loans.len > 0 or stores_generic) and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
             // what changes through one is a Cell, which holds no loan). A
@@ -5560,6 +5574,10 @@ pub const Checker = struct {
     fn declOrigins(self: *const Checker, name: Sexp) sema.Origins {
         const ctx = self.sema orelse return .{};
         if (name != .src) return .{};
+        // An addition's method, which no symbol's fields hold.
+        for (ctx.conformances.items) |c| for (c.methods) |f| {
+            if (f.decl_pos == name.src.pos) return f.origins;
+        };
         if (self.decl_owner) |owner| {
             const fields = ctx.symbols.items[owner].fields orelse &.{};
             // The first method of its name, unless two share it.
@@ -7002,11 +7020,27 @@ pub const Checker = struct {
         if (depth > 16 or !self.holdsGeneric(self.pointee(self.vars.items[id].ty))) return;
         const c = self.vars.items[id];
         if (c.kind == .param and c.ref != .none) {
+            // The caller's value outlives this function's own values, as
+            // for any type (`absorbLoans`): a call through a bound that
+            // keeps what it is passed stores it there. (A function value
+            // keeps nothing; its default origins only say it may.)
+            if (self.api_call) for (stored.loans) |l| if (l.root != id and self.isLocalLoan(l)) {
+                try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, c.name, c.name });
+                return;
+            };
             var out: std.ArrayList(Loan) = .empty;
             for (stored.loans) |l| if (l.root != id and !self.isLocalLoan(l)) try out.append(self.arena(), l);
             self.recordStore(id, out.items, pos);
             return;
         }
+        // A value of a type parameter's type this body owns: it tracks no
+        // view in one (SPEC "Generic bodies"), so a call that keeps what
+        // it is passed may not store a view there.
+        if (self.api_call and c.ref == .none and depth == 0) for (stored.loans) |l| if (l.root != id) {
+            const shown = if (self.sema) |ctx| try sema.formatTypeIn(ctx, self.arena(), (self.pointee(c.ty) orelse c.ty) orelse sema.type_invalid) else "T";
+            try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`, a `{s}`: a generic body tracks no view a value of a type parameter holds", .{ self.vars.items[l.root].name, c.name, shown });
+            return;
+        };
         for (self.flows.items[id].loans) |l| {
             if (l.kind == .write and l.root != id) try self.genericStoreIn(l.root, stored, pos, depth + 1);
         }

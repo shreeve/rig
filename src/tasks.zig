@@ -96,6 +96,18 @@ pub fn Task(comptime T: type) type {
             return startMethod(true, recv, name, args);
         }
 
+        /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
+        /// Stage 3): `recv` is the receiver's address, or the address of a
+        /// view of it, as for `spawnMethod`.
+        pub fn spawnWitness(comptime f: anytype, recv: anytype, args: anytype) Self {
+            return start(false, f, .{rt.selfArg(f, recv)} ++ args);
+        }
+
+        /// `spawnWitness` for a local task (`spawnLocal`).
+        pub fn spawnWitnessLocal(comptime f: anytype, recv: anytype, args: anytype) Self {
+            return start(true, f, .{rt.selfArg(f, recv)} ++ args);
+        }
+
         fn startMethod(comptime local: bool, recv: anytype, comptime name: []const u8, args: anytype) Self {
             const P = @TypeOf(recv);
             const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;

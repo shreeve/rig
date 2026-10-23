@@ -1,0 +1,90 @@
+# emit: what a call through a bound lowers to (docs/design/apis.md, Stage
+# 3, "Lowering"): a witness per conformance, one compile-time parameter
+# per bound after the type it bounds, and `W.area(x)`.
+
+code "apis a call through a witness", "W_T_Shape.area(rig.selfArg(W_T_Shape.area, &x))"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun total[T: Shape](xs: ?List[T]) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  xs: List[Square] = List()
+  print(total(?xs))
+
+code "apis a witness among a type's arguments", "Bag(Square, __rig_impl_Shape_Square)"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Bag[T: Shape]
+    items: List[T]
+
+  b = Bag[Square](items: List())
+  print(b.items.len)
+
+code "apis a header's witness", '''
+  pub const __rig_impl_Shape_Square = struct {
+      pub const area = Square.area;
+      pub const describe = __rig_defaults_Shape(Square, @This()).describe;
+  };
+'''
+  api Shape
+    fun area(?@) -> Float
+
+    fun describe(?@) -> String
+      String("area ", @area())
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  print(Square(side: 1.0).describe())
+
+code "apis a generic type's method through its bound", "W_T_Closer.close(rig.selfArg(W_T_Closer.close, x));"
+  api Closer
+    sub close(!@)
+
+  obj File: Closer
+    n: Int
+
+    sub close(!@)
+      @n = 0
+
+  obj Bag[T: Closer]
+    items: List[T]
+
+    sub shut(!@)
+      for x in !@items
+        !x.close()
+
+  b = Bag[File](items: List())
+  !b.shut()
+  print(b.items.len)
+
+code "apis by name", "__rig_impl_Shape_Int.area(n)"
+  api Shape
+    fun area(?@) -> Float
+
+  add Int: Shape
+    fun area(?@) -> Float
+      Float(@)
+
+  n = 3
+  print(Shape.area(n))

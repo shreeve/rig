@@ -1040,9 +1040,9 @@ const Bounds = struct {
 /// What a name in a bound or a header names: a built-in API, an API of a
 /// program's own (`Shape`, `geo.Shape`), nothing of the kind, or a
 /// mistake already reported (a module not imported, a private API).
-const ApiNamed = union(enum) { builtin: rig.Api, user: sema.ApiRef, none, reported };
+pub const ApiNamed = union(enum) { builtin: rig.Api, user: sema.ApiRef, none, reported };
 
-fn apiNamed(ctx: *SemContext, scope: ScopeId, leaf: Sexp) Error!ApiNamed {
+pub fn apiNamed(ctx: *SemContext, scope: ScopeId, leaf: Sexp) Error!ApiNamed {
     if (leaf == .src) {
         const text = identAt(ctx.source, leaf) orelse return .none;
         if (rig.Api.named(text)) |api| return .{ .builtin = api };
@@ -1954,6 +1954,7 @@ pub const TypeResolver = struct {
             .kind = .add,
             .params = own,
             .methods = methods,
+            .self_sym = owner,
         });
     }
 

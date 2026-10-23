@@ -3388,9 +3388,23 @@ default writes the method to choose.
 A bound by an API holds at each instance, and a bounded `T` does what
 its bounds name and no more. `api` and `add` are keywords only at the
 start of a module-level declaration, so `user.api` and `!set.add(x)`
-stay names. A call through a bound, and an API's defaults, are checked
-and lowered as [docs/design/apis.md](docs/design/apis.md) builds them
-in stages; until then such a call is rejected.
+stay names.
+
+A call through a bound, `x.area()` on a `[T: Shape]`, is checked
+against the API's declaration, `Self` being `T`: how it takes self, its
+parameters, its compile-time parameters, and its result and how it
+fails, which every implementation has exactly, and its `from` and
+`keeps`, which every implementation is within. So `!` passes the API's
+set on into a frame whose set holds it, and `catch |e|` gives `e` that
+set. A default is checked once, as a method generic over `Self`, a type
+parameter bounded by its API, and an addition's methods as methods of
+the type it adds to. `Shape.area(c)` calls a method through the API by
+name, self first with its sigil as at any call, on a type that provides
+the API or a bounded `T`. On a type with no method `area` of its own,
+`c.area()` calls the one the API gives it, a default or an addition's,
+when exactly one API the module declares or imports gives one; with
+two, the call names the API. A call on a `T` with no bound reaches only
+a type's own methods.
 
 ```rig
 api Shape
@@ -3478,11 +3492,14 @@ sub main()
 `Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
 ```
 
-A call through a bound comes with the next stage:
+A call through a bound, a default, and a call through the API by name:
 
-```rig pending
+```rig
 api Shape
   fun area(?@) -> Float
+
+  fun describe(?@) -> String          # a default
+    String("a shape of area ", @area())
 
 obj Square: Shape
   side: Float
@@ -3498,7 +3515,51 @@ fun total[T: Shape](xs: ?List[T]) -> Float
 
 sub main()
   squares = List([Square(side: 1.0), Square(side: 2.0)])
-  print(total(?squares))
+  print(total(?squares), squares[1].describe(), Shape.area(squares[0]))
+```
+
+```output
+5.0 a shape of area 4.0 1.0
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+api Region
+  fun area(?@) -> Float
+
+add Int: Shape + Region
+  fun area(?@) -> Float
+    Float(@)
+
+sub main()
+  n = 3
+  print(n.area())
+```
+
+```error
+`n.area()` could call `Shape.area` or `Region.area`, which both apply to `Int`; name the API: `Shape.area(n)`
+```
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+add Int: Shape
+  fun area(?@) -> Float
+    Float(@)
+
+fun total[T](x: ?T) -> Float
+  x.area()
+
+sub main()
+  n = 3
+  print(total(?n))
+```
+
+```error
+`T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`
 ```
 
 ### Type aliases

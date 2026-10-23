@@ -54,14 +54,35 @@ changed the language since it:
   bounds; a type provides an API once in the program, in its module or
   the API's, the APIs an addition's API builds on included; an addition
   names no member its type has, a String's `push` included; and a bound
-  by an API, `[T: Shape]`, holds at each instance. A call through such a bound is rejected until the next step
-  lowers it. `api` and `add` are keywords only at the start of a
+  by an API, `[T: Shape]`, holds at each instance. `api` and `add` are keywords only at the start of a
   module-level declaration, before the name it declares or the type it
   names, so `user.api`, `!set.add(x)`, and a binding named `add` stay
   names; `trait` and `impl` say to write `api` and `add`. A type, an
   API, or an alias named `Int`, `Float`, `Bool`, or a sized number is
   rejected, as one named `String` is: an `obj Int` was accepted and
   never reached, since the name named the built-in type.
+
+- **APIs of a program's own (Stage 3, calls through a bound):** a call
+  on a bounded `T`, `x.area()`, is typed from the API's declaration: its
+  self, parameters, compile-time parameters, and result with its failure,
+  so `x.size()!` passes the API's set into a frame whose set holds it,
+  `catch |e|` gives `e` that set, and a set with fields passes them
+  through the slot; ownership reads the API's `from` and `keeps`, which
+  every implementation is within. A call through a bound may be a task
+  and may stand in a closure. `Shape.area(c)` calls a method through the
+  API by name, and `c.area()` on a type with no `area` of its own
+  reaches the default or addition of the one API the module sees that
+  gives it one; two such APIs make the call name one. A call on a `T`
+  with no bound that would reach a default or an addition says to write
+  the bound. Each conformance has a witness, `__rig_impl_Shape_Square`,
+  beside it, naming the type's methods, an addition's, and the defaults
+  it takes; each bound adds one compile-time parameter, its witness,
+  after the type it bounds, a generic type's included, so `Bag[Square]`
+  stays one Zig type. Defaults' bodies and additions' methods are
+  checked and lowered: a default as a method generic over `Self`. Every
+  method call records how it dispatches, `direct` or `static`, and `rig
+  check --facts=sema` prints it. A call through a bound that would store
+  a view of a local in a value of a type parameter's type is rejected.
 
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call

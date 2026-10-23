@@ -98,6 +98,11 @@ pub const SetStep = storage.SetStep;
 pub const StepPoint = storage.StepPoint;
 pub const JumpDest = sema.JumpDest;
 pub const CallTarget = sema.CallTarget;
+pub const Dispatch = sema.Dispatch;
+pub const Witness = sema.Witness;
+pub const ArgWitness = sema.ArgWitness;
+pub const Conformance = sema.Conformance;
+pub const ApiRef = sema.ApiRef;
 
 pub const type_invalid = sema.type_invalid;
 pub const type_param_mark = sema.type_param_mark;
@@ -376,6 +381,52 @@ pub const Facts = struct {
     }
     pub fn isTypeParamCall(f: Facts, call: Sexp) bool {
         return f.c().isTypeParamCall(call);
+    }
+
+    // -------------------------------------------------------------------
+    // APIs of a program's own (docs/design/apis.md, Stage 3)
+    // -------------------------------------------------------------------
+
+    /// How a method call reaches its method (`sema.Dispatch`).
+    pub fn dispatchOf(f: Facts, call: Sexp) ?Dispatch {
+        return f.c().dispatchOf(call);
+    }
+    /// The witnesses an instance of a generic type takes among its
+    /// arguments (`sema.recordTypeWitnesses`); null for a type that takes
+    /// none, or one no check recorded.
+    pub fn typeWitnesses(f: Facts, ty: TypeId) ?[]const ArgWitness {
+        return f.c().type_witnesses.get(ty);
+    }
+    /// Whether generic type `sym`'s parameters take witnesses: some bound
+    /// names an API of a program's own.
+    pub fn takesWitnesses(f: Facts, sym: SymbolId) bool {
+        for (f.symbols.items[sym].type_params orelse return false) |p| {
+            if (p != sema.symbol_invalid and f.symbols.items[p].user_apis.len > 0) return true;
+        }
+        return false;
+    }
+    /// The conformances this module writes, each with its witness.
+    pub fn conformances(f: Facts) []const Conformance {
+        return f.c().conformances.items;
+    }
+    /// The name of the witness of conformance `index` of module
+    /// `module_id` (`sema.witnessName`).
+    pub fn witnessName(f: Facts, a: std.mem.Allocator, module_id: u32, index: u32) ![]const u8 {
+        return sema.witnessName(f.c(), a, module_id, index);
+    }
+    /// The conformance `index` of module `module_id`, with that module's
+    /// facts.
+    pub fn conformanceAt(f: Facts, module_id: u32, index: u32) ?struct { facts: Facts, conf: Conformance } {
+        const home = if (module_id == f.c().module_id) f else f.foreign(module_id) orelse return null;
+        return .{ .facts = home, .conf = home.c().conformances.items[index] };
+    }
+    /// The API `ref` names, as declared.
+    pub fn apiSymbol(f: Facts, ref: ApiRef) ?Symbol {
+        return sema.apiSymbol(f.c(), ref);
+    }
+    /// This module's id among the program's.
+    pub fn moduleId(f: Facts) u32 {
+        return f.c().module_id;
     }
     pub fn isChanMake(f: Facts, call: Sexp) bool {
         return f.c().isChanMake(call);
