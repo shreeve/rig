@@ -42,6 +42,30 @@ RIG
 expect_eq "$(cat out.txt)" 'main.rig:12:7: `keep(+n, 0)&` is local, pinned to its maker'"'"'s thread by `+n`: `*lib.Node` is a `*` handle whose count is not atomic, so two cores could change it at once
 lib.rig:8:7: `val(?n)&` is local, pinned to its maker'"'"'s thread by `?n`: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once' "the local tasks rig check --tasks lists"
 
+# A directory module's lines each name their file, with the line and
+# column in it, in the order of the files' names.
+mkdir -p dir
+cat >dir/a.rig <<'RIG'
+sub main()
+  n = *Box(v: 2)
+  t = get(+n)&
+  print(>t + peek(+n))
+RIG
+cat >dir/b.rig <<'RIG'
+obj Box
+  v: Int
+
+fun get(b: *Box) -> Int
+  b.v
+
+fun peek(b: *Box) -> Int
+  t = get(+b)&
+  >t
+RIG
+"$RIG" check --tasks dir >dir.txt 2>err.txt || fail "rig check --tasks dir: $(cat err.txt)"
+expect_eq "$(cat dir.txt)" 'dir/a.rig:3:7: `get(+n)&` is local, pinned to its maker'"'"'s thread by `+n`: `*Box` is a `*` handle whose count is not atomic, so two cores could change it at once
+dir/b.rig:8:7: `get(+b)&` is local, pinned to its maker'"'"'s thread by `+b`: `*Box` is a `*` handle whose count is not atomic, so two cores could change it at once' "a directory module's local tasks"
+
 # A program with no local task lists nothing.
 printf 'fun one() -> Int\n  1\n\nsub main()\n  t = one()&\n  print(>t)\n' >free.rig
 out=$("$RIG" check --tasks free.rig 2>&1) || fail "rig check --tasks free.rig: $out"

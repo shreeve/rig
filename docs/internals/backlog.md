@@ -219,5 +219,3 @@ fixing.
   as a statement drops its `Bool` with no error, while a bare `0` is
   rejected. Make the rule one: a statement whose value is not `Void`
   needs `_ =`, or say in SPEC why a call's result may go unused.
-- **`rig check --tasks`,** to list each local task and what pins it, was
-  decided by the concurrency panel and is not built.
