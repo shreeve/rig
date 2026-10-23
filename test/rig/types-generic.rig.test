@@ -3257,3 +3257,21 @@ test "type param method wrapped results", "3 -1 4 -5 2.5"
     c = C(n: 3)
     d = C(n: 5)
     print(look(?c, 3), look(?c, 2), get(?c)!, safe(?c), halfish(?d))
+
+test "generic read view of an optional view", '''
+  1
+  1
+'''
+  # A read view of a view copies the view, in a generic body as anywhere:
+  # a `T` that is an optional of a view is lent as its value.
+  obj Node
+    n: Int
+
+  sub show[T](x: ?T)
+    print(1)
+
+  n = Node(n: 3)
+  b: (?Node)? = ?n
+  show(b)
+  c: (?Node)? = none
+  show(c)

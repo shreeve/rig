@@ -7523,11 +7523,12 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 }
 
 /// A type a read view copies: a number, `Bool`, `?String`, a slice, a
-/// function or callable view (a `rig.FnRef`), a vector, a plain enum,
-/// an error, or an optional of one of those.
+/// read view, a function or callable view (a `rig.FnRef`), a vector, a
+/// plain enum, an error, or an optional of one of those. The runtime's
+/// `ReadView` holds a generic `?T` by the same rule.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd, .slot => true,
+        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd, .slot, .read_view => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
