@@ -143,7 +143,7 @@ printed = (v) -> if v.heredoc? then v.heredoc else if /^".*"$/.test(v.text) then
 
 # Is a line of a body a declaration, which goes to the top of the case's
 # program, and not a statement of `main`?
-declares = (line) -> /^(pub )?(inline )?(fun|sub|obj|enum|error|type|use|extern) [A-Za-z_"]/.test(line)
+declares = (line) -> /^(pub )?(inline )?(fun|sub|obj|enum|error|type|use|extern|api) [A-Za-z_"]/.test(line) or /^add [A-Za-z_?!*^~(\[]/.test(line)
 
 # A file's cases. Each starts at a `verb "name"` header at the left
 # margin, whose items after the name are its expected result (a value, or

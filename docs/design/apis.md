@@ -41,7 +41,7 @@ it.
 |---|---|---|---|
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Moves`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
-| 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(planned)* |
+| 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(in part: declarations and conformance built)* |
 | 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(planned)* |
 | 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Moves}` | *(planned)* |
 
@@ -454,7 +454,18 @@ sub main()
 written into the signature, and the runtime's `rig.eql`, `rig.hash`,
 and `rig.compare` call a type's own methods where it declares them.
 
-## Stage 3: APIs of your own *(planned)*
+## Stage 3: APIs of your own *(in part)*
+
+*Built:* `api` with required methods and defaults' signatures, APIs
+that build on others and on the built-in ones, headers and `add`
+(checked, not yet lowered), how an implementation must match its API,
+coherence, `pub` on a method that meets a `pub` API, and a bound by an
+API checked at each instance ([SPEC, APIs](../../SPEC.md#apis)).
+*Not yet:* a call through a bound, which is rejected until it is
+lowered, the bodies of defaults and of additions' methods, which are
+resolved and checked with it, `Shape.area(c)`, witnesses, associated
+types and `Iter`, method-level bounds, and the rule that public
+generics state their bounds.
 
 ```text
 pub api Shape

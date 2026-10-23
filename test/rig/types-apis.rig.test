@@ -185,9 +185,9 @@ fail "apis parameter case", "a type parameter starts with a capital letter: `[T]
 
   print(f(1), h[2]())
 
-fail "apis names", "`Copy` is a fact the compiler derives from a type's parts, and a type never names it; `A` provides it where its parts do", "`Num` is provided by the built-in numbers alone", "`Shape` names no built-in API; a type's header names `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", "`Shape` names no built-in API; a bound is `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, or `Signed`"
-  # A header names the APIs a type gives a meaning of its own, and a
-  # bound names built-in APIs.
+fail "apis names", "`Copy` is a fact the compiler derives from a type's parts, and a type never names it; `A` provides it where its parts do", "`Num` is provided by the built-in numbers alone", "`Shape` names no API; a type's header names an API the program declares with `api`, or `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", "`Shape` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, or `Signed`"
+  # A header names the APIs a type provides or gives a meaning of its
+  # own, and a bound names APIs; `Shape` here is declared nowhere.
 
   obj A: Copy
     n: Int
@@ -380,3 +380,915 @@ fail "apis std unsigned abs", "`math.abs[U8]` cannot use `T = U8`: `U8` is no si
   use std.math
 
   print(math.abs(U8(3)))
+
+# APIs of a program's own (docs/design/apis.md, Stage 3): declarations,
+# headers, additions, and conformance. A call through a bound comes with
+# the next step.
+
+test "apis own header", "1 4.0"
+  # A type provides an API on its header, and a bound by the API takes
+  # it; a default is a method with a body, which a type may leave out.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun sides(?@) -> Int
+      4
+
+  obj Square: Shape + Print
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun count[T: Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  sub main()
+    xs: List[Square] = List()
+    !xs.push(Square(side: 2.0))
+    print(count(?xs), xs[0].area())
+
+test "apis own addition", "2 1"
+  # `add` gives a built-in type, or a type of another module, an API,
+  # in the API's module.
+
+  api Shape
+    fun area(?@) -> Float
+
+  add Int: Shape
+    fun area(?@) -> Float
+      Float(@) * Float(@)
+
+  fun count[T: Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  sub main()
+    xs: List[Int] = List()
+    !xs.push(1)
+    !xs.push(2)
+    ys: List[String] = List()
+    !ys.push(String("a"))
+    print(count(?xs), ys.len)
+
+test "apis own builds on", "1 7"
+  # An API built on another: a type that provides it provides both, and
+  # writes the methods of each.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Named: Shape
+    fun id(?@) -> Int
+
+  obj Tile: Named
+    n: Int
+
+    fun area(?@) -> Float
+      1.0
+
+    fun id(?@) -> Int
+      @n
+
+  fun count[T: Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  fun ids[T: Named](xs: ?List[T]) -> Int
+    count(?xs)
+
+  sub main()
+    xs: List[Tile] = List()
+    !xs.push(Tile(n: 7))
+    print(ids(?xs), xs[0].id())
+
+test "apis own moves", "2"
+  # `api Job: Moves`: every provider moves to another task, as plain
+  # data does, and a `[T: Job]` crosses.
+
+  api Job: Moves
+    fun cost(?@) -> Int
+
+  obj Plain: Job
+    n: Int
+
+    fun cost(?@) -> Int
+      @n
+
+  fun weigh[T: Job](x: T) -> Int
+    1
+
+  fun run[T: Job](x: T) -> Int
+    t = weigh(<x)&
+    >t
+
+  sub main()
+    print(run(Plain(n: 3)) + Plain(n: 2).cost() - 1)
+
+test "apis own conditional", "1"
+  # An addition under a bound: `Wrap[T]` provides `Shape` where `T` does.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side
+
+  obj Wrap[T]
+    x: T
+
+  add Wrap[T: Shape]: Shape
+    fun area(?@) -> Float
+      2.0
+
+  fun count[T: Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  sub main()
+    xs: List[Wrap[Square]] = List()
+    !xs.push(Wrap(x: Square(side: 1.0)))
+    print(count(?xs))
+
+test "apis own modules", "1 1"
+  # An API of another module: named on a header, in a bound, and by an
+  # addition in the API's module to a type of a third.
+
+  use shapes
+
+  obj Square: shapes.Shape
+    side: Float
+
+    pub fun area(?@) -> Float
+      @side
+
+  fun count[T: shapes.Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  sub main()
+    xs: List[Square] = List()
+    !xs.push(Square(side: 1.0))
+    print(count(?xs), shapes.circles())
+
+  file "shapes.rig"
+    use geo
+
+    pub api Shape
+      fun area(?@) -> Float
+
+    add geo.Circle: Shape
+      fun area(?@) -> Float
+        @r * @r
+
+    fun count[T: Shape](xs: ?List[T]) -> Int
+      xs.len
+
+    pub fun circles() -> Int
+      cs: List[geo.Circle] = List()
+      !cs.push(geo.Circle(r: 1.0))
+      count(?cs)
+
+  file "geo.rig"
+    pub obj Circle
+      pub r: Float
+
+test "apis own names", "5 1"
+  # `api` and `add` are keywords only at the start of a module-level
+  # declaration; everywhere else they are names.
+
+  obj User
+    api: Int
+
+  sub main()
+    user = User(api: 3)
+    s: Set[Int] = Set()
+    !s.add(4)
+    add = 2
+    print(user.api + add, s.len)
+
+fail "apis own not a type", "`Shape` is an API, not a type: write `[T: Shape]` for one type known when compiling, or `?{Shape}` for any type at run time"
+  # An API names what a type provides; it is not a type itself.
+
+  api Shape
+    fun area(?@) -> Float
+
+  sub show(s: Shape)
+    pass
+
+  show(1)
+
+fail "apis own unprovided", "`count[Label]` cannot use `T = Label`: `count` needs `T: Shape`, and `Label` does not provide `Shape`; declare `obj Label: Shape`"
+  # A bound by an API of the program's own holds at each instance.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Label
+    text: Int
+
+  fun count[T: Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  xs: List[Label] = List()
+  print(count(?xs))
+
+fail "apis own unprovided condition", "`count[Wrap[Label]]` cannot use `T = Wrap[Label]`: `count` needs `T: Shape`, and `Wrap[Label]` does not provide `Shape`; `Wrap[T]` provides `Shape` only where `T: Shape`"
+  # An addition under a bound covers the instances that meet it.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Label
+    text: Int
+
+  obj Wrap[T]
+    x: T
+
+  add Wrap[T: Shape]: Shape
+    fun area(?@) -> Float
+      2.0
+
+  fun count[T: Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  xs: List[Wrap[Label]] = List()
+  print(count(?xs))
+
+fail "apis own unprovided bound", "`count[U]` cannot use `T = U`: `count` needs `T: Shape`, and `U` does not provide `Shape`; add `Shape` to its bounds: `[U: Print + Shape]`"
+  # A bounded `T` provides what its bounds name.
+
+  api Shape
+    fun area(?@) -> Float
+
+  fun count[T: Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  fun outer[U: Print](xs: ?List[U]) -> Int
+    count(?xs)
+
+  xs: List[Int] = List()
+  print(outer(?xs))
+
+fail "apis own call through a bound", "`x.area()` calls `Shape.area` through the bound `T: Shape`, and a call through a bound is not built yet (docs/design/apis.md, Stage 3)"
+  # A call through a bound is checked and lowered in the next step; until
+  # then it is rejected, never left to Zig.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun total[T: Shape](xs: ?List[T]) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  xs: List[Square] = List()
+  print(total(?xs))
+
+fail "apis own bounded body", "`T` is bounded by `Shape`, which does not give ordering comparison; add `Ord` to its bounds: `[T: Shape + Ord]`", "`T` is bounded by `Shape`, which gives no method `perimeter`; a call on a `T` is checked at each instance only where `T` has no bound"
+  # A `T` bounded by an API does what its bounds name, and no more.
+
+  api Shape
+    fun area(?@) -> Float
+
+  fun bigger[T: Shape](a: T, b: T) -> Bool
+    a < b
+
+  fun edge[T: Shape](x: ?T) -> Float
+    x.perimeter()
+
+  print(1)
+
+fail "apis own missing method", "`Square` provides `Shape` but has no method `area`; declare `fun area(?@) -> Float` in `Square`"
+  # A provider writes each method its API declares without a body.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+  print(Square(side: 1.0).side)
+
+fail "apis own self", "`Counter.next` takes `self` as `?@`, but `Source` declares `next(!@)`; a method meets its API with the same self: write `fun next(!@) -> Int?`"
+  # A method meets its API exactly, in how it takes self first.
+
+  api Source
+    fun next(!@) -> Int?
+
+  obj Counter: Source
+    n: Int
+
+    fun next(?@) -> Int?
+      @n
+
+  print(Counter(n: 1).n)
+
+fail "apis own parameters", "`Ruler.mark` takes `at` as `Float`, but `Marker` declares `mark(!@, at: Int)`; a method meets its API with the same parameters: write `sub mark(!@, at: Int)`", "`Pen.mark` takes 2 parameters, but `Marker` declares `mark(!@, at: Int)`; a method meets its API with the same parameters: write `sub mark(!@, at: Int)`", "`Chalk.mark` takes `at` as `?Int`, but `Marker` declares `mark(!@, at: Int)`; a method meets its API with the same parameters: write `sub mark(!@, at: Int)`"
+  # Each parameter's type and mode, views included.
+
+  api Marker
+    sub mark(!@, at: Int)
+
+  obj Ruler: Marker
+    n: Int
+
+    sub mark(!@, at: Float)
+      pass
+
+  obj Pen: Marker
+    n: Int
+
+    sub mark(!@, at: Int, width: Int)
+      pass
+
+  obj Chalk: Marker
+    n: Int
+
+    sub mark(!@, at: ?Int)
+      pass
+
+  print(1)
+
+fail "apis own keeps", "`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`"
+  # `keeps` may be narrower than the API's, never wider.
+
+  api Watcher
+    sub watch(!@, s: ?String)
+
+  obj Log: Watcher
+    seen: ?String
+
+    sub watch(!@, s: ?String) keeps s
+      @seen = s
+
+  print(1)
+
+test "apis own keeps narrower", "1"
+  # An implementation that keeps less than its API meets it.
+
+  api Watcher
+    sub watch(!@, s: ?String) keeps s
+
+  obj Count: Watcher
+    n: Int
+
+    sub watch(!@, s: ?String)
+      @n += s.len
+
+  print(1)
+
+fail "apis own from", "`Shelf.first` may give a view of `other`, but `Store.first` does not: a call through `Store` would end the loan on `other` while the result still views it; add `other` to the `from` of `Store.first`", "`Store.last` gives `?Int`, which may view what it is passed, and an API's method says what with `from`: `-> ?Int from @`"
+  # `from` may be narrower than the API's, never wider, and an API's
+  # method whose result may view says what it views.
+
+  api Store
+    fun first(?@, other: ?Int) -> ?Int from @
+
+    fun last(?@) -> ?Int
+
+  obj Shelf: Store
+    n: Int
+
+    fun first(?@, other: ?Int) -> ?Int from @, other
+      other
+
+    fun last(?@) -> ?Int from @
+      ?@n
+
+  print(1)
+
+fail "apis own fails", "`Disk.size` fails with `Int!Io`, but `Sized` declares `size(?@) -> Int!Bad`; a method meets its API with the same set: write `-> Int!Bad`", "`Tape.size` fails with `Int!`, but `Sized` declares `size(?@) -> Int!Bad`; a method meets its API with the same set: write `-> Int!Bad`", "`Drum.size` fails with `Int!Bad`, but `Loaded` declares `size(?@) -> Int!Load`; a method meets its API with the same set: write `-> Int!Load`", "`Bag.each` gives `Int`, but `Each` declares `each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E`; a method meets its API with the same set: write `-> Int!E`"
+  # A method fails with exactly its API's set: the same set or union,
+  # `T!` for `T!`, and the same set parameters.
+
+  error Bad
+    empty
+
+  error Io
+    lost
+
+  error Load = Bad | Io
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  api Loaded
+    fun size(?@) -> Int!Load
+
+  api Each
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+
+  obj Disk: Sized
+    n: Int
+
+    fun size(?@) -> Int!Io
+      @n
+
+  obj Tape: Sized
+    n: Int
+
+    fun size(?@) -> Int!
+      @n
+
+  obj Drum: Loaded
+    n: Int
+
+    fun size(?@) -> Int!Bad
+      @n
+
+  obj Bag: Each
+    n: Int
+
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int
+      @n
+
+  print(1)
+
+test "apis own same set", "1"
+  # A set parameter meets the API's in the same place.
+
+  error Bad
+    empty
+
+  api Each
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+
+    fun size(?@) -> Int!Bad
+
+  obj Bag: Each
+    n: Int
+
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+      _ = f(@n)!
+      @n
+
+    fun size(?@) -> Int!Bad
+      @n
+
+  print(1)
+
+fail "apis own marker", "`Pool` provides `Job`, which builds on `Moves`, but `Pool` cannot move to another task: its field `cache` is a `*Cell[List[Int]]`"
+  # An API may build on a fact the compiler derives; each provider meets it.
+
+  api Job: Moves
+    sub run(!@)
+
+  obj Pool: Job
+    cache: *Cell[List[Int]]
+
+    sub run(!@)
+      pass
+
+  print(1)
+
+fail "apis own add a view", "`add` names a type, and `?Square` is a view: write `add Square: Shape`", "`add` names a type, and `Square?` is an optional: write `add Square: Shape`", "`add` names a type, and `[]Int` is a slice: write `add Int: Shape`", "`add` names a type, and `*Square` is a handle: write `add Square: Shape`"
+  # `add` names a type by its name, never a view, optional, handle,
+  # array, slice, or function type.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square
+    side: Float
+
+  add ?Square: Shape
+  add Square?: Shape
+  add []Int: Shape
+  add *Square: Shape
+
+  print(1)
+
+fail "apis own add a name", "use of unbound type `Inte`; did you mean `Int`?"
+  # `add` names a type that exists; `api` declares a new name.
+
+  api Shape
+    fun area(?@) -> Float
+
+  add Inte: Shape
+    fun area(?@) -> Float
+      1.0
+
+  print(1)
+
+fail "apis own add at home", "`Square` is declared in this module, so it names `Shape` on its header: `obj Square: Shape`; `add` is for a type of another module, a built-in type, or an API a type provides only under a bound"
+  # Each case has one spelling: a type of this module names the API on
+  # its header.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square
+    side: Float
+
+  add Square: Shape
+    fun area(?@) -> Float
+      @side
+
+  print(1)
+
+fail "apis own twice", "`Int` provides `Shape` twice: a type provides an API once in the whole program", "`Wrap[T]` provides `Shape` twice: a type provides an API once in the whole program", "`List[T]` provides `Shape` twice: a type provides an API once in the whole program"
+  # A type provides an API once: two additions, a header and an addition,
+  # or two additions whose conditions could overlap.
+
+  api Shape
+    fun area(?@) -> Float
+
+  add Int: Shape
+    fun area(?@) -> Float
+      1.0
+
+  add Int: Shape
+    fun area(?@) -> Float
+      2.0
+
+  obj Wrap[T]: Shape
+    x: T
+
+    fun area(?@) -> Float
+      1.0
+
+  add Wrap[T: Print]: Shape
+    fun area(?@) -> Float
+      2.0
+
+  add List[T: Print]: Shape
+    fun area(?@) -> Float
+      1.0
+
+  add List[T: Eq]: Shape
+    fun area(?@) -> Float
+      2.0
+
+  print(1)
+
+fail "apis own add has it", "`add List[T]: Pusher` declares `push`, which `List[T]` has already: an addition neither adopts nor replaces a method of its type"
+  # An addition's methods are its API's, and never a method its type has.
+
+  api Pusher
+    sub push(!@, x: Int)
+
+  add List[T]: Pusher
+    sub push(!@, x: Int)
+      pass
+
+  print(1)
+
+fail "apis own pub", "`Square.area` meets `Shape`, a `pub` API, on `Square`, a `pub` type, so it is `pub`: write `pub fun area(?@) -> Float`"
+  # A method that meets a `pub` API on a `pub` type says `pub`.
+
+  pub api Shape
+    fun area(?@) -> Float
+
+  pub obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side
+
+  print(1)
+
+fail "apis own default", "`Square.sides` gives `Float`, but `Shape` declares `sides(?@) -> Int`; a method meets its API with the same result: write `-> Int`", "`X` provides `A` and `B`, which both give `name` a default: declare `name` in `X` to choose", "`Y` provides `A` and `B`, which both give `name` a default: declare `name` in `Y` to choose"
+  # A type may override a default with a method of its signature, and
+  # chooses between two defaults of one name by writing the method.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun sides(?@) -> Int
+      4
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side
+
+    fun sides(?@) -> Float
+      1.0
+
+  api A
+    fun name(?@) -> Int
+      1
+
+  api B
+    fun name(?@) -> Int
+      2
+
+  api C: A + B
+
+  obj X: A + B
+    n: Int
+
+  obj Y: C
+    n: Int
+
+  print(1)
+
+fail "apis own declarations", "`Named` builds on `Shape`, which declares `area`: an API takes the methods of those it builds on as they are, and declares none of them again", "`Loop` builds on itself, through `Ring`: an API builds on others without a cycle", "an API's associated type, `type Item`, is not built yet: its methods name their types", "`Shape.make` takes no self: an API's method takes self first, `fun make(?@)`", "an API's methods take no `pub`: they are as public as the API (`pub api Shape`)"
+  # An API declares methods that take self, builds on others without a
+  # cycle, and takes their methods as they are.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun make() -> Int
+
+    pub fun size(?@) -> Int
+
+  api Named: Shape
+    fun area(?@) -> Float
+
+  api Loop: Ring
+    fun a(?@) -> Int
+
+  api Ring: Loop
+    fun b(?@) -> Int
+
+  api Source
+    type Item
+
+  print(1)
+
+fail "apis own trait", "Rig has no `trait`; write `api`: `api Shape` declares the methods a type provides", whole: true
+  # Rust's and Scala's word: Rig's is `api`.
+
+  trait Shape
+    fun area(?@) -> Float
+
+  sub main()
+    pass
+
+fail "apis own impl", "Rig has no `impl`; write `add`: `add Int: Shape` adds an API to a type, and `obj Square: Shape` names one on its header", whole: true
+  # Rust's word: Rig's is `add`, or the type's header.
+
+  impl Shape for Square
+    pass
+
+  sub main()
+    pass
+
+fail "apis own home of what it builds on", "`add Int: Named` gives `Int` `shapes.Shape` too, which `Named` builds on, outside the module of `shapes.Shape` and of `Int`: a type provides an API once in the whole program, in its own module or the API's", "`add tiles.Tile: Named` gives `tiles.Tile` `shapes.Shape` too, which `Named` builds on, outside the module of `shapes.Shape` and of `tiles.Tile`: a type provides an API once in the whole program, in its own module or the API's"
+  # A type that provides an API provides those it builds on, so an
+  # addition stands for each of them, and is written where each may be:
+  # two such modules would each give `Int` `Shape`, neither seeing the
+  # other, and `Tile` provides `Shape` on its header already.
+
+  use named
+
+  sub main()
+    print(1)
+
+  file "shapes.rig"
+    pub api Shape
+      fun sides(?@) -> Int
+        4
+
+  file "tiles.rig"
+    use shapes
+
+    pub obj Tile: shapes.Shape
+      pub n: Int
+
+  file "named.rig"
+    use shapes
+    use tiles
+
+    pub api Named: shapes.Shape
+      fun id(?@) -> Int
+
+    add Int: Named
+      fun id(?@) -> Int
+        3
+
+    add tiles.Tile: Named
+      fun id(?@) -> Int
+        3
+
+test "apis own builds on, added", "2 2"
+  # An addition of an API built on another in the same module: every
+  # module sees `Int` provide both.
+
+  use shapes
+
+  fun count[T: shapes.Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  sub main()
+    xs = List([1, 2])
+    print(count(?xs), shapes.count(?xs))
+
+  file "shapes.rig"
+    pub api Shape
+      fun area(?@) -> Float
+
+    pub api Named: Shape
+      fun id(?@) -> Int
+
+    add Int: Named
+      fun area(?@) -> Float
+        1.0
+
+      fun id(?@) -> Int
+        @
+
+    pub fun count[T: Shape](xs: ?List[T]) -> Int
+      xs.len
+
+fail "apis own compile-time parameters", "`X.conv` bounds `U` by `Ord + Print`, but `Conv` declares `conv[U: Print](?@, u: ?U) -> Int`; a method meets its API with the same compile-time parameters: write `fun conv[U: Print](?@, u: ?U) -> Int`", "`X.size` takes `n` as `U8`, but `Sized` declares `size[n: Int](?@) -> Int`; a method meets its API with the same compile-time parameters: write `fun size[n: Int](?@) -> Int`", "`Y.conv` bounds `U` by nothing, but `Conv` declares `conv[U: Print](?@, u: ?U) -> Int`; a method meets its API with the same compile-time parameters: write `fun conv[U: Print](?@, u: ?U) -> Int`", "`Y.size` takes `N` as a type, but `Sized` declares `size[n: Int](?@) -> Int`; a method meets its API with the same compile-time parameters: write `fun size[n: Int](?@) -> Int`", "`Z.conv` bounds `U` by `Shape`, but `Conv` declares `conv[U: Print](?@, u: ?U) -> Int`; a method meets its API with the same compile-time parameters: write `fun conv[U: Print](?@, u: ?U) -> Int`"
+  # A call through the API passes what the API's brackets promise: each
+  # compile-time parameter is the same kind, of the same type, and
+  # bounded the same.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Conv
+    fun conv[U: Print](?@, u: ?U) -> Int
+
+  api Sized
+    fun size[n: Int](?@) -> Int
+
+  obj X: Conv + Sized
+    k: Int
+
+    fun conv[U: Print + Ord](?@, u: ?U) -> Int
+      1
+
+    fun size[n: U8](?@) -> Int
+      1
+
+  obj Y: Conv + Sized
+    k: Int
+
+    fun conv[U](?@, u: ?U) -> Int
+      1
+
+    fun size[N](?@) -> Int
+      1
+
+  obj Z: Conv
+    k: Int
+
+    fun conv[U: Shape](?@, u: ?U) -> Int
+      1
+
+  sub main()
+    print(1)
+
+test "apis own compile-time bounds", "1"
+  # Bounds that say the same thing meet: `Hash` gives `Eq`, and `Named`
+  # gives `Shape`.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Named: Shape
+    fun id(?@) -> Int
+
+  api Keyed
+    fun key[K: Hash + Named](?@, k: ?K) -> Int
+
+  obj X: Keyed
+    n: Int
+
+    fun key[K: Eq + Hash + Shape + Named](?@, k: ?K) -> Int
+      1
+
+  sub main()
+    print(X(n: 1).n)
+
+test "apis own string", "1"
+  # `String`'s self lent to read is a `?String`, a view of text.
+
+  api Sized
+    fun size(?@) -> Int
+
+  add String: Sized
+    fun size(?@) -> Int
+      @len
+
+  fun count[T: Sized](xs: ?List[T]) -> Int
+    xs.len
+
+  sub main()
+    xs: List[String] = List()
+    !xs.push(String("abc"))
+    print(count(?xs))
+
+fail "apis own named like a type", "`Int` is a reserved built-in nominal name and cannot be redefined", "`Float` is a reserved built-in nominal name and cannot be redefined", "`U8` is a reserved built-in nominal name and cannot be redefined", "`Bool` is a reserved built-in nominal name and cannot be redefined"
+  # A built-in type's name names that type, so no declaration takes one.
+
+  api Int
+    fun area(?@) -> Float
+
+  obj Float
+    n: Int
+
+  enum U8
+    a
+
+  type Bool = Int
+
+  sub main()
+    print(1)
+
+fail "apis own bound of a module not imported", "use of unbound name `geo`"
+  fun count[T: geo.Shape](xs: ?List[T]) -> Int
+    xs.len
+
+  sub main()
+    print(1)
+
+fail "apis own add a value parameter", "an addition to a type with a compile-time value parameter is not built yet", "an addition to a type with a compile-time value parameter is not built yet"
+  api Shape
+    fun area(?@) -> Float
+
+  add Slot[n]: Shape
+    fun area(?@) -> Float
+      1.0
+
+  add Table[T, n]: Shape
+    fun area(?@) -> Float
+      1.0
+
+  sub main()
+    print(1)
+
+fail "apis own unprovided function", "`count[fun() -> Int]` cannot use `T = fun() -> Int`: `count` needs `T: Shape`, and `fun() -> Int` does not provide `Shape`; a function type provides no API of a program's own"
+  api Shape
+    fun area(?@) -> Float
+
+  fun one() -> Int
+    1
+
+  fun count[T: Shape](x: T) -> Int
+    1
+
+  sub main()
+    print(count(one))
+
+fail "apis own default unchecked", "use of unbound name `nosuch`", "use of unbound name `missing`", known: true
+  # A default's body, and an addition's method's, are checked with the
+  # calls through a bound that reach them (docs/design/apis.md, Stage 3);
+  # until then a name in them that names nothing is not reported.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun sides(?@) -> Int
+      nosuch + 1
+
+  add Int: Shape
+    fun area(?@) -> Float
+      missing
+
+  sub main()
+    print(1)
+
+fail "apis own add has a built-in member", "`add String: Has` declares `push`, which `String` has already: an addition neither adopts nor replaces a method of its type", "`add String: Has` declares `len`, which `String` has already: an addition neither adopts nor replaces a method of its type", "`add List[T]: Has` declares `is_empty`, which `List[T]` has already: an addition neither adopts nor replaces a method of its type", "`add Symbol: Named` declares `text`, which `Symbol` has already: an addition neither adopts nor replaces a method of its type"
+  # A built-in type's own members count as a declared type's methods.
+
+  api Has
+    sub push(!@, b: U8)
+
+    fun len(?@) -> Int
+
+    fun is_empty(?@) -> Bool
+
+  api Named
+    fun text(?@) -> Int
+
+  add String: Has
+    sub push(!@, b: U8)
+      pass
+
+    fun len(?@) -> Int
+      7
+
+    fun is_empty(?@) -> Bool
+      false
+
+  add List[T]: Has
+    sub push(!@, b: U8)
+      pass
+
+    fun len(?@) -> Int
+      7
+
+    fun is_empty(?@) -> Bool
+      false
+
+  add Symbol: Named
+    fun text(?@) -> Int
+      1
+
+  sub main()
+    print(1)

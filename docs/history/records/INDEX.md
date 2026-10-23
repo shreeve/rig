@@ -39,7 +39,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Fix: `Stop.canceled` after a failed `par.map` | a waiter takes no cancel from the task it waits on; `par.map`, `par.each`, and `http.serve` were affected | [fixes/parmap-cancel.md](2026-10/fixes/parmap-cancel.md) |
 | The consolidation round (ready, 2026-10-23) | the brief for a fresh session after errors with data: one classifier per fact, no bug open, docs, tooling, speed baseline, and optionally v0.3.0 | [consolidation/PLAN.md](2026-10/consolidation/PLAN.md) |
 | pup's memory rule (consolidation track 4) | a proposal for Trig: `tools/release-slot` takes a slot only with 12 GB available and at most one other release build | [consolidation/pup-slot-memory.md](2026-10/consolidation/pup-slot-memory.md) |
-| APIs Stage 3's refresh (2026-10-23) | Stage 3 of docs/design/apis.md for this period's changes: an API method fails with exactly the API's set, witnesses of a generic type are its parameters, facts no API names stay per instance, public generics state their bounds as the last step; a six-phase build plan and 15 questions with defaults | [apis-stage3/](2026-10/apis-stage3/) |
+| APIs Stage 3's refresh (2026-10-23) | Stage 3 of docs/design/apis.md for this period's changes: an API method fails with exactly the API's set, witnesses of a generic type are its parameters, facts no API names stay per instance, public generics state their bounds as the last step; a six-phase build plan and 15 questions with defaults; phase 1's notes and its [review](2026-10/apis-stage3/review-p1.md) | [apis-stage3/](2026-10/apis-stage3/) |
 | The docs pass (consolidation track 3) | README, WELCOME, QUICK, SPEC §19, Learn Rig 03 and 04, STD, ROADMAP, and INTERNALS cover this period's features; the seven pending blocks checked | [consolidation/docs-pass.md](2026-10/consolidation/docs-pass.md) |
 | The round's speed baseline (consolidation track 6) | main against ace79d579 on both machines: std.json, tasks, actors, net, http, `rig check` of Trig, Trig's projects; one regression, #538 (pup's safe json 3-6%, the Mac's canada fast 2.6%); aligning std.json's hot functions removes R4's swing but is slower than main's placement, so not opened | [consolidation/speed-baseline.md](2026-10/consolidation/speed-baseline.md), [census/](2026-10/consolidation/census/) |
 | The speed census | how to time main against the reference after merges, and a row per run | [consolidation/census.md](2026-10/consolidation/census.md) |
@@ -56,6 +56,8 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [build-plan.md](2026-10/apis-stage3/build-plan.md): where Stages 1 and 2 live, where each Stage 3 piece goes, six phases with their cases, risks, and sizes; the count of `pub` generics needing bounds
 - [open-questions.md](2026-10/apis-stage3/open-questions.md): what the record does not settle, each with a default
+- [phase1-notes.md](2026-10/apis-stage3/phase1-notes.md): phase 1 as built (declarations and conformance), its decisions beyond the design, its new messages, and what each later phase takes
+- [review-p1.md](2026-10/apis-stage3/review-p1.md): the adversarial review of phase 1: findings by severity with their fixes and cases, points for phase 2, and what was probed without findings
 
 ### 2026-10/clone/
 

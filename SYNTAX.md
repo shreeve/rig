@@ -204,7 +204,7 @@ not used.
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | boundaries | `raw` `zig` (in `extern zig`) |
 | reserved forms | `try`, and `zig` elsewhere |
-| held for later | `async` `await` `const` `impl` `trait` `when` `where` `yield` |
+| held for later | `async` `await` `const` `when` `where` `yield`, and `impl` and `trait`, which say to write `add` and `api` |
 
 Every keyword but `if` may still name a member, where it cannot be
 mistaken for the keyword: an `obj` field, a method, or a payload field.
@@ -259,13 +259,17 @@ fun f(in: Int) -> Int
 `in` is a keyword and cannot name a parameter
 ```
 
-Ten words are keywords only in one position. `new` is a keyword at
+Twelve words are keywords only in one position. `new` is a keyword at
 the start of a statement (`new x = ...`, `new x =! ...`), so a
 method may be named `new`. `obj` is a keyword at the start of a
 declaration, before the type's name (`obj Point`, `pub obj Pair[T]`),
 so `obj = 5`, `obj.x` and `fun f(obj: Int)` are ordinary; `struct` is
 an ordinary name too, and a declaration written `struct Point` is
-rejected with the spelling to write. `of` is a keyword only after a value directly inside `[ ]`,
+rejected with the spelling to write. `api` and `add` are keywords only
+at the start of a declaration at the module's margin, before the name
+`api` declares or the type `add` names (`api Shape`, `pub api Shape`,
+`add Int: Shape`), so `user.api`, `!set.add(x)`, and `add = 2` are
+ordinary. `of` is a keyword only after a value directly inside `[ ]`,
 where it separates a fill literal's count from its element
 (`[n of x]`). `unique` is a keyword only after an `obj`'s name or type
 parameters (`obj Random unique`). `from` is a keyword only after a
@@ -763,8 +767,10 @@ write `sub main()`: a function's parameter list is always written, even when emp
 An `obj` lists its fields, then its methods and at most one `drop`
 body. A field is `name: Type`, with an optional default value
 (`y: Int = 0`). Its header may name, after a colon, the built-in APIs
-it gives a meaning of its own: `obj Version: Ord`, `enum Suit: Ord`,
-`obj Name: Eq + Hash` ([SPEC, Bounds](SPEC.md#bounds)).
+it gives a meaning of its own, `obj Version: Ord`, `enum Suit: Ord`,
+`obj Name: Eq + Hash` ([SPEC, Bounds](SPEC.md#bounds)), and the APIs of
+the program's own it provides, `obj Square: Shape + Print` ([SPEC,
+APIs](SPEC.md#apis)).
 
 ```rig
 obj Point
@@ -952,6 +958,47 @@ sub main()
 
 ```output
 6
+```
+
+### APIs
+
+`api Name` declares at the top of a module the methods a type provides,
+each a method that takes self first, without a body when it is
+required and with one when it is a default; `api Name: A + B` builds on
+other APIs. `add Type: Name` gives an API to a type its header cannot
+name, with the methods in its body, and `add Wrap[T: Bound]: Name` to a
+generic type under a bound ([SPEC, APIs](SPEC.md#apis)).
+
+```rig
+api Shape
+  fun area(?@) -> Float
+
+api Named: Shape
+  fun id(?@) -> Int
+
+obj Tile: Named
+  n: Int
+
+  fun area(?@) -> Float
+    1.0
+
+  fun id(?@) -> Int
+    @n
+
+add Int: Shape
+  fun area(?@) -> Float
+    Float(@)
+
+fun count[T: Shape](xs: ?List[T]) -> Int
+  xs.len
+
+sub main()
+  tiles = List([Tile(n: 7)])
+  print(count(?tiles), tiles[0].id())
+```
+
+```output
+1 7
 ```
 
 ### Generics and compile-time parameters
@@ -1852,8 +1899,8 @@ so that the rejection can show the header with it.
 
 ```text
 program   = decl*
-decl      = ["pub"] (fun | sub | obj | enum | errors | typedef | test | constant)
-          | use | extern
+decl      = ["pub"] (fun | sub | obj | enum | errors | typedef | test | constant | api)
+          | use | extern | add
 use       = "use" name ("." name)* ["as" name]
 fun       = "fun" [owner "."] name [tparams] params "->" rtype [from] [keeps] block
 rtype     = type | "(" type, type, ... ")" ["!" | "?"]   # several results
@@ -1864,7 +1911,10 @@ owner     = name ["[" name, ... "]"] | name "." name   # the last parses only to
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "@"
-obj       = "obj" name [tparams] ["unique"] INDENT member* DEDENT
+obj       = "obj" name [tparams] ["unique"] [":" apis] INDENT member* DEDENT
+apis      = name ("+" name)*                       # APIs, built-in or the program's own
+api       = "api" name [":" apis] [INDENT (fun | sub | zfun)* DEDENT]   # at the module's margin
+add       = "add" type ":" apis [INDENT (fun | sub)* DEDENT]            # at the module's margin
 enum      = "enum" name [tparams] INDENT member* DEDENT
 member    = ["pub"] (field | fun | sub) | "pub" "?" field | variant | "drop" params block
 field     = name ":" type ["=" expr]

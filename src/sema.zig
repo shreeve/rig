@@ -643,6 +643,11 @@ pub const SymbolKind = enum {
     /// A closure capture, bound in the lambda's scope with the type the
     /// capture mode gives it.
     capture,
+    /// `api Shape`: the methods a type provides (docs/design/apis.md,
+    /// Stage 3). Its `fields` are its own methods, its `type_params` its
+    /// hidden `Self`, and its `apis` and `user_apis` the APIs it builds
+    /// on. Never a type.
+    api,
 };
 
 pub const SymbolFlags = packed struct(u64) {
@@ -770,6 +775,9 @@ pub const Field = struct {
     read_only: bool = false,
     /// A method declared `inline fun`, which is only called.
     inline_marked: bool = false,
+    /// An API's method with a body: a default, which a type that
+    /// provides the API may leave out.
+    is_default: bool = false,
 };
 
 pub const Symbol = struct {
@@ -779,7 +787,8 @@ pub const Symbol = struct {
     decl_pos: u32,
     scope: ScopeId,
     flags: SymbolFlags = .{},
-    /// Members of a nominal or generic type; null for other kinds.
+    /// Members of a nominal or generic type, and the methods of an API;
+    /// null for other kinds.
     fields: ?[]const Field = null,
     /// A nominal or generic type: what its values hold.
     contents: Contents = .{},
@@ -805,8 +814,14 @@ pub const Symbol = struct {
     from: ForeignRef = .{},
     /// A type parameter: its bounds (`[T: Ord]`), with what they imply
     /// (`implied`). A nominal or generic type: the APIs its header names
-    /// (`obj Name: Eq + Hash`), which it gives a meaning of its own.
+    /// (`obj Name: Eq + Hash`), which it gives a meaning of its own. An
+    /// API: the built-in APIs it builds on (`api Job: Moves`).
     apis: Apis = .empty,
+    /// The APIs of a program's own that the symbol names where `apis`
+    /// names the built-in ones: a type parameter's bounds (`[T:
+    /// Shape]`), a type's header (`obj Square: Shape`), an API's
+    /// (`api Named: Shape`).
+    user_apis: []const ApiRef = &.{},
     /// A union of error sets (`error L = A | B`): the sets it joins, each
     /// a declared set or another union. Null for every other symbol.
     error_parts: ?[]const TypeId = null,
@@ -814,6 +829,131 @@ pub const Symbol = struct {
 
 pub const Api = rig.Api;
 pub const Apis = std.EnumSet(Api);
+
+/// An API of a program's own, wherever it is declared: the module that
+/// declares it (`SemContext.module_id`) and its symbol there. One API has
+/// one `ApiRef` in every module.
+pub const ApiRef = struct {
+    module_id: u32,
+    sym: SymbolId,
+
+    pub fn eql(a: ApiRef, b: ApiRef) bool {
+        return a.module_id == b.module_id and a.sym == b.sym;
+    }
+};
+
+/// The context of the module that declares `ref`, which is `ctx` or a
+/// module `ctx` imports; null for a module no longer known.
+pub fn apiContext(ctx: *const SemContext, ref: ApiRef) ?*const SemContext {
+    if (ref.module_id == ctx.module_id) return ctx;
+    return ctx.foreign_semas.get(ref.module_id);
+}
+
+/// The API `ref` names, as declared.
+pub fn apiSymbol(ctx: *const SemContext, ref: ApiRef) ?Symbol {
+    const home = apiContext(ctx, ref) orelse return null;
+    if (ref.sym >= home.symbols.items.len) return null;
+    const sym = home.symbols.items[ref.sym];
+    return if (sym.kind == .api) sym else null;
+}
+
+/// The name of API `ref` as the module `ctx` spells it: `Shape`, or
+/// `geo.Shape` for another module's.
+pub fn apiName(ctx: *const SemContext, ref: ApiRef) std.mem.Allocator.Error![]const u8 {
+    const sym = apiSymbol(ctx, ref) orelse return "?";
+    if (ref.module_id == ctx.module_id) return sym.name;
+    const home = apiContext(ctx, ref).?;
+    const short = if (std.mem.lastIndexOfScalar(u8, home.name, '.')) |i| home.name[i + 1 ..] else home.name;
+    return @constCast(ctx).arena.allocator().print("{s}.{s}", .{ short, sym.name });
+}
+
+/// API `ref` and every API it builds on, each once, `ref` first, in the
+/// order it names them (docs/design/apis.md, Stage 3: a type that
+/// provides an API provides those it builds on). A cycle stops where it
+/// closes; `checkApis` reports it.
+pub fn apiClosure(ctx: *const SemContext, a: std.mem.Allocator, ref: ApiRef) std.mem.Allocator.Error![]const ApiRef {
+    var out: std.ArrayList(ApiRef) = .empty;
+    try out.append(a, ref);
+    var i: usize = 0;
+    while (i < out.items.len) : (i += 1) {
+        const sym = apiSymbol(ctx, out.items[i]) orelse continue;
+        for (sym.user_apis) |s| {
+            const seen = for (out.items) |o| {
+                if (o.eql(s)) break true;
+            } else false;
+            if (!seen) try out.append(a, s);
+        }
+    }
+    return out.items;
+}
+
+/// The built-in APIs `refs` and every API they build on name (`api Job:
+/// Moves`), with what those imply.
+pub fn builtInSupers(ctx: *const SemContext, refs: []const ApiRef) std.mem.Allocator.Error!Apis {
+    var out: Apis = .empty;
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    for (refs) |r| {
+        for (try apiClosure(ctx, scratch.allocator(), r)) |c| {
+            if (apiSymbol(ctx, c)) |sym| out.setUnion(sym.apis);
+        }
+    }
+    return implied(out);
+}
+
+/// Whether type parameter `sym` has bounds: built-in ones or APIs of a
+/// program's own. One with none is checked at each instance.
+pub fn hasBounds(sym: Symbol) bool {
+    return sym.apis.count() > 0 or sym.user_apis.len > 0;
+}
+
+/// The built-in APIs type parameter `sym`'s bounds give, those its
+/// own APIs build on included, with what they imply.
+pub fn boundApis(ctx: *const SemContext, sym: Symbol) Apis {
+    var out = implied(sym.apis);
+    if (sym.user_apis.len > 0) out.setUnion(builtInSupers(ctx, sym.user_apis) catch .empty);
+    return out;
+}
+
+/// The bounds of `sym` as written, `Shape + Ord`, with `more` added at
+/// the end when it is not there yet.
+pub fn formatBounds(ctx: *const SemContext, a: std.mem.Allocator, sym: Symbol, more: ?Api) std.mem.Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (sym.user_apis) |r| {
+        if (out.items.len > 0) try out.appendSlice(a, " + ");
+        try out.appendSlice(a, try apiName(ctx, r));
+    }
+    var apis = sym.apis;
+    if (more) |m| apis.insert(m);
+    var it = apis.iterator();
+    while (it.next()) |api| {
+        if (out.items.len > 0) try out.appendSlice(a, " + ");
+        try out.appendSlice(a, @tagName(api));
+    }
+    return out.items;
+}
+
+/// How a type provides an API of a program's own: by its header (`obj
+/// Square: Shape`) or by an addition (`add Int: Shape`). Recorded in the
+/// module that writes it (`SemContext.conformances`); `provides` is the
+/// one answer to whether a type provides an API.
+pub const Conformance = struct {
+    api: ApiRef,
+    /// The type, in the writing module's store: a nominal type, a generic
+    /// type at its own parameters (a header) or the addition's (`add
+    /// Wrap[T: Shape]`), or a built-in type.
+    ty: TypeId,
+    /// The module that writes it.
+    module_id: u32,
+    /// Where: the type's name for a header, the `add` for an addition.
+    pos: u32,
+    kind: enum { header, add },
+    /// An addition's own type parameters, each with the bounds the
+    /// type's arguments must meet.
+    params: []const SymbolId = &.{},
+    /// An addition's methods; a header's are its type's own.
+    methods: []const Field = &.{},
+};
 
 /// `apis` with what each implies: `Hash` and `Ord` need `Eq`, `Integer`
 /// and `Signed` need `Num`, and a value that copies also clones.
@@ -2447,6 +2587,9 @@ pub const SemContext = struct {
     foreign_semas: *const ModuleMap = &no_modules,
     /// The ids of the modules this one reaches through its imports.
     reach: std.bit_set.Dynamic = .{},
+    /// How this module's types, and the types it adds its APIs to,
+    /// provide APIs of a program's own (`Conformance`, `provides`).
+    conformances: std.ArrayList(Conformance) = .empty,
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
@@ -2677,6 +2820,7 @@ pub const SemContext = struct {
         self.types.deinit(self.allocator);
         self.type_info.deinit(self.allocator);
         self.deferred_checks.deinit(self.allocator);
+        self.conformances.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.reported.deinit(self.allocator);
         self.untakeable.deinit(self.allocator);
@@ -6236,26 +6380,255 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
 }
 
 /// Each argument of the instance `of`, made at `at`, provides what its
-/// parameter's bounds name (`lacks`); the first that does not is
-/// reported there. False after a diagnostic.
+/// parameter's bounds name: a built-in API (`lacks`) or one of the
+/// program's own (`provides`); the first that does not is reported
+/// there. False after a diagnostic.
 pub fn checkBounds(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: InstanceRoot) std.mem.Allocator.Error!bool {
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
-        const written = ctx.symbols.items[param].apis;
-        if (written.count() == 0) continue;
+        const sym = ctx.symbols.items[param];
+        if (!hasBounds(sym)) continue;
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
-        // What the bounds name first, then what they imply.
-        for ([_]Apis{ written, implied(written).differenceWith(written) }) |set| {
+        for (sym.user_apis) |api| {
+            if (try provides(ctx, arg, api) != null) continue;
+            if (unboundedParam(ctx, arg)) continue;
+            try reportUnprovided(ctx, at, of, sym.name, arg, api);
+            return false;
+        }
+        // What the bounds name first, then what they imply, those of the
+        // APIs they name included.
+        const written = sym.apis;
+        for ([_]Apis{ written, boundApis(ctx, sym).differenceWith(written) }) |set| {
             var it = set.iterator();
             while (it.next()) |api| {
                 const lack = (try lacks(ctx, arg, api)) orelse continue;
-                try reportLack(ctx, at, try rootName(ctx, of), ctx.symbols.items[param].name, arg, api, lack);
+                try reportLack(ctx, at, try rootName(ctx, of), sym.name, arg, api, lack);
                 return false;
             }
         }
     }
     return true;
+}
+
+/// Whether `ty` is a type parameter with no bounds, which each of its
+/// instances decides.
+fn unboundedParam(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .type_var => |p| !hasBounds(ctx.symbols.items[p]),
+        else => false,
+    };
+}
+
+/// `of` cannot use `pname = arg`, which does not provide `api`, an API
+/// of the program's own, at `at`; the fix names the header or the
+/// addition that would provide it, or the bound.
+fn reportUnprovided(ctx: *SemContext, at: u32, of: InstanceRoot, pname: []const u8, arg: TypeId, api: ApiRef) std.mem.Allocator.Error!void {
+    const a = ctx.arena.allocator();
+    const inst = try rootName(ctx, of);
+    const bare = if (std.mem.indexOfScalar(u8, inst, '[')) |i| inst[0..i] else inst;
+    const aname = try formatType(ctx, arg);
+    const iname = try apiName(ctx, api);
+    const fix: []const u8 = fix: {
+        switch (ctx.types.get(arg)) {
+            .type_var => |p| {
+                const sym = ctx.symbols.items[p];
+                break :fix try a.print("; add `{s}` to its bounds: `[{s}: {s} + {s}]`", .{ iname, sym.name, try formatBounds(ctx, a, sym, null), iname });
+            },
+            else => {},
+        }
+        // A view, an optional, a handle, a function, an array, or a slice
+        // takes its facts from its parts, and no addition names one.
+        const unnamed: ?[]const u8 = switch (ctx.types.get(arg)) {
+            .read_view, .write_view, .string_view => "a view",
+            .optional => "an optional",
+            .shared, .weak => "a handle",
+            .function, .callable => "a function type",
+            .array => "an array",
+            .slice => "a slice",
+            else => null,
+        };
+        if (unnamed) |what| break :fix try a.print("; {s} provides no API of a program's own", .{what});
+        // An addition under a bound the argument does not meet.
+        if (try conditionalConformance(ctx, arg, api)) |c| break :fix try a.print("; `{s}` provides `{s}` only where {s}", .{ try formatTypeIn(c.home, a, c.conf.ty), iname, try conditionsText(c.home, a, c.conf) });
+        const decl = nominalDecl(ctx, arg) orelse break :fix try a.print("; write `add {s}: {s}` in the module of `{s}`", .{ aname, iname, iname });
+        const sym = decl.symbol();
+        if (decl.module_id != null or isProxy(sym) or sym.decl_pos == builtin_decl_pos or decl.ctx.is_std) {
+            break :fix try a.print("; write `add {s}: {s}` in the module of `{s}`", .{ aname, iname, iname });
+        }
+        // A type of this module names the API on its header.
+        const is_enum = for (sym.fields orelse &.{}) |f| {
+            if (f.is_variant) break true;
+        } else false;
+        const params: []const u8 = if (sym.kind == .generic_type) blk: {
+            var names: std.ArrayList(u8) = .empty;
+            for (sym.type_params orelse &.{}, 0..) |tp, i| {
+                if (i > 0) try names.appendSlice(a, ", ");
+                try names.appendSlice(a, ctx.symbols.items[tp].name);
+            }
+            break :blk try a.print("[{s}]", .{names.items});
+        } else "";
+        // A generic type provides it for every instance, or by an addition
+        // under a bound; the header is the simple fix.
+        const named = try formatBounds(ctx, a, sym, null);
+        break :fix try a.print("; declare `{s} {s}{s}: {s}{s}{s}`", .{ if (is_enum) "enum" else "obj", sym.name, params, named, if (named.len > 0) " + " else "", iname });
+    };
+    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` needs `{s}: {s}`, and `{s}` does not provide `{s}`{s}", .{ inst, pname, aname, bare, pname, iname, aname, iname, fix });
+}
+
+/// A conformance of `ty`'s type constructor to `api` whose conditions
+/// `ty` does not meet (`add Wrap[T: Shape]: Shape` for `Wrap[Label]`).
+fn conditionalConformance(ctx: *SemContext, ty: TypeId, api: ApiRef) std.mem.Allocator.Error!?struct { home: *const SemContext, conf: Conformance } {
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    const a = scratch.allocator();
+    const key = (try typeKey(ctx, a, ty)) orelse return null;
+    for ([_]u32{ ctx.module_id, api.module_id, key.module_id }) |m| {
+        if (m == 0) continue;
+        const home: *const SemContext = if (m == ctx.module_id) ctx else ctx.foreign_semas.get(m) orelse continue;
+        for (home.conformances.items) |conf| {
+            if (conf.params.len == 0 or !conf.api.eql(api)) continue;
+            const ckey = (try typeKey(home, a, conf.ty)) orelse continue;
+            if (ckey.eql(key)) return .{ .home = home, .conf = conf };
+        }
+    }
+    return null;
+}
+
+/// The bounds an addition puts on its type's arguments: `T: Shape`,
+/// `` `T: Shape` and `U: Print` ``.
+fn conditionsText(home: *const SemContext, a: std.mem.Allocator, conf: Conformance) std.mem.Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (conf.params) |p| {
+        const sym = home.symbols.items[p];
+        if (!hasBounds(sym)) continue;
+        if (out.items.len > 0) try out.appendSlice(a, " and ");
+        try out.print(a, "`{s}: {s}`", .{ sym.name, try formatBounds(home, a, sym, null) });
+    }
+    return out.items;
+}
+
+/// What a type provides an API of a program's own by: a type parameter's
+/// bound that names it or an API built on it, or a conformance
+/// (`SemContext.conformances` of module `module_id`, at `index`).
+pub const Provision = union(enum) {
+    bound: SymbolId,
+    conformance: struct { module_id: u32, index: u32 },
+};
+
+/// Whether `ty`, a type of `ctx`, provides `api`, and by what; null when
+/// it does not (docs/design/apis.md, Stage 3, "Coherence"). The one
+/// answer to whether a type provides an API of a program's own: a bound,
+/// conformance, and a call's dispatch read it. A conformance is written
+/// in the type's module or the API's, so only those are searched. A view,
+/// an optional, a handle, and a function provide none.
+pub fn provides(ctx: *SemContext, ty: TypeId, api: ApiRef) std.mem.Allocator.Error!?Provision {
+    return providesAt(ctx, ty, api, 0);
+}
+
+fn providesAt(ctx: *SemContext, ty: TypeId, api: ApiRef, depth: u32) std.mem.Allocator.Error!?Provision {
+    if (depth > 32) return null;
+    var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer scratch.deinit();
+    const a = scratch.allocator();
+    if (ctx.types.get(ty) == .type_var) {
+        const p = ctx.types.get(ty).type_var;
+        for (ctx.symbols.items[p].user_apis) |b| {
+            for (try apiClosure(ctx, a, b)) |c| if (c.eql(api)) return .{ .bound = p };
+        }
+        return null;
+    }
+    const key = (try typeKey(ctx, a, ty)) orelse return null;
+    const homes = [_]u32{ ctx.module_id, api.module_id, key.module_id };
+    for (homes, 0..) |m, hi| {
+        if (m == 0) continue;
+        const repeated = for (homes[0..hi]) |e| {
+            if (e == m) break true;
+        } else false;
+        if (repeated) continue;
+        const home: *const SemContext = if (m == ctx.module_id) ctx else ctx.foreign_semas.get(m) orelse continue;
+        for (home.conformances.items, 0..) |conf, ci| {
+            const covers = for (try apiClosure(home, a, conf.api)) |c| {
+                if (c.eql(api)) break true;
+            } else false;
+            if (!covers) continue;
+            const ckey = (try typeKey(home, a, conf.ty)) orelse continue;
+            if (!ckey.eql(key)) continue;
+            if (!try conditionsMet(ctx, ty, home, conf, depth)) continue;
+            return .{ .conformance = .{ .module_id = m, .index = @intCast(ci) } };
+        }
+    }
+    return null;
+}
+
+/// Each argument of `ty`, a generic type's instance, meets the bounds the
+/// addition `conf` (of module `home`) puts on the parameter it fills
+/// (`add Wrap[T: Shape]: Shape`).
+fn conditionsMet(ctx: *SemContext, ty: TypeId, home: *const SemContext, conf: Conformance, depth: u32) std.mem.Allocator.Error!bool {
+    if (conf.params.len == 0) return true;
+    const args = switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn.args,
+        else => return false,
+    };
+    const own = switch (home.types.get(conf.ty)) {
+        .parameterized_nominal => |pn| pn.args,
+        else => return false,
+    };
+    for (own, 0..) |o, i| {
+        if (i >= args.len) return false;
+        const p = switch (home.types.get(o)) {
+            .type_var => |p| p,
+            else => continue,
+        };
+        const bound = home.symbols.items[p];
+        for (bound.user_apis) |u| if (try providesAt(ctx, args[i], u, depth + 1) == null) return false;
+        var it = implied(bound.apis).iterator();
+        while (it.next()) |b| if (try lacks(ctx, args[i], b) != null) return false;
+    }
+    return true;
+}
+
+/// A type as a conformance names it, the same in every module: a type a
+/// module declares by that module and its symbol there, a built-in
+/// generic by its symbol (one in every module), and any other built-in
+/// type by its name. Null for a type no conformance names.
+const TypeKey = struct {
+    module_id: u32 = 0,
+    sym: SymbolId = symbol_invalid,
+    name: []const u8 = "",
+
+    fn eql(x: TypeKey, y: TypeKey) bool {
+        if (x.sym != symbol_invalid or y.sym != symbol_invalid) return x.module_id == y.module_id and x.sym == y.sym;
+        return std.mem.eql(u8, x.name, y.name);
+    }
+};
+
+fn typeKey(ctx: *const SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error!?TypeKey {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |s| symKey(ctx, s),
+        .parameterized_nominal => |pn| symKey(ctx, pn.sym),
+        .imported_nominal => |n| .{ .module_id = n.module_id, .sym = n.sym_id },
+        .int, .float, .bool, .string, .static, .symbol, .slot => .{ .name = try formatTypeIn(ctx, a, ty) },
+        else => null,
+    };
+}
+
+fn symKey(ctx: *const SemContext, s: SymbolId) TypeKey {
+    const sym = ctx.symbols.items[s];
+    if (sym.decl_pos == builtin_decl_pos) return .{ .sym = s };
+    if (isProxy(sym)) return .{ .module_id = sym.from.module_id, .sym = sym.from.sym };
+    return .{ .module_id = ctx.module_id, .sym = s };
+}
+
+/// The conformance `p` names, with the context of the module that
+/// writes it.
+pub fn conformanceOf(ctx: *const SemContext, p: Provision) ?struct { home: *const SemContext, conf: Conformance } {
+    const c = switch (p) {
+        .conformance => |c| c,
+        .bound => return null,
+    };
+    const home: *const SemContext = if (c.module_id == ctx.module_id) ctx else ctx.foreign_semas.get(c.module_id) orelse return null;
+    return .{ .home = home, .conf = home.conformances.items[c.index] };
 }
 
 /// Why `ty`, a type with its own `==` and no hash of its own, cannot be
@@ -6295,9 +6668,7 @@ pub fn reportLack(ctx: *SemContext, at: u32, inst: []const u8, pname: []const u8
 pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, lack: Lack) std.mem.Allocator.Error![]const u8 {
     if (lack.bound) {
         const sym = ctx.types.get(lack.ty).type_var;
-        var more = ctx.symbols.items[sym].apis;
-        more.insert(api);
-        return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[sym].name, try formatApis(a, more) });
+        return a.print("; add `{s}` to its bounds: `[{s}: {s}]`", .{ @tagName(api), ctx.symbols.items[sym].name, try formatBounds(ctx, a, ctx.symbols.items[sym], api) });
     }
     if (lack.own_eq) return "";
     if (lack.path.len > 0) return a.print("; its field `{s}` is a `{s}`", .{ lack.path, try formatType(ctx, lack.ty) });
@@ -6307,12 +6678,10 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
     if (api == .Ord) if (nominalDecl(ctx, ty)) |decl| {
         const sym = decl.symbol();
         if (sym.decl_pos != builtin_decl_pos and !sym.flags.error_set and !decl.ctx.is_std) {
-            var named = sym.apis;
-            named.insert(.Ord);
             const is_enum = for (sym.fields orelse &.{}) |f| {
                 if (f.is_variant) break true;
             } else false;
-            return a.print("; name `Ord` on its header: `{s} {s}: {s}`", .{ if (is_enum) "enum" else "obj", sym.name, try formatApis(a, named) });
+            return a.print("; name `Ord` on its header: `{s} {s}: {s}`", .{ if (is_enum) "enum" else "obj", sym.name, try formatBounds(decl.ctx, a, sym, .Ord) });
         }
     };
     return "";
@@ -6321,15 +6690,13 @@ pub fn lackDetail(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId, api: Api, 
 /// A type parameter `ty` (`sym`): what its bounds name; with no bound,
 /// nothing, since each instance decides.
 fn boundLack(ctx: *const SemContext, ty: TypeId, sym: SymbolId, api: Api) ?Lack {
-    const bounds = implied(ctx.symbols.items[sym].apis);
-    if (bounds.count() == 0 or bounds.contains(api)) return null;
+    if (!hasBounds(ctx.symbols.items[sym]) or boundApis(ctx, ctx.symbols.items[sym]).contains(api)) return null;
     return .{ .ty = ty, .bound = true };
 }
 
 fn paramsLack(ctx: *SemContext, params: []const SymbolId, api: Api) std.mem.Allocator.Error!?Lack {
     for (params) |p| {
-        const bounds = implied(ctx.symbols.items[p].apis);
-        if (bounds.count() == 0 or bounds.contains(api)) continue;
+        if (!hasBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(api)) continue;
         return .{ .ty = try ctx.intern(.{ .type_var = p }), .bound = true };
     }
     return null;
@@ -7255,8 +7622,7 @@ fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
     defer params.deinit(ctx.allocator);
     reachedTypeVars(ctx, ty, &params, ctx.allocator) catch return null;
     for (params.items) |p| {
-        const bounds = implied(ctx.symbols.items[p].apis);
-        if (bounds.count() == 0 or bounds.contains(if (how == .moves) .Moves else .Shares)) continue;
+        if (!hasBounds(ctx.symbols.items[p]) or boundApis(ctx, ctx.symbols.items[p]).contains(if (how == .moves) .Moves else .Shares)) continue;
         return ctx.types.find(.{ .type_var = p }) orelse ty;
     }
     return null;
@@ -8114,23 +8480,36 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                 sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f, sym.param_names);
                 _ = scratch.reset(.retain_capacity);
             },
-            .nominal_type, .generic_type => {
-                const fields = sym.fields orelse continue;
-                const out = try ctx.arena.allocator().dupe(Field, fields);
-                for (out) |*fld| {
-                    if (!fld.is_method or fld.is_drop_method) continue;
-                    const f = switch (ctx.types.get(fld.ty)) {
-                        .function => |f| f,
-                        else => continue,
-                    };
-                    fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f, fld.param_names);
-                    _ = scratch.reset(.retain_capacity);
-                }
-                sym.fields = out;
-            },
+            .nominal_type, .generic_type, .api => sym.fields = try methodOrigins(ctx, &scratch, sym.fields orelse continue),
             else => {},
         }
     }
+    // An addition's methods, shared by the conformances it writes.
+    var done: ?[]const Field = null;
+    var with: []const Field = &.{};
+    for (ctx.conformances.items) |*c| {
+        if (c.kind != .add or c.methods.len == 0) continue;
+        if (done == null or done.?.ptr != c.methods.ptr) {
+            done = c.methods;
+            with = try methodOrigins(ctx, &scratch, c.methods);
+        }
+        c.methods = with;
+    }
+}
+
+/// `fields` with each method's origins set (`declOrigins`).
+fn methodOrigins(ctx: *SemContext, scratch: *std.heap.ArenaAllocator, fields: []const Field) std.mem.Allocator.Error![]const Field {
+    const out = try ctx.arena.allocator().dupe(Field, fields);
+    for (out) |*fld| {
+        if (!fld.is_method or fld.is_drop_method) continue;
+        const f = switch (ctx.types.get(fld.ty)) {
+            .function => |f| f,
+            else => continue,
+        };
+        fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f, fld.param_names);
+        _ = scratch.reset(.retain_capacity);
+    }
+    return out;
 }
 
 /// The types of the several results `ty` gives, `(A, B)`, also inside
@@ -8350,7 +8729,7 @@ pub fn copies(ctx: *const SemContext, ty: TypeId) Answer {
     if (ctx.holds(ty).views.write) return .no;
     // A type parameter whose bounds name `Copy` copies in every instance.
     switch (ctx.types.get(ty)) {
-        .type_var => |param| if (implied(ctx.symbols.items[param].apis).contains(.Copy)) return .yes,
+        .type_var => |param| if (boundApis(ctx, ctx.symbols.items[param]).contains(.Copy)) return .yes,
         else => {},
     }
     return switch (moves(ctx, ty)) {
@@ -8639,7 +9018,7 @@ pub fn setParamUnlent(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     };
 }
 
-fn okOf(ctx: *const SemContext, ty: TypeId) TypeId {
+pub fn okOf(ctx: *const SemContext, ty: TypeId) TypeId {
     return switch (ctx.types.get(ty)) {
         .fallible => |f| f.ok,
         else => ty,
@@ -8769,6 +9148,7 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
         .contents = fsym.contents,
         .from = origin,
         .apis = fsym.apis,
+        .user_apis = fsym.user_apis,
     });
     // Recorded first: the members of a generic type name the type.
     try ctx.imported.put(ctx.allocator, origin, id);
@@ -10053,7 +10433,7 @@ fn leafHands(source: []const u8, ctx: ?*const SemContext, leaf: Sexp) Hands.Kind
     };
     return switch (ctx.?.symbols.items[sym].kind) {
         .param, .local, .capture, .@"extern", .generic_param, .function => .place,
-        .type_alias, .generic_type, .nominal_type, .module => .none,
+        .type_alias, .generic_type, .nominal_type, .module, .api => .none,
     };
 }
 
@@ -10160,7 +10540,7 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
             if (ctx.typeOf(q) != null) return .declared;
             return typeMemberSource(ctx, e);
         },
-        .nominal_type, .type_alias, .generic_type => return typeMemberSource(ctx, e),
+        .nominal_type, .type_alias, .generic_type, .api => return typeMemberSource(ctx, e),
     }
 }
 
@@ -10285,7 +10665,7 @@ fn namesTypeOrModule(ctx: *const SemContext, e: Sexp) bool {
     if (ctx.instanceOf(e)) |inst| return inst == .type;
     const sym = ctx.symbolOf(e) orelse return false;
     return switch (ctx.symbols.items[sym].kind) {
-        .type_alias, .generic_type, .nominal_type, .module => true,
+        .type_alias, .generic_type, .nominal_type, .module, .api => true,
         .function, .param, .local, .generic_param, .@"extern", .capture => false,
     };
 }
@@ -10307,7 +10687,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.

@@ -36,6 +36,26 @@ changed the language since it:
   Debug and self-check builds also refuse to accept a module that types
   an expression `invalid` with no error.
 
+- **APIs of a program's own (Stage 3, declarations and conformance):**
+  `api Shape` declares the methods a type provides, required or with a
+  default body, and may build on other APIs and on the built-in ones
+  (`api Job: Moves`). A type provides one on its header, `obj Square:
+  Shape + Print`, and `add Int: Shape` or `add Wrap[T: Shape]: Shape`
+  gives one to a built-in type, another module's type, or a type under a
+  bound. Each method meets its API exactly, but for a narrower `from`
+  and `keeps`, and compile-time parameters match in kind, type, and
+  bounds; a type provides an API once in the program, in its module or
+  the API's, the APIs an addition's API builds on included; an addition
+  names no member its type has, a String's `push` included; and a bound
+  by an API, `[T: Shape]`, holds at each instance. A call through such a bound is rejected until the next step
+  lowers it. `api` and `add` are keywords only at the start of a
+  module-level declaration, before the name it declares or the type it
+  names, so `user.api`, `!set.add(x)`, and a binding named `add` stay
+  names; `trait` and `impl` say to write `api` and `add`. A type, an
+  API, or an alias named `Int`, `Float`, `Bool`, or a sized number is
+  rejected, as one named `String` is: an `obj Int` was accepted and
+  never reached, since the name named the built-in type.
+
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
   binds it from its callbacks' sets (`error` for a `T!` callback), and

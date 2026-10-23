@@ -810,13 +810,11 @@ pub const Checker = struct {
         const a = self.arena();
         for (self.plain_reqs.items[0..self.own_plain_reqs]) |r| {
             const sym = ctx.symbols.items[r.param];
-            if (sym.apis.count() == 0) continue;
+            if (!sema.hasBounds(sym)) continue;
             const api: sema.Api = if (r.view) .Owned else .Copy;
-            if (sema.implied(sym.apis).contains(api)) continue;
-            var more = sym.apis;
-            more.insert(api);
+            if (sema.boundApis(ctx, sym).contains(api)) continue;
             const what = if (r.view) "a value that holds no loan, which a Cell, a Signal, or an owned closure keeps" else if (r.element) "taking an element its collection still owns" else "a copy";
-            try self.err(r.pos, "`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, try sema.formatApis(a, sym.apis), what, @tagName(api), sym.name, try sema.formatApis(a, more) });
+            try self.err(r.pos, "`{s}` is bounded by `{s}`, which does not give {s}; add `{s}` to its bounds: `[{s}: {s}]`", .{ sym.name, try sema.formatBounds(ctx, a, sym, null), what, @tagName(api), sym.name, try sema.formatBounds(ctx, a, sym, api) });
         }
     }
 
@@ -1895,6 +1893,9 @@ pub const Checker = struct {
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
             .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
+            // An API's defaults and an addition's methods are walked where a
+            // call through a bound reaches them (docs/design/apis.md, Stage 3).
+            .api, .api_add => {},
             else => try self.walkStmt(sexp),
         }
     }

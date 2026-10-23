@@ -75,10 +75,13 @@ names, and come after the round.
 
 After the consolidation round, in the owner's order:
 
-1. **APIs Stage 3,** from a refresh of
-   [docs/design/apis.md](docs/design/apis.md) for this period's changes
-   (declared error sets on API methods, `*Frozen` beside `*{Shape}`,
-   `Table`). The refresh is docs only and may run during the round.
+1. **APIs Stage 3,** by the build plan's six phases
+   ([docs/history/records/2026-10/apis-stage3/build-plan.md](docs/history/records/2026-10/apis-stage3/build-plan.md)).
+   Phase 1, declarations and conformance, is built: `api`, headers and
+   `add` checked but not lowered, coherence, and bounds by a program's
+   own APIs at each instance, with a call through such a bound rejected
+   ([phase1-notes.md](docs/history/records/2026-10/apis-stage3/phase1-notes.md)).
+   Phase 2, calls through a bound and their witnesses, is next.
 2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved

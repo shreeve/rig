@@ -50,6 +50,7 @@ pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error
     var r: SymbolResolver = .{ .ctx = ctx, .scope = module_scope, .module_scope = module_scope };
     defer r.pending_shadows.deinit(ctx.allocator);
     try r.walk(tree);
+    try recordHeaderConformances(ctx);
     // Module-level names are visible throughout the module, so the
     // clash with them is judged once all are declared.
     // Each lands where the walk met it, so diagnostics stay in the
@@ -86,8 +87,12 @@ const SymbolResolver = struct {
             .module => {
                 // A file's `use`s name its modules everywhere in it.
                 for (ir.Module.decls(sexp)) |c| if (c.isKind(.use)) try self.walk(c);
+                // The module's APIs, before any bound or header names one:
+                // each name first, then what each builds on.
+                for (ir.Module.decls(sexp)) |c| if (rig.unpub(c).isKind(.api)) try self.declareApi(rig.unpub(c));
+                for (ir.Module.decls(sexp)) |c| if (rig.unpub(c).isKind(.api)) try self.walk(c);
                 for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walk(c);
-                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c) and !c.isKind(.use)) try self.walk(c);
+                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c) and !c.isKind(.use) and !rig.unpub(c).isKind(.api)) try self.walk(c);
             },
             .@"pub" => {
                 const decl = ir.Pub.decl(sexp);
@@ -114,6 +119,8 @@ const SymbolResolver = struct {
             .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
             .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
+            .api => try self.walkApi(sexp),
+            .api_add => try self.walkAdd(sexp),
             // A union of error sets: a set of its own, with no members.
             .error_join => _ = try self.declare(ir.get(sexp, .name), .nominal_type, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => {
@@ -217,7 +224,13 @@ const SymbolResolver = struct {
         };
         // `String`, `Static`, and `Symbol` are built-in types, like `List`,
         // though no symbol holds them.
-        const reserved = self.scope == self.module_scope and isNominalBuiltinName(name);
+        // So are `Int`, `Float`, `Bool`, and the sized numbers, which no
+        // type or API a module declares may take.
+        const names_type = switch (kind) {
+            .nominal_type, .generic_type, .type_alias, .api => true,
+            else => false,
+        };
+        const reserved = self.scope == self.module_scope and (isNominalBuiltinName(name) or (names_type and isBuiltinTypeName(self.ctx, name)));
         if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
@@ -429,9 +442,18 @@ const SymbolResolver = struct {
             // A bare name among compile-time parameters is a type
             // parameter, its bounds recorded apart (`Parser.bounds`).
             if (ct and p == .src) {
+                // `[N: Int]`: a value parameter, written with a capital.
+                if (self.boundNamesType(name_node)) |ty| {
+                    try self.checkParamCase(name_node, ty);
+                    _ = try self.declare(name_node, .param, .{ .comptime_known = true });
+                    continue;
+                }
                 try self.checkParamCase(name_node, null);
-                const apis = try self.boundsOf(name_node);
-                if (try self.declare(name_node, .generic_param, .{})) |id| self.ctx.symbols.items[id].apis = apis;
+                const b = try self.boundsOf(name_node);
+                if (try self.declare(name_node, .generic_param, .{})) |id| {
+                    self.ctx.symbols.items[id].apis = b.apis;
+                    self.ctx.symbols.items[id].user_apis = b.user;
+                }
                 continue;
             }
             if (ct) try self.checkParamCase(name_node, ir.get(p, .type));
@@ -523,7 +545,9 @@ const SymbolResolver = struct {
             // name is a type parameter; `n: Int` a compile-time value,
             // whose type `resolveNominal` resolves.
             const value = p.isKind(.@":");
-            try self.checkParamCase(pnode, if (value) ir.get(p, .type) else null);
+            const typed = if (value) null else self.boundNamesType(pnode);
+            try self.checkParamCase(pnode, if (value) ir.get(p, .type) else typed);
+            const b: Bounds = if (value or typed != null) .{} else try self.boundsOf(pnode);
             const pid = try self.ctx.addSymbol(.{
                 .name = pname,
                 .kind = if (value) .param else .generic_param,
@@ -531,13 +555,16 @@ const SymbolResolver = struct {
                 .decl_pos = srcPos(pnode, 0),
                 .scope = if (value) sema.scope_invalid else self.scope,
                 .flags = .{ .comptime_known = value },
-                .apis = if (value) .empty else try self.boundsOf(pnode),
+                .apis = b.apis,
+                .user_apis = b.user,
             });
             try self.ctx.recordName(pnode, pid);
             try ids.append(self.ctx.allocator, pid);
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
-        self.ctx.symbols.items[id].apis = try self.headerApis(node);
+        const header = try self.headerApis(node);
+        self.ctx.symbols.items[id].apis = header.apis;
+        self.ctx.symbols.items[id].user_apis = header.user;
         self.type_params = self.ctx.symbols.items[id].type_params.?;
         defer self.type_params = &.{};
         try self.walkMembers(ir.rest(node, .members));
@@ -545,44 +572,97 @@ const SymbolResolver = struct {
 
     /// A `struct`, `enum`, or `errors`.
     fn walkNominalType(self: *SymbolResolver, node: Sexp, flags: sema.SymbolFlags) Error!void {
-        const apis = try self.headerApis(node);
-        if (try self.declare(ir.get(node, .name), .nominal_type, flags)) |id| self.ctx.symbols.items[id].apis = apis;
+        const header = try self.headerApis(node);
+        if (try self.declare(ir.get(node, .name), .nominal_type, flags)) |id| {
+            self.ctx.symbols.items[id].apis = header.apis;
+            self.ctx.symbols.items[id].user_apis = header.user;
+        }
         try self.walkMembers(ir.rest(node, .members));
     }
 
     /// The bounds written on the type parameter named at `name_node`
     /// (`Parser.bounds`), as written; `sema.implied` adds what they
     /// imply. Each is a built-in API; another name is reported.
-    fn boundsOf(self: *SymbolResolver, name_node: Sexp) Error!sema.Apis {
-        const p = self.ctx.parser orelse return .empty;
-        if (name_node != .src) return .empty;
-        var out: sema.Apis = .empty;
+    fn boundsOf(self: *SymbolResolver, name_node: Sexp) Error!Bounds {
+        const p = self.ctx.parser orelse return .{};
+        if (name_node != .src) return .{};
+        var out: Bounds = .{};
+        var user: std.ArrayList(sema.ApiRef) = .empty;
         for (p.boundsAt(name_node.src.pos)) |leaf| {
-            const text = identAt(self.ctx.source, leaf) orelse diag.textOf(self.ctx.source, self.ctx.span(leaf));
-            const api = rig.Api.named(text) orelse {
-                try self.ctx.errAt(leaf, "`{s}` names no built-in API; a bound is `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, or `Signed`", .{text});
-                continue;
-            };
-            if (out.contains(api)) try self.ctx.errAt(leaf, "`{s}` is named twice in the bounds of `{s}`", .{ text, identAt(self.ctx.source, name_node).? });
-            out.insert(api);
+            const text = diag.textOf(self.ctx.source, self.ctx.span(leaf));
+            switch (try apiNamed(self.ctx, self.scope, leaf)) {
+                .builtin => |api| {
+                    if (out.apis.contains(api)) try self.ctx.errAt(leaf, "`{s}` is named twice in the bounds of `{s}`", .{ text, identAt(self.ctx.source, name_node).? });
+                    out.apis.insert(api);
+                },
+                .user => |ref| {
+                    if (containsRef(user.items, ref)) try self.ctx.errAt(leaf, "`{s}` is named twice in the bounds of `{s}`", .{ text, identAt(self.ctx.source, name_node).? });
+                    try user.append(self.ctx.arena.allocator(), ref);
+                },
+                .reported => {},
+                .none => try self.ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, or `Signed`", .{text}),
+            }
         }
+        out.user = user.items;
         return out;
+    }
+
+    /// The type a capital parameter's one bound names, as `[N: Int]`
+    /// does: it is a value parameter written with a capital, reported
+    /// so (`checkParamCase`). Null when it names an API, or anything else.
+    fn boundNamesType(self: *SymbolResolver, name_node: Sexp) ?Sexp {
+        const p = self.ctx.parser orelse return null;
+        if (name_node != .src) return null;
+        const bounds = p.boundsAt(name_node.src.pos);
+        if (bounds.len != 1) return null;
+        const leaf = bounds[0];
+        if (leaf != .src) {
+            if (!leaf.isKind(.member) or self.foreignApi(leaf)) return null;
+            // `geo.Shape` with no `geo` in scope is reported as a bound.
+            const object = identAt(self.ctx.source, ir.Member.object(leaf)) orelse return null;
+            return if (self.ctx.lookupAt(self.scope, object, srcPos(ir.Member.object(leaf), 0)) != null) leaf else null;
+        }
+        const text = identAt(self.ctx.source, leaf) orelse return null;
+        if (rig.Api.named(text) != null) return null;
+        if (isBuiltinTypeName(self.ctx, text) or isNominalBuiltinName(text)) return leaf;
+        const id = self.ctx.lookup(self.scope, text) orelse return null;
+        return switch (self.ctx.symbols.items[id].kind) {
+            .nominal_type, .generic_type, .type_alias => leaf,
+            else => null,
+        };
+    }
+
+    /// Whether `member`, `m.Name`, names an API of an imported module.
+    fn foreignApi(self: *SymbolResolver, member: Sexp) bool {
+        const d = foreignSymbol(self.ctx, self.scope, member) orelse return false;
+        return d.sym.kind == .api;
     }
 
     /// The APIs a type's header names (`obj Name: Eq + Hash`), each one
     /// whose meaning a type may give its own: `Eq`, `Hash`, `Ord`, or
     /// `Print`. Another name is reported.
-    fn headerApis(self: *SymbolResolver, node: Sexp) Error!sema.Apis {
-        var out: sema.Apis = .empty;
+    fn headerApis(self: *SymbolResolver, node: Sexp) Error!Bounds {
+        var out: Bounds = .{};
         if (!ir.has(node.kind() orelse return out, .apis)) return out;
         const group = ir.get(node, .apis);
         if (group == .nil) return out;
         const tname = identAt(self.ctx.source, ir.get(node, .name)) orelse "";
+        var user: std.ArrayList(sema.ApiRef) = .empty;
         for (group.items()) |leaf| {
             const text = if (leaf == .src) identAt(self.ctx.source, leaf) orelse "" else diag.textOf(self.ctx.source, self.ctx.span(leaf));
-            const api = rig.Api.named(text) orelse {
-                try self.ctx.errAt(leaf, "`{s}` names no built-in API; a type's header names `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", .{text});
-                continue;
+            const api = switch (try apiNamed(self.ctx, self.scope, leaf)) {
+                .builtin => |api| api,
+                .user => |ref| {
+                    if (containsRef(user.items, ref)) {
+                        try self.ctx.errAt(leaf, "`{s}` is named twice on the header of `{s}`", .{ text, tname });
+                    } else try user.append(self.ctx.arena.allocator(), ref);
+                    continue;
+                },
+                .reported => continue,
+                .none => {
+                    try self.ctx.errAt(leaf, "`{s}` names no API; a type's header names an API the program declares with `api`, or `Eq`, `Hash`, `Ord`, or `Print`, to give it a meaning of its own", .{text});
+                    continue;
+                },
             };
             switch (api) {
                 .Copy, .Clone, .Owned, .Moves, .Shares => {
@@ -595,10 +675,97 @@ const SymbolResolver = struct {
                 },
                 .Eq, .Hash, .Ord, .Print => {},
             }
-            if (out.contains(api)) try self.ctx.errAt(leaf, "`{s}` is named twice on the header of `{s}`", .{ text, tname });
-            out.insert(api);
+            if (out.apis.contains(api)) try self.ctx.errAt(leaf, "`{s}` is named twice on the header of `{s}`", .{ text, tname });
+            out.apis.insert(api);
         }
+        out.user = user.items;
         return out;
+    }
+
+    /// `api Shape: Print`: the API, its hidden `Self` (the type that
+    /// provides it, a type parameter of each method), the APIs it builds
+    /// on, any built-in one among them, and its methods' scopes. A
+    /// default's body is resolved here and checked where a call through
+    /// a bound is built.
+    fn declareApi(self: *SymbolResolver, node: Sexp) Error!void {
+        const name_node = ir.Api.name(node);
+        const id = (try self.declare(name_node, .api, .{})) orelse return;
+        const name = self.ctx.symbols.items[id].name;
+        if (rig.Api.named(name) != null) try self.ctx.errAt(name_node, "`{s}` is a built-in API; give this one another name", .{name});
+        const self_param = try self.ctx.addSymbol(.{
+            .name = "Self",
+            .kind = .generic_param,
+            .ty = self.ctx.types.unknown_id,
+            .decl_pos = srcPos(name_node, 0),
+            .scope = sema.scope_invalid,
+            .user_apis = try self.ctx.arena.allocator().dupe(sema.ApiRef, &.{.{ .module_id = self.ctx.module_id, .sym = id }}),
+        });
+        self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, &.{self_param});
+    }
+
+    fn walkApi(self: *SymbolResolver, node: Sexp) Error!void {
+        const id = self.ctx.symbolOf(ir.Api.name(node)) orelse return;
+        const name = self.ctx.symbols.items[id].name;
+        var supers: Bounds = .{};
+        var user: std.ArrayList(sema.ApiRef) = .empty;
+        const group = ir.Api.apis(node);
+        if (group != .nil) for (group.items()) |leaf| {
+            const text = diag.textOf(self.ctx.source, self.ctx.span(leaf));
+            switch (try apiNamed(self.ctx, self.scope, leaf)) {
+                .builtin => |api| {
+                    if (supers.apis.contains(api)) try self.ctx.errAt(leaf, "`{s}` is named twice on the header of `{s}`", .{ text, name });
+                    supers.apis.insert(api);
+                },
+                .user => |ref| {
+                    if (containsRef(user.items, ref)) {
+                        try self.ctx.errAt(leaf, "`{s}` is named twice on the header of `{s}`", .{ text, name });
+                    } else try user.append(self.ctx.arena.allocator(), ref);
+                },
+                .reported => {},
+                .none => try self.ctx.errAt(leaf, "`{s}` names no API; an API builds on APIs the program declares with `api`, or on built-in ones: `api Named: Print`", .{text}),
+            }
+        };
+        self.ctx.symbols.items[id].apis = supers.apis;
+        self.ctx.symbols.items[id].user_apis = user.items;
+        for (ir.rest(node, .members)) |m| {
+            if (m.isKind(.fun) or m.isKind(.sub)) try self.walkFun(m);
+        }
+    }
+
+    /// `add Int: Shape`, `add Wrap[T: Shape]: Shape`: the addition's own
+    /// type parameters, each with its bounds, in a scope of its own, and
+    /// its methods' scopes. Its type and APIs are resolved with the
+    /// declarations (`TypeResolver.resolveAdd`).
+    fn walkAdd(self: *SymbolResolver, node: Sexp) Error!void {
+        const prev = try self.enter(node, .block);
+        defer self.scope = prev;
+        const ty = ir.ApiAdd.type(node);
+        if (ty.isKind(.generic_inst)) for (ir.GenericInst.args(ty)) |arg| {
+            const pname, const bounds: Sexp = if (arg.isKind(.kwarg)) .{ ir.Kwarg.name(arg), ir.Kwarg.value(arg) } else .{ arg, .nil };
+            const text = identAt(self.ctx.source, pname) orelse continue;
+            if (pname != .src or !std.ascii.isUpper(text[0])) continue;
+            // `add List[Int]: Shape` names an instance, which
+            // `resolveAdd` rejects; only a new name is a parameter.
+            if (bounds == .nil and (isBuiltinTypeName(self.ctx, text) or isNominalBuiltinName(text) or self.ctx.lookup(self.scope, text) != null)) continue;
+            var b: Bounds = .{};
+            var user: std.ArrayList(sema.ApiRef) = .empty;
+            var leaves: std.ArrayList(Sexp) = .empty;
+            defer leaves.deinit(self.ctx.allocator);
+            try plusLeaves(self.ctx.allocator, bounds, &leaves);
+            for (leaves.items) |leaf| switch (try apiNamed(self.ctx, self.scope, leaf)) {
+                .builtin => |api| b.apis.insert(api),
+                .user => |ref| if (!containsRef(user.items, ref)) try user.append(self.ctx.arena.allocator(), ref),
+                .reported => {},
+                .none => try self.ctx.errAt(leaf, "`{s}` names no API; a bound is an API the program declares with `api`, or `Copy`, `Clone`, `Owned`, `Moves`, `Shares`, `Eq`, `Hash`, `Ord`, `Print`, `Num`, `Integer`, or `Signed`", .{diag.textOf(self.ctx.source, self.ctx.span(leaf))}),
+            };
+            if (try self.declare(pname, .generic_param, .{})) |pid| {
+                self.ctx.symbols.items[pid].apis = b.apis;
+                self.ctx.symbols.items[pid].user_apis = user.items;
+            }
+        };
+        for (ir.rest(node, .members)) |m| {
+            if (m.isKind(.fun) or m.isKind(.sub)) try self.walkFun(m);
+        }
     }
 
     /// A compile-time parameter's name starts with a capital letter for a
@@ -859,6 +1026,111 @@ const SymbolResolver = struct {
 // Declaration types
 // =============================================================================
 
+/// An API named where a type goes (docs/design/apis.md, "The errors a
+/// reader meets first").
+pub const api_not_type = "`{s}` is an API, not a type: write `[T: {s}]` for one type known when compiling, or `?{{{s}}}` for any type at run time";
+
+/// What a type parameter's bounds, a type's header, or an API's header
+/// name: built-in APIs, and APIs of a program's own.
+const Bounds = struct {
+    apis: sema.Apis = .empty,
+    user: []const sema.ApiRef = &.{},
+};
+
+/// What a name in a bound or a header names: a built-in API, an API of a
+/// program's own (`Shape`, `geo.Shape`), nothing of the kind, or a
+/// mistake already reported (a module not imported, a private API).
+const ApiNamed = union(enum) { builtin: rig.Api, user: sema.ApiRef, none, reported };
+
+fn apiNamed(ctx: *SemContext, scope: ScopeId, leaf: Sexp) Error!ApiNamed {
+    if (leaf == .src) {
+        const text = identAt(ctx.source, leaf) orelse return .none;
+        if (rig.Api.named(text)) |api| return .{ .builtin = api };
+        const id = ctx.lookup(scope, text) orelse return .none;
+        if (ctx.symbols.items[id].kind != .api) return .none;
+        try ctx.recordName(leaf, id);
+        return .{ .user = .{ .module_id = ctx.module_id, .sym = id } };
+    }
+    if (!leaf.isKind(.member)) return .none;
+    const object = ir.Member.object(leaf);
+    if (identAt(ctx.source, object)) |m| if (ctx.lookupAt(scope, m, srcPos(object, 0)) == null) {
+        try ctx.errAt(object, "use of unbound name `{s}`{s}", .{ m, try ctx.otherFileUse(m) });
+        return .reported;
+    };
+    const d = foreignSymbol(ctx, scope, leaf) orelse return .none;
+    if (d.sym.kind != .api) return .none;
+    if (!d.sym.flags.is_public) {
+        try sema.notPublic(ctx, srcPos(ir.Member.name(leaf), 0), identAt(ctx.source, ir.Member.object(leaf)) orelse "", d.sym.name, d.foreign);
+        return .reported;
+    }
+    return .{ .user = .{ .module_id = d.module_id, .sym = d.id } };
+}
+
+/// The declaration `m.Name` names in an imported module, quietly; null
+/// when `m` is no module this file imports or declares no `Name`.
+fn foreignSymbol(ctx: *const SemContext, scope: ScopeId, member: Sexp) ?struct { foreign: *const SemContext, module_id: u32, id: SymbolId, sym: Symbol } {
+    const object = ir.Member.object(member);
+    const module_name = identAt(ctx.source, object) orelse return null;
+    const name = identAt(ctx.source, ir.Member.name(member)) orelse return null;
+    const mod_id = ctx.lookupAt(scope, module_name, srcPos(object, 0)) orelse return null;
+    if (ctx.symbols.items[mod_id].kind != .module) return null;
+    const origin = ctx.module_refs.get(mod_id) orelse return null;
+    const foreign = ctx.foreign_semas.get(origin) orelse return null;
+    const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+    return .{ .foreign = foreign, .module_id = origin, .id = fid, .sym = foreign.symbols.items[fid] };
+}
+
+/// The named type inside a view, optional, handle, box, slice, or
+/// array, as `add` would name it: `Square` in `?Square`.
+fn innerNamed(node: Sexp) ?Sexp {
+    var n = node;
+    while (true) {
+        if (n == .src or n.isKind(.member) or n.isKind(.generic_inst)) return n;
+        n = switch (n.kind() orelse return null) {
+            .read_view, .write_view, .optional, .shared, .boxed, .slice, .array_type => ir.get(n, .type),
+            .weak => ir.Weak.operand(n),
+            else => return null,
+        };
+    }
+}
+
+fn containsRef(refs: []const sema.ApiRef, ref: sema.ApiRef) bool {
+    for (refs) |r| if (r.eql(ref)) return true;
+    return false;
+}
+
+/// The names joined by `+` in `node`, `Shape + Print` as a compile-time
+/// argument parses it (`add Wrap[T: Shape + Print]`), left to right.
+fn plusLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) Error!void {
+    if (node == .nil) return;
+    if (node.isKind(.@"+")) {
+        try plusLeaves(a, ir.get(node, .left), out);
+        try plusLeaves(a, ir.get(node, .right), out);
+        return;
+    }
+    try out.append(a, node);
+}
+
+/// Each header that names an API of a program's own is a conformance:
+/// `obj Square: Shape`, `obj Box[T]: Shape` for every `Box[T]`
+/// (`sema.Conformance`). Recorded once every symbol is declared, before
+/// any type is resolved, so `sema.provides` answers for them throughout.
+fn recordHeaderConformances(ctx: *SemContext) Error!void {
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (sym.user_apis.len == 0 or sema.isProxy(sym)) continue;
+        if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
+        const id: SymbolId = @intCast(i);
+        const ty = (try sema.makeNominalContext(ctx, id)).self_type;
+        for (sym.user_apis) |api| try ctx.conformances.append(ctx.allocator, .{
+            .api = api,
+            .ty = ty,
+            .module_id = ctx.module_id,
+            .pos = sym.decl_pos,
+            .kind = .header,
+        });
+    }
+}
+
 pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     if (!tree.isKind(.module)) return;
     try checkDetachedMethods(ctx, tree);
@@ -877,8 +1149,15 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     for (ir.Module.decls(tree)) |decl| {
         if (rig.unpub(decl).isKind(.error_join)) try tr.resolveDecl(decl);
     }
+    // The APIs, then the additions, whose conformances `sema.provides`
+    // reads wherever a bound is checked.
+    for (ir.Module.decls(tree)) |decl| if (rig.unpub(decl).isKind(.api)) try tr.resolveDecl(decl);
+    for (ir.Module.decls(tree)) |decl| if (rig.unpub(decl).isKind(.api_add)) {
+        if (decl.isKind(.@"pub")) try ctx.errAt(decl, "an addition takes no `pub`: its methods belong to its API, which says who may call them", .{});
+        try tr.resolveDecl(rig.unpub(decl));
+    };
     for (ir.Module.decls(tree)) |decl| {
-        if (rig.unpub(decl).isKind(.error_join)) continue;
+        if (rig.unpub(decl).isKind(.error_join) or rig.unpub(decl).isKind(.api) or rig.unpub(decl).isKind(.api_add)) continue;
         // A compile-time function is resolved with the constants
         // (`ensureCtFun`), and so are the variants of a plain enum, whose
         // methods are resolved here.
@@ -1562,8 +1841,195 @@ pub const TypeResolver = struct {
             },
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.resolveNominal(sexp),
             .error_join => try self.resolveErrorJoin(sexp),
+            .api => try self.resolveApi(sexp),
+            .api_add => try self.resolveAdd(sexp),
             else => {},
         }
+    }
+
+    /// An API's methods, each a `Field` of the API's symbol, with `Self`
+    /// its hidden type parameter: `?@` is a `?Self`. A method with a body
+    /// is a default (`Field.is_default`).
+    fn resolveApi(self: *TypeResolver, node: Sexp) Error!void {
+        const id = self.ctx.symbolOf(ir.Api.name(node)) orelse return;
+        const sym = self.ctx.symbols.items[id];
+        const self_param = (sym.type_params orelse return)[0];
+        const prev = self.nominal;
+        self.nominal = .{ .sym = id, .self_type = try self.ctx.intern(.{ .type_var = self_param }), .type_params = &.{} };
+        defer self.nominal = prev;
+        var fields: std.ArrayList(Field) = .empty;
+        defer fields.deinit(self.ctx.allocator);
+        try self.resolveApiMethods(node, sym.name, .api, &fields);
+        self.ctx.symbols.items[id].fields = try self.ctx.arena.allocator().dupe(Field, fields.items);
+    }
+
+    /// The methods of an API or an addition (`owner`): each a method
+    /// taking self first, no other member, none `pub`.
+    fn resolveApiMethods(self: *TypeResolver, node: Sexp, owner: []const u8, comptime of: enum { api, add }, fields: *std.ArrayList(Field)) Error!void {
+        var names: std.StringHashMapUnmanaged(u32) = .empty;
+        defer names.deinit(self.ctx.allocator);
+        for (ir.rest(node, .members)) |m| {
+            if (self.isPubMember(m)) switch (of) {
+                .api => try self.ctx.errAt(m, "an API's methods take no `pub`: they are as public as the API (`pub api {s}`)", .{owner}),
+                .add => try self.ctx.errAt(m, "an addition's methods take no `pub`: they belong to its API, which says who may call them", .{}),
+            };
+            switch (m.kind() orelse .variant) {
+                .fun, .sub => {},
+                .api_type => {
+                    try self.ctx.errAt(m, "an API's associated type, `type {s}`, is not built yet: its methods name their types", .{identAt(self.ctx.source, ir.ApiType.name(m)) orelse "T"});
+                    continue;
+                },
+                else => {
+                    try self.ctx.errAt(m, switch (of) {
+                        .api => "an API declares methods only: no fields, variants, or `drop`",
+                        .add => "an addition declares methods only: no fields, variants, or `drop`",
+                    }, .{});
+                    continue;
+                },
+            }
+            const name = ir.get(m, .name);
+            const mname = identAt(self.ctx.source, name) orelse continue;
+            if (try self.checkDuplicateMember(&names, mname, name.src.pos, owner)) continue;
+            const fn_ty = try self.resolveFunction(m, sema.symbol_invalid);
+            const params = ir.get(m, .params);
+            const receiver: MethodReceiver = if (params.items().len > 0 and self.isSelfParam(params.items()[0])) self.classifyReceiver(fn_ty) else .none;
+            if (receiver == .none) {
+                try self.ctx.err(name.src.pos, "`{s}.{s}` takes no self: an API's method takes self first, `fun {s}(?@)`", .{ owner, mname, mname });
+                continue;
+            }
+            try fields.append(self.ctx.allocator, .{
+                .name = mname,
+                .ty = fn_ty,
+                .decl_pos = name.src.pos,
+                .is_method = true,
+                .receiver = receiver,
+                .param_names = try self.paramNames(params),
+                .param_defaults = try self.paramDefaults(params),
+                .is_default = of == .api and ir.get(m, .body) != .nil,
+            });
+        }
+    }
+
+    /// `add Int: Shape`: the type it names (a named type, never a view,
+    /// handle, optional, array, slice, or function type), its own type
+    /// parameters (`add Wrap[T: Shape]`), the APIs (each a program's own),
+    /// and its methods, with `Self` and `@` the type. Each API becomes a
+    /// `sema.Conformance`, checked with the module (`checkApis`).
+    fn resolveAdd(self: *TypeResolver, node: Sexp) Error!void {
+        const prev_scope = self.scope;
+        defer self.scope = prev_scope;
+        if (self.ctx.scopeOf(node)) |sc| self.scope = sc;
+        const pos = self.ctx.startOf(node);
+        const tnode = ir.ApiAdd.type(node);
+        var params: std.ArrayList(SymbolId) = .empty;
+        defer params.deinit(self.ctx.allocator);
+        const ty = (try self.addedType(node, tnode, &params)) orelse return;
+        var apis: std.ArrayList(sema.ApiRef) = .empty;
+        defer apis.deinit(self.ctx.allocator);
+        for (ir.ApiAdd.apis(node).items()) |leaf| {
+            const text = diag.textOf(self.ctx.source, self.ctx.span(leaf));
+            switch (try apiNamed(self.ctx, self.scope, leaf)) {
+                .user => |ref| if (!containsRef(apis.items, ref)) try apis.append(self.ctx.allocator, ref),
+                .builtin => try self.ctx.errAt(leaf, "`{s}` is a built-in API: `add` names APIs the program declares with `api`, and a type gives a built-in one a meaning of its own on its header", .{text}),
+                .reported => {},
+                .none => try self.ctx.errAt(leaf, "`{s}` names no API; `add` names APIs the program declares with `api`: `add Int: Shape`", .{text}),
+            }
+        }
+        const prev = self.nominal;
+        // `Self` and `@` name the type; the context's symbol is one of
+        // its own, standing for the addition.
+        const owner = try self.ctx.addSymbol(.{ .name = "Self", .kind = .type_alias, .ty = ty, .decl_pos = pos, .scope = sema.scope_invalid });
+        self.nominal = .{ .sym = owner, .self_type = ty, .type_params = &.{} };
+        defer self.nominal = prev;
+        var fields: std.ArrayList(Field) = .empty;
+        defer fields.deinit(self.ctx.allocator);
+        try self.resolveApiMethods(node, try std.fmt.allocPrint(self.ctx.arena.allocator(), "add {s}", .{diag.textOf(self.ctx.source, self.ctx.span(tnode))}), .add, &fields);
+        const methods = try self.ctx.arena.allocator().dupe(Field, fields.items);
+        const own = try self.ctx.arena.allocator().dupe(SymbolId, params.items);
+        for (apis.items) |api| try self.ctx.conformances.append(self.ctx.allocator, .{
+            .api = api,
+            .ty = ty,
+            .module_id = self.ctx.module_id,
+            .pos = pos,
+            .kind = .add,
+            .params = own,
+            .methods = methods,
+        });
+    }
+
+    /// The type `add` names (`tnode`), with its own type parameters
+    /// (`params`), or null after a diagnostic.
+    fn addedType(self: *TypeResolver, node: Sexp, tnode: Sexp, params: *std.ArrayList(SymbolId)) Error!?TypeId {
+        const text = diag.textOf(self.ctx.source, self.ctx.span(tnode));
+        const apis_text = diag.textOf(self.ctx.source, self.ctx.span(ir.ApiAdd.apis(node)));
+        const what: ?[]const u8 = switch (tnode.kind() orelse .member) {
+            .read_view, .write_view => "a view",
+            .optional => "an optional",
+            .shared, .weak => "a handle",
+            .boxed => "a box",
+            .slice => "a slice",
+            .array_type => "an array",
+            .fun_type => "a function type",
+            .error_union, .results_type => "a function's result",
+            else => null,
+        };
+        if (what) |w| {
+            const inner = innerNamed(tnode);
+            if (inner) |n| {
+                try self.ctx.errAt(tnode, "`add` names a type, and `{s}` is {s}: write `add {s}: {s}`", .{ text, w, diag.textOf(self.ctx.source, self.ctx.span(n)), apis_text });
+            } else try self.ctx.errAt(tnode, "`add` names a type, and `{s}` is {s}", .{ text, w });
+            return null;
+        }
+        if (!tnode.isKind(.generic_inst)) {
+            const ty = try self.resolveType(tnode);
+            if (self.isPoison(ty)) return null;
+            return ty;
+        }
+        // `add Wrap[T: Shape]`: the generic type at the addition's own
+        // parameters, one for each of the type's.
+        const callee = ir.GenericInst.name(tnode);
+        const gid: SymbolId = if (callee.isKind(.member))
+            (try self.qualifiedGeneric(callee)) orelse return null
+        else blk: {
+            const name = identAt(self.ctx.source, callee) orelse return null;
+            const id = self.ctx.lookup(self.scope, name) orelse {
+                try self.ctx.errAt(callee, "use of unbound type `{s}`{s}", .{ name, try self.typeHint(name, srcPos(callee, 0)) });
+                return null;
+            };
+            if (self.ctx.symbols.items[id].kind != .generic_type) {
+                try self.ctx.errAt(callee, "`{s}` is not a generic type; it takes no type arguments: `add {s}: {s}`", .{ name, name, apis_text });
+                return null;
+            }
+            break :blk id;
+        };
+        const tparams = self.ctx.symbols.items[gid].type_params orelse &.{};
+        for (tparams) |tp| if (self.ctx.symbols.items[tp].kind != .generic_param) {
+            try self.ctx.errAt(tnode, "an addition to a type with a compile-time value parameter is not built yet", .{});
+            return null;
+        };
+        const args = ir.GenericInst.args(tnode);
+        var tys: std.ArrayList(TypeId) = .empty;
+        defer tys.deinit(self.ctx.allocator);
+        for (args) |arg| {
+            const leaf = if (arg.isKind(.kwarg)) ir.Kwarg.name(arg) else arg;
+            const pid = self.ctx.symbolOf(leaf);
+            if (pid == null or self.ctx.symbols.items[pid.?].kind != .generic_param) {
+                var names: std.ArrayList(u8) = .empty;
+                for (tparams, 0..) |tp, i| {
+                    if (i > 0) try names.appendSlice(self.ctx.arena.allocator(), ", ");
+                    try names.appendSlice(self.ctx.arena.allocator(), self.ctx.symbols.items[tp].name);
+                }
+                try self.ctx.errAt(arg, "an addition covers every instance of its type: name each of its type parameters, `add {s}[{s}]: {s}`", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), names.items, apis_text });
+                return null;
+            }
+            try params.append(self.ctx.allocator, pid.?);
+            try tys.append(self.ctx.allocator, try self.ctx.intern(.{ .type_var = pid.? }));
+        }
+        if (args.len != tparams.len) {
+            try self.ctx.errAt(tnode, "`{s}` takes {d} compile-time parameter{s}, and `add` names {d}", .{ diag.textOf(self.ctx.source, self.ctx.span(callee)), tparams.len, if (tparams.len == 1) "" else "s", args.len });
+            return null;
+        }
+        return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gid, .args = tys.items } });
     }
 
     /// `error L = A | B`: the sets the union joins, each a set declared
@@ -2653,11 +3119,15 @@ pub const TypeResolver = struct {
     fn classifyReceiver(self: *TypeResolver, fn_ty_id: TypeId) MethodReceiver {
         const fn_ty = self.ctx.types.get(fn_ty_id);
         if (fn_ty != .function or fn_ty.function.params.len == 0) return .none;
-        return switch (self.ctx.types.get(fn_ty.function.params[0])) {
+        const first = fn_ty.function.params[0];
+        return switch (self.ctx.types.get(first)) {
             .read_view => .read,
             .write_view => .write,
             .nominal, .parameterized_nominal => .value,
-            else => .none,
+            // `add String`'s `?@`: a `?String` is a view of text.
+            .string_view => if (self.nominal.self_type == self.ctx.types.string_id) .read else .none,
+            // An API's or an addition's `<@`: its `Self`.
+            else => if (first == self.nominal.self_type) .value else .none,
         };
     }
 
@@ -2789,6 +3259,10 @@ pub const TypeResolver = struct {
                         .generic_param => {
                             try self.ctx.recordName(sexp, id);
                             return self.ctx.intern(.{ .type_var = id });
+                        },
+                        .api => {
+                            try self.ctx.err(s.pos, api_not_type, .{ name, name, name });
+                            return t.invalid_id;
                         },
                         else => {
                             try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
@@ -3249,6 +3723,11 @@ pub const TypeResolver = struct {
             .generic_type => {
                 const arity = if (d.sym.type_params) |tps| tps.len else 0;
                 try self.ctx.err(d.pos, "generic type `{s}.{s}` requires type arguments; write `{s}.{s}[{s}]`", .{ d.module_name, d.name, d.module_name, d.name, if (arity > 1) "T, ..." else "T" });
+                return t.invalid_id;
+            },
+            .api => {
+                const q = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ d.module_name, d.name });
+                try self.ctx.err(d.pos, api_not_type, .{ q, q, q });
                 return t.invalid_id;
             },
             else => {
