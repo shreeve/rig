@@ -3,7 +3,9 @@
 # from a type's least value, and arms on an enum, half of them guarded.
 # A program of 4000 arms each takes about four times as long as one of
 # 1000, where time that grows with the square of the arms would take
-# sixteen.
+# sixteen. Each size runs three times, the two interleaved, and the
+# fastest run of each counts, so a moment of load on the machine does not
+# decide the ratio.
 source "$ROOT/test/cli/_lib.sh"
 export LC_ALL=C
 
@@ -27,17 +29,23 @@ program() {
   } >"m$n.rig"
 }
 
-# timed <n>: run `rig emit` on m<n>.rig, its time in seconds in m<n>.time.
+# timed <n>: run `rig emit` on m<n>.rig, and keep in m<n>.time the
+# fastest time in seconds so far.
 timed() {
-  local TIMEFORMAT=%R rc
-  { time "$TIMEOUT_CMD" 120 "$RIG" emit "m$1.rig" >/dev/null 2>"m$1.err"; rc=$?; } 2>"m$1.time"
+  local TIMEFORMAT=%R rc t
+  { time "$TIMEOUT_CMD" 120 "$RIG" emit "m$1.rig" >/dev/null 2>"m$1.err"; rc=$?; } 2>"m$1.run"
   [[ $rc -eq 0 ]] || fail "${1}-arm matches, exit status $rc: $(cat "m$1.err")"
+  t=$(<"m$1.run")
+  [[ -f "m$1.time" ]] && awk -v t="$t" -v b="$(<"m$1.time")" 'BEGIN { exit !(b <= t) }' && return
+  printf '%s\n' "$t" >"m$1.time"
 }
 
 program 1000
 program 4000
-timed 1000
-timed 4000
+for _ in 1 2 3; do
+  timed 1000
+  timed 4000
+done
 small=$(<m1000.time) large=$(<m4000.time)
 # Under half a second, startup and noise outweigh the arms.
 awk -v s="$small" -v l="$large" 'BEGIN { exit !(l < 0.5 || l < 8 * s) }' ||
