@@ -6713,7 +6713,8 @@ fn heldLack(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?Lac
 
 /// Why `ty` has no order (`lacks` of `Ord`): numbers, `Bool`, text, and
 /// plain enums are ordered; an object or an enum whose header names
-/// `Ord`; and an optional, an array, or a slice of ordered values.
+/// `Ord`; an optional, an array, or a slice of ordered values; and a
+/// frozen value's handle when its value is ordered.
 fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?Lack {
     if (depth > 64) return .{ .ty = ty };
     if (isText(ctx, ty)) return null;
@@ -6722,6 +6723,9 @@ fn ordLack(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!?La
         .int, .float, .int_literal, .float_literal, .bool, .slot => return null,
         .read_view, .write_view => |inner| return ordLack(ctx, inner, depth + 1),
         .optional => |inner| return ordLack(ctx, inner, depth + 1),
+        // A frozen value never changes, so its handles order by what they
+        // reach, as they compare and hash.
+        .shared => |inner| return if (frozenValue(ctx, inner)) |value| ordLack(ctx, value, depth + 1) else .{ .ty = ty },
         .array => |arr| return ordLack(ctx, arr.elem, depth + 1),
         .slice => |sl| return ordLack(ctx, sl.elem, depth + 1),
         .nominal, .imported_nominal => {
