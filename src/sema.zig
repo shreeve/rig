@@ -4123,18 +4123,19 @@ fn checkBindingAccess(ctx: *SemContext) std.mem.Allocator.Error!void {
     }
 }
 
-/// A module typecheck accepted types no expression `invalid`: a check
+/// A module typecheck accepted types no expression `invalid`, nor with
+/// `invalid` in it (`List[invalid]`): a check
 /// that rejects reports why, so an `invalid` with no error is a verdict
 /// whose diagnostic was dropped (a quiet check's, kept and reused), and
 /// emit would write what nothing checked. Reported at the first such
 /// expression. Debug and test builds only.
 fn checkTypedClean(ctx: *SemContext, tree: Sexp) std.mem.Allocator.Error!void {
     if (ctx.hasErrors()) return;
-    if (typedInvalid(ctx, tree)) |e| try ctx.err(ctx.span(e).start, "internal error: `{s}` is typed `invalid`, and no error says why", .{diag.textOf(ctx.source, ctx.span(e))});
+    if (typedInvalid(ctx, tree)) |e| try ctx.errAt(e, "internal error: `{s}` is typed `invalid`, and no error says why", .{diag.textOf(ctx.source, ctx.span(e))});
 }
 
 fn typedInvalid(ctx: *const SemContext, node: Sexp) ?Sexp {
-    if (ctx.typeOf(node)) |ty| if (ty == ctx.types.invalid_id) return node;
+    if (ctx.typeOf(node)) |ty| if (containsPoison(ctx, ty)) return node;
     if (node != .list) return null;
     for (node.items()) |child| if (typedInvalid(ctx, child)) |e| return e;
     return null;

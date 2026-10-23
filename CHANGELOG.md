@@ -29,8 +29,12 @@ changed the language since it:
   was refused there (`look(?(a if c else b))`, `T` inferred, or the same
   inside a closure given to a generic) kept the verdict without its error,
   so the program was accepted and Zig failed. The verdict is now kept
-  only from a check that reports. Debug and self-check builds also refuse
-  to accept a module that types an expression `invalid` with no error.
+  only from a check that reports. Two siblings are fixed with it: a kept
+  view in a closure given to a generic lost its error the same way, and
+  the trial of whether `<t[i]` could take a table's optional element
+  recorded the slot as written, so a read through `?Table` failed in Zig.
+  Debug and self-check builds also refuse to accept a module that types
+  an expression `invalid` with no error.
 
 - **Generic sets:** a function may take the set it fails with as a type
   parameter, `fun total[E](f: ?fun(?String) -> Int!E) -> Int!E`. A call
