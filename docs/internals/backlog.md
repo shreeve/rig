@@ -205,8 +205,6 @@ fixing.
   as a statement drops its `Bool` with no error, while a bare `0` is
   rejected. Make the rule one: a statement whose value is not `Void`
   needs `_ =`, or say in SPEC why a call's result may go unused.
-- **`rig check --tasks`,** to list each local task and what pins it, was
-  decided by the concurrency panel and is not built.
 - **The shorthand `c.area()` does not see through a box,** though the
   type's own methods do (`b.area()` on a `^Square`); `b.describe()`, a
   default, says "no method `describe` on type `Square`". Decide whether

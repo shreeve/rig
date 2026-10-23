@@ -24,7 +24,7 @@ Each program prints `NAME NS CHECK` per benchmark; the checks must
 agree. The report gives each benchmark's time per round trip or
 connection, and how each variant compares with Tokio.
 """
-import argparse, datetime, os, shutil, subprocess, sys, tempfile
+import argparse, datetime, os, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -75,7 +75,39 @@ def build(v, out, tokio):
     return exe
 
 
+def ports():
+    """How many local ports outgoing connections may use, and how many
+    TCP sockets the system holds now, those in TIME_WAIT among them; None
+    where it cannot tell. macOS hides other processes' sockets from
+    netstat run by some programs, so its count is the kernel's."""
+    try:
+        if sys.platform == "darwin":
+            get = lambda k: int(subprocess.run(["sysctl", "-n", k], capture_output=True, text=True).stdout)
+            return get("net.inet.ip.portrange.last") - get("net.inet.ip.portrange.first") + 1, get("net.inet.tcp.pcbcount")
+        with open("/proc/sys/net/ipv4/ip_local_port_range") as f:
+            lo, hi = map(int, f.read().split())
+        with open("/proc/net/sockstat") as f:
+            tcp = next(l.split() for l in f if l.startswith("TCP:"))
+        return hi - lo + 1, int(tcp[tcp.index("inuse") + 1]) + int(tcp[tcp.index("tw") + 1])
+    except (OSError, ValueError, StopIteration):
+        return None
+
+
+# A run's connections, with room to spare: each program makes about 600,
+# and each leaves its local port in TIME_WAIT for half a minute to two.
+RUN_PORTS = 2000
+
+
+def settle():
+    """Wait until the ports a run needs are free: back to back, the runs'
+    connections in TIME_WAIT use up the local ports, and connect fails
+    (EADDRNOTAVAIL, NetError.failed)."""
+    while (p := ports()) and p[1] + RUN_PORTS > p[0]:
+        time.sleep(1)
+
+
 def run(exe):
+    settle()
     p = subprocess.run([exe], check=True, capture_output=True, text=True)
     rows = {}
     for line in p.stdout.splitlines():
