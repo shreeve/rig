@@ -18367,7 +18367,8 @@ fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?
 }
 
 /// The arrays a generic declaration makes, in one instance, and a generic
-/// type's instance itself, must fit `sema.max_value_bytes`.
+/// type's instance itself, must fit `sema.max_value_bytes`; the instance
+/// must also nest at most `sema.max_value_depth` deep.
 fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
     for (args) |a| if (sema.containsPoison(ctx, a)) return;
     const subst: sema.TypeSubst = .{ .params = params, .args = args };
@@ -18389,6 +18390,10 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         const sym = ctx.types.get(of.type).parameterized_nominal.sym;
         if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
             try sema.reportOversized(ctx, at, of.type, bytes);
+            return;
+        }
+        if (try sema.tooDeepByItself(ctx, of.type, sym, subst)) |depth| {
+            try sema.reportTooDeep(ctx, at, of.type, depth);
             return;
         }
     }

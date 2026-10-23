@@ -164,20 +164,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `x > E.b` and `Int(x)` are rejected as "variants with payloads".
   Decide once whether `a()` is bare (or reject the empty payload), and
   have both read it.
-- Objects nested by value, deep or wide, fail inside Zig, not in Rig
-  (rule 2), found by #270.
-  - Probe: a chain `obj A0` .. `obj A99`, each with nine `Int` fields and
-    `a: A<i+1>` (the last `s: String`), then in `main`, `x: A0? = none`
-    pushed into a `List[A0?]`.
-  - Today Zig reports `evaluation exceeded 1000 backwards branches` in
-    the runtime's `needsDrop`, reached from `List.clear`. A chain with
-    one field per object fails near 950 deep, and past about 1500 Zig
-    itself crashes.
-  - Fix:
-    - give the runtime's recursive reflective helpers `rig.eval_quota`,
-      as emitted functions have;
-    - add a sema limit on how deeply types nest by value, below where
-      Zig crashes.
 - Compiler memory on two generated shapes, the same on main, found by
   #270's review.
   - One straight-line function of 10,000 bindings takes 2.6 GB, and one

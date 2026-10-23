@@ -149,6 +149,14 @@ pub const max_array_len: Wide = std.math.maxInt(u32);
 /// `List`.
 pub const max_value_bytes: u64 = 8 << 20;
 
+/// How deep types may nest by value (`valueDepth`): an object, enum,
+/// optional, array, or vector holding another, each a level. Zig walks
+/// every level of a type when it compiles a use of it, and its compiler
+/// runs out of stack on a chain of objects each holding the next past
+/// about 1250 levels (on an arm64 Mac and x86-64 Linux alike); a deeper
+/// value is held through a box or a List.
+pub const max_value_depth: u32 = 1000;
+
 /// The most bytes of values one function keeps on its stack, with the
 /// frames inlined into it: 13 MiB. It is a limit on how a program keeps
 /// its data, which leaves large data to the heap; safety does not rest on
@@ -2508,6 +2516,8 @@ pub const SemContext = struct {
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
+    /// `valueDepth` of each type measured so far.
+    value_depths: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
     /// A local `k =! n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
@@ -2709,6 +2719,7 @@ pub const SemContext = struct {
         self.generic_index.deinit(self.allocator);
         self.oversized.deinit(self.allocator);
         self.byte_sizes.deinit(self.allocator);
+        self.value_depths.deinit(self.allocator);
         self.imported.deinit(self.allocator);
         self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
@@ -4333,7 +4344,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             if (reached) |r| {
                 if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
             } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
-            try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
+            try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
         }
         try ctx.genericEntries(.uses, item.subst.params, &entries);
         for (entries.items) |i| {
@@ -4376,7 +4387,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
                 }
                 try checkInstanceStacked(ctx, concrete, item.site);
             }
-            try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root });
+            try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
         }
     }
     return false;
@@ -5401,7 +5412,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .any_error => 2,
         // A null handle or view is its null address; anything else
         // needs a flag.
-        .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b + @intFromBool(!isAddress(ctx, inner)) else null,
+        .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b +| @intFromBool(!isAddress(ctx, inner)) else null,
         .array => |a| blk: {
             const n = arrayLen(ctx, a) orelse break :blk null;
             const e = (try minBytesOf(ctx, a.elem, false)) orelse break :blk null;
@@ -5544,18 +5555,85 @@ pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: Typ
     return bytes;
 }
 
-/// Every declared struct and enum must fit `max_value_bytes`; a generic
-/// one is checked at each instance. Each is sized after the types it
-/// holds (`order`, from `computeContents`), so sizing one does not nest
-/// through the chain of types it holds.
+/// Every declared struct and enum must fit `max_value_bytes` and nest
+/// at most `max_value_depth` deep; a generic one is checked at each
+/// instance. Each is sized after the types it holds (`order`, from
+/// `computeContents`), so sizing one does not nest through the chain of
+/// types it holds.
 fn checkTypeSizes(ctx: *SemContext, order: []const SymbolId) std.mem.Allocator.Error!void {
     for (order) |id| {
         const sym = ctx.symbols.items[id];
         if (sym.kind != .nominal_type or sym.decl_pos >= imported_decl_pos) continue;
         const ty = try ctx.intern(.{ .nominal = id });
-        const bytes = (try oversizedByItself(ctx, ty, id, .empty)) orelse continue;
-        try reportOversized(ctx, sym.decl_pos, ty, bytes);
+        if (try oversizedByItself(ctx, ty, id, .empty)) |bytes| {
+            try reportOversized(ctx, sym.decl_pos, ty, bytes);
+        } else if (try tooDeepByItself(ctx, ty, id, .empty)) |depth| try reportTooDeep(ctx, sym.decl_pos, ty, depth);
     }
+}
+
+/// How many levels `ty` nests by value: 0 for a type holding nothing by
+/// value (a number, a String, a List, a box, a handle), and one more than
+/// its deepest part for an optional, an array, a vector, a Signal, or an
+/// object or enum (`sizedParts`). The parts are measured first, deepest
+/// first, on a stack of the walk's own, as `sizeHeld` sizes them; a type
+/// that holds itself (rejected) counts no part twice.
+pub fn valueDepth(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!u32 {
+    if (ctx.value_depths.get(ty)) |d| return d;
+    var arena = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var open: std.AutoHashMapUnmanaged(TypeId, void) = .empty;
+    var stack: std.ArrayList(SizePending) = .empty;
+    try open.put(a, ty, {});
+    try stack.append(a, .{ .ty = ty, .parts = try sizedParts(ctx, a, ty) });
+    while (stack.items.len > 0) {
+        const top = &stack.items[stack.items.len - 1];
+        if (top.next < top.parts.len) {
+            const part = top.parts[top.next];
+            top.next += 1;
+            if (ctx.value_depths.contains(part)) continue;
+            if ((try open.getOrPut(a, part)).found_existing) continue;
+            try stack.append(a, .{ .ty = part, .parts = try sizedParts(ctx, a, part) });
+            continue;
+        }
+        const done = stack.pop().?;
+        var deepest: u32 = 0;
+        for (done.parts) |part| deepest = @max(deepest, ctx.value_depths.get(part) orelse 0);
+        const depth: u32 = switch (ctx.types.get(done.ty)) {
+            .optional, .array, .simd, .nominal => deepest +| 1,
+            // A List, a table, and a box hold their elements apart.
+            .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id or pn.sym == ctx.table_sym_id) 0 else deepest +| 1,
+            // Measured where it is declared (`checkTypeSizes`).
+            .imported_nominal => |in| blk: {
+                const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk 1;
+                const declared = foreign.types.find(.{ .nominal = in.sym_id }) orelse break :blk 1;
+                break :blk foreign.value_depths.get(declared) orelse 1;
+            },
+            else => 0,
+        };
+        try ctx.value_depths.put(ctx.allocator, done.ty, depth);
+    }
+    return ctx.value_depths.get(ty).?;
+}
+
+/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// `subst`) nests too deep by itself: more than `max_value_depth` levels
+/// (`valueDepth`), when no type it holds does, which is reported on its
+/// own. Its depth, when it is.
+pub fn tooDeepByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u32 {
+    const depth = try valueDepth(ctx, ty);
+    if (depth <= max_value_depth) return null;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| for (dataFields(f)) |d| {
+        if (try valueDepth(ctx, try substituteType(ctx, d.ty, subst)) > max_value_depth) return null;
+    };
+    return depth;
+}
+
+/// Report that `ty` nests `depth` levels by value, more than
+/// `max_value_depth`.
+pub fn reportTooDeep(ctx: *SemContext, pos: u32, ty: TypeId, depth: u32) std.mem.Allocator.Error!void {
+    try ctx.oversized.put(ctx.allocator, ty, {});
+    try ctx.err(pos, "`{s}` nests {d} types deep by value; a value nests at most {d} deep. Hold a part in a box (`^T`) or a `List`", .{ try formatType(ctx, ty), depth, max_value_depth });
 }
 
 /// The `ct_value` of the integer `v`.
@@ -5796,31 +5874,38 @@ pub fn declaresErrorFields(ctx: *const SemContext) bool {
 /// Whether a value of `ty` holds a shared or weak handle (`*T`, `~T`)
 /// anywhere inside it: what an error's field may not (errors-spec §4.1).
 pub fn holdsHandle(ctx: *const SemContext, ty: TypeId) bool {
-    return handleAt(ctx, ty, 0);
+    return handleAt(ctx, ty, null);
 }
 
-fn handleAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
-    if (depth > 32) return false;
+/// The declared types a walk is inside, each in the module whose type it
+/// is, nearest first: one met again is on a cycle, through a box or a
+/// List, and adds nothing.
+const TypePath = struct { ctx: *const SemContext, ty: TypeId, up: ?*const TypePath };
+
+fn handleAt(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
     return switch (ctx.types.get(ty)) {
         .shared, .weak => true,
-        .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, depth + 1),
-        .fallible => |f| handleAt(ctx, f.ok, depth + 1),
-        .array => |a| handleAt(ctx, a.elem, depth + 1),
-        .slice => |s| handleAt(ctx, s.elem, depth + 1),
+        .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, path),
+        .fallible => |f| handleAt(ctx, f.ok, path),
+        .array => |a| handleAt(ctx, a.elem, path),
+        .slice => |s| handleAt(ctx, s.elem, path),
         .parameterized_nominal => |pn| blk: {
-            for (pn.args) |arg| if (handleAt(ctx, arg, depth + 1)) break :blk true;
-            break :blk fieldsHoldHandle(ctx, ty, depth);
+            for (pn.args) |arg| if (handleAt(ctx, arg, path)) break :blk true;
+            break :blk fieldsHoldHandle(ctx, ty, path);
         },
-        .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, depth),
+        .nominal, .imported_nominal => fieldsHoldHandle(ctx, ty, path),
         else => false,
     };
 }
 
-fn fieldsHoldHandle(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+fn fieldsHoldHandle(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
+    var at = path;
+    while (at) |p| : (at = p.up) if (p.ctx == ctx and p.ty == ty) return false;
+    const inner: TypePath = .{ .ctx = ctx, .ty = ty, .up = path };
     const d = nominalDecl(ctx, ty) orelse return false;
     for (d.symbol().fields orelse &.{}) |*f| {
         if (f.is_method) continue;
-        for (dataFields(f)) |field| if (handleAt(d.ctx, field.ty, depth + 1)) return true;
+        for (dataFields(f)) |field| if (handleAt(d.ctx, field.ty, &inner)) return true;
     }
     return false;
 }
@@ -8299,15 +8384,18 @@ fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) !boo
 /// `runsDropBody` of `ty`, worked out once declarations are resolved
 /// (`TypeMemo`).
 fn dropBodyOf(ctx: *const SemContext, ty: TypeId) bool {
-    if (!ctx.contents_ready) return runsDropBody(ctx, ty, &.{});
+    if (!ctx.contents_ready) return runsDropBody(ctx, ty, null);
     if (ctx.type_memo.drop_body.get(ty)) |b| return b;
-    const b = runsDropBody(ctx, ty, &.{});
+    const b = runsDropBody(ctx, ty, null);
     ctx.type_memo.drop_body.put(ctx.allocator, ty, b) catch std.debug.panic("out of memory", .{});
     return b;
 }
 
+/// The declared types a walk is inside, nearest first.
+const SymPath = struct { sym: SymbolId, up: ?*const SymPath };
+
 /// `path` holds the declared types being looked into: a cycle adds nothing.
-fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool {
+fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: ?*const SymPath) bool {
     return switch (ctx.types.get(ty)) {
         .shared, .optional => |i| runsDropBody(ctx, i, path),
         .fallible => |i| runsDropBody(ctx, i.ok, path),
@@ -8325,14 +8413,11 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: []const SymbolId) bool
     };
 }
 
-fn fieldsRunDropBody(ctx: *const SemContext, sid: SymbolId, path: []const SymbolId) bool {
-    if (std.mem.findScalar(SymbolId, path, sid) != null) return false;
-    // Past any real nesting depth, assume the worst.
-    if (path.len >= 32) return true;
-    var buf: [32]SymbolId = undefined;
-    @memcpy(buf[0..path.len], path);
-    buf[path.len] = sid;
-    const inner = buf[0 .. path.len + 1];
+fn fieldsRunDropBody(ctx: *const SemContext, sid: SymbolId, path: ?*const SymPath) bool {
+    var at = path;
+    while (at) |p| : (at = p.up) if (p.sym == sid) return false;
+    const node: SymPath = .{ .sym = sid, .up = path };
+    const inner = &node;
     const fields = ctx.symbols.items[sid].fields orelse return false;
     for (fields) |f| if (f.is_drop_method) return true;
     for (fields) |f| {
@@ -8473,7 +8558,7 @@ pub fn cloneable(ctx: *const SemContext, ty: TypeId) Clone {
         // A value that does not move copies, but for one holding a write
         // view, which has one holder (Core sentence 2): it has no clone.
         .no => if (copies(ctx, value) == .yes) .copy else .no,
-        .yes => if (deepCloneable(ctx, value, null, &.{})) .deep else .no,
+        .yes => if (deepCloneable(ctx, value, null, null)) .deep else .no,
         .depends => .depends,
     };
 }
@@ -8487,6 +8572,9 @@ const CloneFrame = struct { params: []const SymbolId, args: []const TypeId, args
 /// that declares it.
 const CloneSeen = struct { ctx: *const SemContext, sym: SymbolId };
 
+/// The declared types a clone check is inside, nearest first.
+const ClonePath = struct { at: CloneSeen, up: ?*const ClonePath };
+
 /// Whether `+x` can make a new owner of a `ty` part by part (Core
 /// sentence 2): a String, a List, a box, an optional, an array, or a
 /// struct or enum, of this module or another, of parts that clone; a
@@ -8495,8 +8583,7 @@ const CloneSeen = struct { ctx: *const SemContext, sym: SymbolId };
 /// Signal, a write view, or a type parameter. `seen` holds the declared
 /// types being checked: one reached again (a box of a recursive type)
 /// clones if the rest of it does.
-fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: []const CloneSeen) bool {
-    if (seen.len > 32) return false;
+fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: ?*const ClonePath) bool {
     switch (ctx.types.get(ty)) {
         .type_var => |sym| {
             // A set parameter's value is an error, which clones.
@@ -8553,24 +8640,22 @@ fn declaredAt(ctx: *const SemContext, sym: SymbolId) ?CloneSeen {
 
 /// Whether every part of type `sym`, declared in `ctx`, clones
 /// (`deepCloneable`), and it has no `drop` body.
-fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: []const CloneSeen) bool {
+fn fieldsCloneable(ctx: *const SemContext, sym: SymbolId, frame: ?*const CloneFrame, seen: ?*const ClonePath) bool {
     // A type reached again (a box of a recursive type) clones if the rest
     // of it does, and if each type argument it is reached with clones:
     // `Map[Int, Map[Int, Res]]` reaches `Map` again with a `Res`, which a
     // revisit, which walks no field again, would not otherwise check.
-    for (seen) |t| if (t.ctx == ctx and t.sym == sym) {
+    var at = seen;
+    while (at) |t| : (at = t.up) if (t.at.ctx == ctx and t.at.sym == sym) {
         const f = frame orelse return true;
         for (f.args) |arg| if (!deepCloneable(f.args_ctx, arg, f.parent, seen)) return false;
         return true;
     };
     const s = ctx.symbols.items[sym];
-    var buf: [33]CloneSeen = undefined;
-    @memcpy(buf[0..seen.len], seen);
-    buf[seen.len] = .{ .ctx = ctx, .sym = sym };
-    const inner = buf[0 .. seen.len + 1];
+    const inner: ClonePath = .{ .at = .{ .ctx = ctx, .sym = sym }, .up = seen };
     for (s.fields orelse &.{}) |*f| {
         if (f.is_drop_method) return false;
-        for (dataFields(f)) |d| if (!deepCloneable(ctx, d.ty, frame, inner)) return false;
+        for (dataFields(f)) |d| if (!deepCloneable(ctx, d.ty, frame, &inner)) return false;
     }
     return true;
 }
@@ -12015,17 +12100,24 @@ test "declarations: struct fields, methods, and enum variants" {
 
 test "check: a long chain of types each holding the next by value" {
     // Each walk over what a type holds runs once per type, not nested
-    // once per link of the chain.
+    // once per link of the chain. The chain nests deeper than
+    // `max_value_depth`, reported once, at the first type past it.
     const n = 5000;
     var src: std.ArrayList(u8) = .empty;
     defer src.deinit(std.testing.allocator);
     const a = std.testing.allocator;
     for (0..n) |i| try src.print(a, "obj S{d}\n  x: S{d}\n\n", .{ i, i + 1 });
     try src.print(a, "obj S{d}\n  x: Int\n\nfun same(a: ?S0, b: ?S0) -> Bool\n  a == b\n", .{n});
-    var r = try factsRun(src.items);
-    defer r.deinit();
-    const s0 = try r.ctx.intern(.{ .nominal = r.ctx.lookup(module_scope, "S0").? });
-    try std.testing.expectEqual(@as(?u128, 8), try minBytes(&r.ctx, s0));
+    var p = parser.Parser.init(a, src.items);
+    defer p.deinit();
+    var ctx = try check(a, src.items, try p.parseProgram(), .{});
+    defer ctx.deinit();
+    try std.testing.expectEqual(@as(usize, 1), ctx.diagnostics.items.len);
+    try std.testing.expect(std.mem.find(u8, ctx.diagnostics.items[0].message, "`S4000` nests 1001 types deep by value") != null);
+    const s0 = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "S0").? });
+    try std.testing.expectEqual(@as(u32, n + 1), try valueDepth(&ctx, s0));
+    const last = try ctx.intern(.{ .nominal = ctx.lookup(module_scope, "S4999").? });
+    try std.testing.expectEqual(@as(?u128, 8), try minBytes(&ctx, last));
 }
 
 test "maskBytes: the runtime's own size" {
