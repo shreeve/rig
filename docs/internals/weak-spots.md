@@ -56,9 +56,6 @@ and run the suite after.
   today. Next: make the chokepoint structural, so every `&` and `|*x|`
   targets a place, a slot, or fact-named storage whose `life` the
   chokepoint checks.
-- **Decisions emit still makes itself** are `Pending` in
-  `src/facts.zig`, which a unit test keeps from growing; each should
-  become a recorded node fact (`sema.Question`), as the leaf walk did.
 - **What a view could hold:** `carry` and `sema.viewReach`, and `?String`
   values in Cells, generics, and closures.
 - **What a `^T` does not yet forward:** a box reaches its value's fields

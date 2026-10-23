@@ -814,6 +814,13 @@ pub const Symbol = struct {
     /// it, or null for one that owns or copies its value, recorded once by
     /// typecheck from `decideBindingAccess` (`SemContext.bindingAccess`).
     access: ?Access = null,
+    /// A parameter, local, or capture: how the binding holds its value,
+    /// or null for one that owns nothing to drop (`resourceKind` of its
+    /// type), recorded once by the storage plan (`storage.plan`). Emit
+    /// gives such a binding `var` storage and a drop guard of this kind,
+    /// and the ownership checker asserts it treats the binding as owning
+    /// exactly when this is set.
+    hold: ?ResourceKind = null,
     /// The previous symbol of the same name in the same scope, if any.
     prev_in_scope: SymbolId = symbol_invalid,
     /// A proxy (`proxyOf`): the other module's generic type or
@@ -1775,6 +1782,10 @@ pub const Question = enum(u8) {
     /// Of a box or a binding: whether the fill `[n of x]` it takes is
     /// built where its value goes (`storage.fillsInPlace`).
     fills_in_place,
+    /// Of a value emit holds in hidden storage or discards: how it is
+    /// held and dropped when nothing takes it, or null when it owns
+    /// nothing (`storage.dropKind`).
+    drop_kind,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.
@@ -2771,6 +2782,11 @@ pub const SemContext = struct {
     /// recorded by `storage.plan`): emit arms such a binding's drop
     /// behind an alive flag, and the ownership checker moves no other.
     consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// The several results a `destructure` takes, or a `return a, b`
+    /// makes into storage one by one (`storage.hoistsResults`): how each
+    /// part is held (`resourceKind` of its type), recorded by the storage
+    /// plan (`partDrops`).
+    part_drops: std.AutoHashMapUnmanaged(u64, []const ?ResourceKind) = .empty,
     /// The captures of a closure called exactly once that it owns
     /// (`|<x|`, `|+x|`, `|~x|`; `recordOnceClosure`): its one call takes
     /// them, as a function takes a parameter given by value, so its body
@@ -2994,6 +3010,7 @@ pub const SemContext = struct {
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
         self.consumed.deinit(self.allocator);
+        self.part_drops.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
@@ -3704,6 +3721,19 @@ pub const SemContext = struct {
     /// Whether a use may move binding `sym` out (`consumed`).
     pub fn consumes(self: *const SemContext, sym: SymbolId) bool {
         return self.consumed.contains(sym);
+    }
+
+    /// Record how each part of the results `node` holds is held
+    /// (`part_drops`).
+    pub fn recordPartDrops(self: *SemContext, node: Sexp, kinds: []const ?ResourceKind) !void {
+        const key = recordExprKey(node) orelse return;
+        try self.part_drops.put(self.allocator, key, try self.arena.allocator().dupe(?ResourceKind, kinds));
+    }
+
+    /// How each part of the results `node` holds is held, if the storage
+    /// plan recorded it (`part_drops`).
+    pub fn partDrops(self: *const SemContext, node: Sexp) ?[]const ?ResourceKind {
+        return self.part_drops.get(exprKey(node) orelse return null);
     }
 
     pub fn copiesHeader(self: *const SemContext, node: Sexp) bool {
@@ -9067,7 +9097,40 @@ pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
 /// them in place lends them), or one of a type parameter. Any other
 /// value is copied where the read runs.
 pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
-    return typeHasDropGlue(ctx, ty) or maybeDropGlue(ctx, ty) or isUnique(ctx, ty) or holdsAnyError(ctx, ty);
+    return moves(ctx, ty) != .no;
+}
+
+/// How a value that moves (`moves`) is held and released, the drop its
+/// storage writes when nothing takes it.
+pub const ResourceKind = enum {
+    /// `*T`: `x.dropStrong()`.
+    shared,
+    /// `~T`: `x.dropWeak()`.
+    weak,
+    /// A value with drop glue (`List`, an object owning resources, ...),
+    /// a unique value, or a value of a type parameter: `rig.drop(&x)`.
+    /// Needs `var` storage.
+    value,
+    /// An optional resource such as `*T?`: `rig.drop(&x)`. Needs `var`.
+    optional,
+};
+
+/// How a value of `ty` is held, or null for a value that copies
+/// (`moves` is `no`). A value that moves gets `var` storage, owned `as`
+/// and payload bindings, and an owned closure environment; the kind
+/// picks its drop call. `rig.drop` releases only what needs cleanup: a
+/// unique value, or a value of a type parameter whose instance needs
+/// none, drops nothing. The storage plan records it for each binding
+/// (`Symbol.hold`) and each value emit holds or discards
+/// (`storage.dropKind`); emit reads only those records.
+pub fn resourceKind(ctx: *const SemContext, ty: TypeId) ?ResourceKind {
+    if (moves(ctx, ty) == .no) return null;
+    return switch (ctx.types.get(ty)) {
+        .shared => .shared,
+        .weak => .weak,
+        .optional => .optional,
+        else => .value,
+    };
 }
 
 /// Whether a value of `ty` copies: it is duplicated by a bit copy, with

@@ -134,6 +134,7 @@ const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
 
 const diag = @import("diag.zig");
+const self_check = @import("build_options").self_check;
 
 pub const Diagnostic = diag.Diagnostic;
 
@@ -1326,6 +1327,17 @@ pub const Checker = struct {
         var v = var_;
         if (v.kind != .hidden) if (self.sema) |ctx| {
             v.sym = ctx.symbolAt(v.decl);
+        };
+        // Emit holds a binding as the storage plan recorded it
+        // (`Symbol.hold`): the checker treats as owning exactly the
+        // bindings that record says hold a value that moves.
+        if (self_check) if (v.sym) |sym| if (self.sema) |ctx| if (v.ty) |t| {
+            const s = ctx.symbols.items[sym];
+            switch (s.kind) {
+                .param, .local, .capture => if ((s.hold != null) != (self.owningKind(t) != null))
+                    try self.err(v.decl, "internal error: the checker holds `{s}` as {s}, but the storage plan records {s}", .{ v.name, if (self.owningKind(t) != null) "owning" else "owning nothing", if (s.hold) |h| @tagName(h) else "nothing to drop" }),
+                else => {},
+            }
         };
         if (v.name.len > 0) {
             const gop = try self.names.getOrPut(self.gpa, v.name);
