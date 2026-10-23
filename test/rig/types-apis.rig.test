@@ -3167,6 +3167,57 @@ fail "apis pub states its bounds implied at each instance", "`Index[Float]` cann
   ix: Index[Float]? = none
   print(ix == none)
 
+fail "apis pub states its bounds of a type declared later", "4:11: `pub obj W[T]` names `Index[T]`, which needs `K: Hash`: write `[T: Hash]`", "10:11: `pub fun f[T]` names `Index[T]`, which needs `K: Hash`: write `[T: Hash]`"
+  # The bounds a type's signature implies are asked whatever the order
+  # of the declarations, and the fix names the bound the type implies,
+  # not one that bound implies in turn (`Hash` gives `Eq`).
+  pub obj W[T]
+    t: T
+
+    pub fun m(?@, ix: ?Index[T]) -> Int
+      1
+
+  pub fun f[T](x: ?T) -> Int
+    ix: Index[T]? = none
+    1
+
+  obj Index[K]
+    m: Map[K, Int]
+
+  w = W(t: 1)
+  print(w.t, f(?1))
+
+fail "apis pub states its bounds on lines of their own", "4:3: `pub fun pick[K, T]` copies a `T`: write `[T: Copy]`", whole: true
+  # The error names the declaration on one line, without its comments.
+  pub fun pick[
+    K,
+    T,  # the element, copied out [by value]
+  ](m: ?Map[K, Int], xs: ?List[T]) -> T
+    xs[0]
+
+  sub main()
+    l: List[Int] = List()
+    !l.push(1)
+    print(pick(?Map[Int, Int](), ?l))
+
+fail "apis a call through a bound checks the implementation's instance", known: true, "`Float` cannot be hashed"
+  # An implementation's generic method checked at each instance (`Sq` is
+  # private) is reached through `T: Keyed` at `K = Float`, which it
+  # hashes: the instance must be checked, not left to Zig.
+  api Keyed
+    fun look[K](?@, k: ?K) -> Bool
+
+  obj Sq: Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+  fun probe[T: Keyed](t: ?T) -> Bool
+    t.look(?1.5)
+
+  print(probe(?Sq(n: 1)))
+
 test "apis pub states its bounds facts no API names", "301 2"
   # A literal's fit and a table's default are no API's: each instance of
   # a `pub` generic decides them, bounded or not.

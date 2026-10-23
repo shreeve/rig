@@ -1076,13 +1076,7 @@ pub fn statedMessage(ctx: *const SemContext, a: std.mem.Allocator, param: Symbol
         .api => |api| {
             var all = sym.apis;
             all.insert(api);
-            shown.apis = all;
-            var it = all.iterator();
-            while (it.next()) |x| {
-                var others = all;
-                others.remove(x);
-                if (implied(others).contains(x)) shown.apis.remove(x);
-            }
+            shown.apis = strongest(all);
         },
         .user => |ref| shown.user_apis = try std.mem.concat(a, ApiRef, &.{ sym.user_apis, &.{ref} }),
     }
@@ -1226,6 +1220,18 @@ pub fn implied(apis: Apis) Apis {
     if (out.contains(.Hash) or out.contains(.Ord)) out.insert(.Eq);
     if (out.contains(.Integer) or out.contains(.Signed)) out.insert(.Num);
     if (out.contains(.Copy)) out.insert(.Clone);
+    return out;
+}
+
+/// `apis` less each API the others imply: `Hash + Eq` is `Hash`.
+pub fn strongest(apis: Apis) Apis {
+    var out = apis;
+    var it = apis.iterator();
+    while (it.next()) |x| {
+        var others = apis;
+        others.remove(x);
+        if (implied(others).contains(x)) out.remove(x);
+    }
     return out;
 }
 
@@ -7033,10 +7039,11 @@ pub fn checkBounds(ctx: *SemContext, given_params: []const SymbolId, given_args:
             try reportUnprovided(ctx, at, of, sym.name, arg, api);
             return false;
         }
-        // What the bounds name first, then what they imply, those of the
-        // APIs they name included.
-        const written = sym.apis;
-        for ([_]Apis{ written, boundApis(ctx, sym).differenceWith(written) }) |set| {
+        // What the bounds name, written or implied, first, then what they
+        // imply, those of the APIs they name included: `K` filling
+        // `Map[K, V]` asks `Hash` before the `Eq` it gives.
+        const named = strongest(sym.apis.unionWith(sym.implied));
+        for ([_]Apis{ named, boundApis(ctx, sym).differenceWith(named) }) |set| {
             var it = set.iterator();
             while (it.next()) |api| {
                 const lack = (try lacks(ctx, arg, api)) orelse continue;
@@ -7674,6 +7681,38 @@ pub fn widenOwnerBounds(ctx: *SemContext, type_params: []const SymbolId, bounds:
     }
     const saved: Widened = .{ .syms = syms.items, .apis = apis.items, .user_apis = users.items, .outer = ctx.widened };
     ctx.widened = try std.mem.concat(a, SymbolId, &.{ ctx.widened, syms.items });
+    return saved;
+}
+
+/// A parameter a method under bounds widens (`widenOwnerBounds`), with
+/// its bounds as they stand while the method is resolved.
+pub const WidenedBound = struct { sym: SymbolId, apis: Apis, user_apis: []const ApiRef };
+
+/// The parameters widened now and their bounds, for a check made later
+/// under them (`resolve.DeferredCheck.bounds`, through `rewiden`).
+pub fn snapshotWidened(ctx: *SemContext) std.mem.Allocator.Error![]const WidenedBound {
+    const out = try ctx.arena.allocator().alloc(WidenedBound, ctx.widened.len);
+    for (ctx.widened, out) |p, *b| b.* = .{ .sym = p, .apis = ctx.symbols.items[p].apis, .user_apis = ctx.symbols.items[p].user_apis };
+    return out;
+}
+
+/// Widen the parameters `bounds` names to the bounds it records
+/// (`snapshotWidened`); `restoreOwnerBounds` puts them back.
+pub fn rewiden(ctx: *SemContext, bounds: []const WidenedBound) std.mem.Allocator.Error!Widened {
+    const a = ctx.arena.allocator();
+    const syms = try a.alloc(SymbolId, bounds.len);
+    const apis = try a.alloc(Apis, bounds.len);
+    const users = try a.alloc([]const ApiRef, bounds.len);
+    for (bounds, syms, apis, users) |b, *p, *x, *u| {
+        const sym = &ctx.symbols.items[b.sym];
+        p.* = b.sym;
+        x.* = sym.apis;
+        u.* = sym.user_apis;
+        sym.apis = b.apis;
+        sym.user_apis = b.user_apis;
+    }
+    const saved: Widened = .{ .syms = syms, .apis = apis, .user_apis = users, .outer = ctx.widened };
+    ctx.widened = try std.mem.concat(a, SymbolId, &.{ ctx.widened, syms });
     return saved;
 }
 

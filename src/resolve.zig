@@ -369,13 +369,43 @@ const SymbolResolver = struct {
     /// parameter and a value parameter state none.
     fn markStated(self: *SymbolResolver, node: Sexp, tparams: Sexp, ids: []const SymbolId) Error!void {
         if (tparams == .nil) return;
-        const decl = try std.fmt.allocPrint(self.ctx.arena.allocator(), "pub {s}", .{diag.textBetween(self.ctx.source, self.ctx.startOf(node), self.ctx.span(tparams).end)});
+        const decl = try oneLine(self.ctx.arena.allocator(), "pub ", diag.textBetween(self.ctx.source, self.ctx.startOf(node), self.ctx.span(tparams).end));
         for (ids) |id| {
             const sym = &self.ctx.symbols.items[id];
             if (sym.kind != .generic_param or sym.flags.set_param) continue;
             sym.flags.states_bounds = true;
             try self.ctx.stated.put(self.ctx.allocator, id, decl);
         }
+    }
+
+    /// `prefix` and then `text`, source that may span lines, on one line
+    /// as an error names it: each comment dropped, each run of spaces and
+    /// newlines one space, none inside brackets, and no comma before a
+    /// closing one (`pub fun pick[K, T]`).
+    fn oneLine(a: std.mem.Allocator, prefix: []const u8, text: []const u8) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        try out.appendSlice(a, prefix);
+        var space = false;
+        var i: usize = 0;
+        while (i < text.len) : (i += 1) {
+            const c = text[i];
+            if (c == '#') {
+                while (i + 1 < text.len and text[i + 1] != '\n') i += 1;
+                continue;
+            }
+            if (std.ascii.isWhitespace(c)) {
+                space = true;
+                continue;
+            }
+            if (c == ']' or c == ')') {
+                if (std.mem.endsWith(u8, out.items, ",")) out.items.len -= 1;
+            } else if (space and !std.mem.endsWith(u8, out.items, "[") and !std.mem.endsWith(u8, out.items, "(") and c != ',') {
+                try out.append(a, ' ');
+            }
+            space = false;
+            try out.append(a, c);
+        }
+        return out.items;
     }
 
     /// Each of the function's type parameters that `node`, part of its
@@ -1836,10 +1866,11 @@ pub const DeferredCheck = union(enum) {
     /// An instance of a generic type the program declares, spelled at
     /// `pos`: none of its fields or methods may stack two holdings.
     instance_stacking: struct { pos: u32, ty: TypeId },
-    /// A generic instance spelled at `pos` inside a generic declaration,
-    /// whose arguments are made of other types: they meet its bounds by
-    /// the declaration's (`TypeResolver.instanceOf`).
-    bounds: struct { pos: u32, ty: TypeId },
+    /// A generic instance spelled at `pos` inside a generic declaration
+    /// while declarations are resolved: its arguments meet its bounds by
+    /// the declaration's, asked once every implied bound is known, under
+    /// the bounds a method there adds (`widened`; `TypeResolver.instanceOf`).
+    bounds: struct { pos: u32, ty: TypeId, widened: []const sema.WidenedBound },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
     /// A type spelled at `node` that stands at `home`, where a value
     /// holding a Cell may not (`sema.misplaced`).
@@ -1863,6 +1894,8 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
         .instance_stacking => |c| try sema.checkInstanceStacked(ctx, c.ty, c.pos),
         .bounds => |c| {
             const pn = ctx.types.get(c.ty).parameterized_nominal;
+            const widened = try sema.rewiden(ctx, c.widened);
+            defer sema.restoreOwnerBounds(ctx, widened);
             if (ctx.symbols.items[pn.sym].type_params) |tps| _ = try sema.checkBounds(ctx, tps, pn.args, c.pos, .{ .type = c.ty });
         },
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
@@ -4202,17 +4235,15 @@ pub const TypeResolver = struct {
             // Spelled inside a generic declaration: each instantiation of
             // that generic instantiates this too, and meets its bounds by
             // the declaration's, those its signature implies included.
-            // A bound implied by a type resolved later is not known yet,
-            // so the check asks only what is: it never fails for one. An
-            // argument made of other types (`Pair[T, U]`) is asked once
-            // every type's contents are known.
+            // While declarations are resolved, the check waits until every
+            // type's contents and implied bounds are known: a bound
+            // implied by a type resolved later (`impliedFixpoint`), and
+            // an argument made of other types (`Pair[T, U]`), are asked
+            // then, whatever the declarations' order.
             if (sym.type_params) |tps| {
                 try self.implyBounds(sym_id, tps, inst.args);
-                const composite = for (inst.args) |arg| {
-                    if (self.ctx.types.get(arg) != .type_var) break true;
-                } else false;
-                if (composite and !self.ctx.contents_ready) {
-                    try self.ctx.deferred_checks.append(self.ctx.allocator, .{ .bounds = .{ .pos = pos, .ty = ty } });
+                if (!self.ctx.contents_ready) {
+                    try self.ctx.deferred_checks.append(self.ctx.allocator, .{ .bounds = .{ .pos = pos, .ty = ty, .widened = try sema.snapshotWidened(self.ctx) } });
                 } else _ = try sema.checkBounds(self.ctx, tps, inst.args, pos, .{ .type = ty });
             }
             try self.ctx.addGeneric(.uses, ty);

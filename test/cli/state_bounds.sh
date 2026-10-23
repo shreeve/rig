@@ -2,7 +2,8 @@
 # the fixes `rig check` reports, and checks again until none is left: a
 # fix that asks for more (`[T: Num]`, then `[T: Copy + Num]`), several
 # declarations in a module another imports, a type's parameter, and an
-# implied bound it leaves out. A dry run prints the diff and changes
+# implied bound it leaves out, and brackets over several lines with a
+# comment in them. A dry run prints the diff and changes
 # nothing; an error with no fix to write stops it, with status 1.
 source "$ROOT/test/cli/_lib.sh"
 
@@ -27,6 +28,12 @@ pub obj Pair[T]
 
 pub fun moved[T](x: T) -> T
   x
+
+pub fun pick[
+  K,
+  T,  # the element, copied out [by value]
+](m: ?Map[K, Int], xs: ?List[T]) -> T
+  xs[0]
 RIG
 cat >main.rig <<'RIG'
 use geo
@@ -37,7 +44,7 @@ sub main()
   !l.push(3)
   m: Map[Int, Int] = Map()
   p = geo.Pair(a: 4, b: 5)
-  print(geo.total(?l), geo.count(?m, ?1), p.first(), geo.moved(6))
+  print(geo.total(?l), geo.count(?m, ?1), p.first(), geo.moved(6), geo.pick(?m, ?l))
 RIG
 cp geo/stats.rig before.rig
 
@@ -45,17 +52,18 @@ out=$("$script" --rig "$RIG" --dry-run main.rig 2>err.txt); expect_rc $? 0 "dry 
 expect_has "$out" "-pub fun total[T](xs: ?List[T]) -> T" "dry run diff"
 expect_has "$out" "+pub fun total[T: Copy + Num](xs: ?List[T]) -> T" "dry run diff"
 expect_has "$out" "+pub obj Pair[T: Copy]" "dry run diff"
-expect_has "$(cat err.txt)" "2 type parameter(s) of 2 declaration(s) in 1 file(s) would state their bounds" "dry run count"
+expect_has "$(cat err.txt)" "3 type parameter(s) of 3 declaration(s) in 1 file(s) would state their bounds" "dry run count"
 cmp -s geo/stats.rig before.rig || fail "a dry run changed geo/stats.rig"
 
 "$script" --rig "$RIG" main.rig 2>err.txt || fail "state-bounds: $(cat err.txt)"
-expect_has "$(cat err.txt)" "2 type parameter(s) of 2 declaration(s) in 1 file(s) state their bounds" "count"
+expect_has "$(cat err.txt)" "3 type parameter(s) of 3 declaration(s) in 1 file(s) state their bounds" "count"
 expect_has "$(cat geo/stats.rig)" "pub fun total[T: Copy + Num](xs: ?List[T]) -> T" "rewritten"
 expect_has "$(cat geo/stats.rig)" "pub fun count[K, V](m: ?Map[K, V], k: ?K) -> Int" "implied bound left out"
 expect_has "$(cat geo/stats.rig)" "pub obj Pair[T: Copy]" "type rewritten"
 expect_has "$(cat geo/stats.rig)" "pub fun moved[T](x: T) -> T" "nothing to state"
+expect_has "$(cat geo/stats.rig)" "  T: Copy,  # the element, copied out [by value]" "brackets over lines"
 out=$(rig run main.rig 2>&1); expect_rc $? 0 "the rewritten program runs"
-expect_eq "$out" "5 0 4 6" "the rewritten program's output"
+expect_eq "$out" "5 0 4 6 2" "the rewritten program's output"
 
 # Clean: a second run changes nothing.
 "$script" --rig "$RIG" main.rig 2>err.txt || fail "second run: $(cat err.txt)"
