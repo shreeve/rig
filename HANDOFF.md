@@ -93,10 +93,12 @@ In the owner's order:
    Phase 4, associated types and `Iter` with std.iter, is built
    ([phase4-notes.md](docs/history/records/2026-10/apis-stage3/phase4-notes.md),
    [review-p34.md](docs/history/records/2026-10/apis-stage3/review-p34.md)).
-   Its rule for an iterator through `[I: Iter]` is strict for now: Map's
-   and Set's iterators do not go through it (a `for` still walks them),
-   as an item viewing into its iterator could outlive the next `next`;
-   the precise rule is the owner's decision. Phase 5, the Lean lemma, is
+   An iterator goes through `[I: Iter]` when its items own what they
+   hold, or when its `next` names only fields declared as read views
+   (`from @map`), as Map's and Set's iterators do: a method's view names
+   the path of self it views, Core sentence 7
+   ([records](docs/history/records/2026-10/from-field/approved.md)).
+   Phase 5, the Lean lemma, is
    built (formal/LambdaRig/Calls.lean; formal/README.md, "Calls through
    an API"). Phase 6 (public generics state their bounds, which needs the
    owner) is next.

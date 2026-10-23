@@ -170,7 +170,7 @@ const Paths = struct {
     const Step = struct { path: PathId, ended: bool };
 
     /// A path is cut at this many fields, which only adds conflicts.
-    const max_depth = 8;
+    const max_depth = sema.max_path_fields;
 
     const Node = struct { parent: PathId, field: []const u8, depth: u8 };
     const Key = struct { parent: PathId, field: []const u8 };
@@ -214,6 +214,13 @@ const Paths = struct {
         while (self.depth(x) > self.depth(y)) x = self.nodes.items[x - 1].parent;
         while (self.depth(y) > self.depth(x)) y = self.nodes.items[y - 1].parent;
         return x == y;
+    }
+
+    /// Whether path `p` is `of` or below it: `p.a.b` is within `p.a`.
+    fn within(self: *const Paths, p: PathId, of: PathId) bool {
+        var x = p;
+        while (self.depth(x) > self.depth(of)) x = self.nodes.items[x - 1].parent;
+        return x == of;
     }
 
     /// Append the fields of path `p`, each after a `.`, to `out`.
@@ -461,11 +468,25 @@ const FnCtx = struct {
     /// (`noteGenericStore`).
     generic_stores: [4]GenericStore = undefined,
     generic_store_count: u8 = 0,
+    /// A method whose `from` names paths of self (`from @text`): its
+    /// self, and those paths, which the loans the caller handed in
+    /// through self are tagged with where a place of self is lent or
+    /// read (`tagSelf`), so the body is checked against them.
+    self_var: ?VarId = null,
+    self_paths: []const PathId = &.{},
+    /// The first view of self the body returns, or lets reach a value of
+    /// a type parameter's type it returns, outside those paths.
+    self_escape: ?SelfEscape = null,
+    generic_self_path: ?SelfEscape = null,
     /// The run-time parameters bound so far.
     params: u32 = 0,
     /// Binding run-time parameters (`bindParam`), which get an index.
     binding_params: bool = false,
 };
+
+/// A view of self a method returns outside the paths its `from` names:
+/// the path, and where.
+const SelfEscape = struct { path: PathId, at: u32 };
 
 /// `e` without a lend or move sigil written on it.
 fn unsigiled(e: Sexp) Sexp {
@@ -1959,6 +1980,7 @@ pub const Checker = struct {
         try self.pushScopeFor(.function, .nil);
         for (tparams.items()) |p| if (p != .src) try self.bindParam(p);
         try self.bindParams(params);
+        try self.bindSelfPaths();
         try self.walkBody(body, returns_value);
         try self.popScope();
         if (name != .nil) try self.checkOrigins(try std.fmt.allocPrint(self.arena(), "`{s}`", .{self.text(name)}), name, params);
@@ -2467,7 +2489,9 @@ pub const Checker = struct {
             try self.errOnceUse(node);
             return .{};
         }
-        try self.checkReadable(id, self.takePlaceRead(node), pos);
+        const place = self.takePlaceRead(node);
+        try self.checkReadable(id, place, pos);
+        if (self.isSelfVar(id)) if (place) |e| if (self.resolvePlace(e)) |p| if (p.root == id) return self.tagSelf(self.varValue(id), id, p.path);
         return self.varValue(id);
     }
 
@@ -2612,7 +2636,7 @@ pub const Checker = struct {
                             p.path = step.path;
                             p.path_ended = step.ended;
                         } else {
-                            if (self.paths.depth(p.path) < Paths.max_depth and self.extendsPath(e, at_root)) {
+                            if (self.paths.depth(p.path) < Paths.max_depth and self.extendsPath(e, at_root, self.isSelfVar(p.root))) {
                                 // Out of memory, the path is cut where it
                                 // is, which only adds conflicts.
                                 p.path = self.paths.child(self.gpa, p.path, self.text(ir.Member.name(e))) catch blk: {
@@ -2646,12 +2670,17 @@ pub const Checker = struct {
     /// read view (what it views is its own loans', not the holder's), an
     /// optional's value (it exists only while present), or a member of
     /// anything else.
-    fn extendsPath(self: *const Checker, e: Sexp, at_root: bool) bool {
+    fn extendsPath(self: *const Checker, e: Sexp, at_root: bool, self_root: bool) bool {
         const ctx = self.sema orelse return false;
         if (!e.isKind(.member)) return false;
         var t = self.exprType(ir.Member.object(e)) orelse return false;
+        // A self that `from` checks by path (`bindSelfPaths`) has paths
+        // through a read view of self too, though no loan is on it.
         if (at_root) switch (ctx.types.get(t)) {
             .write_view => |inner| t = inner,
+            .read_view => |inner| if (self_root) {
+                t = inner;
+            },
             else => {},
         };
         while (sema.boxedType(ctx, t)) |inner| t = inner;
@@ -2899,7 +2928,13 @@ pub const Checker = struct {
             if (!containsLoan(out.items, kept)) try out.append(self.arena(), kept);
             return;
         }
-        for (self.flows.items[l.root].loans) |h| try self.carryLoan(out, ty, reads, h, depth + 1);
+        for (self.flows.items[l.root].loans) |h| {
+            // What self holds, standing for a loan on a path of self, is
+            // on that path (`tagSelf`).
+            var k = h;
+            if (h.ext and h.root == l.root and self.isSelfVar(l.root) and l.path != whole_path and self.paths.within(l.path, h.path)) k.path = l.path;
+            try self.carryLoan(out, ty, reads, k, depth + 1);
+        }
     }
 
     /// Whether var `id`'s value may own memory a value of type `view`
@@ -3113,7 +3148,7 @@ pub const Checker = struct {
         const place = self.resolvePlace(e) orelse return self.walkViewedPath(e);
         try self.walkIndicesHeld(e, place.root, place.path);
         try self.checkReadable(place.root, e, self.startOf(e));
-        return self.varValue(place.root);
+        return self.tagSelf(self.varValue(place.root), place.root, place.path);
     }
 
     /// Whether the value of place `e` is stored in the var the place
@@ -3134,11 +3169,110 @@ pub const Checker = struct {
     /// is (`lendTarget`).
     fn lendOn(self: *Checker, id: VarId, loan: Loan) Error!Value {
         const held = self.flows.items[id].loans;
-        return switch (self.lendTarget(self.vars.items[id])) {
+        const v: Value = switch (self.lendTarget(self.vars.items[id])) {
             .write_view => .{ .loans = try self.unionLoans(try self.oneLoan(loan), held) },
             .read_view => .{ .loans = held },
             .owner => .{ .loans = try self.oneLoan(loan) },
         };
+        return if (self.isSelfVar(id)) self.tagSelf(v, id, loan.path) else v;
+    }
+
+    /// Whether var `id` is the self of a method whose `from` names
+    /// paths of self (`bindSelfPaths`).
+    fn isSelfVar(self: *const Checker, id: VarId) bool {
+        const s = self.func.self_var orelse return false;
+        return s == id;
+    }
+
+    /// `v`, a value lent or read from path `path` of var `root`, with
+    /// each loan the caller handed in through self (an external loan on
+    /// it) on that path, when `root` is the self of a method whose
+    /// `from` names paths of self: what the body returns is checked
+    /// against them (`checkSelfPaths`). Any other value is `v`.
+    fn tagSelf(self: *Checker, v: Value, root: VarId, path: PathId) Error!Value {
+        if (!self.isSelfVar(root) or path == whole_path) return v;
+        const retag = struct {
+            fn is(c: *const Checker, l: Loan, r: VarId, p: PathId) bool {
+                return l.ext and l.root == r and l.path != p and c.paths.within(p, l.path);
+            }
+        };
+        for (v.loans) |l| {
+            if (!retag.is(self, l, root, path)) continue;
+            var out: std.ArrayList(Loan) = .empty;
+            for (v.loans) |k| {
+                var t = k;
+                if (retag.is(self, k, root, path)) t.path = path;
+                if (!containsLoan(out.items, t)) try out.append(self.arena(), t);
+            }
+            return .{ .loans = out.items };
+        }
+        return v;
+    }
+
+    /// In a method whose `from` names paths of self (`sema.SelfPath`),
+    /// note its self and those paths, so the body's views of self are
+    /// tagged with the path they come from (`tagSelf`).
+    fn bindSelfPaths(self: *Checker) Error!void {
+        const sps = self.func.origins.self_paths;
+        if (sps.len == 0) return;
+        const id = self.find("@") orelse return;
+        if (self.vars.items[id].kind != .param) return;
+        const out = try self.arena().alloc(PathId, sps.len);
+        for (sps, out) |sp, *p| p.* = try self.selfPathId(whole_path, sp);
+        self.func.self_var = id;
+        self.func.self_paths = out;
+    }
+
+    /// The path `sp` names below path `from` of a place, cut where paths
+    /// are cut (`Paths.max_depth`), which only adds conflicts.
+    fn selfPathId(self: *Checker, from: PathId, sp: sema.SelfPath) Error!PathId {
+        var p = from;
+        for (sp.fields) |f| {
+            if (self.paths.depth(p) >= Paths.max_depth) break;
+            p = try self.paths.child(self.gpa, p, f);
+        }
+        return p;
+    }
+
+    /// Whether path `p` of self is within a path the method's `from`
+    /// names.
+    fn withinSelfPaths(self: *const Checker, p: PathId) bool {
+        for (self.func.self_paths) |sp| if (self.paths.within(p, sp)) return true;
+        return false;
+    }
+
+    /// What a call's result carries of its receiver when its callee's
+    /// `from` names paths of self (Core sentence 7, `sema.SelfPath`): the
+    /// loans self holds, `held`, as the call runs, and for each path not
+    /// declared as a read view a loan on that path of the receiver's
+    /// place (`root`, `path`), never a loan on all of it. A receiver that
+    /// is no place keeps its whole lend, `lent`, for such a path. When
+    /// self is itself a view, what it holds is what that view carries.
+    fn selfPathsResult(self: *Checker, paths: []const sema.SelfPath, root: ?VarId, path: PathId, kind: LoanKind, pos: u32, held: Value, lent: Value) Error!Value {
+        // A receiver that is no place is a value the statement holds (a
+        // temporary), whose loans are what it holds.
+        var holds = held;
+        if (root == null) {
+            var loans: std.ArrayList(Loan) = .empty;
+            for (held.loans) |l| {
+                const hidden = self.vars.items[l.root].kind == .hidden and !l.ext;
+                for (if (hidden) self.flows.items[l.root].loans else &.{l}) |k| {
+                    if (!containsLoan(loans.items, k)) try loans.append(self.arena(), k);
+                }
+            }
+            holds = .{ .loans = loans.items };
+        }
+        var out: Value = .{};
+        for (paths) |sp| {
+            var part = holds;
+            if (root) |id| {
+                const p = try self.selfPathId(path, sp);
+                if (!sp.via_view) part = try self.valueUnion(part, try self.lendOn(id, .{ .root = id, .path = p, .kind = kind, .pos = pos }));
+                part = try self.tagSelf(part, id, p);
+            } else if (!sp.via_view) part = try self.valueUnion(part, lent);
+            out = try self.valueUnion(out, part);
+        }
+        return out;
     }
 
     const LendTarget = enum {
@@ -4465,6 +4599,9 @@ pub const Checker = struct {
         // receiver's value.
         var result: Value = .{};
         var recv_value: Value = .{};
+        // What the receiver holds, before the call lends it: what a
+        // result through a path of self carries (`selfPathsResult`).
+        var recv_held: Value = .{};
         // A function a field holds is called, which reaches nothing of
         // the value holding it.
         var field_call = false;
@@ -4520,6 +4657,7 @@ pub const Checker = struct {
                     // A built-in's methods hand out values, never views
                     // of the receiver.
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
+                    recv_held = recv_val;
                     recv_value = if (actor_call or self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .path = p.path, .kind = kind, .pos = pos }));
                 }
             } else if (recv_mode == .value) {
@@ -4528,6 +4666,7 @@ pub const Checker = struct {
                 recv_value = try self.walkConsumed(ir.Member.object(callee), .argument);
             } else {
                 recv_value = try self.walk(ir.Member.object(callee));
+                recv_held = recv_value;
                 if (self.errors_found == callee_found) try self.holdRead(ir.Member.object(callee), .receiver);
                 // A built-in's methods hand out values, never views of
                 // the receiver.
@@ -4585,7 +4724,14 @@ pub const Checker = struct {
         // What the result carries of the receiver and arguments.
         var from_args: Value = .{};
         if (params == null or params.?.resultCarriesReceiver()) {
-            result = try self.valueUnion(result, recv_value);
+            // A `from` that names paths of self narrows what the result
+            // carries of the receiver (Core sentence 7).
+            const paths = if (params) |p| p.origins.self_paths else &.{};
+            const recv_part = if (paths.len > 0 and callee.isKind(.member) and recv_mode != .value and !actor_call and !field_call)
+                try self.selfPathsResult(paths, recv_root, recv_path, if (recv_mode == .write) .write else .read, self.startOf(ir.Member.object(callee)), recv_held, recv_value)
+            else
+                recv_value;
+            result = try self.valueUnion(result, recv_part);
             from_args = recv_value;
         }
         const arg_values = try self.arena().alloc(Value, args.len);
@@ -5654,6 +5800,7 @@ pub const Checker = struct {
         // A loan on what is the function's own (a parameter taken by
         // value) cannot leave it, which `checkEscape` reports.
         for (v.loans) |l| if (!self.isLocalLoan(l)) if (self.paramOf(l)) |i| {
+            if (self.func.self_escape == null and self.isSelfVar(l.root) and !self.withinSelfPaths(l.path)) self.func.self_escape = .{ .path = l.path, .at = self.resultPos(expr, "@") orelse self.startOf(expr) };
             const bit = sema.paramBit(i);
             if (self.func.returned & bit == 0) {
                 self.func.returned_at[i] = self.startOf(expr);
@@ -5686,6 +5833,7 @@ pub const Checker = struct {
     /// sentence 7): what it returns and stores comes from the parameters
     /// its origins name. `params` are its run-time parameters.
     fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) Error!void {
+        try self.checkSelfPaths(what, name);
         const o = self.func.origins;
         const items = params.items();
         // What reached a value of a type parameter's type is returned and
@@ -5711,13 +5859,13 @@ pub const Checker = struct {
             const pname = if (sema.paramNameNode(items[i])) |pn| self.text(pn) else "?";
             if (self.func.returned & bit != 0 and o.result & bit == 0) {
                 if (o.declared) {
-                    const only = try self.paramList(items, o.result, true);
+                    const only = try self.paramList(items, o.result, true, name);
                     const at = self.resultPos(self.func.returned_by[i], pname) orelse self.func.returned_at[i];
                     if (only.len == 0) {
                         try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
                     } else try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
                     if (self.declaredFrom(name)) |d| {
-                        const all = try self.paramList(items, self.func.returned, false);
+                        const all = try self.paramList(items, self.func.returned, false, name);
                         if (self.namesStatic(items, self.func.returned)) {
                             try self.note(self.startOf(d.returns), "`from static` means what lives for the whole program, not the parameter `static`; rename the parameter to name it in `from`", .{});
                         } else try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), all });
@@ -5730,11 +5878,42 @@ pub const Checker = struct {
                 if (o.lent & bit != 0) {
                     // A lent parameter is kept only where `keeps` names it.
                     const into = self.func.stored_in[i];
-                    const kept = try self.paramList(items, (o.stores & o.lent) | (self.func.stored & o.lent), false);
+                    const kept = try self.paramList(items, (o.stores & o.lent) | (self.func.stored & o.lent), false, .nil);
                     try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, pname, kept });
                 } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
             }
         }
+    }
+
+    /// A method whose `from` names paths of self returns views of those
+    /// paths only (Core sentence 7): a view of another path of self, or
+    /// of all of it, that the body returns, directly or through a value
+    /// of a type parameter's type it returns (a call through a bound
+    /// views its receiver, `taintGeneric`), is reported.
+    fn checkSelfPaths(self: *Checker, what: []const u8, name: Sexp) Error!void {
+        if (self.func.self_var == null) return;
+        const e = self.func.self_escape orelse
+            (if (self.func.generic_returned_at != null) self.func.generic_self_path else null) orelse return;
+        const d = self.declaredFrom(name) orelse return;
+        // Self's var has left scope: its path is spelled from `@`.
+        var path: std.ArrayList(u8) = .empty;
+        try path.append(self.arena(), '@');
+        try self.paths.appendText(self.arena(), &path, e.path);
+        if (path.items.len > 2) _ = path.orderedRemove(1);
+        const got = path.items;
+        // What the clause names, and the fix: the clause with the path
+        // the body returns, all of self (`@`) holding every other path.
+        var only: std.ArrayList(u8) = .empty;
+        var fix: std.ArrayList(u8) = .empty;
+        for (d.names.items()) |n| {
+            if (only.items.len > 0) try only.appendSlice(self.arena(), ", ");
+            try only.print(self.arena(), "`{s}`", .{self.spanText(n)});
+            if (e.path == whole_path and n.isKind(.member)) continue;
+            try fix.print(self.arena(), "{s}, ", .{self.spanText(n)});
+        }
+        try fix.appendSlice(self.arena(), got);
+        try self.err(e.at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, got, only.items });
+        try self.note(self.startOf(d.returns), "say so: `-> {s} from {s}`, or return a view of what it names only", .{ self.spanText(d.returns), fix.items });
     }
 
     /// Whether a parameter of `mask` among `items` is named `static`,
@@ -5756,18 +5935,30 @@ pub const Checker = struct {
     }
 
     /// The parameters of `mask` among `items`, as a `from` list (`a, b`),
-    /// each in backquotes when `quoted`.
-    fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quoted: bool) Error![]const u8 {
+    /// each in backquotes when `quoted`. Self is the paths of it that the
+    /// `from` of function `name` names (`from @text`), when it names any.
+    fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quoted: bool, name: Sexp) Error![]const u8 {
         var out: std.ArrayList(u8) = .empty;
+        const clause: []const Sexp = if (self.func.origins.self_paths.len == 0) &.{} else if (self.declaredFrom(name)) |d| d.names.items() else &.{};
         for (items, 0..) |p, i| {
             if (mask & sema.paramBit(i) == 0) continue;
             const pn = if (sema.paramNameNode(p)) |n| self.text(n) else continue;
-            if (out.items.len > 0) try out.appendSlice(self.arena(), ", ");
-            if (quoted) try out.append(self.arena(), '`');
-            try out.appendSlice(self.arena(), pn);
-            if (quoted) try out.append(self.arena(), '`');
+            var paths: usize = 0;
+            if (std.mem.eql(u8, pn, "@")) for (clause) |c| if (c.isKind(.member)) {
+                try self.appendListName(&out, self.spanText(c), quoted);
+                paths += 1;
+            };
+            if (paths == 0) try self.appendListName(&out, pn, quoted);
         }
         return out.items;
+    }
+
+    /// `item` appended to the list `out` (`paramList`).
+    fn appendListName(self: *Checker, out: *std.ArrayList(u8), item: []const u8, quoted: bool) Error!void {
+        if (out.items.len > 0) try out.appendSlice(self.arena(), ", ");
+        if (quoted) try out.append(self.arena(), '`');
+        try out.appendSlice(self.arena(), item);
+        if (quoted) try out.append(self.arena(), '`');
     }
 
     fn checkEscape(self: *Checker, v: Value) Error!void {
@@ -7090,6 +7281,7 @@ pub const Checker = struct {
         if (v.loans.len == 0 or !self.genericType(ty)) return;
         for (v.loans) |l| if (self.paramOf(l)) |i| {
             self.func.generic |= sema.paramBit(i);
+            if (self.func.generic_self_path == null and self.isSelfVar(l.root) and !self.withinSelfPaths(l.path)) self.func.generic_self_path = .{ .path = l.path, .at = l.pos };
         };
     }
 

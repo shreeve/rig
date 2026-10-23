@@ -46,6 +46,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | The speed census | how to time main against the reference after merges, and a row per run | [consolidation/census.md](2026-10/consolidation/census.md) |
 | The consolidation round, done (2026-10-23) | what it landed (tracks 1 to 6), measured (within 2% after the night), stopped and redid, and left for the owner | [consolidation/round-report.md](2026-10/consolidation/round-report.md) |
 | A narrower set fitting a generic body (consolidation track 2) | tried and held for Stage 3: the slot convention and self passing broke `!@` methods; the `Int!!` fix and message landed | [consolidation/generic-sets-review.md](2026-10/consolidation/generic-sets-review.md) |
+| A method's view names the path of self it views (`from @field`) | CORE sentence 7: `-> ?String from @text` carries self's loans and a loan on that path alone; a field declared as a read view puts none on self, so Map's and Set's iterators say `from @map`/`from @set` and go through `[I: Iter]`; a panel of four, and the owner's approval | [from-field/](2026-10/from-field/) |
 
 ## Every record
 
@@ -102,6 +103,14 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 ### 2026-10/fixes/
 
 - [parmap-cancel.md](2026-10/fixes/parmap-cancel.md): `Stop.canceled` after a failed `par.map`
+
+### 2026-10/from-field/
+
+- [approved.md](2026-10/from-field/approved.md): the owner's approval, quoted
+- [6-final.md](2026-10/from-field/6-final.md): the paragraph, its rules as built, and the must-pass tests
+- [4-draft.md](2026-10/from-field/4-draft.md): the combined draft, each rule with its reason
+- [1-core.md](2026-10/from-field/1-core.md), [2-compiler.md](2026-10/from-field/2-compiler.md), [3-adversary.md](2026-10/from-field/3-adversary.md), [5-review.md](2026-10/from-field/5-review.md): the panel's reports
+- [review.md](2026-10/from-field/review.md): the adversarial review of the build: a task's lend of self and a path past the checker's cut fixed, the oracle's carry copied at the call
 
 ### 2026-10/frozen/
 

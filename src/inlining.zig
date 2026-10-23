@@ -370,8 +370,17 @@ const Pass = struct {
         };
         switch (kind) {
             .use => return,
-            // Everything but the name.
-            .fun, .sub => if (!rig.isCtFun(e)) for (e.items()[2..]) |c| try self.mentions(module, c),
+            // Everything but the name, and the `from` and `keeps`
+            // clauses, which name parameters and paths of self
+            // (`from @set`), never a function.
+            .fun, .sub => if (!rig.isCtFun(e)) {
+                const origins = if (kind == .fun) ir.get(e, .origins) else Sexp.nil;
+                const keeps = ir.get(e, .keeps);
+                for (e.items()[2..]) |c| {
+                    if (c == .list and ((origins == .list and origins.list.ptr == c.list.ptr) or (keeps == .list and keeps.list.ptr == c.list.ptr))) continue;
+                    try self.mentions(module, c);
+                }
+            },
             // A compile-time call is a constant: it mentions no function
             // that runs.
             .ct_call => return,

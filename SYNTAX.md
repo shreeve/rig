@@ -728,8 +728,9 @@ sign -1
   as a whole: `-> (A, B)!`, `-> (A, B)?`.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
-  @`, or `-> ?String from static` for only what lives for the whole
-  program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
+  @`, a path of self, `-> ?String from @text`, or `-> ?String from
+  static` for only what lives for the whole program ([CORE sentence
+  7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - A function that keeps a lent parameter names it last on its header:
   `sub watch(!@, s: ?String) keeps s`, `fun bind(!@, s: ?String)
   -> ?String from s keeps s`, `sub save(p: !Page, s: ?String)!

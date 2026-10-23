@@ -3689,9 +3689,10 @@ value of an associated type holds, so an instance whose associated type
 may view memory its base owns (`next(!@) -> (?String)? from @` over the
 iterator's own `String`) is rejected: the body could hold one across the
 call that changes that memory. Items that own what they hold, or view
-what the iterator only views (`text.split`'s), are taken; a Map's and a
-Set's iterators, whose types do not show their items to be outside
-them, are walked by a loop over the iterator itself.
+what the iterator only views, are taken: `text.split`'s, and those of a
+`next` whose `from` names only fields declared as read views
+(`next(!@) -> (?K)? from @map`, as a Map's and a Set's iterators
+declare).
 std.iter's `count` and `sum` take any iterator ([STD](docs/STD.md#stditer)).
 
 ```rig
@@ -6745,8 +6746,13 @@ the checker tracks where every one came from.
   alone, and the compiler checks the body against the clause: a body
   that returns a view of a parameter it does not name is rejected. A
   name must be a parameter whose type could hold what the result
-  views. A function lent as a value (`?first`) is called with what its
-  type says, as if it had no clause.
+  views. A method's clause may name a path of self, `from @text` or
+  `from @a.b`, through fields and boxes, of at most 8 fields: the
+  result then carries the loans self holds and a loan on that path
+  alone, or, for a field declared as a read view, none on self
+  ([Places](#places)). A task (`(!s).m()&`) is its call, still
+  running, and keeps all of self lent. An API names no fields. A function lent as a value (`?first`) is called
+  with what its type says, as if it had no clause.
 - A view reached through another view views what that view views,
   not what holds it: `?c.items[0]`, with `items: ?List[Item]`, views
   the List, not `c`.
@@ -7365,18 +7371,22 @@ cannot let this call store a view of `p.b` in `p.a`: a value never holds a view 
 ```
 
 A method's view result carries a loan on all of its self, where
-self's type could hold what it views (here `value`). Saying
-which part of self it views (`-> ?String from @text`) is
-planned, and would let the caller write self's other fields
-while the result lives:
+self's type could hold what it views, unless its `from` names the path
+of self it views (`-> ?String from @text`, Core sentence 7): then it
+carries the loans self holds and a loan on that path alone, so the
+caller may use self's other fields while the result lives; a use of all
+of self (`(!s).m()`, `<s`, `s = x`) still touches the path. A path
+that is a field declared as a read view (`text: ?String` here) puts no
+loan on self at all, so `number` lends `@` to write again while
+`whole` lives:
 
-```rig pending
+```rig
 obj Scanner
   text: ?String
   pos: Int
   value: String
 
-  fun digits(!@) -> ?String
+  fun digits(!@) -> ?String from @text
     start = @pos
     while @pos < @text.len and @text[@pos] >= 0x30 and @text[@pos] <= 0x39
       @pos += 1
