@@ -560,7 +560,7 @@ Stop.canceled
 Calling a function on each element of a List, an array, or a slice, on
 several tasks at once ([SPEC §18](../SPEC.md#each-element-on-several-tasks)).
 The tasks take chunks of the elements in turn. `f` is a closure written
-in the call, whose captures must share, or a function's name.
+in the call, whose captures must sync, or a function's name.
 
 | Member | Result |
 |---|---|
@@ -662,7 +662,7 @@ listener fails, and fails then; the connections' tasks end before it
 returns. The checker types it, as it does `par.map`: `f` is a closure
 written in the call, or a function's name, of type
 `fun(?http.Request) -> http.Response`, and every connection's task
-calls it, so each capture must share, and none is a write view. Each
+calls it, so each capture must sync, and none is a write view. Each
 request runs isolated (`task.isolate`): a panic in `f` answers 500, and
 the server goes on.
 

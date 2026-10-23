@@ -288,7 +288,7 @@ point, with no token to pass down. Ctrl-C cancels a `main` that can
 fail in the same way: its `defer`s and drops run, the tasks it owns
 are canceled, and the program ends with status 130.
 
-The compiler knows, for every type, whether a value may move to another
+The compiler knows, for every type, whether a value may be sent to another
 core or be read from two at once, and decides where each task may run.
 A task handed a `*T` handle, whose count is not atomic, runs on the
 thread of the task that makes it, so a GUI program's shared state can
@@ -487,7 +487,7 @@ compiler bug, not a user error.
 | Accept means correct | If `rig check` accepts a program, the emitted Zig compiles, runs, and does what the source says. What the compiler cannot lower correctly, it rejects with a Rig diagnostic. |
 | Safe code cannot corrupt memory | Use after move, double free, use after free, dangling views, and leaks cannot happen outside a `raw` block. The test suite runs every program under a sanitizer that crashes at any use of freed memory. |
 | Effects stay visible | No feature hides a move, clone, allocation, failure, or mutation. |
-| Tasks share safely | A task takes only what may move to its core or be read from two at once; no two tasks hold a write view of one value. |
+| Tasks share safely | A task takes only what may be sent to its core or be read from two at once; no two tasks hold a write view of one value. |
 | Tasks end in scope | No task outlives the scope that owns it, or the loans it keeps. |
 
 At run time, integer overflow, out-of-bounds indexing, and a numeric
