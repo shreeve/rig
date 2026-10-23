@@ -6027,6 +6027,11 @@ const Checker = struct {
         const fname = try self.bodyName();
         const declared = try self.tyName(self.body.ret);
         if (set == self.t().any_error_id) {
+            // A call on a type parameter's instance: the body knows no set
+            // its method fails with, so it takes any.
+            if (operand.isKind(.call) and ir.Call.callee(operand).isKind(.member)) if (self.ctx.typeOf(ir.Member.object(ir.Call.callee(operand)))) |recv_ty| if (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty)) == .type_var) {
+                return self.errAt(operand, "`{s}` is a call on a `{s}`, whose method the body takes to fail with any error, and {s} declares `{s}`: catch it, or declare `{s}`", .{ callee, try self.tyName(sema.unwrapViews(self.ctx, recv_ty)), fname, declared, try self.anyErrorHeader() });
+            };
             return self.errAt(operand, "`{s}` may fail with any error, and {s} declares `{s}`: catch it, or declare `{s}`", .{ callee, fname, declared, try self.anyErrorHeader() });
         }
         // A union joins declared sets, never a set parameter.
@@ -12312,12 +12317,16 @@ const Checker = struct {
     /// `ty`, what `value` gives, as the type of the call `call` that
     /// `value` is or wraps: through `!` and `catch` a fallible `ty!`,
     /// through `?` and `??` an optional `ty?`. Null for any other form.
+    /// A `ty` that is itself fallible, a `-> T!` function's result that
+    /// `value` stands for, is its value `T` there: `x.m() catch |e| 0`
+    /// gives a `T`, and the tail wraps it.
     fn wrapResult(self: *Checker, value: Sexp, call: Sexp, ty: TypeId) Error!?TypeId {
         if (sameNode(value, call)) return ty;
         const kind = value.kind() orelse return null;
+        const ok = if (self.ctx.types.get(ty) == .fallible) self.ctx.types.get(ty).fallible.ok else ty;
         return switch (kind) {
-            .propagate => try self.wrapResult(ir.Propagate.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ty } })),
-            .@"catch" => try self.wrapResult(ir.Catch.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ty } })),
+            .propagate => try self.wrapResult(ir.Propagate.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ok } })),
+            .@"catch" => try self.wrapResult(ir.Catch.value(value), call, try self.ctx.intern(.{ .fallible = .{ .ok = ok } })),
             .propagate_none => try self.wrapResult(ir.PropagateNone.value(value), call, try self.ctx.intern(.{ .optional = ty })),
             .@"??" => try self.wrapResult(ir.@"??".left(value), call, try self.ctx.intern(.{ .optional = ty })),
             else => null,

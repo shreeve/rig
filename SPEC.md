@@ -2917,7 +2917,11 @@ result's type, and the call is rejected. Each instance's type must be an
 `obj` or an `enum` that declares the method, visible from the body's
 module, taking self as the sigil does, and the arguments with the types
 the body passes (a literal as `Int` or `Float`), and giving exactly the
-result the body takes. The method of a built-in type, one marked
+result the body takes. Through `!` and `catch` the body takes the result
+to fail with any error, so a method failing with a declared set does not
+fit it, and a body declaring a set of its own cannot pass such a failure
+on with `!`, and catches it. The
+method of a built-in type, one marked
 `inline`, and one with compile-time parameters of its own are not
 reached through a `T`. The body's ownership check treats the call as a
 call of a function value with no `from` or `keeps`: its result may

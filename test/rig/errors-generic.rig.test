@@ -543,3 +543,41 @@ fail "the parameter's set into a declared set", "`f` may fail with `E`, which `B
     f(n)!
 
   print(0)
+
+fail "a generic body takes a T's failure as the value's fallible", "18:7: `or_zero[Box]` cannot use `T = Box`: the generic body calls `b.get()`, taking its result as `Int!`, and `Box.get` gives `Int!Bad`", errors: 1
+  # Through `catch` in a `-> Int!` body the call's result is an `Int!`,
+  # not an `Int!!`; a method failing with a declared set does not fit a
+  # body that takes any error, until a bound states the set.
+  error Bad
+    oops
+
+  obj Box
+    n: Int
+
+    fun get(?@) -> Int!Bad
+      return Bad.oops if @n < 0
+      @n
+
+  fun or_zero[T](b: ?T) -> Int!
+    b.get() catch |e| 0
+
+  b = Box(n: 3)
+  print(or_zero(?b)!)
+
+fail "a generic body declaring a set passes no failure of a call on a T", "13:3: `b.get` is a call on a `T`, whose method the body takes to fail with any error, and `twice` declares `Int!Bad`: catch it, or declare `-> Int!`", errors: 2
+  # The body cannot know the set a `T`'s method fails with.
+  error Bad
+    oops
+
+  obj Box
+    n: Int
+
+    fun get(?@) -> Int!Bad
+      return Bad.oops if @n < 0
+      @n
+
+  fun twice[T](b: ?T) -> Int!Bad
+    b.get()! * 2
+
+  b = Box(n: 3)
+  print(twice(?b) catch -1)

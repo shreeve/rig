@@ -20,6 +20,12 @@ changed the language since it:
   fails with that set when it holds `task.Stop` (for `task.all`, the one
   of its tasks' sets that holds the others), as a set of tasks does.
 
+- **A generic body takes a `T`'s failure as the value's fallible:** a
+  call on a `T` caught in a `-> Int!` body was taken as an `Int!!`, which
+  the message showed; it is an `Int!`. A body declaring a set of its own
+  that passes such a failure on with `!` is told that a call on a `T` is
+  taken to fail with any error.
+
 - **What a function value is where a call runs it** is decided once
   (`Checker.fnArg`): a closure written in the call, a function's name, a
   closure binding, a closure's view or an owned closure, or none. Fixed
