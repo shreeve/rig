@@ -84,6 +84,50 @@ Not fixed here (the track's rule: bisect and report). #538 trades
 pup's safe builds for its fast ones; whether it stays, or the length
 read keeps a range fact for LLVM in safe builds, is the owner's call.
 
+## #538: the length range in safe builds, tried
+
+A follow-up, to give the owner data. Main (4f832692f) with #538's test
+still gone, but in safe builds only `heldLen` tells LLVM the range the
+test gave it, with no compare (`if (n > max_len) unreachable` under
+`@setRuntimeSafety(false)`, inside `if (builtin.mode == .safe)`; branch
+`consol-len-range`, not pushed). Fast builds are unchanged.
+
+**Instructions (Mac, rig-safe, per byte):** below the reference on
+every file but twitterescaped: twitter 7.7317, twitterescaped 9.3740
+(0.7% above the reference's 9.3075), canada 15.6229, citm_catalog
+7.8374, gsoc-2018 3.4508, github_events 6.9291. So the range is what
+#538 cost in instructions.
+
+**Time (MB/s, 10 rounds, fastest of 30), ref / main / range:**
+
+| file | Mac safe | Mac fast | pup safe (core 6) | pup fast |
+|---|---|---|---|---|
+| twitter | 3547 / 3654 / 3477 | 3488 / 3678 / 3651 | 3027 / 2824 / 3001 | 2660 / 2927 / 2966 |
+| twitterescaped | 3121 / 3183 / 3098 | 3239 / 3255 / 3256 | 2478 / 2273 / 2415 | 2363 / 2587 / 2629 |
+| canada | 2085 / 2097 / 2054 | 2271 / 2189 / 2200 | 1306 / 1321 / 1332 | 1444 / 1472 / 1488 |
+| citm_catalog | 4159 / 4267 / 4071 | 4120 / 4330 / 4291 | 3006 / 2877 / 3056 | 2807 / 3087 / 3101 |
+| gsoc-2018 | 8191 / 8336 / 8286 | 8157 / 8262 / 8147 | 5821 / 5634 / 5784 | 5659 / 5792 / 5914 |
+| github_events | 4060 / 4320 / 4089 | 4102 / 4284 / 4247 | 3331 / 3183 / 3366 | 3135 / 3544 / 3578 |
+
+- **pup safe** comes back to within 2% of the reference on five files
+  (citm 1.7% and github_events 1.1% faster than it), but twitterescaped
+  stays 2.5% slower; against main the range is 3.9-6.2% faster.
+- **pup fast** keeps #538's gain (1-2% above main).
+- **Mac safe** loses: the range is 4.8% (twitter), 4.6% (citm_catalog),
+  5.3% (github_events), and 2.1% (canada) slower than main, and twitter
+  2.0% and citm_catalog 2.1% slower than the reference. Fewer
+  instructions, slower: layout again.
+- **Trig on pup** (current Trig 37f9e6b, release builds, core 6, 10
+  rounds): ts-pattern 1.345 / 1.346 s and zod3 0.345 / 0.346 s, main /
+  range; `rig check --time` total 6062 / 6101 ms (0.6% slower). No
+  change.
+
+**A trade-off, so no PR.** The range fixes pup's safe builds (but not
+twitterescaped) and costs the Mac's safe builds about 5%. It is also the
+assumption the owner declined on 2026-10-22 ("No LLVM assumption of a
+List's length bound": undefined behavior if the invariant broke), here
+limited to safe builds. The decision on #538 is the owner's.
+
 ## Tasks, actors, sockets, HTTP (rig-fast)
 
 Time per operation, as the PROGRESS rows give it.
@@ -205,6 +249,11 @@ it: aligning needs a compiler fact (every function holding a loop, which
 would move all of Trig's code too) or a marker on the function, which is
 a language feature, outside this round. The census instead watches
 twitter, citm, and github_events on pup, where the swing shows.
+
+**Dropped.** The alignment is dropped: aligned, citm_catalog's safe
+build on the Mac is 7.8% slower than main's (4357 → 4016 MB/s), and
+pup's fast builds up to 5.7% slower; and std has no way to ask for a
+function's alignment without a new language feature.
 
 ## The scripts
 
