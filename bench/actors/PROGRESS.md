@@ -48,3 +48,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set (pup cores 8,9) | rig-fast | 11 ns | 14 ns | 10 ns |
 | 2026-10-24 | main before #621, interleaved (pup cores 8,9) | rig-fast | 12 ns | 14 ns | 11 ns |
 | 2026-10-24 | #621: os.memory counts each allocation (pup cores 8,9) | rig-fast | 11 ns | 14 ns | 10 ns |
+| 2026-10-24 | main before #624, interleaved (pup cores 6,7) | rig-fast | 12 ns | 15 ns | 11 ns |
+| 2026-10-24 | #624: the blocking pool keeps a few threads busy (pup cores 6,7) | rig-fast | 12 ns | 15 ns | 11 ns |

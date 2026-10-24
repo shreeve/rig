@@ -40,6 +40,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set (pup cores 8,9) | rig-fast | 196492 | 202 us | 3445 us | 8.6 KiB |
 | 2026-10-24 | main before #621, interleaved (pup cores 8,9) | rig-fast | 212312 | 189 us | 3396 us | 8.6 KiB |
 | 2026-10-24 | #621: os.memory counts each allocation (pup cores 8,9) | rig-fast | 212726 | 183 us | 3412 us | 8.6 KiB |
+| 2026-10-24 | main before #624, interleaved (pup cores 6,7) | rig-fast | 190539 | 206 us | 3476 us | 8.6 KiB |
+| 2026-10-24 | #624: the blocking pool keeps a few threads busy (pup cores 6,7) | rig-fast | 192676 | 203 us | 3485 us | 8.6 KiB |
 
 The "buffers held only per request" rows (#402) ran on a build that
 pinned every task to the worker that made it, a slip of #401 that #405
