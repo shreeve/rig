@@ -4477,7 +4477,7 @@ fail "apis object no assignment through a write view", "cannot assign through `w
 
   print(1)
 
-fail "apis object a clone of a view", "`+s` would make a value of no size of its own: only a `^{Shape}` has `+`"
+fail "apis object a clone of a view", errors: 2, "`+s` would make a value of no size of its own: only a `^{Shape}` has `+`; a view copies, so `s` itself views the value again", "`+w` would make a value of no size of its own: only a `^{Shape}` has `+`; lend it on to read with `?w`"
   api Shape
     fun area(?@) -> Float
 
@@ -4485,7 +4485,69 @@ fail "apis object a clone of a view", "`+s` would make a value of no size of its
     t = +s
     print(t)
 
+  sub g(w: !{Shape})
+    t = +w
+    print(t)
+
   print(1)
+
+fail "apis object a bound written as its object", errors: 2, "6:12: a bound names an API, not an object: `[T: Shape]`, and `{Shape}` is a value of some type that provides it", "9:10: a bound names an API, not an object: `[T: Shape]`"
+  # A bound names the API; `[T: {Shape}]` is no value parameter, and
+  # `T` stays a type parameter, so nothing else is reported.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Box[T: {Shape}]
+    v: T
+
+  fun g[T: {Shape}](x: ?T) -> Int
+    1
+
+  print(1)
+
+fail "apis object under a suffix", errors: 3, "4:10: `?{Shape}?` reads as `?({Shape}?)`, and `{Shape}` has no size of its own: write `(?{Shape})?`", "7:18: `?{Shape}!E` reads as `?({Shape}!E)`, and `{Shape}` has no size of its own: write `(?{Shape})!E`", "10:10: `!{Shape}?` reads as `!({Shape}?)`, and `{Shape}` has no size of its own: write `(!{Shape})?`"
+  api Shape
+    fun area(?@) -> Float
+
+  fun h(s: ?{Shape}?) -> Int
+    1
+
+  fun k(n: Int) -> ?{Shape}!E
+    n
+
+  sub m(w: !{Shape}?)
+    print(1)
+
+  obj Holder
+    b: ^{Shape}?
+    s: (*{Shape})?
+
+  error E
+    bad
+
+  print(1)
+
+test "apis object braces across lines", "4.0 4.0"
+  # Braces join lines as brackets do.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Sq: Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s * @s
+
+  type A = ?{
+    Shape}
+
+  fun area_of(s: ?{Shape +
+      Print}) -> Float
+    s.area()
+
+  q = Sq(s: 2.0)
+  a: A = ?q
+  print(a.area(), area_of(?q))
 
 fail "apis object a view of plain data does not leave its block", "14:3: `?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; lend the owner where it lives, or take `p: ?{Shape}`", "17:13: `?{Shape}` of `p` views a copy held in this block", "22:16: `?{Shape}` of `p` views a copy held in this block"
   # Returned, stored in a caller's List, and kept across a loop's

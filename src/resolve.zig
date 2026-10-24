@@ -521,6 +521,11 @@ const SymbolResolver = struct {
                 continue;
             }
             if (ct) try self.checkParamCase(name_node, ir.get(p, .type));
+            // `[T: {Shape}]`, reported: a type parameter with no bound.
+            if (ct and objectBound(self.ctx.source, p)) {
+                _ = try self.declare(name_node, .generic_param, .{});
+                continue;
+            }
             _ = try self.declare(name_node, .param, .{ .comptime_known = ct });
         }
     }
@@ -610,9 +615,9 @@ const SymbolResolver = struct {
             // Detached: reached through the type's `type_params`. A bare
             // name is a type parameter; `n: Int` a compile-time value,
             // whose type `resolveNominal` resolves.
-            const value = p.isKind(.@":");
-            const typed = if (value) null else self.boundNamesType(pnode);
-            try self.checkParamCase(pnode, if (value) ir.get(p, .type) else typed);
+            const value = p.isKind(.@":") and !objectBound(self.ctx.source, p);
+            const typed = if (value or p.isKind(.@":")) null else self.boundNamesType(pnode);
+            try self.checkParamCase(pnode, if (p.isKind(.@":")) ir.get(p, .type) else typed);
             const b: Bounds = if (value or typed != null) .{} else try self.boundsOf(pnode);
             const pid = try self.ctx.addSymbol(.{
                 .name = pname,
@@ -880,6 +885,15 @@ const SymbolResolver = struct {
         }
     }
 
+    /// Whether compile-time parameter `p` is `[T: {Shape}]`: a type
+    /// parameter's name over an API object, which `checkParamCase`
+    /// reports as a bound written as its object.
+    fn objectBound(source: []const u8, p: Sexp) bool {
+        if (!p.isKind(.@":") or !ir.get(p, .type).isKind(.api_object)) return false;
+        const name = identAt(source, sema.paramNameNode(p) orelse return false) orelse return false;
+        return name.len > 0 and std.ascii.isUpper(name[0]);
+    }
+
     /// A compile-time parameter's name starts with a capital letter for a
     /// type parameter and a lowercase one for a value (`type`, its type),
     /// so `[T: Ord]` and `[n: Int]` read apart. `_` is either.
@@ -889,6 +903,12 @@ const SymbolResolver = struct {
         const upper = std.ascii.isUpper(name[0]);
         const a = self.ctx.arena.allocator();
         if (value_type) |ty| {
+            // `[T: {Shape}]`: a bound names the API, never its object.
+            if (upper and ty.isKind(.api_object)) {
+                const braces = diag.textOf(self.ctx.source, self.ctx.span(ty));
+                try self.ctx.errAt(ty, "a bound names an API, not an object: `[{s}: {s}]`, and `{s}` is a value of some type that provides it", .{ name, std.mem.trim(u8, braces, "{} "), braces });
+                return;
+            }
             if (!upper) return;
             const lower = try a.dupe(u8, name);
             lower[0] = std.ascii.toLower(lower[0]);
@@ -2409,6 +2429,11 @@ pub const TypeResolver = struct {
     /// parameter (`n: Int`) is its type, which may not depend on a type
     /// parameter.
     fn resolveCtParam(self: *TypeResolver, p: Sexp) Error!TypeId {
+        // `[T: {Shape}]` was reported; `T` stands for a type.
+        if (SymbolResolver.objectBound(self.ctx.source, p)) {
+            const id = self.ctx.symbolOf(sema.paramNameNode(p) orelse return self.ctx.types.invalid_id) orelse return self.ctx.types.invalid_id;
+            return self.ctx.intern(.{ .type_var = id });
+        }
         if (p != .src) {
             const ty = try self.resolveParamType(p);
             const type_node = ir.get(p, .type);
@@ -3125,7 +3150,7 @@ pub const TypeResolver = struct {
     /// (`n: Int`), which are integers.
     fn resolveValueParams(self: *TypeResolver, tparams: Sexp) Error!void {
         for (tparams.items()) |p| {
-            if (!p.isKind(.@":")) continue;
+            if (!p.isKind(.@":") or SymbolResolver.objectBound(self.ctx.source, p)) continue;
             const id = self.ctx.symbolOf(ir.get(p, .name)) orelse continue;
             const type_node = ir.get(p, .type);
             var ty = try self.resolveType(type_node);
@@ -3170,6 +3195,32 @@ pub const TypeResolver = struct {
             .signature, .binding, .element, .optional => try self.checkWhenResolved(.{ .cell_home = .{ .node = node, .ty = ty, .home = home } }),
         }
         return false;
+    }
+
+    /// `?{Shape}?` or `!{Shape}!E`, `sexp`: a view's sigil over an API
+    /// object with a suffix, `inner_node`, reads as the view of the
+    /// suffixed object, which has no size of its own (a holding sigil,
+    /// `^{Shape}?`, binds tighter than a suffix). The fix views the
+    /// object first, `(?{Shape})?`. Reported.
+    fn objectUnderSuffix(self: *TypeResolver, sexp: Sexp, inner_node: Sexp) Error!bool {
+        const object = if (inner_node.isKind(.optional)) ir.get(inner_node, .type) else if (inner_node.isKind(.error_union)) ir.ErrorUnion.type(inner_node) else return false;
+        if (!object.isKind(.api_object)) return false;
+        const src = self.ctx.source;
+        const whole = self.ctx.span(sexp);
+        const inner = self.ctx.span(inner_node);
+        const obj = self.ctx.span(object);
+        const sigil = diag.textBetween(src, whole.start, inner.start);
+        if (sigil.len != 1) return false;
+        try self.ctx.errAt(sexp, "`{s}` reads as `{s}({s})`, and `{s}` has no size of its own: write `({s}{s}){s}`", .{
+            diag.textOf(src, whole),
+            sigil,
+            diag.textOf(src, inner),
+            diag.textOf(src, obj),
+            sigil,
+            diag.textOf(src, obj),
+            diag.textBetween(src, obj.end, whole.end),
+        });
+        return true;
     }
 
     /// `{Shape}` at `home`, where it has no size of its own
@@ -3820,6 +3871,7 @@ pub const TypeResolver = struct {
                     },
                     .optional, .read_view, .write_view, .weak, .slice => {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
+                        if ((head == .read_view or head == .write_view) and try self.objectUnderSuffix(sexp, inner_node)) return t.invalid_id;
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;

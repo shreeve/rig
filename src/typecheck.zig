@@ -7170,7 +7170,8 @@ const Checker = struct {
         // Stage 4).
         if (sema.objectView(self.ctx, inner)) |ov| {
             const shown = self.sourceText(operand);
-            try self.errAt(operand, "`+{s}` would make a value of no size of its own: only a `^{s}` has `+`", .{ shown, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), ov.object) });
+            const fix = if (ov.form == .write) try std.fmt.allocPrint(self.ctx.arena.allocator(), "lend it on to read with `?{s}`", .{shown}) else try std.fmt.allocPrint(self.ctx.arena.allocator(), "a view copies, so `{s}` itself views the value again", .{shown});
+            try self.errAt(operand, "`+{s}` would make a value of no size of its own: only a `^{s}` has `+`; {s}", .{ shown, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), ov.object), fix });
             return self.t().invalid_id;
         }
         // A box of an API object clones through its table's `Clone`,

@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **API objects' messages give the fix:** `?{Shape}?` and `?{Shape}!E`
+  read as a view of a suffixed `{Shape}` and say to write `(?{Shape})?`
+  or `(?{Shape})!E`; `[T: {Shape}]` says a bound names the API,
+  `[T: Shape]`, and nothing more (it spoke of a value parameter); `+s`
+  of a `?{Shape}` says a view copies, and of a `!{Shape}` to lend it on
+  with `?s`. An API object's braces join lines as brackets do.
 - **Instances reached through an API are named as written:** an
   addition's method shows its type's arguments and its own,
   `Map[Int, Int].look[Float]` (it was `Map.look[Int, Int, Float]`), and

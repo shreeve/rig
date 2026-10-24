@@ -1362,13 +1362,14 @@ pub const Lexer = struct {
         var out = tok;
         out.cat = switch (tok.cat) {
             .ident => if (self.misplacedMarker(tok)) |bad| return self.fail(bad.err, bad.pos) else self.classifyWord(tok),
-            .lparen, .lbracket => blk: {
+            // An API object's braces join lines as brackets do.
+            .lparen, .lbracket, .lbrace => blk: {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
                 self.brackets[self.nesting] = tok.pos;
                 self.nesting += 1;
                 break :blk tok.cat;
             },
-            .rparen, .rbracket => blk: {
+            .rparen, .rbracket, .rbrace => blk: {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
