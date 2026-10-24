@@ -37,7 +37,8 @@ const usage =
     \\       rig lsp
     \\
     \\Commands:
-    \\  check     Check the program and its imports
+    \\  check     Check the program and its imports; for a file of a directory
+    \\            module, the module
     \\  run       Check, build, and run the program
     \\  build     Check and build a native executable; with --release, warn
     \\            about a function whose frame passes a page because of
@@ -304,7 +305,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .check => {
             var times: timing.Timing = .{ .io = io };
-            var graph = try loadProject(allocator, io, env, opts.path, opts.tests, if (opts.time) &times else null);
+            var graph = try loadProject(allocator, io, env, opts.path, .module, opts.tests, if (opts.time) &times else null);
             defer graph.deinit();
             if (opts.tasks) try printLocalTasks(allocator, io, &graph);
             switch (opts.facts) {
@@ -722,23 +723,30 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
 
 /// Load and check the project rooted at `path`, with the root's test
 /// files, if it is a directory module, when `with_tests`; print every
-/// diagnostic and exit 1 if there are errors.
+/// diagnostic and exit 1 if there are errors. With `.module`, a file of a
+/// directory module is checked as its module (`ModuleGraph.rootOf`), as
+/// `rig check` checks it.
 /// With `times`, add each pass's time to it and print them after the
 /// diagnostics.
-fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, with_tests: bool, times: ?*timing.Timing) !modules.ModuleGraph {
-    return (try loadChecked(allocator, io, env, path, with_tests, times)) orelse std.process.exit(1);
+fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, root: Root, with_tests: bool, times: ?*timing.Timing) !modules.ModuleGraph {
+    return (try loadChecked(allocator, io, env, path, root, with_tests, times)) orelse std.process.exit(1);
 }
+
+/// What a path names as the root: the file or directory itself, or for
+/// `rig check`, the module the file is part of.
+const Root = enum { path, module };
 
 /// The program at `path`, checked, or `null` when the checkers reject it,
 /// once its diagnostics are on stderr.
-fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, with_tests: bool, times: ?*timing.Timing) !?modules.ModuleGraph {
+fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, root: Root, with_tests: bool, times: ?*timing.Timing) !?modules.ModuleGraph {
     const t0 = timing.start(times);
     var graph = modules.ModuleGraph.init(allocator, io);
     errdefer graph.deinit();
     graph.std_dir = env.get("RIG_STD");
-    graph.with_tests = with_tests;
     graph.timing = times;
-    try graph.loadRoot(path);
+    const at: modules.ModuleGraph.Root = if (root == .module) try graph.rootOf(path) else .{ .path = path };
+    graph.with_tests = with_tests or at.tests;
+    try graph.loadRoot(at.path);
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
@@ -767,7 +775,7 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 /// `rig emit`: the root module's Zig on stdout; the whole package
 /// (imports and runtime) is written to the output directory.
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
-    var graph = try loadProject(allocator, io, env, path, false, null);
+    var graph = try loadProject(allocator, io, env, path, .path, false, null);
     defer graph.deinit();
     const pkg = try emitPackage(allocator, env, &graph, .{});
     const dir = try outputDir(allocator, env, graph.root());
@@ -794,7 +802,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             else => notRun("cannot clear RIG_RUN_STARTED `{s}`: {s}", .{ path, @errorName(err) }),
         };
     };
-    var graph = try loadProject(allocator, io, env, opts.path, opts.command == .@"test", null);
+    var graph = try loadProject(allocator, io, env, opts.path, .path, opts.command == .@"test", null);
     defer graph.deinit();
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;
@@ -989,7 +997,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     var placed: std.ArrayList(PackageFile) = .empty;
     var seen: std.StringHashMapUnmanaged(void) = .empty;
     for (files, 0..) |file, n| {
-        var graph = (loadChecked(allocator, io, env, file, false, null) catch |err| {
+        var graph = (loadChecked(allocator, io, env, file, .path, false, null) catch |err| {
             std.debug.print("error: cannot load `{s}`: {s}\n", .{ file, @errorName(err) });
             continue;
         }) orelse continue;
@@ -1507,13 +1515,7 @@ const CrashCatcher = struct {
 };
 
 fn declaresMain(m: *const modules.Module) bool {
-    if (m.ir == .nil) return false;
-    for (ir.Module.decls(m.ir)) |top| {
-        const decl = if (top.isKind(.@"pub")) ir.Pub.decl(top) else top;
-        if (!decl.isKind(.sub) and !decl.isKind(.fun)) continue;
-        if (std.mem.eql(u8, rig.leafText(m.source, ir.get(decl, .name).src), "main")) return true;
-    }
-    return false;
+    return modules.declaresMain(m.source, m.ir);
 }
 
 const Package = struct {

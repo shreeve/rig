@@ -90,7 +90,13 @@ and `rig --help` lists the other commands (see also the
 [README](README.md#build-and-run)). `rig check` and `rig test` also
 accept a directory module as the root. The root's imports are its
 sibling modules, found in the directory's real parent, with symlinks
-resolved, whatever the path is spelled.
+resolved, whatever the path is spelled. Given a file of a directory
+module, `rig check` checks the module. A file is part of its
+directory's module unless the directory is a program's: one of its
+`.rig` files declares `sub main`, or `use`s a module found in the
+directory and not beside it. A file alone in its directory is part of a
+module only when a `use` names a module beside the directory and not
+in it.
 
 `rig run` builds in Zig's debug mode with a leak-checking allocator: a program
 that leaks memory reports it and exits with an error. Built with
