@@ -5,8 +5,13 @@ How to build Stage 5 of [docs/design/apis.md](../../../../design/apis.md),
 `^{Job + Sends}`, `?{Job + Syncs}`, and owned closures lowered as
 objects of one method), once Stage 4's boxes have landed. The design is
 that page's Stage 5 section; its open points, each with a default, are
-[open-questions.md](open-questions.md); the Core text it needs first is
-[core-draft.md](core-draft.md). Line references are of `main` at
+[open-questions.md](open-questions.md); the Core text it needs first,
+drafted in [core-draft.md](core-draft.md), was revised by a panel
+([core-panel/](core-panel/)) and approved by the owner on 2026-10-23,
+with the design's defaults and the reviewer's three fixes: "Build Stage
+5 in phases with adversarial reviews; land each after the suite and
+light gate." It is in CORE §4 as *(planned)*. The compiler
+implementer's sizes, from main at 86bca420b, are used below. Line references are of `main` at
 53b34d260 (Stage 4's phase 2) and of PR #614 (Stage 4's phase 3, boxes,
 under review).
 
@@ -32,29 +37,31 @@ under review).
 |---|---|
 | `*{A}` and `~{A}` in a type: the grammar already parses a holding sigil over `tatom`; `Type.shared` and `Type.weak` of an `api_object`, unsized beneath them as under a view or a box; printed `*{Shape + Syncs}` | `rig.grammar` (no change expected), `src/sema.zig`, the printer |
 | The braces: `Sends` and `Syncs` by form (open question 4), `Clone` rejected in `*{...}`, any crossing bound rejected in `~{...}`; a holding sigil over a held object (`*^{A}`) rejected as for any held value | `resolve.TypeResolver` |
-| An object's crossing facts: the bounds its braces name and its API builds on (`sema.objectBounds`, one function, read by `blockerIn`, the printer of errors, and the oracle's mirror); `blockerIn`'s `.api_object` by the form's row; `.shared` of an object with `Syncs` is no blocker | `src/sema.zig` |
-| The erasure of a shared handle: `<h` and `+h` of a `*T`, `*S(...)` and `*<x` written where a `*{A}` goes, a `*Frozen[T]`; rejected for an actor, a channel, a Cell, and `*<b` of a `^{A}`; `Erasure.holding` recorded; `--facts=sema` prints it | `typecheck.eraseShared`, `erasable` |
+| An object's crossing facts: the bounds its braces name and its API builds on (`sema.objectBounds`, one classifier, read by resolve, `blockerIn`, `erasable`, `objectMeets`, the printer of errors, and the oracle's mirror); `blockerIn`'s `.api_object` null when the bound for `how` is there; `.shared(object)` decided before `atomicHandle`, and `.weak(object)` always a blocker; `lacks` routed through `blockerOf`, so `[T: Sends]` takes a `^{Job + Sends}` | `src/sema.zig` |
+| The erasure of a shared handle, `eraseShared` beside `eraseBox`: `<h` and `+h` of a `*T`, `*S(...)` and `*<x` written where a `*{A}` goes; a `*Frozen[T]` only where a `*{A + Syncs}` goes; nothing under a view; rejected for an actor, a channel, a Cell, and `*<b` of a `^{A}`; the holding read from the braces and recorded as `Erasure.holding`; `--facts=sema` prints it | `typecheck.eraseShared`, `erasable` |
 | The crossing check at every erasure: `crossingBlocker(from, .moves or .shares)` for `Sends` and `Syncs`; for `*{A + Syncs}`, `atomicHandle` of the handle too; a bounded `T` by its bounds | `typecheck.erasable` |
-| No object hides a task or a set of tasks (open question 14): one walk, `sema.holdsTask`, at every erasure | `typecheck.erasable`, `sema` |
+| No object, and no owned closure, hides a task or a set of tasks (open question 14): one walk, `sema.holdsTask`, at every erasure, now walking a closure's captures and a type parameter by its instance (`Requirement.no_task`, about 60 lines) | `typecheck.erasable`, `sema` |
 | Calls through `*{A}`: `?@` only, `!@` and `<@` rejected with the fix; `?s` lends `?{A}` by the `*T` row (`LendStep.handle`), `!s` lends the handle | `typecheck.objectCall`, `sema.lendRows` |
 | Counts: `+s`, `<s`, the drop, `~s`, `*w`, `+w`; `~` of a `*{A + Syncs}` rejected | typecheck (where `+h`, `~h`, `*w` are typed today), `ownership.zig` |
 | Loans: a `*{A}` carries its value's loans, as a `*T` does, to the drop of every handle that carries them; `+ Owned` none; the oracle the same | `src/ownership.zig`, `test/oracle/` |
-| Tables: `__rig_table_Shape_of(T, W, holding)`; entries `__rig_share`, `__rig_drop` by holding, `__rig_weak`, `__rig_weak_clone`, `__rig_weak_drop`, `__rig_upgrade`, each reaching the counts from the value's address | `Emitter.emitApiTable`, `src/runtime.zig` |
-| `rig.ApiShared`, `rig.ApiWeak`: `read()` lends the `ApiView`; drop through the table and the drop queue a `*T` uses; `typeName` spells `*{Shape}` | `src/runtime.zig` |
+| Tables: `__rig_table_Shape_of(T, W, holding)`; `__rig_drop` and `__rig_clone` per holding (`+s` is `cloneStrong`); `__rig_weak`, `__rig_weak_drop`, and `__rig_upgrade` for the plain holding only, by `@fieldParentPtr`; 3 words per table, and a `*{A}` is 16 bytes | `Emitter.emitApiTable`, `src/runtime.zig` |
+| `rig.ApiShared`, `rig.ApiWeak`: `read()` lends the `ApiView`; `ApiShared` queues no drop itself, `dropStrong` does; `typeName` spells `*{Shape}` | `src/runtime.zig` |
 | Local tasks and isolate: no special case; they read `blockerIn` and `holdsTask` | `src/tasks.zig`, `typecheck` task check |
 | Owned closures as objects of one method (phase 4): `*fun` as `rig.ApiShared(ClosureTable(params, R), "")`, one `Counted(Env)` allocation; `~fun` as `rig.ApiWeak`; `FnRef.ofClosure`, Signal callbacks, and every `*fun` site in the runtime | `src/runtime.zig`, `src/emit.zig` |
 | Lean: crossing obligations over `formal/LambdaRig/Tasks.lean` | `formal/` |
 
-## Phase 0: the Core (docs only, owner)
+## Phase 0: the Core (docs only, owner) *(approved 2026-10-23)*
 
 Stage 5 adds a handle, a weak handle, and crossing rules, so CORE
 changes first, through the Core change process: a panel of four (a
 Core purist, a compiler implementer, an adversary, and a reviewer)
-revises [core-draft.md](core-draft.md), and the owner approves the
-final text. It widens §1's handle row, the `*T` row of §4's lend table,
-and adds one paragraph after Stage 4's, with `rig pending` examples.
-Open questions 13 and 14 go to the owner with it: 13 narrows Stage 4's
-approved default 14.
+revised [core-draft.md](core-draft.md), and the owner approved the
+final text ([core-panel/6-final.md](core-panel/6-final.md)) with open
+questions 13 and 14. It widens §1's handle row, the `*T` row of §4's
+lend table, sentences 8 and 9 by a clause each, and Stage 4's list's
+last line, and adds one paragraph and a list of five after Stage 4's,
+with five `rig pending` examples; SPEC §18's crossing table gains the
+objects' rows, marked planned.
 
 ## Phases
 
@@ -67,13 +74,14 @@ API), so Trig's emitted Zig stays byte-identical through phase 3. Phase
 4 changes the Zig of every owned closure, Trig's included. Until a
 phase builds a form, the form is a Rig error naming the stage.
 
-### Phase 1: crossing bounds in the braces (about 1,100 lines, 40 cases)
+### Phase 1: crossing bounds in the braces (about 1,000 lines, 40 cases)
 
 `Sends` and `Syncs` in `?{...}`, `!{...}`, and `^{...}`; an API's
 crossing bounds; the check at the erasure; `blockerIn` by the form's
 row; tasks, channels, actors, `par`, and isolate over objects; the two
-narrowings. `*{...}` stays "not built yet (docs/design/apis.md, Stage
-5)".
+narrowings, with `holdsTask` walking a closure's captures and a type
+parameter's instance (`Requirement.no_task`). `*{...}` stays "not built
+yet (docs/design/apis.md, Stage 5)".
 
 Cases (`test/rig/types-apis.rig.test`, "apis object crossing ..."):
 
@@ -97,7 +105,7 @@ Cases (`test/rig/types-apis.rig.test`, "apis object crossing ..."):
   - `` a write view is never read by two tasks at once: write `!{Shape + Sends}` for one that goes to another task ``;
   - `` `T` is erased to `^{Shape + Sends}`, but `T` is not bounded by `Sends`: write `[T: Shape + Sends]` ``;
   - a channel of `^{Job + Sends}` (`` a channel's element holds no loan, and `^{Job + Sends}` may hold one: write `^{Job + Sends + Owned}` ``), and an actor's state the same;
-  - `` `Runner` is erased to `^{Shape}`, but its field `t` is a `Task[Int]`, and an API object never hides a task: wait for it first, or keep it beside the object `` (and a `Tasks[Int]` field; open question 14);
+  - `` `Runner` is erased to `^{Shape}`, but its field `t` is a `Task[Int]`, and an API object never hides a task: wait for it first, or keep it beside the object `` (and a `Tasks[Int]` field; open question 14), and the same for an owned closure capturing a task (`*|<t| 7` in an object, out of `task.isolate`) and a `[T: Shape]` erasing a `^T` whose `T` holds one;
   - `*Frozen(<b)` of a `^{Shape + Syncs}` keeps phase 3's message (a value that syncs may hold a one-word `*Cell`);
 - `test/cli/facts_sema.sh`: the braces' bounds on an erasure line;
   `rig check --tasks` prints nothing for a task over a `^{Job + Sends}`.
@@ -108,14 +116,14 @@ braces and the API (never from the compiler's facts): an object's
 for objects; elsewhere it abstains, as today. Floors in
 `test/oracle/coverage` go up, never down.
 
-Docs: SPEC "API objects" gains crossing, and §18's table its object
-rows; apis.md's Stage 5 *(in part)*; CORE's phase 0 paragraph to
+Docs: SPEC "API objects" gains crossing, and §18's object rows for
+views and boxes lose their planned mark; apis.md's Stage 5 *(in part)*; CORE's phase 0 paragraph to
 *(built)* for crossing.
 
-### Phase 2: `*{A}` and `~{A}` (about 1,800 lines, 50 cases)
+### Phase 2: `*{A}` and `~{A}` (about 1,400 lines, 50 cases)
 
-The shared and weak forms: the erasure of a `*T` and a `*Frozen[T]`, the
-count entries, `rig.ApiShared` and `rig.ApiWeak`, calls, lends, counts,
+The shared and weak forms: the erasure of a `*T` into a `*{A}` and of a
+`*Frozen[T]` into a `*{A + Syncs}`, the count entries, `rig.ApiShared` and `rig.ApiWeak`, calls, lends, counts,
 weak handles, `*{A + Syncs}` crossing, loans, and the oracle's kinds.
 
 Cases:
@@ -128,9 +136,10 @@ Cases:
   type holding a `Cell[Int]`, changed by a `?@` method; a tree of
   100,000 `*{Node}` children with `~{Node}` parents dropped without deep
   recursion; `*{Shape + Syncs}` of a `*Frozen[Square]` read by two tasks
-  (CORE's second example); a `*{Shape}` of a frozen value and its weak
-  handle; `print(s)` with `+ Print`; `?s` lent to a `?{Shape}`
-  parameter;
+  (CORE's second example); a shared plugin registry,
+  `*Frozen(List[*{Plugin + Syncs}])`, read by two tasks; `*w` of a
+  `~{Shape}` keeping its `*{Shape}`'s loans; `print(s)` with `+ Print`;
+  `?s` lent to a `?{Shape}` parameter;
 - `fail`s:
   - `` `*Square` is erased to `*{Shape + Syncs}`, which several tasks read, but its count is not atomic: freeze the value, `*Frozen(...)` ``;
   - `` a shared handle goes to another task when several tasks may read its value: write `*{Shape + Syncs}` ``;
@@ -138,6 +147,9 @@ Cases:
   - `` `*<b` would move a value whose type is erased: share the value before erasing it, `*<sq` where a `*{Shape}` goes ``;
   - `` a `*{Shape}` is counted, so `+s` never clones its value: take `Clone` out of the braces ``;
   - `` `~f` of a `*{Shape + Syncs}`: a frozen value has no weak handle ``;
+  - `` a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomically: write `*{Shape + Syncs}` ``, and the same for a generic `*T` whose `T` syncs;
+  - `` `*{Shape + Syncs}` holds a frozen value, which holds no view: take `Owned` out of the braces ``;
+  - `!sq` lent as a `!*{Shape}`, and `?sq` as a `?*{Shape}`: a handle is erased only as it moves or counts;
   - `` a weak handle never crosses: take `Syncs` out of `~{Shape + Syncs}` ``;
   - an actor's handle and a channel's erased to `*{Shape}` (`` `*Actor[Counter]` is an actor's handle, whose methods are messages, so it is no `*{Shape}` ``);
   - `*^{Shape}` and `^*{Shape}` (the existing message for a holding sigil over a held value);
@@ -180,15 +192,18 @@ name no bound is taken by no spawn (open question 13). Lemma
 hold of every state as before. It gates nothing, and may land beside
 phase 2.
 
-### Phase 4: owned closures as objects of one method (about 900 lines, 25 cases; kept only if measured faster)
+### Phase 4: owned closures as objects of one method (about 900 lines, 25 cases; its own performance PR, kept only if measured faster)
 
 `*fun(A) -> R` and `*sub(A)` lowered as `rig.ApiShared` of a table of
 one method per closure literal: one `Counted(Env)` allocation instead
 of the environment's and the `Closure`'s; `~fun` as `rig.ApiWeak`;
 every runtime site that takes a `*Shared(Closure)` (`FnRef.ofClosure`,
 `Signal`'s `Callback`, and every other use of `rig.Closure`).
-No checker change: the facts and rules of owned closures stay as they
-are, crossing included (never).
+No checker change: phase 4 changes only lowering. Sema keeps
+`.shared(.function)`, so the facts and rules of owned closures stay as
+they are, crossing included (never), and a `*fun` is never a `*{A}`
+(the adversary's A7). It is a performance change, not a language one,
+so it lands as its own PR, judged by its bench alone.
 
 Cases: every existing owned-closure case passes unchanged (the suite
 is the test); `emit-apis` `code` cases for the new conversion and call;
@@ -217,10 +232,11 @@ it, the crossing bound after the named type.
   a `code` case per holding.
 - **Safe code cannot corrupt memory.** The holes this design closes,
   each with a case: an object hiding an owned closure reaching two
-  local tasks (open question 13), an object hiding a task leaving
-  `task.isolate` (14), a non-atomic count reaching another core through
-  `*{A + Syncs}` (6), a weak handle of a frozen value through `~` of a
-  `*{A + Syncs}` (10). Counts reached from the value's address by the
+  local tasks (open question 13), an object or an owned closure hiding
+  a task leaving `task.isolate` (14), a non-atomic count reaching
+  another core through `*{A + Syncs}` (6), a weak handle of a frozen
+  value, through `~` of a `*{A + Syncs}` or of a `*{A}` hiding a frozen
+  allocation (7, 10), and a handle erased through a view (8). Counts reached from the value's address by the
   allocation's layout: a `code` case per holding, and a sanitizer case
   of a frozen object freed on another worker. Every `test` runs under
   `RIG_SANITIZE=1`. Two rounds of soundness fixes in one phase stop the
@@ -251,8 +267,9 @@ it, the crossing bound after the named type.
 
 ## Docs, by phase
 
-- Phase 0: CORE §1, §4, and the paragraph, as `rig pending`.
-- Phase 1: SPEC's crossing of objects and §18's rows; apis.md *(in part)*.
+- Phase 0: CORE §1, §4, sentences 8 and 9, and the paragraph, as
+  `rig pending`; SPEC §18's object rows, marked planned.
+- Phase 1: SPEC's crossing of objects, and §18's rows built; apis.md *(in part)*.
 - Phase 2: SPEC's shared and weak objects; SYNTAX; QUICK; CORE built;
   docs/learn/07; CHANGELOG; HANDOFF.
 - Phase 3: formal/README.md's list of what is proved.
@@ -260,8 +277,9 @@ it, the crossing bound after the named type.
 
 ## Size
 
-About 3,800 lines of compiler, tests, and docs across three compiler
-PRs (phases 1, 2, and 4, the last kept only if faster), about 80 lines
+About 3,300 lines of compiler, tests, and docs across three compiler
+PRs (phases 1, 2, and 4, the last its own performance PR, kept only if
+faster), about 80 lines
 of CORE before them, and 300 of Lean. Phase 2 is the bulk and the risk
 (counts through a table, weak handles of erased values); phase 1 is
 mostly checks and messages over classifiers that exist.

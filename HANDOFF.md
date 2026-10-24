@@ -119,6 +119,15 @@ In the owner's order:
    Phases 1 to 3, the types, views and calls, and boxes, are built;
    phase 4, the Lean lemma, and phase 5, associated types in braces,
    remain.
+   **Stage 5, shared and crossing objects** (`*{Shape}`, `~{Shape}`,
+   `^{Job + Sends}`), is in progress, in phases the same way
+   ([build-plan.md](docs/history/records/2026-10/apis-stage5/build-plan.md);
+   its defaults approved with the panel's changes,
+   [open-questions.md](docs/history/records/2026-10/apis-stage5/open-questions.md)).
+   Phase 0, the Core, is done: CORE §1 and §4 state the rules as
+   planned, from a panel the owner approved
+   ([core-panel/](docs/history/records/2026-10/apis-stage5/core-panel/approved.md)).
+   Phase 1, crossing bounds in the braces, is next.
 3. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
@@ -175,8 +184,9 @@ and phase 2, views of objects and calls through their tables
 and phase 3, boxes of objects, `^{Shape}`
 ([phase3-notes.md](docs/history/records/2026-10/apis-stage4/phase3-notes.md)),
 each in review in turn; objects of an API with an associated type
-(phase 5) wait for a program that needs them. Stage 5 waits for a
-program that needs it; a design question is answered from the
+(phase 5) wait for a program that needs them. Stage 5, shared and
+crossing objects, is in progress (phase 0, its Core text, done); a
+design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.
 

@@ -12049,11 +12049,19 @@ thread.
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
 | any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`; a callable view `?fun`; an owned closure `*fun` or `~fun` | never | never |
+| an API object `?{A}` *(planned)* | when its braces or API name `Syncs` | when they name `Syncs` |
+| an API object `!{A}` *(planned)* | when they name `Sends` | never |
+| an API object `^{A}` *(planned)* | when they name `Sends` | when they name `Syncs` |
+| a shared API object `*{A}`, or its weak `~{A}` *(planned)* | never | never |
+| a frozen value's shared API object, `*{A + Syncs}` *(planned)* | yes | yes |
 
 So a task may be handed to another task, which waits for it, and keeps
 its loans for that task's whole life. A `*T` or `~T` handle never
 crosses, by value, through a view, or in a field, an element, or an
-optional, since its count is not atomic.
+optional, since its count is not atomic. Today an API object goes to
+no task, a local one included; the rows marked planned are Stage 5's
+(docs/design/apis.md), where an object crosses only by a bound it
+names.
 
 **Local tasks.** A task given or lent a value that does not cross (a
 `*T` or `~T` whose count is not atomic, a `Cell` of more than one word,
@@ -12091,8 +12099,10 @@ sub main()
 A local task still takes nothing that no two tasks may hold at once,
 even on one thread: a set of tasks, a task or a write view lent to
 read, a callable view `?fun`, which may lend what a closure captures to
-write, or an owned closure. A closure literal written in the task's
-call is lent to it, as `?f` is, and its captures live only until the
+write, an owned closure, or an API object, whose hidden value may hold
+any of these (once objects cross, an API object without the bound the
+task needs, at any depth: *planned*). A closure literal written in the
+task's call is lent to it, as `?f` is, and its captures live only until the
 statement ends, so it too is rejected: bind the work to a function the
 task calls. A function value is a named function's address and holds
 nothing, so it goes to any task, alone or in what a task is given or
