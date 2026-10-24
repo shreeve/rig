@@ -9758,8 +9758,12 @@ const Checker = struct {
                         try self.errAt(a, "`{s}` cannot be {s}: its type is erased; write `{s}{s}`, or build `{s}` on `Print`", .{ try self.tyName(held), printed, sigil, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with), api });
                     }
                     // Each instance answers for a type parameter the value
-                    // holds, or that a view of it shows.
-                    try self.requireOf(sema.unwrapViews(self.ctx, ty), .printable, self.startOf(a), verb);
+                    // prints: held, viewed, an element, or a type
+                    // argument (`[]T`, `List[T]`).
+                    var printed: std.ArrayList(SymbolId) = .empty;
+                    defer printed.deinit(self.ctx.allocator);
+                    try sema.printedTypeVars(self.ctx, ty, &printed, self.ctx.allocator);
+                    for (printed.items) |param| try self.require(param, .printable, self.startOf(a), verb);
                 },
             }
         }
@@ -11213,7 +11217,7 @@ const Checker = struct {
             // (`checkGenericInstantiations`).
             for (own_args) |arg| if (sema.containsTypeVar(self.ctx, arg)) {
                 _ = try sema.checkBounds(self.ctx, own.items, own_args, pos, .{ .func = inst });
-                if (self.body_pos == sema.no_body) try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolId, own.items), .args = own_args, .pos = pos });
+                try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolId, own.items), .args = own_args, .pos = pos, .body = self.body_pos });
                 break;
             };
             _ = try self.ctx.recordFnInstanceIn(inst, pos, self.bodyRef());
@@ -14706,7 +14710,7 @@ const Checker = struct {
                 // as a written one is (`resolve`'s `instance_stacking`).
                 try sema.checkInstanceStacked(self.ctx, ty, pos);
             }
-        } else try self.ctx.addUse(ty, self.bodyRef());
+        } else try self.ctx.addUse(ty, self.bodyRef(), pos);
         return ty;
     }
 
@@ -19157,7 +19161,7 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!boo
 /// declare, checked before the instances are expanded, which read what
 /// each conformance's witness names (`sema.Conformance.members`).
 pub fn checkDeclaredApis(ctx: *SemContext) Error!void {
-    try checkStatedCrossings(ctx);
+    try checkStatedForwards(ctx);
     try checkBoundedBodies(ctx);
     try checkHeaders(ctx);
     try checkApis(ctx);
@@ -20247,48 +20251,95 @@ fn apiOf(req: Requirement) ?sema.Api {
 /// A type parameter checked by its bounds (`sema.checkedByBounds`) that a
 /// generic function's body gives, through the generic functions it calls
 /// at it (`SemContext.param_calls`), to a task that may run on another
-/// core must state `Sends`, or `Syncs` lent to read, as a body giving it
-/// so itself must: each instance is not checked for it, and an error at
-/// a callee's instance would name what the public generic does not show.
-fn checkStatedCrossings(ctx: *SemContext) Error!void {
+/// core must state `Sends`, or `Syncs` lent to read, and one it gives to
+/// a body that prints it must state `Print`, as a body doing so itself
+/// must: each instance is not checked for it, and an error at a callee's
+/// instance would name what the public generic does not show. What a
+/// callee's parameter needs, the caller's parameters its argument holds
+/// need, where the callee's own walk looks: `sema.taskParams` for a task,
+/// `sema.printedTypeVars` for printing. A generic type's printing passes
+/// the same way to the parameters of each instance a body names
+/// (`SemContext.generic_uses`), as every instance is checked for it.
+fn checkStatedForwards(ctx: *SemContext) Error!void {
     const a = ctx.arena.allocator();
-    const Gone = struct { param: SymbolId, reach: sema.TaskReach, pos: u32 };
+    const Need = union(enum) { task: sema.TaskReach, print };
+    const Gone = struct { param: SymbolId, need: Need, pos: u32 };
     var gone: std.ArrayList(Gone) = .empty;
-    for (ctx.generic_requirements.items) |r| switch (r.req) {
-        .task => |reach| if (r.body == sema.no_body) try gone.append(a, .{ .param = r.param, .reach = reach, .pos = r.pos }),
-        else => {},
-    };
-    if (gone.items.len == 0 or ctx.param_calls.items.len == 0) return;
-    // What each callee's parameter takes, its caller's parameters take
+    for (ctx.generic_requirements.items) |r| {
+        if (r.body != sema.no_body) continue;
+        switch (r.req) {
+            .task => |reach| try gone.append(a, .{ .param = r.param, .need = .{ .task = reach }, .pos = r.pos }),
+            // A parameter checked by its bounds answers for its own
+            // printing (`checkBoundedBodies`), and its callers through
+            // them at each call.
+            .printable => if (!sema.checkedByBounds(ctx.symbols.items[r.param])) try gone.append(a, .{ .param = r.param, .need = .print, .pos = r.pos }),
+            else => {},
+        }
+    }
+    if (gone.items.len == 0) return;
+    // What each callee's parameter needs, its caller's parameters need
     // through the arguments, until nothing new.
-    var found: std.ArrayList(sema.TaskParam) = .empty;
-    defer found.deinit(ctx.allocator);
+    var tasks: std.ArrayList(sema.TaskParam) = .empty;
+    defer tasks.deinit(ctx.allocator);
+    var printed: std.ArrayList(SymbolId) = .empty;
+    defer printed.deinit(ctx.allocator);
     var i: usize = 0;
     while (i < gone.items.len) : (i += 1) {
         const g = gone.items[i];
         for (ctx.param_calls.items) |c| for (c.params, c.args) |p, arg| {
             if (p != g.param) continue;
-            found.clearRetainingCapacity();
-            try sema.taskParams(ctx, arg, g.reach, &found);
-            for (found.items) |f| {
-                const known = for (gone.items) |o| {
-                    if (o.param == f.param and o.reach.how == f.reach.how and o.reach.local == f.reach.local) break true;
-                } else false;
-                if (!known) try gone.append(a, .{ .param = f.param, .reach = f.reach, .pos = c.pos });
+            switch (g.need) {
+                // A task in a method of a generic type is checked where
+                // the program reaches the method (`sema.BodyReach`).
+                .task => |reach| if (c.body == sema.no_body) {
+                    tasks.clearRetainingCapacity();
+                    try sema.taskParams(ctx, arg, reach, &tasks);
+                    for (tasks.items) |f| try addNeed(Gone, a, &gone, .{ .param = f.param, .need = .{ .task = f.reach }, .pos = c.pos });
+                },
+                .print => try printedNeeds(Gone, ctx, a, &gone, arg, c.pos, &printed),
             }
         };
+        // A type's printing is its every instance's (`checkGenericInstantiations`):
+        // the parameters of what a body names it at, `Box(v: x)` in `f[T]`.
+        if (g.need == .print) for (ctx.generic_uses.items, ctx.generic_uses_at.items) |use, at| {
+            const pn = switch (ctx.types.get(use)) {
+                .parameterized_nominal => |pn| pn,
+                else => continue,
+            };
+            const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+            for (params, pn.args) |p, arg| if (p == g.param) try printedNeeds(Gone, ctx, a, &gone, arg, at, &printed);
+        };
     }
-    var reported: std.AutoHashMapUnmanaged(SymbolId, void) = .empty;
+    var reported: std.AutoHashMapUnmanaged(struct { SymbolId, sema.Api }, void) = .empty;
     defer reported.deinit(ctx.allocator);
     for (gone.items) |g| {
-        if (g.reach.local) continue;
         const sym = ctx.symbols.items[g.param];
         if (sema.isProxy(sym) or !sema.checkedByBounds(sym)) continue;
-        const api: sema.Api = if (g.reach.how == .moves) .Sends else .Syncs;
+        const api: sema.Api, const what: []const u8 = switch (g.need) {
+            .task => |reach| if (reach.local) continue else if (reach.how == .moves)
+                .{ .Sends, "a value given to a task that may run on another core" }
+            else
+                .{ .Syncs, "a value lent to a task that may run on another core" },
+            .print => .{ .Print, "printing" },
+        };
         if (sema.boundApis(ctx, sym).contains(api)) continue;
-        if ((try reported.getOrPut(ctx.allocator, g.param)).found_existing) continue;
-        try reportUnbounded(ctx, g.pos, g.param, api, if (api == .Sends) "a value given to a task that may run on another core" else "a value lent to a task that may run on another core");
+        if ((try reported.getOrPut(ctx.allocator, .{ g.param, api })).found_existing) continue;
+        try reportUnbounded(ctx, g.pos, g.param, api, what);
     }
+}
+
+/// Adds to `gone` (`checkStatedForwards`) the need to print each type
+/// parameter a printed `arg` holds, given at `pos`.
+fn printedNeeds(comptime Gone: type, ctx: *SemContext, a: std.mem.Allocator, gone: *std.ArrayList(Gone), arg: TypeId, pos: u32, printed: *std.ArrayList(SymbolId)) Error!void {
+    printed.clearRetainingCapacity();
+    try sema.printedTypeVars(ctx, arg, printed, ctx.allocator);
+    for (printed.items) |param| try addNeed(Gone, a, gone, .{ .param = param, .need = .print, .pos = pos });
+}
+
+/// Adds `need` to `gone` (`checkStatedForwards`) unless it is there.
+fn addNeed(comptime Gone: type, a: std.mem.Allocator, gone: *std.ArrayList(Gone), need: Gone) Error!void {
+    for (gone.items) |o| if (o.param == need.param and std.meta.eql(o.need, need.need)) return;
+    try gone.append(a, need);
 }
 
 /// A type parameter with bounds is checked against its bounds alone: what

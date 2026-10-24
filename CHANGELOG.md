@@ -57,6 +57,9 @@ Public generics:
 18. A `pub` generic states, by bounds, everything its body does with a
     type parameter (`[T: Num]`, `[T: Ord]`, `[T: Copy]`, `[T: Eq]`,
     `[T: Print]`, `[T: Clone]`); `tools/state-bounds.py` writes them.
+    It states `Print` too where it passes a `T` to a generic that prints
+    it, `pub sub show[T](x: ?T)` calling a private `helper(x)` that
+    does `print(x)`, which the compiler reports with the fix.
 
 Syntax:
 
@@ -132,6 +135,23 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 `load`, failing with `JsonError`, is new.
 
 ### Language and compiler
+
+- **A public generic states the `Print` of what its callees print:**
+  `pub sub show[T](x: ?T)` passing `x` to a private generic that prints
+  it is rejected, `` `pub sub show[T]` prints a `T`: write `[T:
+  Print]` ``, as printing `x` in `show` is; through any number of
+  calls, from a method of a `pub` generic type, through an instance of
+  a generic type whose method prints it (`Box(v: x).show()`), and for
+  a bounded `T` of any generic. Every instance without `Print` was already rejected
+  at the callee's instance, under the callee's name, or printed as
+  `print` writes it. Newly rejected: such a `pub` generic without
+  `Print`, and a bounded `T` without it passed to a generic that
+  prints it.
+- **A generic body printing `T`s in a slice or a List checks each
+  instance:** `print(xs)` of a `[]T` or a `List[T]` took `T = []U8` and
+  wrote its bytes as text, `["Hi"]`; the instance is now rejected, as
+  `print` of a `[][]U8` is. Newly rejected: such an instance, and a
+  `pub` generic printing a `[]T` without `[T: Print]`.
 
 - **A Map and a Set print their entries:** `print(m)` writes
   `{"a": 1, "b": 2}` and `print(s)` writes `{1, 2}`, `{}` when empty,

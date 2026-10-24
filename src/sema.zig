@@ -3482,6 +3482,9 @@ pub const SemContext = struct {
     /// the program reaches the method (`BodyReach`). Null for one spelled
     /// anywhere else, which every instance makes.
     generic_uses_in: std.ArrayList(?FnRef) = .empty,
+    /// For each entry of `generic_uses`, where it is first spelled or
+    /// made (0 for one another module's body makes).
+    generic_uses_at: std.ArrayList(u32) = .empty,
     /// The instances of generic functions the module's calls make, each
     /// with the position of its first call, in the order found.
     fn_instances: std.ArrayList(struct {
@@ -3540,12 +3543,13 @@ pub const SemContext = struct {
     /// each once (`reach_set`), and those reached over a generic body's
     /// parameters.
     body_reaches: std.ArrayList(BodyReach) = .empty,
-    /// The calls of generic functions a generic function's body makes at
-    /// its own parameters (`spawn(?x)` in `outer[U]`): each callee
-    /// parameter's argument, and where. Read to find what a parameter
+    /// The calls of generic functions a generic body makes at its own
+    /// parameters (`spawn(?x)` in `outer[U]`): each callee parameter's
+    /// argument, where, and the method of a generic type whose body makes
+    /// it (`GenericRequirement.body`). Read to find what a parameter
     /// stated by its bounds must state of what the callees do
-    /// (`typecheck.checkStatedCrossings`).
-    param_calls: std.ArrayList(struct { params: []const SymbolId, args: []const TypeId, pos: u32 }) = .empty,
+    /// (`typecheck.checkStatedForwards`).
+    param_calls: std.ArrayList(struct { params: []const SymbolId, args: []const TypeId, pos: u32, body: u32 }) = .empty,
     reach_set: std.StringHashMapUnmanaged(void) = .empty,
     generic_reaches: std.ArrayList(BodyReach) = .empty,
     /// The values erased to API objects, every type known (`BodyReach.erase`).
@@ -3764,6 +3768,7 @@ pub const SemContext = struct {
         self.instantiation_sites.deinit(self.allocator);
         self.generic_uses.deinit(self.allocator);
         self.generic_uses_in.deinit(self.allocator);
+        self.generic_uses_at.deinit(self.allocator);
         self.generic_fn_uses_in.deinit(self.allocator);
         self.fn_instances.deinit(self.allocator);
         self.fn_instance_set.deinit(self.allocator);
@@ -5140,10 +5145,10 @@ pub const SemContext = struct {
     }
 
     /// Add `ty`, an instance spelled with type parameters, to
-    /// `generic_uses`, made in the body of method `in` (null for any
-    /// other place); one already there, made in the same place or in
+    /// `generic_uses`, made at `site` in the body of method `in` (null for
+    /// any other place); one already there, made in the same place or in
     /// every instance, is not added again.
-    pub fn addUse(self: *SemContext, ty: TypeId, in: ?FnRef) !void {
+    pub fn addUse(self: *SemContext, ty: TypeId, in: ?FnRef, site: u32) !void {
         for (self.generic_uses.items, self.generic_uses_in.items) |u, at| {
             if (u != ty) continue;
             const old = at orelse return;
@@ -5152,6 +5157,7 @@ pub const SemContext = struct {
         }
         try self.addGeneric(.uses, ty);
         try self.generic_uses_in.append(self.allocator, in);
+        try self.generic_uses_at.append(self.allocator, site);
     }
 
     /// Add `entry` to `list`, indexed by the type and integer parameters
@@ -11219,53 +11225,72 @@ pub fn dropRunsBody(ctx: *const SemContext, ty: TypeId) Answer {
 /// Whether `print` can write a value of `ty`: unless it holds a `[]U8`,
 /// directly or through a wrapper, field, payload, or type argument
 /// (`holdsByteSlice`). A type parameter answers for each instance
-/// (`Requirement.printable`). Worked out once declarations are resolved
-/// (`TypeMemo`).
+/// (`Requirement.printable`, on the parameters `printedTypeVars`
+/// finds). Worked out once declarations are resolved (`TypeMemo`).
 pub fn printable(ctx: *const SemContext, ty: TypeId) !bool {
-    if (!ctx.contents_ready) return !try holdsByteSlice(ctx, ty, ctx.allocator);
+    if (!ctx.contents_ready) return !try holdsByteSlice(ctx, ty, ctx.allocator, null);
     if (ctx.type_memo.printable.get(ty)) |b| return b;
-    const b = !try holdsByteSlice(ctx, ty, ctx.allocator);
+    const b = !try holdsByteSlice(ctx, ty, ctx.allocator, null);
     try ctx.type_memo.printable.put(ctx.allocator, ty, b);
     return b;
 }
 
+/// The type parameters `print` writes of a value of `ty`, where
+/// `holdsByteSlice` looks: held, viewed, in an element or a type
+/// argument (`[]T`, `List[T]`, `*T`), added to `out`. Each instance's
+/// type for one must print (`Requirement.printable`).
+pub fn printedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) !void {
+    if (!ctx.typeInfo(ty).has_type_var) return;
+    _ = try holdsByteSlice(ctx, ty, a, .{ .out = out, .a = a });
+}
+
 const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
-const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
+/// `top`: the type is written where the walk began, not in a declared
+/// type's fields, whose parameters are the declaration's own.
+const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId, top: bool = false };
+/// Where `holdsByteSlice` collects the type parameters it reaches.
+const PrintedVars = struct { out: *std.ArrayList(SymbolId), a: std.mem.Allocator };
 
 /// Whether a value of `ty` holds a `[]U8`, directly or through a
 /// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
 /// are both Zig `[]const u8`, so `print` cannot tell them apart. The
 /// walk keeps a stack of its own, so a long chain of types, each
 /// holding the next, does not nest it; each declaration is walked once.
-fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) !bool {
+/// With `vars`, it also collects the type parameters it reaches
+/// (`printedTypeVars`).
+fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator, vars: ?PrintedVars) !bool {
     var todo: std.ArrayList(ByteSliceItem) = .empty;
     defer todo.deinit(a);
     var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
     defer seen.deinit(a);
-    try todo.append(a, .{ .ctx = ctx, .ty = ty });
+    try todo.append(a, .{ .ctx = ctx, .ty = ty, .top = true });
     while (todo.pop()) |item| {
         const c = item.ctx;
         switch (c.types.get(item.ty)) {
+            .type_var => |param| {
+                if (item.top) if (vars) |v| if (std.mem.findScalar(SymbolId, v.out.items, param) == null) try v.out.append(v.a, param);
+                continue;
+            },
             .slice => |sl| {
                 switch (c.types.get(sl.elem)) {
                     .int => |i| if (i.bits == 8 and !i.signed) return true,
-                    else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
+                    else => try todo.append(a, .{ .ctx = c, .ty = sl.elem, .top = item.top }),
                 }
                 continue;
             },
             .optional, .read_view, .write_view, .shared => |inner| {
-                try todo.append(a, .{ .ctx = c, .ty = inner });
+                try todo.append(a, .{ .ctx = c, .ty = inner, .top = item.top });
                 continue;
             },
             .fallible => |f| {
-                try todo.append(a, .{ .ctx = c, .ty = f.ok });
+                try todo.append(a, .{ .ctx = c, .ty = f.ok, .top = item.top });
                 continue;
             },
             .array => |arr| {
-                try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                try todo.append(a, .{ .ctx = c, .ty = arr.elem, .top = item.top });
                 continue;
             },
-            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg, .top = item.top }),
             .nominal, .imported_nominal => {},
             else => continue,
         }
@@ -11960,7 +11985,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     }
     for (foreign.paramEntries(.uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .uses, i)) continue;
-        try ctx.addUse(try importType(ctx, foreign, foreign.generic_uses.items[i], m), foreign.generic_uses_in.items[i]);
+        try ctx.addUse(try importType(ctx, foreign, foreign.generic_uses.items[i], m), foreign.generic_uses_in.items[i], 0);
     }
     for (foreign.paramEntries(.reaches, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .reaches, i)) continue;

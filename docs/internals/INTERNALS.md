@@ -2723,8 +2723,17 @@ only where that method is reached. A `drop`, and a method that gives a
 built-in API its meaning, are called with no call written, so theirs
 stay their type's (`Checker.calledUnwritten`). A parameter checked by
 its bounds that a generic function's calls give to a crossing task
-must state `Sends` or `Syncs` (`checkStatedCrossings`, over
-`SemContext.param_calls`), as Stage 3 asks of what a body does.
+must state `Sends` or `Syncs`, and one its calls, a method's included,
+give to a body that prints it must state `Print`
+(`checkStatedForwards`, over `SemContext.param_calls`), as Stage 3
+asks of what a body does. What a callee's parameter needs, the
+caller's parameters in its argument need, found by the walk that
+decides the need: `sema.taskParams` for a task, and for printing
+`sema.printedTypeVars`, the walk of `holdsByteSlice` that also finds
+the parameters a printed value holds (`Requirement.printable`). A
+generic type's printing, checked at its every instance, passes to the
+parameters of each instance a body names (`generic_uses`, with
+`generic_uses_at` for the note).
 
 What a function value is where a call runs it is one fact,
 `Checker.fnArg`: a closure written in the call (`literal`, whose

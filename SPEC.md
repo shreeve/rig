@@ -3245,7 +3245,11 @@ each instance clones it), compare a `T: Ord`, hash a `T: Hash`, and
 call no method on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Sends` or `Syncs` does not cross to another
-task. A comparison reads its operands where they are and drops none: a
+task. A `T` checked by its bounds (a bounded `T`, or a `pub`
+declaration's) that a generic it calls prints, through any number of
+calls, a method's included, or that a generic type it names at `T`
+prints in a method, states `Print`: `pub sub show[T: Print](x: ?T)`
+passing `x` to a private `helper(x)` that prints it. A comparison reads its operands where they are and drops none: a
 `T` made for one, `key(a) < key(b)`, is a temporary that may own, so
 `==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
 binding of each (`ka = key(a)`, then `ka < kb`). Each instance must provide every bound, checked at the call or
@@ -11848,7 +11852,8 @@ A value nested more than 64 levels deep prints its deeper parts as
 is dropped when the statement ends ([§7](#temporaries)). A `[]U8` and a `?String` are the same bytes at run time, so
 `print` rejects a value that holds a `[]U8`; print its bytes one by one.
 Whether a type prints is a fact of the type, so a generic body that
-prints a `T` rejects an instance whose `T` holds a `[]U8`.
+prints a `T`, or a value that holds `T`s (`[]T`, `List[T]`, `?T`),
+rejects an instance whose `T` holds a `[]U8`.
 
 ```rig
 obj User
