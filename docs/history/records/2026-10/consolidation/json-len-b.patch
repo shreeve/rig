@@ -1,0 +1,71 @@
+diff --git i/std/json.rig w/std/json.rig
+index 32ffe3db3..8e6af5dfc 100644
+--- i/std/json.rig
++++ w/std/json.rig
+@@ -248,7 +248,7 @@ pub obj Doc
+         if i < n and src[i] == c + 2
+           top = (!@).close(top)
+           depth -= 1
+-          i += 1
++          i = skip_space(src, i + 1)
+         else if c == LBRACE
+           i = (!@).key(src, i)
+           return -1 if i < 0
+@@ -258,9 +258,11 @@ pub obj Doc
+       else
+         i = (!@).scalar(src, i, c)
+         return -1 if i < 0
+-      # A value ended before `i`: a comma or a close comes next.
+-      while true
+         i = skip_space(src, i)
++      # A value ended before `i`, and the whitespace after it: a comma
++      # or a close comes next. Each path here skips its own whitespace,
++      # where it knows `0 <= i`.
++      while true
+         if top < 0
+           return 0 if i == n
+           return (!@).fail(.trailing, i)
+@@ -276,7 +278,7 @@ pub obj Doc
+         if c == (RBRACE if in_object else RBRACKET)
+           top = (!@).close(top)
+           depth -= 1
+-          i += 1
++          i = skip_space(src, i + 1)
+         else
+           return (!@).fail(.unexpected, i)
+     -1
+@@ -425,6 +427,14 @@ pub obj Doc
+   # The rest of a string that has an escape: decodes it into `text`.
+   # `start` is the string's first byte, and `at` its first backslash.
+   fun escaped(!@, src: ?String, start: Int, at: Int) -> Int
++    # `document` made this test already; out of line, this function
++    # makes it again, once a string. A length is never below 0, but
++    # with that half the test is one unsigned compare, after which the
++    # optimizer knows `0 <= n <= MAX_INPUT`: in safe builds, the adds
++    # `at + 2` to `i + 6` of the escapes below cannot overflow, and each
++    # `0 <= i < n` takes one compare.
++    n = src.len
++    return (!@).fail(.too_large, 0) if n < 0 or n > MAX_INPUT
+     offset = @text.len
+     !@text.add(src[start..at])
+     i = at
+@@ -745,11 +755,14 @@ fun skip_plain_ascii(s: ?String, at: Int) -> Int
+   # 0 <= at <= s.len, which bounds every read below.
+   return at if at < 0 or at > s.len
+   i = at
+-  stop = at + TIER
+-  while i + 8 <= s.len and i < stop
+-    m = special64(s.read[U64, .little](i))
+-    return i + first_marked64(m) if m != 0
+-    i += 8
++  # With TIER 0 (x86_64) the stage is not compiled at all: not even
++  # its first test, `at + 8 <= s.len`, whose add safe builds test.
++  if TIER > 0
++    stop = at + TIER
++    while i + 8 <= s.len and i < stop
++      m = special64(s.read[U64, .little](i))
++      return i + first_marked64(m) if m != 0
++      i += 8
+   while i + 16 <= s.len : i += 16
+     if special(s.read[Simd[U8, 16]](i)).first() as k
+       return i + k

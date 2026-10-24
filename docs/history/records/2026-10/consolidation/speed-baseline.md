@@ -129,6 +129,106 @@ assumption the owner declined on 2026-10-22 ("No LLVM assumption of a
 List's length bound": undefined behavior if the invariant broke), here
 limited to safe builds. The decision on #538 is the owner's.
 
+## #538: std.json's hot loops in plain Rig, tried
+
+The owner kept #538 on 2026-10-23 ("Yes, let's go with your
+recommendation"): no length read makes a test, and std.json's hot loops
+are to bring pup's safe builds back within 2% of the reference with no
+range assumption, while nothing gets slower than main beyond 2%. Two
+candidates came close; neither meets every bar, so no PR. Both are kept
+here as patches on main at 6fe6e9369 (`git apply`).
+
+**Where the checks came back (pup, rig-safe, `perf`).** #538 left LLVM
+no range for a slice's length, so in the functions std.json keeps out of
+line, which take `src` as a parameter, every `at + k` tests overflow
+(13 overflow branches in `escaped`, which inlines `escape`, `unicode`
+and `hex_value`, against 1 at the reference), `0 <= i < n` takes two
+compares where one did, and `skip_plain_ascii` on x86_64 kept its
+TIER stage's first test, `at + 8 <= s.len`, an add safe builds test,
+with its five constants loaded, though TIER is 0 there. Per call that
+is about ten instructions; main runs 6 to 9% more instructions than the
+reference on pup (twitter 535M against 496M per 100 parses).
+
+**A ([json-len-a.patch](json-len-a.patch)): two changes.**
+`skip_plain_ascii` compiles its SWAR stage only when `TIER > 0`, and
+`escaped` tests `src.len < 0 or src.len > MAX_INPUT` as it starts (the
+test `document` makes, once more per escaped string): one unsigned
+compare, after which LLVM knows `0 <= n <= MAX_INPUT`, so the escapes'
+adds cannot overflow (3 overflow branches left in `escaped`). No range is
+assumed: the test runs, and fails with `.too_large`.
+
+**B ([json-len-b.patch](json-len-b.patch)): A, and `document`'s
+whitespace after a value is skipped on each path** (after a scalar, and
+after each close, `skip_space(src, i + 1)`), not at the top of the loop
+where the paths join: there LLVM keeps `skip_space`'s `at < 0` test, and
+tail-duplicates it, since it cannot see `0 <= i` through the join.
+
+**Time (MB/s, 15 rounds of `--reps 3`, the fastest of 45; ref
+ace79d579 / main 6fe6e9369 / candidate; then the candidate against main;
+against the reference). pup on core 6, its sibling idle; the Mac at
+`nice 19` with load 5 to 33.**
+
+A:
+
+| file | pup safe | pup fast | Mac safe | Mac fast |
+|---|---|---|---|---|
+| twitter | 3098 / 2925 / 3047 (4.2% faster; 1.6% slower) | 2707 / 3030 / 3238 (6.9% faster; 19.6% faster) | 3521 / 3619 / 3581 (1.1% slower; 1.7% faster) | 3519 / 3668 / 3668 (same; 4.2% faster) |
+| twitterescaped | 2557 / 2363 / 2554 (8.1% faster; 0.1% slower) | 2427 / 2694 / 2737 (1.6% faster; 12.8% faster) | 3172 / 3166 / 3209 (1.4% faster; 1.2% faster) | 3221 / 3238 / 3225 (0.4% slower; 0.1% faster) |
+| canada | 1331 / 1359 / 1327 (**2.4% slower**; 0.3% slower) | 1489 / 1520 / 1478 (**2.8% slower**; 0.7% slower) | 2089 / 2133 / 2048 (**4.0% slower**; 2.0% slower) | 2262 / 2198 / 2188 (0.5% slower; 3.3% slower) |
+| citm_catalog | 3039 / 2990 / 3074 (2.8% faster; 1.2% faster) | 2867 / 3184 / 3170 (0.4% slower; 10.6% faster) | 4202 / 4330 / 4252 (1.8% slower; 1.2% faster) | 4158 / 4284 / 4336 (1.2% faster; 4.3% faster) |
+| gsoc-2018 | 6056 / 5895 / 6067 (2.9% faster; 0.2% faster) | 5881 / 6061 / 6525 (7.7% faster; 11.0% faster) | 8320 / 8372 / 8394 (0.3% faster; 0.9% faster) | 8253 / 8173 / 8175 (same; 0.9% slower) |
+| github_events | 3417 / 3326 / 3515 (5.7% faster; 2.9% faster) | 3202 / 3684 / 3762 (2.1% faster; 17.5% faster) | 4079 / 4257 / 4228 (0.7% slower; 3.7% faster) | 4081 / 4240 / 4237 (0.1% slower; 3.8% faster) |
+
+B:
+
+| file | pup safe | pup fast | Mac safe | Mac fast |
+|---|---|---|---|---|
+| twitter | 3096 / 2933 / 3119 (6.3% faster; 0.7% faster) | 2707 / 3041 / 3229 (6.2% faster; 19.3% faster) | 3458 / 3549 / 3317 (**6.5% slower**; 4.1% slower) | 3437 / 3575 / 3546 (0.8% slower; 3.2% faster) |
+| twitterescaped | 2557 / 2377 / 2584 (8.7% faster; 1.1% faster) | 2412 / 2686 / 2695 (0.3% faster; 11.7% faster) | 3105 / 3094 / 3143 (1.6% faster; 1.2% faster) | 3186 / 3154 / 3193 (1.2% faster; 0.2% faster) |
+| canada | 1328 / 1361 / 1379 (1.3% faster; 3.8% faster) | 1493 / 1525 / 1522 (0.2% slower; 1.9% faster) | 2073 / 2093 / 2058 (1.7% slower; 0.7% slower) | 2265 / 2163 / 2219 (2.6% faster; 2.0% slower) |
+| citm_catalog | 3058 / 2991 / 3088 (3.2% faster; 1.0% faster) | 2856 / 3200 / 3228 (0.9% faster; 13.0% faster) | 4146 / 4209 / 4006 (**4.8% slower**; 3.4% slower) | 4095 / 4264 / 4223 (1.0% slower; 3.1% faster) |
+| gsoc-2018 | 6064 / 5942 / 6155 (3.6% faster; 1.5% faster) | 5936 / 6109 / 6488 (6.2% faster; 9.3% faster) | 8097 / 8214 / 7933 (**3.4% slower**; 2.0% slower) | 8037 / 8059 / 8037 (0.3% slower; same) |
+| github_events | 3422 / 3329 / 3549 (6.6% faster; 3.7% faster) | 3231 / 3701 / 3691 (0.3% slower; 14.2% faster) | 3993 / 4199 / 3877 (**7.7% slower**; 2.9% slower) | 4006 / 4217 / 4157 (1.4% slower; 3.8% faster) |
+
+- **pup safe**, the goal: A is within 2% of the reference on every file
+  (twitter 1.6% slower the worst), and B is faster than it on every file
+  (0.7% to 3.8%).
+- **A misses on canada**: 2.4% (pup safe), 2.8% (pup fast), and 1.2-4.4%
+  (Mac safe, three runs) slower than main. A does not touch canada's
+  code (no escapes, few strings); `document` is 44 bytes larger on the
+  Mac, and LLVM duplicates `skip_space`'s sign test into the paths that
+  join after a value. In pup's fast build canada runs 0.9% *fewer*
+  instructions than main and about 2% more cycles: placement.
+- **B misses on the Mac's safe builds**: 3.4% to 7.7% slower than main on
+  four files, with fewer instructions than main on all six (guard.py:
+  twitter 7.8658 against 7.9172, citm_catalog 8.0175 against 8.0343).
+  The Mac was loaded (load 18), but the sign matches every Mac run of
+  a `document` change here.
+
+**Also tried.** `document` testing `n < 0 or n > MAX_INPUT` itself
+(LLVM then knows the range wherever `document` inlines): pup's
+instructions at the range patch's or below, but the Mac's safe builds
+2-5% slower than main (twitter, canada, citm_catalog, github_events),
+as with the range patch. `skip_space` with no sign guard (its loop's
+flag tests `0 <= i`): pup 4-10% fewer instructions than main, every
+safe build 1.6-5.3% faster than the reference (citm_catalog's fast build
+2.1% slower than main), but on the Mac LLVM then inlines `number` into
+`document` (286 more instructions in it) and four safe builds run
+5.8-14.8% slower than main (citm_catalog 4295 → 3661 MB/s). `called fun
+number` against that: canada 9.5% more instructions on the Mac.
+
+**Why the gap persists.** The checks the proofs cannot remove are in the
+out-of-line functions: the pass proves from facts within one body, and
+`escaped`, `skip_plain_ascii`, and the rest start with no fact about
+their `at`, and their early returns (`return at if at < 0`) make none
+(the proof uses a guard on its true edge only). A real test of the
+length per call fixes that on x86 (A, B). What is left is placement:
+every change to `document`'s code moves the Mac's safe builds by 2-8%
+and canada on pup by 2-3%, either way, with the instruction counts
+falling. No change here is a net win with nothing slower than main
+beyond 2%; whether to take A (pup's safe builds back at the reference;
+canada at the line) is the owner's call.
+
 ## Tasks, actors, sockets, HTTP (rig-fast)
 
 Time per operation, as the PROGRESS rows give it.
