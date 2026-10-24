@@ -9567,7 +9567,8 @@ pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocat
 }
 
 /// What in `ty` keeps it from going to a task as `reach` says: to a
-/// local one (`localBlocker`), or, out of a channel, to any task.
+/// local one (`localBlocker`), or to any (`crossingBlocker` without a
+/// type parameter's bounds).
 pub fn taskBlocker(ctx: *SemContext, ty: TypeId, reach: TaskReach) std.mem.Allocator.Error!?TypeId {
     var walk: Walk = .{};
     defer walk.seen.deinit(ctx.allocator);
@@ -9575,23 +9576,24 @@ pub fn taskBlocker(ctx: *SemContext, ty: TypeId, reach: TaskReach) std.mem.Alloc
     return try localized(ctx, b);
 }
 
-/// How a value goes to a task: as `how` says, and to a local one or,
-/// as a channel's element, to any (`blockerIn`'s `local`).
+/// How a value goes to a task: as `how` says, and to a local one or to
+/// any, which may run on another core (`blockerIn`'s `local`).
 pub const TaskReach = struct { how: Crossing, local: bool };
 
 /// A type parameter a value going to a task holds, and how it goes.
 pub const TaskParam = struct { param: SymbolId, reach: TaskReach };
 
-/// The type parameters a value of `ty`, going to a local task as `how`
-/// says, holds where `localBlocker` looks, added to `out`. Each
-/// instance's type for one must go as it does (`Requirement.task`): a
-/// generic body gives no task what goes to none, an owned closure in a
-/// `T`, as a body of known types gives none.
-pub fn taskParams(ctx: *const SemContext, ty: TypeId, how: Crossing, out: *std.ArrayList(TaskParam)) std.mem.Allocator.Error!void {
+/// The type parameters a value of `ty`, going to a task as `reach`
+/// says, holds where `blockerIn` looks, added to `out`. Each instance's
+/// type for one must go as it does (`Requirement.task`), as a value of a
+/// known type must: to a local task, nothing that goes to none (an owned
+/// closure in a `T`); to one that may run on another core, nothing that
+/// stays on one thread.
+pub fn taskParams(ctx: *const SemContext, ty: TypeId, reach: TaskReach, out: *std.ArrayList(TaskParam)) std.mem.Allocator.Error!void {
     if (!ctx.typeInfo(ty).has_type_var) return;
     var walk: Walk = .{ .reached = out };
     defer walk.seen.deinit(ctx.allocator);
-    _ = blockerIn(ctx, ty, how, true, &walk);
+    _ = blockerIn(ctx, ty, reach.how, reach.local, &walk);
     if (walk.failed) return error.OutOfMemory;
 }
 

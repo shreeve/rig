@@ -984,3 +984,46 @@ test "task generic instances that go to tasks", seeds: 20, "1 1 1 1 1"
 
   f: fun() -> Int = mk
   print(spawn(?3), spawn(?String("a")), pinned(?List([1])), spawn(?f), pinned(?f))
+
+fail "task generic instance stays on one thread", "`run_all[*Node]` cannot use `T = *Node`: a value that holds a `T` is lent to a task to read in the generic body, and `*Node` is a `*` handle whose count is not atomic, so two cores could change it at once; the body's task may run on another core in every instance, so it takes nothing that stays on one thread", errors: 1
+  # The body's task crosses for every instance, so no instance gives it
+  # what stays on one thread, as a known type's would make it local.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun run_all[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  n = *Node(v: 1)
+  print(run_all(?3))
+  print(run_all(?n))
+
+test "task generic instances mixed", seeds: 20, "1 1 1 2"
+  # One generic at several instances: plain data, a frozen value, and a
+  # one-word Cell cross; a `*Node` goes to a task the body pins with a
+  # value of its own that stays on one thread.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun run_all[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  fun pinned[T](x: ?T, n: ?*Node) -> Int
+    t = look2(?x, ?n)&
+    >t
+
+  fun look2[T](x: ?T, n: ?*Node) -> Int
+    n.v + 1
+
+  n = *Node(v: 1)
+  f = *Frozen(String("ice"))
+  c = *Cell(3)
+  print(run_all(?3), run_all(?f), run_all(?c), pinned(?n, ?n))

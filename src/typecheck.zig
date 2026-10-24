@@ -8916,12 +8916,16 @@ const Checker = struct {
             }
             if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
         }
+        var gone: std.ArrayList(Gone) = .empty;
         for (parts.items, 0..) |part, i| {
             const part_ty = self.ctx.typeOf(part) orelse continue;
             if (self.isPoison(part_ty)) continue;
             const as_self: ?sema.MethodReceiver = if (i == 0 and has_self) self_mode else null;
-            if (!try self.crossCheck(node, part, part_ty, as_self)) return self.t().invalid_id;
+            if (!try self.crossCheck(node, part, part_ty, as_self, &gone)) return self.t().invalid_id;
         }
+        // Whether the task is local is decided by all its parts, once for
+        // every instance of a generic body.
+        for (gone.items) |g| try self.requireTask(g.ty, g.how, g.pos, g.passed, self.ctx.isLocalTask(node));
         // A task that may run on another core hands its result back to
         // the one that waits for it, so the result moves (as `par.map`'s
         // values and an actor call's do); a local task's stays on this
@@ -8933,11 +8937,15 @@ const Checker = struct {
                 try self.errAt(callee, "`{s}` may run on another core, so what it gives must be sent to the task that waits for it: `{s}` {s}", .{ self.sourceText(node), try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
                 return self.t().invalid_id;
             }
-            try self.requireTask(result, .moves, self.startOf(callee), "is given back by a task");
+            try self.requireTask(result, .moves, self.startOf(callee), "is given back by a task", false);
         }
         self.ctx.makes_tasks = true;
         return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
     }
+
+    /// A part that goes to a task (`crossCheck`): the type it goes as,
+    /// how, where, and how it is passed, for `requireTask`.
+    const Gone = struct { ty: TypeId, how: sema.Crossing, pos: u32, passed: []const u8 };
 
     /// Whether `part`, of type `part_ty`, an argument of the task `call`
     /// or its method's self (taken as `as_self` says), may go to the task
@@ -8946,8 +8954,9 @@ const Checker = struct {
     /// (`sema.Crossing`), so the task may run on another core. A part that
     /// stays on one thread (`sema.localBlocker`) makes the task local:
     /// it and the task making it run on this thread from then on. Reports
-    /// the part that cannot go even to a local task.
-    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver) Error!bool {
+    /// the part that cannot go even to a local task; adds each part that
+    /// goes to `gone`.
+    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver, gone: *std.ArrayList(Gone)) Error!bool {
         const lent_closure = part.isKind(.lambda);
         const part_ty = try self.crossingTypeOf(part, part_ty_in);
         const k = self.ctx.types.get(part_ty);
@@ -8971,11 +8980,11 @@ const Checker = struct {
             .write => "is lent to a task to write",
         };
         const pin = (try sema.crossingBlocker(self.ctx, inner, how)) orelse {
-            try self.requireTask(inner, how, self.startOf(part), passed);
+            try gone.append(self.ctx.arena.allocator(), .{ .ty = inner, .how = how, .pos = self.startOf(part), .passed = passed });
             return true;
         };
         const blocker = (try sema.localBlocker(self.ctx, inner, how)) orelse {
-            try self.requireTask(inner, how, self.startOf(part), passed);
+            try gone.append(self.ctx.arena.allocator(), .{ .ty = inner, .how = how, .pos = self.startOf(part), .passed = passed });
             const why = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`: `{s}` {s}", .{ self.sourceText(part), try self.tyName(part_ty), try self.blockerReason(pin, mode == .read, if (pin == part_ty) "is" else if (pin == inner) "views" else null) });
             try self.ctx.recordLocalTask(call, .{ .pos = self.startOf(call), .call = self.sourceText(call), .why = why });
             return true;
@@ -8986,13 +8995,16 @@ const Checker = struct {
     }
 
     /// A value of `ty` goes to a task as `how` says, at `pos`, where it
-    /// `passed` (`is given to a task`): each instance's type for a type
-    /// parameter it holds must go so too (`sema.taskParams`).
-    fn requireTask(self: *Checker, ty: TypeId, how: sema.Crossing, pos: u32, passed: []const u8) Error!void {
+    /// `passed` (`is given to a task`): to a `local` one, or to one that
+    /// may run on another core. Each instance's type for a type parameter
+    /// it holds must go so too (`sema.taskParams`): one Zig function
+    /// serves every instance of a generic body, so a task the body makes
+    /// to cross takes in no instance what stays on one thread.
+    fn requireTask(self: *Checker, ty: TypeId, how: sema.Crossing, pos: u32, passed: []const u8, local: bool) Error!void {
         if (!self.ctx.typeInfo(ty).has_type_var) return;
         var found: std.ArrayList(sema.TaskParam) = .empty;
         defer found.deinit(self.ctx.allocator);
-        try sema.taskParams(self.ctx, ty, how, &found);
+        try sema.taskParams(self.ctx, ty, .{ .how = how, .local = local }, &found);
         for (found.items) |p| try self.require(p.param, .{ .task = p.reach }, pos, passed);
     }
 
@@ -13098,7 +13110,7 @@ const Checker = struct {
             if (try self.statedCrossing(blocker, .moves, self.startOf(value))) return self.skipCall(args);
             return self.badCall(args, value, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
         }
-        try self.requireTask(ty, .moves, self.startOf(value), "is given to an actor's task");
+        try self.requireTask(ty, .moves, self.startOf(value), "is given to an actor's task", false);
         if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, value, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
         const actor = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.actor_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
         const params: []const TypeId = &.{ ty, self.t().int_id };
@@ -13178,7 +13190,7 @@ const Checker = struct {
             if (try self.statedCrossing(blocker, .moves, self.startOf(f))) return self.skipCall(args);
             return self.badCall(args, f, "an actor's value goes to a task of its own, and `{s}` {s}", .{ try self.tyName(ty), try self.blockerReason(blocker, false, if (blocker == ty) "is" else null) });
         }
-        try self.requireTask(ty, .moves, self.startOf(f), "is given to an actor's task");
+        try self.requireTask(ty, .moves, self.startOf(f), "is given to an actor's task", false);
         if (sema.mayHoldView(self.ctx, ty)) return self.badCall(args, f, "an actor's value holds no loan, and a `{s}` may hold a view", .{try self.tyName(ty)});
         // The tasks that run the actor call the function, each in turn.
         for (sema.captureList(ir.Lambda.captures(ir.Share.operand(f)))) |cap| {
@@ -13187,7 +13199,7 @@ const Checker = struct {
             const cty = self.ctx.symbols.items[id].ty;
             if (self.isPoison(cty)) continue;
             const blocker = (try sema.crossingBlocker(self.ctx, cty, .moves)) orelse {
-                try self.requireTask(cty, .moves, self.startOf(name_node), "is given to an actor's tasks");
+                try self.requireTask(cty, .moves, self.startOf(name_node), "is given to an actor's tasks", false);
                 continue;
             };
             if (try self.statedCrossing(blocker, .moves, self.startOf(name_node))) return self.skipCall(args);
@@ -13274,7 +13286,7 @@ const Checker = struct {
                 try self.errAt(arg, "an actor runs its methods on a task of its own, and `{s}` {s}: `{s}` {s}", .{ self.sourceText(arg), if (how == .shares) "is lent to it to read" else "is given to it", try self.tyName(ty), try self.blockerReason(blocker, how == .shares, if (blocker == ty) "is" else if (blocker == inner) "views" else null) });
                 return self.t().invalid_id;
             }
-            try self.requireTask(inner, how, self.startOf(arg), if (how == .shares) "is lent to an actor's task to read" else "is given to an actor's task");
+            try self.requireTask(inner, how, self.startOf(arg), if (how == .shares) "is lent to an actor's task to read" else "is given to an actor's task", false);
         }
         if (!try self.waitHoldsStop(pos, f.returns, method)) return self.t().invalid_id;
         const result = if (self.ctx.types.get(f.returns) == .fallible) self.ctx.types.get(f.returns).fallible.ok else f.returns;
@@ -13287,7 +13299,7 @@ const Checker = struct {
             try self.err(pos, "`{s}` gives a value made on the actor's task, and `{s}` {s}", .{ method, try self.tyName(result), try self.blockerReason(blocker, false, if (blocker == result) "is" else null) });
             return self.t().invalid_id;
         }
-        try self.requireTask(result, .moves, pos, "is given back by an actor's task");
+        try self.requireTask(result, .moves, pos, "is given back by an actor's task", false);
         _ = obj_ty;
         if (self.current_call) |c| try self.ctx.recordActorCall(c);
         return f.returns;
@@ -13780,14 +13792,14 @@ const Checker = struct {
             try self.errAt(xs, "`{s}` hands the elements of `{s}` to tasks that may run on other cores, {s} each, and `{s}` {s}", .{ shown, self.sourceText(xs), if (kind == .map) "to read" else "to write", try self.tyName(elem), try self.blockerReason(blocker, kind == .map, if (blocker == elem) "is" else null) });
             return self.t().invalid_id;
         }
-        try self.requireTask(elem, how, self.startOf(xs), if (kind == .map) "is lent to tasks to read" else "is lent to tasks to write");
+        try self.requireTask(elem, how, self.startOf(xs), if (kind == .map) "is lent to tasks to read" else "is lent to tasks to write", false);
         if (kind == .map) {
             if (try sema.crossingBlocker(self.ctx, value, .moves)) |blocker| {
                 if (try self.statedCrossing(blocker, .moves, self.startOf(f))) return self.t().invalid_id;
                 try self.errAt(f, "`par.map` gathers the values that tasks on other cores make, and `{s}` {s}", .{ try self.tyName(value), try self.blockerReason(blocker, false, if (blocker == value) "is" else null) });
                 return self.t().invalid_id;
             }
-            try self.requireTask(value, .moves, self.startOf(f), "is given back by a task");
+            try self.requireTask(value, .moves, self.startOf(f), "is given back by a task", false);
         }
         if (self.current_call) |c| try self.ctx.recordParCall(c, kind);
         self.ctx.makes_tasks = true;
@@ -14179,7 +14191,7 @@ const Checker = struct {
         if (self.isPoison(ty)) return true;
         const inner = sema.unwrapViews(self.ctx, ty);
         const blocker = (try sema.crossingBlocker(self.ctx, inner, .shares)) orelse {
-            try self.requireTask(inner, .shares, self.startOf(name_node), "is lent to tasks to read");
+            try self.requireTask(inner, .shares, self.startOf(name_node), "is lent to tasks to read", false);
             return true;
         };
         if (try self.statedCrossing(blocker, .shares, self.startOf(name_node))) return false;
@@ -19542,7 +19554,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 .no_task => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}, and {s}", .{ inst, pname, aname, req.op, if (taskField(ctx, sema.nominalDecl(ctx, arg))) |f| f else try ctx.arena.allocator().print("a `{s}` holds one", .{aname}) }),
                 .task => |reach| {
                     const blocker = (try sema.taskBlocker(ctx, arg, reach)).?;
-                    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a value that holds a `{s}` {s} in the generic body, and `{s}` {s}", .{ inst, pname, aname, pname, req.op, aname, try crossingReason(ctx, blocker, reach.how == .shares, if (blocker == arg) "is" else null) });
+                    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a value that holds a `{s}` {s} in the generic body, and `{s}` {s}{s}", .{ inst, pname, aname, pname, req.op, aname, try crossingReason(ctx, blocker, reach.how == .shares, if (blocker == arg) "is" else null), if (reach.local or (try sema.localBlocker(ctx, arg, reach.how)) != null) "" else "; the body's task may run on another core in every instance, so it takes nothing that stays on one thread" });
                 },
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, (try sema.notHashable(ctx, arg, null)).?) }),

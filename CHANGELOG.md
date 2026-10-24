@@ -29,13 +29,15 @@ changed the language since it:
   instance, with the crossing walk that checks a known type: an instance
   whose `T` holds an owned closure, an API object, or a set of tasks is
   rejected at the call that makes it, with a note at the task. A bounded
-  `T` without `Syncs`, whose task is local, is checked so too. A generic
+  `T` without `Syncs`, whose task is local, is checked so too. A body
+  whose task crosses gives it, at no instance, what stays on one thread
+  (`T = *Node`), which ran on another core. A generic
   body that erases a `T` to an API object, or gives one out of
   `task.isolate`, is checked at each instance for a task the `T` holds.
   No generic body is rejected. v0.2.9 accepted the forms this rejects,
   each of which let a value reach a task its known type could not:
   `spawn(<cb)` of `fun spawn[T](x: T)` whose body runs `use(<x)&`, with
-  `cb: *fun() -> Int`; `par.map(xs, f)` over a `?List[T]` of owned
+  `cb: *fun() -> Int`, or `n: *Node`; `par.map(xs, f)` over a `?List[T]` of owned
   closures; `*Actor(Box[T](x: <x))` with `T` an owned closure; a
   `fun go[T](f: fun() -> T)` whose task `call(f)&` gives back an owned
   closure; `task.isolate(|<x| keep(<x))` with `T = Task[Int]`. Whether

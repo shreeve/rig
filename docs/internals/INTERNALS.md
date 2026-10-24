@@ -2589,8 +2589,13 @@ actor's value, arguments, and result, `par`'s elements, values, and
 captures) passes the value it let through to `Checker.requireTask`,
 which runs the same walk, `sema.taskParams`, with `local` set and
 collects each type parameter it reaches outside a declaration's fields,
-with how it goes there (`TaskReach`: as `how` says, and, as a channel's
-element, to any task). Each becomes a `Requirement.task`, checked at the
+with how it goes there (`TaskReach`: as `how` says, and to a local task
+or to any). A task's parts are collected first (`Checker.Gone`), since
+whether it is local is decided by all of them; a task that crosses, and
+an actor's or `par`'s, take each parameter as going to any task. Emit
+writes one Zig function for every instance of a generic body, so the
+body's choice of local or crossing holds for each, and an instance that
+would need the other is rejected. Each becomes a `Requirement.task`, checked at the
 instance by `sema.taskBlocker`, the walk again on the instance's type:
 an instance whose type holds what goes to no task, a local one included
 (an owned closure, an API object, a set of tasks), is rejected at the
