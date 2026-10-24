@@ -8964,7 +8964,7 @@ const Checker = struct {
             const part_ty = self.ctx.typeOf(part) orelse continue;
             if (self.isPoison(part_ty)) continue;
             const as_self: ?sema.MethodReceiver = if (i == 0 and has_self) self_mode else null;
-            if (!try self.crossCheck(node, part, part_ty, as_self, &gone)) return self.t().invalid_id;
+            if (!try self.crossCheck(node, part, part_ty, as_self, &gone, parts.items)) return self.t().invalid_id;
         }
         // Whether the task is local is decided by all its parts, once for
         // every instance of a generic body.
@@ -8999,7 +8999,7 @@ const Checker = struct {
     /// it and the task making it run on this thread from then on. Reports
     /// the part that cannot go even to a local task; adds each part that
     /// goes to `gone`.
-    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver, gone: *std.ArrayList(Gone)) Error!bool {
+    fn crossCheck(self: *Checker, call: Sexp, part: Sexp, part_ty_in: TypeId, as_self: ?sema.MethodReceiver, gone: *std.ArrayList(Gone), parts: []const Sexp) Error!bool {
         const lent_closure = part.isKind(.lambda);
         const part_ty = try self.crossingTypeOf(part, part_ty_in);
         const k = self.ctx.types.get(part_ty);
@@ -9033,8 +9033,62 @@ const Checker = struct {
             return true;
         };
         const what = if (lent_closure) "this closure" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`", .{self.sourceText(part)});
+        // An API object without the bound the task needs, which even a
+        // task another part pins to this thread does not take.
+        if (try self.objectLack(part_ty, how)) |lack| {
+            const pinned = for (parts) |other| {
+                if (sameNode(other, part)) continue;
+                const oty = try self.crossingTypeOf(other, self.ctx.typeOf(other) orelse continue);
+                if (self.isPoison(oty)) continue;
+                const ok = self.ctx.types.get(oty);
+                const ohow: sema.Crossing = if (ok == .read_view) .shares else .moves;
+                const oinner = if (ok == .read_view or ok == .write_view) sema.unwrapViews(self.ctx, oty) else oty;
+                if ((try sema.crossingBlocker(self.ctx, oinner, ohow)) != null and (try sema.localBlocker(self.ctx, oinner, ohow)) == null) break true;
+            } else false;
+            try self.errAt(part, "{s} {s}, and {s}{s}", .{ what, passed, lack, if (pinned) " (a local task too: what it hides may go to no task)" else "" });
+            return false;
+        }
         try self.errAt(part, "{s} {s}: `{s}` {s}", .{ what, passed, try self.tyName(part_ty), try self.blockerReason(blocker, mode == .read, if (blocker == part_ty) "is" else if (blocker == inner) "views" else null) });
         return false;
+    }
+
+    /// The API object a value of `ty` holds directly, `^{A}`, a view of
+    /// one, `?{A}`, or a box lent, `?^{A}`, or an optional of these, going
+    /// to a task as `how` says, when its braces and API do not name the
+    /// crossing bound its form's row needs (`sema.blockerIn`): why, with
+    /// the fix. Null for any other type, and for a write view lent to be
+    /// read by several, which no bound allows.
+    fn objectLack(self: *Checker, ty: TypeId, how_in: sema.Crossing) Error!?[]const u8 {
+        const types = &self.ctx.types;
+        var held_ty = ty;
+        var how = how_in;
+        if (types.get(held_ty) == .optional) held_ty = types.get(held_ty).optional;
+        if (sema.objectHeld(self.ctx, held_ty) == null) switch (types.get(held_ty)) {
+            .read_view => |inner| {
+                held_ty = inner;
+                how = .shares;
+            },
+            .write_view => |inner| held_ty = inner,
+            else => return null,
+        };
+        if (types.get(held_ty) == .optional) held_ty = types.get(held_ty).optional;
+        const held = sema.objectHeld(self.ctx, held_ty) orelse return null;
+        switch (held.form) {
+            .read => how = .shares,
+            .write => if (how == .shares) return null,
+            .box => {},
+        }
+        const need = sema.crossingBound(how);
+        if (sema.objectBounds(self.ctx, held.object).contains(need)) return null;
+        const a = self.ctx.arena.allocator();
+        var fixed = held.object;
+        fixed.builtins.insert(need);
+        const sigil: []const u8 = switch (held.form) {
+            .read => "?",
+            .write => "!",
+            .box => "^",
+        };
+        return try a.print("`{s}` hides its value's type without naming `{s}`: write `{s}{s}`", .{ try self.tyName(held_ty), @tagName(need), sigil, try sema.objectSpelling(self.ctx, a, fixed) });
     }
 
     /// A value of `ty` goes to a task as `how` says, at `pos`, where it
@@ -13327,6 +13381,10 @@ const Checker = struct {
             const inner = if (k == .read_view) sema.unwrapViews(self.ctx, ty) else ty;
             if (try sema.crossingBlocker(self.ctx, inner, how)) |blocker| {
                 if (try self.statedCrossing(blocker, how, self.startOf(arg))) return self.t().invalid_id;
+                if (try self.objectLack(ty, how)) |lack| {
+                    try self.errAt(arg, "an actor runs its methods on a task of its own, and `{s}` {s}: {s}", .{ self.sourceText(arg), if (how == .shares) "is lent to it to read" else "is given to it", lack });
+                    return self.t().invalid_id;
+                }
                 try self.errAt(arg, "an actor runs its methods on a task of its own, and `{s}` {s}: `{s}` {s}", .{ self.sourceText(arg), if (how == .shares) "is lent to it to read" else "is given to it", try self.tyName(ty), try self.blockerReason(blocker, how == .shares, if (blocker == ty) "is" else if (blocker == inner) "views" else null) });
                 return self.t().invalid_id;
             }
@@ -13966,7 +14024,15 @@ const Checker = struct {
         if (!sameNode(call, self.shared_operand)) return self.badCall(args, e, "a channel lives only behind a shared handle: write `*Chan[T](n)`", .{});
         if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, e, "`Chan[T](n)` takes how many values it holds: `*Chan[Job](64)`", .{});
         const elem = self.ctx.types.get(ty).parameterized_nominal.args[0];
-        if (sema.mayHoldView(self.ctx, elem)) return self.badCall(args, e, "a channel's values hold no loan, and a `{s}` may hold a view", .{try self.tyName(elem)});
+        if (sema.mayHoldView(self.ctx, elem)) {
+            // A box of an API object, with the fix.
+            if (sema.objectHeld(self.ctx, elem)) |h| if (h.form == .box) {
+                var with = h.object;
+                with.builtins.insert(.Owned);
+                return self.badCall(args, e, "a channel's values hold no loan, and `{s}` may hold one: write `^{s}`", .{ try self.tyName(elem), try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with) });
+            };
+            return self.badCall(args, e, "a channel's values hold no loan, and a `{s}` may hold a view", .{try self.tyName(elem)});
+        }
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = ty, .is_sub = false };
         try self.noteCallee(f);
         try self.checkArgs(args, f, .{ .names = &.{"capacity"} }, "Chan", self.startOf(e), .{ .declared = f.params });
@@ -15225,18 +15291,60 @@ const Checker = struct {
         // Its table holds every method the API names, which Zig compiles.
         if (self.tentative == 0) _ = try self.ctx.recordBodyReach(.{ .fun = .{ .module = 0, .pos = 0 }, .in = self.bodyRef(), .params = &.{}, .args = &.{}, .recv = reached, .method = "", .site = self.startOf(e), .erase = object.api });
         // The built-in APIs the braces name, checked on the value's type.
-        var it = object.builtins.iterator();
-        while (it.next()) |b| if (try sema.lacks(self.ctx, reached, b)) |_| {
+        // The built-in APIs its braces and API name (`sema.objectBounds`):
+        // Stage 3 checks an API's of each type that provides it, but a
+        // generic type may provide it only where its arguments do.
+        const bounds = sema.objectBounds(self.ctx, object);
+        var it = bounds.iterator();
+        while (it.next()) |b| if (b != .Sends and b != .Syncs) if (try sema.lacks(self.ctx, reached, b)) |_| {
             // `Owned`: the value holds no loan, which a part of it may.
             if (b == .Owned) {
                 const why = if (try fieldLacking(self.ctx, sema.nominalDecl(self.ctx, reached), .Owned)) |f| f[2..] else try std.fmt.allocPrint(self.ctx.arena.allocator(), "a `{s}` may hold a view", .{try self.tyName(reached)});
                 try self.errAt(e, "`{s}` is erased to `{s}`, which holds no loan, but {s}", .{ try self.tyName(reached), shown_view, why });
                 return null;
             }
+            if (!object.builtins.contains(b)) {
+                try self.errAt(e, "`{s}` is erased to `{s}`, whose API builds on `{s}`, and `{s}` is not `{s}`", .{ self.sourceText(lent), shown_view, @tagName(b), try self.tyName(reached), @tagName(b) });
+                return null;
+            }
             try self.errAt(e, "`{s}` is erased to `{s}`, which names `{s}`, and `{s}` is not `{s}`", .{ self.sourceText(lent), shown_view, @tagName(b), try self.tyName(reached), @tagName(b) });
             return null;
         };
+        // The crossing bounds its braces and API name, facts of the hidden
+        // value (docs/design/apis.md, Stage 5): after this, the object
+        // crosses by its braces alone.
+        for ([_]sema.Crossing{ .moves, .shares }) |how| {
+            const b = sema.crossingBound(how);
+            if (!bounds.contains(b)) continue;
+            if (try sema.lacks(self.ctx, reached, b) == null) continue;
+            try self.errAt(e, "{s}", .{try self.crossingLack(reached, shown_view, how)});
+            return null;
+        }
         return witness;
+    }
+
+    /// Why `reached`, erased to `shown_view`, whose braces or API name the
+    /// crossing bound `how` needs, does not meet it: a type parameter's
+    /// bounds, or the part of the value that keeps it from crossing.
+    fn crossingLack(self: *Checker, reached: TypeId, shown_view: []const u8, how: sema.Crossing) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const b = sema.crossingBound(how);
+        const blocker = (try sema.crossingBlocker(self.ctx, reached, how)) orelse reached;
+        if (self.ctx.types.get(blocker) == .type_var) {
+            const sym = self.ctx.symbols.items[self.ctx.types.get(blocker).type_var];
+            return a.print("`{s}` is erased to `{s}`, but `{s}` is not bounded by `{s}`: write `[{s}: {s}]`", .{ try self.tyName(reached), shown_view, sym.name, @tagName(b), sym.name, try sema.formatBounds(self.ctx, a, sym, b) });
+        }
+        const goes = if (how == .moves) "goes to other tasks" else "several tasks read";
+        const shared = how == .shares;
+        if (sema.nominalDecl(self.ctx, reached)) |d| if (d.ctx == @as(*const SemContext, self.ctx)) {
+            for (d.symbol().fields orelse &.{}) |f| {
+                if (f.is_method or f.is_variant) continue;
+                const fb = (try sema.crossingBlocker(self.ctx, f.ty, how)) orelse continue;
+                const why = if (fb == f.ty) (try crossingReason(self.ctx, fb, shared, "is"))[3..] else try a.print("which {s}", .{try crossingReason(self.ctx, fb, shared, null)});
+                return a.print("`{s}` is erased to `{s}`, which {s}, but its field `{s}` is a `{s}`, {s}", .{ try self.tyName(reached), shown_view, goes, f.name, try self.tyName(f.ty), why });
+            }
+        };
+        return a.print("`{s}` is erased to `{s}`, which {s}, but `{s}` {s}", .{ try self.tyName(reached), shown_view, goes, try self.tyName(reached), try crossingReason(self.ctx, blocker, shared, if (blocker == reached) "is" else null) });
     }
 
     // ---- lasting lends --------------------------------------------------------
@@ -17676,6 +17784,24 @@ const Checker = struct {
     fn ownedClosure(self: *Checker, lambda: Sexp, expected: ?TypeId) Error!TypeId {
         const lty = try self.checkLambda(lambda, expected);
         try self.ctx.recordType(lambda, lty);
+        // No owned closure holds a task (Core §4): its type does not show
+        // its captures, so a task in one would leave `task.isolate`, or
+        // hide in an API object, where no rule waits for it.
+        for (sema.captureList(ir.Lambda.captures(lambda))) |cap| {
+            const name_node = sema.captureNameNode(cap) orelse continue;
+            const id = self.ctx.symbolOf(name_node) orelse continue;
+            const cty = self.ctx.symbols.items[id].ty;
+            // (A type parameter's instance holding a task is rejected where
+            // it is made: a task may hold a view, which no owned closure
+            // captures.)
+            if (self.isPoison(cty) or !sema.holdsTask(self.ctx, cty)) continue;
+            const direct = switch (self.ctx.types.get(cty)) {
+                .parameterized_nominal => |pn| pn.sym == self.ctx.task_sym_id or pn.sym == self.ctx.tasks_sym_id,
+                else => false,
+            };
+            try self.errAt(name_node, "an owned closure holds no task: `{s}` is a `{s}`{s}, which only the scope that waits for it may hold; wait for it first and capture its value", .{ self.text(name_node), try self.tyName(cty), if (direct) "" else " holding one" });
+            return self.t().invalid_id;
+        }
         return self.ctx.intern(.{ .shared = lty });
     }
 
@@ -19549,7 +19675,7 @@ fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]cons
             "a `*` handle whose count is not atomic, so two cores could change it at once",
         .callable => "a closure or function lent for a call, whose captures its type does not show",
         .write_view => "a write view, which no two tasks may hold at once",
-        .api_object => "an API object, whose hidden value may hold what goes to no task, a local one included",
+        .api_object => "an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task",
         .parameterized_nominal => |pn| if (pn.sym == ctx.task_sym_id and shared)
             "a task, which only the one that holds it may wait for"
         else if (pn.sym == ctx.tasks_sym_id)

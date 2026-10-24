@@ -2576,16 +2576,26 @@ the latter with the innermost type that stops it, through one walk,
 - a read view crosses as what it views shares, a write view and a `Task`
   as what they hold moves; a set of tasks, a `Cell`, and a `Signal`
   never cross;
-- an API object never crosses, since its hidden value may hold what
-  goes to no task;
+- an API object crosses only by the bound its braces or API name
+  (`sema.objectBounds`, the one classifier of an object's bounds), the
+  one its form's row needs: the wrappers above reach it to share
+  through a read view and as they go through a write view or a box, so
+  it needs `Syncs` to share and `Sends` to move (`crossingBound`);
+  without it, it goes to no task, a local one included, since its hidden
+  value may hold what goes to none. The erasure checked the bound on the
+  hidden value (`Checker.erasable`), and a view's braces name only the
+  bound its form uses (`sema.formBraces`, applied as the view's type is
+  interned), so `?b` of a `^{A + Sends}` is a `?{A}`;
 - a type parameter with no bound is decided in each instance, and one
   with bounds as they say (`Sends`, `Syncs`, `boundBlocker`).
 
 `sema.localBlocker` is the same walk with `local` set: what even a
 task pinned to this thread may not take. A part that crosses no core
 but passes it makes the task local (`SemContext.recordLocalTask`, read
-as `isLocalTask`), and emit spawns it with `spawnLocal` or
-`spawnMethodLocal`, which pin it and its maker to one worker
+as `isLocalTask`), and emit spawns it with `spawnLocal`,
+`spawnMethodLocal`, or, through an API object's table,
+`spawnObjectLocal` (`spawnObject` for one that crosses), which pin it
+and its maker to one worker
 (`sched.pinHere`); `rig check --tasks` lists each with what pins it.
 Typecheck asks it of a task's parts in `Checker.crossCheck` and of an
 actor call's arguments in `Checker.actorCall`, which takes no write view

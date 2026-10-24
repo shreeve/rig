@@ -3877,9 +3877,10 @@ second API of a program's own (an object has one table: join them by
 name first, `api Both: Shape + Named`), `Copy` (each form copies as
 its kind does: `?{Shape}` copies, `^{Shape}` moves), `Eq`, `Hash`, and
 `Ord` (two objects may hide two types, which `==` and `<` cannot
-compare), and the number APIs. Crossing tasks, `^{Shape + Sends}`,
-and the shared and weak forms, `*{Shape}` and `~{Shape}`, are Stage
-5's; an API with an associated type forms objects only with it named,
+compare), and the number APIs. `Sends` and `Syncs` say how the object
+crosses tasks (below), each where its form can use it; the shared and
+weak forms, `*{Shape}` and `~{Shape}`, are Stage 5's; an API with an
+associated type forms objects only with it named,
 `^{Source[Item: Int]}`, which a later phase builds.
 
 ```rig reject
@@ -4147,11 +4148,8 @@ cannot lend `t` to write while a read loan is live
 ```
 
 An object has no default value, so a `Table` of them holds
-`^{Shape + Owned}?`. An object goes to no task, a local one included,
-since the hidden value may hold what goes to none (an owned closure, a
-set of tasks), nor into an error's field, which holds no handle; a
-crossing bound in its braces, and a Cell of one, are Stage 5's, beside
-`*{Shape}` and `~{Shape}`.
+`^{Shape + Owned}?`. An object goes into no error's field, which holds
+no handle; a Cell of one is Stage 5's, beside `*{Shape}` and `~{Shape}`.
 
 ```rig reject
 api Shape
@@ -4164,6 +4162,74 @@ sub main()
 
 ```error
 an API object has no default value: write `^{Shape + Owned}?`
+```
+
+**Crossing tasks.** An API object crosses tasks only by a bound it
+names, in its braces or in its API (`api Job: Sends`): `Sends` and
+`Syncs` are facts of the hidden value, checked where its type is
+erased, a type parameter's by its bounds, and the error names the part
+that keeps it from crossing. After that, each form crosses by its row
+of [§18's table](#18-tasks): a box goes to another task when its value
+sends and is read by several when it syncs; a write view goes when its
+value sends and is never read by two; a read view does both when its
+value syncs. So a form's braces name only the bound it can use:
+`?{Shape + Sends}` is rejected toward `?{Shape + Syncs}`, and
+`!{Shape + Syncs}` toward `!{Shape + Sends}`; a box `^{Shape + Sends +
+Syncs}` lends a `?{Shape + Syncs}` and a `!{Shape + Sends}`. An object
+without the bound a task needs goes to no task, a local one included,
+at any depth of what the task is given: its hidden value may hold an
+owned closure, whose captures its type does not show. `Sends` never
+implies `Owned`: a task keeps the loans of what it is given, but a
+channel's values and an actor's state hold none, so they take a
+`^{Job + Owned + Sends}`. No object hides a task, and no owned closure
+holds one.
+
+```rig
+api Job
+  fun run(?@) -> Int
+
+obj Sum: Job
+  xs: List[Int]
+
+  fun run(?@) -> Int
+    n = 0
+    for x in @xs
+      n += x
+    n
+
+fun work(j: ^{Job + Sends}) -> Int
+  j.run()
+
+sub main()
+  j: ^{Job + Sends} = ^Sum(xs: List([1, 2, 3]))
+  k: ^{Job + Syncs} = ^Sum(xs: List([4]))
+  t = work(<j)&
+  u = ?k.run()&
+  v = ?k.run()&
+  print(>t, >u + >v)
+```
+
+```output
+6 8
+```
+
+```rig reject
+api Job
+  fun run(?@) -> Int
+
+obj Note: Job
+  cache: *Map[String, Int]
+
+  fun run(?@) -> Int
+    @cache.len
+
+sub main()
+  j: ^{Job + Sends} = ^Note(cache: *Map[String, Int]())
+  print(j.run())
+```
+
+```error
+`Note` is erased to `^{Job + Sends}`, which goes to other tasks, but its field `cache` is a `*Map[String, Int]`, a `*` handle whose count is not atomic, so two cores could change it at once
 ```
 
 ### Type aliases
@@ -9676,9 +9742,26 @@ hi! 5
 An owned closure can be stored anywhere, so its environment carries no
 loan ([§7](#changes-and-shared-storage)): it cannot capture a `?T`,
 `!T`, or slice, or a value holding one, nor a `?String` that may view a
-String ([§10](#string)); a stack closure can. `*` applies only to a
+String ([§10](#string)); a stack closure can. Nor does it hold a task
+or a set of tasks, or a value holding one: its type does not show its
+captures, so the task would leave the scope that waits for it, out of
+`task.isolate` or hidden in an API object. `*` applies only to a
 closure literal, not to a function name or a closure binding: write
 `*|a| f(a)`.
+
+```rig reject
+fun sq(n: Int) -> Int
+  n * n
+
+sub main()
+  t = sq(2)&
+  f: *fun() -> Int = *|<t| 7
+  print(f())
+```
+
+```error
+an owned closure holds no task: `t` is a `Task[Int]`, which only the scope that waits for it may hold; wait for it first and capture its value
+```
 
 ---
 

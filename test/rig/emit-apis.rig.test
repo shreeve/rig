@@ -298,3 +298,24 @@ code "apis object box the drop and clone entries", ".__rig_drop = rig.dropErased
     fun area(?@) -> Float
 
   print(1)
+
+code "apis object crossing a task through its table", "rig.Task(f64).spawnObject(b, \"area\", .{ });", "rig.ApiView(__rig_table_Shape, .read, \" + Syncs\")"
+  # A call through an object whose braces let it cross is a task on any
+  # core, given the object's two words; a crossing bound changes no Zig
+  # but the braces the type is spelled with.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape + Syncs}) -> Float
+    s.area()
+
+  b: ^{Shape + Syncs + Sends} = ^Square(side: 2.0)
+  t = ?b.area()&
+  u = area_of(?b)&
+  print(>t, >u)

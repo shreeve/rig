@@ -441,12 +441,42 @@ pub const Type = union(enum) {
 
 /// What an API object's braces name: one API of a program's own, and
 /// beside it only the built-in APIs an object serves itself, `Owned`,
-/// `Print`, and `Clone`. Its type hidden, it may hold anything, so it
+/// `Print`, and `Clone`, and the crossing bounds its form can use,
+/// `Sends` and `Syncs`. Its type hidden, it may hold anything, so it
 /// meets no other bound (`objectMeets`).
 pub const ApiObject = struct {
     api: ApiRef,
     builtins: Apis = .empty,
 };
+
+/// The built-in APIs an API object meets by what it names: those its
+/// braces name and those its API builds on (`api Job: Sends`), each
+/// checked on the hidden value where it is erased. The one classifier of
+/// an object's bounds, which its crossing (`blockerIn`), its erasure, and
+/// `objectMeets` read (docs/design/apis.md, Stage 5).
+pub fn objectBounds(ctx: *const SemContext, o: ApiObject) Apis {
+    return o.builtins.unionWith(builtInSupers(ctx, &.{o.api}) catch .empty);
+}
+
+/// The crossing bound a value going to a task as `how` says needs: `Sends`
+/// to be given or lent to write, `Syncs` to be read by several tasks.
+pub fn crossingBound(how: Crossing) Api {
+    return if (how == .moves) .Sends else .Syncs;
+}
+
+/// The braces of an object held as `form`, less a crossing bound the form
+/// cannot use: a read view crosses only when its value syncs, and a write
+/// view only when it sends, so `?{A + Sends}` is `?{A}` and `!{A +
+/// Syncs}` is `!{A}`, one spelling per meaning. A box keeps both.
+pub fn formBraces(builtins: Apis, form: ObjectForm) Apis {
+    var out = builtins;
+    switch (form) {
+        .read => out.remove(.Sends),
+        .write => out.remove(.Syncs),
+        .box => {},
+    }
+    return out;
+}
 
 /// Whether API `sym` declares an associated type, `type Item`: a hidden
 /// parameter after its `Self`.
@@ -5089,6 +5119,18 @@ pub const SemContext = struct {
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
+        // A view of an API object names only the crossing bound its form
+        // uses (`formBraces`): `?{A + Sends}` is `?{A}`.
+        switch (ty) {
+            .read_view, .write_view => |inner| if (apiObject(self, inner)) |o| {
+                const braces = formBraces(o.builtins, if (ty == .read_view) .read else .write);
+                if (!braces.eql(o.builtins)) {
+                    const object = try self.intern(.{ .api_object = .{ .api = o.api, .builtins = braces } });
+                    return self.intern(if (ty == .read_view) .{ .read_view = object } else .{ .write_view = object });
+                }
+            },
+            else => {},
+        }
         const id = try self.types.intern(self.allocator, ty);
         try self.syncTypeInfo();
         return id;
@@ -6247,9 +6289,9 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         // An API object may hold anything its erased type held: a view,
         // text, a Cell, a unique value. No type holds a write view but
         // a write view itself.
-        // One whose braces name `Owned` holds no loan, which its erasure
-        // checks on the value's type.
-        .api_object => |o| if (o.builtins.contains(.Owned)) .{ .cell = true, .unique = true, .views = .{ .string = true } } else .{ .cell = true, .unique = true, .views = .{ .marked = true, .string_view = true, .string = true } },
+        // One whose braces or API name `Owned` holds no loan, which its
+        // erasure checks on the value's type.
+        .api_object => |o| if (objectBounds(ctx, o).contains(.Owned)) .{ .cell = true, .unique = true, .views = .{ .string = true } } else .{ .cell = true, .unique = true, .views = .{ .marked = true, .string_view = true, .string = true } },
         .optional => |inner| return reachOf(ctx, inner, mask, into),
         .fallible => |inner| return reachOf(ctx, inner.ok, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
@@ -7760,8 +7802,8 @@ pub fn objectUnowned(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error
 }
 
 fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
-    if (objectHeld(ctx, ty)) |h| return if (h.object.builtins.contains(.Owned)) null else ty;
-    if (apiObject(ctx, ty)) |o| return if (o.builtins.contains(.Owned)) null else ty;
+    if (objectHeld(ctx, ty)) |h| return if (objectBounds(ctx, h.object).contains(.Owned)) null else ty;
+    if (apiObject(ctx, ty)) |o| return if (objectBounds(ctx, o).contains(.Owned)) null else ty;
     switch (ctx.types.get(ty)) {
         .optional, .read_view, .write_view, .shared, .weak, .range => |inner| return objectUnownedIn(ctx, inner, seen),
         .fallible => |inner| return objectUnownedIn(ctx, inner.ok, seen),
@@ -7805,12 +7847,12 @@ fn objectUnownedFields(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHas
 /// and `<` cannot compare, and an erased type crosses no task until
 /// Stage 5. A bare object meets nothing (`lacks`).
 pub fn objectMeets(ctx: *const SemContext, o: ApiObject, form: ObjectForm, api: Api) bool {
-    const named = o.builtins.unionWith(builtInSupers(ctx, &.{o.api}) catch .empty);
+    const named = objectBounds(ctx, o);
     return switch (api) {
         .Copy => form == .read,
         .Print => named.contains(.Print),
         .Clone => form == .read or (form == .box and named.contains(.Clone)),
-        .Owned => form == .box and o.builtins.contains(.Owned),
+        .Owned => form == .box and named.contains(.Owned),
         .Eq, .Hash, .Ord, .Num, .Integer, .Signed, .Iter => false,
         // The crossing walk decides these (`lacks`, `blockerOf`).
         .Sends, .Syncs => false,
@@ -9793,10 +9835,13 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
         .function => null,
         .callable => here,
         // An API object's erased type may hold anything, what goes to no
-        // task included (an owned closure, a set of tasks): it goes to no
-        // task, a local one included, until Stage 5 names crossing in
-        // its braces.
-        .api_object => here,
+        // task included (an owned closure, a set of tasks): it goes to a
+        // task only by the bound its braces or API name, checked on the
+        // hidden value where it is erased (docs/design/apis.md, Stage 5),
+        // and without it to none, a local one included. Its form's row is
+        // the wrappers' above: a read view reaches it to share, a write
+        // view and a box as they go.
+        .api_object => |o| if (objectBounds(ctx, o).contains(crossingBound(how))) null else here,
         // A type parameter goes as each instance's type does
         // (`taskParams`).
         .type_var => |param| blk: {
@@ -12426,8 +12471,8 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
     // write view of an API object lends its read view, one of another
     // Zig type (`rig.ApiView`).
     switch (types.get(view)) {
-        .read_view => |t| if (t == from) return if (kind == .write and apiObject(ctx, t) != null) lend.push(.read_only) else true,
-        .write_view => |t| if (t == from and kind == .write) return true,
+        .read_view => |t| if (t == from or objectViewOf(ctx, from, t, .read)) return if (kind == .write and apiObject(ctx, t) != null) lend.push(.read_only) else true,
+        .write_view => |t| if ((t == from or objectViewOf(ctx, from, t, .write)) and kind == .write) return true,
         else => {},
     }
     // A function, or an owned closure, lends a `?fun(...)`, one whose
@@ -12491,6 +12536,15 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         },
     }
     return false;
+}
+
+/// Whether `t` is the object a view as `form` of object `from` views: of
+/// the same API, its braces less the crossing bound the form cannot use
+/// (`formBraces`), as `?b` of a `^{A + Sends}` lends a `?{A}`.
+fn objectViewOf(ctx: *const SemContext, from: TypeId, t: TypeId, form: ObjectForm) bool {
+    const f = apiObject(ctx, from) orelse return false;
+    const o = apiObject(ctx, t) orelse return false;
+    return f.api.eql(o.api) and formBraces(f.builtins, form).eql(o.builtins);
 }
 
 /// Whether `actual` is read as `expected`, which differs from it only by

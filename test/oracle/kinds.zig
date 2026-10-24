@@ -182,10 +182,104 @@ fn objectInfo(ctx: *const SemContext, ty: TypeId) ?Info {
         .read => .{ .kind = .read_view, .holds_views = true, .holds_pointers = true, .drop_reads = false, .unsupported = null },
         .write => .{ .kind = .write_view, .holds_views = true, .holds_pointers = true, .drop_reads = false, .unsupported = null },
         .box => blk: {
-            const owned = h.object.builtins.contains(.Owned);
+            const owned = objectNames(ctx, h.object).contains(.Owned);
             break :blk .{ .kind = .owning, .holds_views = !owned, .holds_pointers = !owned, .drop_reads = !owned, .unsupported = null };
         },
     };
+}
+
+/// The built-in APIs an API object names (Core §4): its braces, and those
+/// its API and every API that builds on declare, read from the
+/// declarations (`api Job: Sends + Owned`). `Copy` and the others an
+/// object never meets do not matter here.
+pub fn objectNames(ctx: *const SemContext, o: sema.ApiObject) sema.Apis {
+    var out = o.builtins;
+    apiNames(ctx, o.api, &out, 0);
+    return out;
+}
+
+fn apiNames(ctx: *const SemContext, ref: sema.ApiRef, out: *sema.Apis, depth: u32) void {
+    if (depth > 64) return;
+    const home = sema.apiContext(ctx, ref) orelse return;
+    const sym = sema.apiSymbol(ctx, ref) orelse return;
+    out.setUnion(sym.apis);
+    for (sym.user_apis) |s| apiNames(home, s, out, depth + 1);
+}
+
+/// Whether an API object held as `form` goes to another task (`sends`)
+/// and is read by several at once (`syncs`), by its form's row (SPEC
+/// §18, Core §4): a read view does both when its value syncs, a write
+/// view goes when its value sends and is never read by two, and a box
+/// does each when its value does. Its value's facts are the bounds it
+/// names (`objectNames`), checked where its type was erased.
+pub fn objectCrosses(ctx: *const SemContext, o: sema.ApiObject, form: sema.ObjectForm, shares: bool) bool {
+    const names = objectNames(ctx, o);
+    return switch (form) {
+        .read => names.contains(.Syncs),
+        .write => !shares and names.contains(.Sends),
+        .box => names.contains(if (shares) .Syncs else .Sends),
+    };
+}
+
+/// The first API object a value of `ty` holds that does not go to a task
+/// as it is passed, to be read there (`shares`) or given or lent to
+/// write, by `objectCrosses`: through views, optionals, arrays, slices,
+/// built-in containers, boxes, a channel's elements, what a handle
+/// counted one task at a time reaches (read by the tasks that share it),
+/// and the fields of declared types. It abstains on everything else that
+/// decides crossing (null): the compiler's own walk decides those.
+pub fn objectBlocker(ctx: *const SemContext, ty: TypeId, shares: bool) std.mem.Allocator.Error!?TypeId {
+    var seen: std.AutoHashMapUnmanaged(struct { usize, sema.SymbolId, bool }, void) = .empty;
+    defer seen.deinit(ctx.allocator);
+    return objectBlockerIn(ctx, ty, shares, &seen, 0);
+}
+
+fn objectBlockerIn(ctx: *const SemContext, ty: TypeId, shares: bool, seen: anytype, depth: u32) std.mem.Allocator.Error!?TypeId {
+    if (depth > 64 or !ctx.typeInfo(ty).object) return null;
+    if (sema.objectHeld(ctx, ty)) |h| return if (objectCrosses(ctx, h.object, h.form, shares)) null else ty;
+    switch (ctx.types.get(ty)) {
+        .read_view => |inner| return objectBlockerIn(ctx, inner, true, seen, depth + 1),
+        .write_view => |inner| return objectBlockerIn(ctx, inner, shares, seen, depth + 1),
+        .optional, .range => |inner| return objectBlockerIn(ctx, inner, shares, seen, depth + 1),
+        .fallible => |f| return objectBlockerIn(ctx, f.ok, shares, seen, depth + 1),
+        .array => |a| return objectBlockerIn(ctx, a.elem, shares, seen, depth + 1),
+        .slice => |sl| return objectBlockerIn(ctx, sl.elem, shares, seen, depth + 1),
+        .results => |parts| {
+            for (parts) |part| if (try objectBlockerIn(ctx, part, shares, seen, depth + 1)) |b| return b;
+            return null;
+        },
+        // A channel's elements move to whichever task takes them; a frozen
+        // value, a Cell, and an actor hold no object another task reaches
+        // through the handle; any other `*T` or `~T` is read by the tasks
+        // that share it.
+        .shared, .weak => |inner| {
+            if (sema.chanValue(ctx, inner)) |t| return objectBlockerIn(ctx, t, false, seen, depth + 1);
+            if (sema.frozenValue(ctx, inner) != null or sema.actorValue(ctx, inner) != null or sema.isCell(ctx, inner)) return null;
+            return objectBlockerIn(ctx, inner, true, seen, depth + 1);
+        },
+        .parameterized_nominal => |pn| {
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) return null;
+            for (pn.args) |a| if (try objectBlockerIn(ctx, a, shares, seen, depth + 1)) |b| return b;
+            if (sema.isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.task_sym_id) return null;
+            return objectFieldsBlock(ctx, ty, pn.sym, shares, seen, depth);
+        },
+        .nominal => |sym| return objectFieldsBlock(ctx, ty, sym, shares, seen, depth),
+        .imported_nominal => {
+            const decl = sema.nominalDecl(ctx, ty) orelse return null;
+            return if (try objectFieldsBlock(decl.ctx, ty, decl.sym, shares, seen, depth) != null) ty else null;
+        },
+        else => return null,
+    }
+}
+
+fn objectFieldsBlock(ctx: *const SemContext, ty: TypeId, sym: sema.SymbolId, shares: bool, seen: anytype, depth: u32) std.mem.Allocator.Error!?TypeId {
+    _ = ty;
+    const got = try seen.getOrPut(ctx.allocator, .{ @intFromPtr(ctx), sym, shares });
+    if (got.found_existing) return null;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
+        for (sema.dataFields(f)) |d| if (try objectBlockerIn(ctx, d.ty, shares, seen, depth + 1)) |b| return b;
+    }
+    return null;
 }
 
 /// A walk over what a type holds, through the fields of nominal types

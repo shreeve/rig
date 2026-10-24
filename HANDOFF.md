@@ -127,7 +127,10 @@ In the owner's order:
    Phase 0, the Core, is done: CORE §1 and §4 state the rules as
    planned, from a panel the owner approved
    ([core-panel/](docs/history/records/2026-10/apis-stage5/core-panel/approved.md)).
-   Phase 1, crossing bounds in the braces, is next.
+   Phase 1, crossing bounds in the braces (`^{Job + Sends}`,
+   `?{Shape + Syncs}`), is built, in review
+   ([phase1-notes.md](docs/history/records/2026-10/apis-stage5/phase1-notes.md));
+   phase 2, `*{Shape}` and `~{Shape}`, is next.
 3. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
@@ -185,7 +188,8 @@ and phase 3, boxes of objects, `^{Shape}`
 ([phase3-notes.md](docs/history/records/2026-10/apis-stage4/phase3-notes.md)),
 each in review in turn; objects of an API with an associated type
 (phase 5) wait for a program that needs them. Stage 5, shared and
-crossing objects, is in progress (phase 0, its Core text, done); a
+crossing objects, is in progress (phase 0, its Core text, done; phase 1,
+crossing bounds, built and in review); a
 design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.

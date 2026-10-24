@@ -3721,7 +3721,8 @@ fail "apis object a number API in braces", "`Num` is provided by the built-in nu
 
   print($name(A))
 
-fail "apis object crossing in braces", "an API object that crosses tasks, `^{Shape + Sends}`, is not built yet (docs/design/apis.md, Stage 5)", "an API object that crosses tasks, `?{Shape + Syncs}`, is not built yet (docs/design/apis.md, Stage 5)"
+test "apis object crossing in braces", "^{Shape + Sends} ?{Shape + Syncs}"
+  # A crossing bound where the form uses it (Stage 5).
   api Shape
     fun area(?@) -> Float
 
@@ -5031,7 +5032,7 @@ test "apis object box an optional box erased", "0.25 true"
   if maybe as m
     print(m.area(), empty == none)
 
-fail "apis object box goes to no task", "`?s` is lent to a task to read: `?{Shape}` views an API object, whose hidden value may hold what goes to no task, a local one included", "`?b` is lent to a task to read: `?^{Shape}` holds `{Shape}`, an API object, whose hidden value may hold what goes to no task, a local one included"
+fail "apis object box goes to no task", "`?s` is lent to a task to read, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`?b` is lent to a task to read, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`"
   # The hidden value may hold what goes to no task, a local one
   # included: an owned closure, which two local tasks would both reach.
 
@@ -5396,7 +5397,7 @@ fail "apis object box frozen", "a frozen value holds only data that never change
   b: ^{Shape + Owned} = ^Square(side: 1.0)
   f = *Frozen(<b)
 
-fail "apis object box crosses no task", "`+ch` is given to a task: `*Chan[^{Shape + Owned}]` holds `{Shape + Owned}`, an API object, whose hidden value may hold what goes to no task, a local one included", "an actor runs its methods on a task of its own, and `<b` is given to it: `^{Shape + Owned}` holds `{Shape + Owned}`, an API object, whose hidden value may hold what goes to no task, a local one included", "an actor's value goes to a task of its own, and `Keeper` holds `{Shape + Owned}`, an API object, whose hidden value may hold what goes to no task, a local one included"
+fail "apis object box crosses no task", "`+ch` is given to a task: `*Chan[^{Shape + Owned}]` holds `{Shape + Owned}`, an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task", "an actor runs its methods on a task of its own, and `<b` is given to it: `^{Shape + Owned}` hides its value's type without naming `Sends`: write `^{Shape + Owned + Sends}`", "an actor's value goes to a task of its own, and `Keeper` holds `{Shape + Owned}`, an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task"
   # A channel's elements, an actor's argument, and an actor's state go
   # to other tasks; crossing is a bound in the braces (Stage 5).
   use std.task
@@ -5544,7 +5545,7 @@ test "apis object printed through a generic body by the braces", "Square(side: 1
   c: ^{Shape + Print} = ^Square(side: 2.0)
   show2(?b, ?c)
 
-fail "apis object reached in a field goes to no task", "`?h` is lent to a task to read: `?*Holder` holds `{Shape}`, an API object, whose hidden value may hold what goes to no task, a local one included", "`?v` is lent to a task to read: `?Holder` holds `{Shape}`", "`?o` is lent to a task to read: `?Holder?` holds `{Shape}`", "`par.map` calls the closure on several tasks at once, which all read what it captures, and `v` holds `{Shape}`", errors: 4
+fail "apis object reached in a field goes to no task", "`?h` is lent to a task to read: `?*Holder` holds `{Shape}`, an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task", "`?v` is lent to a task to read: `?Holder` holds `{Shape}`", "`?o` is lent to a task to read: `?Holder?` holds `{Shape}`", "`par.map` calls the closure on several tasks at once, which all read what it captures, and `v` holds `{Shape}`", errors: 4
   # An object in a field, behind a handle or an optional, or captured
   # by `par`'s closure, goes to no task: the task is not made local.
   use std.par

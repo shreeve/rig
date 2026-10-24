@@ -1279,7 +1279,7 @@ views a local of the erasing block. *(built)*
 - a `<@` method ends the box, which is dropped exactly once, even if
   the method fails;
 - `*{A}` and `~{A}` count, and an API object crosses, as below.
-  *(built;* this last line is *planned*.*)*
+  *(built;* `*{A}` and `~{A}` are *planned*.*)*
 
 ```rig
 api Shape
@@ -1342,15 +1342,15 @@ the last count is dropped. *(planned)*
 
 - `Sends` and `Syncs`, in the braces or the API, are facts of the
   hidden value, checked where it is erased (a type parameter's by its
-  bounds), as `Owned` is.
+  bounds), as `Owned` is. *(built)*
 - A box or a write view goes to another task when its value sends. A
   box, a read view, or a `*{A + Syncs}` is read by several tasks when
-  its value syncs.
+  its value syncs. *(built, but for `*{A + Syncs}`)*
 - A `*{A + Syncs}` holds only a frozen value: it counts atomically, has
-  no `~`, and names no `Owned`.
+  no `~`, and names no `Owned`. *(planned)*
 - An API object without the bound a task needs goes to no task, a
-  local one included, at any depth.
-- No API object, and no owned closure, holds a task. *(planned)*
+  local one included, at any depth. *(built)*
+- No API object, and no owned closure, holds a task. *(built)*
 
 A shared object, its weak handle, and the last count's drop:
 
@@ -1409,7 +1409,7 @@ sub main()
 
 A box whose value sends, given to a task:
 
-```rig pending
+```rig
 api Job
   fun run(?@) -> Int
 
@@ -1458,7 +1458,7 @@ sub main()
 
 An API object whose braces and API name no `Sends` goes to no task:
 
-```rig pending
+```rig reject
 api Job
   fun run(?@) -> Int
 
