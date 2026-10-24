@@ -364,3 +364,8 @@ test/reject/ownership/origin_self_path_body.rig Reader.word prod-rejects ref-gap
 test/reject/ownership/origin_self_path_body_call.rig Reader.word prod-rejects ref-gap `from @text` returns `pick(?@text, ?@name)`
 test/reject/ownership/origin_self_path_body_bound.rig Two.next prod-rejects ref-gap `from @a` returns `(!@b).next()` through a bound
 doc/CORE/35dae348303b Reader.word prod-rejects ref-gap `from @text` returns a view of `@name`
+
+# A binding of a loop's value that is a write view at every `break` holds
+# the view, as an `if`'s does (the compiler, since 384290706); the oracle
+# still reads the loop's value as a copy.
+test/reject/ownership/write_view_held_by_a_loop_value_is_lent_while_it_lives.rig main prod-rejects ref-gap a loop's write view held by the binding, read while it lives
