@@ -69,17 +69,17 @@ docs/internals/backlog.md.
 
 | # | Item | Source | Class |
 |---|---|---|---|
-| 1 | `for i in 0..f.len` of a `*Frozen[List[T]]` fails in Zig | S4 p2 | fix, **high** |
-| 2 | an object prints its hidden text quoted (`"x"`, not `x`) | S4 p3 | fix, **high** |
-| 3 | a generic `?T` of an optional view fails in Zig (track 1.7) | BL | fix, **high** |
+| 1 | `for i in 0..f.len` of a `*Frozen[List[T]]` fails in Zig | S4 p2 | done (#613) |
+| 2 | an object prints its hidden text quoted (`"x"`, not `x`) | S4 p3 | done (#628) |
+| 3 | a generic `?T` of an optional view fails in Zig (track 1.7) | BL | fixed by 742d05cd7; its sibling, an error with fields, #630 |
 | 4 | a release build of a nested-by-value chain grows past 20 minutes | BL | fix |
-| 5 | a `(^{Shape})!` or `(*{Shape})!` result does not erase its tail | S5 p2 | fix |
-| 6 | `[T: Clone]` refuses `+x` of `x: ?T` | S3 p34 | fix |
-| 7 | `if ?o as v` of a `?T?` under an API bound asks `Copy` | S3 p2 | fix |
-| 8 | inference does not see through a handle (`f(?fz)`, `first(?bx)`) | S3 p2, BL | fix |
-| 9 | a `^{Job + Owned}` result must say `from @` | S5 p1 | fix |
+| 5 | a `(^{Shape})!` or `(*{Shape})!` result does not erase its tail | S5 p2 | done (#631) |
+| 6 | `[T: Clone]` refuses `+x` of `x: ?T` | S3 p34 | #636 |
+| 7 | `if ?o as v` of a `?T?` under an API bound asks `Copy` | S3 p2 | #638 |
+| 8 | inference does not see through a handle (`f(?fz)`, `first(?bx)`) | S3 p2, BL | #640 |
+| 9 | a `^{Job + Owned}` result must say `from @` | S5 p1 | #641 |
 | 10 | an owned closure over a task-holding `T` refused by the wrong rule | S5 p1 | fix (track 1.1) |
-| 11 | an `add` method called directly takes its API's `from @` | FF | fix |
+| 11 | an `add` method called directly takes its API's `from @` | FF | owner: the oracle reads the API's `from` for every dispatched call (branch `add-from`) |
 | 12 | object messages: `+s` of `?{Shape}`, `[T: {Shape}]`, `?{Shape}?` and `?{Shape}!E` with no fix, braces across lines | S4 p1, p2 | fix |
 | 13 | an empty `api Marker`; two defaults across modules at a call | S3 p1 | check, fix |
 | 14 | a set without fields lent where a union with fields goes | BL | fix |
@@ -103,6 +103,7 @@ docs/internals/backlog.md.
 | 32 | a handle parameter lent by a capture | BL, round 1 | owner |
 | 33 | a `NetError` member for "no local port free" | round 1 | owner |
 | 34 | faulting memory in ahead (the third form) | BL | owner |
+| 35 | the compiler treats a `fun` field directly in what a write view sees as able to hold any view (stricter than CORE §7); probe s7_fun_reach.rig, in #627's oracle-fun.md | #627 | fix or ROADMAP |
 
 Stage 4's associated types in braces (`^{Source[Item: Int]}`) wait for
 a program that needs them: a ROADMAP line.

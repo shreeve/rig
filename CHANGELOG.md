@@ -286,6 +286,12 @@ changed the language since it:
   (`sema.isPlainEnum`), and the values `Int(x)`, ordering, and
   `$variants` read go through it.
 
+- **An API object prints as the value it hides:** `print(b)` of a
+  `^{Shape + Print}`, `?{Shape + Print}`, or `*{Shape + Print}` hiding
+  a String writes its text as is, as `print` of the String does, and
+  quotes it only inside a List or a field; the table's print entry
+  takes `print`'s `top` flag, as a box passes it on.
+
 - **`.len` of a List behind a shared handle is an `Int`:** `0..f.len`,
   `n = f.len`, and `f.is_empty()` of a `*Frozen[List[T]]` or a
   `*List[T]` passed the check and then failed in Zig. One classifier
