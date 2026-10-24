@@ -4520,7 +4520,8 @@ doc/learn-02-ownership/f760280c2daa main
 doc/learn-03-errors/a1bf4f2ba34f main
 doc/learn-05-text/2ee81974a525 main
 doc/learn-06-stdlib/5909f4c068da main
-doc/learn-09-safety/cff47cdac207 main
+doc/learn-08-apis/89c4a4a2aec8 main
+doc/learn-10-safety/cff47cdac207 main
 error.arg_then_write.destructure run
 error.arg_then_write.destructure_branch run
 error.arg_then_write.destructure_view run

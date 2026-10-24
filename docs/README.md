@@ -26,12 +26,13 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | How fast is it, and how was that measured? | [launch/benchmarks.md](launch/benchmarks.md), and each benchmark's README under [bench/](../bench/) |
 | What changed since the last release? | [CHANGELOG.md](../CHANGELOG.md) |
 | What is planned? | [ROADMAP.md](ROADMAP.md), and the engineering detail in [internals/backlog.md](internals/backlog.md) |
-| What does Rig guarantee, and how is it checked? | [learn/09-safety.md](learn/09-safety.md), then [formal/README.md](../formal/README.md) |
-| What does a program become, and what does it cost? | [learn/10-performance.md](learn/10-performance.md), then [DESIGN's cost model](DESIGN.md#cost-model) |
+| What does Rig guarantee, and how is it checked? | [learn/10-safety.md](learn/10-safety.md), then [formal/README.md](../formal/README.md) |
+| What does a program become, and what does it cost? | [learn/11-performance.md](learn/11-performance.md), then [DESIGN's cost model](DESIGN.md#cost-model) |
 | Where do things stand right now? | [HANDOFF.md](../HANDOFF.md) |
 | How do I work on the compiler? | [AGENTS.md](../AGENTS.md), then [internals/](internals/) and its [weak spots](internals/weak-spots.md) |
 | How do I write code once for many types? | [learn/07-generics.md](learn/07-generics.md), then [SPEC, Generic bodies](../SPEC.md#generic-bodies) and [design/apis.md](design/apis.md) |
-| How do I test Rig code? | [learn/08-tests.md](learn/08-tests.md), then [SPEC, Tests](../SPEC.md#tests) |
+| How do types share a contract, and one list hold many kinds? | [learn/08-apis.md](learn/08-apis.md), then [SPEC, APIs](../SPEC.md#apis) and [API objects](../SPEC.md#api-objects) |
+| How do I test Rig code? | [learn/09-tests.md](learn/09-tests.md), then [SPEC, Tests](../SPEC.md#tests) |
 | How does Rig's own test suite work? | [test/README.md](../test/README.md) and [internals/tests.md](internals/tests.md) |
 | What was tried before? | [history/](history/) |
 
@@ -43,7 +44,7 @@ your language, then the journeys in order: [sigils](learn/01-sigils.md),
 [ownership](learn/02-ownership.md), [errors](learn/03-errors.md),
 [concurrency](learn/04-concurrency.md), [text](learn/05-text.md),
 [the standard library](learn/06-stdlib.md), [generics](learn/07-generics.md),
-[tests](learn/08-tests.md). Then the
+[APIs](learn/08-apis.md), [tests](learn/09-tests.md). Then the
 [examples](../examples/README.md), and the [FAQ](../FAQ.md) when a
 "why" comes up.
 

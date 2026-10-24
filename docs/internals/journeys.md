@@ -12,10 +12,6 @@ brings a reader to understand one idea. Sentences run about 15 words,
 sections 100 to 300. There are no em dashes and no hype, and the prose
 is timeless: no dates, no "currently", "now", or "new".
 
-Journeys 03 and 04 run over 3,000 words, with declared error sets,
-fields, Ctrl-C, and function values crossing tasks; they are trimmed
-when APIs Stage 3 rewrites journey 07.
-
 1. **The title names what the reader gets** ("Concurrency without
    async"), not the feature.
 2. **It opens on a problem the reader already has,** in a language they
@@ -66,7 +62,7 @@ from the journey before it, and from the docs map's question table in
 
 ## The journeys still to write
 
-**11. A real program, end to end.** What a whole Rig program looks like,
+**12. A real program, end to end.** What a whole Rig program looks like,
 from the first file to a tested concurrent service. Written last.
 - Outline: modules and directory modules; errors at the boundaries; an
   actor for shared state; an HTTP front; seeded tests; a benchmark; a

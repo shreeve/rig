@@ -16,14 +16,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   that stores the argument's held loans instead of its lend. Probes:
   the cases `corekeeps-p4 store through view` and `corekeeps-p4b keeps
   through view` of test/rig/probes-08.rig.test.
-- Learn Rig journey 07 teaches APIs' Stages 1 and 2; Stage 3, a
-  program's own APIs (`api Shape`, `[T: Shape]`, `add Int: Shape`,
-  method-level bounds, associated types, `Iter` and std.iter), wants
-  its sections, and with them the trim of journeys 03 and 04
-  (docs/internals/journeys.md). Stage 4's API objects follow them: a
-  section after "Many kinds in one list" that holds a `List[^{Shape}]`
-  of two types, lends `?{Shape}` and `!{Shape}`, and ends a box with
-  `<b.close()`, beside the enum and the object of closures it replaces.
 - Several results, after v1 (SPEC "Several results"):
   - small results in registers: pack results of up to two words of
     integers, `Bool`s, and pointers into a `u128`, which Zig's default
@@ -231,3 +223,9 @@ fixing.
   type's own methods do (`b.area()` on a `^Square`); `b.describe()`, a
   default, says "no method `describe` on type `Square`". Decide whether
   a box takes the shorthand, and name the API in the message either way.
+- **A loop over a slice of a bounded `T` copies** *(checked)*. In
+  `fun total[T: Shape](xs: []T)`, both `for s in xs` and `for s in
+  ?xs` are rejected, "`T` is bounded by `Shape`, which does not give a
+  value that copies", though SPEC §6 says an element that is not plain
+  data is viewed in its slot, and `xs: ?List[T]` with `for s in xs`
+  is accepted. Journey 08 takes a `?List[T]`.

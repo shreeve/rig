@@ -409,114 +409,56 @@ sub main()
 parts, which no type declares. `Eq`, `Hash`, `Ord`, and `Print` are
 capabilities a type may give its own meaning, and `Num` is arithmetic.
 Bounds are optional: a parameter with none keeps the per-instance
-check.
+check. A bound may also be an API a program declares itself, the
+subject of the next journey.
 
-## Giving `==` a meaning of its own
+## A failure as a parameter
 
-A `Map` hashes its keys and compares them with `==`. An object does
-both by its fields. A type changes that by naming the API on its header
-and writing its method. Here tags compare without regard to case:
+A helper that runs a function it is given fails however that function
+fails. Its error set is a parameter, `E`, written after `!`:
 
 ```rig
 use std.text
 
-obj Tag: Eq + Hash + Print
-  name: String
+error Config
+  missing
+  not_a_number
 
-  fun eq(?@, other: ?Tag) -> Bool
-    a = ?@name[..]
-    b = ?other.name[..]
-    return false if a.len != b.len
-    for i in 0..a.len
-      return false if text.to_lower(a[i]) != text.to_lower(b[i])
-    true
+fun value_of(line: ?String) -> Int!Config
+  c = text.cut(line, "=") ?? return Config.missing
+  text.parse_int(text.trim(c.after)) catch return Config.not_a_number
 
-  sub hash_into(?@, h: !Hasher)
-    for b in ?@name[..]
-      !h.add(text.to_lower(b))
+fun width(line: ?String) -> Int!
+  return Config.missing if line.len == 0
+  line.len
 
-  sub print(?@, out: !Printer)
-    !out.text("#")
-    !out.text(?@name)
+fun sum[E](lines: []?String, f: ?fun(?String) -> Int!E) -> Int!E
+  n = 0
+  for line in lines
+    n += f(line)!
+  n
 
 sub main()
-  counts: Map[Tag, Int] = Map()
-  for word in ["Rig", "zig", "RIG", "rig"]
-    t = Tag(name: String(word))
-    n = counts.get(?t) ?? 0
-    !counts.put(<t, n + 1)
-  print(counts.len, counts.get(?Tag(name: String("rig"))))
-  print(Tag(name: String("Zig")), Tag(name: String("a")) == Tag(name: String("A")))
+  for lines in [["a = 1", "b = 2"], ["a = 1", "b"]]
+    v = sum(lines, value_of) catch |e|
+      match e
+        .missing => -1
+        .not_a_number => -2
+    print(v)
+  print(sum(["ab", "cde"], width) catch -1)
 ```
 
 ```output
-2 3
-#Zig true
+3
+-1
+5
 ```
 
-`obj Tag: Eq + Hash + Print` names three APIs, and each fixes the
-signature of its method. `eq` decides `==`. `hash_into` feeds the
-parts of the hash to a `Hasher`, `!h.add(...)`, which mixes them, so
-no type combines numbers by hand. `print` writes the printed form
-through a `Printer`. `Map`, `==`, and `print` then call these methods,
-for a `Tag` alone and for a `Tag` inside any other value.
-
-A hash that disagrees with `==` would lose keys. So a type with its own
-`==` and no `hash_into` cannot be hashed at all:
-
-```rig reject
-obj Tag: Eq
-  name: String
-
-  fun eq(?@, other: ?Tag) -> Bool
-    @name.len == other.name.len
-
-sub main()
-  counts: Map[Tag, Int] = Map()
-  print(counts.len)
-```
-
-```error
-`Map[Tag, Int]` cannot use `K = Tag`: `Tag` declares its own `==`, so it cannot be hashed by its fields; write `sub hash_into(?@, h: !Hasher)`
-```
-
-A `Map` and a `Set` carry the bound `Hash` on their key, so the error
-is where the map is named. A `Float` provides `Eq` and `Ord` but no
-`Hash`, so a float never keys a map.
-
-Ordering is given the same way, with `order`, which returns an `Order`:
-`.less`, `.equal`, or `.greater`. Here the most urgent job sorts first,
-and ties go by name:
-
-```rig
-use std.sort
-
-obj Job: Ord
-  priority: Int
-  name: ?String
-
-  fun order(?@, other: ?Job) -> Order
-    other.priority.order(?@priority).then(@name.order(?other.name))
-
-sub main()
-  jobs = [Job(priority: 1, name: "lint"), Job(priority: 3, name: "deploy"), Job(priority: 3, name: "build")]
-  sort.sort(!jobs)
-  for j in jobs
-    print(j.priority, j.name)
-  print(Job(priority: 5, name: "a") < Job(priority: 1, name: "a"))
-```
-
-```output
-3 build
-3 deploy
-1 lint
-true
-```
-
-`x.order(?y)` compares any two values that provide `Ord`. Comparing
-`other` to `@` reverses the order, so a higher priority comes first.
-`a.then(b)` gives `a` unless it is `.equal`, and then `b`. `sort.sort`
-is itself generic, `sort[T: Ord]`, and `<` calls the same method.
+`f: ?fun(?String) -> Int!E` is a view of a function that fails with
+the set `E`. `sum(lines, value_of)` binds `E` to `Config`, so its
+`match` names both members and needs no `_`, as journey 03 showed for a
+declared set. `sum(..., width)` binds `E` to `error`, any error. In the
+body, `!` passes on only `E`.
 
 ## Folding with `reduce`
 
@@ -589,74 +531,6 @@ sub main()
 
 The first failure ends the fold, and `!` after `reduce` passes it up.
 
-## Many kinds in one list
-
-Every instance of a generic has one `T`. A list of squares and circles
-together needs one type that covers both. Rig has two ways to write
-one.
-
-An enum with payloads is a closed set of kinds, and it may have
-methods:
-
-```rig
-enum Shape
-  square(side: Float)
-  circle(r: Float)
-
-  fun area(?@) -> Float
-    match @
-      .square(s) => s * s
-      .circle(r) => 3.14159 * r * r
-
-fun total_area[T](shapes: []T) -> Float
-  shapes.reduce(0.0, |sum, s| sum + s.area())
-
-sub main()
-  shapes = [Shape.square(side: 2.0), Shape.circle(r: 1.0), Shape.square(side: 1.0)]
-  print(total_area(shapes))
-  for s in shapes
-    print(s)
-```
-
-```output
-8.14159
-.square(side: 2.0)
-.circle(r: 1.0)
-.square(side: 1.0)
-```
-
-`total_area` is unchanged: `T` is `Shape`, and `Shape` has an `area`.
-The `match` must name every variant, so adding a kind shows every
-place that must handle it.
-
-When the set of kinds is open, an object of owned closures is a table
-of methods written by hand:
-
-```rig
-obj Step
-  name: ?String
-  run: *fun(Int) -> Int
-
-sub main()
-  steps: List[Step] = List()
-  !steps.push(Step(name: "double", run: *|x: Int| x * 2))
-  bonus = 10
-  !steps.push(Step(name: "bonus", run: *|+bonus, x: Int| x + bonus))
-  n = 5
-  for s in steps
-    n = s.run(n)
-    print(s.name, n)
-```
-
-```output
-double 10
-bonus 20
-```
-
-Each `Step` holds its own `run`, an owned closure, `*fun(Int) -> Int`,
-and the second one carries a copy of `bonus`. Calling `s.run(n)` goes
-through a function pointer, the one call in this chapter that does.
-
 ## The whole idea, on one table
 
 | You write | It means |
@@ -667,27 +541,13 @@ through a function pointer, the one call in this chapter that does.
 | `fun slots[n: Int] -> Int`, `slots[3]` | a function the compiler runs; its value is a constant |
 | `s.area()` on a `T` | the instance's own method, a direct call, typed where it stands |
 | `[T: Ord + Copy]` | a bound: the body may use only that, and each call must provide it |
-| `obj Tag: Eq + Hash`, `obj Job: Ord` | `==`, hashing, or order get the type's own meaning, everywhere |
+| `fun sum[E](f: ?fun() -> Int!E) -> Int!E` | an error set as a parameter |
 | `xs.reduce(start, f)` | a fold over a slice, an array, or a List, inlined in a release build |
-| an enum with payloads, or `*fun` fields | many kinds of value in one list |
 
 **A generic body is written once and checked against every type it
 meets; a bound moves that check into the signature.**
 
 ## What is not there yet
-
-APIs are built in stages ([design/apis.md](../design/apis.md)), and
-the first two are what this chapter shows. The third, a program's own
-APIs, `api Shape`, a parameter bounded by one, `[T: Shape]`, and one
-added to a type declared elsewhere, `add Int: Shape`, with associated
-types and `Iter`, runs as SPEC's [APIs](../../SPEC.md#apis) section
-shows, and this chapter does not teach it yet. Nor does it teach the
-fourth, API objects, which run as SPEC's
-[API objects](../../SPEC.md#api-objects) shows: a `^{Shape}` holds any
-value that provides `Shape` behind one call through a table, so a
-`List[^{Shape}]` holds many kinds, as the enum and the object of
-closures above do, and a `*{Shape}` shares one, counted, with a weak
-handle `~{Shape}`.
 
 A value parameter of a generic type or function is an integer, and a
 compile-time function cannot yet be called with one: `[slots[n]]T`
@@ -696,16 +556,15 @@ inside a generic body, text parameters, and objects are on the
 
 ## Where to go next
 
-- [Tests that fail the same way twice](08-tests.md) writes tests for
-  code like this, generic code included.
+- [Many types, one contract](08-apis.md) is the next journey: APIs of
+  a program's own, and values of many types in one list.
 - [SPEC, Generic types](../../SPEC.md#generic-types),
   [Generic functions](../../SPEC.md#generic-functions), and
   [Generic bodies](../../SPEC.md#generic-bodies) state the rules for
-  instances and inference. [Bounds](../../SPEC.md#bounds) and
-  [Own meanings](../../SPEC.md#own-meanings) state every built-in API
-  and which types provide it.
-- [design/apis.md](../design/apis.md) records the five stages of APIs,
-  and [DESIGN, Per-instance checking](../DESIGN.md#per-instance-checking-instead-of-traits)
-  the reasons for checking each instance.
+  instances and inference, [Bounds](../../SPEC.md#bounds) every
+  built-in API, and [Generic sets](../../SPEC.md#generic-sets) a set
+  as a parameter.
+- [DESIGN, Per-instance checking](../DESIGN.md#per-instance-checking-instead-of-traits)
+  gives the reasons for checking each instance.
 - [STD, reduce](../STD.md#reduce) and `std.sort` show the generic
   functions the standard library offers.
