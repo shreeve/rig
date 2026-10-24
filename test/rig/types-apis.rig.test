@@ -5031,26 +5031,30 @@ test "apis object box an optional box erased", "0.25 true"
   if maybe as m
     print(m.area(), empty == none)
 
-test "apis object box a task over a call through it is local", "9.0 9.0"
-  # Open question 14: the object may hide a value that stays on one
-  # thread, so the task stays on this one.
+fail "apis object box goes to no task", "`?s` is lent to a task to read: `?{Shape}` views an API object, whose hidden value may hold what goes to no task, a local one included", "`?b` is lent to a task to read: `?^{Shape}` holds `{Shape}`, an API object, whose hidden value may hold what goes to no task, a local one included"
+  # The hidden value may hold what goes to no task, a local one
+  # included: an owned closure, which two local tasks would both reach.
 
   api Shape
     fun area(?@) -> Float
 
-  obj Square: Shape
-    side: Float
+  obj Holder: Shape
+    f: *fun() -> Float
 
     fun area(?@) -> Float
-      @side * @side
+      (@f)()
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
 
   fun later(s: ?{Shape}) -> Float
     t = ?s.area()&
     >t
 
-  b: ^{Shape} = ^Square(side: 3.0)
-  t = ?b.area()&
-  print(>t, later(?b))
+  b: ^{Shape} = ^Holder(f: *|| 2.0)
+  t = area_of(?b)&
+  u = ?b.area()&
+  print(>t, >u, later(?b))
 
 test "apis object box a generic function's argument", "1.0"
   # A box is a value as any: `T = ^{Shape}` where no bound is needed.
@@ -5392,7 +5396,7 @@ fail "apis object box frozen", "a frozen value holds only data that never change
   b: ^{Shape + Owned} = ^Square(side: 1.0)
   f = *Frozen(<b)
 
-fail "apis object box crosses no task", "`+ch` is given to a task: `*Chan[^{Shape + Owned}]` holds `{Shape + Owned}`, an API object, whose hidden value may stay on one thread", "an actor runs its methods on a task of its own, and `<b` is given to it: `^{Shape + Owned}` holds `{Shape + Owned}`, an API object, whose hidden value may stay on one thread", "an actor's value goes to a task of its own, and `Keeper` holds `{Shape + Owned}`, an API object, whose hidden value may stay on one thread"
+fail "apis object box crosses no task", "`+ch` is given to a task: `*Chan[^{Shape + Owned}]` holds `{Shape + Owned}`, an API object, whose hidden value may hold what goes to no task, a local one included", "an actor runs its methods on a task of its own, and `<b` is given to it: `^{Shape + Owned}` holds `{Shape + Owned}`, an API object, whose hidden value may hold what goes to no task, a local one included", "an actor's value goes to a task of its own, and `Keeper` holds `{Shape + Owned}`, an API object, whose hidden value may hold what goes to no task, a local one included"
   # A channel's elements, an actor's argument, and an actor's state go
   # to other tasks; crossing is a bound in the braces (Stage 5).
   use std.task

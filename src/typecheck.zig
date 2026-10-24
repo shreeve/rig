@@ -8878,8 +8878,7 @@ const Checker = struct {
             .direct, .dynamic => null,
         } else null;
         // A call through an API object's table: its self is the object,
-        // which may hide a value that stays on one thread, so the task
-        // is local (open question 14).
+        // which goes to no task (`sema.blockerIn`).
         const dynamic: ?sema.Dispatch.Dynamic = if (self.ctx.dispatchOf(node)) |d| switch (d) {
             .dynamic => |dy| dy,
             else => null,
@@ -8922,14 +8921,6 @@ const Checker = struct {
             if (self.isPoison(part_ty)) continue;
             const as_self: ?sema.MethodReceiver = if (i == 0 and has_self) self_mode else null;
             if (!try self.crossCheck(node, part, part_ty, as_self)) return self.t().invalid_id;
-        }
-        // A call through an API object's table runs as a local task: the
-        // object may hide a value that stays on one thread (open question
-        // 14), and crossing is a bound in its braces (Stage 5).
-        if (dynamic != null and !self.ctx.isLocalTask(node)) {
-            const obj = if (has_self) ir.Member.object(callee) else ir.Call.args(node)[0];
-            const why = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`: `{s}` is an API object, whose hidden value may stay on one thread", .{ self.sourceText(stripSigil(obj)), try self.tyName(self.ctx.typeOf(obj) orelse self.t().invalid_id) });
-            try self.ctx.recordLocalTask(node, .{ .pos = self.startOf(node), .call = self.sourceText(node), .why = why });
         }
         // A task that may run on another core hands its result back to
         // the one that waits for it, so the result moves (as `par.map`'s
@@ -9032,7 +9023,7 @@ const Checker = struct {
                 "a `*` handle whose count is not atomic, so two cores could change it at once",
             .callable => "a closure or function lent for a call, whose captures its type does not show",
             .write_view => "a write view, which no two tasks may hold at once",
-            .api_object => "an API object, whose hidden value may stay on one thread",
+            .api_object => "an API object, whose hidden value may hold what goes to no task, a local one included",
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.task_sym_id and shared)
                 "a task, which only the one that holds it may wait for"
             else if (pn.sym == self.ctx.tasks_sym_id)

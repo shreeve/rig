@@ -4139,10 +4139,11 @@ cannot lend `t` to write while a read loan is live
 ```
 
 An object has no default value, so a `Table` of them holds
-`^{Shape + Owned}?`. A task over a call through an object is local:
-the hidden value may stay on one thread. An object goes to no other
-task, nor into an error's field, which holds no handle, and a Cell of
-one is Stage 5's, beside `*{Shape}` and `~{Shape}`.
+`^{Shape + Owned}?`. An object goes to no task, a local one included,
+since the hidden value may hold what goes to none (an owned closure, a
+set of tasks), nor into an error's field, which holds no handle; a
+crossing bound in its braces, and a Cell of one, are Stage 5's, beside
+`*{Shape}` and `~{Shape}`.
 
 ```rig reject
 api Shape

@@ -24,9 +24,12 @@ changed the language since it:
   where its braces or API name `Clone`, and prints where they name
   `Print`. Its loans last to its drop; with `Owned` in its braces,
   checked on the erased type, it holds none, and an owned closure takes
-  it. An object has no default value (`Table[^{Shape + Owned}?, n]`), a
-  task over a call through one is local, an error's field holds none,
-  and a Cell of one is Stage 5's. A call through a generic type at
+  it. An object has no default value (`Table[^{Shape + Owned}?, n]`), an
+  error's field holds none, and a Cell of one is Stage 5's. An object
+  goes to no task, a local one included, since its hidden value may hold
+  an owned closure or a set of tasks: this narrows Stage 4's default 14,
+  which made a task over a call through one local (the owner's decision,
+  2026-10-23). A call through a generic type at
   arguments that hold an object, `Ph[^{Shape}].mk()`, is built too. No
   value that holds a task or a set of tasks is erased, and a generic
   body prints an object only where its braces or API name `Print`. A

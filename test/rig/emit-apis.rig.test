@@ -298,17 +298,3 @@ code "apis object box the drop and clone entries", ".__rig_drop = rig.dropErased
     fun area(?@) -> Float
 
   print(1)
-
-code "apis object box a task through the table", "rig.Task(f64).spawnObjectLocal(b, \"area\", .{ })"
-  api Shape
-    fun area(?@) -> Float
-
-  obj Square: Shape
-    side: Float
-
-    fun area(?@) -> Float
-      @side * @side
-
-  b: ^{Shape} = ^Square(side: 3.0)
-  t = ?b.area()&
-  print(>t)

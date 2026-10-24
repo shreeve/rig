@@ -72,8 +72,8 @@ fix has its case; the full suite is green.
    `^{Shape}?`, `^{shapes.Shape + Clone}` across modules.
 3. **The no-default message suggests `^{Shape + Owned}?`:** right, as
    the table's no-view rule rejects `^{Shape}?`.
-4. **Any task given an object runs locally:** the Stage 5 designer's
-   second hole stands against it (below); otherwise sound: `?b.area()&`,
+4. **Any task given an object runs locally:** replaced by the owner's
+   decision (below), after the Stage 5 designer's second hole; as built it was otherwise sound: `?b.area()&`,
    `(!b).grow()&`, `<b.close()&` (fallible too), `f(<b)&`, `f(?b)&`,
    ten boxes closed in tasks, each clean under seeds 1 to 20, and a
    box lent to a task blocks a move, a write, and a scope's end.
@@ -81,7 +81,7 @@ fix has its case; the full suite is green.
    is already a `^{A}?` the fallback is erased against its type and
    runs clean both ways.
 
-## The second hole: objects and local tasks (held for the owner)
+## The second hole: objects and local tasks
 
 A `^{Shape}` hiding an owned closure reaches two local tasks at once:
 `area_of(?b)&` and `?b.area()&` with `b = ^Holder(f: *|| 2.0)` are both
@@ -90,8 +90,8 @@ accepted, where SPEC keeps an owned closure (and a set of tasks, a
 `^Holder` itself is rejected. The designer's recommended default, put
 to the owner: an API object without the crossing bound a task needs
 goes to no task, a local one included (narrowing Stage 4's default 14).
-It is prepared as a separate commit with its cases, held until the
-owner decides.
+The owner approved it ("Yes, that is the best route"), and it landed
+as its own commit with its case, "apis object box goes to no task".
 
 ## Parked
 

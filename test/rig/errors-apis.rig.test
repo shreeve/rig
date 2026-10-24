@@ -333,31 +333,3 @@ test "apis object a failing default", "4 -1"
     x.double()!
 
   print(twice(Word(s: String("ab"))) catch -1, twice(Word(s: String(""))) catch -1)
-
-test "apis object a task over a call through it", "2 -1"
-  # A task over a call through an API object is local (open question
-  # 14); its entry takes the slot the task's record gives it, so the
-  # waiter sees the failure.
-  use std.task
-
-  error Bad
-    empty
-
-  error L = Bad | task.Stop
-
-  api Sized
-    fun size(?@) -> Int!L
-
-  obj Word: Sized
-    s: String
-
-    fun size(?@) -> Int!L
-      if @s.len == 0
-        return Bad.empty
-      @s.len
-
-  fun later(x: ?{Sized}) -> Int!L
-    t = ?x.size()&
-    >t!
-
-  print(later(Word(s: String("ab"))) catch -1, later(Word(s: String(""))) catch -1)

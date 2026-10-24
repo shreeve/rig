@@ -9581,10 +9581,11 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // captures, which its type does not show.
         .function => null,
         .callable => here,
-        // An API object's erased type may hold anything; it crosses no
-        // task until Stage 5 names crossing in its braces, and goes only
-        // to a local task, which stays on this thread.
-        .api_object => if (local) null else here,
+        // An API object's erased type may hold anything, what goes to no
+        // task included (an owned closure, a set of tasks): it goes to no
+        // task, a local one included, until Stage 5 names crossing in
+        // its braces.
+        .api_object => here,
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
         .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, seen),
         .optional, .range => |inner| blockerIn(ctx, inner, how, local, seen),

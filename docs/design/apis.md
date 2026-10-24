@@ -956,7 +956,7 @@ view, local to its block; and the oracle's second opinion on each
 the boxes, `^{Shape}`: a `^T` moved in keeping its allocation, its drop
 through the table and the drop queue, `<@` methods that end the box,
 `Clone` and `Print` entries, loans to the drop, `Owned`'s no-loan
-homes, no default value, and local tasks over a call through an object
+homes, and no default value
 (SPEC, "API objects";
 [phase3-notes.md](../history/records/2026-10/apis-stage4/phase3-notes.md)).
 An object of an API with an associated type, `^{Source[Item: Int]}`,
@@ -1161,10 +1161,11 @@ numeric code, prefer a bound.
 - An object is never frozen: whether a value can be frozen is a fact of
   its type's parts, gone with the type. Freeze the value first; `?f` of
   the `*Frozen[Square]` lends a `?{Shape}`.
-- An API object does not cross to another task in this stage: a task
-  that takes one is local, as one over a call through an object is
-  (`s.area()&`), and a channel send, an actor's argument, and
-  `par.each` reject it.
+- An API object goes to no task in this stage, a local one included:
+  its hidden value may hold what goes to none, an owned closure or a set
+  of tasks, so a task over a call through one (`s.area()&`), a task
+  given or lent one, a channel send, an actor's argument, and
+  `par.each` reject it. Crossing is a bound in the braces (Stage 5).
 - A closure captures an object as it captures any view or owner, and an
   owned closure takes a `^{Shape}` only with `+ Owned`. A closure is
   never erased to an object, since a function value provides no API of
