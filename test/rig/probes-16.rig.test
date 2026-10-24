@@ -2350,6 +2350,7 @@ fail "rev255-k11 store held view match", "`absorb` stores a view of `e` in `out`
   print(out[0])
 
 fail "rev255-m01", "cannot drop `n` while it is lent"
+  # oracle: main reject C4
   use b
 
   sub main()

@@ -1076,3 +1076,65 @@ fail "origin self path names its paths", "`next_in` returns a view of `m`, but i
       @map.get(1)
 
   print(1)
+
+test "origin from self of a Map's get", '''
+  x
+  true
+'''
+  # A call's result carries the loans of only what its callee's `from`
+  # names (Core s7). `Map.get` is `-> (?V)? from @`, so a method that
+  # returns what it gives, `from @`, views no key, and the key may be
+  # dropped while its result lives.
+  # oracle: Layers.get accept
+  # oracle: Multi.get accept
+  # oracle: main accept
+
+  obj Layers[K: Hash, V]
+    layers: List[Map[K, V]] = List()
+
+    fun get(?@, k: ?K) -> (?V)? from @
+      i = @layers.len
+      while i > 0
+        i -= 1
+        if @layers[i].get(k) as v
+          return v
+      none
+
+  obj Multi[K: Hash, V]
+    m: Map[K, List[V]] = Map()
+
+    fun get(?@, key: ?K) -> (?List[V])? from @
+      ?@m.get(key)
+
+  l: Layers[String, String] = Layers()
+  mm: Map[String, String] = Map()
+  !mm.put(String("a"), String("x"))
+  !l.layers.push(<mm)
+  key = String("a")
+  got = ?l.get(?key)
+  <key
+  if got as g
+    print(g)
+  mu: Multi[String, Int] = Multi()
+  k2 = String("b")
+  print(mu.get(?k2) == none)
+
+fail "origin from self returns no key", "`bad` returns a view of `k`, but its signature says it views only `@`", "`bad2` returns a view of `k`, but its signature says it views only `@`", errors: 2
+  # The sibling shape: a method `from @` that returns the key it was
+  # lent, directly or after a `Map.get`, views what `from` does not name.
+  # oracle: Box.bad reject C6
+  # oracle: Box.bad2 reject C6
+
+  obj Box[K: Hash, V]
+    m: Map[K, V] = Map()
+
+    fun bad(?@, k: ?K) -> ?K from @
+      k
+
+    fun bad2(?@, k: ?K) -> (?K)? from @
+      if @m.get(k) as _
+        return k
+      none
+
+  b: Box[String, Int] = Box()
+  print(b.m.len)

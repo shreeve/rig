@@ -2472,3 +2472,95 @@ code "write view local writes through without repointing", '''
   w = !b
   w += 3
   print(a, b)
+
+test "write a String from a sibling field", "5 4"
+  # A `String` holds no view (Core s7: a store carries the loans of
+  # only what could hold it), so `!@b.add(@nl)` stores nothing that
+  # views `@`, through self or a write-view parameter.
+  # oracle: W.raw accept
+  # oracle: W.raw2 accept
+  # oracle: W.raw3 accept
+  # oracle: viaparam accept
+
+  obj W
+    nl: String = String()
+    b: String = String()
+    n: Int = 0
+
+    sub raw(!@)
+      @n = @b.len
+      !@b.add(@nl)
+
+    sub raw2(!@)
+      !@b.add(@nl)
+
+    sub raw3(!@)
+      !@b.add(?@nl)
+      @n = @b.len
+
+  sub viaparam(w: !W)
+    !w.b.add(w.nl)
+
+  w = W(nl: String("\n"), b: String("x"))
+  !w.raw()
+  !w.raw2()
+  !w.raw3()
+  viaparam(!w)
+  print(w.b.len, w.n)
+
+fail "write a view of self into a field that holds views", "cannot let this call store a view of `@s` in `@v`", "cannot let this call store a view of `x.s` in `x.v`", errors: 2
+  # The sibling shape: a field that can hold a view (`List[?String]`)
+  # given a view of its own value (Core §5: a value never holds a view of
+  # itself).
+  # oracle: V.selfview reject C9
+  # oracle: viewparam reject C9
+
+  obj V
+    s: String = String()
+    v: List[?String] = List()
+
+    sub selfview(!@)
+      !@v.push(?@s)
+
+  sub viewparam(x: !V)
+    !x.v.push(?x.s)
+
+  print(1)
+
+test "write a call's write view read where a value is stored", "[10, 10] 10"
+  # A `!Int` a call gives, where an `Int` is stored, is read there (SPEC
+  # §7 "Second-class views"): the lend of `v` it took ends with the
+  # read, before the place stored into is lent.
+  # oracle: main accept
+
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  obj P
+    x: Int
+
+  sub main()
+    v: List[Int] = List()
+    !v.push(10)
+    !v.push(2)
+    v[1] = slot(!v, 0)
+    p = P(x: 1)
+    p.x = slot(!v, 1)
+    slot(!v, 1) = slot(!v, 0)
+    print(v, p.x)
+
+fail "write a call's write view kept past a write", "use of `v` while a write loan is live", errors: 1
+  # The sibling shape: a `!Int` the call gives, kept in a binding, keeps
+  # `v` lent to write while it lives.
+  # oracle: main reject C4
+
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  sub main()
+    v: List[Int] = List()
+    !v.push(10)
+    w = slot(!v, 0)
+    !v.push(2)
+    w = 3
+    print(v)

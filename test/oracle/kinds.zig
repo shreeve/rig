@@ -118,7 +118,15 @@ pub const Kinds = struct {
         var scan: Scan = .{ .a = self.a };
         defer scan.seen.deinit(self.a);
         try scan.walk(ctx, ty, 0, self.generic);
-        const kind: Kind = switch (ctx.types.get(ty)) {
+        // An optional of a bounded type parameter moves or copies as the
+        // parameter's bounds say (an `E?` of an `E: Copy` copies): it
+        // holds an `E` or nothing, so a bare use of it is a use of an `E`
+        // (SPEC "Generic bodies").
+        const by_bounds: ?Kind = if (self.generic) switch (ctx.types.get(ty)) {
+            .optional => |inner| if (boundedVar(ctx, inner)) (try self.of(inner)).kind else null,
+            else => null,
+        } else null;
+        const kind: Kind = if (by_bounds) |k| k else switch (ctx.types.get(ty)) {
             .write_view => .write_view,
             .read_view, .slice, .string_view => .read_view,
             // A unique value moves and is dropped once, like an owner
@@ -147,6 +155,16 @@ pub const Kinds = struct {
         return info;
     }
 };
+
+/// Whether `ty` is a type parameter with bounds, or an optional of one,
+/// which its bounds classify (SPEC "Generic bodies").
+fn boundedVar(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .type_var => |sym| sema.implied(ctx.symbols.items[sym].apis).count() > 0,
+        .optional => |inner| boundedVar(ctx, inner),
+        else => false,
+    };
+}
 
 /// A closure, a function value, or a view of one (Core §7). A stack
 /// closure is never copied or moved, and its environment carries the

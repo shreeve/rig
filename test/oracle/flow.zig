@@ -419,12 +419,14 @@ const Checker = struct {
     }
 
     /// Whether `op` stores in var `v`: its assignment target, a var it
-    /// gains, or what a view it stores through holds a write loan on.
+    /// gains, or what a view it stores through holds a write loan on,
+    /// where that place can hold a view (Core s7: what is stored carries
+    /// the loans of what "could hold it"; a `String` holds none).
     fn storesInto(self: *Checker, op: core.Op, st: State, v: VarId) bool {
         if (op.weak != null and op.weak.? == v) return true;
         if (std.mem.findScalar(VarId, op.gains, v) != null) return true;
         for (op.through) |t| for (self.f.loans.items, 0..) |l, li| {
-            if (st.holds[t].has(li) and !l.external and l.mode != .read and l.root == v) return true;
+            if (st.holds[t].has(li) and !l.external and l.mode != .read and l.stores_views and l.root == v) return true;
         };
         return false;
     }

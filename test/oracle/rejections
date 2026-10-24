@@ -4837,6 +4837,7 @@ test/reject/probes/review258-p90_view_param_into_local_ok.rig put
 doc/CORE/f1979318878b main
 test/reject/table/table_push_while_a_slot_is_viewed.rig main
 test/reject/probes/audit-ownership-f08b_closure_returns_a_view_of_a_temporary,_called.rig main
+test/reject/probes/rev255-m01 main
 test/reject/ownership/apis_object_a_result_from_self_keeps_the_owner's_loan.rig main
 test/reject/ownership/apis_object_keeps_through_a_write_view.rig main
 test/reject/ownership/apis_object_of_a_temporary_past_its_statement.rig main
@@ -4858,3 +4859,19 @@ test/reject/ownership/apis_a_call_by_the_API's_name_keeps_what_the_API_keeps.rig
 test/reject/ownership/apis_object_shared_keeps_a_loan_to_its_last_count.rig main
 test/reject/ownership/apis_object_shared_keeps_a_loan_to_its_drop.rig main
 test/reject/ownership/apis_object_shared_a_weak_handle_keeps_the_loan.rig main
+test/reject/ownership/coalesce_view_value_keeps_views.rig main
+test/reject/ownership/origin_self_path_names_its_paths.rig Walk.next_in
+test/reject/ownership/reach_generic_field_instance_views.rig main
+test/reject/ownership/block_arm_earlier_statement_moves_an_owner_only_when_told.rig moved
+test/reject/ownership/block_arm_earlier_statement_moves_an_owner_only_when_told.rig copied
+test/reject/ownership/generic_optional_of_a_parameter_keeps_what_its_bounds_say.rig local_opt
+test/reject/ownership/generic_optional_of_a_parameter_keeps_what_its_bounds_say.rig or_hash
+test/reject/ownership/keeps_a_Map's_and_a_Set's_views_past_their_keys.rig key_dropped
+test/reject/ownership/keeps_a_Map's_and_a_Set's_views_past_their_keys.rig set_dropped
+test/reject/ownership/keeps_a_Map's_and_a_Set's_views_past_their_keys.rig write_while_viewed
+test/reject/ownership/keeps_a_Map's_and_a_Set's_views_past_their_keys.rig value_outlives
+test/reject/ownership/origin_from_self_returns_no_key.rig Box.bad
+test/reject/ownership/origin_from_self_returns_no_key.rig Box.bad2
+test/reject/ownership/write_a_view_of_self_into_a_field_that_holds_views.rig V.selfview
+test/reject/ownership/write_a_view_of_self_into_a_field_that_holds_views.rig viewparam
+test/reject/ownership/write_a_call's_write_view_kept_past_a_write.rig main
