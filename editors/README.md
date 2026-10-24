@@ -101,8 +101,10 @@ from the folder any time.
   diagnostics `rig check FILE` prints, from the same checks run in the
   server on the editor's text: types, ownership, and every other check,
   each note attached to its error as related information. A file is
-  checked as the root of its program, as `rig check FILE` checks it; an
-  error in a file it imports is published to that file. Between a change
+  checked as `rig check FILE` checks it: as the root of its program, or,
+  for a file of a directory module, as its module (SPEC §1); an error in
+  another file, of the module or one it imports, is published to that
+  file. Between a change
   and the next save, a file shows only its parse errors.
 - **Semantic tokens**, from the tokens the lexer wrapper classifies: a
   contextual word (`new`, `obj`, `unique`), a postfix `if`, or a reserved

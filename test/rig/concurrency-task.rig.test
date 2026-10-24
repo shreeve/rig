@@ -871,3 +871,201 @@ fail "task weak closure lent", "an owned closure, whose captures its type does n
   w = ~cb
   t = call(?w)&
   print(>t)
+
+fail "task generic instance owned closure", "`spawn[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is given to a task in the generic body, and `*fun() -> Int` is an owned closure, whose captures its type does not show", errors: 1
+  # A generic body gives a task its `T`; an instance whose `T` holds an
+  # owned closure is rejected where it is made, as the known type is.
+  fun use1[T](x: T) -> Int
+    1
+
+  fun spawn[T](x: T) -> Int
+    t = use1(<x)&
+    >t
+
+  cb: *fun() -> Int = *|| 4
+  print(spawn(<cb))
+
+fail "task generic instance local", "`spawn[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
+  # A local task takes no owned closure either.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T, n: ?Node) -> Int
+    n.v
+
+  fun spawn[T](x: ?T) -> Int
+    n = *Node(v: 1)
+    t = look(?x, ?n)&
+    >t
+
+  cb: *fun() -> Int = *|| 4
+  print(spawn(?cb))
+
+fail "task generic instance result", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is given back by a task in the generic body", errors: 1
+  fun mk() -> *fun() -> Int
+    *|| 4
+
+  fun call[T](f: fun() -> T) -> T
+    f()
+
+  fun go[T](f: fun() -> T) -> T
+    t = call(f)&
+    >t
+
+  g = go(mk)
+  print(g())
+
+fail "task generic instance chained", "`spawn[*fun() -> Int]` cannot use `T = *fun() -> Int`", errors: 1
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun spawn[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  fun outer[U](x: ?U) -> Int
+    spawn(?x)
+
+  cb: *fun() -> Int = *|| 4
+  print(outer(?cb))
+
+fail "task generic type instance", "`Box[*fun() -> Int].run` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Box[T]
+    x: T
+
+    fun run(?@) -> Int
+      t = look(?@x)&
+      >t
+
+  b = Box(x: 3)
+  print(b.run())
+  c = Box(x: *|| 4)
+  print(c.run())
+
+fail "task generic instance in a field", "`spawn[Holder]` cannot use `T = Holder`: a value that holds a `T` is given to a task in the generic body, and `Holder` holds `*fun() -> Int`, an owned closure", errors: 1
+  obj Holder
+    f: *fun() -> Int
+
+  fun use1[T](x: T) -> Int
+    1
+
+  fun spawn[T](x: T) -> Int
+    t = use1(<x)&
+    >t
+
+  print(spawn(Holder(f: *|| 4)))
+
+test "task generic instances that go to tasks", seeds: 20, "1 1 1 1 1"
+  # An instance whose `T` holds nothing that goes to no task gives it to
+  # tasks, local ones included, a function value among them.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun spawn[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  fun pinned[T](x: ?T) -> Int
+    n = *Node(v: 1)
+    t = look2(?x, ?n)&
+    >t
+
+  fun look2[T](x: ?T, n: ?Node) -> Int
+    n.v
+
+  fun mk() -> Int
+    2
+
+  f: fun() -> Int = mk
+  print(spawn(?3), spawn(?String("a")), pinned(?List([1])), spawn(?f), pinned(?f))
+
+fail "task generic instance stays on one thread", "`run_all[*Node]` cannot use `T = *Node`: a value that holds a `T` is lent to a task to read in the generic body, and `*Node` is a `*` handle whose count is not atomic, so two cores could change it at once; the body's task may run on another core in every instance, so it takes nothing that stays on one thread", errors: 1
+  # The body's task crosses for every instance, so no instance gives it
+  # what stays on one thread, as a known type's would make it local.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun run_all[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  n = *Node(v: 1)
+  print(run_all(?3))
+  print(run_all(?n))
+
+test "task generic instances mixed", seeds: 20, "1 1 1 2"
+  # One generic at several instances: plain data, a frozen value, and a
+  # one-word Cell cross; a `*Node` goes to a task the body pins with a
+  # value of its own that stays on one thread.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun run_all[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  fun pinned[T](x: ?T, n: ?*Node) -> Int
+    t = look2(?x, ?n)&
+    >t
+
+  fun look2[T](x: ?T, n: ?*Node) -> Int
+    n.v + 1
+
+  n = *Node(v: 1)
+  f = *Frozen(String("ice"))
+  c = *Cell(3)
+  print(run_all(?3), run_all(?f), run_all(?c), pinned(?n, ?n))
+
+test "task generic type method not reached", seeds: 20, "1"
+  # Zig compiles a method only where the program reaches it: a `run`
+  # never called gives no task the `*Node`.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Box[T]
+    x: T
+
+    fun run(?@) -> Int
+      t = look(?@x)&
+      >t
+
+    fun get(?@) -> Int
+      1
+
+  b = Box(x: *Node(v: 1))
+  print(b.get())
+
+fail "task generic type method reached in a generic body", "`Box[*Node].run` cannot use `T = *Node`", errors: 1
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Box[T]
+    x: T
+
+    fun run(?@) -> Int
+      t = look(?@x)&
+      >t
+
+  fun outer[U](x: U) -> Int
+    b = Box(x: <x)
+    b.run()
+
+  print(outer(3), outer(*Node(v: 1)))
