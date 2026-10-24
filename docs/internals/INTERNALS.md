@@ -2214,7 +2214,9 @@ program spelled, so a diagnostic names what the user wrote
 `checkSelfNesting` runs the same expansion (`expand`) from each `pub`
 generic function and type, and each method of a `pub` type, at its own
 parameters (`nest[T]`), following instances over type parameters too,
-and the methods those reach (kept apart in `Reached`, never recorded). As in the
+the methods those reach, and the calls through an API they make on a
+known type (`expandApiCallsOver`, `implInstance` recording nothing),
+all kept apart in `Reached`, never recorded. As in the
 program's expansion, a use over parameters the instance does not bind
 is left to the instances that bind them: `Chain[X]` does not follow
 `Chain[Pair[T, U]]` in its method `zip[U]`, which `zip[T, U]` follows.
@@ -2237,7 +2239,9 @@ the conformance's witness names (`Conformance.members`, so
 `typecheck.checkDeclaredApis` runs first): the type's own method after
 the type's parameters; an addition's after the addition's, which are
 its own, since no type's instance checks them (`List[Float]` is an
-instance of `add List[T]`); or a default after the API's `Self`,
+instance of `add List[T]`), though its name shows them as its type's
+arguments and only the method's own in brackets (`FnInstance.shown`,
+`Map[Int, Int].look[Float]`); or a default after the API's `Self`,
 binding nothing of its own, so that what it calls on `Self` reaches
 that type's method. It binds its own parameters at the slots the call
 recorded, and a witness that names no method, or slots that are not

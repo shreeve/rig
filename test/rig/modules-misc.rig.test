@@ -2714,6 +2714,32 @@ fail "pub generic method reaches a deeper instance across modules", "4:11: `Wrap
         w = Wrap[T?](v: none)
         w.m()
 
+fail "pub generic self nesting through an API", "10:11: `walk[K]` leads to ever deeper instances of generic functions (through `walk[Wrap[K]]`)"
+  # A public generic that nests itself through a call through an API, on
+  # a type of its module, is reported where it is declared, as one that
+  # calls itself is, though no module calls it.
+
+  use lib
+
+  sub main()
+    print(lib.Sq(n: 1).n)
+
+  file "lib.rig"
+    pub obj Wrap[T]
+      pub v: T
+
+    pub api Walk
+      fun walk[K: Copy](?@, k: K) -> Int
+
+    pub obj Sq: Walk
+      pub n: Int
+
+      pub fun walk[K: Copy](?@, k: K) -> Int
+        probe(@, k)
+
+    pub fun probe[T: Walk, K: Copy](t: ?T, k: K) -> Int
+      t.walk(Wrap(v: k))
+
 fail "pub generic self nesting", "4:9: `nest[T]` leads to ever deeper instances of generic functions (through `nest[Wrap[T]]`); a generic function cannot call itself with its own type parameters nested deeper"
   # A public generic function that calls itself with its type parameter
   # nested ever deeper has no finite set of instances. Other modules would

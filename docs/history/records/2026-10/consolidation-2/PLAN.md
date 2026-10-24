@@ -85,7 +85,7 @@ docs/internals/backlog.md.
 | 14 | a set without fields lent where a union with fields goes | BL | #644 |
 | 15 | a type only named in a generic method expanded as an instance | BL | #645 |
 | 16 | `lib.List` as an expression and as a type disagree | BL | #646 |
-| 17 | messages about instances reached through an API (#609) | BL | fix |
+| 17 | messages about instances reached through an API (#609) | BL | #647 |
 | 18 | `whole = ?@; whole.text` reported as a view of `@` | FF | ROADMAP |
 | 19 | `Hold[I: Iter]{inner: I}` refused (rule 4) | FF | ROADMAP |
 | 20 | a `?String` of a `String` with `add String: Shape` is no `?{Shape}` | S4 p2 | ROADMAP |
