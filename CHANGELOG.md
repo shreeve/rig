@@ -128,7 +128,10 @@ a loop's value that is a write view at every `break` (`l = while true`
 then `break slot(!n)`) holds the write view, as an `if` does, so `l = 1`
 writes 1 into `n`. `v0.2.9` copied the value, so such a program compiles
 under both and now writes where it read. Give the binding its value's
-type, `l: Int = while ...`, to copy as before.
+type, `l: Int = while ...`, to copy as before, or keep the view.
+`tools/migrate-0.3.py` prints a `MANUAL` line for each such binding and
+rewrites none; 2 of the 4,836 v0.2.9 programs have the shape, at one
+site each.
 
 Programs written against `main` since `v0.2.9` also meet forms that
 changed again before 0.3.0: `Moves` and `Shares` are `Sends` and
