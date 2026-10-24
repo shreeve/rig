@@ -13,6 +13,38 @@ changed the language since it:
 
 ### Language and compiler
 
+- **API objects cross tasks by a bound in their braces (APIs Stage 5,
+  phase 1):** `Sends` and `Syncs` may stand in an object's braces where
+  its form uses them (`^{Job + Sends}`, `^{Shape + Syncs}`,
+  `?{Shape + Syncs}`, `!{Shape + Sends}`) and in its API's
+  (`api Job: Sends + Owned`). Each is checked on the hidden value where
+  its type is erased, a type parameter's by its bounds, and the error
+  names the part that keeps it from crossing; then each form crosses by
+  its row of SPEC §18's table, to tasks, channels, actors, and `par`,
+  and a call through an object is a task when its self may go. A bound
+  a form cannot use is rejected toward the one it can
+  (`?{Shape + Sends}` toward `Syncs`), and a box's views name only the
+  bound their form uses. An object without the bound a task needs goes
+  to none, a local one included, naming the bound to write. An API's
+  `Owned` now counts as the braces' does, and every built-in API an
+  object's API builds on is checked at the erasure, so a generic type
+  that provides the API only where its arguments do is erased only
+  there (`^Wrap[Tok](...)` into `^{Shape}` of an `api Shape: Clone` was
+  accepted and cloned a unique value). An owned closure captures no task
+  or set of tasks: `*|<t| 7` was accepted, and let a task leave
+  `task.isolate` or hide in an API object. The reference checker gains
+  rule T1, an object given to a task without its bound. Of what this
+  rejects, v0.2.9 accepted an owned closure that captures a task,
+  `f: *fun() -> Int = *|<t| 7`; wait for the task first and capture its
+  value. A generic body's erasure of a value holding a type parameter
+  its bounds do not decide, `^Wrap[U](...)`, is checked at each instance
+  for every bound the object names: it had passed them all, so a box of
+  `Owned` could outlive what it viewed and a box of `Sends` could carry
+  a `*Int` to another core. `par.map` over read views of objects no
+  longer fails in Zig. A value erased where a task or an actor takes an
+  object crosses by that object's braces, not its known type:
+  `work(^Sum(...))&` to a `^{Job}` is rejected toward `^{Job + Sends}`.
+  `*{Shape}` and `~{Shape}` stay unbuilt.
 - **`rig check` and `rig lsp` on a file of a directory module:** the
   file is checked as its module, whose imports are beside the
   directory, so opening `src/ast/ast.rig` in an editor no longer reports

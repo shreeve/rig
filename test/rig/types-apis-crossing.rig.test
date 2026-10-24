@@ -1,0 +1,873 @@
+# types: tests whose names start `apis object crossing`: an API object
+# crosses tasks by a bound in its braces or its API (docs/design/apis.md,
+# Stage 5).
+
+test "apis object crossing a sending box given to a task", seeds: 20, "6"
+  # Core §4's example: `Sends` in the braces is checked on `Sum` where
+  # it is erased, and the box then goes to another task.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(?@) -> Int
+      n = 0
+      for x in @xs
+        n += x
+      n
+
+  fun work(j: ^{Job + Sends}) -> Int
+    j.run()
+
+  j: ^{Job + Sends} = ^Sum(xs: List([1, 2, 3]))
+  t = work(<j)&
+  print(>t)
+
+test "apis object crossing a syncing box lent to two tasks", seeds: 20, "8.0 8.0"
+  # A box whose value syncs is read by several tasks at once, lent as the
+  # box or as the read view it lends.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun total(b: ?^{Shape + Syncs}) -> Float
+    b.area() * 2.0
+
+  fun area_of(s: ?{Shape + Syncs}) -> Float
+    s.area() * 2.0
+
+  b: ^{Shape + Syncs} = ^Square(side: 2.0)
+  t = total(?b)&
+  u = area_of(?b)&
+  print(>t, >u)
+
+test "apis object crossing a syncing read view lent to a task", seeds: 20, "4.0 9.0"
+  # A read view whose value syncs goes to another task, erased where it
+  # is lent or lent on from a view of its own.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape + Syncs}) -> Float
+    s.area()
+
+  fun later(s: ?{Shape + Syncs}) -> Float
+    t = area_of(?s)&
+    >t
+
+  sq = Square(side: 2.0)
+  t = area_of(?sq)&
+  print(>t, later(?Square(side: 3.0)))
+
+test "apis object crossing a sending write view lent to a task", seeds: 20, "9.0"
+  # A write view whose value sends goes to one task, to write.
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@)
+      @side += 1.0
+
+  sub grow_it(s: !{Shape + Sends})
+    !s.grow()
+
+  b: ^{Shape + Sends} = ^Square(side: 2.0)
+  t = grow_it(!b)&
+  >t
+  print(b.area())
+
+test "apis object crossing by the API's bound", seeds: 20, "6 2"
+  # `api Job: Sends` gives `Sends` to every object of it: Stage 3 checks
+  # it of each type that provides `Job`, and the erasure checks it again.
+  api Job: Sends
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(?@) -> Int
+      n = 0
+      for x in @xs
+        n += x
+      n
+
+  fun work(j: ^{Job}) -> Int
+    j.run()
+
+  j: ^{Job} = ^Sum(xs: List([1, 2, 3]))
+  k: ^{Job} = ^Sum(xs: List([2]))
+  t = work(<j)&
+  u = work(<k)&
+  print(>t, >u)
+
+test "apis object crossing a call through the object as a task", seeds: 20, "4.0 4.0 6"
+  # A call through an object is a task when its self goes to one: lent
+  # to read with `Syncs`, given with `Sends`.
+  api Shape
+    fun area(?@) -> Float
+
+  api Job
+    fun run(<@) -> Int
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(<@) -> Int
+      n = 0
+      for x in @xs
+        n += x
+      n
+
+  b: ^{Shape + Syncs} = ^Square(side: 2.0)
+  t = ?b.area()&
+  u = ?b.area()&
+  j: ^{Job + Sends} = ^Sum(xs: List([1, 2, 3]))
+  w = (<j).run()&
+  print(>t, >u, >w)
+
+test "apis object crossing a channel of boxes", seeds: 20, "60 3"
+  # A channel's element sends and holds no loan: `api Job: Sends +
+  # Owned` gives both to every `^{Job}`.
+  use std.task
+
+  api Job: Sends + Owned
+    fun run(?@) -> Int
+
+  obj Times: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n * 10
+
+  type J = ^{Job}
+
+  sub produce(ch: *Chan[J])!
+    for i in 1..4
+      b: J = ^Times(n: i)
+      !ch.send(<b)!
+    !ch.close()
+
+  fun consume(ch: *Chan[J]) -> Int!
+    sum = 0
+    while (!ch).recv()! as j
+      sum += j.run()
+    sum
+
+  ch = *Chan[J](1)
+  p = produce(+ch)&
+  c = consume(+ch)&
+  >p!
+  print(>c!, 3)
+
+test "apis object crossing an actor's state of boxes", seeds: 20, "3 60"
+  # An actor's state holds boxes that send and hold no loan, and its
+  # method takes one from other tasks.
+  api Job
+    fun run(?@) -> Int
+
+  obj Times: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n * 10
+
+  obj Queue
+    jobs: List[^{Job + Sends + Owned}]
+
+    sub add(!@, j: ^{Job + Sends + Owned})
+      !@jobs.push(<j)
+
+    fun total(?@) -> Int
+      n = 0
+      for j in ?@jobs
+        n += j.run()
+      n
+
+    fun count(?@) -> Int
+      @jobs.len
+
+  sub feed(q: *Actor[Queue], n: Int)
+    b: ^{Job + Sends + Owned} = ^Times(n: n)
+    !q.add(<b)
+
+  q = *Actor(Queue(jobs: List()))
+  ts = Tasks[Void]()
+  for i in 1..4
+    !ts.add(feed(+q, i)&)
+  >ts
+  print(q.count(), q.total())
+
+test "apis object crossing par over boxes", seeds: 20, '''
+  [1.0, 4.0, 9.0]
+  3 [4.0, 9.0, 16.0]
+'''
+  # `par.map` reads each box from tasks on other cores, which its value
+  # syncing allows; `par.each` lends each one to write, which its value
+  # sending allows.
+  use std.par
+
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@)
+      @side += 1.0
+
+  xs: List[^{Shape + Syncs}] = List()
+  ys: List[^{Shape + Sends}] = List()
+  for i in 1..4
+    !xs.push(^Square(side: Float(i)))
+    !ys.push(^Square(side: Float(i)))
+  print(par.map(?xs, |s| s.area()))
+  par.each(!ys, |s| !s.grow())
+  print(par.map(?xs, |s| s.area()).len, [ys[0].area(), ys[1].area(), ys[2].area()])
+
+test "apis object crossing a generic erasure by its bound", seeds: 20, "6"
+  # A `T` erases to `^{Job + Sends}` under `[T: Job + Sends]`; each
+  # instance meets the bound.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(?@) -> Int
+      n = 0
+      for x in @xs
+        n += x
+      n
+
+  fun boxed[T: Job + Sends](x: ^T) -> ^{Job + Sends}
+    <x
+
+  fun work(j: ^{Job + Sends}) -> Int
+    j.run()
+
+  j = boxed(^Sum(xs: List([1, 2, 3])))
+  t = work(<j)&
+  print(>t)
+
+test "apis object crossing isolate gives a box", "4.0"
+  # `task.isolate` gives its value back on the task that called it, so
+  # a box needs no crossing bound to leave it. (`Owned`: the reference
+  # checker reads a box an isolate gives as holding a loan of the
+  # closure written in the call, which lives only for its statement.)
+  use std.task
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun mk() -> ^{Shape + Owned}
+    ^Square(side: 2.0)
+
+  b = task.isolate(|| mk()) catch return
+  print(b.area())
+
+test "apis object crossing a field and an optional", seeds: 20, "4.0 9.0"
+  # An object a value holds crosses as the object does, at any depth.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Holder
+    s: ^{Shape + Sends + Syncs}
+
+  fun val(h: ?Holder) -> Float
+    h.s.area()
+
+  fun maybe(o: ^{Shape + Sends}?) -> Float
+    if o as s
+      return s.area()
+    0.0
+
+  h = Holder(s: ^Square(side: 2.0))
+  t = val(?h)&
+  o: ^{Shape + Sends}? = ^Square(side: 3.0)
+  u = maybe(<o)&
+  print(>t, >u)
+
+test "apis object crossing the bounds in its name", "^{Shape + Sends + Syncs} ^{Shape + Owned + Sends} 1.0 1.0 2.0"
+  # The braces are part of the type's name, in one order. A view names
+  # only the bound its form uses, so a box of both lends `?{Shape +
+  # Syncs}` and `!{Shape + Sends}`, and a write view lends `?{Shape}`.
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@)
+      @side += 1.0
+
+  fun name_of[T](x: ?T) -> String
+    String($name(T))
+
+  fun read(s: ?{Shape + Syncs}) -> Float
+    s.area()
+
+  fun plain(s: ?{Shape}) -> Float
+    s.area()
+
+  fun write(s: !{Shape + Sends}) -> Float
+    plain(?s)
+
+  b: ^{Shape + Syncs + Sends} = ^Square(side: 1.0)
+  c: ^{Shape + Sends + Owned} = ^Square(side: 1.0)
+  x = read(?b)
+  y = write(!b)
+  !b.grow()
+  print(name_of(?b), name_of(?c), x, y, read(?b) / 2.0)
+
+fail "apis object crossing a box that does not send", "`Note` is erased to `^{Job + Sends}`, which goes to other tasks, but its field `cache` is a `*Map[String, Int]`, a `*` handle whose count is not atomic", errors: 1
+  api Job
+    fun run(?@) -> Int
+
+  obj Note: Job
+    cache: *Map[String, Int]
+
+    fun run(?@) -> Int
+      @cache.len
+
+  j: ^{Job + Sends} = ^Note(cache: *Map[String, Int]())
+
+fail "apis object crossing a view that does not sync", "`Grid` is erased to `?{Shape + Syncs}`, which several tasks read, but its field `hits` is a `Cell[Int]`, a value that changes through handles that stay on this core", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  obj Grid: Shape
+    hits: Cell[Int]
+
+    fun area(?@) -> Float
+      1.0
+
+  fun area_of(s: ?{Shape + Syncs}) -> Float
+    s.area()
+
+  g = *Grid(hits: Cell(0))
+  print(area_of(?g))
+
+fail "apis object crossing an owned closure hidden", "`Holder` is erased to `^{Shape + Sends}`, which goes to other tasks, but its field `f` is a `*fun() -> Float`, an owned closure, whose captures its type does not show", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  obj Holder: Shape
+    f: *fun() -> Float
+
+    fun area(?@) -> Float
+      (@f)()
+
+  b: ^{Shape + Sends} = ^Holder(f: *|| 2.0)
+
+fail "apis object crossing a box given without its bound", "`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", errors: 1
+  # oracle: main reject T1
+  # Core §4's example.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    xs: List[Int]
+
+    fun run(?@) -> Int
+      @xs.len
+
+  fun work(j: ^{Job}) -> Int
+    j.run()
+
+  j: ^{Job} = ^Sum(xs: List([1, 2, 3]))
+  t = work(<j)&
+  print(>t)
+
+fail "apis object crossing lent without its bound", "`?b` is lent to a task to read, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`", "`?s` is lent to a task to read, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`!w` is lent to a task to write, and `!{Shape}` hides its value's type without naming `Sends`: write `!{Shape + Sends}`", "`?c` is lent to a task to read, and `^{Shape + Sends}` hides its value's type without naming `Syncs`: write `^{Shape + Sends + Syncs}`", errors: 4
+  # oracle: main reject T1
+  # oracle: look reject T1
+  # oracle: write reject T1
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun look(s: ?{Shape}) -> Float
+    t = ?s.area()&
+    >t
+
+  sub touch(w: !{Shape})
+    print(w.area())
+
+  sub write(w: !{Shape})
+    t = touch(!w)&
+    >t
+
+  fun total(c: ?^{Shape + Sends}) -> Float
+    c.area()
+
+  b: ^{Shape} = ^Square(side: 2.0)
+  t = area_of(?b)&
+  c: ^{Shape + Sends} = ^Square(side: 2.0)
+  u = total(?c)&
+  print(>t, >u, look(?b))
+
+fail "apis object crossing a local task without its bound", "`?b` is lent to a task to read, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}` (a local task too: what it hides may go to no task)", errors: 1
+  # oracle: main reject T1
+  # Another part pins the task to this thread, which an object needs its
+  # bound for too: what it hides may be an owned closure.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Node
+    v: Int
+
+  fun both(n: *Node, s: ?{Shape}) -> Float
+    s.area() + Float(n.v)
+
+  n = *Node(v: 1)
+  b: ^{Shape} = ^Square(side: 2.0)
+  t = both(+n, ?b)&
+  print(>t)
+
+fail "apis object crossing a read view that names Sends", "a read view goes to another task when its value syncs: write `?{Shape + Syncs}`", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  fun area_of(s: ?{Shape + Sends}) -> Float
+    s.area()
+
+fail "apis object crossing a write view that names Syncs", "a write view is never read by two tasks at once: write `!{Shape + Sends}` for one that goes to another task", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  sub grow(s: !{Shape + Syncs})
+    print(s.area())
+
+fail "apis object crossing a generic without the bound", "`T` is erased to `^{Shape + Sends}`, but `T` is not bounded by `Sends`: write `[T: Shape + Sends]`", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  fun boxed[T: Shape](x: ^T) -> ^{Shape + Sends}
+    <x
+
+fail "apis object crossing a channel of boxes that may hold a loan", "a channel's values hold no loan, and `^{Job + Sends}` may hold one: write `^{Job + Owned + Sends}`", errors: 1
+  use std.task
+
+  api Job
+    fun run(?@) -> Int
+
+  type J = ^{Job + Sends}
+
+  ch = *Chan[J](1)
+
+fail "apis object crossing an actor's state that may hold a loan", "an actor's value holds no loan, and a `Queue` may hold a view", errors: 1
+  api Job
+    fun run(?@) -> Int
+
+  obj Times: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  obj Queue
+    jobs: List[^{Job + Sends}]
+
+  q = *Actor(Queue(jobs: List()))
+
+fail "apis object crossing a channel and an actor without Sends", "`+ch` is given to a task: `*Chan[^{Shape + Owned}]` holds `{Shape + Owned}`, an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task", "an actor runs its methods on a task of its own, and `<b` is given to it: `^{Shape + Owned}` hides its value's type without naming `Sends`: write `^{Shape + Owned + Sends}`", errors: 2
+  # oracle: main reject T1
+  use std.task
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  type B = ^{Shape + Owned}
+
+  sub feed(ch: *Chan[B])!
+    b: B = ^Square(side: 1.0)
+    !ch.send(<b)!
+
+  obj Counter
+    n: Int
+
+    sub put(!@, s: ^{Shape + Owned})
+      @n += 1
+
+  sub main()
+    ch = *Chan[B](2)
+    t = feed(+ch)&
+    >t!
+    k = *Actor(Counter(n: 0))
+    b: B = ^Square(side: 1.0)
+    !k.put(<b)
+
+fail "apis object crossing frozen", "a frozen value holds only data that never changes", errors: 1
+  # A value that syncs may hold a one-word `*Cell`, which changes: a
+  # frozen value still holds no object (open question 16).
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape + Syncs + Owned} = ^Square(side: 1.0)
+  f = *Frozen(<b)
+
+fail "apis object crossing named twice", "`Sends` is named twice in `^{Shape + Sends + Sends}`", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  fun f(b: ^{Shape + Sends + Sends}) -> Float
+    b.area()
+
+fail "apis object crossing a shared object", "a shared API object, `*{Shape + Syncs}`, is not built yet (docs/design/apis.md, Stage 5)", "a weak handle of an API object, `~{Shape}`, is not built yet (docs/design/apis.md, Stage 5)", errors: 2
+  api Shape
+    fun area(?@) -> Float
+
+  fun f(s: *{Shape + Syncs}, w: ~{Shape}) -> Float
+    1.0
+
+fail "apis object crossing an owned closure holds no task", "an owned closure holds no task: `t` is a `Task[Int]`, which only the scope that waits for it may hold; wait for it first and capture its value", "an owned closure holds no task: `ts` is a `Tasks[Int]`", errors: 2
+  # Reviewer's fix 1: a task hidden in an owned closure would leave
+  # `task.isolate`, or hide in an API object, where no rule waits for it.
+  use std.task
+
+  fun sq(n: Int) -> Int
+    n * n
+
+  t = sq(2)&
+  f: *fun() -> Int = *|<t| 7
+  ts = Tasks[Int]()
+  g: *fun() -> Int = *|<ts| 8
+  print(f(), g())
+
+fail "apis object crossing isolate gives a task in an owned closure", "an owned closure holds no task: `t` is a `Task[Int]`", errors: 1
+  use std.task
+
+  fun sq(n: Int) -> Int
+    n * n
+
+  fun mk() -> *fun() -> Int
+    t = sq(2)&
+    *|<t| 7
+
+  f = task.isolate(|| mk()) catch return
+  print(f())
+
+fail "apis object crossing a generic type that sends only where its argument does", "`Wrap[*Int]` is erased to `^{Job}`, which goes to other tasks, but `Wrap[*Int]` holds `*Int`", errors: 1
+  # Stage 3 lets `Wrap[T]` provide `Job` where its instance does; the
+  # erasure checks the API's `Sends` of the instance.
+  api Job: Sends
+    fun run(?@) -> Int
+
+  obj Wrap[T]: Job
+    x: T
+
+    fun run(?@) -> Int
+      2
+
+  w: ^{Job} = ^Wrap[*Int](x: *Int(2))
+
+fail "apis object crossing a generic type that clones only where its argument does", "`^Wrap[Tok](x: Tok(n: 1))` is erased to `^{Shape}`, whose API builds on `Clone`, and `Wrap[Tok]` is not `Clone`", errors: 1
+  # The API's other built-in bounds are checked there too: `+w` would
+  # clone a unique value through the table.
+  api Shape: Clone
+    fun area(?@) -> Float
+
+  obj Tok unique
+    n: Int
+
+  obj Wrap[T]: Shape
+    x: T
+
+    fun area(?@) -> Float
+      2.0
+
+  w: ^{Shape} = ^Wrap[Tok](x: Tok(n: 1))
+  v = +w
+  print(v.area())
+
+fail "apis object crossing a generic owned closure holds no task", "`mk[Task[Int]]` cannot use `T = Task[Int]`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan", errors: 1
+  # An instance is checked where it is made: a task may hold a view,
+  # which no owned closure captures.
+  fun sq(n: Int) -> Int
+    n * n
+
+  fun mk[T](x: T) -> *fun() -> Int
+    *|<x| 7
+
+  f = mk(3)
+  g = mk(sq(2)&)
+  print(f(), g())
+
+fail "apis object crossing a generic body erases its parameter's instance without the bound", "`go[*Int]` cannot use `U = *Int`: a value that holds a `U` is erased to `^{Job + Sends}` in the generic body, and `*Int` is a `*` handle whose count is not atomic", "`sent[*Int]` cannot use `U = *Int`: a value that holds a `U` is erased to `^{Sent}` in the generic body", errors: 2
+  # Review of phase 1: a `U` the body's bounds do not decide is decided
+  # by each instance, as the erasure of a known type is; `Wrap[U]`
+  # provides `Job` wherever its argument does.
+  api Job
+    fun run(?@) -> Int
+
+  api Sent: Sends
+    fun run(?@) -> Int
+
+  obj Wrap[U]: Job + Sent
+    u: U
+
+    fun run(?@) -> Int
+      1
+
+  fun work(j: ^{Job + Sends}) -> Int
+    j.run()
+
+  fun go[U](u: U) -> Int
+    j: ^{Job + Sends} = ^Wrap[U](u: <u)
+    t = work(<j)&
+    >t
+
+  fun sent[U](u: U) -> ^{Sent}
+    ^Wrap[U](u: <u)
+
+  h = *Int(1)
+  print(go(+h), sent(+h).run(), h)
+
+fail "apis object crossing a generic body erases its parameter's instance without the other bounds", "`go[?List[Int]]` cannot use `U = ?List[Int]`: the generic body erases a value that holds a `U` to `^{Shape}`, whose braces or API name `Owned`, and `?List[Int]` is not `Owned`", "`dup[Tok]` cannot use `U = Tok`: the generic body erases a value that holds a `U` to `^{Copied}`, whose braces or API name `Clone`, and `Tok` is not `Clone`", "`show[^{Plain}]` cannot use `U = ^{Plain}`: the generic body erases a value that holds a `U` to `^{Plain + Print}`, whose braces or API name `Print`, and `^{Plain}` is not `Print`", errors: 3
+  # The erased box of `go` outlived the List its field viewed (it printed
+  # `Wrap(u: [])`), and `+b` would clone a unique `Tok` through the table.
+  api Shape: Owned + Print
+    fun area(?@) -> Float
+
+  api Copied: Clone
+    fun area(?@) -> Float
+
+  api Plain
+    fun area(?@) -> Float
+
+  obj Tok unique
+    n: Int
+
+  obj Wrap[U]: Shape + Copied + Plain
+    u: U
+
+    fun area(?@) -> Float
+      1.0
+
+  fun go[U](u: U) -> ^{Shape}
+    ^Wrap[U](u: <u)
+
+  fun mk() -> ^{Shape}
+    n = List([1, 2, 3])
+    go(?n)
+
+  fun dup[U](u: U) -> ^{Copied}
+    b: ^{Copied} = ^Wrap[U](u: <u)
+    +b
+
+  fun show[U](u: U) -> ^{Plain + Print}
+    ^Wrap[U](u: <u)
+
+  p: ^{Plain} = ^Wrap[Int](u: 1)
+  print(mk(), dup(Tok(n: 1)).area(), show(<p))
+
+test "apis object crossing par over read views", seeds: 20, "[1.0, 4.0]"
+  # Review of phase 1: a read view of an object is lent as it is, as
+  # sema lends any read view (the runtime lent its address, which Zig
+  # rejected).
+  use std.par
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  a = Square(side: 1.0)
+  b = Square(side: 2.0)
+  xs: List[?{Shape + Syncs}] = List()
+  !xs.push(?a)
+  !xs.push(?b)
+  print(par.map(?xs, |s| s.area()))
+
+fail "apis object crossing a generic body erases its parameter's instance without the API's Eq", "`go[*fun() -> Int]` cannot use `U = *fun() -> Int`: the generic body erases a value that holds a `U` to `^{Shape}`, whose braces or API name `Eq`", errors: 1
+  # The table's `same` compares a `Wrap[U]`, which Zig rejected for an
+  # owned closure.
+  api Shape: Eq
+    fun area(?@) -> Float
+
+    fun same(?@) -> Bool
+      @ == @
+
+  obj Wrap[U]: Shape
+    u: U
+
+    fun area(?@) -> Float
+      1.0
+
+  fun go[U](u: U) -> ^{Shape}
+    ^Wrap[U](u: <u)
+
+  b = go(*|| 1)
+  print(b.same())
+
+fail "apis object crossing a held object names the bound it lacks", "`+h` is given to a task: `*H` holds `{Shape + Sends}`, an API object whose braces and API name no `Syncs`, so no two tasks may read what it hides", "`<p` is given to a task: `Pair` holds `{Shape + Syncs}`, an API object whose braces and API name no `Sends`, so what it hides may not go to another task", errors: 2
+  # Review of phase 1: what a `*H` leads to is read by the tasks that
+  # share it, so its object needs `Syncs`; a value given needs `Sends`.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj H
+    s: ^{Shape + Sends}
+
+  obj Pair
+    s: ^{Shape + Syncs}
+
+  fun f(h: *H) -> Float
+    h.s.area()
+
+  fun g(p: Pair) -> Float
+    p.s.area()
+
+  h = *H(s: ^Square(side: 1.0))
+  p = Pair(s: ^Square(side: 2.0))
+  t = f(+h)&
+  u = g(<p)&
+  print(>t, >u)
+
+fail "apis object crossing a value erased at the task's call crosses by the parameter's braces", "`^Sum(n: 3)` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`?s` is lent to a task to read, and `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", "an actor runs its methods on a task of its own, and `?s` is lent to it to read: `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", errors: 4
+  # The designer's answer to the review of phase 1: an argument erased
+  # into an object parameter crosses by the parameter's braces, as one
+  # erased before the call does, whatever its known type.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  obj Acc
+    n: Int
+
+    sub add(!@, j: ?{Job})
+      @n += j.run()
+
+  fun work(j: ^{Job}) -> Int
+    j.run()
+
+  fun look(j: ?{Job}) -> Int
+    j.run()
+
+  t = work(^Sum(n: 3))&
+  j: ^{Job} = ^Sum(n: 4)
+  u = work(<j)&
+  s = Sum(n: 5)
+  v = look(?s)&
+  a = *Actor(Acc(n: 0))
+  !a.add(?s)
+  print(>t, >u, >v)
+
+test "apis object crossing a value erased at the task's call with the bound", seeds: 20, "3 4 5 5"
+  # The same calls with the bound in the parameters' braces.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  obj Acc
+    n: Int
+
+    sub add(!@, j: ?{Job + Syncs})
+      @n += j.run()
+
+    fun get(?@) -> Int
+      @n
+
+  fun work(j: ^{Job + Sends}) -> Int
+    j.run()
+
+  fun look(j: ?{Job + Syncs}) -> Int
+    j.run()
+
+  t = work(^Sum(n: 3))&
+  j: ^{Job + Sends} = ^Sum(n: 4)
+  u = work(<j)&
+  s = Sum(n: 5)
+  v = look(?s)&
+  a = *Actor(Acc(n: 0))
+  !a.add(?s)
+  print(>t, >u, >v, a.get())

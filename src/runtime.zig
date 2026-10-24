@@ -740,8 +740,25 @@ pub inline fn selfArg(comptime f: anytype, recv: anytype) @typeInfo(@TypeOf(f)).
 /// A read view's address is a `*const`; a write view lends a read view
 /// (`read`), as `!T` lends `?T`.
 /// `builtins` are the built-in APIs its braces name after its API, as
-/// they spell them, `" + Print"`, which only `typeName` reads.
+/// they spell them, `" + Print"`, which only `typeName` reads. A view
+/// names only the crossing bound its form uses (`sema.formBraces`), so
+/// the view a box `^{Shape + Sends}` lends, `?{Shape}`, is the one a
+/// parameter of that type takes.
 pub fn ApiView(comptime Entries: type, comptime form: ApiForm, comptime builtins: []const u8) type {
+    return ApiViewOf(Entries, form, withoutBound(builtins, if (form == .read) " + Sends" else " + Syncs"));
+}
+
+/// `builtins` less `bound`, as a value equal to the literal that spells
+/// the rest, so that each spelling names one Zig type.
+fn withoutBound(comptime builtins: []const u8, comptime bound: []const u8) []const u8 {
+    comptime {
+        const i = std.mem.find(u8, builtins, bound) orelse return builtins;
+        const rest = (builtins[0..i] ++ builtins[i + bound.len ..]).* ++ [_:0]u8{};
+        return &rest;
+    }
+}
+
+fn ApiViewOf(comptime Entries: type, comptime form: ApiForm, comptime builtins: []const u8) type {
     return struct {
         ptr: if (form == .read) *const anyopaque else *anyopaque,
         vt: *const Entries,
@@ -966,9 +983,16 @@ fn copiedByReadView(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
-        .@"struct" => isWideMask(T),
+        // A read view of an API object is a view, as `sema.copiedByReadView`
+        // says: its two words are lent as they are.
+        .@"struct" => isWideMask(T) or isReadApiView(T),
         else => false,
     };
+}
+
+/// Whether `T` is a read view of an API object, `?{A}` (`ApiView`).
+fn isReadApiView(comptime T: type) bool {
+    return @hasDecl(T, "__rig_api_object") and std.mem.eql(u8, T.__rig_api_object[0], "?");
 }
 
 /// A read view of what `ptr` points to.
