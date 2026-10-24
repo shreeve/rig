@@ -914,7 +914,7 @@ pub const Checker = struct {
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
             if (r.param != param or !r.view) continue;
-            const why = if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a `?String` may view a String (a `Static` carries no loan)";
+            const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a `?String` may view a String (a `Static` carries no loan)";
             try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, why });
             try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
             return;
@@ -5584,17 +5584,8 @@ pub const Checker = struct {
             if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos));
             // An API object may hold a loan its type does not show: an
             // owned closure keeps one only where its braces name `Owned`.
-            if (owned) if (self.sema) |ctx| if (self.symType(sema.captureNameNode(cap).?.src.pos)) |ct| if (try sema.objectUnowned(ctx, ct)) |o| {
-                const h = sema.objectHeld(ctx, o);
-                var with = if (h) |x| x.object else sema.apiObject(ctx, o).?;
-                with.builtins.insert(.Owned);
-                // A view holds a loan whatever it views: a box holds none.
-                const sigil: []const u8 = if (h) |x| switch (x.form) {
-                    .shared => "*",
-                    .weak => "~",
-                    .read, .write, .box => "^",
-                } else "^";
-                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure holds no loan, and a `{s}` may hold one: write `{s}{s}`", .{ try sema.formatTypeIn(ctx, self.arena(), o), sigil, try sema.objectSpelling(ctx, self.arena(), with) });
+            if (owned) if (self.sema) |ctx| if (self.symType(sema.captureNameNode(cap).?.src.pos)) |ct| if (try sema.objectLoanReason(ctx, self.arena(), ct)) |why| {
+                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure holds no loan, and {s}", .{why});
                 value = try self.valueUnion(value, cv);
                 continue;
             };

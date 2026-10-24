@@ -32,6 +32,28 @@ changed the language since it:
   a holding, `__rig_table_Shape_of(T, W, .counted)`. A Cell of an API
   object is rejected for good, no longer as not built. The reference
   checker gains the kinds of both forms.
+- **One reason for an API object that may hold a loan:** an owned
+  closure's capture, a channel's values, a generic body's Cell, Signal,
+  or owned closure, and an `Owned` bound name the object and its fix ("a
+  `*{Shape}` may hold one: write `*{Shape + Owned}`"), where a channel
+  called a `*{Shape}` one that "may hold a view" and an instance said
+  "a view keeps what it views lent" of a `^{Shape}`.
+- **`I.Item` of any iterator:** a generic body bounded by `Iter` that
+  names `I.Item` compiles for an iterator whose item's optional holds
+  its none in the item (an object with a `Bool` or enum field, or one
+  that names its none); it failed in Zig.
+- **A fallible result erases its value:** a function returning
+  `(^{Shape})!`, `(*{Shape})!`, or `(?{Shape})!` erases its last
+  expression, `return`'s operand, and `f()!` into the object, as a
+  binding of the object's type does (`^Square(...)` was "type mismatch:
+  expected `^{Shape}!`"), by the erasure's own rules.
+- **One rule for a value hidden from a task's waiting:** an erasure to
+  an API object, a value given out of `task.isolate`, and an owned
+  closure's capture check that it holds no task by one function, for
+  its known type and for each instance's `T`. A generic owned closure
+  over a `T` made with a `Task[Int]` is refused by the task rule
+  ("captures a value that holds a `T` in an owned closure, which would
+  hide a task"), no longer by the loan rule.
 - **Frozen values:** `Frozen[T]` is no type argument, inferred as well
   as written, so a `*Frozen[T]` given where a generic `*T` goes is
   rejected toward a `T` (it failed in Zig); and the last handle of a

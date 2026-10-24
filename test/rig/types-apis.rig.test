@@ -4693,6 +4693,59 @@ test "apis object box the design's example", "4.0 9.0 3.0 2"
   !shapes.push(<c)
   print(area_of(sq), area_of(shapes[0]), shapes[1].area(), shapes.len)
 
+test "apis object box a fallible result erases its last expression and return's operand", '''
+  4.0 9.0 2.5
+  Bad.oops
+  0.0 true
+'''
+  # A result's `!` is read through by every erasure at once
+  # (`erasureTarget`): its last expression, `return`'s operand, `f()!`,
+  # and a view lent, as a binding of the object's type would be.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Named: Shape
+    name: String
+
+    fun area(?@) -> Float
+      2.5
+
+  error Bad
+    oops
+
+  fun make(n: Int) -> (^{Shape})!
+    return Bad.oops if n < 0
+    return ^Square(side: 3.0) if n > 1
+    ^Square(side: 2.0)
+
+  fun again(n: Int) -> (^{Shape})!
+    make(n)!
+
+  fun pick(s: ?Named, n: Int) -> (?{Shape})! from s
+    return Bad.oops if n < 0
+    s
+
+  fun maybe(n: Int) -> ((^{Shape})?)!
+    b: ^Square? = ^Square(side: 1.0) if n > 0 else none
+    <b
+
+  a = make(1) catch return
+  b = again(2) catch return
+  nm = Named(name: String("n"))
+  v = pick(?nm, 0) catch return
+  m = maybe(0) catch return
+  print(a.area(), b.area(), v.area())
+  c = make(-1) catch |err|
+    print(err)
+    ^Square(side: 0.0)
+  print(c.area(), m == none)
+
 test "apis object box defaults through each type", "18.0 6.0"
   api Shape
     fun area(?@) -> Float

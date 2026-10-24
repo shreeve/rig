@@ -502,7 +502,7 @@ fail "apis object crossing a generic without the bound", "`T` is erased to `^{Sh
   fun boxed[T: Shape](x: ^T) -> ^{Shape + Sends}
     <x
 
-fail "apis object crossing a channel of boxes that may hold a loan", "a channel's values hold no loan, and `^{Job + Sends}` may hold one: write `^{Job + Owned + Sends}`", errors: 1
+fail "apis object crossing a channel of boxes that may hold a loan", "a channel's values hold no loan, and a `^{Job + Sends}` may hold one: write `^{Job + Owned + Sends}`", errors: 1
   use std.task
 
   api Job
@@ -667,9 +667,10 @@ fail "apis object crossing a generic type that clones only where its argument do
   v = +w
   print(v.area())
 
-fail "apis object crossing a generic owned closure holds no task", "`mk[Task[Int]]` cannot use `T = Task[Int]`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan", errors: 1
-  # An instance is checked where it is made: a task may hold a view,
-  # which no owned closure captures.
+fail "apis object crossing a generic owned closure holds no task", "`mk[Task[Int]]` cannot use `T = Task[Int]`: the generic body captures a value that holds a `T` in an owned closure, which would hide a task from the rules that wait for one, and a `Task[Int]` holds one", errors: 1
+  # An instance is checked where it is made, by the rule a capture of a
+  # known type meets (`hidesNoTask`), not by the loan rule a task also
+  # fails.
   fun sq(n: Int) -> Int
     n * n
 
@@ -679,6 +680,24 @@ fail "apis object crossing a generic owned closure holds no task", "`mk[Task[Int
   f = mk(3)
   g = mk(sq(2)&)
   print(f(), g())
+
+fail "apis object crossing a generic owned closure over a value holding its parameter holds no task", "`mk[Task[Int]]` cannot use `T = Task[Int]`: the generic body captures a value that holds a `T` in an owned closure, which would hide a task from the rules that wait for one", errors: 1
+  # The capture holds the `T` in a field; the instance is made through
+  # another generic body.
+  fun sq(n: Int) -> Int
+    n * n
+
+  obj Hold[T]
+    t: T
+
+  fun mk[T](x: Hold[T]) -> *fun() -> Int
+    *|<x| 7
+
+  fun outer[U](u: U) -> *fun() -> Int
+    mk(Hold(t: <u))
+
+  g = outer(sq(2)&)
+  print(g())
 
 fail "apis object crossing a generic body erases its parameter's instance without the bound", "`go[*Int]` cannot use `U = *Int`: a value that holds a `U` is erased to `^{Job + Sends}` in the generic body, and `*Int` is a `*` handle whose count is not atomic", "`sent[*Int]` cannot use `U = *Int`: a value that holds a `U` is erased to `^{Sent}` in the generic body", errors: 2
   # Review of phase 1: a `U` the body's bounds do not decide is decided
