@@ -13,6 +13,15 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Docs: shared and crossing API objects in the Core (APIs Stage 5,
+  phase 0):** CORE §1, §4, and sentences 8 and 9 state, as planned, that
+  `*{Shape}` counts a value of hidden type and `~{Shape}` is its weak
+  handle, that a frozen value's handle erases only to
+  `*{Shape + Syncs}`, and that an API object crosses tasks only by a
+  bound it names, with five `rig pending` examples; SPEC §18's crossing
+  table gains the objects' rows, marked planned. docs/design/apis.md's
+  Stage 5 and its build plan follow the approved text. Nothing is built
+  yet.
 - **Boxes of API objects (APIs Stage 4, phase 3):** a `^T` moves into a
   `^{Shape}` and keeps its allocation, `<c` or a `^Square(...)` written
   where one goes, and a `^T?` into a `^{Shape}?`. A box lends its

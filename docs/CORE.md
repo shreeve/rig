@@ -70,7 +70,7 @@ side; Rig names everything from the side the sigil is on.
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, objects whose parts are all plain | copies | built |
 | **owning** | `List[T]`, `^T` (`^{A}` too), `String`, `error`, objects holding an owner | moves; one owner; dropped once | built |
-| **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
+| **handle** | `*T` (counted; `*{A}` too), `~T` (weak; `~{A}` too), owned closures (`*fun`) | moves; `+h` adds a count | built; `*{A}`, `~{A}` planned |
 | **view** | `?T`, `!T` (`?{A}`, `!{A}` too), `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** An object
@@ -750,10 +750,12 @@ true 10
 value there; `^<x` and `^S(...)` put a value alone in a box.** A box has
 one owner and no count: it moves, and `+b` copies its value into a new
 box. A value is held one way on the heap, as `^T`, `*T`, or `~T`, so a
-holding sigil over a held value (`^*T`, `**T`, `*~T`) is rejected. Handles only
-read (a `Cell` inside one changes by a marked call: sentence 9). `~h`
-holds the counted value weakly, and `*w` is the way back: a new handle
-while the value lives, `none` after. *(built)*
+holding sigil over a held value (`^*T`, `**T`, `*~T`) is rejected; an
+API object is held the same three ways, `^{A}`, `*{A}`, and `~{A}`
+(§4). Handles only read (a `Cell` inside one changes by a marked call:
+sentence 9). `~h` holds the counted value weakly, and `*w` is the way
+back: a new handle while the value lives, `none` after. *(built;*
+`*{A}` and `~{A}` are *planned*.*)*
 
 ```rig
 obj User
@@ -788,10 +790,11 @@ lives only behind `*`: never a local, parameter, element, or type
 argument by value. It holds only data that never changes: no `Cell`,
 `Signal`, task, closure, view, or handle but another frozen value's.
 So nothing it reaches ever changes, its handles are counted atomically
-and go to any task, and `?f` lends the frozen value as a `?T`.
-`Cell`, `Signal`, and owned closures are no-loan homes: they hold no
-view that carries a loan, so they keep text only as a `Static`; a `*T`
-carries the loans of what it holds. *(built)*
+and go to any task, and erased they are a `*{A + Syncs}` (§4), and `?f`
+lends the frozen value as a `?T`. `Cell`, `Signal`, and owned closures
+are no-loan homes: they hold no view that carries a loan, so they keep
+text only as a `Static`; a `*T` carries the loans of what it holds.
+*(built;* erasing a frozen value's handles is *planned*.*)*
 
 ```rig
 sub main()
@@ -1118,7 +1121,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | `![]T` | `[]T` | `![]T` (lent on) | built |
 | `String` | `?String` (also `(?String)?`) | `!String` | built |
 | `^T` | the views of `T` | the write views of `T` | built |
-| `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | built |
+| `*T`, `*{A}` | the read views of `T`; of a `*{A}`, the `?{A}` it holds | nothing of the value (`!h` lends the handle itself) | built; `*{A}` planned |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 | a `T` that provides `A` | `?{A}` | `!{A}` | built |
@@ -1275,7 +1278,8 @@ views a local of the erasing block. *(built)*
   a `^{A}` has a `+`;
 - a `<@` method ends the box, which is dropped exactly once, even if
   the method fails;
-- `*{A}` and `~{A}` are Stage 5's. *(built)*
+- `*{A}` and `~{A}` count, and an API object crosses, as below.
+  *(built;* this last line is *planned*.*)*
 
 ```rig
 api Shape
@@ -1324,6 +1328,157 @@ sub main()
 
 ```error
 cannot lend `v` to write while a read loan is live
+```
+
+**A shared API object counts a value of hidden type, and an API object
+crosses tasks only by a bound it names.** `*{A}` is a counted handle to
+a value of some type that provides `A`, and `~{A}` is its weak handle.
+A `*T` moves into a `*{A}`, keeping its allocation, and a frozen
+value's handle only into a `*{A + Syncs}`. A handle is erased only as
+it moves or counts, never through a view. Like every handle, it only
+reads: calls reach `?@` methods, `?s` lends the `?{A}` it holds, and
+`+s` adds a count. Both forms carry the loans of what they hold until
+the last count is dropped. *(planned)*
+
+- `Sends` and `Syncs`, in the braces or the API, are facts of the
+  hidden value, checked where it is erased (a type parameter's by its
+  bounds), as `Owned` is.
+- A box or a write view goes to another task when its value sends. A
+  box, a read view, or a `*{A + Syncs}` is read by several tasks when
+  its value syncs.
+- A `*{A + Syncs}` holds only a frozen value: it counts atomically, has
+  no `~`, and names no `Owned`.
+- An API object without the bound a task needs goes to no task, a
+  local one included, at any depth.
+- No API object, and no owned closure, holds a task. *(planned)*
+
+A shared object, its weak handle, and the last count's drop:
+
+```rig pending
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+sub main()
+  s: *{Shape} = *Square(side: 2.0)
+  w = ~s
+  if *w as h
+    print(h.area())
+  <s
+  if *w as h
+    print("still here")
+  else
+    print("gone")
+```
+
+```output
+4.0
+gone
+```
+
+A frozen value erased, read by two tasks:
+
+```rig pending
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+fun area_of(s: *{Shape + Syncs}) -> Float
+  s.area()
+
+sub main()
+  s: *{Shape + Syncs} = *Frozen(Square(side: 2.0))
+  a = area_of(+s)&
+  b = area_of(+s)&
+  print(>a + >b)
+```
+
+```output
+8.0
+```
+
+A box whose value sends, given to a task:
+
+```rig pending
+api Job
+  fun run(?@) -> Int
+
+obj Sum: Job
+  xs: List[Int]
+
+  fun run(?@) -> Int
+    n = 0
+    for x in @xs
+      n += x
+    n
+
+fun work(j: ^{Job + Sends}) -> Int
+  j.run()
+
+sub main()
+  j: ^{Job + Sends} = ^Sum(xs: List([1, 2, 3]))
+  t = work(<j)&
+  print(>t)
+```
+
+```output
+6
+```
+
+A `*T` whose count is not atomic is no `*{A + Syncs}`:
+
+```rig pending
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+sub main()
+  s: *{Shape + Syncs} = *Square(side: 2.0)
+  print(s.area())
+```
+
+```error
+`*Square` is erased to `*{Shape + Syncs}`, which several tasks read, but its count is not atomic: freeze the value, `*Frozen(...)`
+```
+
+An API object whose braces and API name no `Sends` goes to no task:
+
+```rig pending
+api Job
+  fun run(?@) -> Int
+
+obj Sum: Job
+  xs: List[Int]
+
+  fun run(?@) -> Int
+    @xs.len
+
+fun work(j: ^{Job}) -> Int
+  j.run()
+
+sub main()
+  j: ^{Job} = ^Sum(xs: List([1, 2, 3]))
+  t = work(<j)&
+  print(>t)
+```
+
+```error
+`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`
 ```
 
 ## 5. Containers and fields hold values

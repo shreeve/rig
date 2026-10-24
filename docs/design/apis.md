@@ -43,7 +43,7 @@ it.
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Sends`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
 | 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(built)* |
 | 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(in part: the types, the views, and calls through them)* |
-| 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Sends}` | *(planned)* |
+| 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `~{Shape}`, `^{Job + Sends}`, `?{Job + Syncs}` | *(planned: designed, its Core change awaiting the owner)* |
 
 Two principles hold across every stage:
 
@@ -1220,23 +1220,308 @@ cannot assign through `w`, a `!{Shape}`: the value it views may be of another ty
 
 ## Stage 5: shared objects, and crossing tasks *(planned)*
 
-- **`*{Shape}`**, a counted handle to an API object, calls only `?@`
-  methods, as any handle does; `+s` counts. Its table also holds the
-  count operations, since a `Shared`'s layout and whether its counts
-  are atomic depend on the hidden type. **`~{Shape}`** is its weak
-  handle.
-- **Crossing tasks** is a bound in the braces, checked where the type is
-  erased, where it is still known: `^{Job + Sends}` may move to another
-  task, `?{Job + Syncs}` may be read by several. A job queue and an
-  actor's messages are the cases this serves.
-- Once `*{...}` exists, an owned closure, `*fun`, may be lowered the
-  same way, saving one allocation per closure.
-- `*Frozen[T]` already gives a value whose type is known to many tasks,
-  counted atomically. An erased value read by many tasks is the case
-  left here, its crossing checked where the type is erased.
-- An API that builds on a crossing fact, `api Job: Sends`, describes
-  every type that provides it; whether `^{Job}` then crosses without
-  `+ Sends` in its braces is this stage's to decide.
+*Designed and approved (2026-10-23), not built.* The owner: "Approve
+the Stage 5 CORE text as written in core-stage5/6-final.md and #615's
+design defaults (with the reviewer's three fixes). Build Stage 5 in
+phases with adversarial reviews; land each after the suite and light
+gate." Its ownership rules are CORE §4's paragraph "A shared API object
+counts a value of hidden type", *(planned)*, revised by a Core panel
+([core-panel/](../history/records/2026-10/apis-stage5/core-panel/))
+from the draft in
+[core-draft.md](../history/records/2026-10/apis-stage5/core-draft.md);
+the phases are in
+[build-plan.md](../history/records/2026-10/apis-stage5/build-plan.md),
+and what this section decides by default is in
+[open-questions.md](../history/records/2026-10/apis-stage5/open-questions.md).
+It builds on Stage 4's tables, erasure, and boxes.
+
+Stage 5 adds the last two holding forms of an API object, `*{Shape}`
+and `~{Shape}`, and lets every form cross tasks by a bound in its
+braces:
+
+```text
+api Shape
+  fun area(?@) -> Float
+
+api Job: Sends + Owned                  # every Job may go to another task, and holds no loan
+  fun run(?@) -> Int
+
+fun area_of(s: *{Shape + Syncs}) -> Float
+  s.area()
+
+sub main()
+  s: *{Shape} = *Square(side: 2.0)      # a counted handle, made where the `*` is written
+  t = +s                                # a new count, through the table
+  w = ~s                                # its weak handle, a `~{Shape}`
+  print(t.area())                       # `?@` methods only, as through any handle
+  f: *{Shape + Syncs} = *Frozen(Square(side: 3.0))
+  a = area_of(+f)&                      # counted atomically, so read by many tasks
+  b = area_of(+f)&
+  print(>a + >b)
+  jobs: List[^{Job}] = List()           # `Job` builds on `Sends`, so each box may go to a task
+```
+
+Who needs it: a value of hidden type kept by several owners in one
+task (a tree's nodes with weak parents, listeners registered in several
+places, a registry of plugins), and an erased value many tasks read (a
+configuration, a set of rules compiled once). A `*Frozen[T]` already
+gives the second for a value whose type is known; `*{A + Syncs}` gives
+it for one whose type is erased.
+
+### `*{Shape}`, a shared object
+
+A counted handle to a value of some type that provides `Shape`. It is
+made, as every object is, at an expected type, where the type is still
+known:
+
+- `<h` of a `h: *Square` moves the handle in and keeps its allocation,
+  and `+h` adds a count first;
+- `*Square(side: 2.0)` and `*<sq`, written where a `*{Shape}` goes, make
+  the allocation there;
+- a frozen value's handle, `*Frozen(Square(side: 2.0))` or a
+  `*Frozen[Square]`, becomes only a `*{Shape + Syncs}`, whose counts are
+  atomic (below), never a `*{Shape}`.
+
+A handle is erased only as it moves or counts, never through a view:
+`!sq` lent as a `!*{Shape}` would let a `Circle` be written into a
+`*Square`, and a `?*Square` read as a `?*{Shape}` would read eight
+bytes as sixteen. Nothing else becomes one. An actor's or a channel's handle does not:
+their methods are messages, not the value's. A box does not: `*<b` of a
+`^{Shape}` would move a value whose size is erased, so a value is shared
+before it is erased. A holding sigil over a held object is rejected, as
+over any held value (CORE sentence 8): `*^{Shape}`, `^*{Shape}`.
+
+It is a handle, so it only reads (CORE sentence 8):
+
+- a call through it reaches the API's `?@` methods; a `!@` or `<@`
+  method is rejected, with the fix: hold a `^{Shape}`, or change the
+  value through a `Cell` it holds;
+- `?s` lends the `?{Shape}` it holds, by the `*T` row of the lend table,
+  at no cost (the same two words); `!s` lends the handle itself, as `!h`
+  of a `*T` does;
+- `+s` adds a count, never a clone, so `Clone` in its braces is
+  rejected; `<s` moves it; a drop gives a count back, and the last one
+  drops the value;
+- `Print` and `Owned` in its braces are checked on the value where it is
+  erased, as for every object.
+
+A type that holds a `Cell` lives only behind `*` (CORE sentence 9), so
+`*{A}` is the one object such a type makes. Its `?@` methods change the
+Cell by a marked call, as through a `*T`; that is how a shared object
+changes.
+
+**Its table holds the count operations.** A `Shared`'s layout, and
+whether its counts are atomic, depend on the hidden type, so a
+`*{Shape}` cannot count inline as a `*Square` does. The object is
+`{ptr, vt}`, sixteen bytes, as every object is; `ptr` is the address of
+the value inside its counted allocation, so `?s` is the same two words
+and every method entry is the one views and boxes call. The table gains
+the entries of the allocation: share (`+s`), drop (a count given back,
+the last dropping the value through the drop queue a `*T` uses), and
+the weak ones (make, clone, drop, and upgrade a weak handle). Each
+reaches the counts from the value's address by the allocation's layout.
+
+**The holding follows from the braces.** A `*{Shape}` holds a `*T`'s
+allocation and counts plainly; a `*{Shape + Syncs}` holds a frozen
+value's and counts atomically; neither becomes the other, so atomicity
+is never checked per instance. A `*Square` erases with the entries of
+`Counted(Square, false)`, a `*Frozen[Square]` with those of
+`Counted(Square, true)`. The compiler picks the table,
+`__rig_table_Shape_of(T, W, holding)`, and nothing at run time asks:
+one table per API, type, and holding (a box, a `*T`'s allocation, a
+frozen value's), made by Zig only where a conversion names it. Under
+`api Shape: Syncs`, every `*{Shape}` is a `*{Shape + Syncs}`, so it
+takes only a frozen value, and the error names the API.
+
+**What it costs.** A call through a `*{Shape}` costs what a call
+through a `?{Shape}` does: the same entry. `+s` and a drop are an
+indirect call to an entry, a few cycles more than the inline count of a
+`*T`, and atomic only in a `*{Shape + Syncs}`.
+Phase 2 measures both against a `*T` (`bench/apis`).
+
+### `~{Shape}`, a weak one
+
+`~s` of a `*{Shape}` makes a `~{Shape}`; `*w` gives a `*{Shape}?`, a
+new count while the value lives and `none` after; `+w` makes another
+weak handle. It exists only for a `*{Shape}` that does not sync, so its
+counts are always plain, and it never crosses, so its braces are its
+handle's without a crossing bound. `~` of a `*{Shape + Syncs}` is
+rejected, as a frozen value has no weak handle: an upgrade on one core
+would race the atomic last drop on another. It carries the loans its
+`*{Shape}` carries, so `*w` never gives a count that has escaped them.
+
+### Crossing tasks: a bound in the braces
+
+`Sends` and `Syncs` join `Owned`, `Print`, and `Clone` among the
+built-in APIs braces may name. Like `Owned`, each is a fact of the
+hidden value, checked where its type is erased, by the classifier that
+decides it for every type (`sema.crossingBlocker`). An API that builds
+on one gives it to every object of the API, since Stage 3 checks it at
+every type that provides the API: `^{Job}` of `api Job: Sends` is
+`^{Job + Sends}`. Then each form crosses by its own row of SPEC §18's
+table, with the hidden value as its `T`:
+
+| Form | sends: may go to another task | syncs: may be read by several at once | Its braces may name |
+|---|---|---|---|
+| `?{A}` | when the value syncs | when the value syncs | `Syncs` |
+| `!{A}` | when the value sends | never | `Sends` |
+| `^{A}` | when the value sends | when the value syncs | `Sends`, `Syncs` |
+| `*{A}` | never | never | `Syncs`, making it the next row |
+| `*{A + Syncs}` (a frozen value's) | yes | yes | no `Owned`: a frozen value holds no view |
+| `~{A}` | never | never | neither |
+
+A bound a form cannot use is rejected toward the one it can, so each
+meaning has one spelling: `?{Shape + Sends}`, `!{Shape + Syncs}`,
+`*{Shape + Sends}`, and a crossing bound in a `~{...}`. A bound the API
+names that a form cannot use is no error: it describes the value, and
+`?{Job}` of `api Job: Sends` does not cross.
+
+**A shared object crosses by its count.** `*{A + Syncs}`, written or
+by its API, takes only a frozen value's handle, which counts
+atomically and whose value never changes. A `*Square` erased to one is
+rejected toward freezing it, and in a generic body only a
+`*Frozen[T]` erases to one, never a `*T` whose `T` syncs. `Owned` in
+its braces is rejected, so it has one spelling.
+
+**Where it is checked.** At the erasure, where the type is known, as
+`Owned` is: the hidden value against the bounds, by `crossingBlocker`,
+the error naming the part that keeps it from crossing. In a generic
+body, a `T` erases to `^{Shape + Sends}` only under `[T: Shape +
+Sends]`, and the error names the bound to add. After the erasure,
+nothing looks at the hidden type again: an object crosses by its
+braces alone.
+
+**What goes where.** The rules for tasks, channels, actors, and `par`
+are unchanged; objects meet them by the table above:
+
+- A task's argument: `work(<j)&` gives it a `^{Job + Sends}`;
+  `total(?b)&` lends it a `^{Shape + Syncs}` to read; `area_of(+f)&`
+  gives it a `*{Shape + Syncs}`.
+- A channel's element moves and holds no view, so it is
+  `*Chan[^{Job + Sends + Owned}]`, or `*Chan[^{Job}]` of an
+  `api Job: Sends + Owned`. `Sends` never implies `Owned`: a task keeps
+  the loans of what it is given, but a channel, an actor's state, and
+  an owned closure keep none.
+- An actor's state holds `^{Job + Sends + Owned}` fields; its methods
+  take boxes that send and read views of what syncs, and give results
+  that send, as for any type.
+- `par.map(?xs, f)` reads a `List[^{Shape + Syncs}]` from every task, and
+  `par.each(!xs, f)` hands out the elements of a `List[^{Shape +
+  Sends}]`; a closure written there captures an object by the same rows.
+- A frozen value may hold `*{A + Syncs}` handles, which are other
+  frozen values' (CORE sentence 9), so `*Frozen(List[*{Plugin +
+  Syncs}])`, a shared plugin registry, works. It holds no other
+  object: a box or a view that syncs may hold a one-word `*Cell`,
+  which changes. The erased value many tasks read is a frozen value
+  erased, `*{A + Syncs}`: freeze first, then erase.
+- `task.isolate` and `task.supervise` take and give objects by these
+  rules and their own.
+
+**An object without the bound goes to no task, a local one included**
+(open question 13). The hidden value may hold an owned closure, which
+SPEC keeps from every task, a local one too, because its type does not
+show its captures; an object hides more. Stage 4's phase 3 lets an
+object go to a local task, so a `^{Shape}` hiding an owned closure
+reaches two local tasks at once. Approved: closed with this rule, at
+any depth of what the task is given, which narrows Stage 4's approved
+open question 14. Its cost is recorded as a limit: a GUI's render task,
+`render(?root)&` over a `*{Widget}` tree, is rejected, though a
+`*Widget` tree, or a frozen `*{Widget + Syncs}` tree, works.
+
+**An object never hides a task or a set of tasks** (open question 14).
+A task is bound to the scope that waits for it, and an erased drop
+would hide that wait: `task.isolate(|| mk())` gives a `^{Shape}`
+hiding a task started inside it, which isolate rejects for any value
+whose type shows one. Approved: rejected at the erasure, naming the
+field. **No owned closure holds a task either:** `*|<t| 7` in an object
+left `task.isolate` (probed), since `holdsTask` read no captures; a
+closure's captures are now walked, and a type parameter by its
+instance (`Requirement.no_task`).
+
+### Owned closures as one-method objects
+
+Today an owned closure, `*fun(A) -> R`, is a `*` handle to a
+`rig.Closure`, which holds the environment's address, its call, and
+its drop: two allocations per closure (the environment and the counted
+closure), and a call loads the function from the counted one. Once
+`*{...}` exists, the same value can be a shared object of one method:
+one counted allocation of the environment, and a handle `{ptr, vt}`
+whose static table holds the call, the drop, and the counts. The
+language does not change: `*fun` keeps its type, its rules, and its
+crossing (never), and `~fun` is its weak handle.
+
+The cost, measured on the Mac with Stage 4 phase 3's compiler, release
+build: making an owned closure, calling it once, and dropping it takes
+11.1 ns, against 4.6 ns for a `*` object of one field (one allocation)
+and 4.3 ns for a box. So the second allocation and its indirection cost
+about 6 ns, and one allocation would make a closure about 45% faster to
+make and drop; a call is unchanged (a load from a table in cache, then
+the indirect call, where today the load is from the heap); a handle
+grows from 8 bytes to 16. Default: build it last, as its own phase,
+kept only if `bench/closures` (a closure made per element) clears the
+speed bar on both machines and Trig is not slower. Trig makes its 10
+owned closures once, at start-up, so it gains nothing measurable, and
+its emitted Zig changes: Trig is told before it lands.
+
+### The error slot and associated types
+
+As in Stage 4. A `*{A}`'s method entries are those views and boxes
+call, so a fallible method's entry takes the slot, `!` passes the API's
+set on, `catch |e|` gives `e` the API's set, and a method with a set
+parameter of its own is called through a bound. An API with `type Item`
+forms `*{Source[Item: Int]}` with the type named, built with Stage 4's
+phase 5, and is rejected with that spelling until then; a crossing
+bound follows it, `^{Source[Item: Int] + Sends}`.
+
+### Rules that keep it sound
+
+- Crossing is decided once, at the erasure, where the type is known;
+  after it, an object crosses by its braces and its API alone.
+- An object without the bound a task needs goes to no task; one with it
+  goes as its form's row says.
+- No object, and no owned closure, hides a task or a set of tasks.
+- A `*{A}` only reads; it carries the loans of what it holds, as a `*T`
+  does, until its last count is dropped, and its `~{A}` the same; `+
+  Owned` carries none, and a `*{A + Syncs}` holds a frozen value,
+  which holds no view.
+- The holding follows from the braces: a `*{A}` holds a `*T`'s
+  allocation, a `*{A + Syncs}` a frozen value's.
+- No form becomes another: a `^{A}` is never a `*{A}`, a `*{A}` never a
+  `^{A}`, and a `*{A}` never a `*{A + Syncs}`, nor back.
+- A handle is erased only as it moves or counts, never through a view.
+- A `~{A}` never crosses, and a `*{A + Syncs}` has no weak handle.
+- A Cell of an object is rejected by the Cell's own rule: its value
+  copies and holds no loan (`Copy + Owned`), and no object is both, as
+  a view copies but carries a loan and a box owns but moves. Stage 4's
+  "Stage 5" message for it gives way to that one.
+
+### Lowering
+
+`*{Shape}` is `rig.ApiShared(__rig_table_Shape, builtins)` and
+`~{Shape}` `rig.ApiWeak(__rig_table_Shape, builtins)`, beside
+`rig.ApiView` and `rig.ApiBox`. A conversion writes
+`.{ .ptr = &h.value, .vt = __rig_table_Shape_of(Square,
+__rig_impl_Shape_Square, .shared) }`; `+s` writes
+`s.vt.__rig_share(s.ptr)`; `?s` writes `s.read()`, the same two words;
+a call `s.vt.area(s.ptr)`, as through a view. A crossing bound changes
+no Zig: it is a check. Emit writes each from facts: the erasure (now
+with its holding), the dispatch, and the methods an object reaches.
+
+### The errors a reader meets first
+
+```text
+`*Square` is erased to `*{Shape + Syncs}`, which several tasks read, but its count is not atomic: freeze the value, `*Frozen(...)`
+`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`
+`Note` is erased to `^{Job + Sends}`, which goes to other tasks, but its field `cache` is a `*Map[String, Int]`, whose count is not atomic
+a read view goes to another task when its value syncs: write `?{Shape + Syncs}`
+a shared handle goes to another task when several tasks may read its value: write `*{Shape + Syncs}`
+`*{Shape}` only reads, as any handle: `grow` takes `!@`; hold a `^{Shape}`, or change the value through a `Cell` it holds
+`*<b` would move a value whose type is erased: share the value before erasing it, `*<sq` where a `*{Shape}` goes
+`~f` of a `*{Shape + Syncs}`: a frozen value has no weak handle
+a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomically: write `*{Shape + Syncs}`
+`*{Shape + Syncs}` holds a frozen value, which holds no view: take `Owned` out of the braces
+`Runner` is erased to `^{Shape}`, but its field `t` is a `Task[Int]`, and an API object never hides a task: wait for it first, or keep it beside the object
+```
 
 ## What each checker and proof adds
 
@@ -1246,7 +1531,7 @@ cannot assign through `w`, a `!{Shape}`: the value it views may be of another ty
 | 2 | bounded parameters held to their bounds; marker facts | computes the marker facts itself; a copy of a bounded `T` needs `Copy` | `Copy` only of plain kinds |
 | 3 | conformance, coherence, clauses within the API's by position, the same failure as the API's; one dispatch fact per call | conformance clauses checked on its own; a call through a bound read with the API's clauses | a subsumption lemma, proved: a call checked against wider clauses is sound for any callee within them (formal/LambdaRig/Calls.lean: `within_live` for loans, both clauses; `api_calls_run` for programs whose calls take read views) |
 | 4 | object facts; the erasure's lend; no assignment through `!{...}`; a dynamic call checked with the API's clauses; an object of a plain view's copy stays in its block | object facts computed itself; a dynamic call read with the API's clauses from its dispatch fact; abstains only on what is not built | erasing a type keeps its loans, and a box of erased type keeps them to its drop |
-| 5 | count operations in the table; crossing bounds at erasure | crossing facts of objects | crossing obligations |
+| 5 | count operations in the table, chosen by the hidden allocation at erasure; crossing bounds checked at erasure by `crossingBlocker`; an object without one goes to no task; no object hides a task | crossing facts of objects computed from their braces and API; a `*{A}` carries its value's loans to its last count | crossing obligations: an object checked at erasure holds no value that stays on one thread, so `confined` still holds |
 
 ## Alternatives considered
 
