@@ -9561,7 +9561,7 @@ pub const Home = enum {
 };
 
 /// What may not stand where `misplaced` says.
-pub const Misplaced = enum { cell, write_view, unsized };
+pub const Misplaced = enum { cell, write_view, unsized, frozen };
 
 /// The one decider of where a Cell, a write view, and an API object may
 /// stand (Core §1), by a positive list of homes:
@@ -9577,17 +9577,29 @@ pub const Misplaced = enum { cell, write_view, unsized };
 ///   declared type that holds one counts (`holdsOwnCell`); a type
 ///   argument counts however it holds one.
 /// - A write view is never stored inside a value (`writeViewMisplaced`).
+/// - A frozen value, `Frozen[T]`, lives only behind `*`, whose
+///   allocation holds it: never a value's, an element's, or a type
+///   argument's type, written or inferred, so no generic `*T` or `~T`
+///   stands for a frozen value's handle.
 /// Null where `ty` may stand at `home`. The Cell rule needs what every
 /// type holds (`SemContext.contents_ready`).
 pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
     if (unsizedAt(ctx, ty, home)) return .unsized;
     if (writeViewMisplaced(ctx, ty, home)) return .write_view;
+    if (frozenMisplaced(ctx, ty, home)) return .frozen;
     switch (home) {
         .field, .handle, .viewed => {},
         .type_arg => if (holdsCellByValue(ctx, ty)) return .cell,
         .signature, .binding, .element, .optional => if (holdsOwnCell(ctx, ty)) return .cell,
     }
     return null;
+}
+
+/// Whether `ty` is a frozen value, `Frozen[T]`, at a home other than
+/// behind `*` (`Misplaced.frozen`). Decided by the type's structure alone,
+/// so a type is rejected where it is written.
+pub fn frozenMisplaced(ctx: *const SemContext, ty: TypeId, home: Home) bool {
+    return home != .handle and frozenValue(ctx, ty) != null;
 }
 
 /// Whether `ty` is a bare API object, `{Shape}`, which has no size of its
@@ -9657,12 +9669,20 @@ fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
 /// twice, a write view's once.
 pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
 /// A bare API object where a value's type goes (`Misplaced.unsized`).
-pub const object_unsized = "`{s}` has no size of its own: hold it behind a view or a box, `?{s}`, `!{s}`, or `^{s}`";
+pub const object_unsized = "`{s}` has no size of its own: hold it behind a view, a box, or a handle, `?{s}`, `!{s}`, `^{s}`, or `*{s}`";
 
 /// A bare API object as an instance's type argument, inferred or
 /// written (`Misplaced.unsized`): no value has its type, so a generic
 /// body would write a value of one type where another lives.
 pub const object_unsized_arg = "`{s}` has no size of its own, so it is no type argument, written or inferred";
+
+/// A frozen value where a value's type goes (`Misplaced.frozen`).
+pub const frozen_misplaced = "a frozen value lives only behind a shared handle: write `*{s}`";
+
+/// A frozen value as an instance's type argument, inferred or written
+/// (`Misplaced.frozen`): a generic `*T` would be a plain count of it, and
+/// a `~T` a weak handle of a frozen value, which has none.
+pub const frozen_misplaced_arg = "a frozen value lives only behind its handle, so `{s}` is no type argument, written or inferred: pass the handle whole where a `T` goes, `*{s}`";
 
 /// An error that a form holding an API object is not built yet (a Cell
 /// of one, Stage 5's), remembered so that `recordType` reports none

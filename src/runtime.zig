@@ -973,10 +973,12 @@ fn HeldIn(comptime T: type, comptime h: ApiHolding) type {
     };
 }
 
-/// The counted allocation around the value of type `T` at `ptr`.
+/// The counted allocation around the value of type `T` at `ptr`, which
+/// is aligned as the allocation is, however small `T`'s own alignment
+/// (an enum's, or an object of no fields).
 inline fn heldAt(comptime T: type, comptime h: ApiHolding, ptr: *anyopaque) *HeldIn(T, h) {
     const value: *T = @ptrCast(@alignCast(ptr));
-    return @fieldParentPtr("value", value);
+    return @alignCast(@fieldParentPtr("value", value));
 }
 
 /// The address a table's entry for a method that consumes self takes: of
@@ -1789,17 +1791,18 @@ fn Counted(comptime T: type, comptime always_atomic: bool) type {
         /// `strong == 0`, so an `upgrade` from inside that drop fails)
         /// and then the strong side's share of the weak count. Deep
         /// chains of boxes are released through `drop_queue` rather than
-        /// by unbounded recursion.
+        /// by unbounded recursion, a frozen value's as a `*T`'s: the task
+        /// whose handle was the last holds the value alone.
         pub fn dropStrong(self: *Self) void {
             // The handle that takes the count to zero frees it, after every
             // other handle's changes.
             if (atomic_count) {
-                if (@atomicRmw(usize, &self.strong, .Sub, 1, .acq_rel) == 1) self.releaseValue();
-                return;
+                if (@atomicRmw(usize, &self.strong, .Sub, 1, .acq_rel) != 1) return;
+            } else {
+                std.debug.assert(self.strong > 0);
+                self.strong -= 1;
+                if (self.strong > 0) return;
             }
-            std.debug.assert(self.strong > 0);
-            self.strong -= 1;
-            if (self.strong > 0) return;
             if (comptime !needsDrop(T)) return self.releaseValue();
             const t = task();
             if (t.drop_depth >= max_drop_depth) {
@@ -1843,7 +1846,8 @@ fn isWord(comptime T: type) bool {
 // siblings in the order they were queued), only later: after the
 // releases already in progress finish. A queued box already has
 // `strong == 0`, so `upgrade` fails on it. The depth and the queue are
-// the running task's (`TaskState`): a `*T` never leaves its task.
+// the running task's (`TaskState`): a `*T` never leaves its task, and the
+// value whose atomic count the task took to zero is the task's alone.
 
 const max_drop_depth = 256;
 const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
@@ -1967,10 +1971,13 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
 }
 
 /// `+x` for an optional handle: another handle to the same box, or null.
+/// A counted API object's is strong, as a `*T`'s is.
 pub fn cloneOptional(value: anytype) @TypeOf(value) {
     const O = @TypeOf(value);
     const h = some(value) orelse return pack(O, null);
-    return pack(O, if (comptime isShared(@TypeOf(h))) h.cloneStrong() else h.cloneWeak());
+    const H = @TypeOf(h);
+    const strong = comptime isShared(H) or (@typeInfo(H) == .@"struct" and @hasDecl(H, "__rig_api_shared"));
+    return pack(O, if (strong) h.cloneStrong() else h.cloneWeak());
 }
 
 /// `e == none` for a temporary optional that owns a resource: the

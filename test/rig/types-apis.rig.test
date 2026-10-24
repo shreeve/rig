@@ -3601,7 +3601,7 @@ fail "apis object meets no bound by an API","`Bag[^{Shape}]` cannot use `T = ^{S
 
   print($name(B))
 
-fail "apis object bare local", "`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`"
+fail "apis object bare local", "`{Shape}` has no size of its own: hold it behind a view, a box, or a handle, `?{Shape}`, `!{Shape}`, `^{Shape}`, or `*{Shape}`"
   api Shape
     fun area(?@) -> Float
 

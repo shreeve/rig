@@ -1206,7 +1206,7 @@ reaches.
 **The errors a reader meets first**, each with its fix:
 
 ```text
-`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`
+`{Shape}` has no size of its own: hold it behind a view, a box, or a handle, `?{Shape}`, `!{Shape}`, `^{Shape}`, or `*{Shape}`
 braces hold APIs, and `Square` is a type: write `?Square` for a view of it, or name an API it provides, `?{Shape}`
 `{Shape + Named}` names two APIs of a program's own, and an object has one table: declare `api Both: Shape + Named` and write `?{Both}`
 `area_of(?l)` cannot lend `l` as a `?{Shape}`: `Label` does not provide `Shape`; declare `obj Label: Shape`

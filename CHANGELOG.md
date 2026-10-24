@@ -32,6 +32,11 @@ changed the language since it:
   a holding, `__rig_table_Shape_of(T, W, .counted)`. A Cell of an API
   object is rejected for good, no longer as not built. The reference
   checker gains the kinds of both forms.
+- **Frozen values:** `Frozen[T]` is no type argument, inferred as well
+  as written, so a `*Frozen[T]` given where a generic `*T` goes is
+  rejected toward a `T` (it failed in Zig); and the last handle of a
+  long chain of frozen values, or of `*{A + Syncs}` objects, drops it
+  through the queue a `*T`'s chain takes, not by deep recursion.
 - **API objects cross tasks by a bound in their braces (APIs Stage 5,
   phase 1):** `Sends` and `Syncs` may stand in an object's braces where
   its form uses them (`^{Job + Sends}`, `^{Shape + Syncs}`,

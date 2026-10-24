@@ -840,3 +840,105 @@ fail "apis object shared erased at a task's call stays", "`*{Shape}` stays with 
 
   t = area_of(*Square(side: 2.0))&
   print(>t)
+
+test "apis object shared a value of small alignment", '''
+  alive 1.0
+  unit drop
+  gone
+  2.0 4.0
+'''
+  # A value aligned below its counted allocation, an object of no fields
+  # or a plain enum: each table entry finds the allocation around it.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Unit: Shape
+    fun area(?@) -> Float
+      1.0
+
+    drop(!@)
+      print("unit drop")
+
+  enum Kind: Shape
+    a
+    b
+
+    fun area(?@) -> Float
+      2.0
+
+  s: *{Shape} = *Unit()
+  t = +s
+  w = ~s
+  k: *{Shape} = *Kind.b
+  kw = ~k
+  <s
+  if *w as h
+    print("alive", h.area())
+  <t
+  if *w as h
+    print("still here")
+  else
+    print("gone")
+  n = 0.0
+  if *kw as h
+    n = h.area()
+  f = *Frozen(Kind.a)
+  g: *{Shape + Syncs} = <f
+  g2 = +g
+  print(n, g.area() + g2.area())
+
+test "apis object shared optional handles counted", "4.0 9.0 end"
+  # `+o` of an optional handle adds a count of the value, plain or
+  # frozen.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: (*{Shape})? = *Square(side: 2.0)
+  t = +s
+  s = none
+  a = 0.0
+  if t as h
+    a = h.area()
+  u: (*{Shape + Syncs})? = *Frozen(Square(side: 3.0))
+  v = +u
+  u = none
+  b = 0.0
+  if v as h
+    b = h.area()
+  print(a, b, "end")
+
+test "apis object shared a long frozen chain drops without deep recursion", seeds: 20, "200000 2"
+  # 200,000 frozen links, each holding the next as a `*{Node + Syncs}`
+  # (fix 2): the last count of the head, given back on whichever task
+  # holds it, drops the chain through the drop queue.
+  use std.task
+
+  api Node
+    fun depth(?@) -> Int
+
+  obj Link: Node
+    next: (*{Node + Syncs})?
+
+    fun depth(?@) -> Int
+      1
+
+  fun hold(h: (*{Node + Syncs})?) -> Int
+    n = 0
+    if h as x
+      n = x.depth()
+    n
+
+  head: (*{Node + Syncs})? = none
+  n = 0
+  for 0..200000
+    head = *Frozen(Link(next: <head))
+    n += 1
+  a = hold(+head)&
+  b = hold(<head)&
+  print(n, >a + >b)

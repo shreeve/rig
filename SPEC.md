@@ -3870,7 +3870,7 @@ sub main()
 ```
 
 ```error
-`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`
+`{Shape}` has no size of its own: hold it behind a view, a box, or a handle, `?{Shape}`, `!{Shape}`, `^{Shape}`, or `*{Shape}`
 ```
 
 Each other name in the braces says why it does not belong: a type
@@ -12671,13 +12671,15 @@ value holds never changes, so it holds plain data, owners, `String`s,
 closure, or view. `Frozen[T]` is checked where it is written, and a
 generic parameter in each instance that freezes it. A frozen value
 lives only behind `*`: `Frozen[T]` is never a field, parameter,
-element, or type argument by value.
+element, or type argument by value, written or inferred, so a
+generic `*T` is never given a frozen value's handle (a `T` is).
 
 - Fields, read methods, and elements are reached through the handle,
   `f.title`, `f.get()`, `f[0]`, as through any `*T`, and nothing writes
   through it; `?f` lends the frozen value as a `?T`.
 - `+f` adds a handle, in one atomic step; the last one dropped, on
-  whichever task drops it, drops the value.
+  whichever task drops it, drops the value, a long chain through the
+  same queue a `*T`'s takes.
 - The handles move and share: they go to any task, by value, through a
   view, in a field, or through a channel, and never make a task local.
 - They compare, order, and hash as the value they reach, so `*Frozen[String]`

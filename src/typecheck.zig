@@ -8262,7 +8262,7 @@ const Checker = struct {
             if (self.isPoison(a.*)) bad = true;
             // A frozen value lives only behind `*`, never as an argument.
             if (sema.frozenValue(self.ctx, a.*) != null) {
-                try self.errAt(g, "a frozen value lives only behind a shared handle: write `*{s}`", .{try self.tyName(a.*)});
+                try self.errAt(g, sema.frozen_misplaced, .{try self.tyName(a.*)});
                 bad = true;
             }
         }
@@ -19086,7 +19086,8 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`@value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 /// An instance's type arguments, each standing as one (`sema.misplaced`):
-/// a value holding a Cell by value, or a write view, is no type argument.
+/// a value holding a Cell by value, a write view, a bare API object, or a
+/// frozen value is no type argument.
 /// True when one stands misplaced, reported at the instance's site when
 /// `report` gives one.
 fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!bool {
@@ -19099,6 +19100,7 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!boo
             .cell => try ctx.err(site, sema.cell_misplaced, .{ shown, shown }),
             .write_view => try ctx.err(site, sema.write_view_misplaced, .{shown}),
             .unsized => try ctx.err(site, sema.object_unsized_arg, .{shown}),
+            .frozen => try ctx.err(site, sema.frozen_misplaced_arg, .{ shown, shown }),
         }
         return true;
     }

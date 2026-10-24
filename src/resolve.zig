@@ -3150,8 +3150,8 @@ pub const TypeResolver = struct {
             return true;
         }
         // A frozen value lives only behind `*`, whose allocation holds it.
-        if (home != .handle and sema.frozenValue(self.ctx, ty) != null) {
-            try self.ctx.errAt(node, "a frozen value lives only behind a shared handle: write `*{s}`", .{try sema.formatType(self.ctx, ty)});
+        if (sema.frozenMisplaced(self.ctx, ty, home)) {
+            try self.ctx.errAt(node, sema.frozen_misplaced, .{try sema.formatType(self.ctx, ty)});
             return true;
         }
         switch (home) {
@@ -3166,7 +3166,7 @@ pub const TypeResolver = struct {
     fn bareObject(self: *TypeResolver, node: Sexp, ty: TypeId, home: sema.Home) Error!bool {
         if (!sema.unsizedAt(self.ctx, ty, home)) return false;
         const shown = try sema.formatType(self.ctx, ty);
-        try self.ctx.errAt(node, sema.object_unsized, .{ shown, shown, shown, shown });
+        try self.ctx.errAt(node, sema.object_unsized, .{ shown, shown, shown, shown, shown });
         return true;
     }
 
