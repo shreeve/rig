@@ -3437,6 +3437,133 @@ fail "apis pub states its bounds print", "`pub sub show[T]` prints a `T`: write 
   show(?1)
   print(text(?2))
 
+fail "apis pub states the Print of a body it forwards to", "8:14: `pub sub show[T]` prints a `T`: write `[T: Print]`", "9:3: here", "17:15: `pub fun label[T]` prints a `T`: write `[T: Print]`", "18:3: here", "23:14: `pub sub list[T]` prints a `T`: write `[T: Print]`", "24:3: here", "26:14: `pub obj Wrap[T]` prints a `T`: write `[T: Print]`", "30:5: here", "33:3: `T` is bounded by `Eq`, which does not give printing; add `Print` to its bounds: `[T: Eq + Print]`", "41:15: `pub sub boxed[T]` prints a `T`: write `[T: Print]`", "42:3: here", errors: 6
+  # A `pub` generic states the `Print` of what the generics it calls
+  # print of its `T`: directly, through two of them, in what a `[]T`
+  # holds, from a method, through a generic type's instance, and a
+  # bounded `T` its bounds.
+  sub helper[U](x: ?U)
+    print(x)
+
+  pub sub show[T](x: ?T)
+    helper(x)
+
+  fun text[U](x: ?U) -> String
+    String("<", x, ">")
+
+  fun wrap[U](x: ?U) -> String
+    text(x)
+
+  pub fun label[T](x: ?T) -> String
+    wrap(x)
+
+  sub each[U](xs: []U)
+    print(xs)
+
+  pub sub list[T](xs: []T)
+    each(xs)
+
+  pub obj Wrap[T]
+    v: T
+
+    pub sub show(?@)
+      helper(?@v)
+
+  sub keyed[T: Eq](x: ?T)
+    helper(x)
+
+  obj Box[U]
+    v: U
+
+    sub show(?@)
+      print(@v)
+
+  pub sub boxed[T](x: ?T)
+    Box(v: x).show()
+
+  show(?1)
+  print(label(?2))
+  list([3, 4][..])
+  Wrap(v: 5).show()
+  keyed(?6)
+  boxed(?7)
+
+test "apis pub states Print for a body it forwards to", '''
+  1
+  <2>
+  [3, 4]
+  5
+  6
+'''
+  sub helper[U](x: ?U)
+    print(x)
+
+  fun text[U](x: ?U) -> String
+    String("<", x, ">")
+
+  sub each[U](xs: []U)
+    print(xs)
+
+  pub sub show[T: Print](x: ?T)
+    helper(x)
+
+  pub fun label[T: Print](x: ?T) -> String
+    text(x)
+
+  pub sub list[T: Print](xs: []T)
+    each(xs)
+
+  pub obj Wrap[T: Print]
+    v: T
+
+    pub sub show(?@)
+      helper(?@v)
+
+  obj Box[U]
+    v: U
+
+    sub show(?@)
+      print(@v)
+
+  pub sub boxed[T: Print](x: ?T)
+    Box(v: x).show()
+
+  show(?1)
+  print(label(?2))
+  list([3, 4][..])
+  Wrap(v: 5).show()
+  boxed(?6)
+
+test "apis pub states Print of a library body it forwards to", '''
+  7
+'''
+  # Another module's `pub` generic states the `Print` of the private
+  # generic it forwards to, and an instance through it prints.
+  use shown
+
+  sub main()
+    shown.show(?7)
+
+  file "shown.rig"
+    sub helper[U](x: ?U)
+      print(x)
+
+    pub sub show[T: Print](x: ?T)
+      helper(x)
+
+fail "apis pub states Print of a library body it forwards to, unstated", "`pub sub show[T]` prints a `T`: write `[T: Print]`", errors: 1
+  use shown
+
+  sub main()
+    shown.show(?7)
+
+  file "shown.rig"
+    sub helper[U](x: ?U)
+      print(x)
+
+    pub sub show[T](x: ?T)
+      helper(x)
+
 fail "apis pub states its bounds arithmetic", "`pub fun sum[T]` adds `T`s: write `[T: Num]`", "`pub fun neg[T]` negates a `T`: write `[T: Signed]`", "`pub fun low[T]` applies `&` to `T`s: write `[T: Integer]`"
   pub fun sum[T](a: T, b: T) -> T
     a + b

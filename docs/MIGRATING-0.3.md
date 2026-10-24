@@ -253,7 +253,8 @@ this expression does nothing as a statement; to drop `s` now, write `<s`
 ## Step 3: public generics state their bounds, `tools/state-bounds.py`
 
 A `pub` generic names, by bounds, everything its body does with each
-type parameter. 0.2.9 checked each instance instead.
+type parameter, and the `Print` of one it passes to a generic that
+prints it. 0.2.9 checked each instance instead.
 
 ```sh
 python3 tools/state-bounds.py --dry-run src/main.rig   # print the diff

@@ -6911,6 +6911,22 @@ fail "print byte slice generic", "9:1: `show[[]U8]` cannot use `T = []U8`: the g
   warn(?a[0..3])
   panic("bad", ?a[0..2])
 
+fail "print byte slice generic element", "13:1: `each[[]U8]` cannot use `T = []U8`: the generic body prints a value that holds a `T`", "14:1: `all[[]U8]` cannot use `T = []U8`: the generic body prints a value that holds a `T`", errors: 2
+  # A generic body prints the `T`s a slice or a `List` of them holds, so
+  # an instance whose `T` is `[]U8` is rejected as a direct one is.
+  sub each[T](xs: []T)
+    print(xs)
+
+  sub all[T](xs: ?List[T])
+    print(xs)
+
+  a: [2]U8 = [72, 105]
+  ys: [1][]U8 = [?a[0..2]]
+  zs: List[[]U8] = List()
+  !zs.push(?a[0..2])
+  each(?ys[0..1])
+  all(?zs)
+
 test "print format shared local name", '''
   hello
   42

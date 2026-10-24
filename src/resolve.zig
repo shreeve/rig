@@ -4549,7 +4549,7 @@ pub const TypeResolver = struct {
                     try self.ctx.deferred_checks.append(self.ctx.allocator, .{ .bounds = .{ .pos = pos, .ty = ty, .widened = try sema.snapshotWidened(self.ctx) } });
                 } else _ = try sema.checkBounds(self.ctx, tps, inst.args, pos, .{ .type = ty });
             }
-            try self.ctx.addUse(ty, self.body);
+            try self.ctx.addUse(ty, self.body, pos);
         }
         return ty;
     }
