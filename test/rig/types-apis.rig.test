@@ -4988,6 +4988,74 @@ Square(side: 2.0) Square(side: 1.0)
   print(a, b)
   print(l)
 
+test "apis object result that holds no loan says no from", "4 4 4 5 1"
+  # A box or a handle of an object whose braces say it holds no loan
+  # views nothing: an API's method gives one with no `from`.
+  api Job
+    fun run(?@) -> Int
+
+  obj Work: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  api Factory
+    fun make(?@) -> ^{Job + Owned}
+    fun shared(?@) -> *{Job + Syncs}
+    fun counted(?@) -> *{Job + Owned}
+    fun maybe(?@) -> ^{Job + Owned}?
+    fun many(?@) -> List[^{Job + Owned}]
+
+  obj F: Factory
+    n: Int
+
+    fun make(?@) -> ^{Job + Owned}
+      ^Work(n: @n)
+
+    fun shared(?@) -> *{Job + Syncs}
+      *Frozen(Work(n: @n))
+
+    fun counted(?@) -> *{Job + Owned}
+      *Work(n: @n)
+
+    fun maybe(?@) -> ^{Job + Owned}?
+      ^Work(n: @n + 1)
+
+    fun many(?@) -> List[^{Job + Owned}]
+      l: List[^{Job + Owned}] = List()
+      !l.push(^Work(n: @n))
+      l
+
+  fun first[T: Factory](f: ?T) -> ^{Job + Owned}
+    f.make()
+
+  f = F(n: 4)
+  m = f.maybe() ?? ^Work(n: 0)
+  print(first(?f).run(), f.shared().run(), f.counted().run(), m.run(), f.many().len)
+
+fail "apis object result that may hold a loan says from", "`Factory.view` gives `?{Job + Owned}`, which may view what it is passed", "`Factory.boxed` gives `^{Job}`, which may view what it is passed", "`make` returns `^{Job + Owned}`, which views nothing; `from` names what a result views"
+  api Job
+    fun run(?@) -> Int
+
+  obj Work: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  api Factory
+    fun view(?@) -> ?{Job + Owned}
+    fun boxed(?@) -> ^{Job}
+
+  obj G
+    n: Int
+
+    fun make(?@) -> ^{Job + Owned} from @
+      ^Work(n: @n)
+
+  print(1)
+
 test "apis object box cloned through the table", "Pt(x: 2, tag: \"a\") 4 9"
   # `+b` with `Clone` in the braces: a new box of a clone of the value,
   # through its table; a `String` among its fields copied.
