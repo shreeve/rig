@@ -81,7 +81,7 @@ docs/internals/backlog.md.
 | 10 | an owned closure over a task-holding `T` refused by the wrong rule | S5 p1 | fix (track 1.1) |
 | 11 | an `add` method called directly takes its API's `from @` | FF | owner: the oracle reads the API's `from` for every dispatched call (branch `add-from`) |
 | 12 | object messages: `+s` of `?{Shape}`, `[T: {Shape}]`, `?{Shape}?` and `?{Shape}!E` with no fix, braces across lines | S4 p1, p2 | fix |
-| 13 | an empty `api Marker`; two defaults across modules at a call | S3 p1 | check, fix |
+| 13 | an empty `api Marker`; two defaults across modules at a call | S3 p1 | checked (#643): two defaults are rejected at each call that sees both, cases added; `api Marker` stays a parse error, as `obj Unit` is: owner |
 | 14 | a set without fields lent where a union with fields goes | BL | fix |
 | 15 | a type only named in a generic method expanded as an instance | BL | fix |
 | 16 | `lib.List` as an expression and as a type disagree | BL | fix |

@@ -1442,7 +1442,101 @@ fail "apis own ambiguous", "`c.area()` could call `Shape.area` or `Region.area`,
     pub obj Circle
       pub r: Float
 
-fail "apis own no bound", "`T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`"
+fail "apis own two defaults across modules", errors: 2, "`x.name()` could call `a.A.name` or `b.B.name`, which both apply to `a.X`; name the API: `a.A.name(x)`", "`t.name()` could call `a.A.name` or `b.B.name`, which both apply to `T`; name the API: `a.A.name(t)`"
+  # A type's header gives it one default and another module's addition a
+  # second of the same name: no one module sees both declarations, so
+  # the type need not choose, and each call that sees both names the API.
+
+  use a
+  use b
+
+  fun g[T: a.A + b.B](t: ?T) -> String
+    t.name()
+
+  sub main()
+    x = a.X(n: 1)
+    print(x.name(), g(?x))
+
+  file "a.rig"
+    pub api A
+      fun name(?@) -> String
+        String("a")
+
+    pub obj X: A
+      pub n: Int
+
+  file "b.rig"
+    use a
+
+    pub api B
+      fun name(?@) -> String
+        String("b")
+
+    add a.X: B
+
+fail "apis own two defaults across modules, in the addition's module", "`x.name()` could call `B.name` or `a.A.name`, which both apply to `a.X`; name the API: `B.name(x)`"
+  # The addition's module sees the header's API too.
+
+  use a
+  use b
+
+  sub main()
+    print(b.inb(a.X(n: 1)))
+
+  file "a.rig"
+    pub api A
+      fun name(?@) -> String
+        String("a")
+
+    pub obj X: A
+      pub n: Int
+
+  file "b.rig"
+    use a
+
+    pub api B
+      fun name(?@) -> String
+        String("b")
+
+    add a.X: B
+
+    pub fun inb(x: ?a.X) -> String
+      x.name()
+
+test "apis own two defaults across modules, each named", "a b a a"
+  # Naming the API, or seeing only one of the two, chooses the default.
+
+  use a
+  use b
+
+  sub main()
+    x = a.X(n: 1)
+    print(a.A.name(x), b.B.name(x), a.only(?x), b.mine(?x))
+
+  file "a.rig"
+    pub api A
+      fun name(?@) -> String
+        String("a")
+
+    pub obj X: A
+      pub n: Int
+
+    pub fun only(x: ?X) -> String
+      x.name()
+
+  file "b.rig"
+    use a
+
+    pub api B
+      fun name(?@) -> String
+        String("b")
+
+    add a.X: B
+
+    pub fun mine(x: ?a.X) -> String
+      a.A.name(x)
+
+fail "apis own no bound","`T` has no method `area`: `total[T]` gives `T` no bound; write `[T: Shape]`, which declares `area`"
   # An addition's methods are the API's: a call on a `T` with no bound
   # reaches only a type's own methods.
 
