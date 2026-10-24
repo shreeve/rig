@@ -2759,7 +2759,12 @@ order:
 1. **From the arguments.** Each parameter's type is matched against
    its argument's type (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
    `[N]T`, `Wrap[T]`, `fun(T) -> U`, `?fun(T) -> U`), and a method's
-   self gives its type's parameters. Every argument must agree, and
+   self gives its type's parameters. A box or a handle given where a
+   view goes is matched by the value it lends: `first(?b)` of a
+   `^List[P]` for `first[T](xs: ?List[T])` is `first[P]`, and `f(?h)`
+   of a `*Frozen[Square]` for `f[T: Shape](s: ?T)` is `f[Square]`, since
+   no handle provides an API of the program's own (a `?T` of any other
+   `T` binds the box or handle itself). Every argument must agree, and
    an argument whose type does not have its parameter's shape is a type
    mismatch. An argument that is not a literal keeps the type it gives,
    even where the result is expected to have another.

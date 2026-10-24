@@ -150,9 +150,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   an expression, `lib.List[Int].filled(2, 3)` reaches the local `List`,
   while as a type, `lib.List[String]` is reported as "`lib.List` is not
   public".
-- Generic inference looks through a box as a method call does: with
-  `bx: ^List[P]`, `first(?bx)` (`first[T](xs: ?List[T])`) is a type
-  mismatch, though `first[P](?bx)` is accepted.
 - An unwrap of an optional that traps when it is `none`. The built-in Map's
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.

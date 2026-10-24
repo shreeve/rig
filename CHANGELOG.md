@@ -323,6 +323,11 @@ changed the language since it:
   array of `T`) asked for `Copy` under any bound, where a loop over a
   `?List[T]` did not; both now read each element where it stands, and
   only taking one out needs a `T` that copies at each instance.
+- **Inference sees through a box or a handle lent as a view:**
+  `first(?bx)` of a `^List[P]` for `first[T](xs: ?List[T])` was a type
+  mismatch, and `f(?fz)` of a `*Frozen[Square]` for `f[T: Shape](s: ?T)`
+  bound `T` to the handle, which provides no `Shape`; each now binds the
+  value the lend reaches, as `first[P](?bx)` and `f[Square](?fz)` did.
 
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first

@@ -11856,10 +11856,11 @@ const Checker = struct {
                 const viewing = inf.viewing;
                 defer inf.viewing = viewing;
                 inf.viewing = at == .string_view and self.ctx.types.get(pattern) == .read_view;
-                try self.bindArg(inf, p, switch (at) {
+                const viewed = switch (at) {
                     .read_view, .write_view => |inner| inner,
                     else => actual,
-                }, arg, depth + 1);
+                };
+                try self.bindArg(inf, p, try self.reachedForView(p, viewed), arg, depth + 1);
             },
             .fallible => |p| if (at == .fallible) {
                 try self.bindArg(inf, p.ok, at.fallible.ok, arg, depth + 1);
@@ -11937,6 +11938,32 @@ const Checker = struct {
                 try self.bindReturns(inf, pf.returns, at.function.returns, arg, depth + 1);
             } else self.noteMismatch(inf, pattern, actual, arg),
             else => {},
+        }
+    }
+
+    /// The value a view argument of type `actual` reaches where a view of
+    /// `pattern` goes: through a box, a counted handle, and a frozen
+    /// value's handle, as the lend table lends (`sema.lendsAs`). A pattern
+    /// that names a type of its own matches what it reaches: `first(?bx)`
+    /// of a `^List[P]` binds `T = P` in `first[T](xs: ?List[T])`, as
+    /// `first[P](?bx)` lends it. A type parameter bounded by an API of
+    /// the program's own, which no handle provides, binds the value when
+    /// the box or handle does not provide it and the value does:
+    /// `f(?fz)` of a `*Frozen[Square]` is `f[Square]`. Any other type
+    /// parameter binds the box or handle itself.
+    fn reachedForView(self: *Checker, pattern: TypeId, actual: TypeId) Error!TypeId {
+        switch (self.ctx.types.get(pattern)) {
+            .type_var => |tv| {
+                const apis = self.ctx.symbols.items[tv].user_apis;
+                if (apis.len == 0) return actual;
+                const reached = reachedValue(self.ctx, actual);
+                if (reached == actual) return actual;
+                for (apis) |api| if ((try sema.provides(self.ctx, actual, api)) != null) return actual;
+                for (apis) |api| if ((try sema.provides(self.ctx, reached, api)) == null) return actual;
+                return reached;
+            },
+            .shared, .weak => return actual,
+            else => return if (sema.boxedType(self.ctx, pattern) != null) actual else reachedValue(self.ctx, actual),
         }
     }
 
@@ -20181,6 +20208,20 @@ fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, a
 /// Whether `api` says how a value is copied, kept, or crosses to
 /// another task: a fact of a type's parts that every method of a generic
 /// type shares, never one a method's own bounds add.
+/// The value a box, a counted handle, or a frozen value's handle of type
+/// `ty` reaches, through each in turn; `ty` itself for any other type.
+fn reachedValue(ctx: *const SemContext, ty: TypeId) TypeId {
+    var a = ty;
+    while (true) {
+        if (sema.boxedType(ctx, a)) |inner| {
+            a = inner;
+        } else switch (ctx.types.get(a)) {
+            .shared => |inner| a = sema.frozenValue(ctx, inner) orelse inner,
+            else => return a,
+        }
+    }
+}
+
 fn ownershipApi(api: sema.Api) bool {
     return switch (api) {
         .Copy, .Clone, .Owned, .Sends, .Syncs => true,
