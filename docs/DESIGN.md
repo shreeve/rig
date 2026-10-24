@@ -443,9 +443,8 @@ does with a `T`: arithmetic, ordering, `==`, a literal beside a `T`, a
 copy, a method it calls. Each instance the program makes is then
 checked against that record. A parameter with bounds, `[T: Ord]`, is
 checked against its bounds instead, so the signature states the
-contract and the error is at the user's line; the bounds are the
-built-in APIs, and APIs of a program's own come later
-([design/apis.md](design/apis.md)).
+contract and the error is at the user's line; a bound is a built-in
+API or one of the program's own ([design/apis.md](design/apis.md)).
 
 A method call on a `T` is typed where it stands: its result takes the
 type the context expects, or the other operand's, and the instance's
@@ -458,8 +457,9 @@ every method, so ownership is still checked once.
 
 What this buys: generics with nothing to declare: any type that
 supports what a body does works with it, a bound states the contract
-where a body wants one, and APIs of a program's own and API objects
-wait for a program that needs them ([design/apis.md](design/apis.md)); and
+where a body wants one, an API of the program's own names a contract
+several types share, and an API object holds a value of any of them
+([design/apis.md](design/apis.md)); and
 the model is Zig's, which Rig lowers to. Everything that does not depend
 on `T` is still checked once, in the body, and so is ownership: the body
 is checked as if `T` owns a resource, so moves, drops, and lends are

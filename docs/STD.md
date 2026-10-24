@@ -975,17 +975,36 @@ these take them.
 use std.iter
 use std.text
 
+obj Upto
+  n: Int
+  hi: Int
+
+  fun next(!@) -> Int?
+    return none if @n >= @hi
+    @n += 1
+    @n
+
 sub main()
   words = text.split("a b c", " ")
   print(iter.count(!words))
   runes = text.chars("abc")
   print(iter.count(!runes))
+  u = Upto(n: 0, hi: 4)
+  print(iter.sum(!u) ?? 0)
+  e = Upto(n: 0, hi: 0)
+  print(iter.sum(!e) ?? 0)
 ```
 
 ```output
 3
 3
+10
+0
 ```
+
+`Upto` declares `next`, so it provides `Iter` with `Item` an `Int`,
+which provides `Num`. `iter.sum` of an iterator of text is rejected:
+`?String` is no number.
 
 ## Map and Set
 
@@ -1223,6 +1242,25 @@ own `print` writes:
 stderr, and `panic(a, b)` the line to stderr after the file, line, and
 column it stands at, then ends the program with status 134. Each writes
 out what `print` buffered first, so the two streams read in order.
+Each value prints as [SPEC §17](../SPEC.md#17-printing-and-stopping)'s
+table says: an object by its fields, a handle as the value it holds,
+and a channel and an actor as `<chan>` and `<actor>`, with nothing of
+what they hold.
+
+```rig
+obj Counter
+  n: Int
+
+sub main()
+  ch = *Chan[Int](2)
+  a = *Actor(Counter(n: 0))
+  h = *Counter(n: 3)
+  print(ch, a, h)
+```
+
+```output
+<chan> <actor> Counter(n: 3)
+```
 
 ```rig
 sub main()

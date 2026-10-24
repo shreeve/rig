@@ -159,6 +159,7 @@ support file.
 | no result | `fn f() {}` | `fn f() void {}` | `sub f()` |
 | fallible, no result | `fn f() -> Result<(), E>` | `fn f() !void` | `sub f()!` |
 | result views one argument | `fn f<'a>(a: &'a T, b: &T) -> &'a T` | (no check) | `fun f(a: ?T, b: ?T) -> ?T from a` |
+| result views one field of self | `fn digits(&mut self) -> &str`, tied to all of self | (no check) | `fun digits(!@) -> ?String from @text` |
 | call | `f(a)` | `f(a)` | `f(a)` |
 | object literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method self | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?@`, `!@`, `<@` |
@@ -219,6 +220,12 @@ generic parameter `T` has the same name as the module-level declaration `T`; use
 | generic function | `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | what `T` may do | what its bounds say | what each instance compiles | what its bounds say (`[T: Ord]`), or with none what each instance supports, checked per call |
+| an interface | `trait Shape { fn area(&self) -> f64; }` | a set of methods each instance must have | `api Shape` / `  fun area(?@) -> Float` |
+| providing it | `impl Shape for Square` | (by name) | `obj Square: Shape`, or `add Int: Shape` for a type declared elsewhere |
+| a bound by it | `fn total<T: Shape>(xs: &[T])` | `anytype` | `fun total[T: Shape](xs: ?List[T])` |
+| a value of hidden type | `&dyn Shape`, `&mut dyn Shape` | a pointer and a table by hand | `?{Shape}`, `!{Shape}` |
+| owned, counted, weak | `Box<dyn Shape>`, `Rc<dyn Shape>`, `Weak<dyn Shape>` | by hand | `^{Shape}`, `*{Shape}`, `~{Shape}` |
+| may cross threads | `T: Send`, `T: Sync`, `Box<dyn Job + Send>` | by hand | `[T: Sends]`, `[T: Syncs]`, `^{Job + Sends}` |
 | generic type | `obj Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `obj Wrap[T]` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `List[Int]()` |
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?@, f: fun(T) -> U) -> Wrap[U]` |
@@ -251,6 +258,69 @@ methods it calls on one included, like a Zig `comptime T: type`
 function but with the error at the call
 ([SPEC §3](SPEC.md#generic-bodies)).
 
+An `api` is close to a Rust trait: required methods have no body,
+defaults have one, and a type names the APIs it provides on its
+header. A call
+through a bound is direct, as a Rust generic's is. Braces make a value
+of hidden type, Rust's `dyn`, and the sigil before them says how it is
+held, as for any value: here a write view, then boxes in a List, and
+one box given to a task, which its braces allow:
+
+```rig
+api Job: Sends
+  fun run(?@) -> Int
+
+  sub retry(!@)
+    print("again")
+
+obj Sum: Job
+  xs: List[Int]
+
+  fun run(?@) -> Int
+    t = 0
+    for x in @xs
+      t += x
+    t
+
+obj Fixed: Job
+  n: Int
+
+  fun run(?@) -> Int
+    @n
+
+  sub retry(!@)
+    @n += 1
+
+fun work(j: ^{Job}) -> Int
+  j.run()
+
+sub main()
+  f = Fixed(n: 1)
+  r: !{Job} = !f
+  !r.retry()
+  print(f.n)
+  jobs: List[^{Job}] = List()
+  !jobs.push(^Sum(xs: List([1, 2, 3])))
+  !jobs.push(^<f)
+  for j in jobs
+    print(j.run())
+  s = ^Sum(xs: List([4, 5]))
+  t = work(<s)&
+  print(>t)
+```
+
+```output
+2
+6
+2
+9
+```
+
+`api Job: Sends` makes every `Job` object one that may go to another
+task, and the compiler checks it where each value's type is hidden. A
+`?{Shape}` keeps every loan its value had, as any view does, so no
+lifetime is written ([CORE §4](docs/CORE.md)).
+
 ### What a program becomes
 
 `rig emit file.rig` prints the Zig a program becomes, the same Zig
@@ -272,6 +342,8 @@ whether it checks for leaks. The main correspondences:
 | `fun cap[n: Int] -> Int`, `cap[8]` | no function: the value the checker computed, as a literal, or a hidden constant for an array |
 | `[n of x]` | `@as([n]T, @splat(x))` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
+| `[T: Shape]`, a bound by an API of the program's own | a hidden compile-time parameter, the witness `W_T_Shape`: a struct whose functions are the type's methods (`__rig_impl_Shape_Square`), so each call is direct |
+| `?{Shape}`, `^{Shape}`, `*{Shape}` | `rig.ApiView`, `rig.ApiBox`, `rig.ApiShared`: the value's address and a pointer to its type's table, `__rig_table_Shape_of(Square, ...)`, one per API, type, and holding |
 | `T!`, `T!E`, `f()!`, `catch` | `anyerror!T`, `E!T`, `try f()`, `catch`; every fallible function also takes a hidden `rig.ErrSlot`, which carries an error's fields |
 | a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `?String`, a slice, a plain enum); `*const T` for an object, an array, or a generic instance |
 | `!T` | `*T` |
@@ -681,9 +753,6 @@ compiler frees them.
 
 You will reach for these and not find them:
 
-- **APIs of your own** (`api Shape`): a bound names a built-in API,
-  `[T: Ord]`, and a generic body with none may do with `T` what each
-  instance supports;
 - **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;
 - **a large standard library**: [the standard library](docs/STD.md)

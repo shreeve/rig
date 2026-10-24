@@ -112,11 +112,13 @@ one small reactive type in the runtime
 ## Does Rig have traits or interfaces?
 
 Yes, and it calls them APIs, `api Shape`: the methods a type provides, not
-their implementation. They are designed and built in stages, each when
-a program needs it; closures, enums with payloads, and generics checked
-per instance cover today's programs. A bound names a built-in API,
-`fun max[T: Ord](a: T, b: T)`, and a header names the ones a type
-gives a meaning of its own, `obj Version: Ord`. A generic body with no
+their implementation. A header names the APIs a type provides, `obj
+Square: Shape`, and `add Int: Shape` gives one to a type declared
+elsewhere. A bound names an API, the program's own or a built-in one,
+`fun max[T: Ord](a: T, b: T)`, and each call through it is direct. An
+API object, `?{Shape}`, `^{Shape}`, or `*{Shape}`, holds a value of any
+type that provides it and calls through a table, as Rust's `dyn` does,
+with the holding written as a sigil. A generic body with no
 bound may do with `T` whatever each instance supports, calling its
 methods included (`x.area()`), and each instance a program makes is
 checked, with an error at the call and a note at the body line

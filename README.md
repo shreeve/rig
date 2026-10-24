@@ -296,6 +296,9 @@ use `&` too. A function value, `fun(Int) -> Int`, is a named
 function's address and holds nothing, so it goes to a task on any core.
 A value that never changes again, `*Frozen(x)`, sits behind a handle
 counted atomically, and any number of tasks read it with no copy.
+Generic code states the same facts as bounds, `[T: Sends]` to go to
+another task and `[T: Syncs]` to be read by several at once, and an API
+object (below) names them in its braces, `^{Job + Sends}`.
 `Tasks[T]` holds a set of tasks, `*Chan[T](n)` is a
 bounded channel, `task.select` commits exactly one of its arms, and
 `par.map` and `par.each` spread a loop over the cores.
@@ -437,12 +440,67 @@ it.
 
 ## The rest of the language
 
-A generic body is checked at each instance a program makes, against
+An **API** is a named set of methods a type provides: `api Shape`
+declares them, `obj Square: Shape` says that `Square` provides it, and
+`add Int: Shape` gives one to a type declared elsewhere. A bound,
+`[T: Shape]`, checks a generic body against the API, and each call
+through it is direct, at no cost. Braces hide the type: an **API
+object**, `?{Shape}`, `!{Shape}`, `^{Shape}`, `*{Shape}`, or
+`~{Shape}`, holds a value of any type that provides `Shape`, viewed,
+boxed, or counted as the sigil says, and calls its methods through a
+table. It carries every loan the value had.
+
+```rig
+api Shape
+  fun area(?@) -> Float
+
+  fun describe(?@) -> String
+    String("area ", @area())
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+obj Circle: Shape
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+fun largest[T: Shape](xs: ?List[T]) -> Float
+  best = 0.0
+  for x in xs
+    best = x.area() if x.area() > best else best
+  best
+
+sub main()
+  squares = List([Square(side: 1.0), Square(side: 3.0)])
+  print(largest(squares))
+  shapes: List[^{Shape}] = List()
+  !shapes.push(^Square(side: 2.0))
+  !shapes.push(^Circle(r: 1.0))
+  for s in shapes
+    print(s.describe())
+```
+
+```output
+9.0
+area 4.0
+area 3.0
+```
+
+`describe` is a default, which each type may override. A generic body
+with no bound is checked at each instance a program makes, against
 what it does with `T`, the methods it calls on one included:
-`fun max[T](a: T, b: T) -> T`. A bound checks the body against the
-bound instead, `fun max[T: Ord](a: T, b: T) -> T`, and a type names
-the built-in APIs it gives a meaning of its own, `obj Version: Ord`
-([docs/design/apis.md](docs/design/apis.md)). After a name, `[]` is
+`fun max[T](a: T, b: T) -> T`. The built-in APIs (`Eq`, `Hash`, `Ord`,
+`Copy`, `Print`, `Sends`, `Syncs`, and more) bound it too, `fun
+max[T: Ord](a: T, b: T) -> T`, and a type names those it gives a meaning
+of its own, `obj Version: Ord`
+([docs/design/apis.md](docs/design/apis.md)). A method's view result
+may name the field it views, `fun digits(!@) -> ?String from @text`, so
+the caller may use self's other fields while the view lives. After a name, `[]` is
 compile time and `()` is run time, so a function with only brackets
 runs in the checker: `fun cap[n: Int] -> Int` makes `cap[8]` a
 constant, in an expression, a module constant, or a type
@@ -543,7 +601,8 @@ to `^T`, `List`, `String`, and `obj`; `tools/migrate-0.3.py` migrates
 
 **Built and tested:** the language in this README, its ownership
 checker, declared error sets whose members carry fields, generics with
-built-in bounds (`[K: Hash]`) and generic error sets, compile-time
+bounds (`[K: Hash]`, `[T: Shape]`) and generic error sets, APIs of a
+program's own and API objects of every form, compile-time
 functions, closures, tables, modules, SIMD vectors, C functions through
 `extern`, `test` blocks, the language server, the concurrency model
 (tasks, sets of tasks, cancellation, deadlines, Ctrl-C, actors, frozen
@@ -556,8 +615,8 @@ x86-64.
 - TLS, and an HTTP client.
 - Declared error sets for std's I/O functions, which fail with any
   error.
-- APIs of a program's own (`api Shape`), API objects (`?{Shape}`), and
-  raw pointers.
+- Raw pointers, and API objects of an API with an associated type
+  (`^{Source[Item: Int]}`).
 - Storing or returning a stack closure, and `drop` bodies on enums and
   generic objects. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
   lists every form the compiler rejects as not supported yet, each

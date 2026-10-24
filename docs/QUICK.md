@@ -33,12 +33,22 @@ expression, `e?` passes `none` up and `e!` passes a failure up.
 copies a plain object and moves an owning one; the object itself is
 never on the heap or shared unless a sigil says so.
 
+**An API names what a type can do.** `api Shape` declares methods,
+each required (no body) or a default; `obj Square: Shape` provides it,
+and `add Int: Shape`, in `Shape`'s module, gives it to a type declared
+elsewhere. A bound, `fun total[T: Shape](xs: ?List[T])`, checks the
+body against `Shape`, and its calls are direct. Built-in APIs bound
+too: `[K: Hash]`, `[T: Ord + Copy]`, and `Sends` (may go to another
+task) and `Syncs` (may be read by several at once).
+
 **Braces in a type hide the value's type.** `?{Shape}` views a value of
 any type that provides `api Shape`, and `!{Shape}` writes one:
 `area_of(sq)` lends a `Square` where `s: ?{Shape}` is the parameter,
 and `s.area()` calls the hidden type's method through its table.
 `^{Shape}` owns one, `*{Shape}` counts one, and `~{Shape}` holds one
-weakly. The object keeps every loan the value had.
+weakly. The object keeps every loan the value had. It goes to a task
+only by a bound in its braces or its API: `^{Job + Sends}` may be
+given to one, and `*{Shape + Syncs}`, a frozen value's, read by many.
 
 **After a name, `[]` is compile time and `()` is run time.** Indexing is
 the one familiar exception: `max[Float](1, 2)` passes a type, `xs[i]`
@@ -65,7 +75,10 @@ needs no mark, since its loan ends with the statement.
 call returns, unless the function names that parameter in `keeps`:
 `sub watch(!@, s: ?String) keeps s` may store `s` in `@`, so its
 call is written `!b.watch(?t)`, and `t` stays lent while `b` is used. A
-body that stores a lent parameter without saying so is rejected.
+body that stores a lent parameter without saying so is rejected. A
+result names what it views, `from a`; a method's may name one field of
+self, `fun digits(!@) -> ?String from @text`, which leaves the other
+fields free while the view lives.
 
 **A name as a value.** `:width` is a symbol, of type `Symbol`: a name
 compared in one step, with no declaration, whose text is `s.text`.
