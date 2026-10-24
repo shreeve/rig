@@ -14,7 +14,10 @@
 //! is about to fill (`prefault`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
-//! thread to start takes it, with what it holds. Debug builds keep the
+//! thread to start takes it, with what it holds.
+//!
+//! Each heap counts the bytes and blocks its thread takes and gives back,
+//! and adds them to the program's totals in batches (`os.memory`). Debug builds keep the
 //! leak checker's path (`runtime.zig`, `defaultAllocator`).
 
 const std = @import("std");

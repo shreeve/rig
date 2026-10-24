@@ -529,6 +529,12 @@ changed the language since it:
   built-in one. `tools/migrate-builtin-map.py` rewrites a tree's
   programs, tests, and Markdown: it removes `use std.hash` and the
   `hash.` before these names.
+- **`os.memory()`:** what the program's allocations come to: `live`
+  bytes, the `peak`, and how many `allocs` it has made, for reports
+  such as "Memory used". The release allocator counts on each thread's
+  heap and adds to atomic totals every 64 KiB or 1,024 blocks, so its
+  fast paths gain no atomic operation (Trig 0.5-0.8% slower on pup,
+  within noise on the Mac).
 - **`text.Interner`:** the run-time string interner, which gives each
   string a dense `U32` id, is std.text's `Interner` (`use std.text`,
   then `text.Interner()`), apart from the built-in `Symbol`, a name the
