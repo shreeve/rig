@@ -379,7 +379,7 @@ forms to `value`, an expression without blocks or closures (conditions,
 - turns leading spaces into `INDENT`, `OUTDENT`, and `NEWLINE`, rejects
   tabs and dedents to unknown columns, and skips blank and comment
   lines;
-- treats newlines inside `( )` and `[ ]` as whitespace and joins lines
+- treats newlines inside `( )`, `[ ]`, and `{ }` as whitespace and joins lines
   ending in `\`, except for a closure body that starts below its bar
   list inside brackets: that opens a *layout island*, laid out in
   blocks until the bracket closes or a line returns to the closure's

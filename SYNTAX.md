@@ -77,9 +77,10 @@ tab in indentation; indent with spaces
 **Statements** are one per line, and there is no `;`: a statement ends
 at the end of its line.
 
-**Line joining.** Inside `( )` and `[ ]` a newline is plain whitespace,
-so a call, an array, a parenthesized expression, or a method chain can
-span lines at any indentation. A `\` at the end of a line joins the
+**Line joining.** Inside `( )`, `[ ]`, and an API object's `{ }` a
+newline is plain whitespace, so a call, an array, a parenthesized
+expression, a method chain, or `?{Shape + Print}` can span lines at any
+indentation. A `\` at the end of a line joins the
 next line anywhere. Outside brackets, a line that starts with `.` (a
 member access or a method call) and is indented deeper than the
 statement above it continues that statement, and so does each such line
