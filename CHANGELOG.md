@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **`rig check` and `rig lsp` on a file of a directory module:** the
+  file is checked as its module, whose imports are beside the
+  directory, so opening `src/ast/ast.rig` in an editor no longer reports
+  its `use core` as a module it cannot read. A directory is a program's,
+  and each file its own root, when one of its files declares `sub main`
+  or `use`s a module found in it and not beside it (SPEC §1).
 - **Docs: shared and crossing API objects in the Core (APIs Stage 5,
   phase 0):** CORE §1, §4, and sentences 8 and 9 state, as planned, that
   `*{Shape}` counts a value of hidden type and `~{Shape}` is its weak
@@ -22,6 +28,33 @@ changed the language since it:
   table gains the objects' rows, marked planned. docs/design/apis.md's
   Stage 5 and its build plan follow the approved text. Nothing is built
   yet.
+- **A generic instance gives no task what goes to none:** a generic
+  body that gives or lends a task a `T`, or a value holding one (a
+  task's arguments, self, and result, an actor's value, arguments, and
+  result, `par`'s elements, values, and captures), is checked at each
+  instance with the crossing walk that checks a known type, at the call
+  that makes the instance, with a note at the task. An instance whose
+  `T` holds an owned closure, an API object, or a set of tasks is
+  rejected, and so is one whose `T` stays on one thread (`*Node`) where
+  the body's task crosses, which ran on another core. A method of a
+  generic type, or an API's default, is checked at each type that
+  reaches it (a call, a call through a bound, or erasure to an object
+  of its API); one never reached is not compiled and is not checked. A
+  generic body that erases a `T` to an API object, or gives one out of
+  `task.isolate`, is checked at each instance for a task the `T` holds.
+  A bounded or `pub` generic whose calls give its `T` to a task that
+  crosses states `Sends` or `Syncs`. Whether an API object crosses
+  (`Sends`, `Syncs`) is decided by the same walk. v0.2.9 accepted the
+  forms this rejects, each of which let a value reach a task its known
+  type could not: `spawn(<cb)` of `fun spawn[T](x: T)` whose body runs
+  `use(<x)&`, with `cb: *fun() -> Int` or `n: *Node`; `par.map(xs, f)`
+  over a `?List[T]` of owned closures; `*Actor(Box[T](x: <x))` with `T`
+  an owned closure; a `fun go[T](f: fun() -> T)` whose task `call(f)&`
+  gives back an owned closure; `h.go()`, an API default whose task
+  takes `?@`, on a type holding an owned closure;
+  `task.isolate(|<x| keep(<x))` with `T = Task[Int]`; and a `pub fun
+  outer[U]` that passes a `U` to a generic whose task crosses, which
+  now writes `[U: Sends]` or `[U: Syncs]`.
 - **Boxes of API objects (APIs Stage 4, phase 3):** a `^T` moves into a
   `^{Shape}` and keeps its allocation, `<c` or a `^Square(...)` written
   where one goes, and a `^T?` into a `^{Shape}?`. A box lends its
@@ -682,6 +715,11 @@ checks it against Python's `json` module on 10,511 inputs;
 against Zig's `std.json`, serde_json, simd-json, sonic-rs and
 zimdjson (docs/history/json-results.md). Its API is not settled
 (docs/design/json.md, "Open items").
+
+std.json: an escaped string checks its length once, so safe builds keep
+#538's gain on x86 (pup's safe builds are back within 2% of the earlier
+reference on every file). Canada runs 2.4-2.8% (pup) and up to 4% (Mac
+safe) slower than before, which is layout and is noted, not fixed.
 
 ### Concurrency
 

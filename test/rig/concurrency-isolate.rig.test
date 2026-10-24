@@ -199,3 +199,36 @@ test "isolate leaves a handle it holds", seeds: 20, "-1 after"
   b = *Box2(n: 1)
   r = task.isolate(|+b| boom(+b, 9)) catch -1
   print(r, "after")
+
+fail "isolate generic task owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
+  # A task started under an isolate takes what any task takes.
+  use std.task
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun go[T](x: ?T) -> Int
+    r = task.isolate(|?x|
+      t = look(?x)&
+      >t
+    ) catch 0
+    r
+
+  cb: *fun() -> Int = *|| 4
+  print(go(?cb))
+
+fail "isolate generic instance gives a task", "`go[Task[Int]]` cannot use `T = Task[Int]`: a task started in `task.isolate` ends in it, so the generic body gives out of it no value that holds a `T`, and a `Task[Int]` holds one", errors: 1
+  use std.task
+
+  fun work() -> Int
+    2
+
+  fun keep[T](x: T) -> T
+    x
+
+  fun go[T](x: T) -> Int
+    v = task.isolate(|<x| keep(<x)) catch return 0
+    1
+
+  print(go(3))
+  print(go(work()&))

@@ -132,10 +132,13 @@ pub const ModuleGraph = struct {
     /// Where the root's imports are: the root file's directory, or a
     /// directory root's parent (null for the current directory).
     import_dir: ?[]const u8 = null,
-    /// The root file's text, when the caller holds it (the language
-    /// server's open document), read in place of the file. The caller
-    /// keeps it alive as long as the graph.
-    root_source: ?[]const u8 = null,
+    /// The text of one file, when the caller holds it (the language
+    /// server's open document), read in place of the file: the root, or
+    /// a file of a directory module. The caller keeps it alive as long as
+    /// the graph.
+    held: ?Held = null,
+
+    pub const Held = struct { path: []const u8, text: []const u8 };
 
     pub const Error = std.mem.Allocator.Error;
 
@@ -216,7 +219,7 @@ pub const ModuleGraph = struct {
             break :blk try self.add(found.key, found.display, name, found.source, found.parts);
         } else blk: {
             self.import_dir = std.fs.path.dirname(path);
-            const source = (if (self.root_source) |text| sized(text) else self.read(path)) catch |err| {
+            const source = self.read(path) catch |err| {
                 try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
                 return;
             };
@@ -246,25 +249,96 @@ pub const ModuleGraph = struct {
         }
     }
 
+    /// The root `rig check` checks for `path`, and whether with its test
+    /// files. A directory is its own root. A file is part of its
+    /// directory's module, which is then the root (its imports beside it,
+    /// `loadRoot`, and with its test files when the file is one), unless
+    /// the directory is a program's: one of its `.rig` files declares
+    /// `sub main`, or `use`s a module the directory holds and its parent
+    /// does not. A lone file is a root too, unless a `use` names a module
+    /// beside the directory and not in it. A module path's first name is
+    /// the module looked for, a file or a directory, and `use std.NAME`
+    /// names one in a directory called `std`, the library's own. A file
+    /// that does not parse is a root, as its parse errors are all it
+    /// reports; another file that does not parse says nothing. The file
+    /// itself is read first, so a program's root file is known from its
+    /// own text.
+    pub fn rootOf(self: *ModuleGraph, path: []const u8) Error!Root {
+        if (self.isDirectory(path)) return .{ .path = path };
+        const file_root: Root = .{ .path = path };
+        const a = self.arena.allocator();
+        const dir = std.fs.path.dirname(path) orelse ".";
+        const canonical = try self.realPath(dir);
+        const parent = std.fs.path.dirname(canonical) orelse return file_root;
+        const is_std = std.mem.eql(u8, std.fs.path.basename(canonical), "std");
+        const own = std.fs.path.basename(path);
+        var names: std.ArrayList([]const u8) = .empty;
+        try names.append(a, own);
+        {
+            var d = std.Io.Dir.cwd().openDir(self.io, dir, .{ .iterate = true }) catch return file_root;
+            defer d.close(self.io);
+            var it = d.iterate();
+            while (it.next(self.io) catch return file_root) |entry| {
+                if (!belongs(entry.name, true) or entry.name.len == 4 or std.mem.eql(u8, entry.name, own)) continue;
+                const st = d.statFile(self.io, entry.name, .{}) catch continue;
+                if (st.kind == .file) try names.append(a, try a.dupe(u8, entry.name));
+            }
+        }
+        var beside = false;
+        for (names.items) |name| {
+            const own_file = std.mem.eql(u8, name, own);
+            const source = self.read(try std.fs.path.join(a, &.{ dir, name })) catch
+                if (own_file) return file_root else continue;
+            var p = parser.Parser.init(self.allocator, source);
+            defer p.deinit();
+            const tree = p.parseProgram() catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                else => if (own_file) return file_root else continue,
+            };
+            if (declaresMain(source, tree)) return file_root;
+            for (ir.Module.decls(tree)) |decl| {
+                if (!decl.isKind(.use)) continue;
+                const named = try UsePath.of(a, source, decl);
+                if (named.builtin or (named.in_std and !is_std)) continue;
+                const first = named.comps[0];
+                const in_dir = try self.holdsModule(canonical, first);
+                if (named.in_std) {
+                    if (in_dir) return file_root;
+                    continue;
+                }
+                const in_parent = try self.holdsModule(parent, first);
+                if (in_dir and !in_parent) return file_root;
+                if (in_parent and !in_dir) beside = true;
+            }
+        }
+        if (names.items.len == 1 and !beside) return file_root;
+        return .{ .path = dir, .tests = std.mem.endsWith(u8, own, "_test.rig") };
+    }
+
+    pub const Root = struct { path: []const u8, tests: bool = false };
+
+    /// Whether `dir` holds a module `name`: `name.rig` or `name/`.
+    fn holdsModule(self: *ModuleGraph, dir: []const u8, name: []const u8) Error!bool {
+        const a = self.arena.allocator();
+        const cwd = std.Io.Dir.cwd();
+        if (cwd.statFile(self.io, try std.fs.path.join(a, &.{ dir, name }), .{})) |st| {
+            if (st.kind == .directory) return true;
+        } else |_| {}
+        const file = try std.fs.path.join(a, &.{ dir, try a.print("{s}.rig", .{name}) });
+        const st = cwd.statFile(self.io, file, .{}) catch return false;
+        return st.kind == .file;
+    }
+
     /// Resolve `use PATH` in module `id`: record the import, adding the
     /// module to the graph if it is new, or report why it cannot be
     /// imported.
     fn resolveUse(self: *ModuleGraph, id: ModuleId, decl: parser.Sexp) Error!union(enum) { failed, loaded, added: ModuleId } {
         const a = self.arena.allocator();
         const importer = self.get(id);
-        const path = ir.Use.name(decl);
-        var names: std.ArrayList([]const u8) = .empty;
-        var node = path;
-        while (node.isKind(.member)) : (node = ir.Member.object(node)) try names.append(a, rig.leafText(importer.source, ir.Member.name(node).src));
-        try names.append(a, rig.leafText(importer.source, node.src));
-        std.mem.reverse([]const u8, names.items);
-        // The module of the built-in types written in Rig, which the
-        // Parser wrapper has a module that names one use
-        // (`Parser.builtinRefs`): of the standard library, and named by no
-        // program.
-        const builtin = rig.isBuiltinModuleLeaf(path);
-        const in_std = builtin or (names.items.len > 1 and std.mem.eql(u8, names.items[0], "std"));
-        const comps = if (builtin) names.items else if (in_std) names.items[1..] else names.items;
+        const named = try UsePath.of(a, importer.source, decl);
+        const builtin = named.builtin;
+        const in_std = named.in_std;
+        const comps = named.comps;
         const name = comps[comps.len - 1];
         const alias = ir.Use.alias(decl);
         const local_name = if (alias == .nil) name else rig.leafText(importer.source, alias.src);
@@ -308,6 +382,31 @@ pub const ModuleGraph = struct {
         try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = target, .file = file });
         return .loaded;
     }
+
+    /// The module path a `use` declaration names.
+    const UsePath = struct {
+        /// The names of the path, without `std`.
+        comps: []const []const u8,
+        /// A module of the standard library.
+        in_std: bool,
+        /// The module of the built-in types written in Rig, which the
+        /// Parser wrapper has a module that names one use
+        /// (`Parser.builtinRefs`): of the standard library, and named by
+        /// no program.
+        builtin: bool,
+
+        fn of(a: std.mem.Allocator, source: []const u8, decl: parser.Sexp) Error!UsePath {
+            const path = ir.Use.name(decl);
+            var names: std.ArrayList([]const u8) = .empty;
+            var node = path;
+            while (node.isKind(.member)) : (node = ir.Member.object(node)) try names.append(a, rig.leafText(source, ir.Member.name(node).src));
+            try names.append(a, rig.leafText(source, node.src));
+            std.mem.reverse([]const u8, names.items);
+            const builtin = rig.isBuiltinModuleLeaf(path);
+            const in_std = builtin or (names.items.len > 1 and std.mem.eql(u8, names.items[0], "std"));
+            return .{ .comps = if (builtin or !in_std) names.items else names.items[1..], .in_std = in_std, .builtin = builtin };
+        }
+    };
 
     /// Where a module path's files are: a directory of files (the
     /// program's root directory, or `$RIG_STD`), or the standard
@@ -668,6 +767,9 @@ pub const ModuleGraph = struct {
     }
 
     fn read(self: *ModuleGraph, path: []const u8) ![]const u8 {
+        if (self.held) |h| if (std.mem.eql(u8, path, h.path) or
+            std.mem.eql(u8, try std.fs.path.resolve(self.arena.allocator(), &.{path}), try std.fs.path.resolve(self.arena.allocator(), &.{h.path})))
+            return sized(h.text);
         return std.Io.Dir.cwd().readFileAlloc(self.io, path, self.arena.allocator(), .limited(max_source_bytes + 1));
     }
 
@@ -783,6 +885,17 @@ fn hasTypeErrors(items: []const diag.Diagnostic) bool {
     return false;
 }
 
+
+/// Whether a module's tree declares `main`, a program's entry.
+pub fn declaresMain(source: []const u8, tree: parser.Sexp) bool {
+    if (tree == .nil) return false;
+    for (ir.Module.decls(tree)) |top| {
+        const decl = if (top.isKind(.@"pub")) ir.Pub.decl(top) else top;
+        if (!decl.isKind(.sub) and !decl.isKind(.fun)) continue;
+        if (std.mem.eql(u8, rig.leafText(source, ir.get(decl, .name).src), "main")) return true;
+    }
+    return false;
+}
 
 /// `dir/name.rig` → `name`.
 fn moduleName(path: []const u8) []const u8 {

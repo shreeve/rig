@@ -4,9 +4,11 @@
 //! keeps the text of each open document (full sync) and answers:
 //!
 //!   * diagnostics: the parse errors of the text as it is typed, and on
-//!     open and save the diagnostics `rig check` gives for the document as
-//!     the root of its program, read through the same path `rig check`
-//!     takes (`modules.ModuleGraph`), each with its notes;
+//!     open and save the diagnostics `rig check` gives for the document:
+//!     its program with the document as the root, or the directory module
+//!     the document is part of (`ModuleGraph.rootOf`), read through the
+//!     same path `rig check` takes (`modules.ModuleGraph`), each with its
+//!     notes, published to the file each is in;
 //!   * semantic tokens, document symbols, and folding ranges, from
 //!     `src/editor.zig`.
 //!
@@ -501,9 +503,10 @@ const Server = struct {
         try s.publishRaw(a, d.uri, d.version, try files.json(items.items, "", d.uri, s.io));
     }
 
-    /// Check the program `d` is the root of, as `rig check` does, from the
-    /// text of `d`; keep its diagnostics for `d`, and publish those in
-    /// other files of the program.
+    /// Check the program of `d` as `rig check` does, from the text of `d`:
+    /// with `d` as its root, or the directory module `d` is part of. Keep
+    /// its diagnostics in `d` for `d`, and publish those in other files of
+    /// the program.
     fn check(s: *Server, a: Allocator, d: *Doc) !void {
         const path = (try uriToPath(a, d.uri)) orelse return;
         var arena = std.heap.ArenaAllocator.init(s.gpa);
@@ -512,8 +515,10 @@ const Server = struct {
         var graph = modules.ModuleGraph.init(ga, s.io);
         defer graph.deinit();
         graph.std_dir = s.std_dir;
-        graph.root_source = d.text;
-        try graph.loadRoot(path);
+        graph.held = .{ .path = path, .text = d.text };
+        const root = try graph.rootOf(path);
+        graph.with_tests = root.tests;
+        try graph.loadRoot(root.path);
         if (!graph.hasErrors()) try inlining.decide(ga, &graph, inlining.max_size);
 
         // Every diagnostic of every module, in the order `rig check`
