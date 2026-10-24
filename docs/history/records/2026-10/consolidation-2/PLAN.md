@@ -70,7 +70,7 @@ docs/internals/backlog.md.
 | # | Item | Source | Class |
 |---|---|---|---|
 | 1 | `for i in 0..f.len` of a `*Frozen[List[T]]` fails in Zig | S4 p2 | done (#613) |
-| 2 | an object prints its hidden text quoted (`"x"`, not `x`) | S4 p3 | fix, **high** |
+| 2 | an object prints its hidden text quoted (`"x"`, not `x`) | S4 p3 | done (#628) |
 | 3 | a generic `?T` of an optional view fails in Zig (track 1.7) | BL | fix, **high** |
 | 4 | a release build of a nested-by-value chain grows past 20 minutes | BL | fix |
 | 5 | a `(^{Shape})!` or `(*{Shape})!` result does not erase its tail | S5 p2 | fix |
