@@ -4988,6 +4988,65 @@ Square(side: 2.0) Square(side: 1.0)
   print(a, b)
   print(l)
 
+test "apis addition called directly views what its method says", "x 2 y 3 1"
+  # `p.name()` of a type an addition gives `Named` keeps and views what
+  # the addition's method says (`from @a`), narrower than the API's
+  # `from @`, as a call of a type's own method does; a call through a
+  # bound keeps what the API says.
+  use lib
+
+  api Named
+    fun name(?@) -> ?String from @
+
+  add lib.Pair: Named
+    fun name(?@) -> ?String from @a
+      ?@a
+
+  obj Q: Named
+    a: String
+    n: Int
+
+    fun name(?@) -> ?String from @a
+      ?@a
+
+  fun via[T: Named](x: ?T) -> Int
+    x.name().len
+
+  sub main()
+    p = lib.Pair(a: String("x"), n: 1)
+    s = ?p.name()
+    p.n = 2
+    q = Q(a: String("y"), n: 1)
+    t = ?q.name()
+    q.n = 3
+    print(s, p.n, t, q.n, via(?p))
+
+  file "lib.rig"
+    pub obj Pair
+      pub a: String
+      pub n: Int
+
+fail "apis addition called directly keeps the field it views lent", "cannot assign to `p.a` while `p.a` is lent", errors: 1
+  use lib
+
+  api Named
+    fun name(?@) -> ?String from @
+
+  add lib.Pair: Named
+    fun name(?@) -> ?String from @a
+      ?@a
+
+  sub main()
+    p = lib.Pair(a: String("x"), n: 1)
+    s = ?p.name()
+    p.a = String("z")
+    print(s)
+
+  file "lib.rig"
+    pub obj Pair
+      pub a: String
+      pub n: Int
+
 test "apis object box cloned through the table", "Pt(x: 2, tag: \"a\") 4 9"
   # `+b` with `Clone` in the braces: a new box of a clone of the value,
   # through its table; a `String` among its fields copied.

@@ -13043,10 +13043,15 @@ const Checker = struct {
         self.lend_call = true;
         self.lend_recv = f.params[0];
         const mark = self.ctx.diagnostics.items.len;
-        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = m.field.origins, .declared = fn_ty.params[1..] });
+        // A call whose addition is known here keeps and views what the
+        // addition's method says, within the API's (`additionOrigins`).
+        const o = switch (via) {
+            .witness => |w| sema.additionOrigins(self.ctx, w, m.field.name) orelse m.field.origins,
+            .table => m.field.origins,
+        };
+        try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = o, .declared = fn_ty.params[1..] });
         // A receiver the method keeps is lent with `?` written (Core
         // sentence 4).
-        const o = m.field.origins;
         if (receiver == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.lent & sema.paramBit(0) != 0 and self.implicitReceiver(obj)) {
             if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
         }

@@ -3486,7 +3486,8 @@ and in its result, how it fails included: the same set, union, `T!`, or
 set parameter. Its compile-time parameters are each the same kind, of
 the same type, with the same bounds. Only `from` and `keeps` may be narrower than the API's,
 compared by position, never wider: a call through the API keeps and
-views what the API says. An API's method whose result could view what
+views what the API says, and a call on a type whose addition is known
+where it is written (`p.name()`) what the addition's method says. An API's method whose result could view what
 it is passed says what with `from`. A method that meets a `pub` API on a
 `pub` type is `pub`. A type that provides two APIs giving one method a
 default writes the method to choose.

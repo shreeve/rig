@@ -292,6 +292,14 @@ changed the language since it:
   (`hasLenReached`) now says a length is read through handles and
   boxes alike.
 
+- **A method an addition gives, called directly, views what it says:**
+  `p.name()` of a type an `add` block gives `Named` took the API's
+  `from @`, keeping all of `p` lent, where the addition's method says
+  `from @a`; a call whose addition is known where it is written now
+  keeps and views what that method says (`sema.additionOrigins`), as a
+  call of a type's own method does. A call through a bound, or by the
+  API's name, keeps what the API says.
+
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first
   use; `List(...)` of objects, and an array lent where a `?List[T]`

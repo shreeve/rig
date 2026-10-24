@@ -8277,6 +8277,23 @@ fn symKey(ctx: *const SemContext, s: SymbolId) TypeKey {
     return .{ .module_id = ctx.module_id, .sym = s };
 }
 
+/// The `from` and `keeps` of method `name` as the addition `w` names
+/// writes them, which may be narrower than its API's: a call whose
+/// witness is known where it is written keeps and views what that
+/// method says. Null for a type parameter's witness, a header's (whose
+/// methods are its type's own), or no such method.
+pub fn additionOrigins(ctx: *const SemContext, w: Witness, name: []const u8) ?Origins {
+    const c = switch (w) {
+        .conformance => |c| c,
+        .param => return null,
+    };
+    const home: *const SemContext = if (c.module_id == ctx.module_id) ctx else ctx.foreign_semas.get(c.module_id) orelse return null;
+    const conf = home.conformances.items[c.index];
+    if (conf.kind != .add) return null;
+    for (conf.methods) |f| if (std.mem.eql(u8, f.name, name)) return f.origins;
+    return null;
+}
+
 /// The conformance `p` names, with the context of the module that
 /// writes it.
 pub fn conformanceOf(ctx: *const SemContext, p: Provision) ?struct { home: *const SemContext, conf: Conformance } {
