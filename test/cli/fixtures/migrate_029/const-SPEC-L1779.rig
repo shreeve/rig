@@ -1,0 +1,6 @@
+sub main()
+  const limit = 3
+  new const limit = limit * 2
+  n = 7
+  new n: U8 = U8(n)
+  print(limit, n)

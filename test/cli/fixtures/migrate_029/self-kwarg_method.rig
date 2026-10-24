@@ -1,0 +1,15 @@
+# Keyword arguments to a method bind by name.
+
+struct Rect
+  w: Int
+  h: Int
+
+  fun area(self: ?Rect, scale: Int, extra: Int) -> Int
+    self.w * self.h * scale + extra
+
+sub main()
+  r = Rect(w: 2, h: 3)
+  print(r.area(extra: 1, scale: 10))
+
+# expect:
+# 61

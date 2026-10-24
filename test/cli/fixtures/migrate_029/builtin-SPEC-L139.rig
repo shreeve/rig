@@ -1,0 +1,5 @@
+sub main()
+  small: U8 = 200
+  sum = small + 55          # 55 is a U8 here
+  big = 9223372036854775807
+  print(sum, big, @size(Int), 0.1 + 0.2)

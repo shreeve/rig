@@ -1,0 +1,15 @@
+# `continue :outer` inside a nested loop continues the loop labeled
+# `:outer`, running its continuation.
+
+sub main()
+  i = 0
+  :outer while i < 3 : i += 1
+    j = 0
+    while true
+      j += 1
+      continue :outer if j > i
+    print(99)
+  print(i)
+
+# expect:
+# 3

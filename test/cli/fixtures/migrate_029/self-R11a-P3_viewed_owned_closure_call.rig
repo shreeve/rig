@@ -1,0 +1,9 @@
+struct Hold
+  v: *fun() -> Int
+
+  fun peek(?self) -> ?*fun() -> Int
+    ?self.v
+
+sub main()
+  c = Hold(v: *|| 5)
+  print(c.peek()())
