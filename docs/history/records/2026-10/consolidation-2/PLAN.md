@@ -72,7 +72,7 @@ docs/internals/backlog.md.
 | 1 | `for i in 0..f.len` of a `*Frozen[List[T]]` fails in Zig | S4 p2 | done (#613) |
 | 2 | an object prints its hidden text quoted (`"x"`, not `x`) | S4 p3 | done (#628) |
 | 3 | a generic `?T` of an optional view fails in Zig (track 1.7) | BL | fixed by 742d05cd7; its sibling, an error with fields, #630 |
-| 4 | a release build of a nested-by-value chain grows past 20 minutes | BL | fix |
+| 4 | a release build of a nested-by-value chain grows past 20 minutes | BL | #650 ([nested-build.md](nested-build.md)) |
 | 5 | a `(^{Shape})!` or `(*{Shape})!` result does not erase its tail | S5 p2 | done (#631) |
 | 6 | `[T: Clone]` refuses `+x` of `x: ?T` | S3 p34 | #636 |
 | 7 | `if ?o as v` of a `?T?` under an API bound asks `Copy` | S3 p2 | #638 |

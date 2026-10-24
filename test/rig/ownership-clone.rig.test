@@ -201,3 +201,96 @@ test "a recursive generic still clones", "1 2"
   if n2.next as nx
     print(n2.v, nx.v)
 
+test "objects nested by value deeper than inlining compare, hash, and clone", "true true true 11", release: true
+  # Past eight levels `==`, `.hash()`, and `+` reach a nested object
+  # through a call of its own (`rig.outOfLine`), so a long chain builds in
+  # time linear in its length; the values are the same either way.
+  obj O0
+    v: Int
+    s: String
+
+  obj O1
+    inner: O0
+    v: Int
+
+  obj O2
+    inner: O1
+    v: Int
+
+  obj O3
+    inner: O2
+    v: Int
+
+  obj O4
+    inner: O3
+    v: Int
+
+  obj O5
+    inner: O4
+    v: Int
+
+  obj O6
+    inner: O5
+    v: Int
+
+  obj O7
+    inner: O6
+    v: Int
+
+  obj O8
+    inner: O7
+    v: Int
+
+  obj O9
+    inner: O8
+    v: Int
+
+  obj O10
+    inner: O9
+    v: Int
+
+  obj O11
+    inner: O10
+    v: Int
+
+  fun make0() -> O0
+    O0(v: 0, s: String("x"))
+
+  fun make1() -> O1
+    O1(inner: make0(), v: 1)
+
+  fun make2() -> O2
+    O2(inner: make1(), v: 2)
+
+  fun make3() -> O3
+    O3(inner: make2(), v: 3)
+
+  fun make4() -> O4
+    O4(inner: make3(), v: 4)
+
+  fun make5() -> O5
+    O5(inner: make4(), v: 5)
+
+  fun make6() -> O6
+    O6(inner: make5(), v: 6)
+
+  fun make7() -> O7
+    O7(inner: make6(), v: 7)
+
+  fun make8() -> O8
+    O8(inner: make7(), v: 8)
+
+  fun make9() -> O9
+    O9(inner: make8(), v: 9)
+
+  fun make10() -> O10
+    O10(inner: make9(), v: 10)
+
+  fun make11() -> O11
+    O11(inner: make10(), v: 11)
+
+  a = make11()
+  b = +a
+  c = make11()
+  !c.inner.inner.inner.inner.inner.inner.inner.inner.inner.inner.inner.s.push("y")
+  print(a == b, a.hash() == b.hash(), a != c, b.v)
