@@ -12,21 +12,17 @@ def report(id):
 ```
 
 `report` breaks. `fetch_user` is `async`, so calling it gives a
-coroutine, not a user. To fix it, `report` must become `async` too,
-and then everything that calls `report`. Waiting has split the program
-into two kinds of function. Rust, JavaScript, and C# have the same
-split.
+coroutine, not a user, and `report` must become `async` too, and then
+everything that calls it. Rust, JavaScript, and C# split their programs
+the same way.
 
-Threads avoid the split, and bring other trouble. Two threads write one
-map, and nothing stops them. A lock forgotten on one path shows up in
-production, once a month. Two locks taken in the wrong order hang the
-program, and nothing says why.
+Threads avoid the split, and bring other trouble: two threads write one
+map, a lock is forgotten on one path, two locks taken in the wrong
+order hang the program.
 
 Rig has no `async` and no locks. This chapter runs work at the same
 time with two sigils, shares state through actors, and shows what
-happens when it goes wrong. Every program here runs with
-`bin/rig run FILE.rig`, and prints what the `output` block below it
-shows.
+happens when it goes wrong.
 
 ## Send it off, take it back
 
@@ -55,9 +51,8 @@ sub main()
 result when the task ends. `>t` waits for that end and takes the
 result. The wait uses the task up, so `t` is gone after it.
 
-`total` and `sq` are ordinary functions. Nothing in their declarations
-says they may run as tasks. A function that sleeps or reads a socket is
-ordinary too, and calling it is an ordinary call with no mark. Only a
+`total` and `sq` are ordinary functions, and so is one that sleeps or
+reads a socket: calling it is an ordinary call with no mark. Only a
 task started with `&` is waited for with `>`.
 
 A task has to be waited for somewhere. One started and forgotten is a
@@ -96,11 +91,10 @@ sub main()
 cannot lend `xs` to write while a read loan is live
 ```
 
-That is the rule for every view, from [Sigils](01-sigils.md). It holds
-because a task never outlives the scope that owns it. Dropping a task
-that was not waited for waits for it, and cancels it first if it can
-fail. So there are no detached tasks, and a task may even write its
-caller's data:
+That is the rule for every view, and it holds because a task never
+outlives the scope that owns it: dropping a task that was not waited
+for cancels it if it can fail, and waits for it. So there are no
+detached tasks, and a task may even write its caller's data:
 
 ```rig
 sub fill(xs: !List[Int], n: Int)
@@ -171,23 +165,20 @@ sub main()!
 200
 ```
 
-`!all.add(...)` moves a task into the set, which keeps its loans as the
-task did. `>all` gives the results in the order the tasks were added,
-not the order they ended, so mirror 3 finishing first changes nothing.
-When a task in the set fails, the rest are canceled and the wait fails
-with that error.
+`!all.add(...)` moves a task into the set, which keeps its loans.
+`>all` gives the results in the order the tasks were added, not the
+order they ended. When one fails, the rest are canceled and the wait
+fails with its error.
 
 `<ts.wait_first()` is a word, not a sigil, because it is a policy: it
-takes the set, returns the first success, and cancels the rest. Mirror
-1 fails, mirror 2 answers, and mirror 3's minute of sleep is canceled
-at once. It works only for tasks that can fail, since the losers must
+returns the first success and cancels the rest, so mirror 3's minute of
+sleep ends at once. It needs tasks that can fail, since the losers must
 be stopped.
 
 ## A counter many tasks share
 
-A task gets its own view of what it is lent. State that many tasks
-change needs one home, behind `*`. A `*Cell` of one word, such as an
-`Int`, is the simplest:
+State that many tasks change needs one home, behind `*`. A `*Cell` of
+one word, such as an `Int`, is the simplest:
 
 ```rig
 sub work(hits: *Cell[Int])
@@ -207,10 +198,9 @@ sub main()
 8000
 ```
 
-`+hits` makes another handle to the same cell, one for each task.
-Every change is a marked call, `!hits.add(1)`, through a handle the
-task holds. When a program makes tasks, each operation on a one-word
-cell becomes one atomic instruction, so no count is lost. Rig needs no
+`+hits` makes another handle to the same cell for each task. Each
+change is a marked call, `!hits.add(1)`, and one atomic instruction,
+so no count is lost. Rig needs no
 separate atomic type: a counter or a flag is a `*Cell` of one word.
 
 ## An actor for anything larger
@@ -251,20 +241,16 @@ its end, so the ledger is never seen half-changed. A `?@` method is
 called bare, `ledger.count()`, and a `!@` method is marked,
 `!ledger.post(1)`.
 
-An actor usually means a message, a queue, and a switch for every
-call. In Rig, a call that finds the actor idle takes it in one atomic
-step and runs the method on the caller's own stack. Only a call that
-finds it busy waits, as it would for a mutex, and is then queued. So
-an idle actor costs about what a lock does: about 5 ns a call on an
-Apple M5, against 3.5 ns for a Go mutex and 135 ns for the usual Tokio
-actor. Rig has no `Mutex` type: an idle actor already is one, and its
-state can be reached no other way.
+A call that finds the actor idle takes it in one atomic step and runs
+the method on the caller's own stack, with no message. Only a call that
+finds it busy is queued. So an idle actor costs about what a lock does,
+about 5 ns a call on an Apple M5, and Rig needs no `Mutex` type.
 
 ## A value many tasks read
 
-Some data never changes once it is made: a page a cache built, the
-settings a server read at start. Many tasks should read it, with no
-copy each and no call through an actor. Freeze it:
+Data that never changes once made, such as the settings a server read
+at start, can be read by many tasks with no copy and no actor. Freeze
+it:
 
 ```rig
 obj Settings
@@ -333,38 +319,9 @@ sub main()!
 a value and gives it as `Int?`, or `none` once the channel is closed
 and empty, which ends each `while`. Both change the channel, so both
 are marked with `!`, and both can fail, because a canceled task stops
-there.
+there. `task.select` waits on several channels and commits exactly one
+arm ([SPEC, Channels](../../SPEC.md#channels)).
 
-`task.select` waits on several channels and commits exactly one arm:
-
-```rig
-use std.task
-
-sub main()!
-  jobs = *Chan[Int](4)
-  quit = *Chan[Int](1)
-  !jobs.send(7)!
-  r = task.select(
-    (!jobs).on_recv(|v| v ?? 0),
-    (!quit).on_recv(|_| -1),
-  )!
-  print(r)
-  !quit.send(1)!
-  r = task.select(
-    (!jobs).on_recv(|v| v ?? 0),
-    (!quit).on_recv(|_| -1),
-  )!
-  print(r)
-```
-
-```output
-7
--1
-```
-
-The first select finds a job waiting, and the second finds only the
-quit. When several arms are ready at once, the select takes them in
-turn, so none starves, and an arm that loses never takes its value.
 
 ## Deadlocks that report themselves
 
@@ -405,11 +362,9 @@ panic: deadlock: these calls wait on each other, and none can go on: Bank.pay ->
 ```
 
 Every wait records what it waits on, and the wait that would close a
-cycle walks the chain and finds it. Waits on tasks and on sets count
-too: a method that waits on a task that calls its own actor is the
-same cycle. Waits on channels are not followed, since any task holding
-the channel could end them; a cycle through a channel hangs, as it
-would in Go.
+cycle walks the chain and finds it, through tasks and sets too. Waits
+on channels are not followed, since any task holding the channel could
+end them.
 
 ## A panic stops at a boundary
 
@@ -439,12 +394,11 @@ stopped: Stop.panicked
 still running
 ```
 
-The panic's report still goes to stderr, and the isolate fails with
-`task.Stop.panicked`. The tasks started inside are canceled and waited
-for. Nothing outside `f` may be lent to it to write, so all a panic
-could have half-changed is `f`'s own, and that is abandoned.
-`http.serve` runs each request this way: a bug answers that request
-with a 500, and every other request goes on.
+The panic's report still goes to stderr, the tasks started inside are
+canceled and waited for, and the isolate fails with
+`task.Stop.panicked`. Nothing outside `f` is lent to it to write, so
+what a panic half-changed is abandoned with `f`. `http.serve` runs
+each request this way.
 
 An actor is a boundary too. A panic in one of its methods ends the
 actor, since its state may be half-changed, and every later call
@@ -454,39 +408,9 @@ panics, naming the method that killed it:
 panic: Seats.book: the actor died from a panic in Seats.seat
 ```
 
-`*Actor.supervised(make)` starts a fresh value instead:
+`*Actor.supervised(make)` starts a fresh value instead, and
+`restarts: n, per: ns` limits how often.
 
-```rig
-use std.task
-
-obj Seats
-  taken: List[Int]
-
-  fun book(!@, row: Int) -> Int
-    !@taken.push(row)
-    @taken.len
-
-  fun seat(?@, i: Int) -> Int
-    @taken[i]
-
-sub main()
-  hall = *Actor.supervised(*|| Seats(taken: List[Int]()))
-  print((!hall).book(4))
-  print((!hall).book(9))
-  print(task.isolate(|+hall| hall.seat(5)) catch -1)
-  print((!hall).book(2))
-```
-
-```output
-1
-2
--1
-1
-```
-
-`seat(5)` panics, and the isolate around the call stops it there. The
-actor calls `make` again, so the next booking is the first in a new,
-empty hall. `restarts: n, per: ns` limits how often it may start again.
 
 ## Stopping a task
 
@@ -524,10 +448,9 @@ caught once
 ```
 
 `<t.cancel()` takes the task, cancels it, waits for it, and gives what
-it gave. `nap` fails in its sleep, and its `defer` runs as for any
-failure. `stubborn` catches the first failure and tries to carry on,
-but the cancel stays: its next waiting point, `task.check()`, fails
-too. A `catch` cannot swallow a cancel.
+it gave. `nap` fails in its sleep, and its `defer` runs. `stubborn`
+catches the first failure, but the cancel stays: its next waiting
+point fails too.
 
 A task that cannot fail runs to its end, and the compiler says so:
 
@@ -581,88 +504,22 @@ Stop.timeout
 []
 ```
 
-`both` knows nothing about deadlines. The second call's slow fetch
-sleeps only until the deadline, then fails, and the set's wait fails
-with it. There is no context object to pass down, and no token to
-check by hand. Inside another deadline, the earlier one holds. A loop
-that reaches no waiting point is not stopped, so a long computation
-calls `task.check()!` where stopping is safe.
+`both` knows nothing about deadlines. The slow fetch sleeps only until
+the deadline, then fails, and the set's wait fails with it. There is no
+context object to pass down. A loop that reaches no waiting point is
+not stopped, so a long computation calls `task.check()!` where
+stopping is safe.
 
-A task started before the deadline gets one too. `time.within` calls
-its closure once, so the closure may move the task in, `|<t|`, and
-wait for it:
 
-```rig
-use std.time
-
-fun fetch(ms: Int) -> Int!
-  time.sleep(ms * time.MS)!
-  ms
-
-sub main()
-  t = fetch(60_000)&
-  print(time.within(20 * time.MS, |<t| >t!) catch -1)
-```
-
-```output
--1
-```
-
-Past the deadline the wait cancels `t` and fails. A closure is
-otherwise kept for every call, so it cannot give up what it holds;
-`within` declares that it calls its closure once, `f: once ?fun() ->
-R!`, and only a closure passed to such a parameter may move a capture
-out.
 
 ## Stopping the whole program
 
 The user who presses Ctrl-C is canceling `main`. A `main` that can
-fail, `sub main()!`, takes an interrupt (SIGINT) or a request to end
-(SIGTERM) as a cancel, the same one `<t.cancel()` sends:
-
-```rig
-use std.time
-
-fun work(n: Int) -> Int!
-  defer print("worker", n, "stops")
-  time.sleep(3600 * time.SECOND)!
-  n
-
-sub main()!
-  defer print("main saves and closes")
-  ts = Tasks[Int!]()
-  !ts.add(work(1)&)
-  !ts.add(work(2)&)
-  for i in 1..4
-    time.sleep(100 * time.MS)!
-    print("tick", i)
-  print(>ts!)
-```
-
-```text
-$ rig build -o tick tick.rig
-$ ./tick
-tick 1
-tick 2
-^Cworker 2 stops
-worker 1 stops
-main saves and closes
-$ echo $?
-130
-```
-
-`main` fails with `task.Stop.canceled` at its next waiting point, here
-its sleep. Its `defer` runs and its values drop, as on any failure.
-The set drops with them, so its tasks are canceled and waited for,
-each running its own `defer`. Then the program ends with the status a
-shell expects of an interrupt, 130, or 143 for SIGTERM, and shows no
-error. No signal handler is written, and none is needed: cleanup is
-the code that already runs on failure.
-
-A second Ctrl-C while the first unwinds ends the program at once, so
-a `main` stuck in a loop with no waiting point can still be stopped.
-A `main` that cannot fail is never canceled; the signals end it as
-they end any program.
+fail, `sub main()!`, takes an interrupt or a request to end as the
+same cancel `<t.cancel()` sends: its `defer`s run, its values and
+tasks drop, and the program ends with status 130 (143 for SIGTERM).
+No signal handler is written, because cleanup is the code that already
+runs on failure.
 
 ## Each element on several tasks
 
@@ -691,9 +548,8 @@ sub main()
 
 `par.map` gives its results in the order of `xs`, and `par.each` hands
 each task a write view of its own elements. `limit:` caps how many
-tasks run at once. Every task calls the same closure, so what it
-captures must be safe to read from all of them. A capture lent to
-write is not:
+tasks run at once. Every task calls the same closure, so a capture
+lent to write is rejected:
 
 ```rig reject
 use std.par
@@ -708,10 +564,7 @@ sub main()
 `par.each` calls the closure on several tasks at once, and `|!total|` lends `total` to write
 ```
 
-The rest of that message names the two ways out: gather with
-`par.map`, or count with a `*Cell[Int]`.
-
-## Tasks that stay on one core
+## What may go to another core
 
 The compiler knows, for each type, whether its value may move to
 another core, and whether two cores may read it at once. A plain `*T`
@@ -736,17 +589,12 @@ sub main()
 ```
 
 This task is *local*: it runs on the thread of the task that made it,
-which stays there too, so no count changes on two cores at once. Local
-tasks take turns on one core, at their waits. They give concurrency,
-not parallelism, which is what a GUI program's `*T`, `Cell`, and
-`Signal` code needs. Nothing marks a local task; the compiler picks.
-To run on another core, pass what crosses: a one-word `*Cell`, a
-channel, an actor, or a copy.
-
-## Functions go anywhere
+so no count changes on two cores at once. Local tasks take turns on one
+core, which is what a GUI program's `*T`, `Cell`, and `Signal` code
+needs. Nothing marks one; the compiler picks.
 
 A function value, such as `fun(Int) -> Int`, is a named function's
-address. It holds nothing, so it goes to a task on any core:
+address and holds nothing, so it goes to any core:
 
 ```rig
 fun double(x: Int) -> Int
@@ -773,46 +621,82 @@ sub main()
 [12, 14]
 ```
 
-`apply` takes the function by value, and each task gets its own copy
-of the address. The same holds for a function value inside an object,
-a List, or a channel's message, so a table of handlers can be shared
-by every task.
+A closure is different: its type does not show what it captured, so
+it goes to no task. Name the work as a function instead, and pass what
+it needs as arguments.
 
-A closure is different. It captures values from where it was made,
-and its type does not show what they are. A callable view, `?fun`, may
-lend those captures to write, and an owned closure, `*fun` or `~fun`,
-holds a handle whose count is not atomic. Neither goes to a task. A
-closure written in a task's call is lent to it as a `?fun`, so it is
-rejected:
+## Objects cross by their braces
 
-```rig reject
-fun apply(f: ?fun(Int) -> Int, xs: ?List[Int]) -> Int
-  n = 0
-  for x in xs
-    n += f(x)
-  n
+An API object, `^{Job}`, holds a value whose type is hidden
+([journey 08](08-apis.md) builds them). So the compiler decides where
+the type is still known, and the braces carry the answer: `Sends` may
+be given to a task, `Syncs` read by several at once.
+
+```rig
+api Job
+  fun run(?@) -> Int
+
+obj Sum: Job
+  xs: List[Int]
+
+  fun run(?@) -> Int
+    t = 0
+    for x in @xs
+      t += x
+    t
+
+obj Fixed: Job
+  n: Int
+
+  fun run(?@) -> Int
+    @n
+
+fun work(j: ^{Job + Sends}) -> Int
+  j.run()
 
 sub main()
-  xs = List([1, 2, 3])
-  k = 10
-  t = apply(|+k, x| x * k, ?xs)&
+  ts = Tasks[Int]()
+  jobs: List[^{Job + Sends}] = List()
+  !jobs.push(^Sum(xs: List([1, 2, 3])))
+  !jobs.push(^Fixed(n: 7))
+  while (!jobs).pop() as j
+    !ts.add(work(<j)&)
+  print(>ts)
+```
+
+```output
+[7, 6]
+```
+
+Each `^Sum(...)` is checked where it becomes a `^{Job + Sends}`: a
+`Sum` holds a List of numbers, which may move. A value holding a plain
+`*T` would be rejected there, naming the field. An object without the
+bound goes to no task, a local one included:
+
+```rig reject
+api Job
+  fun run(?@) -> Int
+
+obj Sum: Job
+  xs: List[Int]
+
+  fun run(?@) -> Int
+    @xs.len
+
+fun work(j: ^{Job}) -> Int
+  j.run()
+
+sub main()
+  j: ^{Job} = ^Sum(xs: List([1, 2, 3]))
+  t = work(<j)&
   print(>t)
 ```
 
 ```error
-this closure is lent to a task to read: `?fun(Int) -> Int` views a closure or function lent for a call, whose captures its type does not show
+`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`
 ```
 
-The way out is to name the work: a function the task calls, given `k`
-as an argument.
-
-## Tests that replay
-
-`bin/rig run --seed=N FILE.rig`, and `rig test`, run concurrent code
-on one thread with a virtual clock. The seed picks which ready task
-runs next, so the same seed runs the same way again, and sleeps take
-no time. [Tests that fail the same way twice](08-tests.md) shows how
-to find a race with one seed and replay it.
+`api Job: Sends` puts the bound on every `Job` object at once.
 
 ## Summary
 
@@ -831,30 +715,28 @@ to find a race with one seed and replay it.
 | give work a deadline | `time.within(ns, f)` |
 | end cleanly on Ctrl-C | `sub main()!`, with `defer` |
 | hand a task a function | a `fun(A) -> R` value, never a closure |
+| hand a task an object | `^{Job + Sends}`, or `*{Shape + Syncs}` to many |
 | spread a loop over cores | `par.map(?xs, f)`, `par.each(!xs, f)` |
 
-A task is a call whose loan lasts until its result is taken. Everything
-else follows from the rules of the earlier chapters: views and loans
-keep tasks from racing, and a task's owner is where it ends.
+A task is a call whose loan lasts until its result is taken, so the
+views and loans of the earlier chapters keep tasks from racing.
 
 **Concurrency is marked where it happens, and nowhere else.**
 
 ## What is not there yet
 
-The scheduler runs on macOS and Linux, on arm64 and x86-64. A task holds
-at least one page of stack, so it costs about 17 KiB on the Mac and 5.2
-KiB on Linux, against about 300 bytes in Tokio. A cycle through a
-channel, or through a full mailbox, is not yet reported. Networking is
-TCP and an HTTP/1.1 server, with no TLS or HTTP client yet. Proofs in
-Lean cover models of the wait protocol and of task ownership, but not
-yet data-race freedom for the full model.
+A task holds at least one page of stack, about 17 KiB on the Mac and
+5.2 KiB on Linux, against about 300 bytes in Tokio. A cycle through a
+channel, or through a full mailbox, is not reported. Networking has no
+TLS or HTTP client yet.
 
 ## Where to go next
 
 - [Text done right](05-text.md) is the next journey: what a character
   is, and how Rig keeps text both fast and correct.
-- [Tests that fail the same way twice](08-tests.md) tests concurrent
-  code under a seed, so a failure replays.
+- [Tests that fail the same way twice](09-tests.md) runs concurrent
+  code on one thread under a seed, `rig test --seeds=20`, so a failure
+  replays.
 - [SPEC §18](../../SPEC.md#18-tasks) states every rule of tasks, sets,
   isolates, deadlines, actors, channels, and `par`.
 - [The launch post](../launch/post.md) measures what tasks and actors

@@ -8,17 +8,14 @@ def port(line):
     return int(value.strip())
 ```
 
-Two lines of work, and at least two ways to fail. A line with no `=`
-raises `ValueError` on the first. A value that is not a number raises
-`ValueError` on the second. Neither shows on the page. The caller
-sees `port(line)` and cannot tell that it might not return. The
-exception may travel up five functions before anything catches it, or
-end the program.
+Two lines of work, and two ways to fail: a line with no `=`, and a
+value that is not a number. Neither shows on the page. The caller sees
+`port(line)` and cannot tell that it might not return.
 
 The other half of the problem is "nothing". In Java, `map.get(key)`
 returns `null` when the key is missing, and the type says nothing about
-it. The program fails three calls later, with a `NullPointerException`
-far from the line that made the `null`.
+it. The program fails three calls later, far from the line that made
+the `null`.
 
 Rig has neither exceptions nor `null`. A value that may be absent has
 a type of its own, `T?`. A call that may fail has one too, `T!`. Every
@@ -65,9 +62,8 @@ sub main()
 requires numeric operands; got `Int?`
 ```
 
-That is the whole cure for the null pointer. A value that might be
-missing has a different type from one that is not, and the compiler
-keeps the two apart.
+That is the cure for the null pointer: a value that might be missing
+has a type of its own, which the compiler keeps apart.
 
 ## Taking the value out
 
@@ -104,9 +100,8 @@ key: debug
 `text.cut` splits a text around its first `=` and returns `none` when
 there is no `=`. The `?` after the call passes that `none` up:
 `key_of` returns `none` at once, and otherwise goes on with the value.
-`key_of` returns a `(?String)?`, an optional view of text, and
-`from line` says the view is of `line`. [Ownership without a
-collector](02-ownership.md) covers views that a function returns.
+`(?String)? from line` is an optional view of `line`, as
+[journey 02](02-ownership.md) showed.
 
 There are three ways to take a value out, one for each thing a program
 may want to do with `none`:
@@ -119,19 +114,6 @@ may want to do with `none`:
 
 `show_key` uses the jump. `k = key_of(line) ?? return` binds `k` or
 leaves the function, so the rest of it has a plain `?String`.
-
-`e?` works only where `none` has somewhere to go:
-
-```rig reject
-use std.text
-
-fun key_len(line: ?String) -> Int
-  text.cut(line, "=")?.before.len
-```
-
-```error
-use of `?` requires the enclosing function `key_len` to return an optional
-```
 
 ## Failure with a name
 
@@ -168,13 +150,10 @@ port = eighty failed: ParseError.invalid
 like the variants of an enum. `Int!` is the type of a call that gives
 an `Int` or fails with an error.
 
-A function fails by returning an error: `return Config.missing`. The
-`??` turns an absence into a failure, because its fallback may be a
-jump, and the jump is `return Config.missing`. `text.parse_int` is
-fallible too, and the `!` after its call passes its failure up:
-`value_of` fails with the same error. That error belongs to
-`std.text`'s own set, `ParseError`, and an error prints as its set and
-its name.
+A function fails by returning an error, and `?? return
+Config.missing` turns an absence into one. The `!` after
+`text.parse_int` passes its failure up as it is: `ParseError.invalid`,
+from `std.text`'s own set. An error prints as its set and its name.
 
 Every call to a fallible function says what happens to the failure.
 `!` passes it up, and `catch` handles it. A call with neither does not
@@ -192,25 +171,8 @@ sub main()
 must be wrapped with `!` (propagate) or `catch` (handle)
 ```
 
-Failing is written, too. An error value is never the quiet last line
-of a function:
-
-```rig reject
-error Config
-  missing
-
-fun size(line: ?String) -> Int!
-  if line.len == 0
-    Config.missing
-  else
-    line.len
-```
-
-```error
-an error value meets `Int!` only as the operand of `return`
-```
-
-So a reader finds every place a function can fail by looking for two
+Failing is written too: an error value stands only after `return`. So
+a reader finds every place a function can fail by looking for two
 things: `return` with an error, and `!` after a call.
 
 ## Handling a failure
@@ -257,8 +219,8 @@ arm of its `match` returns, so `n` is bound only when the call
 succeeded.
 
 A bare `.missing` in an arm means the member of the one error set that
-has it, here `Config`. An error from another module is named through
-the module, `text.ParseError.invalid`. An error belongs to its set, so
+has it, here `Config`, and another module's is named through it,
+`text.ParseError.invalid`. An error belongs to its set, so
 `Config.missing` and another set's `missing` are different errors.
 
 The `_` arm is required here. `value_of` is declared `-> Int!`, which
@@ -328,10 +290,9 @@ has the type `Config`, so a `match` that names its three members is
 complete and needs no `_`. Add a member to `Config`, and every `match`
 that misses it stops compiling.
 
-The set is a promise, and the compiler holds `value_of` to it.
-`text.parse_int` is declared `-> Int!`, so it may fail with any error,
-and `!` cannot pass that into `Config`. Here the `catch` turns it into
-a member of `Config`. Written with `!`, it is rejected:
+The set is a promise. `text.parse_int` may fail with any error, which
+`!` cannot pass into `Config`, so the `catch` turns it into a member.
+Written with `!`, it is rejected:
 
 ```rig reject
 use std.text
@@ -400,15 +361,13 @@ bad line: Config.not_a_number
 -1
 ```
 
-`value_of(line)!` passes a `Config` error into `load`, because
-`LoadError` holds `Config`. No conversion runs: the error goes up as it
-is. In `report`, the arm `c: Config =>` matches any member of
-`Config` and binds it as a `Config`, and the arm after it names the one
-member of `Limit`. Between them the `match` covers `LoadError`.
+`value_of(line)!` passes a `Config` error into `load` as it is,
+because `LoadError` holds `Config`. In `report`, the arm `c: Config =>`
+matches any member of `Config`, and the arm after it names `Limit`'s
+one member, so the `match` covers `LoadError`.
 
-`-> T!` still means any error. It suits a quick program, or one that
-passes on what std gives. A declared set suits a library, whose
-callers want to know what can go wrong.
+`-> T!`, any error, suits a quick program. A declared set suits a
+library, whose callers want to know what can go wrong.
 
 ## Errors that say more
 
@@ -457,12 +416,10 @@ prints with its fields, and a pattern binds them,
 `.missing(line) =>`. `bad[0] == Config.missing` tests which member an
 error is and compares no fields.
 
-A failure moves its error. It goes up through each `!` to the `catch`
-that handles it, and the handler owns it: here `<e` moves it into the
-list. A field holds no view, so an error never keeps anything lent, and
-every error clones, so `+e` copies one. A `main` that fails with one
-shows its fields too, `error: Config.missing(line: 2)`. A moved error
-is gone, as any moved value is:
+A failure moves its error up through each `!` to the `catch` that
+handles it, and the handler owns it: here `<e` moves it into the list.
+A field holds no view, so an error never keeps anything lent, and
+`+e` copies one. A moved error is gone, as any moved value is:
 
 ```rig reject
 error Config
@@ -484,55 +441,6 @@ sub main()
 ```error
 use of `e` after move
 ```
-
-## A set as a parameter
-
-A helper that runs a function it is given fails however that function
-fails. Its set is a parameter, `E`, written after `!`:
-
-```rig
-use std.text
-
-error Config
-  missing
-  not_a_number
-
-fun value_of(line: ?String) -> Int!Config
-  c = text.cut(line, "=") ?? return Config.missing
-  text.parse_int(text.trim(c.after)) catch return Config.not_a_number
-
-fun width(line: ?String) -> Int!
-  return Config.missing if line.len == 0
-  line.len
-
-fun sum[E](lines: []?String, f: ?fun(?String) -> Int!E) -> Int!E
-  n = 0
-  for line in lines
-    n += f(line)!
-  n
-
-sub main()
-  for lines in [["a = 1", "b = 2"], ["a = 1", "b"]]
-    v = sum(lines, value_of) catch |e|
-      match e
-        .missing => -1
-        .not_a_number => -2
-    print(v)
-  print(sum(["ab", "cde"], width) catch -1)
-```
-
-```output
-3
--1
-5
-```
-
-`f: ?fun(?String) -> Int!E` is a view of a function that fails with
-the set `E`. The call `sum(lines, value_of)` binds `E` to `Config`, so
-it fails with `Config`, and its `match` needs no `_`. `sum(..., width)`
-binds `E` to `error`, any error. In the body, `!` passes on only `E`.
-[Write it once, for every type](07-generics.md) has more on brackets
-and type parameters.
 
 ## Several results
 
@@ -570,15 +478,10 @@ workers 4
 timeout is 30
 ```
 
-`-> (?String, Int)!` gives a key and a number, or fails. `return key,
-n` gives both. The caller binds each by name, `key, n = setting(line)`,
-as Go does.
-
-The failure is dealt with before anything is bound. `!` passes it up,
-and `catch continue` skips the line. A fallback that is a value cannot
-stand for two results, so here the handler must jump. Unlike Python's
-tuple, the pair is never a value of its own: a group that lives on is
-an object.
+`-> (?String, Int)!` gives a key and a number, or fails, and the
+caller binds each by name, as Go does. The failure is dealt with before
+anything is bound: `!` passes it up, and `catch continue` skips the
+line. A value cannot stand for two results, so the handler must jump.
 
 ## Cleanup on every path
 
@@ -629,22 +532,6 @@ written next to the work it undoes, and the `!` marks each place the
 function may leave. Owned values drop on the same paths, as journey 02
 shows.
 
-`errdefer` is only for a function that can fail. Anywhere else it
-could never run, and the compiler says what to write instead:
-
-```rig reject
-sub log(n: Int)
-  errdefer print("failed")
-  print(n)
-
-sub main()
-  log(1)
-```
-
-```error
-`errdefer` runs only when the function fails, and `log` cannot fail; use `defer`
-```
-
 ## When main fails
 
 A failure that nobody handles reaches `main`. `main` may pass it on
@@ -676,15 +563,12 @@ main ends
 error: Config.missing
 ```
 
-The second call fails, and `!` passes the failure out of `main`.
-`main`'s `defer` runs and its values drop, as in any function. Then
-the program writes `error: Config.missing` to stderr and exits with
-status 1, so a shell script sees the failure.
+The second call's failure leaves `main` through `!`. Its `defer` runs
+and its values drop, then the program writes `error: Config.missing`
+to stderr and exits with status 1, so a shell script sees the failure.
 
-`sub main()` may pass a failure on with `!`. To fail with an error of
-its own, `return Config.missing`, it is declared fallible, `sub
-main()!`. A program that wants another exit status returns it from
-`fun main() -> Int`.
+A `main` that returns an error of its own is declared `sub main()!`,
+and one that chooses its exit status is `fun main() -> Int`.
 
 ## A panic is not an error
 
@@ -712,15 +596,14 @@ sub main()
 main.rig:3:3: panic: digit called on byte 112
 ```
 
-`digit` expects a digit, and its caller checks first. Passing it `p`
-is a bug in the caller, not bad input, so `digit` does not return
-`Int!`. The panic writes out what `print` buffered, then its place and
-message on stderr, and ends the program with status 134.
+Passing `digit` a `p` is a bug in its caller, not bad input, so
+`digit` does not return `Int!`. The panic writes its place and message
+to stderr and ends the program with status 134.
 
-Nothing else runs. No `defer`, no `errdefer`, no drop. A panic is not
-passed up, and no caller can catch it, because a program in a state
-it did not expect has no safe code left to run. An index out of range
-and an integer overflow panic the same way.
+Nothing else runs: no `defer`, no `errdefer`, no drop, and no `catch`
+stops it, because a program in a state it did not expect has no safe
+code left to run. An index out of range and an integer overflow panic
+the same way.
 
 So the line between them is a question about the caller. If a caller
 could do something sensible, return an error. If the only fix is to
@@ -747,38 +630,24 @@ fun port(lines: []?String) -> Int?!
     return value_of(line)! if text.trim(c.before) == "port"
   none
 
-sub show(owner: ?String?)
-  if owner as o
-    print("owner:", o)
-  else
-    print("no owner")
-
 sub main()
   print(port(["name = rig", "port = 80"]) catch none)
   print(port(["name = rig"]) catch none)
   print(port(["port = x"]) catch none)
-  me: String? = String("ada")
-  show(?me)
-  nobody: String? = none
-  show(?nobody)
 ```
 
 ```output
 80
 none
 none
-owner: ada
-no owner
 ```
 
-`Int?!` is an `Int?` that may fail: `catch` handles the failure, and
-what is left is an `Int?`. The order matters. A port that is not set
-is `none`, and a port that is set badly is an error.
+`Int?!` is an `Int?` that may fail: a port not set is `none`, and one
+set badly is an error. `catch` handles the failure and leaves the
+`Int?`.
 
-A view applies to the whole type after it. `?String?` is a view of a
-`String?`: `show` reads an optional that `main` owns. Parentheses
-group the other way: `(?String)?`, which `key_of` returned earlier, is
-an optional view of a `String`.
+A view applies to the whole type after it: `?String?` is a view of a
+`String?`, and `(?String)?`, which `key_of` returned, an optional view.
 
 A fallible type stands only as a call's result, never inside another
 type. So `!` comes last: `Int?!` is a type, and `Int!?` is not:

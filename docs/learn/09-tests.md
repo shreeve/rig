@@ -539,7 +539,7 @@ same run, and a failing run names the seed that repeats it.**
 
 ## Where to go next
 
-[Safety you can trust](09-safety.md) is the next journey: what Rig
+[Safety you can trust](10-safety.md) is the next journey: what Rig
 promises, where `raw` suspends it, and how the promises are checked.
 A real program, end to end, still to come, grows a service with seeded
 tests.

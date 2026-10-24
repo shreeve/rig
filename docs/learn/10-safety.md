@@ -395,9 +395,9 @@ planned too, and so are proofs for the code Rig trusts. The plan is
 
 ## Where to go next
 
-- [What it costs](10-performance.md), the next journey, follows a
+- [What it costs](11-performance.md), the next journey, follows a
   program down to the Zig it becomes and shows what it costs.
-- [Tests that fail the same way twice](08-tests.md) shows how to write
+- [Tests that fail the same way twice](09-tests.md) shows how to write
   the tests this chapter leans on.
 - [BEYOND-RUST](../BEYOND-RUST.md) compares Rig's checker with Rust's,
   and [formal/README.md](../../formal/README.md) lists every file of the
