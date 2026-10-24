@@ -13,6 +13,11 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A release build of objects nested by value is linear:** the
+  runtime's `==`, `.hash()`, and `+` reach a field that nests objects
+  more than eight deep through a call of its own, so a chain of 400
+  objects nested by value builds in 4.9 s, not 211 s, and 1000 in 11 s,
+  where it ran past 20 minutes. Shallower objects compile as before.
 - **A function value held in an object holds nothing:** the checker
   counted a `fun` field as a view that may point anywhere, so a call
   through a `?sub` lent `!@` and `!n` kept `n` lent past it when `@`

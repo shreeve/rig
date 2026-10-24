@@ -171,12 +171,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `rig.ErrorValue`, but the ownership checker's reach (`sema.viewReach`)
   would have to see a `?L` reach an `A`, or a view of a temporary `A`
   outlives it.
-- A release build of a chain of objects nested by value grows faster
-  than the chain: 100 objects, each made by a function calling the next
-  one's, cloned, compared, and hashed, build in 6 s, 200 in 13 s, 400 in
-  56 s, and 1000 (the depth limit) ran past 20 minutes on the Mac. A debug
-  build of 1000 takes 2 s. Find which LLVM pass, or what emit gives it,
-  grows so.
 - Lending a handle parameter to write is accepted as `!c` but rejected
   as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter

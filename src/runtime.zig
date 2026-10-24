@@ -1487,6 +1487,34 @@ pub fn textIs(x: anytype, lit: []const u8) bool {
     return std.mem.eql(u8, stringBytes(x), lit);
 }
 
+/// Whether `==`, hashing, and cloning reach a field of type `F` through
+/// a call of their own rather than inline: an object that nests
+/// objects by value more than `out_of_line_depth` deep. Inlined, a chain
+/// of objects nested by value gives LLVM one body per level holding
+/// every level below it, which grows as the square of the chain (a
+/// release build of 400 levels took minutes); out of line past that
+/// depth, each body holds a bounded number of levels. Any shallower
+/// object is reached inline, as before, so a hot `==` or hash of one is
+/// unchanged.
+fn outOfLine(comptime F: type) bool {
+    return nestingDepth(F) > out_of_line_depth;
+}
+
+const out_of_line_depth = 8;
+
+/// How deep objects nest by value in `T`: 0 for anything but an object,
+/// and one more than its deepest field for one.
+fn nestingDepth(comptime T: type) u32 {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |s| blk: {
+            var deepest: u32 = 0;
+            for (s.field_types) |F| deepest = @max(deepest, nestingDepth(F));
+            break :blk deepest + 1;
+        },
+        else => 0,
+    };
+}
+
 fn eqlAs(comptime T: type, a: T, b: T) bool {
     if (comptime ownsApi(T, "__rig_own_eq")) return T.__rig_own_eq(&a, &b);
     if (comptime isOptStruct(T)) {
@@ -1515,7 +1543,7 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
         },
         .@"struct" => |s| {
             if (@hasDecl(T, "__rig_string")) return std.mem.eql(u8, a.list.items, b.list.items);
-            inline for (s.field_names, s.field_types) |name, F| if (!eqlAs(F, @field(a, name), @field(b, name))) return false;
+            inline for (s.field_names, s.field_types) |name, F| if (!(if (comptime outOfLine(F)) @call(.never_inline, eqlAs, .{ F, @field(a, name), @field(b, name) }) else eqlAs(F, @field(a, name), @field(b, name)))) return false;
             return true;
         },
         .@"union" => |u| {
@@ -1565,7 +1593,7 @@ pub fn hashAs(comptime T: type, x: T) u64 {
         },
         .@"struct" => |st| {
             var h: u64 = hash_seed;
-            inline for (st.field_names, st.field_types) |name, F| h = hashMix(h, hashAs(F, @field(x, name)));
+            inline for (st.field_names, st.field_types) |name, F| h = hashMix(h, if (comptime outOfLine(F)) @call(.never_inline, hashAs, .{ F, @field(x, name) }) else hashAs(F, @field(x, name)));
             return h;
         },
         .@"union" => |u| {
@@ -1978,7 +2006,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             if (comptime @hasDecl(T, "__rig_api_weak")) return value.cloneWeak();
             if (comptime @hasDecl(T, "__rig_weak")) return value.cloneWeak();
             var out: T = undefined;
-            inline for (s.field_names) |f| @field(out, f) = cloneValue(&@field(value, f));
+            inline for (s.field_names) |f| @field(out, f) = if (comptime outOfLine(@FieldType(T, f))) @call(.never_inline, cloneValue, .{&@field(value, f)}) else cloneValue(&@field(value, f));
             return out;
         },
         .@"union" => switch (value.*) {
