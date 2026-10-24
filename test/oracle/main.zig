@@ -288,6 +288,7 @@ fn checkProgram(
     // The generic bodies a call may run, in any module of the program.
     lower.program_modules = graph.modules.items;
     lower.copies_memo = .empty;
+    lower.item_memo = .empty;
     for (graph.modules.items) |*m| {
         if (m.is_std or m.ir == .nil) continue;
         var units: std.ArrayList(Unit) = .empty;

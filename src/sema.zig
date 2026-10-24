@@ -3281,9 +3281,18 @@ pub const PlainRequirement = struct {
     /// a Signal, an owned closure), so each instance's argument must
     /// hold no `?String`, which may view a String.
     view: bool = false,
+    /// Not a copy: the body holds a value of `param`'s associated type of
+    /// this name (`S.Item`) past a write, move, or drop of the `S` it came
+    /// from, which views it in an instance whose associated type may view
+    /// memory its base owns (`SemContext.item_views`), and only there.
+    item: []const u8 = "",
     /// The module whose source `pos` is in; 0 for this one.
     module_id: u32 = 0,
 };
+
+/// An associated type (`I.Item`, an `AssocOf` symbol) at an instance
+/// whose base is `base` (`I = Buf`).
+pub const ItemView = struct { assoc: SymbolId, base: TypeId };
 
 /// The lists of what generic bodies do over their type parameters, which
 /// each instance makes concrete: `generic_fn_uses`, `generic_uses`,
@@ -3593,6 +3602,12 @@ pub const SemContext = struct {
     /// the ownership checker finds: this module's own, recorded after it
     /// is checked, and those of the proxies' bodies, imported with them.
     plain_reqs: std.ArrayList(PlainRequirement) = .empty,
+    /// The instances whose associated type may view memory its base owns
+    /// (`assocViewsBase`): by the associated type and what its base is
+    /// there, what the instance gives the associated type. The ownership
+    /// checker rejects such an instance of a body that holds a value of
+    /// it past a change of its base (`PlainRequirement.item`).
+    item_views: std.AutoHashMapUnmanaged(ItemView, TypeId) = .empty,
     /// The method calls generic bodies make on type parameters.
     generic_methods: std.ArrayList(GenericMethodCall) = .empty,
     /// The hidden storage emit makes (`Storage`), but for the kinds the
@@ -3798,6 +3813,7 @@ pub const SemContext = struct {
         self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
+        self.item_views.deinit(self.allocator);
         self.generic_methods.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
@@ -8161,13 +8177,13 @@ pub fn withAssoc(ctx: *SemContext, params: []const SymbolId, args: []const TypeI
 
 /// The type an associated type's base takes (`I = Buf`) when what the
 /// instance gives the associated type (`I.Item = ?String`) may view
-/// memory that base owns; null otherwise. A generic body tracks no view
-/// a value of a type parameter holds (docs/design/apis.md, Stage 3), so
-/// it may hold an item across the next `next`, which a loop over the base
-/// itself would reject as the ownership checker does (`viewReach`). An
-/// iterator whose `next` names only paths of self declared as read views
-/// (`from @map`, `SelfPath.via_view`) gives items that view what it
-/// only views, never itself (Core sentence 7), and is taken.
+/// memory that base owns, as the ownership checker reaches it
+/// (`viewReach`); null otherwise. An iterator whose `next` names only
+/// paths of self declared as read views (`from @map`,
+/// `SelfPath.via_view`) gives items that view what it only views, never
+/// itself (Core sentence 7). Recorded for each instance as
+/// `SemContext.item_views`, which the ownership checker reads where a
+/// generic body holds such a value past a change of its base.
 fn assocViewsBase(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, assoc: AssocOf, item: TypeId) std.mem.Allocator.Error!?TypeId {
     const i = std.mem.findScalar(SymbolId, params, assoc.base) orelse return null;
     if (i >= args.len) return null;
@@ -8214,10 +8230,7 @@ fn boundsHold(ctx: *SemContext, given_params: []const SymbolId, given_args: []co
         const arg = args[i];
         if (containsPoison(ctx, arg)) continue;
         if (sym.assoc_of) |assoc| if (try assocViewsBase(ctx, params, args, assoc, arg)) |base| {
-            const r = report orelse return false;
-            const shown = try formatType(ctx, base);
-            try ctx.err(r.at, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, which a generic body does not track, so one could outlive the next call that changes `{s}`; use `{s}` itself, or give items that own what they hold", .{ try rootName(ctx, r.of), sym.name, try formatType(ctx, arg), try formatType(ctx, arg), shown, shown, shown });
-            return false;
+            try ctx.item_views.put(ctx.allocator, .{ .assoc = param, .base = base }, arg);
         };
         // A type parameter with no bound is no exception: the witness the
         // bound takes would come from its own bounds, and it has none.
@@ -11670,6 +11683,26 @@ pub fn reachedTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(S
     }
 }
 
+/// Whether a value of `ty` reaches type parameter `sym` at any depth,
+/// as `reachedTypeVars` walks, or through one of several results.
+pub fn reachesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId) bool {
+    if (!ctx.typeInfo(ty).has_type_var) return false;
+    return switch (ctx.types.get(ty)) {
+        .type_var => |s| s == sym,
+        .optional, .read_view, .write_view, .shared, .weak => |inner| reachesTypeVar(ctx, inner, sym),
+        .fallible => |inner| reachesTypeVar(ctx, inner.ok, sym),
+        .array => |arr| reachesTypeVar(ctx, arr.elem, sym),
+        .slice => |sl| reachesTypeVar(ctx, sl.elem, sym),
+        .parameterized_nominal => |pn| for (pn.args) |arg| {
+            if (reachesTypeVar(ctx, arg, sym)) break true;
+        } else false,
+        .results => |parts| for (parts) |part| {
+            if (reachesTypeVar(ctx, part, sym)) break true;
+        } else false,
+        else => false,
+    };
+}
+
 /// A set parameter `ty` names other than after `!`, as a value's type
 /// (`e: E`, `List[E]`, `-> E`), or null: a signature writes one only as
 /// the set a function fails with (errors-spec §3.5).
@@ -11943,7 +11976,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id, .body = r.body, .index = r.index });
     };
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
-        try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .module_id = if (r.module_id == 0) m else r.module_id });
+        try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .item = r.item, .module_id = if (r.module_id == 0) m else r.module_id });
     };
     for (foreign.generic_methods.items) |c| if (c.param == origin.sym) {
         const args = try a.alloc(TypeId, c.args.len);

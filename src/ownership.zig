@@ -119,7 +119,10 @@
 //!   against the state at every exit of its scope; an `errdefer` body at
 //!   every exit that fails (`!`, or returning an error). At an exit the
 //!   path goes on past (`e!`, `e?`, a result that may be an error), its
-//!   effects are undone after the check.
+//!   effects are undone after the check. A `defer` runs after the value
+//!   the exit leaves with is formed (a result, a `break` value, a
+//!   block's value), so that value's loans are in force while it is
+//!   checked (`ExitTo.result`); a returned write view has moved.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -769,6 +772,15 @@ pub const Checker = struct {
     errors_found: u32 = 0,
     /// How many of `plain_reqs` this module's own bodies record.
     own_plain_reqs: usize = 0,
+    /// While a generic body is walked again as at an instance whose
+    /// associated type `item` (`S.Item`) may view memory its base owns
+    /// (`walkItemInstances`): a value of a type that reaches it is a view
+    /// that only reads, which keeps lent what the call that gave it was
+    /// passed.
+    item: ?SymbolId = null,
+    /// The associated types the calls of the module-level function being
+    /// walked give values of (`noteItems`), each walked again so.
+    items_seen: std.ArrayList(SymbolId) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
         const paths = try allocator.create(Paths);
@@ -803,6 +815,7 @@ pub const Checker = struct {
         self.vars.deinit(self.gpa);
         self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
+        self.items_seen.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
         self.part_temps.deinit(self.gpa);
         self.kept_lends.deinit(self.gpa);
@@ -843,6 +856,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return;
         const a = self.arena();
         for (self.plain_reqs.items[0..self.own_plain_reqs]) |r| {
+            if (r.item.len > 0) continue;
             const sym = ctx.symbols.items[r.param];
             if (!sema.checkedByBounds(sym)) continue;
             const api: sema.Api = if (r.view) .Owned else .Copy;
@@ -880,6 +894,13 @@ pub const Checker = struct {
                 }
                 try self.checkCopies(f.site, shown, param, arg);
                 try self.checkViews(f.site, shown, param, arg);
+                if (try self.checkItems(f.site, shown, param, arg)) if (f.via) |via| {
+                    const by = switch (via) {
+                        .type => |t| try sema.formatTypeIn(ctx, self.arena(), t),
+                        .func => |g| try sema.formatFnInstanceIn(ctx, self.arena(), g),
+                    };
+                    try self.note(f.site, "`{s}` is made by `{s}`", .{ shown, by });
+                };
             }
         }
         var it = ctx.instantiation_sites.iterator();
@@ -904,8 +925,34 @@ pub const Checker = struct {
                 }
                 try self.checkCopies(site, shown, param, arg);
                 try self.checkViews(site, shown, param, arg);
+                _ = try self.checkItems(site, shown, param, arg);
             }
         }
+    }
+
+    /// An instance whose argument for `param` gives one of its associated
+    /// types what may view memory the argument owns
+    /// (`SemContext.item_views`), where a generic body holds a value of
+    /// that associated type past a change of the `param` it came from
+    /// (`PlainRequirement.item`). Whether it was reported.
+    fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!bool {
+        const ctx = self.sema orelse return false;
+        for (self.plain_reqs.items) |r| {
+            if (r.param != param or r.item.len == 0) continue;
+            const assoc = for (ctx.symbols.items[param].assoc) |a| {
+                const of = ctx.symbols.items[a].assoc_of orelse continue;
+                if (std.mem.eql(u8, of.name, r.item)) break a;
+            } else continue;
+            const item = ctx.item_views.get(.{ .assoc = assoc, .base = arg }) orelse continue;
+            const aname = ctx.symbols.items[assoc].name;
+            const pname = ctx.symbols.items[param].name;
+            const iname = try sema.formatTypeIn(ctx, self.arena(), item);
+            const bname = try sema.formatTypeIn(ctx, self.arena(), arg);
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, and the generic body holds an `{s}` past a change of the `{s}` it came from; use `{s}` itself, or give items that own what they hold", .{ shown, aname, iname, iname, bname, aname, pname, bname });
+            try self.noteIn(r.module_id, r.pos, "the `{s}` changes here while an `{s}` it gave is held", .{ pname, aname });
+            return true;
+        }
+        return false;
     }
 
     /// An instance whose argument for `param` holds a view, or a `?String`,
@@ -931,7 +978,7 @@ pub const Checker = struct {
         if (sema.moves(ctx, arg) != .yes) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
-            if (r.param != param or r.view) continue;
+            if (r.param != param or r.view or r.item.len > 0) continue;
             if (sema.typeHasDropGlue(ctx, arg)) {
                 try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
             } else try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, and `{s}` is unique", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
@@ -1199,9 +1246,23 @@ pub const Checker = struct {
     /// Leave the innermost scope: run its defers, check that nothing that
     /// survives holds a loan on a var declared in it, then drop its vars.
     fn popScope(self: *Checker) Error!void {
+        return self.popScopeWith(&.{});
+    }
+
+    /// Leave the innermost scope with `v`, the value it gives: `v` may not
+    /// view a var declared in it, and what else `v` views is in use while
+    /// the scope's defers run (`ExitTo.result`). Gives what `v` keeps.
+    fn leaveScope(self: *Checker, v: Value) Error!Value {
+        const kept = try self.checkValueEscapesScope(v);
+        try self.popScopeWith(kept.loans);
+        return kept;
+    }
+
+    /// `popScope`, where the path leaves with a value carrying `result`.
+    fn popScopeWith(self: *Checker, result: []const Loan) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            _ = try self.exitTo(.{ .exit = .scope_end });
+            _ = try self.exitTo(.{ .exit = .scope_end, .result = result });
             try self.checkDropOrder(self.scopes.items[idx].start);
             try self.checkLostTasks(self.scopes.items[idx].start);
         }
@@ -1575,6 +1636,11 @@ pub const Checker = struct {
         /// Where the path goes on, for liveness: a source position, or
         /// after the current statement when null.
         resume_at: ?u32 = null,
+        /// The loans of the value the path leaves with: a result, a
+        /// `break` value, a block's value. It is formed before the
+        /// defers run and lives after them, so they run while it views
+        /// what it views (`runDefers`).
+        result: []const Loan = &.{},
     };
 
     /// The one way a path ends. It runs the defers its exit runs (their
@@ -1588,9 +1654,9 @@ pub const Checker = struct {
             const back: ?Point = if (e.goesOn()) try self.here() else null;
             const top = self.scopes.items.len - 1;
             switch (e) {
-                .scope_end => try self.runDefers(top, false),
-                .jump => |depth| try self.runDefersTo(depth, false),
-                .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
+                .scope_end => try self.runDefers(top, false, x.result),
+                .jump => |depth| try self.runDefersTo(depth, false, x.result),
+                .@"return", .propagate => |fails| try self.runDefersTo(0, fails, x.result),
             }
             if (back) |p| try self.rewind(p);
         }
@@ -1980,6 +2046,47 @@ pub const Checker = struct {
     /// Walk a function, method, drop body or test body. `tparams`: its
     /// compile-time parameters, whose values (`n: Int`) are Copy.
     fn walkFun(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+        const top = self.fn_depth == 0 and self.item == null;
+        if (top) self.items_seen.clearRetainingCapacity();
+        try self.walkFunOnce(name, tparams, params, returns, body);
+        if (top and self.items_seen.items.len > 0) try self.walkItemInstances(name, tparams, params, returns, body);
+    }
+
+    /// A generic body is checked once, a value of a type parameter's type
+    /// carrying no loan (SPEC "Generic bodies"). A value of an associated
+    /// type (`S.Item`) that a call gives is checked again as at an
+    /// instance whose associated type may view memory its base owns: the
+    /// body is walked once more with such a value a view that only reads
+    /// whatever the call was passed (`item`). An error that walk finds and
+    /// the first did not is a change of the base while such a value lives,
+    /// recorded as a requirement on the base (`PlainRequirement.item`):
+    /// each instance meets it unless its associated type may view memory
+    /// its base owns (`checkItems`). The walk reports nothing itself.
+    fn walkItemInstances(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        const seen = try self.gpa.dupe(SymbolId, self.items_seen.items);
+        defer self.gpa.free(seen);
+        for (seen) |assoc| {
+            const of = ctx.symbols.items[assoc].assoc_of orelse continue;
+            const reqs = self.plain_reqs.items.len;
+            const diags = self.diagnostics.items.len;
+            const found = self.errors_found;
+            self.item = assoc;
+            const walked = self.walkFunOnce(name, tparams, params, returns, body);
+            self.item = null;
+            try walked;
+            const at: ?u32 = for (self.diagnostics.items[diags..]) |d| {
+                if (d.severity == .@"error") break d.pos;
+            } else null;
+            for (self.diagnostics.items[diags..]) |d| self.gpa.free(d.message);
+            self.diagnostics.shrinkRetainingCapacity(diags);
+            self.plain_reqs.shrinkRetainingCapacity(reqs);
+            self.errors_found = found;
+            if (at) |pos| try self.plain_reqs.append(self.gpa, .{ .param = of.base, .pos = pos, .item = of.name });
+        }
+    }
+
+    fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
         const saved_func = self.func;
         const saved_loop = self.loop;
         const saved_reachable = self.reachable;
@@ -2014,8 +2121,8 @@ pub const Checker = struct {
         for (tparams.items()) |p| if (p != .src) try self.bindParam(p);
         try self.bindParams(params);
         try self.bindSelfPaths();
-        try self.walkBody(body, returns_value);
-        try self.popScope();
+        const result = try self.walkBody(body, returns_value);
+        try self.popScopeWith(result.loans);
         if (name != .nil) try self.checkOrigins(try std.fmt.allocPrint(self.arena(), "`{s}`", .{self.text(name)}), name, params);
         try self.rewind(outer);
         // Nothing allocated for a module-level function outlives it.
@@ -2023,9 +2130,11 @@ pub const Checker = struct {
     }
 
     /// Walk a function body in the current scope. When the function
-    /// returns a value, its last expression is the return value.
-    fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!void {
+    /// returns a value, its last expression is the return value, whose
+    /// loans it gives.
+    fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
         const stmts: []const Sexp = if (body.isKind(.block)) ir.Block.stmts(body) else (&body)[0..1];
+        var result: Value = .{};
         for (stmts, 0..) |stmt, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
@@ -2033,11 +2142,12 @@ pub const Checker = struct {
                 const saved_stmt = self.cur_stmt;
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
-                try self.walkReturnValue(stmt, null);
+                result = try self.walkReturnValue(stmt, null);
             } else {
                 try self.walkStmt(stmt);
             }
         }
+        return result;
     }
 
     /// Bind the run-time parameters `params` of the function or closure
@@ -2239,8 +2349,7 @@ pub const Checker = struct {
             }
             v = try self.walkTailStmt(s, t);
         }
-        v = try self.checkValueEscapesScope(v);
-        try self.popScope();
+        v = try self.leaveScope(v);
         return if (self.reachable) v else .{};
     }
 
@@ -2504,8 +2613,12 @@ pub const Checker = struct {
         if (v.decl != ctx.symbols.items[sym].decl_pos) return;
         if (!self.flowLive(id)) return;
         if (!v.payload_view) {
-            if ((sink == .ret or id >= t.vars) and !v.closure and !v.loop_view and !v.capture_resource and self.returnMoves(v)) {
-                _ = try self.moveVar(id, node.src.pos, .move);
+            if ((sink == .ret or id >= t.vars) and !v.closure and !v.capture_resource) {
+                if (self.leavesAsWriteView(v, node, if (sink == .ret) self.func.ret_ty else null)) {
+                    _ = try self.moveWriteView(id, node.src.pos);
+                } else if (!v.loop_view and self.returnMoves(v)) {
+                    _ = try self.moveVar(id, node.src.pos, .move);
+                }
             }
             return;
         }
@@ -2943,7 +3056,9 @@ pub const Checker = struct {
     fn viewsOnlyRead(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return false;
         const info = ctx.typeInfo(ty);
-        if (info.poison or info.holds_type_var or info.views.write) return false;
+        if (info.poison or info.views.write) return false;
+        if (self.holdsItem(ty)) return true;
+        if (info.holds_type_var) return false;
         return info.views.marked or info.views.string_view;
     }
 
@@ -2999,6 +3114,8 @@ pub const Checker = struct {
     /// closure, and a var whose type is not known, may.
     fn mayOwnView(self: *Checker, id: VarId, view: TypeId) Error!bool {
         const ctx = self.sema orelse return true;
+        // An associated type an instance gives may view anything.
+        if (self.holdsItem(view)) return true;
         const v = self.vars.items[id];
         if (v.closure) return true;
         const t = v.ty orelse return true;
@@ -3979,7 +4096,7 @@ pub const Checker = struct {
         if (req.view) try sema.reachedTypeVars(ctx, ty, &held, self.arena()) else try sema.heldTypeVars(ctx, ty, &held, self.arena());
         for (held.items) |param| {
             for (self.plain_reqs.items) |r| {
-                if (r.param == param and r.pos == pos and r.view == req.view) break;
+                if (r.param == param and r.pos == pos and r.view == req.view and r.item.len == 0) break;
             } else {
                 var r = req;
                 r.param = param;
@@ -4788,9 +4905,14 @@ pub const Checker = struct {
         // Which arguments the call passes loans on from (Core sentence
         // 7): the callee's origins, by the parameter each argument fills.
         const params = if (self.sema) |ctx| ctx.callParamsOf(node) else null;
+        // A value of the associated type a walk as an instance judges
+        // carries what the call is passed, whatever the callee's origins
+        // say of a type parameter (`walkItemInstances`).
+        const carry_all = self.holdsItem(self.exprType(node));
+        try self.noteItems(self.exprType(node));
         // What the result carries of the receiver and arguments.
         var from_args: Value = .{};
-        if (params == null or params.?.resultCarriesReceiver()) {
+        if (params == null or carry_all or params.?.resultCarriesReceiver()) {
             // A `from` that names paths of self narrows what the result
             // carries of the receiver (Core sentence 7).
             const paths = if (params) |p| p.origins.self_paths else &.{};
@@ -4854,7 +4976,7 @@ pub const Checker = struct {
                 stored = try self.valueUnion(stored, if (self.copiedElem(callee)) |elem| try self.carry(elem, v.*) else v.*);
                 if (self.holdsGeneric(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) stores_generic = true;
             }
-            if (params == null or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
+            if (params == null or carry_all or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
         }
         result = try self.valueUnion(result, carried);
         from_args = try self.valueUnion(from_args, carried);
@@ -5683,8 +5805,8 @@ pub const Checker = struct {
             }, .{ .loans = cv.loans });
         }
         try self.bindParams(params);
-        try self.walkBody(body, returns_value);
-        try self.popScope();
+        const result = try self.walkBody(body, returns_value);
+        try self.popScopeWith(result.loans);
         try self.checkOrigins("this closure", .nil, params);
         self.func = saved_func;
         self.loop = saved_loop;
@@ -5734,22 +5856,17 @@ pub const Checker = struct {
 
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
+        var result: Value = .{};
         // `return a, b`: each part leaves the function as `return x`
         // does, left to right.
         if (value.isKind(.results)) {
             const tys: []const TypeId = if (self.sema) |ctx| (if (self.func.ret_ty) |r| sema.resultsOf(ctx, r) orelse &.{} else &.{}) else &.{};
             for (ir.Results.values(value), 0..) |part, i| {
                 const ty: ?TypeId = if (i < tys.len) tys[i] else null;
-                try self.walkReturnValue(part, ty);
-                // A write view a part hands out as a write view leaves for
-                // good, as `<w` would: a later part may not use it again.
-                // One read as a value that copies is a copy.
-                if (part == .src and ty != null and self.refOfType(ty) == .write) if (self.find(self.text(part))) |id| {
-                    if (self.vars.items[id].ref == .write and self.flowLive(id)) try self.markInvalid(id, .moved, part.src.pos);
-                };
+                result = try self.valueUnion(result, try self.walkReturnValue(part, ty));
             }
-        } else if (value != .nil) try self.walkReturnValue(value, null);
-        _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) } });
+        } else if (value != .nil) result = try self.walkReturnValue(value, null);
+        _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) }, .result = result.loans });
         self.reachable = false;
     }
 
@@ -5758,7 +5875,8 @@ pub const Checker = struct {
     /// view parameters.
     /// `part`, for a part of `return a, b`, is the type of the result it
     /// gives, by which its loans are judged (Core sentence 7, per result).
-    fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!void {
+    /// Gives the loans the result keeps.
+    fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!Value {
         var value: Value = .{};
         if (expr == .src and self.erasesCopy(expr)) {
             // A read view erased to an API object of a copy, a local of
@@ -5770,6 +5888,8 @@ pub const Checker = struct {
                 const v = self.vars.items[id];
                 if (v.closure) {
                     value = try self.walkName(expr, false);
+                } else if (!v.capture_resource and self.leavesAsWriteView(v, expr, part orelse self.func.ret_ty)) {
+                    value = try self.moveWriteView(id, expr.src.pos);
                 } else if (!v.loop_view and !v.capture_resource) {
                     if (self.returnMoves(v)) {
                         value = try self.moveVar(id, expr.src.pos, .move);
@@ -5784,21 +5904,24 @@ pub const Checker = struct {
             value = try self.walk(expr);
         } else {
             _ = try self.walk(expr);
-            return;
+            return .{};
         }
         const ret = part orelse self.func.ret_ty;
         const may_view = if (part) |t| self.mayCarryLoan(t) else self.func.ret_may_view;
+        var kept: Value = .{};
         if (may_view and self.reachable) {
             // A result keeps only the loans its own type could hold.
-            const kept = if (part) |t| try self.carry(t, value) else value;
+            kept = if (part) |t| try self.carry(t, value) else value;
             try self.checkEscape(kept);
             self.recordResult(kept, expr);
         } else if (self.reachable and self.genericType(ret)) {
+            kept = value;
             self.recordResult(value, expr);
         }
         // A result that holds a value of a type parameter's type may carry,
         // in an instance, whatever reached one (`taintGeneric`).
         if (self.reachable and self.holdsGeneric(ret) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
+        return kept;
     }
 
     /// A bare name that leaves the function moves out: a match payload
@@ -5807,6 +5930,35 @@ pub const Checker = struct {
     fn returnMoves(self: *const Checker, v: Var) bool {
         if (v.payload_view) return true;
         return self.owningKind(v.ty) != null;
+    }
+
+    /// Whether `v`, named at `node` where its value leaves for good (a
+    /// result of type `sink`, or the value of the block that declares
+    /// it), hands out the write view it holds: then the view leaves, as
+    /// `<v` would (Core sentence 1). A result that copies the value the
+    /// view sees (`w: !Int` returned as an `Int`) only reads it. A match
+    /// payload leaves as `returnMoves` says.
+    fn leavesAsWriteView(self: *const Checker, v: Var, node: Sexp, sink: ?TypeId) bool {
+        if (v.closure or v.payload_view) return false;
+        if (v.ref != .write and !self.carriesWriteView(v.ty)) return false;
+        if (sink) |t| if (!self.carriesWriteView(t)) return false;
+        const ctx = self.sema orelse return true;
+        return !ctx.readsThrough(node);
+    }
+
+    /// Move out the write view var `id` holds, where it leaves
+    /// (`leavesAsWriteView`): no loan on it may be in force (a closure or
+    /// a task it was lent to), and nothing that runs after, a `defer`, a
+    /// task waited for at the scope's end, or a `drop` body, may use it.
+    /// What it views stays lent while the value it leaves in is formed
+    /// (`holdMoved`).
+    fn moveWriteView(self: *Checker, id: VarId, pos: u32) Error!Value {
+        if (!try self.checkLive(id, pos)) return .{};
+        const value = self.varValue(id);
+        if (try self.conflicts(id, whole_path, .{ .consume = "move" }, pos)) return .{};
+        try self.markInvalid(id, .moved, pos);
+        try self.holdMoved(value);
+        return value;
     }
 
     /// The origins of the function or method declared with name `name`:
@@ -6107,10 +6259,7 @@ pub const Checker = struct {
         // A failing part goes on to the `else`, or past the `if`.
         const failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(else_b, node) });
         var v1 = try self.walkTailPart(then_b, t);
-        while (self.scopes.items.len > depth) {
-            v1 = try self.checkValueEscapesScope(v1);
-            try self.popScope();
-        }
+        while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
         const past = resumeAt(.nil, node);
         const s1 = try self.leave(base, past);
         try self.apply(failed);
@@ -6173,8 +6322,7 @@ pub const Checker = struct {
             _ = try self.addVar(.{ .name = self.text(name), .decl = name.src.pos, .ty = self.symType(name.src.pos) }, .{});
         }
         var v2 = try self.walkTailPart(handler, t);
-        v2 = try self.checkValueEscapesScope(v2);
-        try self.popScope();
+        v2 = try self.leaveScope(v2);
         const s = try self.leave(base, resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
@@ -6369,8 +6517,7 @@ pub const Checker = struct {
             // The body is a statement of its own (`sema.isArmBody`): its
             // temporaries end with it, in the arm's scope.
             var v = try self.walkTailStmt(body, tail_ctx);
-            v = try self.checkValueEscapesScope(v);
-            try self.popScope();
+            v = try self.leaveScope(v);
             value = try self.valueUnion(value, v);
             const s = try self.leave(base, past);
             acc = if (acc) |a| try self.join(a, s) else s;
@@ -6382,8 +6529,7 @@ pub const Checker = struct {
         if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
         // The value the match held ends with it.
         if (header == .held) {
-            value = try self.checkValueEscapesScope(value);
-            try self.popScope();
+            value = try self.leaveScope(value);
         }
         return value;
     }
@@ -6693,10 +6839,7 @@ pub const Checker = struct {
         try self.dropStmtTemps(drops);
         var v = try self.walkLoop(spec);
         // The value the loop held ends with it.
-        if (header == .held) {
-            v = try self.checkValueEscapesScope(v);
-            try self.popScope();
-        }
+        if (header == .held) v = try self.leaveScope(v);
         return v;
     }
 
@@ -6926,12 +7069,13 @@ pub const Checker = struct {
         } else pinned;
         const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
         self.after_value.shrinkRetainingCapacity(left);
-        t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
+        const left_with = try self.escapeVarsFrom(v, t.point.vars);
+        t.value = try self.valueUnion(t.value, left_with);
         // A `continue` to a step that runs in the condition's bindings'
         // scope goes to that point; any other goes back to the loop's
         // head, through a step that is the loop's continue expression.
         const to_step = if (dest.?.to == .step) t.step_point else null;
-        const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth } });
+        const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth }, .result = left_with.loans });
         switch (dest.?.to) {
             .exit => try t.breaks.append(self.arena(), s),
             .step, .head => try (if (to_step != null) &t.step_conts else &t.conts).append(self.arena(), s),
@@ -7033,8 +7177,12 @@ pub const Checker = struct {
     }
 
     /// Re-check the defers of scope `scope_idx` at an exit, with its
-    /// `errdefer`s when the exit `fails`.
-    fn runDefers(self: *Checker, scope_idx: usize, fails: bool) Error!void {
+    /// `errdefer`s when the exit `fails`. A `defer` runs after the value
+    /// the path leaves with is formed, and before it is used: the loans
+    /// that value carries (`result`) are in force while it runs, so it
+    /// may not touch what the value views. An `errdefer` runs only where
+    /// that value is an error, which views nothing.
+    fn runDefers(self: *Checker, scope_idx: usize, fails: bool, result: []const Loan) Error!void {
         // The body sees the names of its own scope, not those of scopes
         // opened after the defer.
         const saved = self.hidden;
@@ -7048,20 +7196,23 @@ pub const Checker = struct {
             const d = self.scopes.items[scope_idx].defers.items[i];
             if (d.err_only and !fails) continue;
             self.defer_floor = d.vars;
+            const held = self.temps.items.len;
+            if (!d.err_only) for (result) |l| if (!l.ext) try self.addTemp(l);
             try self.checkDeferBody(d.body, false);
+            self.temps.shrinkRetainingCapacity(@min(held, self.temps.items.len));
         }
     }
 
     /// Run the defers of the scopes an early exit leaves (every scope at
     /// index `scope_depth` or above, up to the enclosing function), and
     /// check the order their vars are dropped in.
-    fn runDefersTo(self: *Checker, scope_depth: usize, fails: bool) Error!void {
+    fn runDefersTo(self: *Checker, scope_depth: usize, fails: bool, result: []const Loan) Error!void {
         // An exit from inside a deferred body leaves only that body.
         if (self.in_defer) return;
         var si = self.scopes.items.len;
         while (si > scope_depth) {
             si -= 1;
-            if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si, fails);
+            if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si, fails, result);
             if (self.scopes.items[si].kind != .block) break;
         }
         if (si < self.scopes.items.len) try self.checkDropOrder(self.scopes.items[si].start);
@@ -7299,7 +7450,31 @@ pub const Checker = struct {
     /// may view a String. Unknown types are assumed to.
     fn mayCarryLoan(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return true;
-        return sema.mayHoldView(ctx, ty orelse return true);
+        const t = ty orelse return true;
+        return sema.mayHoldView(ctx, t) or self.holdsItem(t);
+    }
+
+    /// Whether a value of `ty` reaches the associated type a walk as an
+    /// instance judges (`item`, `walkItemInstances`).
+    fn holdsItem(self: *const Checker, ty: ?TypeId) bool {
+        const it = self.item orelse return false;
+        const ctx = self.sema orelse return false;
+        return sema.reachesTypeVar(ctx, ty orelse return false, it);
+    }
+
+    /// Note the associated types a value of `ty`, a call's result,
+    /// reaches (`items_seen`).
+    fn noteItems(self: *Checker, ty: ?TypeId) Error!void {
+        if (self.item != null) return;
+        const ctx = self.sema orelse return;
+        const t = ty orelse return;
+        if (!ctx.typeInfo(t).has_type_var) return;
+        var held: std.ArrayList(SymbolId) = .empty;
+        try sema.reachedTypeVars(ctx, t, &held, self.arena());
+        for (held.items) |sym| {
+            if (ctx.symbols.items[sym].assoc_of == null) continue;
+            if (std.mem.findScalar(SymbolId, self.items_seen.items, sym) == null) try self.items_seen.append(self.gpa, sym);
+        }
     }
 
     /// Whether a value of `ty` may hold a view, here or in an instance.
@@ -7349,7 +7524,7 @@ pub const Checker = struct {
     fn genericType(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
-        return !sema.mayHoldView(ctx, t) and sema.holdsTypeParam(ctx, t);
+        return !self.mayCarryLoan(t) and sema.holdsTypeParam(ctx, t);
     }
 
     /// Whether a value of `ty` may hold a value of a type parameter's

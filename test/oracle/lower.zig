@@ -180,6 +180,9 @@ const Callee = struct {
 pub var program_modules: []const lib.modules.Module = &.{};
 pub var copies_memo: std.AutoHashMapUnmanaged(struct { u32, u32 }, Copies) = .empty;
 pub const Copies = enum { pending, none, some };
+/// `itemFinding`'s answers, by the body and the associated type.
+pub var item_memo: std.AutoHashMapUnmanaged(struct { u32, u32, sema.SymbolId }, ItemCheck) = .empty;
+pub const ItemCheck = union(enum) { pending, clean, unknown, found: core.Finding };
 
 /// The parameters a function's `from` clause names (`-> T from a, b`),
 /// a bit each, read from the declaration in its module's IR: the
@@ -396,6 +399,48 @@ fn copiesNoT(a: std.mem.Allocator, c: Callee) Error!bool {
     };
     try copies_memo.put(a, key, if (ok) .none else .some);
     return ok;
+}
+
+/// What a generic body does at an instance whose associated type `assoc`
+/// (`S.Item`, a symbol of the body's module) may view memory its base
+/// owns: lowered and checked again with a value of a type that reaches
+/// `assoc` carrying its loans (`Kinds.item`), as such a value views its
+/// base (SPEC "Generic bodies"). `found` when that check finds a broken
+/// rule: the body holds such a value past a change of its base.
+/// `unknown` when the body abstains, or passes its parameters to other
+/// generic bodies, whose items it does not follow.
+fn itemFinding(a: std.mem.Allocator, c: Callee, assoc: sema.SymbolId) Error!ItemCheck {
+    const key = .{ @as(u32, @intCast(c.module.id)), c.module.parser.span(c.decl).start, assoc };
+    if (item_memo.get(key)) |known| return if (known == .pending) .clean else known;
+    try item_memo.put(a, key, .pending);
+    const saved_reason = abstain_reason;
+    defer abstain_reason = saved_reason;
+    var l: Lowerer = .{
+        .a = a,
+        .ctx = c.module.sema,
+        .parser = c.module.parser,
+        .src = c.module.source,
+        .kinds = kinds.Kinds.init(a, c.module.sema, true),
+        .planned = true,
+        .module = c.module,
+    };
+    l.kinds.item = assoc;
+    var result: ItemCheck = .clean;
+    l.run(.{ .name = "", .decl = c.decl, .owner = c.owner, .generic_owner = c.owner != .nil }) catch |err| switch (err) {
+        error.Found => result = .{ .found = l.f.early.? },
+        error.Abstain => result = .unknown,
+        else => |x| return x,
+    };
+    if (result == .clean) if (l.f.early) |e| {
+        result = .{ .found = e };
+    };
+    if (result == .clean) {
+        try l.finish();
+        if (try flow.check(a, &l.f)) |f| result = .{ .found = f };
+    }
+    if (result == .clean and l.t_calls.items.len > 0) result = .unknown;
+    try item_memo.put(a, key, result);
+    return result;
 }
 
 const Lowerer = struct {
@@ -1158,6 +1203,17 @@ const Lowerer = struct {
     /// through it, and lending it lends on what it sees.
     fn isWriteRef(self: *Lowerer, ty: TypeId) bool {
         return self.ctx.types.get(ty) == .write_view;
+    }
+
+    /// Whether a value wanted as `ty` is a write view, alone or inside
+    /// an optional or a fallible: a write view handed there stays one.
+    fn wantsWriteView(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .write_view => true,
+            .optional => |inner| self.wantsWriteView(inner),
+            .fallible => |f| self.wantsWriteView(f.ok),
+            else => false,
+        };
     }
 
     fn compound(self: *Lowerer, target: Sexp, rhs: Sexp, pos: u32) Error!void {
@@ -2704,7 +2760,7 @@ const Lowerer = struct {
                 // a name, field, or element alike (Core s1, SPEC §7); a
                 // write slice read as a slice views the same
                 // elements, a lend on. A write view itself never copies.
-                const wants_view = if (want) |w| self.ctx.types.get(w) == .write_view else false;
+                const wants_view = if (want) |w| self.wantsWriteView(w) else false;
                 const t_ty = try self.innerOf(p.ty);
                 const ti = try self.kinds.of(t_ty);
                 const through: Place = .{ .root = p.root, .path = p.path, .ty = t_ty, .via = .write, .cut = p.cut };
@@ -3628,8 +3684,9 @@ const Lowerer = struct {
             else => try self.temp(rt, pos),
         };
         // What the result carries, or each of several results (Core s7,
-        // per result).
-        const whole = try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
+        // per result). A task keeps every loan its call was given, until
+        // it is waited for, which its drop does.
+        const whole: Carry = if (ir.Call.task(e) != .nil) .{ .no_result = &.{}, .result_loan = true } else try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
         const narrowed = whole.by_paths and recv_held != null;
         const part_carry = try self.a.alloc(core.Part, parts.len);
         if (narrowed and parts.len > 0) return abstain("several results through a path of self");
@@ -4037,6 +4094,76 @@ const Lowerer = struct {
         const callee = self.calleeDecl(e) orelse return abstain("a generic instance at an owner of an unusual callee");
         if (own_params) try self.t_calls.append(self.a, callee);
         if (owners and !try copiesNoT(self.a, callee)) return abstain("a generic instance at an owner whose body copies a `T`");
+        if (owners) try self.itemInstance(e, callee, type_args);
+    }
+
+    /// A call of a generic body at an owner whose associated type may
+    /// view memory the owner holds (`S.Item = ?String` of `S = Buf`,
+    /// which owns a String): a value of it views its base, so the body
+    /// may not hold one past a change of the base (SPEC "Generic
+    /// bodies"), which `itemFinding` checks. Reported at the call.
+    fn itemInstance(self: *Lowerer, e: Sexp, callee: Callee, type_args: []const TypeId) Error!void {
+        const cctx = callee.module.sema;
+        const name = ir.get(callee.decl, .name);
+        const fsym = cctx.symbolOf(name) orelse return;
+        const f = switch (cctx.types.get(cctx.symbols.items[fsym].ty)) {
+            .function => |f| f,
+            else => return,
+        };
+        for (type_args, 0..) |base, i| {
+            if (i >= f.ct_syms.len or f.ct_syms[i] == sema.symbol_invalid) continue;
+            for (cctx.symbols.items[f.ct_syms[i]].assoc) |assoc| {
+                const finding = switch (try itemFinding(self.a, callee, assoc)) {
+                    .clean, .pending => continue,
+                    .unknown => return abstain("an instance of a body that passes its iterator on, or one the oracle does not lower"),
+                    .found => |x| x,
+                };
+                const of = cctx.symbols.items[assoc].assoc_of.?;
+                const item = (try self.itemOf(base, of)) orelse return abstain("an associated type the oracle does not read");
+                if (!item.views_base) continue;
+                return self.found(finding.rule, self.posOf(e), "the body holds an `{s}` past a change of its base, and at this instance it may view memory the base owns ({s})", .{ cctx.symbols.items[assoc].name, finding.reason });
+            }
+        }
+    }
+
+    /// What an instance whose base is `base` (in this module's types)
+    /// gives the associated type `of`, and whether a value of it may view
+    /// memory the base owns (Core s7, `Reach.owns`). An iterator's item
+    /// is what its `next` gives; a `next` whose `from` names only paths
+    /// of self declared as read views gives items that view what it only
+    /// views. An API's, what the conformance in this module gives. Null
+    /// where neither is read.
+    fn itemOf(self: *Lowerer, base: TypeId, of: sema.AssocOf) Error!?struct { ty: TypeId, views_base: bool } {
+        var reach: kinds.Reach = .{ .a = self.a };
+        switch (of.api) {
+            .iter => {
+                const decl = sema.nominalDecl(self.ctx, base) orelse return null;
+                if (decl.ctx != self.ctx) return null;
+                const next = for (decl.symbol().fields orelse &.{}) |fd| {
+                    if (fd.is_method and std.mem.eql(u8, fd.name, "next")) break fd;
+                } else return null;
+                const ft = self.ctx.types.get(next.ty);
+                if (ft != .function) return null;
+                const item = switch (self.ctx.types.get(ft.function.returns)) {
+                    .optional => |o| o,
+                    else => return null,
+                };
+                const paths = try declaredPaths(self.a, self.ctx, next.decl_pos);
+                const through = paths.len > 0 and for (paths) |fp| {
+                    if (!fp.through_view) break false;
+                } else true;
+                return .{ .ty = item, .views_base = !through and try reach.owns(self.ctx, base, item) };
+            },
+            .user => |u| {
+                for (self.ctx.conformances.items) |c| {
+                    if (c.ty != base or !(c.api.eql(u.api) or c.api.eql(u.via))) continue;
+                    for (c.assoc) |b| if (std.mem.eql(u8, b.name, of.name)) {
+                        return .{ .ty = b.ty, .views_base = try reach.owns(self.ctx, base, b.ty) };
+                    };
+                }
+                return null;
+            },
+        }
     }
 
     /// The marker facts a call's bounds name, computed here from each

@@ -1,5 +1,63 @@
 # ownership: tests whose names start `defer`.
 
+test "defer and the value its scope gives", '''
+  7
+  failed 0
+  2 1
+  4 2
+  2
+'''
+  # A scope's value is formed before its defers run: a defer that leaves
+  # what the value views alone, an `errdefer`, which runs only where the
+  # value is an error, and a defer after a write view returned as the
+  # value it sees are accepted.
+  error E
+    bad
+
+  obj Slot
+    key: Int
+
+  obj Tab
+    xs: List[Slot]
+    n: Int
+
+    fun f(!@, ok: Bool) -> (!Slot)! from @
+      errdefer !@xs.clear()
+      return E.bad if not ok
+      !@xs[0]
+
+    fun g(!@, c: Bool) -> !Slot from @
+      if c
+        defer @n += 1
+        !@xs[0]
+      else
+        !@xs[1]
+
+  fun h(w: !Int) -> Int
+    defer w += 1
+    w
+
+  sub second(t: !Tab)
+    r = (!t).f(false) catch |e|
+      print("failed", t.xs.len)
+      return
+    print(r.key)
+
+  t = Tab(xs: List(), n: 0)
+  !t.xs.push(Slot(key: 1))
+  w = (!t).f(true) catch return
+  w.key = 7
+  print(w.key)
+  second(!t)
+  !t.xs.push(Slot(key: 2))
+  !t.xs.push(Slot(key: 3))
+  v = (!t).g(true)
+  k = v.key
+  print(k, t.n)
+  n = 1
+  print(h(!n) + 3, n)
+  print(t.xs.len + t.n - 1)
+
 test "defer effects at continuing exits", '''
   live 1
   drop 1
@@ -415,6 +473,69 @@ fail "defer revives vec at propagate", "20:9: use of `v` after move", errors: 1
 
   print(f(true) catch 0)
 
+fail "defer runs after its block's value", "15:14: use of `@xs` while a write loan is live", "22:14: use of `@xs` while a write loan is live", "30:14: use of `@xs` while a write loan is live", "41:16: use of `@xs` while a write loan is live", "47:13: cannot assign to `@xs` while `@xs` is lent", "54:14: use of `@xs` while a write loan is live", errors: 6
+  # A block's defers run after its value is formed, while the value is
+  # still to be used: one may not change, drop, or lend to write what
+  # the value views: an `if` or `match` arm's, a block's in one, or a
+  # loop's `break` value.
+  obj Slot
+    key: Int
+    items: List[Int]
+
+  obj Tab
+    xs: List[Slot]
+    n: Int
+
+    fun arm(!@, c: Bool) -> !Slot from @
+      if c
+        defer !@xs.clear()
+        !@xs[0]
+      else
+        !@xs[1]
+
+    fun bound(!@) -> !Slot from @
+      r = if @n > 0
+        defer !@xs.clear()
+        !@xs[0]
+      else
+        !@xs[1]
+      r
+
+    fun nested(!@, c: Bool) -> !Slot from @
+      if c
+        defer !@xs.clear()
+        if @n > 0
+          !@xs[0]
+        else
+          !@xs[1]
+      else
+        !@xs[1]
+
+    fun matched(!@) -> !Slot from @
+      match @n
+        0
+          defer !@xs.clear()
+          !@xs[0]
+        _ => !@xs[1]
+
+    fun reset(!@, c: Bool) -> !Slot from @
+      if c
+        defer @xs = List()
+        !@xs[0]
+      else
+        !@xs[1]
+
+    fun broke(!@) -> !Slot from @
+      r = while true
+        defer !@xs.clear()
+        break !@xs[0]
+      else
+        !@xs[1]
+      r
+
+  t = Tab(xs: List(), n: 0)
+  print(t.n)
+
 fail "defer stores view", "8:14: `t` does not live long enough", "15:15: `v` does not live long enough", errors: 2
   # Deferred code runs as its scope exits, before the scope's values are
   # dropped: a view it stores in a binding from outside the scope would
@@ -484,6 +605,69 @@ fail "defer stores view past propagate", "18:16: `v` does not live long enough",
     1
 
   print(f(true) catch 0)
+
+fail "defer uses a returned write view", "16:13: use of `s` after move", "23:13: use of `s` after move", "31:14: cannot move `s` while a write loan is live", "36:19: use of `s` after move", "42:11: use of `s` after move", "47:17: use of `s` after move", "52:13: use of `s` after move", "57:9: use of `s` after move", errors: 8
+  # `return s` or a last value `s` of a write view hands the view out:
+  # it moves, as `<s` would, so no defer, nor a closure a defer calls,
+  # may use `s` after.
+  obj Slot
+    key: Int
+
+  sub bump(s: !Slot)
+    s.key += 1
+
+  obj Tab
+    xs: List[Slot]
+    o: Slot?
+
+    fun tail(!@) -> (!Slot)? from @
+      if !@o as s
+        defer s = Slot(key: 9)
+        s
+      else
+        none
+
+    fun early(!@) -> (!Slot)? from @
+      if !@o as s
+        defer s = Slot(key: 9)
+        return s
+      none
+
+    fun called(!@) -> (!Slot)? from @
+      if !@o as s
+        g = |!s| s.key += 1
+        defer g()
+        return s
+      none
+
+    fun read(!@) -> (!Slot)? from @
+      if !@o as s
+        defer print(s.key)
+        return s
+      none
+
+    fun local(!@) -> !Slot
+      s = !@xs[0]
+      defer s.key = 3
+      s
+
+    fun lent(!@) -> !Slot
+      s = !@xs[0]
+      defer bump(!s)
+      return s
+
+    fun looped(!@) -> (!Slot)? from @
+      for s in !@xs
+        defer s.key = 0
+        return s if s.key == 1
+      none
+
+  fun param(s: !Slot) -> !Slot from s
+    defer s.key = 1
+    s
+
+  t = Tab(xs: List(), o: none)
+  print(t.xs.len)
 
 fail "defer uses returned branch", "use of `v` after move", "use of `a` after move"
   # `return v` and a bare `v` in a returned branch move `v` out before the

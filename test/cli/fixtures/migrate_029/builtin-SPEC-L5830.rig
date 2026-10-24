@@ -1,0 +1,12 @@
+extern fun abs(n: I32) -> I32
+
+fun safe_abs(n: I32) -> I32
+  raw
+    abs(n)
+
+sub main()
+  x: Int = 300
+  raw
+    small: U8 = @intCast(x - 100)
+    print(small, x)
+  print(safe_abs(-5))

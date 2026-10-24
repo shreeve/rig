@@ -2336,6 +2336,20 @@ test "write view result binding holds view", '''
   l = 1
   print(n, m)
 
+fail "write view held by a loop value is lent while it lives", "12:7: use of `n` while a write loan is live", errors: 1
+  # A binding of a loop's value that is a write view at every `break`
+  # holds the view, as a binding of an `if` does, so `n` stays lent to
+  # write while `l` is used. 0.2.9 copied the value instead.
+
+  fun slot(a: !Int) -> !Int
+    a
+
+  n = 12
+  l = while true
+    break slot(!n)
+  l = 1
+  print(n, l)
+
 fail "write view result binding lent", "10:7: use of `n` while a write loan is live", errors: 1
   # A binding of a call's `!Int` result holds the write view, so the value
   # the call was lent stays lent to write while the binding is used.
@@ -2564,3 +2578,35 @@ fail "write a call's write view kept past a write", "use of `v` while a write lo
     !v.push(2)
     w = 3
     print(v)
+
+fail "write view returned while a task holds it", "16:14: cannot move `s` while a write loan is live", "22:12: cannot move `s` while a write loan is live", "27:5: cannot move `s` while a write loan is live", errors: 3
+  # A returned write view moves, as `<s` would: not while a task it was
+  # lent to, waited for where its scope ends, still holds it.
+  obj Slot
+    key: Int
+
+  sub bump(s: !Slot)
+    s.key += 1
+
+  obj Tab
+    xs: List[Slot]
+    o: Slot?
+
+    fun early(!@) -> (!Slot)? from @
+      if !@o as s
+        t = bump(!s)&
+        return s
+      none
+
+    fun pair(!@) -> (!Slot, Int)
+      s = !@xs[0]
+      t = bump(!s)&
+      return s, 1
+
+    fun tail(!@) -> !Slot
+      s = !@xs[0]
+      t = bump(!s)&
+      s
+
+  t = Tab(xs: List(), o: none)
+  print(t.xs.len)

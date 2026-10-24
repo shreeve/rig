@@ -29,14 +29,14 @@ Renamed, by `tools/migrate-0.3.py`:
 3. `Vec[T]` is `List[T]`; a type of a program's own named `List` is
    renamed `Chain`.
 4. `Text` is `String`, and 0.2's `String`, a read view, is `?String`.
-
-Renamed, by hand (no script):
-
 5. Self is `@`: a method declares `?@`, `!@`, or `<@` and its body says
    `@x`, `@m()`; `?self`, `self.x`, and a typed `self: ?P` are rejected.
 6. A label is `$outer:` and `break $outer`, not `:outer`.
 7. A built-in call is `$size(T)`, `$truncate(x)`, not `@size(T)`.
 8. A fixed binding is `x =! e`; `const` is rejected.
+
+Renamed, by hand (no script):
+
 9. `replace(!p, v)` is `swap(!p, v)`, and a Cell's `c.replace(v)` is
    `(!c).swap(v)`.
 10. A statement `-x` no longer drops `x`; `<x` does.
@@ -102,25 +102,45 @@ Cells, handles, and views:
     out an object that holds a Cell.
 35. *Unsound:* a temporary that owns a resource, with nothing to drop
     it, is bound to a name first.
+36. *Unsound:* a scope's defers run after the value it gives, so a
+    `defer` may not change, drop, or lend to write what a block's value,
+    a `return` value, or a `break` value views (`defer !@xs.clear()`
+    before a last value `!@xs[0]`); and `return s` or a last value `s`
+    of a write view moves `s`, so no defer, closure a defer calls, or
+    task waited for at the scope's end may use it after.
 
 Effects and errors:
 
-36. `time.sleep` can fail (a canceled task stops there): `time.sleep(n)!`
+37. `time.sleep` can fail (a canceled task stops there): `time.sleep(n)!`
     or a `catch`.
-37. Two caught errors are not compared with `==`; compare one with a
+38. Two caught errors are not compared with `==`; compare one with a
     member, `e == E.bad`, or match it.
 
 Other:
 
-38. A closure never called (`_ = |x| x + 1`) is rejected.
-39. `*g` of a function, where a `*fun` goes, is `*|| g()`.
-40. A method's parameter may not take the name of a module-level
+39. A closure never called (`_ = |x| x + 1`) is rejected.
+40. `*g` of a function, where a `*fun` goes, is `*|| g()`.
+41. A method's parameter may not take the name of a module-level
     declaration.
-41. A directory's `.rig` files are one module, sharing one namespace, so
+42. A directory's `.rig` files are one module, sharing one namespace, so
     two files beside each other that 0.2.9 took as separate modules may
     not declare the same name; move one into a directory of its own.
-42. A read view of text, `?String`, is not lent to write (`w = !s`);
+43. A read view of text, `?String`, is not lent to write (`w = !s`);
     hold a `String` to change text in place.
+
+43. A write view re-pointed inside a `match` arm at the payload the arm
+    binds (`w = !p[0..1]` in `.has(p)` of `match !o`) is rejected: the
+    binding ends with the arm. Write through `p` inside the arm instead.
+
+One form changes meaning rather than failing: a binding with no type of
+a loop's value that is a write view at every `break` (`l = while true`
+then `break slot(!n)`) holds the write view, as an `if` does, so `l = 1`
+writes 1 into `n`. `v0.2.9` copied the value, so such a program compiles
+under both and now writes where it read. Give the binding its value's
+type, `l: Int = while ...`, to copy as before, or keep the view.
+`tools/migrate-0.3.py` prints a `MANUAL` line for each such binding and
+rewrites none; 2 of the 4,836 v0.2.9 programs have the shape, at one
+site each.
 
 Programs written against `main` since `v0.2.9` also meet forms that
 changed again before 0.3.0: `Moves` and `Shares` are `Sends` and
@@ -152,6 +172,32 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   wrote its bytes as text, `["Hi"]`; the instance is now rejected, as
   `print` of a `[][]U8` is. Newly rejected: such an instance, and a
   `pub` generic printing a `[]T` without `[T: Print]`.
+
+- **A value of an associated type views its base per instance:** a
+  value of `S.Item` that a call on `s` gives (an item of `next`, or of
+  `fun one(!@) -> Item from @`) keeps `s` lent only at an instance whose
+  `Item` may view memory `s` owns, as Stage 3 checks a call through a
+  bound at each instance. A body that holds one past a change of its
+  base (a write, a move, a drop), itself or through the generic bodies
+  it calls, is rejected at each such instance, with a note at the
+  change; a body that holds none, as `iter.count` does, takes every
+  iterator. Such an
+  instance was rejected whatever the body did, so `iter.count` of an
+  iterator whose items view its own memory was refused.
+
+- **A scope's defers run after its value, which they may not touch:**
+  the checker re-checks each `defer` at every exit with the loans of
+  the value the exit leaves with in force (a block's or an arm's value,
+  a `return` or `break` value, a function's last value), so `if c` /
+  `defer !@xs.clear()` / `!@xs[0]` is "use of `@xs` while a write loan
+  is live", where the caller wrote into a freed element; an `errdefer`
+  runs only where that value is an error, and is checked without it.
+  `return s`, `return s, n`, and a last value `s` of a write view move
+  `s`, as `<s` does (CORE sentence 1), so a later `defer s = ...`, a
+  deferred `|!s|` closure, or a task lent `!s` and waited for at the
+  scope's end is rejected. The reference checker now holds a task's
+  loans until the task's drop waits for it, and keeps a write view
+  handed where a `(!T)?` goes a view.
 
 - **A Map and a Set print their entries:** `print(m)` writes
   `{"a": 1, "b": 2}` and `print(s)` writes `{1, 2}`, `{}` when empty,
@@ -694,10 +740,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `Item` its `T`; `[I: Iter]` loops over and calls `next` on an `I`, an
   API may build on it, and no header names it. std.iter gives `count`
   and `sum` over any iterator; every std iterator is an `Iter` whose item
-  is what the loop gives. An instance whose associated type may view
-  memory its base owns is rejected, since a generic body does not track
-  that view across `next`; a Map's and a Set's iterators are walked by a
-  loop instead.
+  is what the loop gives. A body that holds an item past a change of
+  its iterator is rejected at each instance whose items may view memory
+  the iterator owns.
 
 - **APIs of a program's own (Stage 3, the proof):** formal/ proves, in
   Lean, that a call checked against an API's `from` and `keeps` is
@@ -1032,7 +1077,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `src/parser.zig` is generated at build time from `rig.grammar`
   with Nexus, which is co-developed with Rig; and `tools/migrate-0.3.py`
   migrates 0.2 programs, each rename an independent pass (box, list,
-  string, `obj`).
+  string, `obj`, builtin, label, self, `const`), in `.rig` files, test
+  files' cases, and Markdown's `rig` blocks, with `--dry-run` to print
+  the diff. Of the 4,836 programs `v0.2.9` accepts, `main` accepts
+  1,094 as written and 3,495 after the guide's scripts.
 - **Rig's own repository:** `tools/heavy`, `test/rig.rip`,
   `test/matrix.py`, `tools/equiv.py`, and `tools/zig-next.py` find their
   git directory through `tools/gitdir`, which takes only a repository

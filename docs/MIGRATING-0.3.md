@@ -12,14 +12,15 @@ Commit first: each script rewrites text in place. Run them from the
 checkout of Rig whose `bin/rig` you will use, and run `rig check` on
 your program after each step.
 
-## Step 1: the 0.2 renames, `tools/migrate-0.3.py`
+## Step 1: the renames, `tools/migrate-0.3.py`
 
 ```sh
-python3 tools/migrate-0.3.py scan  src/      # what would change
-python3 tools/migrate-0.3.py apply src/      # rewrite in place
+python3 tools/migrate-0.3.py --dry-run src/   # the diff of what would change
+python3 tools/migrate-0.3.py apply src/       # rewrite in place
 ```
 
-It rewrites every `.rig` file under the path:
+It rewrites every `.rig` file under the path, the cases of its
+`.rig.test` files, and the ```` ```rig ```` blocks of its Markdown:
 
 | 0.2.9 | 0.3.0 |
 |---|---|
@@ -28,12 +29,26 @@ It rewrites every `.rig` file under the path:
 | `Vec[T]`, `Vec()` | `List[T]`, `List()` (a type of your own named `List` becomes `Chain`) |
 | `Text`, the owned text | `String` |
 | `String`, the read view of text | `?String` (`String?` is `(?String)?`) |
+| `fun get(?self)`, `!self`, `<self` | `fun get(?@)`, `!@`, `<@` |
+| a typed self, `self: ?Self`, `self: P` in `P` | `?@`, `<@` |
+| `self.x`, `self.m()`, `self` in a method | `@x`, `@m()`, `@` |
+| `:outer for`, `break :outer`, `continue :outer` | `$outer: for`, `break $outer`, `continue $outer` |
+| `@size(T)`, `@name(T)`, `@intCast(x)` under `raw` | `$size(T)`, `$name(T)`, `$intCast(x)` |
+| `const x = e`, `new const x = e` | `x =! e`, `new x =! e` |
 
 A file that spells none of `Vec[`, `Vec(`, `Box[`, `Box(`, or `Text` is
-taken as 0.3 already, and only `struct` is renamed in it; name such a
-0.2 file after `--force` (`apply src/ --force src/greet.rig`) to rename
-its `String` too. The script prints `MANUAL path:line` for each thing
-it cannot decide.
+taken as 0.3 already for the first renames; name such a 0.2 file after
+`--force` (`apply src/ --force src/greet.rig`) to rename its `String`
+too. Self, labels, built-in calls, `const`, and `struct` are renamed in
+every file: 0.3 rejects each old spelling, so the rename is safe on any
+file, and a second run changes nothing. Strings and comments keep
+their words. The script prints `MANUAL path:line` for each thing it
+cannot decide: a self with no type or a handle's (`self`,
+`self: *Self`), a label after `=>`, `defer`, or `errdefer`, a
+`!String`, a ```` ```rig reject ```` block, which may show the old
+spelling rejected on purpose, and a loop's write view that 0.3 holds
+where 0.2.9 copied it (below, "A loop's write view is held, not
+copied").
 
 ```rig reject
 struct Point
@@ -63,17 +78,8 @@ sub main()
 a 1 1 p
 ```
 
-## Step 2: the spellings no script rewrites
-
-Rewrite these by hand; each is rejected with the new spelling in its
-message.
-
-### Self is `@`
-
 A method declares self `?@`, `!@`, or `<@`, with no type, and its body
-names it `@`: `self.x` is `@x`, `self.m()` is `@m()`, and `self` alone
-is `@`. `self` is an ordinary name now. A typed self, `fun get(self: ?P)`,
-is `fun get(?@)`.
+names it `@`; `self` is an ordinary name now.
 
 ```rig reject
 obj P
@@ -107,10 +113,8 @@ sub main()
 2
 ```
 
-### Labels are `$name:`
-
-A label is written `$outer:` where it is declared and `$outer` after
-`break` or `continue`; it was `:outer` in both places.
+A label is `$outer:` where it is declared and `$outer` after `break`
+or `continue`; it was `:outer` in both places.
 
 ```rig reject
 sub main()
@@ -133,8 +137,6 @@ sub main()
 ```output
 0 0
 ```
-
-### Built-in calls are `$name(...)`
 
 The compiler's own functions, `@size(T)`, `@align(T)`, `@name(T)`, and
 Zig's under `raw` (`@truncate(x)`, `@intCast(x)`, ...), are `$size(T)`,
@@ -161,7 +163,7 @@ sub main()
 8 44
 ```
 
-### A fixed binding is `x =! e`
+A fixed binding is `x =! e`, and a module-level binding needs neither:
 
 ```rig reject
 sub main()
@@ -184,6 +186,11 @@ sub main()
 ```output
 20
 ```
+
+## Step 2: the spellings no script rewrites
+
+Rewrite these by hand; each is rejected with the new spelling in its
+message.
 
 ### `swap` replaces `replace`
 
@@ -254,6 +261,9 @@ python3 tools/state-bounds.py --dry-run src/main.rig   # print the diff
 python3 tools/state-bounds.py src/main.rig             # write the bounds
 ```
 
+Run it once for each module directory, one run at a time: two runs over
+the files of one directory race on the module they share.
+
 ```rig reject
 pub fun twice[T](x: T) -> T
   x + x
@@ -276,6 +286,65 @@ sub main()
 ```
 
 ## Step 4: what the compiler now asks for
+
+### A loop's write view is held, not copied
+
+One form changes meaning rather than failing. A binding with no type of
+a loop's value that is a write view at every `break` holds the write
+view, as a binding of an `if` does, so assigning the binding writes
+through. 0.2.9 copied the value. `tools/migrate-0.3.py` prints a
+`MANUAL` line for each such binding and rewrites none: a value counts
+as a write view where it is a lend of a path (`!x`, `!x.f`, `!x[i]`) or
+a call of a function the program, or a module it uses, declares
+returning `!T`. 2 of the 4,836 v0.2.9 programs have the shape, at one
+site each. Give the binding its value's type to copy, as before, or
+keep the view where writing through is what you want:
+
+```rig
+fun slot(a: !Int) -> !Int
+  a
+
+sub main()
+  n = 12
+  copy: Int = while true
+    break slot(!n)
+  copy = 1
+  held = while true
+    break slot(!n)
+  held = 5
+  print(n, copy)
+```
+
+```output
+5 1
+```
+
+### A write view is not re-pointed at an arm's payload
+
+A write view re-pointed inside a `match` arm at the payload the arm
+binds is rejected, since the binding ends with the arm. Write through
+the binding inside the arm:
+
+```rig
+enum Bx
+  has(v: List[Int])
+  nothing
+
+sub main()
+  v = List[Int]()
+  !v.push(7)
+  o = Bx.has(<v)
+  match !o
+    .has(p) => p[0] = 3
+    .nothing => pass
+  match o
+    .has(p) => print(p[0])
+    .nothing => pass
+```
+
+```output
+3
+```
 
 What is left the compiler reports with the form to write. The common
 ones:
@@ -469,6 +538,7 @@ slept
 | `_ = \|x\| x + 1`, a closure never called | call it, or remove it |
 | `*g` of a function where a `*fun` goes | `*\|\| g()` |
 | a lend of a branch that may be a named value, `(a if c else b)[0].m()` | lend each branch: `(?a if c else ?b)[0].m()` |
+| a `defer` that changes what its scope's value views (`defer !@xs.clear()` before a last value `!@xs[0]`), or uses a write view `s` the scope returns | change it before the value is formed, or let the defer leave the value and `s` alone |
 
 ## Programs written against `main` between releases
 

@@ -3139,12 +3139,15 @@ fail "apis iter a view, a private next, and another shape", "`f[?Count]` cannot 
     pub fun make() -> Hidden
       Hidden(n: 0)
 
-fail "apis iter an item that views its iterator", "`keep[Buf]` cannot use `I.Item = ?String`: a `?String` may view memory `Buf` owns, which a generic body does not track, so one could outlive the next call that changes `Buf`; use `Buf` itself, or give items that own what they hold", "`first[Buf]` cannot use `S.Item = ?String`: a `?String` may view memory `Buf` owns, which a generic body does not track, so one could outlive the next call that changes `Buf`; use `Buf` itself, or give items that own what they hold"
+fail "apis iter an item that views its iterator", "`keep[Buf]` cannot use `I.Item = ?String`: a `?String` may view memory `Buf` owns, and the generic body holds an `I.Item` past a change of the `I` it came from; use `Buf` itself, or give items that own what they hold", "`first[Buf]` cannot use `S.Item = ?String`: a `?String` may view memory `Buf` owns, and the generic body holds an `S.Item` past a change of the `S` it came from; use `Buf` itself, or give items that own what they hold", "`lib.hold[Buf]` cannot use `I.Item = ?String`: a `?String` may view memory `Buf` owns, and the generic body holds an `I.Item` past a change of the `I` it came from; use `Buf` itself, or give items that own what they hold", "`moved[Buf]` cannot use `S.Item = ?String`: a `?String` may view memory `Buf` owns, and the generic body holds an `S.Item` past a change of the `S` it came from; use `Buf` itself, or give items that own what they hold"
   # An item that views memory its iterator owns would dangle once the
-  # next `next` changes it; a generic body holds items across `next`
-  # without seeing that, so such an instance is rejected, by `Iter` and
-  # by an API's associated type alike, as a loop over `Buf` itself would
-  # reject holding one.
+  # next `next` changes it. A generic body that holds an item past a
+  # change of the iterator it came from (a call that writes it, a move,
+  # a body of another module, or one a generic body reaches) is rejected
+  # at each instance whose items may view memory the iterator owns, as a
+  # loop over `Buf` itself would reject holding one.
+
+  use lib
 
   api Source
     type Item
@@ -3175,11 +3178,116 @@ fail "apis iter an item that views its iterator", "`keep[Buf]` cannot use `I.Ite
     _ = (!s).take()
     a
 
+  fun moved[S: Source](s: S) -> S.Item?
+    t = <s
+    a = (!t).take()
+    u = <t
+    _ = (!u).take()
+    a
+
+  fun outer[J: Iter, J.Item: Print](it: !J) -> Int
+    lib.hold(!it)
+
   b = Buf(buf: String(""), n: 0)
   l = keep(!b)
   print(l.len, l[0])
   c = Buf(buf: String(""), n: 0)
   print(first(!c) ?? "none")
+  print(moved(Buf(buf: String(""), n: 0)) ?? "none")
+  d = Buf(buf: String(""), n: 0)
+  print(outer(!d))
+
+  file "lib.rig"
+    pub fun hold[I: Iter, I.Item: Print](it: !I) -> Int
+      a = (!it).next() ?? return 0
+      n = 1
+      for _ in !it
+        n += 1
+      print(a)
+      n
+
+test "apis iter a body that holds no item past a change", '''
+  3 3 1
+  item1
+  item2
+  item3
+  3
+'''
+  # A body that holds no item past a change of the iterator it came from
+  # takes an iterator whose items view its own memory: it counts them,
+  # gives one back, or holds one only until the next change.
+
+  use std.iter
+
+  obj Buf
+    buf: String
+    n: Int
+
+    fun next(!@) -> (?String)? from @
+      return none if @n >= 3
+      @n += 1
+      @buf = String("item", @n)
+      ?@buf
+
+  fun peek[I: Iter](it: !I) -> I.Item?
+    (!it).next()
+
+  sub show[I: Iter, I.Item: Print](it: !I)
+    while (!it).next() as x
+      print(x)
+
+  fun steps[I: Iter, I.Item: Print](it: !I) -> Int
+    n = 0
+    for x in !it
+      n += 1
+      print(x) if n > 9
+    n
+
+  b = Buf(buf: String(""), n: 0)
+  c = Buf(buf: String(""), n: 0)
+  d = Buf(buf: String(""), n: 2)
+  print(iter.count(!b), steps(!c), iter.count(!d))
+  e = Buf(buf: String(""), n: 0)
+  print(peek(!e) ?? "none")
+  f = Buf(buf: String(""), n: 1)
+  show(!f)
+  print(f.n)
+
+test "apis own associated type held across a second call", "1 3\n5 6"
+  # A value of `S.Item` held across a second call that changes its base
+  # is taken where the instance's `Item` holds no view: an `Int`, by a
+  # body whose bound copies it and by one that moves it.
+
+  api Source
+    type Item
+
+    fun one(!@) -> Item from @
+
+  obj Count: Source
+    n: Int
+
+    fun one(!@) -> Int
+      @n += 1
+      @n
+
+  fun two[S: Source](s: !S) -> S.Item
+    a = (!s).one()
+    _ = (!s).one()
+    a
+
+  fun twoc[S: Source, S.Item: Copy](s: !S) -> S.Item
+    a = (!s).one()
+    _ = (!s).one()
+    a
+
+  sub pair[S: Source, S.Item: Print + Copy](s: !S)
+    a = (!s).one()
+    b = (!s).one()
+    print(a, b)
+
+  c = Count(n: 0)
+  print(two(!c), twoc(!c))
+  pair(!c)
 
 test "apis own associated type behind a text view", "x"
   # `?Item` at `Item = String` is `?String`, the one text view: a provider
