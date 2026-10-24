@@ -32,6 +32,13 @@ changed the language since it:
   a holding, `__rig_table_Shape_of(T, W, .counted)`. A Cell of an API
   object is rejected for good, no longer as not built. The reference
   checker gains the kinds of both forms.
+- **One rule for a value hidden from a task's waiting:** an erasure to
+  an API object, a value given out of `task.isolate`, and an owned
+  closure's capture check that it holds no task by one function, for
+  its known type and for each instance's `T`. A generic owned closure
+  over a `T` made with a `Task[Int]` is refused by the task rule
+  ("captures a value that holds a `T` in an owned closure, which would
+  hide a task"), no longer by the loan rule.
 - **Frozen values:** `Frozen[T]` is no type argument, inferred as well
   as written, so a `*Frozen[T]` given where a generic `*T` goes is
   rejected toward a `T` (it failed in Zig); and the last handle of a

@@ -18,7 +18,8 @@
 # programs that hold either by value stop in sema, before either
 # checker decides them. A header whose subject makes a temporary and
 # reaches no place is rejected in sema (`rejectHeaderCopy`), so the
-# programs that have one stop there too.
-tests 22796
+# programs that have one stop there too, as do those whose generic owned
+# closure captures a `T` an instance makes a task (`hidesNoTask`).
+tests 22794
 docs 1077
 matrix 71930

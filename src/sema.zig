@@ -3104,7 +3104,8 @@ pub const Requirement = union(enum) {
     frozen,
     /// Holds no task or set of tasks (`holdsTask`): the body hides a value
     /// that holds the parameter from the rules that wait for a task,
-    /// erasing it to an API object or giving it out of `task.isolate`.
+    /// erasing it to an API object, giving it out of `task.isolate`, or
+    /// capturing it in an owned closure (`Checker.hidesNoTask`).
     no_task,
     /// Goes to a task as this says (`taskBlocker`): the body gives a task
     /// a value that holds the parameter, or lends it one (`taskParams`).
