@@ -125,3 +125,29 @@ The 1,341, by the form of their first error (CHANGELOG's numbers):
 | 12, 13, 14, 34, 37 | 1 each |
 | 18 a `pub` generic's bounds: a chain 1,100 calls deep, past `state-bounds.py`'s rounds | 1 |
 | not among the 42: a write view kept by a loop's `break` value (behavior/ownership/write_view_result_binding_holds_view.rig), a view re-pointed at a `match` payload that ends first (corpus/review-assign-desugar-n33_repoint_at_outer_payload.rig) | 2 |
+
+## The form that changes meaning: a loop's write view
+
+A binding with no type of a loop's value that is a write view at every
+`break` holds the view on `main` (384290706) and copied it in `v0.2.9`,
+so a program can compile under both and write where it read.
+`tools/migrate-0.3.py` reports it (`MANUAL`, the pass `loopview`) from
+the text: a `break` or `else` value counts as a write view where it is
+a lend of a path or a call of a function declared returning `!T` by the
+file, the files of its directory module, or a module it uses.
+
+On the 4,836 programs, each read alone, it reports 2 sites in 2
+programs: behavior/emit/view_result_values.rig:135 and
+behavior/ownership/write_view_result_binding_holds_view.rig:33, both
+`l = while true` then `break F(!x)` with `F` returning `!Int`, both
+read by hand and right. No site is missed: no other `break` in the
+4,836 lends a path or calls a function its file declares returning
+`!T`. Read as one directory, as the copies sit, a third program was
+reported through a function of another program of that directory;
+the pass therefore reads the files beside a program only when no file
+there declares `main` (SPEC §14, directory modules), and then it
+reports the 2. The compiler could not confirm them: `rig check
+--facts=sema` records a binding's type (`types leaf ... "l" !Int`), but
+only for a program it accepts, and `main` rejects both programs for
+other forms; of the 675 accepted programs with a loop, none binds a
+loop's write view.

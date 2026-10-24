@@ -45,8 +45,10 @@ file, and a second run changes nothing. Strings and comments keep
 their words. The script prints `MANUAL path:line` for each thing it
 cannot decide: a self with no type or a handle's (`self`,
 `self: *Self`), a label after `=>`, `defer`, or `errdefer`, a
-`!String`, and a ```` ```rig reject ```` block, which may show the old
-spelling rejected on purpose.
+`!String`, a ```` ```rig reject ```` block, which may show the old
+spelling rejected on purpose, and a loop's write view that 0.3 holds
+where 0.2.9 copied it (below, "A loop's write view is held, not
+copied").
 
 ```rig reject
 struct Point
@@ -289,8 +291,13 @@ sub main()
 One form changes meaning rather than failing. A binding with no type of
 a loop's value that is a write view at every `break` holds the write
 view, as a binding of an `if` does, so assigning the binding writes
-through. 0.2.9 copied the value. Give the binding its value's type to
-copy, as before:
+through. 0.2.9 copied the value. `tools/migrate-0.3.py` prints a
+`MANUAL` line for each such binding and rewrites none: a value counts
+as a write view where it is a lend of a path (`!x`, `!x.f`, `!x[i]`) or
+a call of a function the program, or a module it uses, declares
+returning `!T`. 2 of the 4,836 v0.2.9 programs have the shape, at one
+site each. Give the binding its value's type to copy, as before, or
+keep the view where writing through is what you want:
 
 ```rig
 fun slot(a: !Int) -> !Int
