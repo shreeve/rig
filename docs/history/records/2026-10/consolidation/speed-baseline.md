@@ -229,6 +229,11 @@ falling. No change here is a net win with nothing slower than main
 beyond 2%; whether to take A (pup's safe builds back at the reference;
 canada at the line) is the owner's call.
 
+**Candidate A was taken (2026-10-24).** The owner: "Take A -- we will do a lot
+more optimization later, this is good enough for now." Canada's 2.4-2.8%
+(pup) and up to 4% (Mac safe) loss against main is accepted as layout, as
+R4's swing was.
+
 ## Tasks, actors, sockets, HTTP (rig-fast)
 
 Time per operation, as the PROGRESS rows give it.

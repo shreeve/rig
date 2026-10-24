@@ -425,6 +425,14 @@ pub obj Doc
   # The rest of a string that has an escape: decodes it into `text`.
   # `start` is the string's first byte, and `at` its first backslash.
   fun escaped(!@, src: ?String, start: Int, at: Int) -> Int
+    # `document` made this test already; out of line, this function
+    # makes it again, once a string. A length is never below 0, but
+    # with that half the test is one unsigned compare, after which the
+    # optimizer knows `0 <= n <= MAX_INPUT`: in safe builds, the adds
+    # `at + 2` to `i + 6` of the escapes below cannot overflow, and each
+    # `0 <= i < n` takes one compare.
+    n = src.len
+    return (!@).fail(.too_large, 0) if n < 0 or n > MAX_INPUT
     offset = @text.len
     !@text.add(src[start..at])
     i = at
@@ -745,11 +753,14 @@ fun skip_plain_ascii(s: ?String, at: Int) -> Int
   # 0 <= at <= s.len, which bounds every read below.
   return at if at < 0 or at > s.len
   i = at
-  stop = at + TIER
-  while i + 8 <= s.len and i < stop
-    m = special64(s.read[U64, .little](i))
-    return i + first_marked64(m) if m != 0
-    i += 8
+  # With TIER 0 (x86_64) the stage is not compiled at all: not even
+  # its first test, `at + 8 <= s.len`, whose add safe builds test.
+  if TIER > 0
+    stop = at + TIER
+    while i + 8 <= s.len and i < stop
+      m = special64(s.read[U64, .little](i))
+      return i + first_marked64(m) if m != 0
+      i += 8
   while i + 16 <= s.len : i += 16
     if special(s.read[Simd[U8, 16]](i)).first() as k
       return i + k

@@ -704,6 +704,11 @@ against Zig's `std.json`, serde_json, simd-json, sonic-rs and
 zimdjson (docs/history/json-results.md). Its API is not settled
 (docs/design/json.md, "Open items").
 
+std.json: an escaped string checks its length once, so safe builds keep
+#538's gain on x86 (pup's safe builds are back within 2% of the earlier
+reference on every file). Canada runs 2.4-2.8% (pup) and up to 4% (Mac
+safe) slower than before, which is layout and is noted, not fixed.
+
 ### Concurrency
 
 The model and its plan are
