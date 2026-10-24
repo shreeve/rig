@@ -3140,6 +3140,14 @@ pub const TypeResolver = struct {
     /// decided with each instance (`checkGenericInstantiations`).
     pub fn misplacedAt(self: *TypeResolver, node: Sexp, ty: TypeId, home: sema.Home) Error!bool {
         if (self.isPoison(ty)) return false;
+        if (try self.bareObject(node, ty, home)) return true;
+        // A value's own type: one that holds an API object is not
+        // lowered yet (Stage 4, phase 1). It keeps its type, so what a
+        // body does with the value is still checked.
+        switch (home) {
+            .signature, .binding, .field => if (sema.mentionsObject(self.ctx, ty)) try sema.objectUnbuilt(self.ctx, self.ctx.startOf(node), ty),
+            else => {},
+        }
         if (sema.writeViewMisplaced(self.ctx, ty, home)) {
             try self.ctx.errAt(node, sema.write_view_misplaced, .{try sema.formatType(self.ctx, ty)});
             return true;
@@ -3154,6 +3162,163 @@ pub const TypeResolver = struct {
             .signature, .binding, .element, .optional => try self.checkWhenResolved(.{ .cell_home = .{ .node = node, .ty = ty, .home = home } }),
         }
         return false;
+    }
+
+    /// `{Shape}` at `home`, where it has no size of its own
+    /// (`sema.Misplaced.unsized`). Reported.
+    fn bareObject(self: *TypeResolver, node: Sexp, ty: TypeId, home: sema.Home) Error!bool {
+        if (!sema.unsizedAt(self.ctx, ty, home)) return false;
+        const shown = try sema.formatType(self.ctx, ty);
+        try self.ctx.errAt(node, sema.object_unsized, .{ shown, shown, shown, shown });
+        return true;
+    }
+
+    /// `*{Shape}` or `~{Shape}`: an API object many tasks or a weak
+    /// handle reach is Stage 5's. Reported.
+    fn sharedObject(self: *TypeResolver, node: Sexp, inner: TypeId) Error!bool {
+        if (sema.apiObject(self.ctx, inner) == null) return false;
+        const what = if (node.isKind(.weak)) "a weak handle of an API object" else "a shared API object";
+        try self.ctx.errAt(node, "{s}, `{s}`, is not built yet (docs/design/apis.md, Stage 5)", .{ what, diag.textOf(self.ctx.source, self.ctx.span(node)) });
+        return true;
+    }
+
+    /// `{Shape + Print}`: an API object's braces (docs/design/apis.md,
+    /// Stage 4). They name one API of a program's own and, beside it,
+    /// only `Owned`, `Print`, and `Clone`, which an object serves
+    /// itself; each other name is reported with why.
+    fn resolveApiObject(self: *TypeResolver, node: Sexp) Error!TypeId {
+        const t = &self.ctx.types;
+        const src = self.ctx.source;
+        const start = self.ctx.startOf(node);
+        // The holding sigil written before the braces, for the fixes.
+        const lead: u32 = if (start > 0 and std.mem.findScalar(u8, "?!^*~", src[start - 1]) != null) 1 else 0;
+        const sigil: []const u8 = if (lead == 1) src[start - 1 .. start] else "?";
+        const written = diag.textBetween(src, start - lead, self.ctx.span(node).end);
+        var api: ?sema.ApiRef = null;
+        var api_leaf: Sexp = .nil;
+        var builtins: sema.Apis = .empty;
+        var bad = false;
+        for (ir.ApiObject.apis(node)) |leaf| {
+            const text = diag.textOf(src, self.ctx.span(leaf));
+            // `{Source[Item: Int]}`: an associated type named.
+            if (leaf.isKind(.generic_inst)) {
+                const base = ir.GenericInst.name(leaf);
+                const named = try apiNamed(self.ctx, self.scope, base);
+                const assoc = switch (named) {
+                    .user => |ref| if (sema.apiSymbol(self.ctx, ref)) |sym| sema.declaresAssoc(sym) else false,
+                    .builtin => |b| b == .Iter,
+                    .reported => {
+                        bad = true;
+                        continue;
+                    },
+                    .none => false,
+                };
+                if (assoc) {
+                    try self.ctx.errAt(leaf, "an API object that names an associated type, `{s}`, is not built yet (docs/design/apis.md, Stage 4)", .{written});
+                } else try self.ctx.errAt(leaf, "`{s}` names no API with an associated type; braces hold APIs, `?{{Shape}}`, and name an associated type only of an API that declares one", .{text});
+                bad = true;
+                continue;
+            }
+            switch (try apiNamed(self.ctx, self.scope, leaf)) {
+                .builtin => |b| switch (b) {
+                    .Owned, .Print, .Clone => {
+                        if (builtins.contains(b)) try self.ctx.errAt(leaf, "`{s}` is named twice in `{s}`", .{ text, written });
+                        builtins.insert(b);
+                    },
+                    .Copy => {
+                        try self.ctx.errAt(leaf, "an API object never copies but as a view does: `?{{Shape}}` copies, `^{{Shape}}` moves; take `Copy` out of the braces", .{});
+                        bad = true;
+                    },
+                    .Eq, .Hash, .Ord => {
+                        try self.ctx.errAt(leaf, "two API objects may hide two types, which `{s}` cannot {s}; take `{s}` out of the braces", .{ if (b == .Ord) "<" else "==", if (b == .Ord) "order" else "compare", text });
+                        bad = true;
+                    },
+                    .Num, .Integer, .Signed => {
+                        try self.ctx.errAt(leaf, "`{s}` is provided by the built-in numbers alone, and an API object's methods are an API's of a program's own; take `{s}` out of the braces", .{ text, text });
+                        bad = true;
+                    },
+                    .Sends, .Syncs => {
+                        try self.ctx.errAt(leaf, "an API object that crosses tasks, `{s}`, is not built yet (docs/design/apis.md, Stage 5)", .{written});
+                        bad = true;
+                    },
+                    .Iter => {
+                        try self.ctx.errAt(leaf, "`Iter` gives an `Item`, so an object of it names that type: `{s}{{Iter[Item: Int]}}`", .{sigil});
+                        bad = true;
+                    },
+                },
+                .user => |ref| {
+                    if (api) |first| {
+                        if (first.eql(ref)) {
+                            try self.ctx.errAt(leaf, "`{s}` is named twice in `{s}`", .{ text, written });
+                        } else {
+                            const one = diag.textOf(src, self.ctx.span(api_leaf));
+                            try self.ctx.errAt(leaf, "`{{{s} + {s}}}` names two APIs of a program's own, and an object has one table: declare `api Both: {s} + {s}` and write `{s}{{Both}}`", .{ one, text, one, text, sigil });
+                        }
+                        bad = true;
+                        continue;
+                    }
+                    api = ref;
+                    api_leaf = leaf;
+                    // An API with `type Item` forms objects only with the type named.
+                    if (sema.apiSymbol(self.ctx, ref)) |sym| if (sema.declaresAssoc(sym)) {
+                        const item = sema.apiContext(self.ctx, ref).?.symbols.items[sym.type_params.?[1]].name;
+                        try self.ctx.errAt(leaf, "`{s}` declares `type {s}`, so an object of it names that type: `{s}{{{s}[{s}: Int]}}`", .{ text, item, sigil, text, item });
+                        bad = true;
+                    };
+                },
+                .reported => bad = true,
+                .none => {
+                    bad = true;
+                    if (try self.typeInBraces(leaf)) |kind| {
+                        if (kind == .param) {
+                            try self.ctx.errAt(leaf, "braces hold APIs, and `{s}` is a type parameter: write `[{s}: Shape]` and `{s}{s}`, or name an API, `{s}{{Shape}}`", .{ text, text, sigil, text, sigil });
+                        } else {
+                            const held = if (sigil[0] == '^') "a box of it" else "a view of it";
+                            if (try self.providedApiText(leaf)) |provided| {
+                                try self.ctx.errAt(leaf, "braces hold APIs, and `{s}` is a type: write `{s}{s}` for {s}, or name an API it provides, `{s}{{{s}}}`", .{ text, sigil, text, held, sigil, provided });
+                            } else try self.ctx.errAt(leaf, "braces hold APIs, and `{s}` is a type: write `{s}{s}` for {s}, or name an API in the braces", .{ text, sigil, text, held });
+                        }
+                    } else try self.ctx.errAt(leaf, "`{s}` names no API; an API object's braces name an API the program declares with `api`, `{s}{{Shape}}`", .{ text, sigil });
+                },
+            }
+        }
+        if (bad) return t.invalid_id;
+        const ref = api orelse {
+            try self.ctx.errAt(node, "`{s}` names no API of a program's own, whose methods an object reaches: name one beside the built-in ones, `{s}{{Shape + {s}}}`", .{ written, sigil, diag.textOf(src, self.ctx.span(ir.ApiObject.apis(node)[0])) });
+            return t.invalid_id;
+        };
+        return self.ctx.intern(.{ .api_object = .{ .api = ref, .builtins = builtins } });
+    }
+
+    /// What a name in an object's braces names when it is no API: a
+    /// type, a type parameter, or neither (null).
+    fn typeInBraces(self: *TypeResolver, leaf: Sexp) Error!?enum { type, param } {
+        if (leaf.isKind(.member)) return if (foreignSymbol(self.ctx, self.scope, leaf)) |d| switch (d.sym.kind) {
+            .nominal_type, .generic_type, .type_alias => .type,
+            else => null,
+        } else null;
+        const name = identAt(self.ctx.source, leaf) orelse return null;
+        if (std.mem.eql(u8, name, "Self")) return .param;
+        for (self.nominal.type_params) |tp| {
+            if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) return .param;
+        }
+        if (primitiveTypeId(self.ctx, name) != null or isBuiltinTypeName(self.ctx, name) or isNominalBuiltinName(name)) return .type;
+        const id = self.ctx.lookup(self.scope, name) orelse return null;
+        return switch (self.ctx.symbols.items[id].kind) {
+            .generic_param => .param,
+            .nominal_type, .generic_type, .type_alias => .type,
+            else => null,
+        };
+    }
+
+    /// The first API of a program's own that the type `leaf` names on
+    /// its header, as the braces would name it; null when it names none.
+    fn providedApiText(self: *TypeResolver, leaf: Sexp) Error!?[]const u8 {
+        const name = identAt(self.ctx.source, leaf) orelse return null;
+        const id = self.ctx.lookup(self.scope, name) orelse return null;
+        const sym = self.ctx.symbols.items[id];
+        if (sym.user_apis.len == 0) return null;
+        return try sema.apiName(self.ctx, sym.user_apis[0]);
     }
 
     /// `*fun(...) -> R` / `*sub(...)`, function type `ty` written
@@ -3576,6 +3741,7 @@ pub const TypeResolver = struct {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
+                        if (head == .weak and try self.sharedObject(sexp, inner)) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
                         const home: sema.Home = switch (head) {
                             .optional => .optional,
@@ -3608,6 +3774,7 @@ pub const TypeResolver = struct {
                         const inner_node = ir.Shared.type(sexp);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
+                        if (try self.sharedObject(sexp, inner)) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner) or try self.misplacedAt(inner_node, inner, .handle)) return t.invalid_id;
                         if (sema.heapStacked(self.ctx, inner)) {
                             try self.ctx.errAt(sexp, sema.heap_stacked, .{try self.stackedSpelling('*', inner)});
@@ -3634,11 +3801,15 @@ pub const TypeResolver = struct {
                     .fun_type => {
                         var ps: std.ArrayList(TypeId) = .empty;
                         defer ps.deinit(self.ctx.allocator);
-                        for (ir.FunType.params(sexp).items()) |p| try ps.append(self.ctx.allocator, try self.resolveType(p));
+                        for (ir.FunType.params(sexp).items()) |p| {
+                            const pty = try self.resolveType(p);
+                            try ps.append(self.ctx.allocator, if (try self.bareObject(p, pty, .signature)) t.invalid_id else pty);
+                        }
                         const ret = if (ir.FunType.fails(sexp) != .nil)
                             try self.ctx.intern(.{ .fallible = .{ .ok = t.void_id, .set = try self.resolveFailSet(rig.failSet(ir.FunType.fails(sexp))) } })
                         else
                             try self.resolveReturnType(ir.FunType.returns(sexp));
+                        if (try self.bareObject(ir.FunType.returns(sexp), ret, .signature)) return t.invalid_id;
                         // A function type returning nothing is spelled as a `sub`'s.
                         if (ir.FunType.returns(sexp) != .nil and sema.returnsNothing(self.ctx, ret)) {
                             try self.ctx.errAt(ir.FunType.returns(sexp), "a function type that returns nothing is a `sub` type: `sub(...){s}`", .{if (ret == t.void_id) "" else "!"});
@@ -3664,6 +3835,7 @@ pub const TypeResolver = struct {
                         return self.boxOf(inner, self.ctx.startOf(sexp));
                     },
                     .generic_inst => return self.resolveGenericInst(sexp),
+                    .api_object => return self.resolveApiObject(sexp),
                     .member => {
                         if (try self.assocMember(sexp)) |ty| return ty;
                         return self.resolveQualified(ir.Member.object(sexp), ir.Member.name(sexp));

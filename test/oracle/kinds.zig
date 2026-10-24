@@ -183,6 +183,9 @@ const Scan = struct {
         if (gop.found_existing) return;
         switch (ctx.types.get(ty)) {
             .invalid, .unknown => self.mark("a type with an error"),
+            // Decided with the phase of Stage 4 that lowers one; until
+            // then no program the compiler accepts holds one.
+            .api_object => self.mark("an API object"),
             // A handle carries its contents' loans (Core s9), and
             // dropping a counted one may drop them.
             // An owned closure carries no loan (Core s9).

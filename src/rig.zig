@@ -291,7 +291,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .set_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; and `a..=b`, rewritten to an inclusive `..`: each
         // before any pass reads a statement.
@@ -1915,7 +1915,6 @@ pub const Lexer = struct {
                 .bad_number, tok.pos),
             '\r' => self.fail(.lone_cr, tok.pos),
             ';' => self.fail(.semicolon, tok.pos),
-            '{', '}' => self.fail(.brace, tok.pos),
             else => self.fail(.bad_char, tok.pos),
         };
     }
@@ -1964,6 +1963,7 @@ fn isValue(cat: TokenCat) bool {
         .false,
         .rparen,
         .rbracket,
+        .rbrace,
         .task_amp,
         => true,
         else => false,
@@ -2679,6 +2679,14 @@ pub const Parser = struct {
                 .brace => self.format("unexpected `{c}`; {s}", .{ src[pos], lexer.err.message() }),
                 else => lexer.err.message(),
             } },
+            // A brace stands only in a type (`?{Shape}`), so one the
+            // parser did not expect is one outside a type: in an
+            // expression's brackets or after a holding sigil, a type
+            // with no expression spelling; inside braces, after `{` or
+            // `+`, a name left out; anywhere else, a brace Rig does not
+            // have.
+            .lbrace => return .{ .severity = .@"error", .pos = pos, .end = end, .message = if (self.braceInExpression(tok)) "unexpected `{`; an API object's type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead" else self.format("unexpected `{{`; {s}", .{Lexer.LexError.brace.message()}) },
+            .rbrace => if (lexer.before_cat == .lbrace or lexer.before_cat == .plus) "unexpected `}`" else return .{ .severity = .@"error", .pos = pos, .end = end, .message = self.format("unexpected `}}`; {s}", .{Lexer.LexError.brace.message()}) },
             .eof, .outdent => blk: {
                 pos = lexer.prev_end;
                 end = pos;
@@ -2701,6 +2709,17 @@ pub const Parser = struct {
         const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse self.waitHint(src, tok) orelse chainedComparison(src, tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
+    }
+
+    /// Whether `{`, which the parser did not expect, stands where an
+    /// expression spells a type: touching a holding sigil, `?{Shape}`,
+    /// or first in an expression's brackets, `List[{Shape}]`.
+    fn braceInExpression(self: *Parser, tok: Token) bool {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        if (tok.pos > 0 and std.mem.findScalar(u8, "?!^*~", src[tok.pos - 1]) != null) return true;
+        const in_brackets = lexer.nesting > 0 and src[lexer.brackets[lexer.nesting - 1]] == '[';
+        return in_brackets and (lexer.before_cat == .lbracket or lexer.before_cat == .comma);
     }
 
     /// A range with a side left out where only a slice may leave one

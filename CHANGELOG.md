@@ -13,6 +13,21 @@ changed the language since it:
 
 ### Language and compiler
 
+- **API object types (APIs Stage 4, phase 1):** a type may name an API
+  in braces behind a view or a box, `?{Shape}`, `!{Shape}`,
+  `^{Shape}`, with `Owned`, `Print`, and `Clone` beside it, `^{Shape +
+  Owned + Print}`. The compiler checks what the braces name (one API
+  of a program's own; a type, a type parameter, a second API, `Copy`,
+  `Eq`, `Hash`, `Ord`, and the number APIs each rejected with why;
+  crossing tasks and `*{Shape}` Stage 5's), rejects a bare `{Shape}`
+  anywhere a value's type or a type argument goes, inferred too, and
+  decides the bounds an object meets and the methods a call through
+  one reaches. A type alias names such a type and `$name` spells it; a
+  value holding an object, an erasure, a call through one, and a call
+  through a type that holds one (`Ph[S].mk()`) are rejected as not
+  built yet, and no frozen value holds one. A brace in an expression
+  says to name the type with an alias, and one anywhere else keeps its
+  message, "Rig has no braces".
 - **Docs: API objects in the Core (APIs Stage 4, phase 0):** CORE §1
   and §4 state, as planned, that an API object (`?{Shape}`, `!{Shape}`,
   `^{Shape}`) hides its value's type, never its loans, with two

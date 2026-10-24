@@ -3486,3 +3486,516 @@ test "apis bounds of a composite argument", "1"
   l = Chain(items: <v)
   z = ?l.zip(?l)
   print(z.items[0].a)
+
+# API objects (docs/design/apis.md, Stage 4): the type and its rules.
+# Phase 1 checks the braces and what an object meets; a value holding
+# one is lowered by a later phase, and is rejected until then.
+
+test "apis object types are named", "List[^{Shape}] ^{Shape}? ?{Shape + Owned + Print} {Shape}"
+  # A type alias names an object's type, and `$name` spells it, its API
+  # first and the built-in APIs after it in one order.
+
+  api Shape
+    fun area(?@) -> Float
+
+  type Boxes = List[^{Shape}]
+  type Maybe = ^{Shape}?
+  type Shown = ?{Shape + Print + Owned}
+  type Bare = {Shape}
+
+  print($name(Boxes), $name(Maybe), $name(Shown), $name(Bare))
+
+test "apis object bounds it meets", "true"
+  # An object meets the `Clone`, `Print`, and `Owned` its braces name, a
+  # `Print` its API builds on, and a read view of one copies.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Named: Print
+    fun name(?@) -> Int
+
+  obj Copies[T: Copy]
+    t: T
+
+  obj Prints[T: Print]
+    t: T
+
+  obj Owns[T: Owned]
+    t: T
+
+  obj Clones[T: Clone]
+    t: T
+
+  type A = Copies[?{Shape}]
+  type B = Prints[?{Shape + Print}]
+  type C = Prints[^{Named}]
+  type D = Owns[^{Shape + Owned}]
+  type E = Clones[^{Shape + Clone}]
+
+  print($name(A).len > 0 and $name(B).len > 0 and $name(C).len > 0 and $name(D).len > 0 and $name(E).len > 0)
+
+fail "apis object bounds it does not meet", "`Copies[^{Shape}]` cannot use `T = ^{Shape}`", "`Owns[^{Shape}]` cannot use `T = ^{Shape}`", "`Owns[?{Shape + Owned}]` cannot use `T = ?{Shape + Owned}`", "`Clones[^{Shape}]` cannot use `T = ^{Shape}`", "`Prints[?{Shape}]` cannot use `T = ?{Shape}`", "`Keys[?{Shape}]` cannot use `K = ?{Shape}`", "`Sent[^{Shape + Owned}]` cannot use `T = ^{Shape + Owned}`"
+  # Only what the braces name: a box moves, a view is no owner of its
+  # own, a box clones only by a `Clone` it names, and two objects may
+  # hide two types, which nothing compares; crossing tasks is Stage 5's.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Copies[T: Copy]
+    t: T
+
+  obj Owns[T: Owned]
+    t: T
+
+  obj Clones[T: Clone]
+    t: T
+
+  obj Prints[T: Print]
+    t: T
+
+  obj Keys[K: Hash]
+    k: K
+
+  obj Sent[T: Sends]
+    t: T
+
+  type A = Copies[^{Shape}]
+  type B = Owns[^{Shape}]
+  type C = Owns[?{Shape + Owned}]
+  type D = Clones[^{Shape}]
+  type E = Prints[?{Shape}]
+  type F = Keys[?{Shape}]
+  type G = Sent[^{Shape + Owned}]
+
+  print($name(A), $name(B), $name(C), $name(D), $name(E), $name(F), $name(G))
+
+fail "apis object bounds through a container", "`Prints[List[^{Shape}]]` cannot use `T = List[^{Shape}]`: `List[^{Shape}]` cannot be printed; it holds a `^{Shape}`", "`Prints[(?{Shape})?]` cannot use `T = (?{Shape})?`: `(?{Shape})?` cannot be printed; it holds a `?{Shape}`"
+  # A List, an optional, or an array prints as its objects do, and an
+  # object prints only by a `Print` its braces or API name.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Prints[T: Print]
+    n: Int
+
+  type A = Prints[List[^{Shape}]]
+  type B = Prints[(?{Shape})?]
+  type C = Prints[List[^{Shape + Print}]]
+  type D = Prints[[2]?{Shape + Print}]
+
+  print($name(A), $name(B), $name(C), $name(D))
+
+fail "apis object meets no bound by an API","`Bag[^{Shape}]` cannot use `T = ^{Shape}`"
+  # A box is not its value: `^{Shape}` provides no `Shape`.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Bag[T: Shape]
+    t: T
+
+  type B = Bag[^{Shape}]
+
+  print($name(B))
+
+fail "apis object bare local", "`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: {Shape} = Square(side: 2.0)
+
+fail "apis object bare field", "5:6: `{Shape}` has no size of its own"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Holder
+    s: {Shape}
+
+  print(1)
+
+fail "apis object bare parameter and result", "4:10: `{Shape}` has no size of its own", "7:12: `{Shape}` has no size of its own"
+  api Shape
+    fun area(?@) -> Float
+
+  fun f(s: {Shape}) -> Int
+    1
+
+  fun g() -> {Shape}
+    panic("never")
+
+  print(1)
+
+fail "apis object bare type argument and element", "5:11: `{Shape}` has no size of its own", "6:6: `{Shape}` has no size of its own", "7:8: `{Shape}` has no size of its own", "8:9: `{Shape}` has no size of its own", "9:19: `{Shape}` has no size of its own"
+  api Shape
+    fun area(?@) -> Float
+
+  sub main()
+    l: List[{Shape}] = List()
+    o: {Shape}? = none
+    s: []{Shape} = []
+    a: [2]{Shape} = []
+    f: ?fun(Int) -> {Shape} = none
+
+fail "apis object inferred type argument", "`{Shape}` has no size of its own, so it is no type argument, written or inferred"
+  # A generic `swap` of two `!{Shape}` would write a value of one type
+  # where another lives: `{Shape}` is never a type argument.
+
+  api Shape
+    fun area(?@) -> Float
+
+  sub put[T](a: !T, b: !T)
+    pass
+
+  sub both(w1: !{Shape}, w2: !{Shape})
+    put(!w1, !w2)
+
+  print(1)
+
+fail "apis object a type in braces", "braces hold APIs, and `Square` is a type: write `?Square` for a view of it, or name an API it provides, `?{Shape}`", "braces hold APIs, and `Int` is a type: write `^Int` for a box of it, or name an API in the braces"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  type V = ?{Square}
+  type B = ^{Int}
+
+  print($name(V), $name(B))
+
+fail "apis object a type parameter in braces", "braces hold APIs, and `T` is a type parameter: write `[T: Shape]` and `?T`, or name an API, `?{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+
+  fun f[T: Shape](s: ?{T}) -> Int
+    1
+
+  print(1)
+
+fail "apis object two APIs", "`{Shape + Named}` names two APIs of a program's own, and an object has one table: declare `api Both: Shape + Named` and write `?{Both}`"
+  api Shape
+    fun area(?@) -> Float
+
+  api Named
+    fun name(?@) -> Int
+
+  type T = ?{Shape + Named}
+
+  print($name(T))
+
+fail "apis object Copy in braces", "an API object never copies but as a view does: `?{Shape}` copies, `^{Shape}` moves; take `Copy` out of the braces"
+  api Shape
+    fun area(?@) -> Float
+
+  type T = ^{Shape + Copy}
+
+  print($name(T))
+
+fail "apis object Eq in braces", "two API objects may hide two types, which `==` cannot compare; take `Eq` out of the braces", "two API objects may hide two types, which `==` cannot compare; take `Hash` out of the braces", "two API objects may hide two types, which `<` cannot order; take `Ord` out of the braces"
+  api Shape
+    fun area(?@) -> Float
+
+  type A = ?{Shape + Eq}
+  type B = ?{Shape + Hash}
+  type C = ?{Shape + Ord}
+
+  print($name(A), $name(B), $name(C))
+
+fail "apis object a number API in braces", "`Num` is provided by the built-in numbers alone, and an API object's methods are an API's of a program's own; take `Num` out of the braces"
+  api Shape
+    fun area(?@) -> Float
+
+  type A = ?{Shape + Num}
+
+  print($name(A))
+
+fail "apis object crossing in braces", "an API object that crosses tasks, `^{Shape + Sends}`, is not built yet (docs/design/apis.md, Stage 5)", "an API object that crosses tasks, `?{Shape + Syncs}`, is not built yet (docs/design/apis.md, Stage 5)"
+  api Shape
+    fun area(?@) -> Float
+
+  type A = ^{Shape + Sends}
+  type B = ?{Shape + Syncs}
+
+  print($name(A), $name(B))
+
+fail "apis object shared and weak", "a shared API object, `*{Shape}`, is not built yet (docs/design/apis.md, Stage 5)", "a weak handle of an API object, `~{Shape}`, is not built yet (docs/design/apis.md, Stage 5)"
+  api Shape
+    fun area(?@) -> Float
+
+  type A = *{Shape}
+  type B = ~{Shape}
+
+  print($name(A), $name(B))
+
+fail "apis object an associated type unnamed", "`Source` declares `type Item`, so an object of it names that type: `^{Source[Item: Int]}`", "`Iter` gives an `Item`, so an object of it names that type: `!{Iter[Item: Int]}`"
+  api Source
+    type Item
+    fun take(!@) -> Item?
+
+  type A = ^{Source}
+  type B = !{Iter}
+
+  print($name(A), $name(B))
+
+fail "apis object an associated type named", "an API object that names an associated type, `^{Source[Item: Int]}`, is not built yet (docs/design/apis.md, Stage 4)"
+  api Source
+    type Item
+    fun take(!@) -> Item?
+
+  type A = ^{Source[Item: Int]}
+
+  print($name(A))
+
+fail "apis object only built-in APIs", "`?{Print}` names no API of a program's own, whose methods an object reaches: name one beside the built-in ones, `?{Shape + Print}`"
+  type A = ?{Print}
+
+  print($name(A))
+
+fail "apis object names no API", "`Shap` names no API; an API object's braces name an API the program declares with `api`, `?{Shape}`", "`Print` is named twice in `?{Shape + Print + Print}`"
+  api Shape
+    fun area(?@) -> Float
+
+  type A = ?{Shap}
+  type B = ?{Shape + Print + Print}
+
+  print($name(A), $name(B))
+
+fail "apis object stray brace in a header", "3:8: unexpected `{`; Rig has no braces: a block is the lines indented under its header"
+  sub main()
+    x = 1
+    if x {
+      print(x)
+
+fail "apis object stray brace in a value", "2:7: unexpected `{`; Rig has no braces: a block is the lines indented under its header"
+  sub main()
+    x = {1}
+    print(x)
+
+fail "apis object stray closing brace", "2:11: unexpected `}`; Rig has no braces: a block is the lines indented under its header"
+  sub main()
+    x = [1] }
+    print(x)
+
+fail "apis object not built: a parameter, a call, and a conversion", "`?{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`s.area()` calls through `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`sq` would become a `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  sq = Square(side: 2.0)
+  print(area_of(sq))
+
+fail "apis object not built: a local, a field, and a result", "10:9: `List[^{Shape}]` holds an API object, which is not built yet", "5:6: `^{Shape}?` holds an API object, which is not built yet", "7:15: `^{Shape}` is an API object, which is not built yet"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Holder
+    s: ^{Shape}?
+
+  fun make() -> ^{Shape}
+    panic("never")
+
+  shapes: List[^{Shape}] = List()
+  print(shapes.len)
+
+fail "apis object not built: made where no type is written", "`List[^{Shape}]` holds an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+  # A value of an alias of an object's type is rejected where it is
+  # made, though no declaration names its type.
+
+  api Shape
+    fun area(?@) -> Float
+
+  type Boxes = List[^{Shape}]
+
+  print(Boxes().len)
+
+fail "apis object not built: its size", "`^{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+  api Shape
+    fun area(?@) -> Float
+
+  type B = ^{Shape}
+
+  print($size(B))
+
+fail "apis object not built: a generic function's instance", "`^{Shape}?` holds an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+  api Shape
+    fun area(?@) -> Float
+
+  fun name[T]() -> ?String
+    $name(T)
+
+  type B = ^{Shape}?
+
+  print(name[B]())
+
+fail "apis object not built: a call through its type", "`Ph[?{Shape}]` holds an API object, which is not built yet", "`Ph[^{Shape}]` holds an API object, which is not built yet", "`E[?{Shape}]` holds an API object, which is not built yet"
+  # A type that holds an object, named for a call of its own or through
+  # an alias, makes no value of it, yet its methods would be lowered.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Ph[T]
+    n: Int
+
+    fun mk() -> Int
+      7
+
+  enum E[T]
+    a
+    b(t: T)
+
+    fun k() -> Int
+      5
+
+  type S = ?{Shape}
+  type A = Ph[^{Shape}]
+  type F = E[S]
+
+  sub main()
+    print(Ph[S].mk())
+    print(A.mk())
+    print(F.k())
+
+fail "apis object not built: another module's type", "`geo.Ph[?{geo.Shape}]` holds an API object, which is not built yet"
+  use geo
+
+  sub main()
+    print(geo.A.mk())
+
+  file "geo.rig"
+    pub api Shape
+      fun area(?@) -> Float
+
+    pub obj Ph[T]
+      n: Int
+
+      pub fun mk() -> Int
+        7
+
+    pub type A = Ph[?{Shape}]
+
+fail "apis object never frozen", "a frozen value holds only data that never changes, and `^{Shape}` is an API object, whose type is erased, so whether it can be frozen is not known: freeze the value before erasing it", "a frozen value holds only data that never changes, and `List[^{Shape}]` holds an API object, whose type is erased, so whether it can be frozen is not known: freeze the value before erasing it"
+  # An object may hide a Cell: freezing is a fact of the hidden type.
+
+  api Shape
+    fun area(?@) -> Float
+
+  type F = *Frozen[^{Shape}]
+  type G = *Frozen[List[^{Shape}]]
+
+  print($name(F), $name(G))
+
+fail "apis object braces in an expression", "unexpected `{`; an API object's type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead"
+  # A type in an expression's brackets is spelled as an expression is,
+  # and braces have no such spelling.
+
+  api Shape
+    fun area(?@) -> Float
+
+  sub main()
+    l = List[^{Shape}]()
+    print(l.len)
+
+fail "apis object braces in a builtin's argument", "unexpected `{`; an API object's type has no expression spelling"
+  api Shape
+    fun area(?@) -> Float
+
+  sub main()
+    print($size(?{Shape}))
+
+fail "apis object empty braces", "unexpected `}`; expected a name"
+  api Shape
+    fun area(?@) -> Float
+
+  type A = ?{}
+
+  print(1)
+
+fail "apis object braces after a plus", "unexpected `}`; expected a name"
+  api Shape
+    fun area(?@) -> Float
+
+  type B = ?{Shape +}
+
+  print(1)
+
+fail "apis object method with compile-time parameters", "`Shape.scale` takes compile-time parameters, which a call through `?{Shape}` cannot pass: call it through a bound, `[T: Shape]`"
+  # A method a table cannot hold is left out of what an object
+  # reaches, with why; the rest of the API still forms objects.
+
+  api Shape
+    fun area(?@) -> Float
+    fun scale[k: Int](?@) -> Float
+
+  fun f(s: ?{Shape}) -> Float
+    s.scale[2]()
+
+  print(1)
+
+fail "apis object method naming Self", "`Shape.join` names `Self` outside self, which a call through `?{Shape}` cannot know: call it through a bound, `[T: Shape]`", "`Shape.like` names `Self` outside self, which a call through `!{Shape}` cannot know: call it through a bound, `[T: Shape]`"
+  api Shape
+    fun area(?@) -> Float
+    fun join(?@, other: ?Self) -> Float
+    fun like(?@, f: ?fun(?Self) -> Bool) -> Bool
+
+  fun f(s: ?{Shape}, w: !{Shape}) -> Bool
+    s.join(s) > 0.0 and w.like(|x| true)
+
+  print(1)
+
+fail "apis object method with a set parameter", "`Sized.each` takes a set parameter, `E`, which a call through `?{Sized}` cannot pass: call it through a bound, `[T: Sized]`"
+  api Sized
+    fun size(?@) -> Int
+    fun each[E](?@, f: ?fun(Int) -> Int!E) -> Int!E
+
+  fun f(s: ?{Sized}) -> Int
+    s.each(|x| x) catch 0
+
+  print(1)
+
+fail "apis object method of an API built on", "`Named.label` names `Self` outside self, which a call through `^{Shape}` cannot know: call it through a bound, `[T: Shape]`", "`^{Shape}` has no method `perimeter`: a call through it reaches the methods of `Shape` and the APIs it builds on"
+  # An object reaches the methods of the APIs its API builds on.
+
+  api Named
+    fun label(?@) -> ?Self
+
+  api Shape: Named
+    fun area(?@) -> Float
+
+  fun f(b: ^{Shape}) -> Float
+    _ = b.label()
+    b.perimeter()
+
+  print(1)
+
+fail "apis object not built: a call by the API's name", "`Shape.area(s)` calls through `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+  # `Shape.area(s)` names the API, as through a bound; through an
+  # object it is a call through the object.
+
+  api Shape
+    fun area(?@) -> Float
+
+  fun f(s: ?{Shape}) -> Float
+    Shape.area(s)
+
+  print(1)

@@ -3816,6 +3816,143 @@ sub main()
 `distinct[Floats]` cannot use `I.Item = Float`: `Float` cannot be hashed
 ```
 
+### API objects
+
+An API object is a value of some type that provides an API, the type
+chosen as the program runs (docs/design/apis.md, Stage 4). Its type is
+the API in braces behind a view or a box: `?{Shape}` a read view of
+one, `!{Shape}` a write view, `^{Shape}` a box that owns one. Braces
+stand only in a type. They name one API of a program's own, which may
+build on others, and beside it only the built-in APIs an object serves
+itself: `Owned`, `Print`, and `Clone`, joined with `+`, `^{Shape +
+Owned + Print}`. A type is spelled with its API first and the
+built-in APIs after it in one order. An expression has no spelling of
+one, so a type argument in an expression, `List[^{Shape}]()`, names it
+with a `type` alias.
+
+```rig
+api Shape
+  fun area(?@) -> Float
+
+type Boxes = List[^{Shape}]
+type Shown = ?{Shape + Print + Owned}
+
+sub main()
+  print($name(Boxes), $name(Shown))
+```
+
+```output
+List[^{Shape}] ?{Shape + Owned + Print}
+```
+
+A bare `{Shape}` has no size of its own: it is no value's, field's,
+parameter's, result's, element's, or optional's type, and no type
+argument, written or inferred. A generic `swap` of two `!{Shape}`
+would otherwise write a value of one type where another lives.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Holder
+  s: {Shape}
+
+sub main()
+  print(1)
+```
+
+```error
+`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`
+```
+
+Each other name in the braces says why it does not belong: a type
+(`?Square` views one), a type parameter (`[T: Shape]` bounds one), a
+second API of a program's own (an object has one table: join them by
+name first, `api Both: Shape + Named`), `Copy` (each form copies as
+its kind does: `?{Shape}` copies, `^{Shape}` moves), `Eq`, `Hash`, and
+`Ord` (two objects may hide two types, which `==` and `<` cannot
+compare), and the number APIs. Crossing tasks, `^{Shape + Sends}`,
+and the shared and weak forms, `*{Shape}` and `~{Shape}`, are Stage
+5's; an API with an associated type forms objects only with it named,
+`^{Source[Item: Int]}`, which a later phase builds.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+api Named
+  fun name(?@) -> Int
+
+type T = ?{Shape + Named}
+
+sub main()
+  print($name(T))
+```
+
+```error
+`{Shape + Named}` names two APIs of a program's own, and an object has one table: declare `api Both: Shape + Named` and write `?{Both}`
+```
+
+An object meets only the built-in bounds its braces name, as the
+type it hides is erased: a `Print` its braces or its API name, a
+`Clone` and an `Owned` of a box whose braces name them, and a read
+view's `Copy`. It meets no bound by an API, since a box is not its
+value: `T = ^{Shape}` does not meet `[T: Shape]`. A List, an
+optional, or an array of objects prints as its objects do, and no
+frozen value holds one, since the type it hides may hold a Cell.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Bag[T: Shape]
+  t: T
+
+type B = Bag[^{Shape}]
+
+sub main()
+  print($name(B))
+```
+
+```error
+`Bag[^{Shape}]` cannot use `T = ^{Shape}`
+```
+
+A call through an object reaches each method of its API and of those
+it builds on, defaults included, but one that takes compile-time
+parameters of its own (types, values, or a set), which each call
+passes and a table cannot, and one that names `Self` anywhere but
+self, which only the hidden type could give. Calling one of those
+says why, and that a bound calls it.
+
+The values are not built yet: a value, field, parameter, result, or
+instance whose type holds an API object, a value erased to one, and a
+call through one are each rejected, "is not built yet", until the
+phase of Stage 4 that lowers them. A type alias names an object's
+type, and `$name` spells it.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+fun area_of(s: ?{Shape}) -> Float
+  s.area()
+
+sub main()
+  print(area_of(Square(side: 2.0)))
+```
+
+```error
+`?{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)
+`s.area()` calls through `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)
+```
+
 ### Type aliases
 
 `type Name = T` gives a type a second name. An alias is transparent: it
