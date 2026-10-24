@@ -292,6 +292,12 @@ changed the language since it:
   (`hasLenReached`) now says a length is read through handles and
   boxes alike.
 
+- **Inference sees through a box or a handle lent as a view:**
+  `first(?bx)` of a `^List[P]` for `first[T](xs: ?List[T])` was a type
+  mismatch, and `f(?fz)` of a `*Frozen[Square]` for `f[T: Shape](s: ?T)`
+  bound `T` to the handle, which provides no `Shape`; each now binds the
+  value the lend reaches, as `first[P](?bx)` and `f[Square](?fz)` did.
+
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first
   use; `List(...)` of objects, and an array lent where a `?List[T]`
