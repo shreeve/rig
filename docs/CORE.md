@@ -69,7 +69,7 @@ side; Rig names everything from the side the sigil is on.
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, objects whose parts are all plain | copies | built |
-| **owning** | `List[T]`, `^T` (`^{A}` too), `String`, `error`, objects holding an owner | moves; one owner; dropped once | built; `^{A}` planned |
+| **owning** | `List[T]`, `^T` (`^{A}` too), `String`, `error`, objects holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T` (`?{A}`, `!{A}` too), `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
@@ -1263,8 +1263,7 @@ body. So the loans of a `?{A}` or `!{A}` end at its last use, and
 those of a `^{A}` at its drop (sentence 6). A call through one passes
 on only the loans the API's `from` and `keeps` show (sentence 7).
 Erasing a read view of plain data, or of a type parameter's value,
-views a local of the erasing block. *(built for `?{A}` and `!{A}`;
-`^{A}` planned)*
+views a local of the erasing block. *(built)*
 
 **Only its methods reach the value:**
 
@@ -1276,10 +1275,9 @@ views a local of the erasing block. *(built for `?{A}` and `!{A}`;
   a `^{A}` has a `+`;
 - a `<@` method ends the box, which is dropped exactly once, even if
   the method fails;
-- `*{A}` and `~{A}` are Stage 5's. *(built but for `^{A}`'s `+` and
-  `<@`, planned)*
+- `*{A}` and `~{A}` are Stage 5's. *(built)*
 
-```rig pending
+```rig
 api Shape
   fun area(?@) -> Float
 

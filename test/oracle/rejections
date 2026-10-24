@@ -4847,3 +4847,7 @@ test/reject/types/apis_object_a_view_of_a_type_parameter's_value_does_not_leave_
 test/reject/types/apis_object_a_read_loan_lasts_while_the_object_is_used.rig main
 doc/SPEC/86d585e18b14 pick
 doc/CORE/89c4a4a2aec8 main
+test/reject/ownership/apis_object_box_keeps_a_loan_to_its_drop.rig main
+test/reject/ownership/apis_object_box_made_from_a_view_keeps_it.rig main
+test/reject/ownership/apis_object_box_a_drop_that_reads_a_view.rig main
+doc/SPEC/875d6749ac79 main

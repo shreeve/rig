@@ -201,3 +201,152 @@ test "apis object ends its loan at its last use", "2.0"
   a = s.area()
   !sq.grow(a)
   print(sq.side)
+
+# ---- Stage 4, phase 3: boxes of API objects ----
+# A `^{A}`'s loans last to its drop, which may run the hidden type's
+# `drop` body and read them (Core §4, sentence 6); `+ Owned` holds none.
+
+fail "apis object box keeps a loan to its drop", "cannot lend `t` to write while a read loan is live"
+  # The box's last use is before `!t.push`, but its drop, at the end of
+  # the block, may read `t`.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Note: Shape
+    text: ?String
+
+    fun area(?@) -> Float
+      1.0
+
+  t = String("hi")
+  b: ^{Shape} = ^Note(text: ?t)
+  print(b.area())
+  !t.push("x")
+  print(t)
+
+test "apis object box a plain box's loan ends at its last use", '''
+1.0
+hix
+'''
+  # The same value boxed as itself: its type shows no `drop` body.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Note: Shape
+    text: ?String
+
+    fun area(?@) -> Float
+      1.0
+
+  t = String("hi")
+  b = ^Note(text: ?t)
+  print(b.area())
+  !t.push("x")
+  print(t)
+
+test "apis object box Owned lets the owner change after its last use", '''
+1.0
+hix
+'''
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  t = String("hi")
+  b: ^{Shape + Owned} = ^Square(side: 1.0)
+  print(b.area())
+  !t.push("x")
+  print(t)
+
+test "apis object box ended, its loans end", "1 1"
+  api Watcher
+    sub watch(!@, t: ?String) keeps t
+    fun n(?@) -> Int
+
+  obj Log: Watcher
+    seen: List[?String]
+
+    sub watch(!@, t: ?String) keeps t
+      !@seen.push(t)
+
+    fun n(?@) -> Int
+      @seen.len
+
+  t = String("hi")
+  b: ^{Watcher} = ^Log(seen: List())
+  !b.watch(?t)
+  n = b.n()
+  <b
+  <t
+  print(n, 1)
+
+fail "apis object box keeps through a call", "cannot drop `t` while it is lent"
+  # `!b.watch(?t)` with `keeps t`: `b` carries `t`'s loan.
+
+  api Watcher
+    sub watch(!@, t: ?String) keeps t
+    fun n(?@) -> Int
+
+  obj Log: Watcher
+    seen: List[?String]
+
+    sub watch(!@, t: ?String) keeps t
+      !@seen.push(t)
+
+    fun n(?@) -> Int
+      @seen.len
+
+  t = String("hi")
+  b: ^{Watcher} = ^Log(seen: List())
+  !b.watch(?t)
+  print(b.n())
+  <t
+  print(1)
+
+fail "apis object box made from a view keeps it", "cannot drop `t` while it is lent"
+  # H1: a result `^{Shape}` of a value holding the view `t` carries its
+  # loan, whatever the erased type's fields.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Note: Shape
+    text: ?String
+
+    fun area(?@) -> Float
+      1.0
+
+  fun mk(t: ?String) -> ^{Shape}
+    ^Note(text: t)
+
+  t = String("abc")
+  b = mk(?t)
+  <t
+  print(b.area())
+
+fail "apis object box a drop that reads a view", "`t` is dropped before `shapes`, whose `drop` body could still read it through this view"
+  # H2: `shapes` outlives `t`, and a box's drop may read what it views.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Logger: Shape
+    out: ?String
+
+    fun area(?@) -> Float
+      1.0
+
+    drop(!@)
+      print(@out)
+
+  shapes: List[^{Shape}] = List()
+  t = String("log")
+  !shapes.push(^Logger(out: ?t))
+  print(shapes.len)

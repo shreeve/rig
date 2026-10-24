@@ -10,14 +10,14 @@
 # views, every element a place, re-pointed write views, clones, and
 # errors: the hidden `E?` a fallible call's statement holds, which `!`,
 # `catch |e|`, and a nameless catch empty, and `g: E =>` arms, and API
-# objects' views, their erasures, the copies they view, and calls
-# through them, so each
+# objects' views and boxes, their erasures, the copies they view, and
+# calls through them, so each
 # floor is what it decides now. A value holding a Cell lives only
 # behind `*`, and a write view is never stored inside a value, so the
 # programs that hold either by value stop in sema, before either
 # checker decides them. A header whose subject makes a temporary and
 # reaches no place is rejected in sema (`rejectHeaderCopy`), so the
 # programs that have one stop there too.
-tests 22420
-docs 1048
+tests 22527
+docs 1058
 matrix 23361

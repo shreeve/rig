@@ -3788,8 +3788,8 @@ fail "apis object stray closing brace", "2:11: unexpected `}`; Rig has no braces
     x = [1] }
     print(x)
 
-fail "apis object not built: a box's parameter, call, and conversion", "`^{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`b.area()` calls through `^{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`<sq` would become a `^{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)"
-  # A box of an object is built in a later phase.
+test "apis object a box's parameter, call, and conversion", "4.0"
+  # A `^Square` moves into a `^{Shape}`, keeping its box.
 
   api Shape
     fun area(?@) -> Float
@@ -3806,22 +3806,28 @@ fail "apis object not built: a box's parameter, call, and conversion", "`^{Shape
   sq = ^Square(side: 2.0)
   print(area_of(<sq))
 
-fail "apis object not built: a local, a field, and a result", "10:9: `List[^{Shape}]` holds an API object, which is not built yet", "5:6: `^{Shape}?` holds an API object, which is not built yet", "7:15: `^{Shape}` is an API object, which is not built yet"
+test "apis object a local, a field, and a result", "0 true 9.0"
   api Shape
     fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
 
   obj Holder
     s: ^{Shape}?
 
   fun make() -> ^{Shape}
-    panic("never")
+    ^Square(side: 3.0)
 
   shapes: List[^{Shape}] = List()
-  print(shapes.len)
+  h = Holder(s: none)
+  print(shapes.len, h.s == none, make().area())
 
-fail "apis object not built: made where no type is written", "`List[^{Shape}]` holds an API object, which is not built yet (docs/design/apis.md, Stage 4)"
-  # A value of an alias of an object's type is rejected where it is
-  # made, though no declaration names its type.
+test "apis object made where no type is written", "0"
+  # A value of an alias of an object's type.
 
   api Shape
     fun area(?@) -> Float
@@ -3830,7 +3836,9 @@ fail "apis object not built: made where no type is written", "`List[^{Shape}]` h
 
   print(Boxes().len)
 
-fail "apis object not built: its size", "`^{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+test "apis object its size", "16"
+  # A box of an object is two words: the address and the table.
+
   api Shape
     fun area(?@) -> Float
 
@@ -3838,7 +3846,7 @@ fail "apis object not built: its size", "`^{Shape}` is an API object, which is n
 
   print($size(B))
 
-fail "apis object not built: a generic function's instance", "`^{Shape}?` holds an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+test "apis object a generic function's instance", "^{Shape}?"
   api Shape
     fun area(?@) -> Float
 
@@ -3849,9 +3857,9 @@ fail "apis object not built: a generic function's instance", "`^{Shape}?` holds 
 
   print(name[B]())
 
-fail "apis object not built: a call through its type", "`Ph[?{Shape}]` holds an API object, which is not built yet", "`Ph[^{Shape}]` holds an API object, which is not built yet", "`E[?{Shape}]` holds an API object, which is not built yet"
-  # A type that holds an object, named for a call of its own or through
-  # an alias, makes no value of it, yet its methods would be lowered.
+test "apis object a call through its type", "7 7 5"
+  # A type at arguments that hold an object, named for a call of its own
+  # or through an alias, makes no value of it.
 
   api Shape
     fun area(?@) -> Float
@@ -3874,11 +3882,9 @@ fail "apis object not built: a call through its type", "`Ph[?{Shape}]` holds an 
   type F = E[S]
 
   sub main()
-    print(Ph[S].mk())
-    print(A.mk())
-    print(F.k())
+    print(Ph[S].mk(), A.mk(), F.k())
 
-fail "apis object not built: another module's type", "`geo.Ph[?{geo.Shape}]` holds an API object, which is not built yet"
+test "apis object another module's type", "7"
   use geo
 
   sub main()
@@ -4649,3 +4655,781 @@ test "apis object a write view lent to read by a capture and a field", "12.0 4.0
 
   sq = Square(side: 2.0)
   print(captured(!sq), held(!sq))
+
+# ---- Stage 4, phase 3: boxes of API objects ----
+# A `^T` moves into a `^{A}` and keeps its box (Core §4); the box drops
+# its value through its table, and a `<@` method ends it.
+
+test "apis object box the design's example", "4.0 9.0 3.0 2"
+  # A List of boxes of two types, each reached through the table; a
+  # default method of the API through each.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun twice(?@) -> Float
+      @area() * 2.0
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  sq = Square(side: 2.0)
+  shapes: List[^{Shape}] = List()
+  !shapes.push(^Square(side: 3.0))
+  c = ^Circle(r: 1.0)
+  !shapes.push(<c)
+  print(area_of(sq), area_of(shapes[0]), shapes[1].area(), shapes.len)
+
+test "apis object box defaults through each type", "18.0 6.0"
+  api Shape
+    fun area(?@) -> Float
+
+    fun twice(?@) -> Float
+      @area() * 2.0
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+  a: ^{Shape} = ^Square(side: 3.0)
+  b: ^{Shape} = ^Circle(r: 1.0)
+  print(a.twice(), b.twice())
+
+test "apis object box a recursive list dropped without deep recursion", "99999 100000"
+  # `next: ^{Node}?`: a list of 100,000 boxed objects, dropped through
+  # the drop queue, never 100,000 frames deep.
+
+  api Node
+    fun value(?@) -> Int
+
+  obj Cons: Node
+    v: Int
+    next: ^{Node}?
+
+    fun value(?@) -> Int
+      @v
+
+  head: ^{Node}? = none
+  n = 0
+  while n < 100000
+    head = ^Cons(v: n, next: <head)
+    n += 1
+  if head as h
+    print(h.value(), n)
+
+test "apis object box a consuming method frees once", "closed 2.0"
+  # `<b.close()` ends `b`: the entry takes the value out of the box and
+  # frees its memory, and the method owns self.
+
+  api Shape
+    fun area(?@) -> Float
+    sub close(<@)
+
+  obj Square: Shape
+    side: Float
+    name: String
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub close(<@)
+      print("closed", @side)
+
+  b: ^{Shape} = ^Square(side: 2.0, name: String("big"))
+  <b.close()
+
+test "apis object box a consuming method by the API's name", "closed 3"
+  api Closer
+    fun n(?@) -> Int
+    sub close(<@)
+
+  obj Q: Closer
+    k: Int
+
+    fun n(?@) -> Int
+      @k
+
+    sub close(<@)
+      print("closed", @k)
+
+  b: ^{Closer} = ^Q(k: 3)
+  Closer.close(<b)
+
+test "apis object box a failing consuming method drops the box once", '''
+failed Bad.closed 0
+7
+'''
+  # H7: the entry owns nothing after it takes the value out; a method
+  # that fails drops self once, as its own, and the box is ended before
+  # the call (sanitized: a second drop of `name` would be a double free).
+
+  error Bad
+    closed
+
+  api Shape
+    fun close(<@) -> Int!Bad
+
+  obj Square: Shape
+    side: Float
+    name: String
+
+    fun close(<@) -> Int!Bad
+      if @side > 1.0
+        return Bad.closed
+      7
+
+  b: ^{Shape} = ^Square(side: 2.0, name: String("big"))
+  n = <b.close() catch |e|
+    print("failed", e, 0)
+    0
+  d: ^{Shape} = ^Square(side: 1.0, name: String("small"))
+  print(<d.close() catch n)
+
+test "apis object box replaced drops the old value", '''
+dropped 1.0
+12.0
+dropped 2.0
+'''
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    drop(!@)
+      print("dropped", @side)
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+    drop(!@)
+      print("dropped", @r)
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  b = ^Circle(r: 2.0)
+  print(b.area())
+
+test "apis object box lends its views", "9.0 9.0 16.0"
+  # `?b` lends a `?{Shape}`, `!b` a `!{Shape}`; a box's value is reached
+  # where it lives.
+
+  api Grow
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  obj Sq: Grow
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  fun make(n: Float) -> ^{Grow}
+    ^Sq(side: n)
+
+  sub bump(g: !{Grow})
+    !g.grow(1.0)
+
+  fun read(g: ?{Grow}) -> Float
+    g.area()
+
+  b = make(2.0)
+  bump(!b)
+  x = read(?b)
+  !b.grow(1.0)
+  print(x, read(b) - 7.0, b.area())
+
+test "apis object box fields and optionals", "4.0 true 16.0 true 25.0"
+  api Grow
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  obj Sq: Grow
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  obj Holder
+    g: ^{Grow}
+    maybe: ^{Grow}?
+
+  sub bump(g: !{Grow})
+    !g.grow(1.0)
+
+  h = Holder(g: ^Sq(side: 1.0), maybe: none)
+  bump(!h.g)
+  a = h.g.area()
+  b = h.maybe == none
+  h.maybe = ^Sq(side: 4.0)
+  c = 0.0
+  if h.maybe as m
+    c = m.area()
+  x: ^Sq? = none
+  h.maybe = <x
+  d = h.maybe == none
+  y: ^Sq? = ^Sq(side: 4.0)
+  h.maybe = <y
+  if !h.maybe as m
+    !m.grow(1.0)
+  e = 0.0
+  if h.maybe as m
+    e = m.area()
+  print(a, b, c, d, e)
+
+test "apis object box printed by the braces and by the API", '''
+Square(side: 2.0) Square(side: 1.0)
+[Square(side: 2.0)]
+'''
+  api Shape
+    fun area(?@) -> Float
+
+  api Named: Print
+    fun name(?@) -> Int
+
+  obj Square: Shape + Named
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    fun name(?@) -> Int
+      1
+
+  a: ^{Shape + Print} = ^Square(side: 2.0)
+  b: ^{Named} = ^Square(side: 1.0)
+  l: List[^{Shape + Print}] = List()
+  !l.push(^Square(side: 2.0))
+  print(a, b)
+  print(l)
+
+test "apis object box cloned through the table", "Pt(x: 2, tag: \"a\") 4 9"
+  # `+b` with `Clone` in the braces: a new box of a clone of the value,
+  # through its table; a `String` among its fields copied.
+
+  api Shape
+    fun area(?@) -> Int
+    sub grow(!@)
+
+  obj Pt: Shape
+    x: Int
+    tag: String
+
+    fun area(?@) -> Int
+      @x * @x
+
+    sub grow(!@)
+      @x += 1
+
+  b: ^{Shape + Clone + Print} = ^Pt(x: 2, tag: String("a"))
+  c = +b
+  !c.grow()
+  print(b, b.area(), c.area())
+
+test "apis object box cloned by an API built on Clone", "1 2"
+  api Shape: Clone
+    fun n(?@) -> Int
+    sub bump(!@)
+
+  obj Pt: Shape
+    x: Int
+
+    fun n(?@) -> Int
+      @x
+
+    sub bump(!@)
+      @x += 1
+
+  b: ^{Shape} = ^Pt(x: 1)
+  c = +b
+  !c.bump()
+  print(b.n(), c.n())
+
+test "apis object box List grown, sorted by a key, and cleared", '''
+0.25 1.0 3.0 9.0
+Square(side: 3.0) 3
+0
+'''
+  use std.sort
+
+  api Shape: Print
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+  fun key(s: ?^{Shape}) -> Float
+    s.area()
+
+  shapes: List[^{Shape}] = List()
+  !shapes.push(^Square(side: 3.0))
+  !shapes.push(^Circle(r: 1.0))
+  !shapes.push(^Square(side: 1.0))
+  !shapes.push(^Square(side: 0.5))
+  sort.sort_by_key(!shapes, key)
+  print(shapes[0].area(), shapes[1].area(), shapes[2].area(), shapes[3].area())
+  last = (!shapes).pop()
+  if last as l
+    print(l, shapes.len)
+  !shapes.clear()
+  print(shapes.len)
+
+test "apis object box an optional box erased", "0.25 true"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  sq: ^Square? = ^Square(side: 0.5)
+  maybe: ^{Shape}? = <sq
+  none_sq: ^Square? = none
+  empty: ^{Shape}? = <none_sq
+  if maybe as m
+    print(m.area(), empty == none)
+
+test "apis object box a task over a call through it is local", "9.0 9.0"
+  # Open question 14: the object may hide a value that stays on one
+  # thread, so the task stays on this one.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun later(s: ?{Shape}) -> Float
+    t = ?s.area()&
+    >t
+
+  b: ^{Shape} = ^Square(side: 3.0)
+  t = ?b.area()&
+  print(>t, later(?b))
+
+test "apis object box a generic function's argument", "1.0"
+  # A box is a value as any: `T = ^{Shape}` where no bound is needed.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun id[T](x: T) -> T
+    x
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  c = id(<b)
+  print(c.area())
+
+test "apis object box Owned in a table's optional slots", "4.0 true"
+  # A table's slot holds no loan and has a default: `^{Shape + Owned}?`.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  tb: Table[^{Shape + Owned}?, 4] = Table()
+  tb[1] = ^Square(side: 2.0)
+  if tb[1] as s
+    print(s.area(), tb[0] == none)
+
+test "apis object box a closure captures a box", '''
+4.0
+9.0
+'''
+  # A stack closure lends a box it captures, or takes it.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 2.0)
+  f = |?b| b.area()
+  print(f())
+  c: ^{Shape} = ^Square(side: 3.0)
+  g = |<c| c.area()
+  print(g())
+
+test "apis object box an owned closure captures an Owned box", "1.0"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape + Owned} = ^Square(side: 1.0)
+  f = *|<b| b.area()
+  print(f())
+
+fail "apis object box Owned of a type holding a view", "`Note` is erased to `^{Shape + Owned}`, which holds no loan, but its field `text` is a `?String`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Note: Shape
+    text: ?String
+
+    fun area(?@) -> Float
+      1.0
+
+  t = String("hi")
+  n: ^{Shape + Owned} = ^Note(text: ?t)
+  print(n.area())
+
+fail "apis object box not cloned", "`+b` makes a new owner, and a `^{Shape}` is not cloned: its type is erased; write `^{Shape + Clone}`, or build `Shape` on `Clone`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  c = +b
+  print(c.area())
+
+fail "apis object box Clone of a type with no clone", "`<h` is erased to `^{Shape + Clone}`, which names `Clone`, and `Handle` is not `Clone`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Handle: Shape
+    n: Int
+
+    fun area(?@) -> Float
+      1.0
+
+    drop(!@)
+      print("bye")
+
+  h = ^Handle(n: 1)
+  b: ^{Shape + Clone} = <h
+  print(b.area())
+
+fail "apis object box not printed", "`^{Shape}` cannot be printed: its type is erased; write `^{Shape + Print}`, or build `Shape` on `Print`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  print(b)
+
+fail "apis object box a field not printed", "`^{Shape}` cannot be printed: its type is erased; write `^{Shape + Print}`, or build `Shape` on `Print`", "`?{Shape}` cannot be printed: its type is erased; write `?{Shape + Print}`, or build `Shape` on `Print`"
+  # H13: an object a field holds prints only by its braces' or API's
+  # `Print`, as one held directly does.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj H
+    s: ^{Shape}
+
+  obj G
+    s: ?{Shape}
+
+  sq = Square(side: 1.0)
+  h = H(s: ^Square(side: 1.0))
+  l: List[G] = List()
+  !l.push(G(s: ?sq))
+  print(h)
+  print(l)
+
+test "apis object box a field printed by the braces", "H(s: Square(side: 1.0))"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj H
+    s: ^{Shape + Print}
+
+  h = H(s: ^Square(side: 1.0))
+  print(h)
+
+fail "apis object box a consuming method through a view", "`<s.close()` consumes self, and `s` is a `!{Shape}`, a view: only a box, `^{Shape}`, gives its value up", "`<v.close()` consumes self, and `v` is a `?^{Shape}`, a view: only a box, `^{Shape}`, gives its value up"
+  api Shape
+    sub close(<@)
+
+  sub finish(s: !{Shape})
+    <s.close()
+
+  sub finish_box(v: ?^{Shape})
+    <v.close()
+
+  print(1)
+
+fail "apis object box an owned closure captures a box that may hold a loan", "an owned closure holds no loan, and a `^{Shape}` may hold one: write `^{Shape + Owned}`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  f = *|<b| b.area()
+  print(f())
+
+fail "apis object box no default value", "an API object has no default value: write `^{Shape + Owned}?`"
+  # H6: a slot is made before it is written, and an object has no value
+  # of its own to fill it.
+
+  api Shape
+    fun area(?@) -> Float
+
+  tb: Table[^{Shape}, 4] = Table()
+  print(1)
+
+fail "apis object box resized", "`resize` copies its value into every element it adds, and a `^{Shape}` owns a resource, so it cannot be copied, and it has no clone: write a loop that makes each element anew"
+  api Shape
+    fun area(?@) -> Float
+
+  l: List[^{Shape}] = List()
+  !l.resize(3)
+  print(l.len)
+
+fail "apis object box a field with no default", "constructor of `H` is missing field `s`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj H
+    s: ^{Shape}
+
+  h = H()
+  print(1)
+
+fail "apis object box a Cell of one", "a Cell of an API object, `Cell[^{Shape}]`, is not built yet (docs/design/apis.md, Stage 5)"
+  # H9: changing an object in place is Stage 5's, with `*{A}` and `~{A}`.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  c = *Cell(<b)
+
+fail "apis object box a Cell's type", "a Cell of an API object, `Cell[^{Shape + Owned}]`, is not built yet (docs/design/apis.md, Stage 5)"
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(c: *Cell[^{Shape + Owned}])
+    print(1)
+
+  print(1)
+
+fail "apis object box shared and weak handles of a box", "this value is already `^{Shape}`; `*` would hold it twice", "`~` weak reference requires a shared handle `*T`; got `^{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  h = *<b
+  c: ^{Shape} = ^Square(side: 1.0)
+  w = ~c
+
+fail "apis object box a place's type is not erased", "type mismatch: expected `!^{Shape}`, got `!^Square`"
+  # H3: a `!^Square` is no `!^{Shape}`, or the callee could put a Circle
+  # in a Square's box.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      @r
+
+  sub swap_in(b: !^{Shape})
+    b = ^Circle(r: 1.0)
+
+  sq = ^Square(side: 1.0)
+  swap_in(!sq)
+  print(sq.side)
+
+fail "apis object box a List's element type is not erased", "type mismatch: expected `List[^{Shape}]`, got `List[^Square]`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  l: List[^Square] = List()
+  m: List[^{Shape}] = <l
+  print(m.len)
+
+fail "apis object box of a type that does not provide the API", "`<l` cannot be lent as a `^{Shape}`: `Label` does not provide `Shape`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Label
+    n: Int
+
+  l = ^Label(n: 1)
+  b: ^{Shape} = <l
+  print(1)
+
+fail "apis object box an error's field", "an error's field holds no handle: `^{Shape + Clone + Owned}` may hide a handle, its type erased, and an error owns what it carries"
+  # H10: the hidden value may hold a handle.
+
+  api Shape
+    fun area(?@) -> Float
+
+  error Oops
+    bad(s: ^{Shape + Owned + Clone})
+
+  print(1)
+
+fail "apis object box frozen", "a frozen value holds only data that never changes, and `^{Shape + Owned}` is an API object, whose type is erased, so whether it can be frozen is not known: freeze the value before erasing it"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape + Owned} = ^Square(side: 1.0)
+  f = *Frozen(<b)
+
+fail "apis object box crosses no task", "`+ch` is given to a task: `*Chan[^{Shape + Owned}]` holds `{Shape + Owned}`, an API object, whose hidden value may stay on one thread", "an actor runs its methods on a task of its own, and `<b` is given to it: `^{Shape + Owned}` holds `{Shape + Owned}`, an API object, whose hidden value may stay on one thread", "an actor's value goes to a task of its own, and `Keeper` holds `{Shape + Owned}`, an API object, whose hidden value may stay on one thread"
+  # A channel's elements, an actor's argument, and an actor's state go
+  # to other tasks; crossing is a bound in the braces (Stage 5).
+  use std.task
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  type B = ^{Shape + Owned}
+
+  sub feed(ch: *Chan[B])!
+    b: B = ^Square(side: 1.0)
+    !ch.send(<b)!
+
+  obj Counter
+    n: Int
+
+    sub put(!@, s: ^{Shape + Owned})
+      @n += 1
+
+  obj Keeper
+    s: ^{Shape + Owned}
+
+    fun n(?@) -> Float
+      @s.area()
+
+  sub main()
+    ch = *Chan[B](2)
+    t = feed(+ch)&
+    >t!
+    k = *Actor(Counter(n: 0))
+    b: B = ^Square(side: 1.0)
+    !k.put(<b)
+    a = *Actor(Keeper(s: ^Square(side: 1.0)))
+    print(a.n())

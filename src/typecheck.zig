@@ -664,7 +664,9 @@ const Checker = struct {
                 } else if (sema.mayHoldView(self.ctx, p.ty)) {
                     try self.err(p.decl_pos, "an error's field never holds a loan: hold a `String` or a `Static`", .{});
                 } else if (sema.holdsHandle(self.ctx, p.ty)) {
-                    try self.err(p.decl_pos, "an error's field holds no handle: `{s}` shares what it holds, and an error owns what it carries", .{shown});
+                    // An API object's hidden value may hold a handle.
+                    const why = if (sema.mentionsObject(self.ctx, p.ty)) "may hide a handle, its type erased" else "shares what it holds";
+                    try self.err(p.decl_pos, "an error's field holds no handle: `{s}` {s}, and an error owns what it carries", .{ shown, why });
                 } else if (sema.cloneable(self.ctx, p.ty) == .no) {
                     const why = if (sema.isUnique(self.ctx, p.ty)) "is unique" else "has no clone";
                     try self.err(p.decl_pos, "an error's fields must clone, and `{s}` {s}", .{ shown, why });
@@ -7126,6 +7128,16 @@ const Checker = struct {
             try self.errAt(operand, "`+{s}` would make a value of no size of its own: only a `^{s}` has `+`", .{ shown, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), ov.object) });
             return self.t().invalid_id;
         }
+        // A box of an API object clones through its table's `Clone`,
+        // which only its braces or API name.
+        if (sema.objectHeld(self.ctx, sema.unwrapViews(self.ctx, inner))) |h| if (!sema.objectMeets(self.ctx, h.object, h.form, .Clone)) {
+            const shown = self.sourceText(operand);
+            const api = try sema.apiName(self.ctx, h.object.api);
+            var with = h.object;
+            with.builtins.insert(.Clone);
+            try self.errAt(operand, "`+{s}` makes a new owner, and a `{s}` is not cloned: its type is erased; write `^{s}`, or build `{s}` on `Clone`", .{ shown, try self.tyName(sema.unwrapViews(self.ctx, inner)), try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with), api });
+            return self.t().invalid_id;
+        };
         // A clone reads the value a view reaches.
         const value = try self.readThrough(operand, inner, sema.unwrapViews(self.ctx, inner));
         switch (sema.cloneable(self.ctx, inner)) {
@@ -7490,7 +7502,6 @@ const Checker = struct {
         if (try self.moduleMember(obj, field, pos)) |ty| return ty;
         if (try self.numberType(obj)) |ty| return self.numberLimit(obj, ty, field, pos);
         if (try self.namedType(obj)) |nt| {
-            if (try self.objectTypeNamed(obj, nt, pos)) return self.t().invalid_id;
             const ty = try self.typeMember(nt, field, pos);
             if (nt.sym.flags.error_set and !self.isPoison(ty)) try self.ctx.recordErrorMember(e);
             return ty;
@@ -7795,19 +7806,6 @@ const Checker = struct {
         if (found.sym.kind == .generic_type) return try self.foreignGeneric(found);
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
-    }
-
-    /// `Ph[S].mk()` or `A.mk()`, a type named for a member of its own
-    /// at arguments that hold an API object: no value of it is made, yet
-    /// its members would be lowered at those arguments, and no type
-    /// holding an object is lowered yet (Stage 4, phase 1). Reported.
-    fn objectTypeNamed(self: *Checker, obj: Sexp, nt: NamedType, pos: u32) Error!bool {
-        const args = nt.args orelse return false;
-        for (args) |a| {
-            if (sema.mentionsObject(self.ctx, a)) break;
-        } else return false;
-        try sema.objectUnbuilt(self.ctx, self.startOf(obj), try self.instantiate(nt.id, args, pos));
-        return true;
     }
 
     /// The struct or enum an alias names, `ty` being the aliased type in
@@ -8877,15 +8875,16 @@ const Checker = struct {
         // A call through an API reaches a Rig method through its witness.
         const static: ?sema.Dispatch.Static = if (self.ctx.dispatchOf(node)) |d| switch (d) {
             .static => |st| st,
-            .direct => null,
-            // A task over a call through an API object is local, and is
-            // built with boxes (docs/design/apis.md, Stage 4).
-            .dynamic => {
-                try self.errAt(callee, "a task over a call through an API object is not built yet (docs/design/apis.md, Stage 4)", .{});
-                return self.t().invalid_id;
-            },
+            .direct, .dynamic => null,
         } else null;
-        if (target != .function and static == null) {
+        // A call through an API object's table: its self is the object,
+        // which may hide a value that stays on one thread, so the task
+        // is local (open question 14).
+        const dynamic: ?sema.Dispatch.Dynamic = if (self.ctx.dispatchOf(node)) |d| switch (d) {
+            .dynamic => |dy| dy,
+            else => null,
+        } else null;
+        if (target != .function and static == null and dynamic == null) {
             try self.errAt(callee, "a task runs a call of a function or a method: `f(x)&`, `(!v).m(x)&`", .{});
             return self.t().invalid_id;
         }
@@ -8893,12 +8892,14 @@ const Checker = struct {
         var parts: std.ArrayList(Sexp) = .empty;
         // A method's self, `@`, is passed as the method takes it.
         var self_mode: sema.MethodReceiver = .none;
-        const has_self = callee.isKind(.member) and !(if (static) |st| st.receiver_arg else false);
+        const has_self = callee.isKind(.member) and !(if (static) |st| st.receiver_arg else if (dynamic) |dy| dy.receiver_arg else false);
         if (has_self) {
             const obj = ir.Member.object(callee);
             try parts.append(self.ctx.arena.allocator(), obj);
             if (static) |st| {
                 self_mode = st.self_mode;
+            } else if (dynamic) |dy| {
+                self_mode = dy.self_mode;
             } else if (self.ctx.typeOf(obj)) |obj_ty| self_mode = sema.methodReceiver(self.ctx, obj_ty, self.text(ir.Member.name(callee))) orelse .none;
         }
         for (ir.Call.args(node)) |arg| try parts.append(self.ctx.arena.allocator(), if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
@@ -8921,6 +8922,14 @@ const Checker = struct {
             if (self.isPoison(part_ty)) continue;
             const as_self: ?sema.MethodReceiver = if (i == 0 and has_self) self_mode else null;
             if (!try self.crossCheck(node, part, part_ty, as_self)) return self.t().invalid_id;
+        }
+        // A call through an API object's table runs as a local task: the
+        // object may hide a value that stays on one thread (open question
+        // 14), and crossing is a bound in its braces (Stage 5).
+        if (dynamic != null and !self.ctx.isLocalTask(node)) {
+            const obj = if (has_self) ir.Member.object(callee) else ir.Call.args(node)[0];
+            const why = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}`: `{s}` is an API object, whose hidden value may stay on one thread", .{ self.sourceText(stripSigil(obj)), try self.tyName(self.ctx.typeOf(obj) orelse self.t().invalid_id) });
+            try self.ctx.recordLocalTask(node, .{ .pos = self.startOf(node), .call = self.sourceText(node), .why = why });
         }
         // A task that may run on another core hands its result back to
         // the one that waits for it, so the result moves (as `par.map`'s
@@ -9023,6 +9032,7 @@ const Checker = struct {
                 "a `*` handle whose count is not atomic, so two cores could change it at once",
             .callable => "a closure or function lent for a call, whose captures its type does not show",
             .write_view => "a write view, which no two tasks may hold at once",
+            .api_object => "an API object, whose hidden value may stay on one thread",
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.task_sym_id and shared)
                 "a task, which only the one that holds it may wait for"
             else if (pn.sym == self.ctx.tasks_sym_id)
@@ -12761,18 +12771,15 @@ const Checker = struct {
             .set_param => |e| self.badCall(args, pos, "`{s}.{s}` takes a set parameter, `{s}`, which a call through `{s}` cannot pass: call it through a bound, `[T: {s}]`", .{ declarer, method, e, form, api }),
             .self_type => self.badCall(args, pos, "`{s}.{s}` names `Self` outside self, which a call through `{s}` cannot know: call it through a bound, `[T: {s}]`", .{ declarer, method, form, api }),
         };
-        // A box of an object is lowered by a later phase.
-        if (sema.holdsObjectBox(self.ctx, obj_ty)) {
-            try sema.objectUnbuiltError(self.ctx, pos, "`{s}` calls through `{s}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", .{ self.sourceText(self.current_call orelse obj), form });
-            return self.skipCall(args);
-        }
         if (m.field.receiver == .none) return self.badCall(args, pos, "`{s}.{s}` takes no self, so a call through `{s}` cannot reach it: call it through a bound, `[T: {s}]`", .{ declarer, method, form, api });
         const home = sema.apiContext(self.ctx, m.api) orelse return self.skipCall(args);
         const am: ApiMethod = .{ .api = m.api, .home = home, .field = m.field };
         const object = try self.ctx.intern(.{ .api_object = o });
         if (!receiver_arg) return self.apiMethodCall(callee, obj, obj_ty, object, am, .{ .table = m.slot.? }, method, pos, rest, ct);
-        // `Shape.area(s)`: self the first argument, with its sigil.
-        const fn_ty_id = (try self.apiMethodAt(am, object)) orelse return self.skipCall(args);
+        // `Shape.area(s)`: self the first argument, with its sigil; a
+        // method that consumes self takes the box, `Shape.close(<b)`.
+        const self_ty = if (m.field.receiver == .value) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.box_sym_id, .args = try self.ctx.dupeIds(&.{object}) } }) else object;
+        const fn_ty_id = (try self.apiMethodAt(am, self_ty)) orelse return self.skipCall(args);
         const fn_ty = self.ctx.types.get(fn_ty_id).function;
         const info = methodParams(m.field, false, home.source);
         const shown = try a.print("{s}.{s}", .{ declarer, method });
@@ -14323,7 +14330,6 @@ const Checker = struct {
     /// `Type.function(args)` or `Type.variant(payload)`, for a type of
     /// this module or an imported one.
     fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
-        if (try self.objectTypeNamed(obj, nt, pos)) return self.skipCall(args);
         const tname = try self.namedTypeName(nt);
         const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{tname});
         const generic = nt.sym.kind == .generic_type;
@@ -14710,7 +14716,16 @@ const Checker = struct {
                 switch (kind) {
                     // A view of a value that copies is copied out, as
                     // where a value is expected (Core §4).
-                    .read_view, .write_view => if (!self.copiesThrough(recv)) return self.err(pos, "method `{s}` consumes `self`; cannot consume through a view", .{method}),
+                    .read_view, .write_view => if (!self.copiesThrough(recv)) {
+                        // An API object's view: only its box gives the
+                        // value up.
+                        if (self.ctx.typeOf(recv)) |rt| if (sema.objectHeld(self.ctx, sema.unwrapViews(self.ctx, rt)) orelse sema.objectHeld(self.ctx, rt)) |ov| {
+                            const call = self.sourceText(self.current_call orelse recv);
+                            const box = try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), ov.object);
+                            return self.err(pos, "`{s}{s}` consumes self, and `{s}` is a `{s}`, a view: only a box, `^{s}`, gives its value up", .{ if (std.mem.startsWith(u8, call, "<")) "" else "<", call, self.sourceText(stripSigil(recv)), try self.tyName(rt), box });
+                        };
+                        return self.err(pos, "method `{s}` consumes `self`; cannot consume through a view", .{method});
+                    },
                     .shared => return self.err(pos, "method `{s}` consumes `self`; cannot consume the inner value through a shared handle (`*T`) — other handles may still reference it", .{method}),
                     else => {},
                 }
@@ -14838,11 +14853,7 @@ const Checker = struct {
             try self.recordAdapted(e, actual, expected);
             return;
         }
-        // A value moved into a box of an API object: not lowered yet
-        // (Stage 4, phase 3).
-        if (sema.holdsObjectBox(self.ctx, expected) and !self.isPoison(actual)) {
-            return sema.objectUnbuiltError(self.ctx, self.startOf(e), "`{s}` would become a `{s}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", .{ self.sourceText(e), try self.tyName(expected) });
-        }
+        if (try self.eraseBox(e, actual, expected)) return;
         // Failing is written: an error value meets a `T!` only as the
         // operand of `return`.
         if (self.ctx.types.get(expected) == .fallible and sema.isErrorValue(self.ctx, actual)) {
@@ -15050,36 +15061,7 @@ const Checker = struct {
         if (self.isPoison(reached)) return false;
         const ov = sema.objectView(self.ctx, view) orelse return true;
         const lent = if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e;
-        const shown_view = try self.tyName(view);
-        const api_name = try sema.apiName(self.ctx, ov.object.api);
-        // An object's type is fixed where its value is erased: no other
-        // object lends one (open question 10).
-        if (sema.apiObject(self.ctx, reached) != null) {
-            try self.errAt(e, "`{s}` is a `{s}`, which lends no other API object: an object's API and braces are fixed where its value is erased", .{ self.sourceText(lent), try self.tyName(self.ctx.typeOf(lent) orelse actual) });
-            return false;
-        }
-        const witness = (try sema.witnessFor(self.ctx, reached, ov.object.api)) orelse {
-            if (self.ctx.types.get(reached) == .type_var) {
-                const param = self.ctx.types.get(reached).type_var;
-                const pname = self.ctx.symbols.items[param].name;
-                if (self.ctx.symbols.items[param].user_apis.len == 0) {
-                    try self.errAt(e, "`{s}` is a `{s}` with no bound, so it is no `{s}`: write `[{s}: {s}]`", .{ self.sourceText(lent), pname, shown_view, pname, api_name });
-                } else try self.errAt(e, "`{s}` is a `{s}`, whose bounds do not name `{s}`, so it is no `{s}`: write `[{s}: {s}]`", .{ self.sourceText(lent), pname, api_name, shown_view, pname, api_name });
-                return false;
-            }
-            const tname = try self.tyName(reached);
-            const fix = try sema.unprovidedFix(self.ctx, reached, ov.object.api);
-            if (self.current_call) |call| {
-                try self.errAt(e, "`{s}` cannot lend `{s}` as a `{s}`: `{s}` does not provide `{s}`{s}", .{ self.sourceText(call), self.sourceText(lent), shown_view, tname, api_name, fix });
-            } else try self.errAt(e, "`{s}` cannot be lent as a `{s}`: `{s}` does not provide `{s}`{s}", .{ self.sourceText(lent), shown_view, tname, api_name, fix });
-            return false;
-        };
-        // The built-in APIs the braces name, checked on the value's type.
-        var it = ov.object.builtins.iterator();
-        while (it.next()) |b| if (try sema.lacks(self.ctx, reached, b)) |_| {
-            try self.errAt(e, "`{s}` is erased to `{s}`, which names `{s}`, and `{s}` is not `{s}`", .{ self.sourceText(lent), shown_view, @tagName(b), try self.tyName(reached), @tagName(b) });
-            return false;
-        };
+        const witness = (try self.erasable(e, lent, actual, reached, view, ov.object)) orelse return false;
         // A read view `e` holds, of plain data or of a type parameter's
         // value, may be a copy with no address of its own: the object
         // views a copy, a local of the erasing block.
@@ -15090,6 +15072,75 @@ const Checker = struct {
         };
         try self.ctx.recordErasure(e, .{ .api = ov.object.api, .from = reached, .view = view, .witness = witness, .form = ov.form, .copy = copy });
         return true;
+    }
+
+    /// `e`, a box `^T` (or a `^T?`) moved where a box of an API object
+    /// goes, `^{A}` (or `^{A}?`): the box keeps its allocation, and its
+    /// value's type is erased (Core §4, "A `^T` moves into a `^{A}` and
+    /// keeps its box"). Only the value a box holds is erased, never a
+    /// List's or another container's element. True when handled.
+    fn eraseBox(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const types = &self.ctx.types;
+        if (self.isPoison(actual)) return false;
+        const want = switch (types.get(expected)) {
+            .optional => |inner| inner,
+            else => expected,
+        };
+        const h = sema.objectHeld(self.ctx, want) orelse return false;
+        if (h.form != .box) return false;
+        const optional = types.get(actual) == .optional;
+        if (optional and want == expected) return false;
+        const boxed = if (optional) types.get(actual).optional else actual;
+        const reached = sema.boxedType(self.ctx, boxed) orelse return false;
+        const witness = (try self.erasable(e, e, actual, reached, want, h.object)) orelse return true;
+        try self.ctx.recordErasure(e, .{ .api = h.object.api, .from = reached, .view = want, .witness = witness, .form = .box, .optional = optional });
+        try self.recordLift(e, if (optional) expected else want, expected);
+        return true;
+    }
+
+    /// Whether the value `reached`, `lent` (of type `actual`) being where
+    /// it is written, may be erased to `object` held as `view`: it is no
+    /// object itself, provides the object's API, by the witness given, and
+    /// meets the built-in APIs the braces name, checked on its type (Core
+    /// §4). Null after reporting.
+    fn erasable(self: *Checker, e: Sexp, lent: Sexp, actual: TypeId, reached: TypeId, view: TypeId, object: sema.ApiObject) Error!?sema.Witness {
+        const shown_view = try self.tyName(view);
+        const api_name = try sema.apiName(self.ctx, object.api);
+        // An object's type is fixed where its value is erased: no other
+        // object lends one (open question 10).
+        if (sema.apiObject(self.ctx, reached) != null) {
+            try self.errAt(e, "`{s}` is a `{s}`, which lends no other API object: an object's API and braces are fixed where its value is erased", .{ self.sourceText(lent), try self.tyName(self.ctx.typeOf(lent) orelse actual) });
+            return null;
+        }
+        const witness = (try sema.witnessFor(self.ctx, reached, object.api)) orelse {
+            if (self.ctx.types.get(reached) == .type_var) {
+                const param = self.ctx.types.get(reached).type_var;
+                const pname = self.ctx.symbols.items[param].name;
+                if (self.ctx.symbols.items[param].user_apis.len == 0) {
+                    try self.errAt(e, "`{s}` is a `{s}` with no bound, so it is no `{s}`: write `[{s}: {s}]`", .{ self.sourceText(lent), pname, shown_view, pname, api_name });
+                } else try self.errAt(e, "`{s}` is a `{s}`, whose bounds do not name `{s}`, so it is no `{s}`: write `[{s}: {s}]`", .{ self.sourceText(lent), pname, api_name, shown_view, pname, api_name });
+                return null;
+            }
+            const tname = try self.tyName(reached);
+            const fix = try sema.unprovidedFix(self.ctx, reached, object.api);
+            if (self.current_call) |call| {
+                try self.errAt(e, "`{s}` cannot lend `{s}` as a `{s}`: `{s}` does not provide `{s}`{s}", .{ self.sourceText(call), self.sourceText(lent), shown_view, tname, api_name, fix });
+            } else try self.errAt(e, "`{s}` cannot be lent as a `{s}`: `{s}` does not provide `{s}`{s}", .{ self.sourceText(lent), shown_view, tname, api_name, fix });
+            return null;
+        };
+        // The built-in APIs the braces name, checked on the value's type.
+        var it = object.builtins.iterator();
+        while (it.next()) |b| if (try sema.lacks(self.ctx, reached, b)) |_| {
+            // `Owned`: the value holds no loan, which a part of it may.
+            if (b == .Owned) {
+                const why = if (try fieldLacking(self.ctx, sema.nominalDecl(self.ctx, reached), .Owned)) |f| f[2..] else try std.fmt.allocPrint(self.ctx.arena.allocator(), "a `{s}` may hold a view", .{try self.tyName(reached)});
+                try self.errAt(e, "`{s}` is erased to `{s}`, which holds no loan, but {s}", .{ try self.tyName(reached), shown_view, why });
+                return null;
+            }
+            try self.errAt(e, "`{s}` is erased to `{s}`, which names `{s}`, and `{s}` is not `{s}`", .{ self.sourceText(lent), shown_view, @tagName(b), try self.tyName(reached), @tagName(b) });
+            return null;
+        };
+        return witness;
     }
 
     // ---- lasting lends --------------------------------------------------------
@@ -15661,6 +15712,9 @@ const Checker = struct {
             },
             .box => {
                 if (sema.boxedType(self.ctx, target) == null) return null;
+                // A box made where a box of an API object goes is made of
+                // its own type, then erased (`eraseBox`).
+                if (sema.objectHeld(self.ctx, target) != null) return null;
                 const ty = try self.synthBox(e, target);
                 return if (self.isPoison(ty)) ty else target;
             },
@@ -17474,16 +17528,6 @@ const Checker = struct {
         // Written as in an expression: `List[Int]`, `?Point`, `Int?`.
         const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
-        // An API object's type is named, `$name(?{Shape})`, as no value
-        // of it is made; its size is its lowering's, not built yet.
-        if (sema.holdsObjectBox(self.ctx, ty)) {
-            if (!std.mem.eql(u8, name, "name")) {
-                try sema.objectUnbuilt(self.ctx, self.startOf(a), ty);
-                return false;
-            }
-            try self.ctx.recordNamedType(a, ty);
-            return true;
-        }
         try self.ctx.recordType(a, ty);
         try self.requireNamed(name, ty, a);
         // A vector's size and alignment are the target's, so Rig gives
@@ -18731,14 +18775,6 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         // arguments the call's instance of the API's method checks and
         // reports.
         if (try misplacedArgs(ctx, f.inst.ownArgs(), if (f.through_api) null else f.site)) continue;
-        // An instance at a type holding a box of an API object is not
-        // lowered yet (Stage 4, phase 3).
-        if (!f.through_api) if (for (f.inst.ownArgs()) |arg| {
-            if (sema.holdsObjectBox(ctx, arg)) break arg;
-        } else null) |arg| {
-            try sema.objectUnbuilt(ctx, f.site, arg);
-            continue;
-        };
         const of: sema.InstanceRoot = .{ .func = f.inst };
         // So are its bounds, which are the API's method's.
         const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);

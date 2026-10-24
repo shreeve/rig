@@ -418,6 +418,8 @@ pub const Emitter = struct {
     widening: Sexp = .nil,
     /// The scalar operand being written splatted (`sema.splatOf`).
     splatting: Sexp = .nil,
+    /// The box being erased to a box of an API object (`emitValue`).
+    erasing_box: Sexp = .nil,
     /// Arguments and receivers of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
@@ -775,9 +777,9 @@ pub const Emitter = struct {
     fn emitTypeAlias(self: *Emitter, node: Sexp) Error!void {
         const name = ir.Type.name(node);
         const ty = try self.declType(name);
-        // An alias of a box of an API object's type names it for `$name`
+        // An alias of a bare API object's type names it for `$name`
         // alone.
-        if (self.facts.holdsObjectBox(ty) or self.facts.objectBare(ty)) return;
+        if (self.facts.objectBare(ty)) return;
         try self.w.print("pub const {f} = ", .{ident(self.srcText(name))});
         try self.emitTypeTy(ty);
         try self.w.writeAll(";\n");
@@ -1153,8 +1155,13 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
         }
         // How the value prints, read only where the braces or the API
-        // name `Print`.
+        // name `Print`; how a box of it is dropped, and cloned where the
+        // braces name `Clone`.
         try self.w.writeAll("    __rig_print: rig.ErasedPrint,\n");
+        try self.w.writeAll("    __rig_drop: rig.ErasedDrop,\n");
+        try self.w.writeAll("    __rig_clone: rig.ErasedClone,\n");
+        // The API's name, for `$name` of an object's type (`rig.typeName`).
+        try self.w.print("\n    pub const __rig_name = .{{ .module = \"{s}\", .name = \"{s}\" }};\n", .{ nameModule(self.facts), sym.name });
         try self.w.writeAll("};\n\n");
         try self.w.print("pub fn __rig_table_{s}_of(comptime __rig_T: type, comptime __rig_W: type) *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
         try self.w.writeAll("    return &struct {\n");
@@ -1165,7 +1172,7 @@ pub const Emitter = struct {
             try self.w.print(" .{f} = __rig_entry_{s},", .{ ident(e.name), e.name });
             n += 1;
         }
-        try self.w.writeAll(" .__rig_print = rig.printErased(__rig_T) };\n");
+        try self.w.writeAll(" .__rig_print = rig.printErased(__rig_T), .__rig_drop = rig.dropErased(__rig_T), .__rig_clone = rig.cloneErased(__rig_T) };\n");
         if (n == 0) try self.w.writeAll("        comptime {\n            _ = @TypeOf(__rig_W);\n        }\n");
         for (entries) |e| {
             if (!tableHolds(e)) continue;
@@ -1174,7 +1181,12 @@ pub const Emitter = struct {
             try self.w.print("        fn __rig_entry_{s}(", .{e.name});
             try self.writeEntrySignature(e, true);
             try self.w.writeAll(" {\n");
-            try self.w.print("            const __rig_p = rig.erasedSelf({s}__rig_T, __rig_ptr);\n", .{if (e.self_mode == .write) "*" else "*const "});
+            // A method that consumes self takes the value out of the box,
+            // whose memory is freed first: the entry owns nothing after,
+            // so a method that fails drops self once, as its own.
+            if (e.self_mode == .value) {
+                try self.w.writeAll("            var __rig_self = rig.erasedTake(__rig_T, __rig_ptr);\n            const __rig_p = &__rig_self;\n");
+            } else try self.w.print("            const __rig_p = rig.erasedSelf({s}__rig_T, __rig_ptr);\n", .{if (e.self_mode == .write) "*" else "*const "});
             try self.w.writeAll("            return ");
             const call = try self.fmt("__rig_W.{f}(rig.selfArg(__rig_W.{f}, __rig_p){s}", .{ ident(e.name), ident(e.name), if (args.len > 0) ", " else "" });
             var list: std.ArrayList(u8) = .empty;
@@ -1190,10 +1202,10 @@ pub const Emitter = struct {
     }
 
     /// Whether an API's table holds an entry for `e`: a method that takes
-    /// self lent, to read or to write. One that consumes self is reached
-    /// through a box (docs/design/apis.md, Stage 4).
+    /// self, lent to read or to write, or consumed, which only a box
+    /// gives (docs/design/apis.md, Stage 4).
     fn tableHolds(e: facts.TableEntry) bool {
-        return e.self_mode == .read or e.self_mode == .write;
+        return e.self_mode != .none;
     }
 
     /// A table entry's parameters and result: the address of the value,
@@ -1203,7 +1215,11 @@ pub const Emitter = struct {
     fn writeEntrySignature(self: *Emitter, e: facts.TableEntry, named: bool) Error!void {
         const f = self.facts.types.get(e.fn_ty).function;
         if (named) try self.w.writeAll("__rig_ptr: ");
-        try self.w.writeAll(if (e.self_mode == .write) "rig.ErasedWrite" else "rig.ErasedRead");
+        try self.w.writeAll(switch (e.self_mode) {
+            .write => "rig.ErasedWrite",
+            .value => "rig.ErasedOwn",
+            else => "rig.ErasedRead",
+        });
         for (f.params[@min(1, f.params.len)..], 0..) |p, i| {
             try self.w.writeAll(", ");
             if (named) try self.w.print("__rig_a{d}: ", .{i});
@@ -1487,7 +1503,7 @@ pub const Emitter = struct {
         const direct = recv == .src;
         const id = self.nextId();
         const name = if (direct) buf.written() else try self.fmt("__rig_obj_{d}", .{id});
-        if (!direct) try self.w.print("__rig_call_{d}: {{ const {s} = {s}; break :__rig_call_{d} ", .{ id, name, buf.written(), id });
+        if (!direct) try self.w.print("(__rig_call_{d}: {{ const {s} = {s}; break :__rig_call_{d} ", .{ id, name, buf.written(), id });
         try self.w.print("{s}.vt.{f}({s}.ptr", .{ name, ident(d.method), name });
         const skip: usize = @intFromBool(d.receiver_arg);
         const slots = self.facts.callSlotsOf(call);
@@ -1496,7 +1512,7 @@ pub const Emitter = struct {
         if (runtime > 0 or slot) try self.w.writeAll(", ");
         try self.emitArgsFrom(call, skip);
         try self.w.writeAll(")");
-        if (!direct) try self.w.writeAll("; }");
+        if (!direct) try self.w.writeAll("; })");
     }
 
     /// `W.area`: the method of the witness a call reaches.
@@ -5259,6 +5275,23 @@ pub const Emitter = struct {
             try self.emitBare(sexp);
             return self.w.writeAll(")))");
         };
+        // A box moved into a box of an API object keeps its allocation,
+        // its value's type erased (`sema.Erasure`): `rig.ApiBox(T).of(Square,
+        // b, __rig_table_Shape_of(Square, W))`, allocating nothing.
+        if (!sameNode(sexp, self.erasing_box)) if (self.facts.erasureOf(sexp)) |e| if (e.form == .box) {
+            const saved = self.erasing_box;
+            defer self.erasing_box = saved;
+            self.erasing_box = sexp;
+            const ty = try self.typeText(e.from);
+            try self.emitTypeTy(e.view);
+            try self.w.print(".{s}({s}, ", .{ if (e.optional) "ofSome" else "of", ty });
+            try self.emitValue(sexp, tail);
+            try self.w.writeAll(", ");
+            try self.writeTableName(e.api);
+            try self.w.print("_of({s}, ", .{ty});
+            try self.writeWitness(e.witness);
+            return self.w.writeAll("))");
+        };
         // An error value the function fails with, held rather than made
         // here, sends its fields through the caller's slot.
         if (self.fun.has_out and !sameNode(sexp, self.failing) and self.facts.isFailingLeaf(sexp) and !self.namesErrorMember(sexp) and self.holdsErrorValue(sexp)) {
@@ -5493,6 +5526,9 @@ pub const Emitter = struct {
         for (rows, 0..) |row, i| switch (row) {
             .lift => view = types.get(view).optional,
             .unbox => {
+                // A box of an API object lends the view of it the table
+                // reaches, `b.read()` or `b.write()`.
+                if (self.facts.objectBox(from) != null) return self.fmt("{s}.{s}()", .{ at.text, if (types.get(view) == .write_view) "write" else "read" });
                 at = .{ .text = try self.fmt("{s}.value", .{at.text}), .ptr = true };
                 from = self.facts.boxedType(from).?;
             },
@@ -8286,6 +8322,16 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
         };
+        // Through an API object: its table's entry, given the address the
+        // object holds, as a local task.
+        if (self.facts.dispatchOf(sexp)) |d| if (d == .dynamic) {
+            const recv = if (d.dynamic.receiver_arg) ir.Call.args(sexp)[0] else self.receiverOf(sexp) orelse return self.unsupported(sexp, "a call through an API object without its receiver");
+            try self.w.writeAll(".spawnObjectLocal(");
+            try self.emitExpr(lentPlace(recv));
+            try self.w.print(", \"{s}\", .{{ ", .{d.dynamic.method});
+            try self.emitArgsFrom(sexp, @intFromBool(d.dynamic.receiver_arg));
+            return self.w.writeAll(" })");
+        };
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static) {
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else ".spawn(");
             try self.writeWitnessMethod(d.static);
@@ -9859,7 +9905,18 @@ pub const Emitter = struct {
     fn emitObjectViewTy(self: *Emitter, ty: TypeId, o: facts.ApiObject) Error!void {
         try self.w.writeAll("rig.ApiView(");
         try self.writeTableName(o.api);
-        try self.w.writeAll(if (self.facts.types.get(ty) == .write_view) ", .write)" else ", .read)");
+        try self.w.writeAll(if (self.facts.types.get(ty) == .write_view) ", .write, " else ", .read, ");
+        try self.writeObjectBuiltins(o);
+        try self.w.writeAll(")");
+    }
+
+    /// The built-in APIs an object's braces name after its API, as they
+    /// spell them: `" + Owned + Print"`, or `""`.
+    fn writeObjectBuiltins(self: *Emitter, o: facts.ApiObject) Error!void {
+        try self.w.writeAll("\"");
+        var it = o.builtins.iterator();
+        while (it.next()) |b| try self.w.print(" + {s}", .{@tagName(b)});
+        try self.w.writeAll("\"");
     }
 
     /// `e`, lent where a callable view of function type `fn_ty` is
@@ -10040,6 +10097,14 @@ pub const Emitter = struct {
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("__rig_Self");
+                // `^{Shape}`: `rig.ApiBox(__rig_table_Shape)`.
+                if (pn.sym == ctx.box_sym_id) if (ctx.objectBox(ty)) |o| {
+                    try self.w.writeAll("rig.ApiBox(");
+                    try self.writeTableName(o.api);
+                    try self.w.writeAll(", ");
+                    try self.writeObjectBuiltins(o);
+                    return self.w.writeAll(")");
+                };
                 if (pn.inline_len > 0) {
                     // `List[T, inline: n]`.
                     try self.w.writeAll("rig.InlineList(");

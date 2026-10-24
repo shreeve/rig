@@ -681,10 +681,12 @@ the first two are what this chapter shows. The third, a program's own
 APIs, `api Shape`, a parameter bounded by one, `[T: Shape]`, and one
 added to a type declared elsewhere, `add Int: Shape`, with associated
 types and `Iter`, runs as SPEC's [APIs](../../SPEC.md#apis) section
-shows, and this chapter does not teach it yet. An API object,
-`?{Shape}`, which holds any value that provides `Shape` behind one call
-through a table, comes after that. Until then, the enum and the object
-of closures above are how one list holds many kinds.
+shows, and this chapter does not teach it yet. Nor does it teach the
+fourth, API objects, which run as SPEC's
+[API objects](../../SPEC.md#api-objects) shows: a `^{Shape}` holds any
+value that provides `Shape` behind one call through a table, so a
+`List[^{Shape}]` holds many kinds, as the enum and the object of
+closures above do.
 
 A value parameter of a generic type or function is an integer, and a
 compile-time function cannot yet be called with one: `[slots[n]]T`

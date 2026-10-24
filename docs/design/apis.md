@@ -941,7 +941,7 @@ sub main()
 `add` names a type, and `?Square` is a view: write `add Square: Shape`
 ```
 
-## Stage 4: API objects *(in part)*
+## Stage 4: API objects *(built, but for associated types)*
 
 *Built:* the braces in a type, the rules on what they name, a bare
 `{Shape}` rejected as unsized (written or inferred), the bounds an
@@ -952,10 +952,15 @@ the views, `?{Shape}` and `!{Shape}`: the erasure, lent by the lend
 table's last row and recorded once; calls through a table, typed and
 checked by the API's declaration and clauses; the copy of a plain read
 view, local to its block; and the oracle's second opinion on each
+([phase2-notes.md](../history/records/2026-10/apis-stage4/phase2-notes.md));
+the boxes, `^{Shape}`: a `^T` moved in keeping its allocation, its drop
+through the table and the drop queue, `<@` methods that end the box,
+`Clone` and `Print` entries, loans to the drop, `Owned`'s no-loan
+homes, no default value, and local tasks over a call through an object
 (SPEC, "API objects";
-[phase2-notes.md](../history/records/2026-10/apis-stage4/phase2-notes.md)).
-A box, `^{Shape}`, and a task over a call through an object are
-rejected as not built yet until the phase that lowers them.
+[phase3-notes.md](../history/records/2026-10/apis-stage4/phase3-notes.md)).
+An object of an API with an associated type, `^{Source[Item: Int]}`,
+waits for a program that needs it (phase 5).
 
 An **API object** is a value of some type that provides an API, the
 type chosen when the program runs. It is written as the API in braces,
@@ -1181,8 +1186,9 @@ p))`, the witness's member, as a call through a bound does, passing the
 arguments and, where the method takes one, the slot; Zig takes no
 address of an inline function, so the method stays inlinable everywhere
 else. A `<@` entry moves the value out of the box and frees it first.
-`?{Shape}` is `rig.ApiView(__rig_table_Shape, .read)`, `!{Shape}` its
-`.write` form, and `^{Shape}` `rig.ApiBox(__rig_table_Shape)`, whose
+`?{Shape}` is `rig.ApiView(__rig_table_Shape, .read, "")`, `!{Shape}`
+its `.write` form, and `^{Shape}` `rig.ApiBox(__rig_table_Shape, "")`,
+the string the built-in APIs its braces name, for `$name`, whose
 drop is the table's: the value's drop and the free, through the queue a
 `^T` uses, so long chains are released without deep recursion. A
 conversion writes `.{ .ptr = &sq, .vt = __rig_table_Shape_of(Square,

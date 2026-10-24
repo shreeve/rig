@@ -5582,6 +5582,16 @@ pub const Checker = struct {
             const cv = try self.applyCapture(cap);
             try cap_values.append(self.arena(), cv);
             if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos));
+            // An API object may hold a loan its type does not show: an
+            // owned closure keeps one only where its braces name `Owned`.
+            if (owned) if (self.sema) |ctx| if (self.symType(sema.captureNameNode(cap).?.src.pos)) |ct| if (try sema.objectUnowned(ctx, ct)) |o| {
+                const h = sema.objectHeld(ctx, o);
+                var with = if (h) |x| x.object else sema.apiObject(ctx, o).?;
+                with.builtins.insert(.Owned);
+                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure holds no loan, and a `{s}` may hold one: write `^{s}`", .{ try sema.formatTypeIn(ctx, self.arena(), o), try sema.objectSpelling(ctx, self.arena(), with) });
+                value = try self.valueUnion(value, cv);
+                continue;
+            };
             // An owned closure is a shared handle that may be stored
             // anywhere, including in a Cell or Signal: it holds no view.
             if (owned and cv.loans.len > 0) {
