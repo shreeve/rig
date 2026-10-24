@@ -33,45 +33,50 @@ conformance.
 | Piece | Pass |
 |---|---|
 | `{A}` in a type: `"{" apis "}" → (api_object)` in `tatom`, so `?{A}`, `!{A}`, `^{A}`, `List[^{A}]`, `^{A}?` parse by the existing rules; the lexer makes `{` and `}` tokens instead of `err` (`Lexer.lexError`, `src/rig.zig` 1918), and the Parser wrapper keeps "Rig has no braces: a block is the lines indented under its header" for a brace anywhere else | `rig.grammar` (TYPES), `src/rig.zig`; Nexus's refresh copies them |
-| `Type.api_object: { api: ?ApiRef, builtins: Apis, assoc: []const TypeId }`, an unsized type under the existing `read_view`, `write_view`, and `Box[...]`; printed `?{Shape + Owned}` in messages, `$name`, and the LSP's hover | `src/sema.zig` (`Type`, the type printer), `src/lsp.zig` reads the printer |
-| Resolving the braces: one API of a program's own; `Owned`, `Print`, `Clone` beside it; `{T}`, `{Square}`, two user APIs, `Copy`, `Eq`, `Hash`, `Ord`, the number APIs rejected; `Moves`, `Shares` "Stage 5"; an API with `type Item` needs `[Item: X]` | `resolve.TypeResolver` (beside `resolveApi`) |
-| A bare `{A}` as a value's, field's, parameter's, or type argument's type | typecheck, where a sized type is required |
+| `Type.api_object: { api: ?ApiRef, builtins: Apis, assoc: []const TypeId }`, an unsized type under the existing `read_view`, `write_view`, and `Box[...]`, interned with a conservative `TypeInfo` (it may hold anything: a view, a handle, a `drop` body; never `holds_type_var`, so its facts never wait for an instance), so `carry`, `mayHoldView`, and `holdsViewOnly` keep its loans; printed `?{Shape + Owned}` in messages, `$name`, and the LSP's hover | `src/sema.zig` (`Type`, the type printer), `src/lsp.zig` reads the printer |
+| Resolving the braces: one API of a program's own; `Owned`, `Print`, `Clone` beside it; `{T}`, `{Square}`, two user APIs, `Copy`, `Eq`, `Hash`, `Ord`, the number APIs rejected; `Sends`, `Syncs` "Stage 5"; an API with `type Item` needs `[Item: X]` | `resolve.TypeResolver` (beside `resolveApi`) |
+| A bare `{A}` as a value's, field's, parameter's, or type argument's type, written or inferred (`inferTypeArgs` and `unify` never bind a type parameter to `{A}`); no default value of an object (`Table[^{A}, n]`, `T()`, a filling `resize`) | typecheck, where a sized type is required |
 | Which methods an object reaches, in table order: `sema.objectMethods(ctx, api) []ObjectMethod`, each `{name, api, field, slot}`, the API's own after those it builds on, defaults included; a method with its own compile-time parameters or `Self` outside self is left out with its reason | sema, once per API; typecheck's call, emit's table, and the oracle read it |
-| Object facts: `?{A}` a read view that copies, `!{A}` a write view, `^{A}` owning; `Owned` only from the braces; `Clone`, `Print` from the braces or the API's supertraits; no `Copy` for a box, no `Eq`/`Hash`/`Ord`, no crossing; `dropRunsBody` answers `.maybe` without `Owned`; `provides` answers null for any object | sema's existing classifiers (`boundLack`, `crossingBlocker`, `dropRunsBody`, `lendByValue`, `needsDrop`'s fact), no new walk |
-| The erasure: `LendStep.erase` in `sema.lendsAs` (10407) as the last row, after `unbox`, `handle`, `optional`; a box moved in where `^{A}` is expected; built-in bounds checked there; one fact per conversion, `SemContext.erasures`: `{api, from: TypeId, witness: Witness, form: read/write/box}` | sema (lend table), typecheck (at the expected type, `meets` 17535 and the argument path), `facts.erasureOf` |
-| An erasure of a read view held as a copy (`lendByValue`), or of a `?T`: an object of a frame-local copy, recorded on the erasure fact | sema decides (`lendByValue`), storage gives the copy a slot, ownership bounds it to the frame |
+| Object facts: `?{A}` a read view that copies, `!{A}` a write view, `^{A}` owning; `Owned` only from the braces; `Clone`, `Print` from the braces or the API's supertraits, and no other built-in bound, none forwarded through a view or box (`Map[?{A}, V]` is no `Hash`); `+` only of a `^{A}`; no crossing, no freezing, no error field (it may hold a handle); `dropRunsBody` answers `.yes` for `^{A}`; `provides` answers null for any object | sema's existing classifiers (`boundLack`, `crossingBlocker`, `dropRunsBody`, `lendByValue`, `needsDrop`'s fact), no new walk |
+| The erasure: `LendStep.erase` in `sema.lendsAs` (10407) as the last row, after `unbox`, `handle`, `optional`, erasing only the value reached, never a place's or an element's type (a `!^Square` is no `!^{A}`); a box moved in where `^{A}` is expected; built-in bounds checked there; one fact per conversion, `SemContext.erasures`: `{api, from: TypeId, witness: Witness, form: read/write/box}` | sema (lend table), typecheck (at the expected type, `meets` 17535 and the argument path), `facts.erasureOf` |
+| An erasure of a read view of plain data, decided by kind (never `rig.ReadView`'s size), or of a `?T` of a type parameter's value: an object of a copy that is a hidden local of the erasing block (`StorageBy.copy`, a new `StorageLife.block`), recorded on the erasure fact; ownership roots the loan at that local, never through `walkThroughView` | sema decides, storage gives the copy its block-scoped slot, ownership roots the loan there |
 | A temporary lent as an object (`area_of(Square(side: 2.0))`) | `src/storage.zig`: the hidden slot of a lent temporary, as for any `?T` of one |
-| Calls on an object: `x.m()`, `!x.m()`, `<b.m()`, `Shape.m(x)`; typed from the API's declaration (`apiMethodAt`), self's sigil against the form; `Dispatch.dynamic {api, method, slot, self_mode, receiver_arg}` | typecheck (`objectCall` beside `typeParamCall` 12344 and `apiNameCall`), sema records |
+| Calls on an object: `x.m()`, `!x.m()`, `<b.m()`, `Shape.m(x)`; typed from the API's declaration (`apiMethodAt`), self's sigil against the form; `Dispatch.dynamic {api, method, slot, self_mode, receiver_arg}`; one predicate `Dispatch.viaApi()` replaces the `== .static` tests (ownership, emit) so none skips `dynamic` | typecheck (`objectCall` beside `typeParamCall` 12344 and `apiNameCall`), sema records |
 | No assignment through `!{A}`: where an assignment through a `!T` is decided (`recordWriteThrough`, `typecheck.zig` 1660), `checkSwap` (9120), a take or move out, and `x = w`'s read | typecheck, one predicate `sema.isErasedView(ty)` |
 | Stage 1 at an object instance rejected (`instanceMethod`, 18934); `T = ^{A}` against `[T: A]` rejected (`checkBounds`, `sema.zig` 6659, through `provides`) | typecheck, sema |
-| Loans: an erasure carries the source's loans (a lend row; a box's move); a dynamic call by the API's `from`/`keeps` (the static path, keyed on the dispatch fact); a box's loans to its drop; `+ Owned` for no-loan homes; the frame-bound copy | `src/ownership.zig` |
+| Loans: an erasure carries the source's loans (a lend row; a box's move); a dynamic call by the API's `from`/`keeps` only, never an implementation's (no `from @field`, no `Iter` rule 9; the static path, keyed on the dispatch fact); a `?{A}`'s and `!{A}`'s to their last use, a box's to its drop; `+ Owned` for no-loan homes; the block-local copy | `src/ownership.zig` |
 | Tables and fat pointers: `emitApi` writes `__rig_table_Shape` and `__rig_table_Shape_of(comptime T: type, comptime W: type) *const __rig_table_Shape` for every API an object can reach; `emitTypeTy` (9613) writes `rig.ApiView(__rig_table_Shape, .read)`, `.write`, `rig.ApiBox(__rig_table_Shape)`; `emitLend` (5127) writes an erasure; a call `s.vt.area(s.ptr, args, slot)`; `calleeTakesSlot` answers yes for `dynamic` | `src/emit.zig`, from facts only |
 | `rig.ApiView`, `rig.ApiBox` (its `__rig_drop` calls `vt.drop`; reached for printing and drop as `Box` is), entry helpers for each self mode | `src/runtime.zig` |
-| The oracle: object kinds computed itself; an erasure as a lend or a move that keeps every loan; a dynamic call with the API's clauses from the dispatch fact; the frame-bound copy | `test/oracle/kinds.zig` (`Kinds.of`), `lower.zig` (`method`, `apiMethodOf`) |
+| The oracle: object kinds computed itself (an `objectInfo` beside `callableInfo`); an erasure as a lend or a move that keeps every loan; a dynamic call with the API's clauses from the dispatch fact; the block-local copy | `test/oracle/kinds.zig` (`Kinds.of`), `lower.zig` (`method`, `apiMethodOf`) |
 | Lean: a packing lemma (erasing a type keeps its loan tags; a box of erased type is owning, its drop reading its loans) | `formal/LambdaRig/` when λRig has boxes of views; else an obligation in `docs/design/formal-plan.md` |
 
-## Phase 0: the Core (docs only, owner)
+## Phase 0: the Core (docs only, owner) *(done)*
 
-Stage 4 changes ownership rules, so CORE changes first, as its own
-reviewed change (North Star 5, the Core change process: four to seven
-experts revise, their review is accepted, then a final pass, and the
-owner agrees). The draft to review:
+Stage 4 changes ownership rules, so CORE changed first, as its own
+reviewed change (North Star 5, the Core change process): a panel of
+four (a Core purist, a compiler implementer, an adversary, and a
+reviewer) revised the draft this plan proposed, closing thirteen holes
+(H1 to H13), and the owner approved the final text on 2026-10-23
+([core-panel/](core-panel/), `6-final.md` and `approved.md`). CORE now
+has:
 
-- §1's kinds table: `?{A}` and `!{A}` are views, `^{A}` is owning.
-- §4's lend table, one row: "a value of a type that provides `A` |
-  `?{A}` | `!{A}` | planned", the last row of a composed lend.
-- One paragraph: *An API object hides its value's type, never its
-  loans.* Erasing a type keeps every loan the value carries; a call
-  through an object passes on only what the API's signature shows; a box
-  of erased type may hold a loan and its drop may read one, so its loans
-  last to its drop unless its braces say `Owned`; through a write view
-  of an object a program calls methods and writes nothing else; an object
-  of a copy the frame holds stays in the frame.
+- §1's kinds table: `?{A}` and `!{A}` among the views, `^{A}` among
+  the owners, each *planned*.
+- §4's lend table, its last row: "a `T` that provides `A` | `?{A}` |
+  `!{A}` | planned".
+- The paragraph *An API object hides its value's type, never its
+  loans*, and its list *Only its methods reach the value*, with two
+  `rig pending` examples (`area_of` printing `4.0 9.0`, and a read loan
+  through `s: ?{Shape} = ?v[0]` rejected).
 
-Each sentence follows from sentences 4, 6, and 7 and §5 for a type
-known only by its API, which is the paragraph CORE §10 asks for. About
-60 lines with its `rig pending` examples. Nothing else starts until the
-owner has agreed.
+What the panel changed from this plan's draft, and the design now
+follows: the object may hold anything (a view, a handle, a `drop`
+body), not only a loan; a copy is decided by kind and is a local of the
+erasing block, not the frame; only a `^{A}` has `+`; an object meets
+only the `Clone`, `Print`, and `Owned` its braces or API name; it has
+no default value and is never a type argument, written or inferred;
+only the value reached is erased; a `<@` call drops the box exactly
+once, even if it fails.
 
 ## Phases
 
@@ -100,7 +105,8 @@ these exact texts:
 - "two APIs": `` `{Shape + Named}` names two APIs of a program's own, and an object has one table: declare `api Both: Shape + Named` and write `?{Both}` ``;
 - "Copy in braces": `` an API object never copies but as a view does: `?{Shape}` copies, `^{Shape}` moves; take `Copy` out of the braces ``;
 - "Eq in braces" (and `Hash`, `Ord`): `` two API objects may hide two types, which `==` cannot compare; take `Eq` out of the braces ``;
-- "crossing in braces": `` an API object that crosses tasks, `^{Shape + Moves}`, is not built yet (docs/design/apis.md, Stage 5) ``;
+- "crossing in braces": `` an API object that crosses tasks, `^{Shape + Sends}`, is not built yet (docs/design/apis.md, Stage 5) ``;
+- "a bound not named": `Map[?{Shape}, Int]` (`` `?{Shape}` is not `Hash`: an API object meets only the `Clone`, `Print`, and `Owned` its braces or API name ``);
 - "an associated type unnamed": `` `Source` declares `type Item`, so an object of it names that type: `^{Source[Item: Int]}` `` (phase 5 builds the named form; until then `` ... is not built yet ``);
 - "stray braces": `if x {` and `x = {1}` keep `` unexpected `{`; Rig has no braces: a block is the lines indented under its header ``;
 - `test` cases that parse and print the types of `List[^{Shape}]`, `^{Shape}?`, `?{Shape + Owned + Print}` through `$name`;
@@ -109,8 +115,8 @@ these exact texts:
 ### Phase 2: views and calls (about 2,200 lines, 50 cases)
 
 The erasure to `?{A}` and `!{A}` (the lend row, its composition through
-boxes, handles, frozen handles, and optionals; the copy held in a frame;
-lent temporaries), calls through them with the `dynamic` fact, error
+boxes, handles, frozen handles, and optionals; the copy local to its
+block; lent temporaries), calls through them with the `dynamic` fact, error
 sets and the slot, `Shape.area(s)`, no assignment through `!{A}`,
 ownership by the API's clauses, the tables and `rig.ApiView`, and the
 oracle's lowering of both.
@@ -123,7 +129,10 @@ Cases:
   - `` `Shape.scale` takes compile-time parameters, which a call through `?{Shape}` cannot pass: call it through a bound, `[T: Shape]` ``, and `` `Shape.join` names `Self` outside self, which a call through `?{Shape}` cannot know: call it through a bound, `[T: Shape]` ``, and `` `Sized.each` takes a set parameter, `E`, which a call through `?{Sized}` cannot pass: call it through a bound, `[T: Sized]` `` (one per reason);
   - `` cannot lend to write through a read view `?{Shape}` `` (`!s.grow(2.0)` on a `?{Shape}`);
   - `` cannot assign through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box ``, with siblings for `w += x`, `swap(!a, !b)`, `<w`, and `x = w` (`` `w` is a `!{Shape}`, whose value's type is erased, so `x = w` neither copies nor moves it: lend it on, `x = ?w` or `x = !w` ``);
-  - `` `?{Shape}` of `p` would view a copy held in this function, since a `?Point` is passed as a copy, so it cannot leave the function; lend the owner where it lives, or take `p: ?{Shape}` `` (returned, and stored in a caller's `!List[?{Shape}]`; used in the frame is a `test`);
+  - `` `?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; lend the owner where it lives, or take `p: ?{Shape}` `` (returned, stored in a caller's `!List[?{Shape}]`, and kept across a loop's passes; used in the block is a `test`; a large plain object behaves as a small one);
+  - `+s` of a `?{Shape}` (`` `+s` would make a value of no size of its own: only a `^{Shape}` has `+` ``);
+  - an inferred type argument, `put(!w1, !w2)` of two `!{Shape}`s into `put[T](a: !T, b: !T)` (`` `T` cannot be `{Shape}`, which has no size of its own: an API object is never a type argument ``);
+  - a default value, `Table[^{Shape}, 4]` (`` an API object has no default value: write `^{Shape}?` ``);
   - `` `total[^{Shape}]` cannot use `T = ^{Shape}`: `total` needs `T: Shape`, and an API object meets no bound by an API; take a `?{Shape}` `` and the Stage 1 sibling (`` ... an API object's methods are called only where its type is written ``);
   - `` `*Frozen(<b)` freezes a `^{Shape}`, whose type is erased, so whether it can be frozen is not known: freeze the value before erasing it `` (phase 3 for the box; the view form here);
 - `errors-apis`: `!` of an API's `Bad` into a union holding it, through `?{Sized}`; `catch |e|` matched without `_`; a set with fields (a `String` among them) through an object under `RIG_SANITIZE=1`; `T!` through an object; a failing default through an object;
@@ -165,7 +174,8 @@ Cases:
   - `` `^{Shape}` cannot be printed: its type is erased; write `^{Shape + Print}`, or build `Shape` on `Print` ``;
   - `` `<s.close()` consumes self, and `s` is a `!{Shape}`, a view: only a box, `^{Shape}`, gives its value up ``;
   - an owned closure capturing `<b` of a `^{Shape}` (`` an owned closure holds no loan, and a `^{Shape}` may hold one: write `^{Shape + Owned}` ``);
-  - a channel send and an actor's argument of a `^{Shape + Owned}` (the Stage 2 crossing messages, naming the object);
+  - a channel send, an actor's argument, an actor's state, an error set's field, and `*Frozen(<b)` of a `^{Shape + Owned}`, which may hold a handle (the existing crossing, error, and freezing messages, naming the object);
+  - a failing `<@` method, `<b.close()` that fails, drops the box exactly once (a `test` under `RIG_SANITIZE=1`);
 - `ownership-apis`: a `^{Shape}` of a value holding `?t` keeps `t` lent to its drop, not its last use; `!b.watch(?t)` with `keeps s` makes `b` carry `t`'s loan; `^{Shape + Owned}` lets `t` change after the box's last use;
 - `emit-apis`: `rig.ApiBox(__rig_table_Shape)`; the conversion of `<c` writing no allocation; a `<@` entry freeing the box;
 - every `test` case under `RIG_SANITIZE=1` (the runner), and one with `RIG_LEAK_TRACE=1` in `test/cli`.
@@ -213,8 +223,10 @@ a missing name. This phase waits for a program that needs it
 - **Safe code cannot corrupt memory.** The three holes known before
   this plan, each with a case from its phase: assignment through
   `!{A}` (the panel's A1), a marker widened between object types (A4),
-  and an object viewing a frame's copy of a view (the failure Stage 3's
-  phase 2 met first: a `?@` result viewing a local copy). Every `test`
+  and an object viewing a local copy of a view (the failure Stage 3's
+  phase 2 met first: a `?@` result viewing a local copy); the core
+  panel's thirteen holes (H1 to H13, [core-panel/](core-panel/)) each
+  get a case in the phase that builds the form. Every `test`
   runs under `RIG_SANITIZE=1`. Two rounds of soundness fixes in one
   phase stop the feature for redesign (CORE §10).
 - **Effects stay visible.** No sigil marks the erasure; the braces of the
@@ -250,7 +262,7 @@ a missing name. This phase waits for a program that needs it
 
 ## Docs, by phase
 
-- Phase 0: CORE §1, §4, and the paragraph, as `rig pending`.
+- Phase 0 *(done)*: CORE §1, §4, and the paragraph, as `rig pending`.
 - Phase 1: SYNTAX's types; SPEC "API objects" with the form rules.
 - Phase 2: SPEC's views and calls; QUICK; apis.md *(in part)*; CORE
   pending to built for views; CHANGELOG; HANDOFF.

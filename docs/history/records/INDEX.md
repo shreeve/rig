@@ -48,7 +48,8 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | A smaller Map for many small ones (Trig NEEDS 58) | where a Map's 104 bytes and its blocks go on Trig; a table only past 16 entries tried and not landed (String lookups 6-9% slower on x86, Trig unchanged); the table behind a box tried and not landed (bench/hash's lookups 1-7% slower, Trig 2 MB smaller); the Map left as it is | [compact-map/](2026-10/compact-map/README.md) |
 | A narrower set fitting a generic body (consolidation track 2) | tried and held for Stage 3: the slot convention and self passing broke `!@` methods; the `Int!!` fix and message landed | [consolidation/generic-sets-review.md](2026-10/consolidation/generic-sets-review.md) |
 | A method's view names the path of self it views (`from @field`) | CORE sentence 7: `-> ?String from @text` carries self's loans and a loan on that path alone; a field declared as a read view puts none on self, so Map's and Set's iterators say `from @map`/`from @set` and go through `[I: Iter]`; a panel of four, and the owner's approval | [from-field/](2026-10/from-field/) |
-| APIs Stage 4's refresh (2026-10-23) | Stage 4 of docs/design/apis.md for what Stage 3 built: an object's table calls its conformance's witness, a dynamic call is checked as a call through a bound (the API's clauses and set, the slot through the table), one API of a program's own per braces, an object of an associated-type API names the type, an object of a frame's copy stays in the frame; a Core change first, then phases for the type, views, boxes, the proof, and associated types; 21 questions with defaults | [apis-stage4/](2026-10/apis-stage4/) |
+| APIs Stage 4's refresh (2026-10-23) | Stage 4 of docs/design/apis.md for what Stage 3 built: an object's table calls its conformance's witness, a dynamic call is checked as a call through a bound (the API's clauses and set, the slot through the table), one API of a program's own per braces, an object of an associated-type API names the type, an object of a plain view's copy stays in its block; a Core change first, then phases for the type, views, boxes, the proof, and associated types; 21 questions with defaults, approved by the owner | [apis-stage4/](2026-10/apis-stage4/) |
+| CORE's "An API object hides its value's type, never its loans" (Stage 4, phase 0) | §1's and §4's rows and a paragraph with its list: the object may hold anything, so its loans end at its last use or, for a box, its drop; a copy decided by kind, local to its block; only `^{A}` has `+`; it meets only the bounds its braces or API name; no default, never a type argument; a panel of four (H1 to H13), and the owner's approval | [apis-stage4/core-panel/](2026-10/apis-stage4/core-panel/) |
 
 ## Every record
 
@@ -77,7 +78,14 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 ### 2026-10/apis-stage4/
 
 - [build-plan.md](2026-10/apis-stage4/build-plan.md): what Stage 4 reuses from Stage 3, where each piece goes, the Core change first, five phases with their cases and exact messages, the oracle's and Lean's parts, risks, and sizes
-- [open-questions.md](2026-10/apis-stage4/open-questions.md): what the record does not settle, each with a default
+- [open-questions.md](2026-10/apis-stage4/open-questions.md): what the record does not settle, each with a default, all approved by the owner (2026-10-23)
+
+### 2026-10/apis-stage4/core-panel/
+
+- [approved.md](2026-10/apis-stage4/core-panel/approved.md): the owner's approval, quoted
+- [6-final.md](2026-10/apis-stage4/core-panel/6-final.md): the final CORE text (§1's rows, §4's row, the paragraph and list, the examples), the holes it closes, and its accepted limits
+- [4-draft.md](2026-10/apis-stage4/core-panel/4-draft.md): the combined draft, each hole with its rule
+- [1-core.md](2026-10/apis-stage4/core-panel/1-core.md), [2-compiler.md](2026-10/apis-stage4/core-panel/2-compiler.md), [3-adversary.md](2026-10/apis-stage4/core-panel/3-adversary.md), [5-review.md](2026-10/apis-stage4/core-panel/5-review.md): the panel's reports
 
 ### 2026-10/clone/
 

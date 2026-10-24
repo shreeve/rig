@@ -69,9 +69,9 @@ side; Rig names everything from the side the sigil is on.
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, objects whose parts are all plain | copies | built |
-| **owning** | `List[T]`, `^T`, `String`, `error`, objects holding an owner | moves; one owner; dropped once | built |
+| **owning** | `List[T]`, `^T` (`^{A}` too), `String`, `error`, objects holding an owner | moves; one owner; dropped once | built; `^{A}` planned |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
-| **view** | `?T`, `!T`, `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
+| **view** | `?T`, `!T` (`?{A}`, `!{A}` too), `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built; `{A}` planned |
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** An object
 lives where it is declared, inside whatever holds it, and has no
@@ -1121,6 +1121,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | built |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
+| a `T` that provides `A` | `?{A}` | `!{A}` | planned |
 
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
@@ -1249,6 +1250,80 @@ sub main()
 
 ```output
 1 3
+```
+
+**An API object hides its value's type, never its loans.** `?{A}`,
+`!{A}`, and `^{A}` hold a value of some type that provides `A`. A
+value lends one by the row above, unwritten where the view lasts only
+for the use (sentence 4). A `^T` moves into a `^{A}` and keeps its
+box. Only the value reached is erased, never a place's or an element's
+type. The API object carries every loan the value carried, and since
+the type is hidden it may hold anything: a view, a handle, a `drop`
+body. So the loans of a `?{A}` or `!{A}` end at its last use, and
+those of a `^{A}` at its drop (sentence 6). A call through one passes
+on only the loans the API's `from` and `keeps` show (sentence 7).
+Erasing a read view of plain data, or of a type parameter's value,
+views a local of the erasing block. *(planned)*
+
+**Only its methods reach the value:**
+
+- through a `!{A}`, nothing reads, assigns, swaps, or moves it;
+- `{A}` is never a type argument, written or inferred, and has no
+  default (§5);
+- it meets only the `Clone`, `Print`, and `Owned` its braces or API
+  name, each checked on the value's type where it is erased, and only
+  a `^{A}` has a `+`;
+- a `<@` method ends the box, which is dropped exactly once, even if
+  the method fails;
+- `*{A}` and `~{A}` are Stage 5's. *(planned)*
+
+```rig pending
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+fun area_of(s: ?{Shape}) -> Float
+  s.area()
+
+sub main()
+  sq = Square(side: 2.0)
+  shapes: List[^{Shape}] = List()
+  !shapes.push(^Square(side: 3.0))
+  print(area_of(sq), area_of(shapes[0]))
+```
+
+```output
+4.0 9.0
+```
+
+The API object `s` carries the read loan on `v`, so `v` may not change
+while `s` is used:
+
+```rig pending
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+sub main()
+  v: List[Square] = List()
+  !v.push(Square(side: 1.0))
+  s: ?{Shape} = ?v[0]
+  !v.push(Square(side: 2.0))
+  print(s.area())
+```
+
+```error
+cannot lend `v` to write while a read loan is live
 ```
 
 ## 5. Containers and fields hold values

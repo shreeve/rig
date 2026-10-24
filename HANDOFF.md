@@ -107,7 +107,18 @@ In the owner's order:
    (`tools/state-bounds.py`; the diff is
    [trig-migration.diff](docs/history/records/2026-10/apis-stage3/trig-migration.diff))
    when it lands. Stage 3 is then complete.
-2. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
+2. **APIs Stage 4, API objects** (`?{Shape}`, `!{Shape}`, `^{Shape}`),
+   in progress, in phases with an adversarial review each, landed after
+   the suite and Trig's light gate
+   ([build-plan.md](docs/history/records/2026-10/apis-stage4/build-plan.md);
+   its 21 defaults approved,
+   [open-questions.md](docs/history/records/2026-10/apis-stage4/open-questions.md)).
+   Phase 0, the Core, is done: CORE §1 and §4 state the rules as
+   *planned*, with `rig pending` examples, from a panel of four the
+   owner approved
+   ([core-panel/](docs/history/records/2026-10/apis-stage4/core-panel/approved.md)).
+   Phase 1, the type and its facts, is next.
+3. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
    text, completion words). Analysis needs an entry to the checker that
@@ -154,8 +165,8 @@ APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
 built in stages. Stage 1, method calls on a type parameter, and Stage 2,
 built-in bounds (`[T: Ord]`, `obj Version: Ord`, a type's own `eq`,
 `hash_into`, `order`, and `print`), are on `main`, and Stage 3's phases 1
-to 4 with them; Stages 4 and 5 wait for a program that needs
-them; a design question is answered from the
+to 4 with them; Stage 4 is in progress (phase 0, its Core text,
+done), and Stage 5 waits for a program that needs it; a design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.
 
