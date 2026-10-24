@@ -3934,7 +3934,11 @@ written where the object is kept past its statement, and unwritten
 where it lasts only for a call, `area_of(sq)`; a value made there, a
 literal included, is held in its statement's slot. A bounded `T` lends
 one through its bound. The braces' `Print`, `Clone`, and `Owned` are
-checked on the value's type where it is erased.
+checked on the value's type where it is erased, in a generic body too,
+where `print(x)` of a `T` is an object's only when its braces or API
+name `Print`. No value that holds a task or a set of tasks is erased:
+the rules that wait for a task (`task.isolate`, an error's field, a
+crossing) see it only where its type shows it.
 
 ```rig
 api Shape
@@ -4050,26 +4054,108 @@ sub main()
 An object meets no bound by an API, `T = ?{Shape}` does not meet `[T:
 Shape]`, and a generic body's call on an unbounded `T` reaches no
 method of an object: its methods are called where its type is
-written. A task over a call through an object,
-and a box of one, `^{Shape}`, are not built yet: a value, field,
-parameter, result, or instance whose type holds a `^{Shape}`, and a
-value moved into one, are rejected, "is not built yet", until the phase
-of Stage 4 that lowers boxes.
+written.
+
+A box moves into a box of an object and keeps its allocation, `<c` of
+a `^Square` or a `^Square(...)` written where a `^{Shape}` goes, and a
+`^Square?` into a `^{Shape}?`; nothing is allocated. Only the box's
+value is erased: a `!^Square` is no `!^{Shape}`, nor a `List[^Square]`
+a `List[^{Shape}]`. A `^{Shape}` lends its `?{Shape}` and `!{Shape}`
+as any box lends its value, a new box assigned to it replaces the old
+one, which is dropped, and it drops its value through its table, a
+long chain of boxes without deep recursion, so a recursive type holds
+`next: ^{Node}?`. A method that consumes self, `<b.close()`, ends the
+box: the value leaves its allocation, which is freed, and the method
+owns it, so the value is dropped once even when the method fails.
+Only a box has a `+`, through its table, where its braces or API name
+`Clone`.
+
+```rig
+api Shape: Print
+  fun area(?@) -> Float
+  sub close(<@)
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+  sub close(<@)
+    print("closed a square of", @side)
+
+obj Circle: Shape
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+  sub close(<@)
+    print("closed a circle of", @r)
+
+sub main()
+  shapes: List[^{Shape}] = List()
+  !shapes.push(^Square(side: 2.0))
+  c = ^Circle(r: 1.0)
+  !shapes.push(<c)
+  print(shapes)
+  b: ^{Shape} = ^Square(side: 1.0)
+  b = ^Circle(r: 2.0)
+  print(b.area())
+  <b.close()
+```
+
+```output
+[Square(side: 2.0), Circle(r: 1.0)]
+12.0
+closed a circle of 2.0
+```
+
+A box's loans last to its drop, which may run the hidden type's
+`drop` body and read them. With `Owned` in its braces, checked on the
+value's type where it is erased, it holds none, and may live where no
+loan is tracked: an owned closure captures a `^{Shape + Owned}`, never
+a `^{Shape}`.
 
 ```rig reject
 api Shape
   fun area(?@) -> Float
 
-fun area_of(b: ^{Shape}) -> Float
-  b.area()
+obj Note: Shape
+  text: ?String
+
+  fun area(?@) -> Float
+    1.0
 
 sub main()
+  t = String("hi")
+  b: ^{Shape} = ^Note(text: ?t)
+  print(b.area())
+  !t.push("!")
+```
+
+```error
+cannot lend `t` to write while a read loan is live
+```
+
+An object has no default value, so a `Table` of them holds
+`^{Shape + Owned}?`. An object goes to no task, a local one included,
+since the hidden value may hold what goes to none (an owned closure, a
+set of tasks), nor into an error's field, which holds no handle; a
+crossing bound in its braces, and a Cell of one, are Stage 5's, beside
+`*{Shape}` and `~{Shape}`.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+sub main()
+  t: Table[^{Shape}, 4] = Table()
   print(1)
 ```
 
 ```error
-`^{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)
-`b.area()` calls through `^{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)
+an API object has no default value: write `^{Shape + Owned}?`
 ```
 
 ### Type aliases
@@ -11519,6 +11605,7 @@ may hide either. `panic` is a keyword.
 | `Cell`, `Signal` | `Cell(value: 5)`, `Signal(value: 5)` |
 | weak handle | `~(alive)` or `~(gone)` |
 | owned closure | `<closure>` |
+| channel, actor | `<chan>`, `<actor>` |
 | function | `<fun>` |
 
 Text inside another value (an element, a field, a payload, an optional's

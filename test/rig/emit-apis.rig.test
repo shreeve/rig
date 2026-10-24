@@ -248,3 +248,53 @@ code "apis object a receiver evaluated once", "const __rig_obj_"
 
   sq = Square(side: 1.0)
   print(pick(sq).area())
+
+# ---- Stage 4, phase 3: boxes of API objects ----
+
+code "apis object box its type", "var b: rig.ApiBox(__rig_table_Shape, \"\") =", "var c: rig.ApiBox(__rig_table_Shape, \" + Owned + Print\") ="
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 1.0)
+  c: ^{Shape + Print + Owned} = ^Square(side: 1.0)
+  print(b.area(), c.area())
+
+code "apis object box a move allocates nothing", "rig.ApiBox(__rig_table_Shape, \"\").of(Square, rig.take(&__rig_alive_c, c), __rig_table_Shape_of(Square, __rig_impl_Shape_Square))"
+  # `<c` keeps the allocation its `^Square` made.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  c = ^Square(side: 1.0)
+  b: ^{Shape} = <c
+  print(b.area())
+
+code "apis object box a consuming entry frees the box", '''
+  fn __rig_entry_close(__rig_ptr: rig.ErasedOwn) void {
+      var __rig_self = rig.erasedTake(__rig_T, __rig_ptr);
+      const __rig_p = &__rig_self;
+      return __rig_W.close(rig.selfArg(__rig_W.close, __rig_p));
+  }
+'''
+  api Shape
+    sub close(<@)
+
+  print(1)
+
+code "apis object box the drop and clone entries", ".__rig_drop = rig.dropErased(__rig_T), .__rig_clone = rig.cloneErased(__rig_T)"
+  api Shape
+    fun area(?@) -> Float
+
+  print(1)

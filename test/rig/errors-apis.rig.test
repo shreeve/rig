@@ -333,16 +333,3 @@ test "apis object a failing default", "4 -1"
     x.double()!
 
   print(twice(Word(s: String("ab"))) catch -1, twice(Word(s: String(""))) catch -1)
-
-fail "apis object a task over a call through it", "a task over a call through an API object is not built yet (docs/design/apis.md, Stage 4)"
-  error Bad
-    empty
-
-  api Sized
-    fun size(?@) -> Int!Bad
-
-  fun later(x: ?{Sized}) -> Int!Bad
-    t = x.size()&
-    >t!
-
-  print(1)

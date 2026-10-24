@@ -113,11 +113,12 @@ In the owner's order:
    ([build-plan.md](docs/history/records/2026-10/apis-stage4/build-plan.md);
    its 21 defaults approved,
    [open-questions.md](docs/history/records/2026-10/apis-stage4/open-questions.md)).
-   Phase 0, the Core, is done: CORE §1 and §4 state the rules as
-   *planned*, with `rig pending` examples, from a panel of four the
-   owner approved
+   Phase 0, the Core, is done: CORE §1 and §4 state the rules, from a
+   panel of four the owner approved
    ([core-panel/](docs/history/records/2026-10/apis-stage4/core-panel/approved.md)).
-   Phase 1, the type and its facts, is next.
+   Phases 1 to 3, the types, views and calls, and boxes, are built;
+   phase 4, the Lean lemma, and phase 5, associated types in braces,
+   remain.
 3. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
@@ -170,8 +171,11 @@ after the suite and Trig's light gate: phase 1, the types and their
 rules, is built
 ([phase1-notes.md](docs/history/records/2026-10/apis-stage4/phase1-notes.md)),
 and phase 2, views of objects and calls through their tables
-([phase2-notes.md](docs/history/records/2026-10/apis-stage4/phase2-notes.md));
-a box of an object, `^{Shape}`, waits for phase 3. Stage 5 waits for a
+([phase2-notes.md](docs/history/records/2026-10/apis-stage4/phase2-notes.md)),
+and phase 3, boxes of objects, `^{Shape}`
+([phase3-notes.md](docs/history/records/2026-10/apis-stage4/phase3-notes.md)),
+each in review in turn; objects of an API with an associated type
+(phase 5) wait for a program that needs them. Stage 5 waits for a
 program that needs it; a design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.

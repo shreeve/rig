@@ -137,6 +137,29 @@ expect_has "$out" 'erasures leaf 14:17-14:18 "p" Square ?{Shape} __rig_impl_Shap
 "$RIG" check --facts=storage erase.rig >storage.txt 2>err.txt || fail "rig check --facts=storage erase.rig: $(cat err.txt)"
 expect_has "$(cat storage.txt)" 'erased_copy leaf 14:17-14:18 "p" copy block' "the copy an object views, a local of its block"
 
+# A box moved into a box of an API object, its value erased.
+cat >boxes.rig <<'EOF2'
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+sub main()
+  c = ^Square(side: 1.0)
+  b: ^{Shape} = <c
+  o: ^Square? = none
+  m: ^{Shape}? = <o
+  print(b.area(), m == none)
+EOF2
+"$RIG" check --facts=sema boxes.rig >boxes.txt 2>err.txt || fail "rig check --facts=sema boxes.rig: $(cat err.txt)"
+out=$(cat boxes.txt)
+expect_has "$out" 'erasures move 12:17-12:19 "<c" Square ^{Shape} __rig_impl_Shape_Square(Square)' "a box erased"
+expect_has "$out" 'erasures move 14:18-14:20 "<o" Square ^{Shape} __rig_impl_Shape_Square(Square) optional' "an optional box erased"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)

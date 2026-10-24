@@ -3141,12 +3141,9 @@ pub const TypeResolver = struct {
     pub fn misplacedAt(self: *TypeResolver, node: Sexp, ty: TypeId, home: sema.Home) Error!bool {
         if (self.isPoison(ty)) return false;
         if (try self.bareObject(node, ty, home)) return true;
-        // A value's own type: one that holds an API object is not
-        // lowered yet (Stage 4, phase 1). It keeps its type, so what a
-        // body does with the value is still checked.
-        switch (home) {
-            .signature, .binding, .field => if (sema.holdsObjectBox(self.ctx, ty)) try sema.objectUnbuilt(self.ctx, self.ctx.startOf(node), ty),
-            else => {},
+        if (sema.objectCell(self.ctx, ty)) |cell| {
+            try sema.objectUnbuiltError(self.ctx, self.ctx.startOf(node), sema.object_cell, .{try sema.formatType(self.ctx, cell)});
+            return true;
         }
         if (sema.writeViewMisplaced(self.ctx, ty, home)) {
             try self.ctx.errAt(node, sema.write_view_misplaced, .{try sema.formatType(self.ctx, ty)});
@@ -4543,6 +4540,14 @@ fn tableElementError(ctx: *SemContext, args: []const TypeId) Error!?[]const u8 {
     const elem = args[0];
     const shown = try sema.formatType(ctx, elem);
     const table = try a.print("Table[{s}, {d}]", .{ shown, n });
+    // An API object has no default value (Core §4): a slot that may be
+    // empty holds an optional of it.
+    // A table's slots hold no loan, so the object names `Owned`.
+    if (sema.objectHeld(ctx, elem)) |h| if (h.form == .box) {
+        var with = h.object;
+        with.builtins.insert(.Owned);
+        return try a.print("an API object has no default value: write `^{s}?`", .{try sema.objectSpelling(ctx, a, with)});
+    };
     if (sema.holdsCallable(ctx, elem) or sema.mayHoldView(ctx, elem) or sema.isViewType(ctx, elem)) {
         return try a.print("a `Table` holds values; a view cannot be one, since every slot holds a value before it is written; got `{s}`", .{shown});
     }

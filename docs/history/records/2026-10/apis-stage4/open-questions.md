@@ -87,6 +87,13 @@ narrowed one, 8 and 12, the item says how.
     (phase 3); a channel send, an actor's argument, and `par.each`
     reject an object. *Reason:* Stage 3's rule for a bounded `T` without
     `Sends`; crossing is Stage 5's bound in the braces.
+    **Narrowed (2026-10-23).** Phase 3's review found that a
+    `^{Shape}` hiding an owned closure reached two local tasks at once
+    (`area_of(?b)&` and `?b.area()&`), where SPEC keeps an owned closure
+    from every task, a local one included. The owner chose the Stage 5
+    designer's option A, in his words "Yes, that is the best route": an
+    API object without the crossing bound a task needs goes to no task,
+    local ones included ([review-p3.md](review-p3.md)).
 15. **An object is never frozen;** a `*Frozen[T]` lends a `?{Shape}`
     through `?f`. *Reason:* freezing is a fact of the hidden type's
     parts; an erased value many tasks read is Stage 5's.

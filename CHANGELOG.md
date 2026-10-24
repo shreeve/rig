@@ -13,6 +13,28 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Boxes of API objects (APIs Stage 4, phase 3):** a `^T` moves into a
+  `^{Shape}` and keeps its allocation, `<c` or a `^Square(...)` written
+  where one goes, and a `^T?` into a `^{Shape}?`. A box lends its
+  `?{Shape}` and `!{Shape}`, is replaced by assignment, and drops its
+  value through its table and the drop queue, so `next: ^{Node}?` chains
+  of any length drop without deep recursion; a List of boxes grows,
+  sorts by a key, and clears. `<b.close()` ends the box, which drops its
+  value once even when the method fails. A box clones through its table
+  where its braces or API name `Clone`, and prints where they name
+  `Print`. Its loans last to its drop; with `Owned` in its braces,
+  checked on the erased type, it holds none, and an owned closure takes
+  it. An object has no default value (`Table[^{Shape + Owned}?, n]`), an
+  error's field holds none, and a Cell of one is Stage 5's. An object
+  goes to no task, a local one included, since its hidden value may hold
+  an owned closure or a set of tasks: this narrows Stage 4's default 14,
+  which made a task over a call through one local (the owner's decision,
+  2026-10-23). A call through a generic type at
+  arguments that hold an object, `Ph[^{Shape}].mk()`, is built too. No
+  value that holds a task or a set of tasks is erased, and a generic
+  body prints an object only where its braces or API name `Print`. A
+  channel and an actor print as `<chan>` and `<actor>`, where printing
+  one failed in Zig.
 - **API objects lend and call through a table (APIs Stage 4, phase
   2):** a value lends `?{Shape}` and `!{Shape}` by the lend table's last
   row, through boxes, handles, frozen handles, and optionals, unwritten
@@ -28,8 +50,7 @@ changed the language since it:
   a read view of plain data, or of a type parameter's value, views a
   copy local to its block, and is rejected where it would leave it. A
   call through an object costs what a call through a `?fun` does
-  (bench/apis). A box of an object, and a task over a call through one,
-  are still rejected as not built yet.
+  (bench/apis).
 - **API object types (APIs Stage 4, phase 1):** a type may name an API
   in braces behind a view or a box, `?{Shape}`, `!{Shape}`,
   `^{Shape}`, with `Owned`, `Print`, and `Clone` beside it, `^{Shape +

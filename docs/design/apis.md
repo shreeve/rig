@@ -941,7 +941,7 @@ sub main()
 `add` names a type, and `?Square` is a view: write `add Square: Shape`
 ```
 
-## Stage 4: API objects *(in part)*
+## Stage 4: API objects *(built, but for associated types)*
 
 *Built:* the braces in a type, the rules on what they name, a bare
 `{Shape}` rejected as unsized (written or inferred), the bounds an
@@ -952,10 +952,15 @@ the views, `?{Shape}` and `!{Shape}`: the erasure, lent by the lend
 table's last row and recorded once; calls through a table, typed and
 checked by the API's declaration and clauses; the copy of a plain read
 view, local to its block; and the oracle's second opinion on each
+([phase2-notes.md](../history/records/2026-10/apis-stage4/phase2-notes.md));
+the boxes, `^{Shape}`: a `^T` moved in keeping its allocation, its drop
+through the table and the drop queue, `<@` methods that end the box,
+`Clone` and `Print` entries, loans to the drop, `Owned`'s no-loan
+homes, and no default value
 (SPEC, "API objects";
-[phase2-notes.md](../history/records/2026-10/apis-stage4/phase2-notes.md)).
-A box, `^{Shape}`, and a task over a call through an object are
-rejected as not built yet until the phase that lowers them.
+[phase3-notes.md](../history/records/2026-10/apis-stage4/phase3-notes.md)).
+An object of an API with an associated type, `^{Source[Item: Int]}`,
+waits for a program that needs it (phase 5).
 
 An **API object** is a value of some type that provides an API, the
 type chosen when the program runs. It is written as the API in braces,
@@ -1137,7 +1142,11 @@ numeric code, prefer a bound.
   `Hash`. Bounds never widen from one object type to another, and a
   marker supertrait never makes an object form `Copy` or crossing:
   each form copies or moves by its own kind. `Print` and `Clone` are
-  each a table entry.
+  each a table entry. A generic body's `print(x)` of a `T` is held to
+  `Print` at an object instance too.
+- No value that holds a task or a set of tasks is erased: `task.isolate`,
+  an error's field, and a crossing see a task only where its type shows
+  it.
 - `{Shape}` is never a type argument, written or inferred: a generic
   `put[T](a: !T, b: !T)` called with two `!{Shape}`s is rejected, or
   it could swap a `Circle` into a `Square`. A `List[^{Shape}]` takes
@@ -1152,10 +1161,11 @@ numeric code, prefer a bound.
 - An object is never frozen: whether a value can be frozen is a fact of
   its type's parts, gone with the type. Freeze the value first; `?f` of
   the `*Frozen[Square]` lends a `?{Shape}`.
-- An API object does not cross to another task in this stage: a task
-  that takes one is local, as one over a call through an object is
-  (`s.area()&`), and a channel send, an actor's argument, and
-  `par.each` reject it.
+- An API object goes to no task in this stage, a local one included:
+  its hidden value may hold what goes to none, an owned closure or a set
+  of tasks, so a task over a call through one (`s.area()&`), a task
+  given or lent one, a channel send, an actor's argument, and
+  `par.each` reject it. Crossing is a bound in the braces (Stage 5).
 - A closure captures an object as it captures any view or owner, and an
   owned closure takes a `^{Shape}` only with `+ Owned`. A closure is
   never erased to an object, since a function value provides no API of
@@ -1181,8 +1191,9 @@ p))`, the witness's member, as a call through a bound does, passing the
 arguments and, where the method takes one, the slot; Zig takes no
 address of an inline function, so the method stays inlinable everywhere
 else. A `<@` entry moves the value out of the box and frees it first.
-`?{Shape}` is `rig.ApiView(__rig_table_Shape, .read)`, `!{Shape}` its
-`.write` form, and `^{Shape}` `rig.ApiBox(__rig_table_Shape)`, whose
+`?{Shape}` is `rig.ApiView(__rig_table_Shape, .read, "")`, `!{Shape}`
+its `.write` form, and `^{Shape}` `rig.ApiBox(__rig_table_Shape, "")`,
+the string the built-in APIs its braces name, for `$name`, whose
 drop is the table's: the value's drop and the free, through the queue a
 `^T` uses, so long chains are released without deep recursion. A
 conversion writes `.{ .ptr = &sq, .vt = __rig_table_Shape_of(Square,

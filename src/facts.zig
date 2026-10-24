@@ -174,21 +174,16 @@ pub const Facts = struct {
         return @ptrCast(@alignCast(f.sema_context));
     }
 
-    /// Whether `ty` is or holds an API object, which has no Zig type
-    /// until Stage 4 lowers one: a `type` alias may name it for `$name`,
-    /// and no value of it is made (`sema.objectUnbuilt`).
-    pub fn mentionsObject(f: Facts, ty: TypeId) bool {
-        return sema.mentionsObject(f.c(), ty);
-    }
-    /// Whether `ty` is or holds a box of an API object, `^{Shape}`, which
-    /// is not lowered yet (`sema.holdsObjectBox`).
     /// Whether `ty` is a bare API object, `{Shape}`, which only a type
     /// alias names (`sema.apiObject`).
     pub fn objectBare(f: Facts, ty: TypeId) bool {
         return sema.apiObject(f.c(), ty) != null;
     }
-    pub fn holdsObjectBox(f: Facts, ty: TypeId) bool {
-        return sema.holdsObjectBox(f.c(), ty);
+    /// The API object a box `ty` holds, `^{Shape}`; null for any other
+    /// type.
+    pub fn objectBox(f: Facts, ty: TypeId) ?sema.ApiObject {
+        const h = sema.objectHeld(f.c(), ty) orelse return null;
+        return if (h.form == .box) h.object else null;
     }
 
     /// Whether `f` and `g` are the facts of the same module.

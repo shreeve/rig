@@ -497,7 +497,8 @@ pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObjec
 
 /// A value erased to an API object (docs/design/apis.md, Stage 4): the
 /// value reached by a lend's rows, of type `from`, which provides the
-/// object's API by `witness`, made a `view`, `?{A}` or `!{A}`. Recorded
+/// object's API by `witness`, made a `view`, `?{A}` or `!{A}`; or a box
+/// `^T` moved into a `^{A}`, keeping its allocation. Recorded
 /// once, where the type checker makes it (`SemContext.recordErasure`);
 /// emit writes the object and the ownership checker roots its loan from
 /// it.
@@ -506,10 +507,13 @@ pub const Erasure = struct {
     api: ApiRef,
     /// The erased value's type.
     from: TypeId,
-    /// The object it becomes: `?{A}` or `!{A}`.
+    /// The object it becomes: `?{A}`, `!{A}`, or `^{A}`.
     view: TypeId,
     witness: Witness,
     form: ObjectForm,
+    /// A box's: the value is an optional box, `^T?`, whose box, if any,
+    /// is erased.
+    optional: bool = false,
     /// The value is a read view of plain data or of a type parameter's
     /// value, which may be held as a copy with no address of its own: the
     /// object views a copy, a hidden local of the erasing block
@@ -543,19 +547,26 @@ pub fn isErasedView(ctx: *const SemContext, ty: TypeId) bool {
     return objectView(ctx, ty) != null;
 }
 
-/// Whether `ty` is or holds a box of an API object anywhere, `^{Shape}`,
-/// which a later phase of Stage 4 lowers.
-pub fn holdsObjectBox(ctx: *const SemContext, ty: TypeId) bool {
-    return holdsObjectBoxAt(ctx, ty, 0);
+/// A Cell that `ty` is or holds in its structure whose value holds an
+/// API object, `Cell[^{Shape}]`: changing an object in place is Stage
+/// 5's, beside `*{A}` and `~{A}` (Core §4). Null for any other type.
+pub fn objectCell(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return objectCellAt(ctx, ty, 0);
 }
 
-fn holdsObjectBoxAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
-    if (depth > max_alias_height or !ctx.typeInfo(ty).object) return false;
-    if (objectHeld(ctx, ty)) |h| return h.form == .box;
+fn objectCellAt(ctx: *const SemContext, ty: TypeId, depth: u32) ?TypeId {
+    if (depth > max_alias_height or !ctx.typeInfo(ty).object) return null;
+    switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.cell_sym_id) return ty,
+        else => {},
+    }
     var it: TypeChildren = .{ .ty = ctx.types.get(ty) };
-    while (it.next()) |c| if (holdsObjectBoxAt(ctx, c, depth + 1)) return true;
-    return false;
+    while (it.next()) |c| if (objectCellAt(ctx, c, depth + 1)) |found| return found;
+    return null;
 }
+
+/// The error for a Cell of an API object (`objectCell`).
+pub const object_cell = "a Cell of an API object, `{s}`, is not built yet (docs/design/apis.md, Stage 5)";
 
 /// Why a call through an API object cannot reach a method of its API
 /// (docs/design/apis.md, Stage 4): the call would pass what a table's
@@ -2915,6 +2926,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             try w.print(" {s} {s} ", .{ try formatTypeIn(ctx, a, v.from), try formatTypeIn(ctx, a, v.view) });
             try writeWitness(ctx, a, w, v.witness);
             if (v.copy) try w.writeAll(" copy");
+            if (v.optional) try w.writeAll(" optional");
         },
         OwnerWitnesses => {
             if (v.receiver_arg) try w.writeAll(" receiver_arg");
@@ -3224,8 +3236,8 @@ pub const SemContext = struct {
     types: TypeStore,
     /// Facts of each interned type, by TypeId.
     type_info: std.ArrayList(TypeInfo) = .empty,
-    /// Where among `diagnostics` a value holding an API object was
-    /// reported as not built yet (`objectUnbuilt`); a report a quiet
+    /// Where among `diagnostics` a form holding an API object was
+    /// reported as not built yet (`objectUnbuiltError`); a report a quiet
     /// check took back no longer counts (`objectRejected`).
     object_unbuilt_at: ?usize = null,
     /// Every declared type's `contents` is known, and so are the
@@ -4027,9 +4039,9 @@ pub const SemContext = struct {
 
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
         try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
-        // No value holding an API object is lowered yet: a program that
-        // makes one without declaring its type is rejected here.
-        if (holdsObjectBox(self, ty) and !objectRejected(self)) try objectUnbuilt(self, self.startOf(node), ty);
+        // A Cell of an API object is Stage 5's: a program that makes one
+        // without declaring its type is rejected here, once.
+        if (self.typeInfo(ty).object) if (objectCell(self, ty)) |cell| if (!objectRejected(self)) try objectUnbuiltError(self, self.startOf(node), object_cell, .{try formatType(self, cell)});
         // An element read copies its value, or is reached where it is,
         // as its type says (`copiesElem`), decided with the type.
         if (node.isKind(.index)) {
@@ -7031,7 +7043,8 @@ const TypePath = struct { ctx: *const SemContext, ty: TypeId, up: ?*const TypePa
 
 fn handleAt(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) bool {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak => true,
+        // An API object's hidden value may hold one (Core §4).
+        .shared, .weak, .api_object => true,
         .optional, .read_view, .write_view, .range, .callable => |inner| handleAt(ctx, inner, path),
         .fallible => |f| handleAt(ctx, f.ok, path),
         .array => |a| handleAt(ctx, a.elem, path),
@@ -7558,6 +7571,53 @@ pub fn objectUnprinted(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Err
         for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
             for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
         }
+    }
+    return null;
+}
+
+/// The first API object a value of `ty` may hold, through its fields,
+/// elements, and handles, whose braces name no `Owned`: it may hold a
+/// loan its type does not show (Core §4), so a home that holds no loan,
+/// an owned closure, keeps it only as a `^{A + Owned}`. Null when every
+/// object it may hold names `Owned`, or it holds none.
+pub fn objectUnowned(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
+    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
+    defer seen.deinit(ctx.allocator);
+    return objectUnownedIn(ctx, ty, &seen);
+}
+
+fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
+    if (objectHeld(ctx, ty)) |h| return if (h.object.builtins.contains(.Owned)) null else ty;
+    if (apiObject(ctx, ty)) |o| return if (o.builtins.contains(.Owned)) null else ty;
+    switch (ctx.types.get(ty)) {
+        .optional, .read_view, .write_view, .shared, .weak, .range => |inner| return objectUnownedIn(ctx, inner, seen),
+        .fallible => |inner| return objectUnownedIn(ctx, inner.ok, seen),
+        .array => |a| return objectUnownedIn(ctx, a.elem, seen),
+        .slice => |sl| return objectUnownedIn(ctx, sl.elem, seen),
+        .results => |parts| {
+            for (parts) |part| if (try objectUnownedIn(ctx, part, seen)) |o| return o;
+            return null;
+        },
+        .parameterized_nominal => |pn| {
+            for (pn.args) |a| if (try objectUnownedIn(ctx, a, seen)) |o| return o;
+            if (isBuiltinGeneric(ctx, pn.sym)) return null;
+            return objectUnownedFields(ctx, pn.sym, seen);
+        },
+        .nominal => |sym| return objectUnownedFields(ctx, sym, seen),
+        .imported_nominal => {
+            const decl = nominalDecl(ctx, ty) orelse return null;
+            // Found in another module's table: the whole type names it.
+            return if (try objectUnownedFields(decl.ctx, decl.sym, seen) != null) ty else null;
+        },
+        else => return null,
+    }
+}
+
+fn objectUnownedFields(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
+    const got = try seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym });
+    if (got.found_existing) return null;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
+        for (dataFields(f)) |d| if (try objectUnownedIn(ctx, d.ty, seen)) |o| return o;
     }
     return null;
 }
@@ -9344,18 +9404,9 @@ pub const object_unsized = "`{s}` has no size of its own: hold it behind a view 
 /// body would write a value of one type where another lives.
 pub const object_unsized_arg = "`{s}` has no size of its own, so it is no type argument, written or inferred";
 
-/// What phase 1 of Stage 4 does not lower yet: any value that holds an
-/// API object. Reported where such a type is declared, where an
-/// instance takes one, and, for a program with no such declaration, at
-/// the first expression of such a type (`SemContext.recordType`).
-pub fn objectUnbuilt(ctx: *SemContext, pos: u32, ty: TypeId) std.mem.Allocator.Error!void {
-    const shown = try formatType(ctx, ty);
-    const how = if (apiObject(ctx, ty) != null or objectHeld(ctx, ty) != null) "is" else "holds";
-    try objectUnbuiltError(ctx, pos, "`{s}` {s} an API object, which is not built yet (docs/design/apis.md, Stage 4)", .{ shown, how });
-}
-
-/// An error that a form holding an API object is not built yet,
-/// remembered so that `recordType` reports none after it.
+/// An error that a form holding an API object is not built yet (a Cell
+/// of one, Stage 5's), remembered so that `recordType` reports none
+/// after it.
 pub fn objectUnbuiltError(ctx: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
     const at = ctx.diagnostics.items.len;
     try ctx.err(pos, fmt, args);
@@ -9530,8 +9581,10 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // captures, which its type does not show.
         .function => null,
         .callable => here,
-        // An API object's erased type may hold anything; it crosses no
-        // task until Stage 5 names crossing in its braces.
+        // An API object's erased type may hold anything, what goes to no
+        // task included (an owned closure, a set of tasks): it goes to no
+        // task, a local one included, until Stage 5 names crossing in
+        // its braces.
         .api_object => here,
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
         .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, seen),

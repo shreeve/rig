@@ -739,13 +739,18 @@ pub inline fn selfArg(comptime f: anytype, recv: anytype) @typeInfo(@TypeOf(f)).
 /// and type). Two words, passed by value, as a callable view is (`FnRef`).
 /// A read view's address is a `*const`; a write view lends a read view
 /// (`read`), as `!T` lends `?T`.
-pub fn ApiView(comptime Entries: type, comptime form: ApiForm) type {
+/// `builtins` are the built-in APIs its braces name after its API, as
+/// they spell them, `" + Print"`, which only `typeName` reads.
+pub fn ApiView(comptime Entries: type, comptime form: ApiForm, comptime builtins: []const u8) type {
     return struct {
         ptr: if (form == .read) *const anyopaque else *anyopaque,
         vt: *const Entries,
 
+        /// Its sigil and braces, for `typeName`.
+        pub const __rig_api_object = .{ if (form == .read) "?" else "!", Entries, builtins };
+
         /// The read view a write view lends.
-        pub fn read(self: @This()) ApiView(Entries, .read) {
+        pub fn read(self: @This()) ApiView(Entries, .read, builtins) {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
 
@@ -759,6 +764,145 @@ pub fn ApiView(comptime Entries: type, comptime form: ApiForm) type {
 
 /// How an API object views its value: to read or to write.
 pub const ApiForm = enum { read, write };
+
+/// `^{Shape}`, an API object held in a box (docs/design/apis.md, Stage
+/// 4): the address of a value of the hidden type, in the allocation the
+/// `^T` it was made of held, and the table of that type's methods for the
+/// API. It moves, never copies; dropping it drops the value through the
+/// table and frees its memory, deep chains through `drop_queue` as boxes
+/// do.
+pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
+    return struct {
+        ptr: *anyopaque,
+        vt: *const Entries,
+
+        const Self = @This();
+        /// Printed as the value it holds, through its table.
+        pub const __rig_api_box = {};
+        /// Its sigil and braces, for `typeName` (`ApiView`).
+        pub const __rig_api_object = .{ "^", Entries, builtins };
+
+        /// The box `b` of a `T`, its value's type erased: its allocation
+        /// kept, nothing allocated.
+        pub fn of(comptime T: type, b: Box(T), vt: *const Entries) Self {
+            return .{ .ptr = @ptrCast(b.value), .vt = vt };
+        }
+
+        /// `of` an optional box: none stays none.
+        pub fn ofSome(comptime T: type, b: anytype, vt: *const Entries) ?Self {
+            return of(T, some(b) orelse return null, vt);
+        }
+
+        /// The read view the box lends, `?{Shape}`.
+        pub fn read(self: *const Self) ApiView(Entries, .read, builtins) {
+            return .{ .ptr = self.ptr, .vt = self.vt };
+        }
+
+        /// The write view the box lends, `!{Shape}`.
+        pub fn write(self: *Self) ApiView(Entries, .write, builtins) {
+            return .{ .ptr = self.ptr, .vt = self.vt };
+        }
+
+        /// The hidden value, printed through the table: the checker lets
+        /// only an object whose braces or API name `Print` be printed.
+        pub fn __rig_print(self: *const Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            return self.vt.__rig_print(self.ptr, w);
+        }
+
+        /// `+b`: a new box of a clone of the value, through the table: the
+        /// checker lets only an object whose braces or API name `Clone`
+        /// be cloned.
+        pub fn clone(self: *const Self) Self {
+            return .{ .ptr = self.vt.__rig_clone(self.ptr), .vt = self.vt };
+        }
+
+        pub fn __rig_drop(self: *Self) void {
+            const t = task();
+            if (t.drop_depth >= max_drop_depth) {
+                t.drop_queue.append(std.heap.smp_allocator, .{ .box = self.ptr, .release = self.vt.__rig_drop }) catch oom();
+                return;
+            }
+            t.drop_depth += 1;
+            self.vt.__rig_drop(self.ptr);
+            t.drop_depth -= 1;
+            if (t.drop_depth == 0) drainDropQueue();
+        }
+    };
+}
+
+/// The address a table's entry for a method that consumes self takes: of
+/// the value in a box's allocation, which the entry takes out and frees
+/// (`erasedTake`).
+pub const ErasedOwn = *anyopaque;
+
+/// A table's entry that drops the value of a box and frees its memory
+/// (`dropErased`).
+pub const ErasedDrop = *const fn (*anyopaque) void;
+
+/// A table's entry that clones the value of a box into a new allocation
+/// (`cloneErased`).
+pub const ErasedClone = *const fn (*const anyopaque) *anyopaque;
+
+/// The value of type `T` in a box's allocation at `ptr`, moved out; the
+/// allocation is freed.
+pub inline fn erasedTake(comptime T: type, ptr: *anyopaque) T {
+    const p: *T = @ptrCast(@alignCast(ptr));
+    const v = p.*;
+    destroy(p);
+    return v;
+}
+
+/// The table entry that drops the value of type `T` at `ptr`, a box's,
+/// and frees its memory (`ApiBox.__rig_drop`).
+pub fn dropErased(comptime T: type) ErasedDrop {
+    return &struct {
+        fn drop(ptr: *anyopaque) void {
+            const p: *T = @ptrCast(@alignCast(ptr));
+            dropElement(T, p);
+            destroy(p);
+        }
+    }.drop;
+}
+
+/// The table entry that clones the value of type `T` at `ptr` into a new
+/// allocation (`ApiBox.clone`). A type `cloneValue` cannot clone gets an
+/// entry no checked program reaches: its objects' braces name no `Clone`.
+pub fn cloneErased(comptime T: type) ErasedClone {
+    return &struct {
+        fn clone(ptr: *const anyopaque) *anyopaque {
+            if (comptime !clonesErased(T)) unreachable;
+            const p = create(T);
+            p.* = cloneValue(@as(*const T, @ptrCast(@alignCast(ptr))));
+            return @ptrCast(p);
+        }
+    }.clone;
+}
+
+/// Whether `cloneValue` clones a `T`: what it reaches has no `drop` body
+/// of its own. A box's or a List's elements are taken as cloning, since
+/// they may hold the type they are in.
+fn clonesErased(comptime T: type) bool {
+    @setEvalBranchQuota(eval_quota);
+    if (comptime !needsDrop(T)) return true;
+    if (comptime isOptStruct(T)) return clonesErased(Payload(T));
+    return switch (@typeInfo(T)) {
+        .pointer => true,
+        .optional => |o| clonesErased(o.child),
+        .array => |a| clonesErased(a.child),
+        .@"struct" => |s| blk: {
+            if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box")) break :blk true;
+            if (@hasDecl(T, "__rig_drop")) break :blk false;
+            inline for (s.field_types) |F| if (!clonesErased(F)) break :blk false;
+            break :blk true;
+        },
+        .@"union" => |u| blk: {
+            if (@hasDecl(T, "__rig_drop")) break :blk false;
+            inline for (u.field_types) |F| if (!clonesErased(F)) break :blk false;
+            break :blk true;
+        },
+        else => false,
+    };
+}
 
 /// The address an API object's table entry takes: of a value it reads,
 /// or of one it writes.
@@ -1597,6 +1741,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
         .@"struct" => |s| {
             if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
+            if (comptime @hasDecl(T, "__rig_api_box")) return value.clone();
             if (comptime @hasDecl(T, "__rig_weak")) return value.cloneWeak();
             var out: T = undefined;
             inline for (s.field_names) |f| @field(out, f) = cloneValue(&@field(value, f));
@@ -2685,6 +2830,8 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
             qualifier(T.__rig_name.module, names) ++ spell(T.__rig_name.name, .{}, names)
         else if (@hasDecl(T, "__rig_weak"))
             handleName("~", T.__rig_weak, names)
+        else if (@hasDecl(T, "__rig_api_object"))
+            T.__rig_api_object[0] ++ "{" ++ qualifier(T.__rig_api_object[1].__rig_name.module, names) ++ T.__rig_api_object[1].__rig_name.name ++ T.__rig_api_object[2] ++ "}"
         else if (@hasDecl(T, "__rig_box"))
             handleName("^", @typeInfo(@FieldType(T, "value")).pointer.child, names)
         else if (@hasDecl(T, "__rig_fn"))
@@ -6243,6 +6390,10 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
                 // A Cell many tasks change is read as its `get` reads it,
                 // and printed as any Cell is.
                 if (comptime synchronized(@FieldType(p.child, "value"))) {
+                    // A channel and an actor show nothing of what they
+                    // hold, as a function shows no code.
+                    if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_chan")) return w.writeAll("<chan>");
+                    if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_actor")) return w.writeAll("<actor>");
                     try w.writeAll("Cell(value: ");
                     try writeValue(w, value.value.get(), false);
                     return w.writeAll(")");

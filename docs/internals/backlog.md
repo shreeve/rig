@@ -20,7 +20,10 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   program's own APIs (`api Shape`, `[T: Shape]`, `add Int: Shape`,
   method-level bounds, associated types, `Iter` and std.iter), wants
   its sections, and with them the trim of journeys 03 and 04
-  (docs/internals/journeys.md).
+  (docs/internals/journeys.md). Stage 4's API objects follow them: a
+  section after "Many kinds in one list" that holds a `List[^{Shape}]`
+  of two types, lends `?{Shape}` and `!{Shape}`, and ends a box with
+  `<b.close()`, beside the enum and the object of closures it replaces.
 - Several results, after v1 (SPEC "Several results"):
   - small results in registers: pack results of up to two words of
     integers, `Bool`s, and pointers into a `u128`, which Zig's default

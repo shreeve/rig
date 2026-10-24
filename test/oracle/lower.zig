@@ -303,7 +303,9 @@ fn findFun(node: Sexp, pos: u32) ?Sexp {
             const n = ir.get(node, .name);
             return if (n == .src and n.src.pos == pos) node else null;
         },
-        .module, .zig_extern, .@"pub", .@"struct", .@"enum", .generic_struct, .generic_enum => for (node.items()) |c| {
+        // An API's methods and an addition's (`add Int: Shape`) are found
+        // there: a call through the API reads its declaration's clauses.
+        .module, .zig_extern, .@"pub", .@"struct", .@"enum", .generic_struct, .generic_enum, .api, .api_add => for (node.items()) |c| {
             if (findFun(c, pos)) |f| return f;
         },
         else => {},
