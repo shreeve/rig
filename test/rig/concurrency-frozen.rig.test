@@ -252,3 +252,36 @@ fail "frozen in a generic body only", "`keep[*Cell[Int]]` cannot use `T = *Cell[
     1
 
   print(keep(*Cell(1)))
+
+test "frozen list length is an Int", "9 2 false 1 b"
+  # `.len` read through the handle is an Int wherever it goes: a range, a
+  # binding, a parameter's result, a Map key, and `is_empty()`.
+  fun size(f: *Frozen[List[Int]]) -> Int
+    f.len
+
+  v = List[Int]()
+  !v.push(4)
+  !v.push(5)
+  f = *Frozen(<v)
+  t = 0
+  for i in 0..f.len
+    t += f[i]
+  n = f.len
+  m = Map[Int, Int]()
+  !m.put(f.len, 1)
+  w = List[String]()
+  !w.push(String("a"))
+  !w.push(String("b"))
+  g = *Frozen(<w)
+  print(t, n, f.is_empty(), m.len, g[g.len - 1])
+
+test "frozen list length through a view", "2"
+  fun count(f: ?*Frozen[List[Int]]) -> Int
+    n = f.len
+    n
+
+  v = List[Int]()
+  !v.push(1)
+  !v.push(2)
+  f = *Frozen(<v)
+  print(count(?f))

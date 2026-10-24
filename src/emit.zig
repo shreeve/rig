@@ -6765,8 +6765,8 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, obj_ty);
             return self.w.writeAll(")");
         }
-        // The length of an array or List in a box.
-        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.boxedType(self.facts.unwrapReadAccess(obj_ty.?)) != null and self.hasLen(self.facts.unwrapAccess(obj_ty.?))) {
+        // The length of an array or List behind a shared handle or a box.
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLenReached(obj_ty.?)) {
             try self.w.writeAll("rig.lenOf(");
             try self.emitMemberBase(obj, obj_ty);
             try self.writeReach(obj_ty.?);
@@ -8146,9 +8146,7 @@ pub const Emitter = struct {
 
         // `x.is_empty()` of a built-in length is `x.len == 0`.
         if (callee.isKind(.member) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "is_empty") and ir.Call.args(sexp).len == 0) if (self.typeOf(ir.Member.object(callee))) |t| {
-            if (self.isCellListTy(t) or self.hasLen(t) or self.facts.unwrapAccess(t) == self.facts.types.string_id or
-                (self.facts.boxedType(self.facts.unwrapReadAccess(t)) != null and self.hasLen(self.facts.unwrapAccess(t))))
-            {
+            if (self.isCellListTy(t) or self.hasLen(t) or self.facts.unwrapAccess(t) == self.facts.types.string_id or self.hasLenReached(t)) {
                 try self.w.writeAll("(");
                 try self.emitMemberNamed(callee, "len");
                 return self.w.writeAll(" == 0)");
@@ -9982,6 +9980,13 @@ pub const Emitter = struct {
             .nominal, .parameterized_nominal, .imported_nominal => true,
             else => false,
         };
+    }
+
+    /// Whether member access on `ty` reaches, through shared handles
+    /// (`*T`, `*Frozen[T]`) and boxes, a value `hasLen` holds of: its
+    /// `.len` is read there (`writeReach`).
+    fn hasLenReached(self: *Emitter, ty: TypeId) bool {
+        return self.hasLen(self.facts.unwrapAccess(ty));
     }
 
     fn hasLen(self: *Emitter, ty: TypeId) bool {
