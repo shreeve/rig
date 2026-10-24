@@ -15199,8 +15199,9 @@ const Checker = struct {
                 .place, .part_of_made, .made => {},
                 .lend, .branches, .jump, .none => return false,
             }
-            // A slice held its own temporary, as `?xs[a..b]` does.
-            if (!sliced) try self.lendsToRead(e);
+            // A slice held its own temporary, as `?xs[a..b]` does; a code
+            // lends a constant, which no temporary holds.
+            if (!sliced and !lend.has(.code)) try self.lendsToRead(e);
             if (lend.has(.erase) and !try self.erase(e, actual, from, lend)) return true;
             lend.implicit = true;
             try self.ctx.recordImplicitLend(e);
@@ -15800,10 +15801,14 @@ const Checker = struct {
                 return self.errAt(recv, "type mismatch: expected `{s}`, got `{s}`: `?{s}` reads `{s}` for the call; write `?({s})` to lend the call's result", .{ try self.tyName(expected), try self.tyName(actual), call, self.sourceText(ir.Read.operand(recv)), call });
             }
         }
-        // An error where a view of a union with fields goes: a value of
-        // the union is bound first, and lent.
-        if (self.unionViewed(actual, expected)) |set| {
-            const src = self.sourceText(e);
+        // An error with fields where a view of `error` or of a union goes:
+        // a value of either is bound first, and lent. (A code lends its
+        // error value, `sema.codeLends`.)
+        const any_error = sema.isErrorSet(self.ctx, actual) and self.ctx.types.get(expected) == .read_view and self.ctx.types.get(expected).read_view == self.t().any_error_id;
+        if (self.unionViewed(actual, expected) orelse if (any_error) self.t().any_error_id else null) |set| {
+            // A place whose value moves is moved into the binding.
+            const moved = self.hands(e).kind == .place and sema.moves(self.ctx, actual) == .yes;
+            const src = if (moved) try std.fmt.allocPrint(self.ctx.arena.allocator(), "<{s}", .{self.sourceText(e)}) else self.sourceText(e);
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; bind it first, `k: {s} = {s}`, then lend `?k`", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(set), src });
         }
         // A place where a view of it is expected: the sigil is missing.

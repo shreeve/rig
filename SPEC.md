@@ -10764,7 +10764,11 @@ or a union, to a set. `!` and a failing `return` keep to the set the
 function declares: the callee's set, or the error's, must be inside it,
 and `error` is inside none. No conversion runs at `!`; a union is how a
 function takes in several callees' sets. A function that fails with `A`
-is lent where a `?fun(...) -> T!L` goes when `L` holds `A`. Waiting for
+is lent where a `?fun(...) -> T!L` goes when `L` holds `A`. An error
+of `A` goes where an `L` or `error` goes, and is lent where a view of
+one goes: a member without fields as itself, a constant, and one with
+fields once a binding holds it as the union (`k: L = A.x(n: 1)`, then
+`?k`). Waiting for
 a task also fails with `task.Stop`, so a task's set, and the set of an
 actor's method called through a handle, holds it (`time.sleep` and
 `task.check` declare `!task.Stop`).

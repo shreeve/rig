@@ -636,9 +636,10 @@ fail "sets an optional union with fields compares with its own members", "11:7: 
   p: L? = A.w
   print(p == A.w)
 
-fail "sets a member without fields lent where a union with fields goes", "14:12: type mismatch: expected `?L`, got `B`; bind it first, `k: L = B.y`, then lend `?k`", errors: 1
-  # A value of the union, which carries fields, is made from the code
-  # first; the hint's form checks.
+test "sets a member without fields lent where a union with fields goes", "0 0 0 0 1"
+  # An error of a set without fields is a code: lent where a view of a
+  # set with fields that holds it goes, `error` among them, it lends the
+  # error value of the code, a constant. A view of the code lends it too.
   error A
     x(n: Int)
 
@@ -648,9 +649,78 @@ fail "sets a member without fields lent where a union with fields goes", "14:12:
   error L = A | B
 
   fun code(k: ?L) -> Int
+    match k
+      A.x(n) => n
+      B.y => 0
+
+  fun any(e: ?error) -> Int
+    if e == B.y
+      return 1
+    2
+
+  fun thru(k: ?L) -> ?L
+    k
+
+  b = B.y
+  v = thru(?B.y)
+  print(code(B.y), code(b), code(?b), code(v), any(b))
+
+test "sets a code lent as a key and into an optional view of a union with fields", "2 -1 true\n1 0 1"
+  # A Map of a union with fields finds a code by its error value, and a
+  # `(?L)?` takes a code, `none`, or a view of one.
+  error A
+    x(n: Int)
+
+  error B
+    y
+    z
+
+  error L = A | B
+
+  fun opt(k: (?L)?) -> Int
+    if k as _
+      return 1
     0
 
-  print(code(B.y))
+  m: Map[L, Int] = Map()
+  !m.put(A.x(n: 1), 1)
+  !m.put(B.y, 2)
+  print(m.get(B.y) ?? -1, m.get(B.z) ?? -1, m.has(B.y))
+  b = B.z
+  print(opt(b), opt(none), opt(?b))
+
+fail "sets a member with fields is bound before it is lent as `error`", "10:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = <a`, then lend `?k`", "11:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = A.x(s: String(\"q\"))`, then lend `?k`", errors: 2
+  # As where a view of its union goes; a place that moves is moved
+  # into the binding.
+  error A
+    x(s: String)
+
+  fun any(e: ?error) -> Int
+    2
+
+  a = A.x(s: String("abc"))
+  print(any(a))
+  print(any(A.x(s: String("q"))))
+
+test "sets a view of a code lent on where a union with fields goes", "0"
+  error A
+    x(n: Int)
+
+  error B
+    y
+
+  error L = A | B
+
+  fun code(k: ?L) -> Int
+    match k
+      A.x(n) => n
+      B.y => 0
+
+  fun via(k: ?B) -> Int
+    code(k)
+
+  b = B.y
+  print(via(?b))
 
 test "sets a member bound as its union and lent", "0"
   error A

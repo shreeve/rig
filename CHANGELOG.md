@@ -13,6 +13,13 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A code lent where a view of a union with fields goes:** an error of
+  a set without fields, `B.y` or a binding of one, is lent where a `?L`
+  of `error L = A | B` with fields goes, or a `?error`, as the error
+  value of the code, a constant (`code(B.y)` was "bind it first"). An
+  error with fields where a `?error` goes is told to bind it first, as
+  where a `?L` goes, moving a place that moves (`k: error = <a`); it was
+  told to write `?a`, which is rejected too.
 - **Shared and weak API objects (APIs Stage 5, phase 2):** `*{Shape}`
   is a counted handle to a value of some type that provides `Shape`, and
   `~{Shape}` its weak handle. A `*Square` moves into a `*{Shape}` and
