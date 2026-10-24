@@ -1048,6 +1048,30 @@ is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`,
 `!s.retain(f)` with `f: ?fun(?K) -> Bool`, `clear()`, and
 `?s.items()`, each key a `?K`.
 
+`print` writes a Map as `{"a": 1, "b": 2}` and a Set as `{1, 2}`, `{}`
+when empty: the entries in the order their keys were first put in, each
+key and value as an element of a List prints, text quoted
+([SPEC §17](../SPEC.md#17-printing-and-stopping)). `String(m)` writes
+the same text.
+
+```rig
+sub main()
+  ages = Map[String, Int]()
+  !ages.put(String("ada"), 36)
+  !ages.put(String("bo"), 5)
+  !ages.put(String("cy"), 2)
+  _ = !ages.take("bo")
+  seen = Set[String]()
+  _ = !seen.add(String("x"))
+  print(ages, seen, Map[Int, Int]())
+  print(String("ages: ", ages))
+```
+
+```output
+{"ada": 36, "cy": 2} {"x"} {}
+ages: {"ada": 36, "cy": 2}
+```
+
 `ensure` takes the value to put even when the key is there, and drops
 it then. To make an expensive value only for a new key, use
 `ensure_with`, whose `make` runs only then; `edit` first and `put` when

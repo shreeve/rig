@@ -11826,6 +11826,7 @@ may hide either. `panic` is a keyword.
 | error | `Disk.timeout`: its set and its name, without the module |
 | object | `User(name: "ada", age: 36)`: every field, in order |
 | array, slice, `List` | `[1, 2]` |
+| `Map`, `Set` | `{"a": 1, "b": 2}`, `{1, 2}`: the entries in the order their keys were first put in, each key and value as an element of a List; `{}` when empty |
 | shared handle | the value it holds |
 | `^T` | the value it holds |
 | `Cell`, `Signal` | `Cell(value: 5)`, `Signal(value: 5)` |
@@ -11870,6 +11871,13 @@ sub main()
   print(h, w, b, *Cell(5))
   print("say \"hi\"", ["say \"hi\"\n", "tab\t"])
   print(0.1 + 0.2, 1e20, 1e21, 0.000001, 1e-7, Float.inf())
+  m = Map[String, Int]()
+  !m.put(String("a"), 1)
+  !m.put(String("b"), 2)
+  s = Set[Int]()
+  _ = !s.add(1)
+  _ = !s.add(2)
+  print(m, s, Set[Int]())
 ```
 
 ```output
@@ -11878,6 +11886,7 @@ User(name: "ada", age: 36) none ["a", "b"] 2.5 2.0
 User(name: "bob", age: 1) ~(alive) User(name: "cy", age: 2) Cell(value: 5)
 say "hi" ["say \"hi\"\n", "tab\t"]
 0.30000000000000004 100000000000000000000.0 1e21 0.000001 1e-7 inf
+{"a": 1, "b": 2} {1, 2} {}
 ```
 
 ### Output
