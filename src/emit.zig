@@ -754,8 +754,11 @@ pub const Emitter = struct {
 
     fn emitTypeAlias(self: *Emitter, node: Sexp) Error!void {
         const name = ir.Type.name(node);
+        const ty = try self.declType(name);
+        // An alias of an API object's type names it for `$name` alone.
+        if (self.facts.mentionsObject(ty)) return;
         try self.w.print("pub const {f} = ", .{ident(self.srcText(name))});
-        try self.emitTypeTy(try self.declType(name));
+        try self.emitTypeTy(ty);
         try self.w.writeAll(";\n");
     }
 

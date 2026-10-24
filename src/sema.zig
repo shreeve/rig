@@ -432,7 +432,165 @@ pub const Type = union(enum) {
     /// way a `type_var` stands for a type: `n` in `[n]T` inside `fun
     /// f[n: Int]` or `obj Ring[T, n: Int]`.
     ct_param: SymbolId,
+    /// `{Shape}`: an API object, a value of some type that provides an
+    /// API of a program's own, its type erased (docs/design/apis.md,
+    /// Stage 4). It has no size of its own, so it stands only behind a
+    /// view or a box, `?{Shape}`, `!{Shape}`, `^{Shape}` (`misplaced`).
+    api_object: ApiObject,
 };
+
+/// What an API object's braces name: one API of a program's own, and
+/// beside it only the built-in APIs an object serves itself, `Owned`,
+/// `Print`, and `Clone`. Its type hidden, it may hold anything, so it
+/// meets no other bound (`objectMeets`).
+pub const ApiObject = struct {
+    api: ApiRef,
+    builtins: Apis = .empty,
+};
+
+/// Whether API `sym` declares an associated type, `type Item`: a hidden
+/// parameter after its `Self`.
+pub fn declaresAssoc(sym: Symbol) bool {
+    const params = sym.type_params orelse return false;
+    return params.len > 1;
+}
+
+/// The braces of an API object as Rig writes them: `{Shape}`,
+/// `{geo.Shape + Owned + Print}`, its API first and the built-in APIs
+/// after it in one order, so one type has one spelling.
+pub fn objectSpelling(ctx: *const SemContext, a: std.mem.Allocator, o: ApiObject) std.mem.Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    try out.print(a, "{{{s}", .{try apiName(ctx, o.api)});
+    var it = o.builtins.iterator();
+    while (it.next()) |b| try out.print(a, " + {s}", .{@tagName(b)});
+    try out.append(a, '}');
+    return out.items;
+}
+
+/// The API object `ty` is, bare: `{Shape}`, which has no size of its own
+/// (docs/design/apis.md, Stage 4). Null for any other type.
+pub fn apiObject(ctx: *const SemContext, ty: TypeId) ?ApiObject {
+    if (!ctx.typeInfo(ty).object) return null;
+    return switch (ctx.types.get(ty)) {
+        .api_object => |o| o,
+        else => null,
+    };
+}
+
+/// How a value holds the API object it holds directly: `?{Shape}`,
+/// `!{Shape}`, or `^{Shape}`.
+pub const ObjectForm = enum { read, write, box };
+
+/// The API object `ty` holds directly, and how: a read view, a write
+/// view, or a box of one. Null for any other type, an optional of one
+/// included.
+pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObject, form: ObjectForm } {
+    if (!ctx.typeInfo(ty).object) return null;
+    const inner, const form: ObjectForm = switch (ctx.types.get(ty)) {
+        .read_view => |v| .{ v, .read },
+        .write_view => |v| .{ v, .write },
+        else => .{ boxedType(ctx, ty) orelse return null, .box },
+    };
+    const o = apiObject(ctx, inner) orelse return null;
+    return .{ .object = o, .form = form };
+}
+
+/// Why a call through an API object cannot reach a method of its API
+/// (docs/design/apis.md, Stage 4): the call would pass what a table's
+/// entry, one function for every type erased to it, cannot.
+pub const LeftOut = union(enum) {
+    /// Compile-time parameters of its own, types or values, which each
+    /// call passes.
+    ct_params,
+    /// A set parameter of its own, `fun each[E](...)`, by name.
+    set_param: []const u8,
+    /// `Self` anywhere but self, `?Self` or `-> Self`, which only the
+    /// hidden type could give.
+    self_type,
+};
+
+/// A method of an API object's API, or of an API it builds on, as a
+/// call through the object reaches it (`objectMethods`).
+pub const ObjectMethod = struct {
+    /// The API that declares it, and its declaration there.
+    api: ApiRef,
+    field: Field,
+    /// Its entry in the object's table, in `objectMethods`' order; null
+    /// for one left out.
+    slot: ?u32,
+    /// Why a call through an object cannot reach it; null when it can.
+    left_out: ?LeftOut,
+};
+
+/// Every method of API `api` and those it builds on, defaults included,
+/// in table order: each API's own after those of the APIs it builds on,
+/// each API once, its methods as declared. The one decider of what a
+/// call through an API object reaches, and in which slot; a method left
+/// out says why, and the rest still form objects (docs/design/apis.md,
+/// Stage 4).
+pub fn objectMethods(ctx: *const SemContext, a: std.mem.Allocator, api: ApiRef) std.mem.Allocator.Error![]const ObjectMethod {
+    var order: std.ArrayList(ApiRef) = .empty;
+    try objectApiOrder(ctx, a, api, &order, 0);
+    var out: std.ArrayList(ObjectMethod) = .empty;
+    var slot: u32 = 0;
+    for (order.items) |ref| {
+        const home = apiContext(ctx, ref) orelse continue;
+        const sym = apiSymbol(ctx, ref) orelse continue;
+        const self_sym = (sym.type_params orelse continue)[0];
+        for (sym.fields orelse &.{}) |f| {
+            if (!f.is_method) continue;
+            const why = methodLeftOut(home, f, self_sym);
+            try out.append(a, .{ .api = ref, .field = f, .slot = if (why == null) slot else null, .left_out = why });
+            if (why == null) slot += 1;
+        }
+    }
+    return out.items;
+}
+
+/// `ref` after every API it builds on, each once (a cycle stops where it
+/// closes; `checkApis` reports it).
+fn objectApiOrder(ctx: *const SemContext, a: std.mem.Allocator, ref: ApiRef, out: *std.ArrayList(ApiRef), depth: u32) std.mem.Allocator.Error!void {
+    for (out.items) |o| if (o.eql(ref)) return;
+    if (depth > 64) return;
+    const sym = apiSymbol(ctx, ref) orelse return;
+    for (sym.user_apis) |s| try objectApiOrder(ctx, a, s, out, depth + 1);
+    for (out.items) |o| if (o.eql(ref)) return;
+    try out.append(a, ref);
+}
+
+/// Why a call through an object cannot reach API method `f`, declared in
+/// `home` with hidden `Self` `self_sym`; null when it can.
+fn methodLeftOut(home: *const SemContext, f: Field, self_sym: SymbolId) ?LeftOut {
+    const fn_ty = switch (home.types.get(f.ty)) {
+        .function => |fun| fun,
+        else => return null,
+    };
+    for (fn_ty.ct_syms) |p| {
+        if (p != symbol_invalid and home.symbols.items[p].flags.set_param) return .{ .set_param = home.symbols.items[p].name };
+    }
+    if (fn_ty.ct_params.len > 0) return .ct_params;
+    const params = if (f.receiver == .none) fn_ty.params else fn_ty.params[@min(1, fn_ty.params.len)..];
+    for (params) |p| if (namesTypeVar(home, p, self_sym, 0)) return .self_type;
+    if (namesTypeVar(home, fn_ty.returns, self_sym, 0)) return .self_type;
+    return null;
+}
+
+/// Whether `ty` names type parameter `sym` anywhere in its structure.
+fn namesTypeVar(ctx: *const SemContext, ty: TypeId, sym: SymbolId, depth: u32) bool {
+    if (depth > max_alias_height or !ctx.typeInfo(ty).has_type_var) return false;
+    const t = ctx.types.get(ty);
+    if (t == .type_var and t.type_var == sym) return true;
+    var it: TypeChildren = .{ .ty = t };
+    while (it.next()) |c| if (namesTypeVar(ctx, c, sym, depth + 1)) return true;
+    return false;
+}
+
+/// Whether `ty` is or mentions an API object anywhere: `?{Shape}`,
+/// `List[^{Shape}]`, `fun(?{Shape}) -> Int`. A declared type's fields
+/// are its own declarations, checked where they are written.
+pub fn mentionsObject(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.typeInfo(ty).object;
+}
 
 /// `T!E`: a value `ok`, or a failure with an error of `set`, a declared
 /// error set or a union of sets; `T!`'s set is `error`, any error.
@@ -2955,6 +3113,10 @@ pub const SemContext = struct {
     types: TypeStore,
     /// Facts of each interned type, by TypeId.
     type_info: std.ArrayList(TypeInfo) = .empty,
+    /// Where among `diagnostics` a value holding an API object was
+    /// reported as not built yet (`objectUnbuilt`); a report a quiet
+    /// check took back no longer counts (`objectRejected`).
+    object_unbuilt_at: ?usize = null,
     /// Every declared type's `contents` is known, and so are the
     /// ownership facts in `type_info`.
     contents_ready: bool = false,
@@ -3741,8 +3903,17 @@ pub const SemContext = struct {
         try self.byte_literals.append(self.allocator, .{ .pos = pos, .bytes = bytes, .array = array });
     }
 
+    /// The type `$name` names at `node` where no value of it is made: an
+    /// API object's (`Checker.builtinTypeArg`).
+    pub fn recordNamedType(self: *SemContext, node: Sexp, ty: TypeId) !void {
+        try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
+    }
+
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
         try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
+        // No value holding an API object is lowered yet: a program that
+        // makes one without declaring its type is rejected here.
+        if (mentionsObject(self, ty) and !objectRejected(self)) try objectUnbuilt(self, self.startOf(node), ty);
         // An element read copies its value, or is reached where it is,
         // as its type says (`copiesElem`), decided with the type.
         if (node.isKind(.index)) {
@@ -5447,9 +5618,11 @@ pub const Views = packed struct(u4) {
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u29) {
+pub const TypeInfo = packed struct(u30) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
+    /// Is or mentions an API object anywhere, `{Shape}` (`mentionsObject`).
+    object: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
     /// depends on the instantiation.
     holds_type_var: bool = false,
@@ -5615,6 +5788,9 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
             break :blk .{ .type_var = h.type_var, .vector = h.vector };
         },
         .shared, .weak => .{ .glue = true },
+        // An API object's type is erased, so it may hold anything, and
+        // its drop runs through its table (docs/design/apis.md, Stage 4).
+        .api_object => .{ .glue = true },
         .nominal, .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk .{};
             const c = contentsOf(decl.ctx, decl.sym);
@@ -5759,6 +5935,10 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         .write_view => |inner| (Reach{ .views = .{ .marked = true, .write = true } }).with(try reachOf(ctx, inner, mask.within(Reach.string_only), into)),
         .string_view => .{ .views = .{ .string_view = true } },
         .string => .{ .views = .{ .string = true } },
+        // An API object may hold anything its erased type held: a view,
+        // text, a Cell, a unique value. No type holds a write view but
+        // a write view itself.
+        .api_object => .{ .cell = true, .unique = true, .views = .{ .marked = true, .string_view = true, .string = true } },
         .optional => |inner| return reachOf(ctx, inner, mask, into),
         .fallible => |inner| return reachOf(ctx, inner.ok, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
@@ -5818,13 +5998,14 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
 /// were interned before it.
 fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInfo {
     const ty = ctx.types.get(id);
-    var info: TypeInfo = .{ .has_type_var = ty == .type_var or ty == .ct_param, .poison = ty == .invalid or ty == .unknown };
+    var info: TypeInfo = .{ .has_type_var = ty == .type_var or ty == .ct_param, .object = ty == .api_object, .poison = ty == .invalid or ty == .unknown };
     var deepest: ?u8 = null;
     var highest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
         const ci = ctx.type_info.items[c];
         info.has_type_var = info.has_type_var or ci.has_type_var;
+        info.object = info.object or ci.object;
         info.poison = info.poison or ci.poison;
         deepest = @max(deepest orelse 0, ci.depth);
         highest = @max(highest orelse 0, ci.height);
@@ -7140,6 +7321,10 @@ pub const Lack = struct {
 /// lacks nothing here.
 pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?Lack {
     if (containsPoison(ctx, ty)) return null;
+    if (mentionsObject(ctx, ty)) {
+        if (apiObject(ctx, ty) != null) return .{ .ty = ty };
+        if (objectHeld(ctx, ty)) |h| return if (objectMeets(ctx, h.object, h.form, api)) null else .{ .ty = ty };
+    }
     switch (ctx.types.get(ty)) {
         .type_var => |sym| return boundLack(ctx, ty, sym, api),
         else => {},
@@ -7195,6 +7380,26 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
             };
         },
     }
+}
+
+/// Whether an API object held as `form` meets built-in API `api`
+/// (docs/design/apis.md, Stage 4): a read view copies, as any read view
+/// does, so it clones too; `Print` where its braces name it or its API
+/// builds on it, and `Clone` so for a box, the one form whose `+` makes a
+/// new owner of the value; `Owned`
+/// for a box whose braces name it, checked where the type is erased.
+/// Nothing else: two objects may hide two types, which `==`, hashing,
+/// and `<` cannot compare, and an erased type crosses no task until
+/// Stage 5. A bare object meets nothing (`lacks`).
+pub fn objectMeets(ctx: *const SemContext, o: ApiObject, form: ObjectForm, api: Api) bool {
+    const named = o.builtins.unionWith(builtInSupers(ctx, &.{o.api}) catch .empty);
+    return switch (api) {
+        .Copy => form == .read,
+        .Print => named.contains(.Print),
+        .Clone => form == .read or (form == .box and named.contains(.Clone)),
+        .Owned => form == .box and o.builtins.contains(.Owned),
+        .Eq, .Hash, .Ord, .Num, .Integer, .Signed, .Sends, .Syncs, .Iter => false,
+    };
 }
 
 /// Parameters `params` at `args`, followed by each associated type made
@@ -7432,6 +7637,9 @@ pub fn provides(ctx: *SemContext, ty: TypeId, api: ApiRef) std.mem.Allocator.Err
 
 fn providesAt(ctx: *SemContext, ty: TypeId, api: ApiRef, depth: u32) std.mem.Allocator.Error!?Provision {
     if (depth > 32) return null;
+    // An API object, or a view or box of one, meets no bound by an API:
+    // a box is not its value (docs/design/apis.md, Stage 4).
+    if (apiObject(ctx, ty) != null or objectHeld(ctx, ty) != null) return null;
     var scratch = std.heap.ArenaAllocator.init(ctx.allocator);
     defer scratch.deinit();
     const a = scratch.allocator();
@@ -8847,10 +9055,15 @@ pub const Home = enum {
 };
 
 /// What may not stand where `misplaced` says.
-pub const Misplaced = enum { cell, write_view };
+pub const Misplaced = enum { cell, write_view, unsized };
 
-/// The one decider of where a Cell and a write view may stand (Core §1),
-/// by a positive list of homes:
+/// The one decider of where a Cell, a write view, and an API object may
+/// stand (Core §1), by a positive list of homes:
+/// - An API object, `{Shape}`, has no size of its own: it stands only
+///   behind a view (`.viewed`) or a box (`^{Shape}`, which holds it
+///   through its allocation), never as a value's, an element's, or a
+///   type argument's type, written or inferred (docs/design/apis.md,
+///   Stage 4).
 /// - A value that holds a Cell by value lives only behind a shared
 ///   handle: such a type stands in a field (of a value itself so held),
 ///   behind `*` or `~`, or behind a view. A type that holds one through
@@ -8861,6 +9074,7 @@ pub const Misplaced = enum { cell, write_view };
 /// Null where `ty` may stand at `home`. The Cell rule needs what every
 /// type holds (`SemContext.contents_ready`).
 pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
+    if (unsizedAt(ctx, ty, home)) return .unsized;
     if (writeViewMisplaced(ctx, ty, home)) return .write_view;
     switch (home) {
         .field, .handle, .viewed => {},
@@ -8868,6 +9082,14 @@ pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
         .signature, .binding, .element, .optional => if (holdsOwnCell(ctx, ty)) return .cell,
     }
     return null;
+}
+
+/// Whether `ty` is a bare API object, `{Shape}`, which has no size of its
+/// own, at a home other than behind a view (`Misplaced.unsized`).
+/// Decided by the type's structure alone, so a type is rejected where it
+/// is written, before what types hold is known.
+pub fn unsizedAt(ctx: *const SemContext, ty: TypeId, home: Home) bool {
+    return home != .viewed and apiObject(ctx, ty) != null;
 }
 
 /// Whether `ty`, a write view or a value that holds one anywhere
@@ -8927,6 +9149,41 @@ fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
 /// The diagnostics of `misplaced`: a Cell's formatted with the type
 /// twice, a write view's once.
 pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
+/// A bare API object where a value's type goes (`Misplaced.unsized`).
+pub const object_unsized = "`{s}` has no size of its own: hold it behind a view or a box, `?{s}`, `!{s}`, or `^{s}`";
+
+/// A bare API object as an instance's type argument, inferred or
+/// written (`Misplaced.unsized`): no value has its type, so a generic
+/// body would write a value of one type where another lives.
+pub const object_unsized_arg = "`{s}` has no size of its own, so it is no type argument, written or inferred";
+
+/// What phase 1 of Stage 4 does not lower yet: any value that holds an
+/// API object. Reported where such a type is declared, where an
+/// instance takes one, and, for a program with no such declaration, at
+/// the first expression of such a type (`SemContext.recordType`).
+pub fn objectUnbuilt(ctx: *SemContext, pos: u32, ty: TypeId) std.mem.Allocator.Error!void {
+    const shown = try formatType(ctx, ty);
+    const how = if (apiObject(ctx, ty) != null or objectHeld(ctx, ty) != null) "is" else "holds";
+    try objectUnbuiltError(ctx, pos, "`{s}` {s} an API object, which is not built yet (docs/design/apis.md, Stage 4)", .{ shown, how });
+}
+
+/// An error that a form holding an API object is not built yet,
+/// remembered so that `recordType` reports none after it.
+pub fn objectUnbuiltError(ctx: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+    const at = ctx.diagnostics.items.len;
+    try ctx.err(pos, fmt, args);
+    if (ctx.diagnostics.items.len > at) ctx.object_unbuilt_at = at;
+}
+
+/// Whether a report of `objectUnbuiltError` still stands, so the module
+/// is rejected: an error remains where it was recorded.
+pub fn objectRejected(ctx: *const SemContext) bool {
+    const at = ctx.object_unbuilt_at orelse return false;
+    if (at >= ctx.diagnostics.items.len) return false;
+    const d = ctx.diagnostics.items[at];
+    return d.severity == .@"error" and !d.lint;
+}
+
 pub const write_view_misplaced = "a write view is never stored inside a value, and `{s}` cannot stand here: `!T` is only a parameter's, `self`'s, a result's, or a binding's type, also as `(!T)?`; hold the value itself, or pass `!x` to each call that changes it";
 
 /// Whether a value of `ty` can hold a marked view (see `Views`). A generic
@@ -9086,6 +9343,9 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // captures, which its type does not show.
         .function => null,
         .callable => here,
+        // An API object's erased type may hold anything; it crosses no
+        // task until Stage 5 names crossing in its braces.
+        .api_object => here,
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
         .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, seen),
         .optional, .range => |inner| blockerIn(ctx, inner, how, local, seen),
@@ -10192,6 +10452,9 @@ fn runsDropBody(ctx: *const SemContext, ty: TypeId, path: ?*const SymPath) bool 
         .array => |a| runsDropBody(ctx, a.elem, path),
         .imported_nominal => typeHasDropGlue(ctx, ty),
         .nominal => |sid| fieldsRunDropBody(ctx, sid, path),
+        // An API object's value may have a `drop` body, which may read
+        // its loans (docs/design/apis.md, Stage 4).
+        .api_object => true,
         .parameterized_nominal => |pn| blk: {
             // A task's drop waits for its call, which uses the loans the
             // task keeps (CORE sentence 6).
@@ -10604,6 +10867,8 @@ pub fn importType(
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
         .invalid, .unknown, .void, .bool, .string_view, .string, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
+        // An API is named by its home module and symbol in every module.
+        .api_object => return local_ctx.intern(ty),
         inline .optional, .read_view, .write_view, .shared, .weak, .range, .callable, .slot => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
@@ -11230,6 +11495,7 @@ const TypePrinter = struct {
                 break :blk try p.a.print("{s}{s}", .{ base, try p.id(f.set) });
             },
             .read_view => |inner| try a.print("?{s}", .{try p.id(inner)}),
+            .api_object => |o| try objectSpelling(ctx, a, o),
             .callable => |f| try p.id(f),
             .write_view => |inner| try a.print("!{s}", .{try p.id(inner)}),
             .shared => |inner| try p.handle(inner, '*'),
@@ -12282,7 +12548,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // `>t`, `f: once T`, and `a..=b`, which the Parser wrapper rewrites first.
         .wait, .once, .@"..=" => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed, .task, .inclusive => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,
         .read, .write => .lend,
         .member, .index => .path,

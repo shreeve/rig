@@ -165,8 +165,12 @@ APIs, `api Shape` ([docs/design/apis.md](docs/design/apis.md)), are
 built in stages. Stage 1, method calls on a type parameter, and Stage 2,
 built-in bounds (`[T: Ord]`, `obj Version: Ord`, a type's own `eq`,
 `hash_into`, `order`, and `print`), are on `main`, and Stage 3's phases 1
-to 4 with them; Stage 4 is in progress (phase 0, its Core text,
-done), and Stage 5 waits for a program that needs it; a design question is answered from the
+to 4 with them. Stage 4, API objects, is built in phases (phase 0, its Core text, done), each landed
+after the suite and Trig's light gate: phase 1, the types and their
+rules, is built
+([phase1-notes.md](docs/history/records/2026-10/apis-stage4/phase1-notes.md)),
+and a value holding an object waits for phase 2. Stage 5 waits for a
+program that needs it; a design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.
 

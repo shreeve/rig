@@ -182,6 +182,8 @@ tokens
     rparen          # )
     lbracket        # [
     rbracket        # ]
+    lbrace          # {   only in a type: an API object, `?{Shape}`
+    rbrace          # }
     comma           # ,
     colon           # :
     arrow           # ->
@@ -307,6 +309,8 @@ tokens
 ')'                                         → rparen
 '['                                         → lbracket
 ']'                                         → rbracket
+'{'                                         → lbrace
+'}'                                         → rbrace
 ','                                         → comma
 ':'                                         → colon
 '.'                                         → dot
@@ -501,6 +505,7 @@ tokens
     array_type                  size type
     fun_type                    params:group? returns? fails?
     results_type                ...types         # `-> (Int, Int)`: a function's results
+    api_object                  ...apis          # `{Shape + Print}`: a value of some type that provides the APIs
 
 @display
     # Tokens by what they read as in a message; every keyword and
@@ -526,7 +531,7 @@ tokens
     "+%=": "`+%=`", "-%=": "`-%=`", "*%=": "`*%=`", "+%": "`+%`", "-%": "`-%`", "*%": "`*%`"
     "+|=": "`+|=`", "-|=": "`-|=`", "+|": "`+|`", "-|": "`-|`"
     ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
-    "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "..=": "`..=`", "=>": "`=>`", "~": "`~`"
+    "]": "`]`", "{": "`{`", "}": "`}`", ",": "`,`", ".": "`.`", "..": "`..`", "..=": "`..=`", "=>": "`=>`", "~": "`~`"
     "$": "`$`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`", "<<%": "`<<%`"
     ">>": "`>>`", "+": "`+`", "-": "`-`", "*": "`*`", "/": "`/`", "%": "`%`"
@@ -609,7 +614,7 @@ tokens
     operator            "+" "-" "*" "/" "%" "+%" "-%" "*%" "+|" "-|" "==" "!=" "<" ">" "<=" ">="
                         "!" "?" "??" "|" "&" "^" "~" "<<" "<<%" ">>" "=" "=!" "+=" "-=" "*=" "/=" "%="
                         "&=" "|=" "^=" "<<=" "<<%=" ">>=" "+%=" "-%=" "*%=" "+|=" "-|=" "->" "=>"
-    punctuation         "(" ")" "[" "]" "," ":" "." ".." "..="
+    punctuation         "(" ")" "[" "]" "{" "}" "," ":" "." ".." "..="
 
 # `unique`, `from`, `static` and `keeps` lex as names, and the parser
 # reads one as a keyword where its state takes the keyword: `unique` after
@@ -955,6 +960,16 @@ tatom    = tname
          | "(" type ")"                             → 2
          | "(" type "," rtypes ![","] ")"           → (results_type 2 ...4)
          | "(" rnamed ![","] ")"                    → (results_type ...2)
+         | "{" oapis "}"                            → (api_object ...2)
+
+# The APIs an API object's braces name, joined with `+`: `{Shape}`,
+# `{Shape + Print}`, `{Source[Item: Int]}`. Braces stand only in a
+# type; anywhere else a brace is unexpected ("Rig has no braces").
+oapis    = oapi                                     → (1)
+         | oapis "+" oapi                           → (...1 3)
+
+oapi     = tname
+         | ccall
 
 # A function's results, `-> (Int, Int)`, after the first. Named results,
 # `(q: Int, r: Int)`, parse so that the checker can reject them.

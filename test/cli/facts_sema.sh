@@ -93,6 +93,19 @@ expect_has "$out" 'dispatch call 18:9-18:17 "s.area()" direct' "a type's own met
 expect_has "$out" 'dispatch call 18:19-18:28 "s.twice()" static __rig_impl_Shape_Square(Square) Shape.twice' "a default on a provider"
 expect_has "$out" 'generic_calls call 18:30-18:39 "total(?s)" Square witness __rig_impl_Shape_Square(Square)' "a witness among a call's compile-time arguments"
 
+# An API object's type as `$name` names it, spelled as Rig writes it.
+cat >object.rig <<'EOF2'
+api Shape
+  fun area(?@) -> Float
+
+type Shown = ?{Shape + Print}
+
+sub main()
+  print($name(Shown))
+EOF2
+"$RIG" check --facts=sema object.rig >object.txt 2>err.txt || fail "rig check --facts=sema object.rig: $(cat err.txt)"
+expect_has "$(cat object.txt)" 'types leaf 7:15-7:20 "Shown" ?{Shape + Print}' "an API object's type"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)

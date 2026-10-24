@@ -59,6 +59,10 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [prefault-benches.log](2026-10/allocator-g9/prefault-benches.log)
 - [scale-e.txt](2026-10/allocator-g9/scale-e.txt)
 
+### 2026-10/apis-stage4/
+
+- [phase1-notes.md](2026-10/apis-stage4/phase1-notes.md): Stage 4's phase 1 as built (API object types and their rules), its decisions beyond the design, what later phases take, and the Trig comparison
+
 ### 2026-10/apis-stage3/
 
 - [build-plan.md](2026-10/apis-stage3/build-plan.md): where Stages 1 and 2 live, where each Stage 3 piece goes, six phases with their cases, risks, and sizes; the count of `pub` generics needing bounds

@@ -12282,7 +12282,10 @@ const Checker = struct {
         // `x.f[i](args)` where `f` is a field: its element is called. A
         // type parameter's value has no fields, and its methods take
         // compile-time arguments through a bound (`typeParamCall`).
-        if (ct != null and resolved_method == null and self.ctx.types.get(sema.unwrapAccess(self.ctx, obj_ty)) != .type_var) {
+        if (ct != null and resolved_method == null and switch (self.ctx.types.get(sema.unwrapAccess(self.ctx, obj_ty))) {
+            .type_var, .api_object => false,
+            else => true,
+        }) {
             const field_ty = try self.memberOf(callee, obj, obj_ty);
             try self.ctx.recordType(callee, field_ty);
             const elem_ty = try self.indexInto(ct.?, field_ty);
@@ -12312,6 +12315,7 @@ const Checker = struct {
         switch (self.ctx.types.get(peeled)) {
             .optional => return self.badCall(args, pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) }),
             .type_var => |param| return self.typeParamCall(callee, obj, obj_ty, peeled, param, method, pos, args, ct),
+            .api_object => |o| return self.objectCall(obj, obj_ty, o, null, method, pos, args),
             else => {},
         }
 
@@ -12659,6 +12663,38 @@ const Checker = struct {
         return returns;
     }
 
+    /// `s.area()` through an API object, `s` a `?{Shape}`, `!{Shape}`, or
+    /// `^{Shape}` (docs/design/apis.md, Stage 4): the method is one the
+    /// object reaches (`sema.objectMethods`), and one left out is
+    /// reported with why, to be called through a bound. A call through
+    /// an object is not lowered yet, so each that reaches its method is
+    /// reported as not built.
+    fn objectCall(self: *Checker, obj: Sexp, obj_ty: TypeId, o: sema.ApiObject, named: ?sema.ApiRef, method: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
+        const a = self.ctx.arena.allocator();
+        const form = try self.tyName(obj_ty);
+        const api = try sema.apiName(self.ctx, o.api);
+        var found: std.ArrayList(sema.ObjectMethod) = .empty;
+        for (try sema.objectMethods(self.ctx, a, o.api)) |m| {
+            if (named) |r| if (!r.eql(m.api)) continue;
+            if (std.mem.eql(u8, m.field.name, method)) try found.append(a, m);
+        }
+        if (found.items.len == 0) return self.badCall(args, pos, "`{s}` has no method `{s}`: a call through it reaches the methods of `{s}` and the APIs it builds on", .{ form, method, api });
+        if (found.items.len > 1) {
+            const one = try sema.apiName(self.ctx, found.items[0].api);
+            const two = try sema.apiName(self.ctx, found.items[1].api);
+            return self.badCall(args, pos, "`{s}` could call `{s}.{s}` or `{s}.{s}`, which both apply to `{s}`; name the API: `{s}.{s}({s})`", .{ self.sourceText(self.current_call orelse obj), one, method, two, method, form, one, method, self.sourceText(obj) });
+        }
+        const m = found.items[0];
+        const declarer = try sema.apiName(self.ctx, m.api);
+        if (m.left_out) |why| return switch (why) {
+            .ct_params => self.badCall(args, pos, "`{s}.{s}` takes compile-time parameters, which a call through `{s}` cannot pass: call it through a bound, `[T: {s}]`", .{ declarer, method, form, api }),
+            .set_param => |e| self.badCall(args, pos, "`{s}.{s}` takes a set parameter, `{s}`, which a call through `{s}` cannot pass: call it through a bound, `[T: {s}]`", .{ declarer, method, e, form, api }),
+            .self_type => self.badCall(args, pos, "`{s}.{s}` names `Self` outside self, which a call through `{s}` cannot know: call it through a bound, `[T: {s}]`", .{ declarer, method, form, api }),
+        };
+        try sema.objectUnbuiltError(self.ctx, pos, "`{s}` calls through `{s}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", .{ self.sourceText(self.current_call orelse obj), form });
+        return self.skipCall(args);
+    }
+
     /// `(!it).next()` on an `I` bounded by `Iter`: `fun next(!@) ->
     /// I.Item?`, the shape `sema.iterItem` asks of each instance's type,
     /// whose `next` Zig finds on the value (`Dispatch.direct`).
@@ -12835,6 +12871,13 @@ const Checker = struct {
         if (args.len == 0 or args[0].isKind(.kwarg)) return self.badCall(args, pos, "`{s}.{s}` takes self first: `{s}.{s}(x)`", .{ api_text, method, api_text, method });
         const recv_ty = try self.argType(stripSigil(args[0]));
         if (self.isPoison(recv_ty)) return self.skipCall(args);
+        // `Shape.area(s)` of an API object `s` whose API is or builds on
+        // `Shape`: a call through the object.
+        if (sema.objectHeld(self.ctx, recv_ty)) |h| {
+            for (try sema.apiClosure(self.ctx, self.ctx.arena.allocator(), h.object.api)) |c| {
+                if (c.eql(m.api)) return self.objectCall(args[0], recv_ty, h.object, m.api, method, pos, args[1..]);
+            }
+        }
         const value = sema.unwrapViews(self.ctx, recv_ty);
         const witness = (try sema.witnessFor(self.ctx, value, m.api)) orelse {
             const name = try sema.apiName(self.ctx, m.api);
@@ -14695,6 +14738,11 @@ const Checker = struct {
         if (compatible(self.ctx, actual, expected)) {
             try self.recordAdapted(e, actual, expected);
             return;
+        }
+        // A value erased to an API object: not lowered yet (Stage 4,
+        // phase 1).
+        if (sema.mentionsObject(self.ctx, expected) and !self.isPoison(actual)) {
+            return sema.objectUnbuiltError(self.ctx, self.startOf(e), "`{s}` would become a `{s}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", .{ self.sourceText(e), try self.tyName(expected) });
         }
         // Failing is written: an error value meets a `T!` only as the
         // operand of `return`.
@@ -17246,6 +17294,16 @@ const Checker = struct {
         // Written as in an expression: `List[Int]`, `?Point`, `Int?`.
         const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
+        // An API object's type is named, `$name(?{Shape})`, as no value
+        // of it is made; its size is its lowering's, not built yet.
+        if (sema.mentionsObject(self.ctx, ty)) {
+            if (!std.mem.eql(u8, name, "name")) {
+                try sema.objectUnbuilt(self.ctx, self.startOf(a), ty);
+                return false;
+            }
+            try self.ctx.recordNamedType(a, ty);
+            return true;
+        }
         try self.ctx.recordType(a, ty);
         try self.requireNamed(name, ty, a);
         // A vector's size and alignment are the target's, so Rig gives
@@ -18440,6 +18498,7 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!boo
         switch (why) {
             .cell => try ctx.err(site, sema.cell_misplaced, .{ shown, shown }),
             .write_view => try ctx.err(site, sema.write_view_misplaced, .{shown}),
+            .unsized => try ctx.err(site, sema.object_unsized_arg, .{shown}),
         }
         return true;
     }
@@ -18474,6 +18533,8 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             else => continue,
         };
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        // A box holds an API object through its allocation, `^{Shape}`.
+        if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and sema.apiObject(ctx, pn.args[0]) != null) continue;
         if (try misplacedArgs(ctx, pn.args, entry.value_ptr.*)) continue;
         const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
         if (!try sema.checkBounds(ctx, params, pn.args, entry.value_ptr.*, of)) continue;
@@ -18490,6 +18551,14 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         // arguments the call's instance of the API's method checks and
         // reports.
         if (try misplacedArgs(ctx, f.inst.ownArgs(), if (f.through_api) null else f.site)) continue;
+        // An instance at a type holding an API object is not lowered
+        // yet (Stage 4, phase 1).
+        if (!f.through_api) if (for (f.inst.ownArgs()) |arg| {
+            if (sema.mentionsObject(ctx, arg)) break arg;
+        } else null) |arg| {
+            try sema.objectUnbuilt(ctx, f.site, arg);
+            continue;
+        };
         const of: sema.InstanceRoot = .{ .func = f.inst };
         // So are its bounds, which are the API's method's.
         const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);

@@ -171,6 +171,13 @@ pub const Facts = struct {
         return @ptrCast(@alignCast(f.sema_context));
     }
 
+    /// Whether `ty` is or holds an API object, which has no Zig type
+    /// until Stage 4 lowers one: a `type` alias may name it for `$name`,
+    /// and no value of it is made (`sema.objectUnbuilt`).
+    pub fn mentionsObject(f: Facts, ty: TypeId) bool {
+        return sema.mentionsObject(f.c(), ty);
+    }
+
     /// Whether `f` and `g` are the facts of the same module.
     pub fn same(f: Facts, g: Facts) bool {
         return f.sema_context == g.sema_context;
