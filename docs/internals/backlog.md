@@ -219,9 +219,3 @@ fixing.
   type's own methods do (`b.area()` on a `^Square`); `b.describe()`, a
   default, says "no method `describe` on type `Square`". Decide whether
   a box takes the shorthand, and name the API in the message either way.
-- **A loop over a slice of a bounded `T` copies** *(checked)*. In
-  `fun total[T: Shape](xs: []T)`, both `for s in xs` and `for s in
-  ?xs` are rejected, "`T` is bounded by `Shape`, which does not give a
-  value that copies", though SPEC §6 says an element that is not plain
-  data is viewed in its slot, and `xs: ?List[T]` with `for s in xs`
-  is accepted. Journey 08 takes a `?List[T]`.

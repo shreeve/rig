@@ -242,7 +242,7 @@ sub main()
 ```
 
 ```error
-`largest[String]` cannot use `T = String`: the generic body copies into a loop binding a value that holds a `T`, which would leak or duplicate the resource `String` owns
+`largest[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns
 ```
 
 Ownership is checked once, in the body, as if `T` owned a resource. So
@@ -402,7 +402,7 @@ sub main()
 ```
 
 ```error
-`T` is bounded by `Ord`, which does not give a value that copies; add `Copy` to its bounds: `[T: Copy + Ord]`
+`T` is bounded by `Ord`, which does not give a copy; add `Copy` to its bounds: `[T: Copy + Ord]`
 ```
 
 `Copy`, `Clone`, `Owned`, `Sends`, and `Syncs` are facts of a type's

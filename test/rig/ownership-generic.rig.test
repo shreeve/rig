@@ -126,6 +126,76 @@ fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while it is
   t: String? = String("x")
   print(clear(!t))
 
+test "generic loop reads a slice's elements where they stand", '''
+  a
+  b
+  4.0 10.0 4.0 2 2 1
+'''
+  # A loop over a `[]T` or an array of a `T` reads each element where it
+  # stands, as one over a `?List[T]` does: under any bound, no `Copy`.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Sq: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj U unique
+    n: Int
+
+  fun total[T: Shape](xs: []T) -> Float
+    t = 0.0
+    for s in xs
+      t += s.area()
+    t
+
+  fun total_lent[T: Shape](xs: []T) -> Float
+    t = 0.0
+    for s in ?xs
+      t += s.area()
+    t
+
+  fun total_list[T: Shape](xs: ?List[T]) -> Float
+    t = 0.0
+    for s in xs
+      t += s.area()
+    t
+
+  fun show[T: Print](xs: []T) -> Int
+    n = 0
+    for s in xs
+      print(s)
+      n += 1
+    n
+
+  fun count[T](xs: []T) -> Int
+    n = 0
+    for s in ?xs
+      n += 1
+    n
+
+  l = List[Sq]()
+  !l.push(Sq(side: 2.0))
+  a = [Sq(side: 1.0), Sq(side: 3.0)]
+  t = List[String]()
+  !t.push(String("a"))
+  !t.push(String("b"))
+  us = List[U]()
+  !us.push(U(n: 1))
+  print(total(?l[..]), total_lent(?a[..]), total_list(?l), show(?t[..]), count(?t[..]), count(?us[..]))
+
+fail "generic loop takes no element of a slice it reads", "`take[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns", errors: 1
+  fun take[T](xs: []T) -> T?
+    for s in xs
+      return s
+    none
+
+  l = List[String]()
+  !l.push(String("a"))
+  print(take(?l[..]))
+
 test "generic catch all view guarded", release: true, '''
   2
   .some(v: Pt(x: 3, y: 4))
