@@ -13,6 +13,11 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Docs: API objects in the Core (APIs Stage 4, phase 0):** CORE §1
+  and §4 state, as planned, that an API object (`?{Shape}`, `!{Shape}`,
+  `^{Shape}`) hides its value's type, never its loans, with two
+  `rig pending` examples; docs/design/apis.md's Stage 4 and its build
+  plan follow the approved text. Nothing is built yet.
 - **Public generics state their bounds (APIs Stage 3, the last step):**
   a `pub` function, a `pub` type, and a `pub` method of a `pub` type
   name, by bounds, everything their bodies do with each type parameter
