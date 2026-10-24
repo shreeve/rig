@@ -5569,6 +5569,15 @@ fn faultAddress(info: *const std.posix.siginfo_t) usize {
     };
 }
 
+/// The monotonic clock's reading as `start` ran (`sinceStartNs`).
+var started_ns: i96 = 0;
+
+/// `time.since_start()`: nanoseconds on the monotonic clock since the
+/// program started.
+pub fn sinceStartNs() i64 {
+    return @intCast(sched.nowNs() - started_ns);
+}
+
 /// What the process started with, which Zig hands only to `main`:
 /// the arguments and environment, for the standard library.
 pub var process: ?std.process.Init.Minimal = null;
@@ -5604,6 +5613,9 @@ pub fn start(init: std.process.Init.Minimal) void {
         };
         sched.seed(n);
     }
+    // The clock's reading as the program starts, on the virtual clock in
+    // a deterministic run (`time.since_start`).
+    started_ns = sched.nowNs();
     // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
     // panics on purpose: Linux passes its death to no crash handler
     // (apport). It still dies by its signal, its report on stderr

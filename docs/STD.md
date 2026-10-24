@@ -489,6 +489,7 @@ it cannot be mixed up with the wall clock's nanoseconds.
 | `t.elapsed() -> Int` | the nanoseconds from `t` to now |
 | `sleep(ns: Int)!task.Stop` | wait at least `ns` nanoseconds; not at all when `ns` is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
 | `within[R](ns: Int, f: once ?fun() -> R!) -> R!` | run `f` with a deadline `ns` nanoseconds from now, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(d, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
+| `since_start() -> Int` | the nanoseconds on the monotonic clock since the program started: a duration, which a function value can read with no `Instant` to hold |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
 ```rig
@@ -499,10 +500,12 @@ sub main()!
   time.sleep(5 * time.MS)!
   print(start.elapsed() >= 5 * time.MS)
   print(time.now().since(start) > 0)
+  print(time.since_start() >= 5 * time.MS)
   print(time.unix_ns() / time.SECOND > 1_700_000_000)
 ```
 
 ```output
+true
 true
 true
 true
