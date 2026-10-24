@@ -1,0 +1,24 @@
+# Counts of a shared API object, `*{Shape}`: `+s` and the drop of the
+# count it made, each an indirect call to an entry of the table, which
+# reaches the counts from the value's address (docs/design/apis.md,
+# Stage 5).
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+called fun run(s: ?*{Shape}, n: Int) -> Int
+  k = 0
+  for _ in 0..n
+    t = +s
+    k += 1
+    <t
+  k
+
+sub main()
+  s: *{Shape} = *Square(side: 1.5)
+  print(run(?s, 300000000))

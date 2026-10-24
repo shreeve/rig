@@ -608,7 +608,7 @@ operator does, and which types it takes, is in
 | owned closure | `*fun(Int) -> Int`, `*sub()` | |
 | weak closure | `~fun(Int) -> Int` | |
 | callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
-| API object | `?{Shape}`, `!{Shape}`, `^{Shape + Owned + Print}` | a value of some type that provides `Shape`, behind a view or a box ([SPEC](SPEC.md#api-objects)); a box of one is not built yet |
+| API object | `?{Shape}`, `!{Shape}`, `^{Shape + Owned + Print}`, `*{Shape}`, `~{Shape}`, `*{Shape + Syncs}` | a value of some type that provides `Shape`, behind a view, a box, a counted handle, or a weak one ([SPEC](SPEC.md#api-objects)) |
 | vector | `Simd[U8, 16]`, `Simd[Bool, 64]`, `Simd[F32, n]` | lanes operated on together ([SPEC §2](SPEC.md#vectors)) |
 | table, slot | `Table[Type, 1024]`, `Slot[1024]` | `n` slots from the start, and a number below `n` that names one ([SPEC §10](SPEC.md#table)) |
 

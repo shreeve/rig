@@ -3731,7 +3731,7 @@ test "apis object crossing in braces", "^{Shape + Sends} ?{Shape + Syncs}"
 
   print($name(A), $name(B))
 
-fail "apis object shared and weak", "a shared API object, `*{Shape}`, is not built yet (docs/design/apis.md, Stage 5)", "a weak handle of an API object, `~{Shape}`, is not built yet (docs/design/apis.md, Stage 5)"
+test "apis object shared and weak", "*{Shape} ~{Shape}"
   api Shape
     fun area(?@) -> Float
 
@@ -5283,8 +5283,9 @@ fail "apis object box a field with no default", "constructor of `H` is missing f
   h = H()
   print(1)
 
-fail "apis object box a Cell of one", "a Cell of an API object, `Cell[^{Shape}]`, is not built yet (docs/design/apis.md, Stage 5)"
-  # H9: changing an object in place is Stage 5's, with `*{A}` and `~{A}`.
+fail "apis object box a Cell of one", "a Cell holds no API object: `Cell[^{Shape}]`; a shared object changes through a `Cell` its value holds"
+  # H9: an object changes in place only through its methods (Stage 5's
+  # open question 17).
 
   api Shape
     fun area(?@) -> Float
@@ -5298,7 +5299,7 @@ fail "apis object box a Cell of one", "a Cell of an API object, `Cell[^{Shape}]`
   b: ^{Shape} = ^Square(side: 1.0)
   c = *Cell(<b)
 
-fail "apis object box a Cell's type", "a Cell of an API object, `Cell[^{Shape + Owned}]`, is not built yet (docs/design/apis.md, Stage 5)"
+fail "apis object box a Cell's type", "a Cell holds no API object: `Cell[^{Shape + Owned}]`; a shared object changes through a `Cell` its value holds"
   api Shape
     fun area(?@) -> Float
 
@@ -5307,7 +5308,7 @@ fail "apis object box a Cell's type", "a Cell of an API object, `Cell[^{Shape + 
 
   print(1)
 
-fail "apis object box shared and weak handles of a box", "this value is already `^{Shape}`; `*` would hold it twice", "`~` weak reference requires a shared handle `*T`; got `^{Shape}`"
+fail "apis object box shared and weak handles of a box", "`*<b` would move a value whose type is erased: share the value before erasing it, `*<x` where a `*{Shape}` goes", "`~` weak reference requires a shared handle `*T`; got `^{Shape}`"
   api Shape
     fun area(?@) -> Float
 

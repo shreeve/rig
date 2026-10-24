@@ -582,12 +582,30 @@ fail "apis object crossing named twice", "`Sends` is named twice in `^{Shape + S
   fun f(b: ^{Shape + Sends + Sends}) -> Float
     b.area()
 
-fail "apis object crossing a shared object", "a shared API object, `*{Shape + Syncs}`, is not built yet (docs/design/apis.md, Stage 5)", "a weak handle of an API object, `~{Shape}`, is not built yet (docs/design/apis.md, Stage 5)", errors: 2
+test "apis object crossing a shared object", seeds: 20, "4.0 true"
+  # A `*{Shape + Syncs}` goes to another task; a `~{Shape}` stays.
   api Shape
     fun area(?@) -> Float
 
-  fun f(s: *{Shape + Syncs}, w: ~{Shape}) -> Float
-    1.0
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun f(s: *{Shape + Syncs}) -> Float
+    s.area()
+
+  fun alive(w: ?~{Shape}) -> Bool
+    if *w as h
+      return true
+    false
+
+  s: *{Shape + Syncs} = *Frozen(Square(side: 2.0))
+  p: *{Shape} = *Square(side: 1.0)
+  w = ~p
+  t = f(+s)&
+  print(>t, alive(?w))
 
 fail "apis object crossing an owned closure holds no task", "an owned closure holds no task: `t` is a `Task[Int]`, which only the scope that waits for it may hold; wait for it first and capture its value", "an owned closure holds no task: `ts` is a `Tasks[Int]`", errors: 2
   # Reviewer's fix 1: a task hidden in an owned closure would leave

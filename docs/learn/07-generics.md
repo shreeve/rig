@@ -686,7 +686,8 @@ fourth, API objects, which run as SPEC's
 [API objects](../../SPEC.md#api-objects) shows: a `^{Shape}` holds any
 value that provides `Shape` behind one call through a table, so a
 `List[^{Shape}]` holds many kinds, as the enum and the object of
-closures above do.
+closures above do, and a `*{Shape}` shares one, counted, with a weak
+handle `~{Shape}`.
 
 A value parameter of a generic type or function is an integer, and a
 compile-time function cannot yet be called with one: `[slots[n]]T`

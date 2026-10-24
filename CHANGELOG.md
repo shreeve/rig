@@ -13,6 +13,25 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Shared and weak API objects (APIs Stage 5, phase 2):** `*{Shape}`
+  is a counted handle to a value of some type that provides `Shape`, and
+  `~{Shape}` its weak handle. A `*Square` moves into a `*{Shape}` and
+  keeps its allocation (`<h`, `+h`, and `*Square(...)` or `*<sq`
+  written where one goes), and a frozen value's handle only into a
+  `*{Shape + Syncs}`, which counts atomically, goes to any task, names
+  no `Owned`, and has no weak handle; neither becomes the other, and a
+  handle is erased only as it moves or counts, never through a view.
+  It only reads: a call through it reaches `?@` methods, `?s` lends the
+  `?{Shape}` it holds, `+s` adds a count, and the last count's drop
+  drops the value through the table, a long chain without deep
+  recursion. `~s` makes a `~{Shape}`, `*w` gives a `*{Shape}?`, and both
+  carry the loans of what they hold until the last count is dropped. A
+  frozen value may hold `*{A + Syncs}` handles, so a
+  `*Frozen[List[*{Plugin + Syncs}]]` is a registry many tasks read. An
+  API's table gains three entries, the weak count's, and its function
+  a holding, `__rig_table_Shape_of(T, W, .counted)`. A Cell of an API
+  object is rejected for good, no longer as not built. The reference
+  checker gains the kinds of both forms.
 - **API objects cross tasks by a bound in their braces (APIs Stage 5,
   phase 1):** `Sends` and `Syncs` may stand in an object's braces where
   its form uses them (`^{Job + Sends}`, `^{Shape + Syncs}`,
@@ -44,7 +63,6 @@ changed the language since it:
   longer fails in Zig. A value erased where a task or an actor takes an
   object crosses by that object's braces, not its known type:
   `work(^Sum(...))&` to a `^{Job}` is rejected toward `^{Job + Sends}`.
-  `*{Shape}` and `~{Shape}` stay unbuilt.
 - **`rig check` and `rig lsp` on a file of a directory module:** the
   file is checked as its module, whose imports are beside the
   directory, so opening `src/ast/ast.rig` in an editor no longer reports

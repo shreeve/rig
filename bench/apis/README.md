@@ -42,3 +42,25 @@ view holds its function in the view, `call *%r15`. Each entry checks the
 alignment of the address it casts, as a callable view's thunk does;
 without the check pup is 2% faster than `?fun`, but the Mac is 30%
 slower, since the entry then sets up a frame on every call.
+
+## Counts of a shared object
+
+`shared.rig` takes a count of a `*{Shape}` and gives it back, `t = +s`
+and `<t`, 300 million times: two indirect calls to the table's
+entries, which reach the counts from the value's address
+(docs/design/apis.md, Stage 5). `handle.rig` does the same with a
+`*Square`, whose counts are inline. Each prints `300000000`, built and
+timed as above.
+
+2026-10-24, `rig build --release` (ReleaseSafe), fastest of 5 on the
+Mac (user time, the machine loaded) and of 7 on pup (pinned to a
+P-core), interleaved:
+
+| Machine | `*{Shape}` | `*Square` | Per count and drop |
+|---|---|---|---|
+| Mac (arm64) | 0.87 s | 0.18 s | 2.9 ns, against 0.6 ns |
+| pup (x86-64, P-core) | 0.57 s | 0.09 s | 1.9 ns, against 0.3 ns |
+
+A count through the table costs 1.6 to 2.3 ns more than an inline one,
+within the 5 ns the build plan allows; Zig folds part of the inline
+pair, which no indirect call allows.

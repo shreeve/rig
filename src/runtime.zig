@@ -847,18 +847,158 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
     };
 }
 
+/// `*{Shape}`, a counted API object (docs/design/apis.md, Stage 5): the
+/// address of a value of the hidden type inside the counted allocation a
+/// `*T` or a `*Frozen[T]` made, and the table of that type's methods for
+/// the API and that holding (`ApiHolding`). Its counts go through the
+/// table, whose entries reach them from the value's address by the
+/// allocation's layout; the last count's drop is the allocation's own
+/// (`Counted.dropStrong`), deep chains through `drop_queue` as a `*T`'s
+/// are, so the object itself queues nothing. It only reads: `read` lends
+/// the `?{Shape}` it holds, the same two words.
+pub fn ApiShared(comptime Entries: type, comptime builtins: []const u8) type {
+    return struct {
+        ptr: *anyopaque,
+        vt: *const Entries,
+
+        const Self = @This();
+        /// Counted through its table (`cloneValue`).
+        pub const __rig_api_shared = {};
+        /// Its sigil and braces, for `typeName` (`ApiView`).
+        pub const __rig_api_object = .{ "*", Entries, builtins };
+
+        /// The counted handle `h`, a `*Shared(T)` or a `*Frozen(T)`, its
+        /// value's type erased: its allocation and its count kept.
+        pub fn of(h: anytype, vt: *const Entries) Self {
+            return .{ .ptr = @ptrCast(&h.value), .vt = vt };
+        }
+
+        /// `of` an optional handle: none stays none.
+        pub fn ofSome(h: anytype, vt: *const Entries) ?Self {
+            return of(some(h) orelse return null, vt);
+        }
+
+        /// The read view the handle lends, `?{Shape}`.
+        pub fn read(self: *const Self) ApiView(Entries, .read, builtins) {
+            return .{ .ptr = self.ptr, .vt = self.vt };
+        }
+
+        /// `+s`: a new count of the same allocation.
+        pub fn cloneStrong(self: Self) Self {
+            return .{ .ptr = self.vt.__rig_clone(self.ptr), .vt = self.vt };
+        }
+
+        /// A count given back; the last drops the value.
+        pub fn dropStrong(self: Self) void {
+            self.vt.__rig_drop(self.ptr);
+        }
+
+        /// `~s`: a weak handle of the same allocation.
+        pub fn weakRef(self: Self) ApiWeak(Entries, builtins) {
+            self.vt.__rig_weak(self.ptr);
+            return .{ .ptr = self.ptr, .vt = self.vt };
+        }
+
+        /// The hidden value, printed through the table: the checker lets
+        /// only an object whose braces or API name `Print` be printed.
+        pub fn __rig_print(self: *const Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            return self.vt.__rig_print(self.ptr, w);
+        }
+
+        pub fn __rig_drop(self: *Self) void {
+            self.dropStrong();
+        }
+    };
+}
+
+/// `~{Shape}`, the weak handle of a `*{Shape}` that does not sync
+/// (docs/design/apis.md, Stage 5): the value's address and its table, as
+/// the `*{Shape}` it was made of held them. The allocation outlives the
+/// value while a weak handle remains, so the address stays one the
+/// table's entries reach the counts from.
+pub fn ApiWeak(comptime Entries: type, comptime builtins: []const u8) type {
+    return struct {
+        ptr: *anyopaque,
+        vt: *const Entries,
+
+        const Self = @This();
+        /// Counted through its table (`cloneValue`).
+        pub const __rig_api_weak = {};
+        /// Its sigil and braces, for `typeName` (`ApiView`).
+        pub const __rig_api_object = .{ "~", Entries, builtins };
+
+        /// `+w`: another weak handle.
+        pub fn cloneWeak(self: Self) Self {
+            self.vt.__rig_weak(self.ptr);
+            return self;
+        }
+
+        pub fn dropWeak(self: Self) void {
+            self.vt.__rig_weak_drop(self.ptr);
+        }
+
+        /// `*w`: a new count, or null once the value has been dropped.
+        pub fn upgrade(self: Self) ?ApiShared(Entries, builtins) {
+            if (!self.vt.__rig_upgrade(self.ptr)) return null;
+            return .{ .ptr = self.ptr, .vt = self.vt };
+        }
+
+        /// Whether the value lives, as a `~T` prints it: a count taken and
+        /// given back, never the last.
+        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            const alive = self.vt.__rig_upgrade(self.ptr);
+            if (alive) self.vt.__rig_drop(self.ptr);
+            try w.writeAll(if (alive) "~(alive)" else "~(gone)");
+        }
+
+        pub fn __rig_drop(self: *Self) void {
+            self.dropWeak();
+        }
+    };
+}
+
+/// How an API object's value is held, which picks its table's drop,
+/// clone, and weak entries (`__rig_table_Shape_of(T, W, holding)`): in a
+/// box's allocation (a view's table is a box's), in a `*T`'s counted one,
+/// or in a frozen value's, counted atomically.
+pub const ApiHolding = enum { box, counted, frozen };
+
+/// The counted allocation an API object of holding `h` sits in, for a
+/// value of type `T`.
+fn HeldIn(comptime T: type, comptime h: ApiHolding) type {
+    return switch (h) {
+        .box => @compileError("a box is not counted"),
+        .counted => Shared(T),
+        .frozen => Frozen(T),
+    };
+}
+
+/// The counted allocation around the value of type `T` at `ptr`.
+inline fn heldAt(comptime T: type, comptime h: ApiHolding, ptr: *anyopaque) *HeldIn(T, h) {
+    const value: *T = @ptrCast(@alignCast(ptr));
+    return @fieldParentPtr("value", value);
+}
+
 /// The address a table's entry for a method that consumes self takes: of
 /// the value in a box's allocation, which the entry takes out and frees
 /// (`erasedTake`).
 pub const ErasedOwn = *anyopaque;
 
-/// A table's entry that drops the value of a box and frees its memory
-/// (`dropErased`).
+/// A table's entry that drops the value of a box and frees its memory, or
+/// gives a count back (`dropErased`).
 pub const ErasedDrop = *const fn (*anyopaque) void;
 
-/// A table's entry that clones the value of a box into a new allocation
-/// (`cloneErased`).
-pub const ErasedClone = *const fn (*const anyopaque) *anyopaque;
+/// A table's entry that clones the value of a box into a new allocation,
+/// or adds a count (`cloneErased`).
+pub const ErasedClone = *const fn (*anyopaque) *anyopaque;
+
+/// A table's entry that adds or gives back a weak count (`weakErased`,
+/// `weakDropErased`).
+pub const ErasedWeak = *const fn (*anyopaque) void;
+
+/// A table's entry that adds a count while the value lives, and says
+/// whether it did (`upgradeErased`).
+pub const ErasedUpgrade = *const fn (*anyopaque) bool;
 
 /// The value of type `T` in a box's allocation at `ptr`, moved out; the
 /// allocation is freed.
@@ -869,11 +1009,13 @@ pub inline fn erasedTake(comptime T: type, ptr: *anyopaque) T {
     return v;
 }
 
-/// The table entry that drops the value of type `T` at `ptr`, a box's,
-/// and frees its memory (`ApiBox.__rig_drop`).
-pub fn dropErased(comptime T: type) ErasedDrop {
+/// The table entry that drops the value of type `T` at `ptr` held as `h`:
+/// a box's value, its memory freed (`ApiBox.__rig_drop`), or a count
+/// given back, the last dropping the value (`ApiShared.dropStrong`).
+pub fn dropErased(comptime T: type, comptime h: ApiHolding) ErasedDrop {
     return &struct {
         fn drop(ptr: *anyopaque) void {
+            if (comptime h != .box) return heldAt(T, h, ptr).dropStrong();
             const p: *T = @ptrCast(@alignCast(ptr));
             dropElement(T, p);
             destroy(p);
@@ -881,18 +1023,62 @@ pub fn dropErased(comptime T: type) ErasedDrop {
     }.drop;
 }
 
-/// The table entry that clones the value of type `T` at `ptr` into a new
-/// allocation (`ApiBox.clone`). A type `cloneValue` cannot clone gets an
-/// entry no checked program reaches: its objects' braces name no `Clone`.
-pub fn cloneErased(comptime T: type) ErasedClone {
+/// The table entry that clones the value of type `T` at `ptr` held as
+/// `h`: a box's value into a new allocation (`ApiBox.clone`), or a count
+/// added (`ApiShared.cloneStrong`). A type `cloneValue` cannot clone gets
+/// a box's entry no checked program reaches: its objects' braces name no
+/// `Clone`.
+pub fn cloneErased(comptime T: type, comptime h: ApiHolding) ErasedClone {
     return &struct {
-        fn clone(ptr: *const anyopaque) *anyopaque {
+        fn clone(ptr: *anyopaque) *anyopaque {
+            if (comptime h != .box) return @ptrCast(&heldAt(T, h, ptr).cloneStrong().value);
             if (comptime !clonesErased(T)) unreachable;
             const p = create(T);
             p.* = cloneValue(@as(*const T, @ptrCast(@alignCast(ptr))));
             return @ptrCast(p);
         }
     }.clone;
+}
+
+/// The table entry that adds a weak count to the `*T`'s allocation of the
+/// value of type `T` at `ptr` (`ApiShared.weakRef`, `ApiWeak.cloneWeak`).
+/// Only a `*{A}` that does not sync has a weak handle, so another
+/// holding's entry is one no checked program reaches.
+pub fn weakErased(comptime T: type, comptime h: ApiHolding) ErasedWeak {
+    return &struct {
+        fn weak(ptr: *anyopaque) void {
+            if (comptime h != .counted) unreachable;
+            // Made from a live count, or copied from another weak handle
+            // once the value may be gone.
+            const w: Weak(T) = .{ .ptr = heldAt(T, h, ptr) };
+            _ = w.cloneWeak();
+        }
+    }.weak;
+}
+
+/// The table entry that gives back a weak count of the value of type `T`
+/// at `ptr`, the last freeing the allocation once the value is dropped
+/// (`ApiWeak.dropWeak`).
+pub fn weakDropErased(comptime T: type, comptime h: ApiHolding) ErasedWeak {
+    return &struct {
+        fn drop(ptr: *anyopaque) void {
+            if (comptime h != .counted) unreachable;
+            const w: Weak(T) = .{ .ptr = heldAt(T, h, ptr) };
+            w.dropWeak();
+        }
+    }.drop;
+}
+
+/// The table entry that adds a count to the value of type `T` at `ptr`
+/// while it lives (`ApiWeak.upgrade`): whether it did.
+pub fn upgradeErased(comptime T: type, comptime h: ApiHolding) ErasedUpgrade {
+    return &struct {
+        fn upgrade(ptr: *anyopaque) bool {
+            if (comptime h != .counted) unreachable;
+            const w: Weak(T) = .{ .ptr = heldAt(T, h, ptr) };
+            return w.upgrade() != null;
+        }
+    }.upgrade;
 }
 
 /// Whether `cloneValue` clones a `T`: what it reaches has no `drop` body
@@ -907,7 +1093,7 @@ fn clonesErased(comptime T: type) bool {
         .optional => |o| clonesErased(o.child),
         .array => |a| clonesErased(a.child),
         .@"struct" => |s| blk: {
-            if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box")) break :blk true;
+            if (@hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value") or @hasDecl(T, "__rig_box") or @hasDecl(T, "__rig_weak") or @hasDecl(T, "__rig_api_box") or @hasDecl(T, "__rig_api_shared") or @hasDecl(T, "__rig_api_weak")) break :blk true;
             if (@hasDecl(T, "__rig_drop")) break :blk false;
             inline for (s.field_types) |F| if (!clonesErased(F)) break :blk false;
             break :blk true;
@@ -1766,6 +1952,8 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
             if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list") or @hasDecl(T, "__rig_error_value")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
             if (comptime @hasDecl(T, "__rig_api_box")) return value.clone();
+            if (comptime @hasDecl(T, "__rig_api_shared")) return value.cloneStrong();
+            if (comptime @hasDecl(T, "__rig_api_weak")) return value.cloneWeak();
             if (comptime @hasDecl(T, "__rig_weak")) return value.cloneWeak();
             var out: T = undefined;
             inline for (s.field_names) |f| @field(out, f) = cloneValue(&@field(value, f));

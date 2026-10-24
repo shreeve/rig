@@ -175,15 +175,24 @@ fn callableInfo(ctx: *const SemContext, ty: TypeId) ?Info {
 /// view, each carrying every loan of the value it hides, which may hold
 /// anything; `^{A}` an owner, whose drop may run the hidden type's `drop`
 /// body and read those loans, and which holds none with `Owned` in its
-/// braces.
+/// braces. `*{A}` is a handle (Core §1: it moves, and `+s` adds a count)
+/// carrying those loans until its last count's drop, which may run the
+/// `drop` body; `*{A + Syncs}` holds a frozen value, which holds no
+/// view (Core §4). `~{A}` carries its `*{A}`'s loans (Core §4: "Both
+/// forms carry the loans of what they hold") and drops no value.
 fn objectInfo(ctx: *const SemContext, ty: TypeId) ?Info {
     const h = sema.objectHeld(ctx, ty) orelse return null;
+    const names = objectNames(ctx, h.object);
     return switch (h.form) {
         .read => .{ .kind = .read_view, .holds_views = true, .holds_pointers = true, .drop_reads = false, .unsupported = null },
         .write => .{ .kind = .write_view, .holds_views = true, .holds_pointers = true, .drop_reads = false, .unsupported = null },
-        .box => blk: {
-            const owned = objectNames(ctx, h.object).contains(.Owned);
+        .box, .shared => blk: {
+            const owned = names.contains(.Owned) or (h.form == .shared and names.contains(.Syncs));
             break :blk .{ .kind = .owning, .holds_views = !owned, .holds_pointers = !owned, .drop_reads = !owned, .unsupported = null };
+        },
+        .weak => blk: {
+            const owned = names.contains(.Owned);
+            break :blk .{ .kind = .owning, .holds_views = !owned, .holds_pointers = !owned, .drop_reads = false, .unsupported = null };
         },
     };
 }
@@ -209,15 +218,19 @@ fn apiNames(ctx: *const SemContext, ref: sema.ApiRef, out: *sema.Apis, depth: u3
 /// Whether an API object held as `form` goes to another task (`sends`)
 /// and is read by several at once (`syncs`), by its form's row (SPEC
 /// §18, Core §4): a read view does both when its value syncs, a write
-/// view goes when its value sends and is never read by two, and a box
-/// does each when its value does. Its value's facts are the bounds it
-/// names (`objectNames`), checked where its type was erased.
+/// view goes when its value sends and is never read by two, a box does
+/// each when its value does, a counted handle both when its value syncs
+/// (it holds a frozen value then, counted atomically), and a weak handle
+/// neither. Its value's facts are the bounds it names (`objectNames`),
+/// checked where its type was erased.
 pub fn objectCrosses(ctx: *const SemContext, o: sema.ApiObject, form: sema.ObjectForm, shares: bool) bool {
     const names = objectNames(ctx, o);
     return switch (form) {
         .read => names.contains(.Syncs),
         .write => !shares and names.contains(.Sends),
         .box => names.contains(if (shares) .Syncs else .Sends),
+        .shared => names.contains(.Syncs),
+        .weak => false,
     };
 }
 
