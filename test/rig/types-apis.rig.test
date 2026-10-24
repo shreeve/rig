@@ -1629,7 +1629,7 @@ fail "apis a call through a bound checks the method's instance", errors: 3, "`Sq
     s = Sq(n: 1)
     print(look(?s), size(!s), scale(Sq(n: 2)))
 
-fail "apis a call through an API checks an addition's instance", errors: 2, "`Int.look[Float]` cannot use `K = Float`: the generic body hashes a `K` with `.hash()`", "`List.first[Float]` cannot use `T = Float`: the generic body hashes a `T` with `.hash()`", "`List.first[Float]` is made by `first[List[Float]]`"
+fail "apis a call through an API checks an addition's instance", errors: 2, "`Int.look[Float]` cannot use `K = Float`: the generic body hashes a `K` with `.hash()`", "`List[Float].first` cannot use `T = Float`: the generic body hashes a `T` with `.hash()`", "`List[Float].first` is made by `first[List[Float]]`"
   # An addition's method is checked at its own compile-time arguments and
   # at the addition's, which no type's instance checks: `List[Float]` is
   # an instance of `add List[T]`.
@@ -1662,6 +1662,23 @@ fail "apis a call through an API checks an addition's instance", errors: 2, "`In
     xs: List[Float] = List()
     !xs.push(1.5)
     print(look(?3), first(?xs))
+
+fail "apis an addition's instance is named by its type", errors: 1, "`Map[Int, Int].look[Float]` cannot use `J = Float`: the generic body hashes a `J` with `.hash()`", "`Map[Int, Int].look[Float]` is made by `probe[Map[Int, Int]]`"
+  # An addition's instance shows the addition's parameters as its type's
+  # arguments and the method's own in brackets, never one list of both.
+  api Keyed
+    fun look[K](?@, k: ?K) -> Bool
+
+  add Map[K, V]: Keyed
+    fun look[J](?@, k: ?J) -> Bool
+      k.hash() > 0
+
+  fun probe[T: Keyed](t: ?T) -> Bool
+    t.look(?1.5)
+
+  sub main()
+    m: Map[Int, Int] = Map()
+    print(probe(?m))
 
 fail "apis a default's call through Self checks the method's instance", errors: 2, "`Sq.look[Float]` cannot use `K = Float`", "`Sq.look[Float]` is made by `Sq.show`", "`Tri.look[Float]` is made by `relay[Tri]`"
   # A default reached through an API is its body at the type that

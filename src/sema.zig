@@ -2540,6 +2540,10 @@ pub const FnInstance = struct {
     params: []const SymbolId,
     args: []const TypeId,
     own: u32,
+    /// How many of its last arguments its name shows, where fewer than
+    /// `own`: an addition's method shows its own, and its name the
+    /// addition's, its type's (`List[Float].first`). Null for `own`.
+    shown: ?u32 = null,
 
     /// Its own type parameters and their arguments.
     pub fn ownParams(self: FnInstance) []const SymbolId {
@@ -5212,7 +5216,7 @@ pub const SemContext = struct {
 
     fn ownFnInstance(self: *SemContext, inst: FnInstance) !FnInstance {
         const a = self.arena.allocator();
-        return .{ .name = inst.name, .params = try a.dupe(SymbolId, inst.params), .args = try a.dupe(TypeId, inst.args), .own = inst.own };
+        return .{ .name = inst.name, .params = try a.dupe(SymbolId, inst.params), .args = try a.dupe(TypeId, inst.args), .own = inst.own, .shown = inst.shown };
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
@@ -5570,7 +5574,8 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
         if (try expandUses(ctx, work, item, reached, &entries)) return true;
         // A call through an API on the body's parameters reaches, at this
         // instance, the method of the type that provides the API.
-        if (reached != null) {
+        if (reached) |r| {
+            if (try expandApiCallsOver(ctx, work, item, r, &entries)) return true;
             try expandReaches(ctx, work, item, reached, &entries);
             continue;
         }
@@ -5649,11 +5654,39 @@ fn expandFnUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: Expand
         // An instance at a renaming of the callee's parameters expands
         // as the callee at its own does, which is kept once.
         if (reached != null and isRenaming(ctx, args)) try ownParamArgs(ctx, use.params, args);
-        const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
+        const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own, .shown = use.shown };
         if (reached) |r| {
             if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
         } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
         try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
+    }
+    return false;
+}
+
+/// The calls through an API the body `item` expands makes over type
+/// parameters, followed where the type they are made on is known (an
+/// implementation calling a public generic, `probe(@, k)` in `Sq.walk`,
+/// which calls `t.walk(Wrap(v: k))`), kept in `reached`. True when one
+/// nests too deep, which is reported.
+fn expandApiCallsOver(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandItem, reached: *Reached, entries: *std.ArrayList(u32)) std.mem.Allocator.Error!bool {
+    try ctx.genericEntries(.api_calls, item.subst.params, entries);
+    for (entries.items) |i| {
+        var call = ctx.generic_api_calls.items[i];
+        call.recv = try substituteType(ctx, call.recv, item.subst);
+        if (ctx.typeInfo(call.recv).has_type_var) continue;
+        const args = try ctx.arena.allocator().alloc(TypeId, call.args.len);
+        for (call.args, args) |a, *out| out.* = try substituteType(ctx, a, item.subst);
+        call.args = args;
+        const inst = (try implInstanceOver(ctx, call, item.site)) orelse continue;
+        var deepest: u8 = 0;
+        for (inst.args) |a| deepest = @max(deepest, ctx.typeInfo(a).depth);
+        if (deepest > max_instance_depth) {
+            const why = if (item.root == .func and item.body == null) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
+            try deepInstance(ctx, item, inst.params, "functions", try formatFnInstance(ctx, inst), why);
+            return true;
+        }
+        if ((try reached.fns.getOrPut(ctx.allocator, inst)).found_existing) continue;
+        try work.append(ctx.allocator, .{ .subst = inst.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
     }
     return false;
 }
@@ -5779,7 +5812,7 @@ pub fn reachMembers(ctx: *SemContext, recv: TypeId, api: ApiRef, site: u32, via:
     };
     const found = conformanceOf(ctx, .{ .conformance = .{ .module_id = w.module_id, .index = w.index } }) orelse return;
     for (found.conf.members) |m|
-        _ = try implReach(ctx, .{ .recv = recv, .api = api, .method = m.name, .args = &.{}, .slots = &.{}, .pos = site }, site, via, true);
+        _ = try implReach(ctx, .{ .recv = recv, .api = api, .method = m.name, .args = &.{}, .slots = &.{}, .pos = site }, site, via, .reach_only);
 }
 
 /// The instance of the method a call through an API reaches (`ApiCall`,
@@ -5795,12 +5828,19 @@ pub fn reachMembers(ctx: *SemContext, recv: TypeId, api: ApiRef, site: u32, via:
 /// witness that names no method a conformance gives is a compiler bug,
 /// reported at `site` (`implLost`), never a check skipped.
 pub fn implInstance(ctx: *SemContext, call: ApiCall, site: u32, via: ?InstanceRoot) std.mem.Allocator.Error!?FnInstance {
-    return implReach(ctx, call, site, via, false);
+    return implReach(ctx, call, site, via, .instance);
+}
+
+/// `implInstance` over type parameters, for the public nesting check
+/// (`checkSelfNesting`): the instance, recording nothing.
+fn implInstanceOver(ctx: *SemContext, call: ApiCall, site: u32) std.mem.Allocator.Error!?FnInstance {
+    return implReach(ctx, call, site, null, .over_params);
 }
 
 /// `implInstance`, recording the method the call reaches
-/// (`recordBodyReach`); with `reach_only`, that alone.
-fn implReach(ctx: *SemContext, call: ApiCall, site: u32, via: ?InstanceRoot, reach_only: bool) std.mem.Allocator.Error!?FnInstance {
+/// (`recordBodyReach`); with `reach_only`, that alone; with
+/// `over_params`, the instance alone.
+fn implReach(ctx: *SemContext, call: ApiCall, site: u32, via: ?InstanceRoot, mode: enum { instance, reach_only, over_params }) std.mem.Allocator.Error!?FnInstance {
     if (containsPoison(ctx, call.recv)) return null;
     for (call.args) |a| if (containsPoison(ctx, a)) return null;
     const w = switch ((try witnessFor(ctx, call.recv, call.api)) orelse return null) {
@@ -5853,10 +5893,10 @@ fn implReach(ctx: *SemContext, call: ApiCall, site: u32, via: ?InstanceRoot, rea
             fun = .{ .module = ref.module_id, .pos = f.decl_pos };
         },
     }
-    if (fun) |body| if (outer.params.len > 0) {
+    if (mode != .over_params) if (fun) |body| if (outer.params.len > 0) {
         _ = try ctx.recordBodyReach(.{ .fun = body, .params = outer.params, .args = outer.args, .recv = call.recv, .method = call.method, .site = site, .via = via });
     };
-    if (reach_only) return null;
+    if (mode == .reach_only) return null;
     // The implementation declares the API's method's compile-time
     // parameters exactly (Stage 3 conformance), so the slots the call's
     // arguments fill are its own parameters too.
@@ -5880,10 +5920,13 @@ fn implReach(ctx: *SemContext, call: ApiCall, site: u32, via: ?InstanceRoot, rea
         .args = try std.mem.concat(a, TypeId, &.{ outer.args, call.args }),
         .own = own_n,
     };
-    if (ctx.fn_instance_set.contains(inst)) return null;
+    if (mode != .over_params and ctx.fn_instance_set.contains(inst)) return null;
+    // An addition's instance is named by its type's arguments, which are
+    // the addition's: `List[Float].first`, `Map[Int, Int].look[Float]`.
     const shown = try formatType(ctx, call.recv);
-    const base = shown[0 .. std.mem.findScalar(u8, shown, '[') orelse shown.len];
+    const base = if (member.from == .added) shown else shown[0 .. std.mem.findScalar(u8, shown, '[') orelse shown.len];
     inst.name = try a.print("{s}.{s}", .{ base, call.method });
+    if (member.from == .added) inst.shown = @intCast(own.len);
     return inst;
 }
 
@@ -6060,8 +6103,9 @@ pub fn formatFnInstance(ctx: *SemContext, inst: FnInstance) std.mem.Allocator.Er
 /// `formatFnInstance` with a caller-chosen allocator.
 pub fn formatFnInstanceIn(ctx: *const SemContext, a: std.mem.Allocator, inst: FnInstance) std.mem.Allocator.Error![]const u8 {
     // A default reached through an API binds only its `Self` (`implInstance`).
-    if (inst.own == 0) return inst.name;
-    return a.print("{s}[{s}]", .{ inst.name, try formatTypeList(ctx, a, inst.ownArgs()) });
+    const n = inst.shown orelse inst.own;
+    if (n == 0) return inst.name;
+    return a.print("{s}[{s}]", .{ inst.name, try formatTypeList(ctx, a, inst.args[inst.args.len - n ..]) });
 }
 
 const max_instance_depth = 24;
@@ -11894,7 +11938,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         // A module-level function is named as this module would call
         // it: `lib.helper[T]`; a method keeps its bare name.
         const name = if (isModuleFunction(foreign, use)) try a.print("{s}.{s}", .{ foreign.name, use.name }) else use.name;
-        _ = try ctx.recordFnInstanceIn(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, foreign.generic_fn_uses_in.items[i]);
+        _ = try ctx.recordFnInstanceIn(.{ .name = name, .params = params, .args = args, .own = use.own, .shown = use.shown }, 0, foreign.generic_fn_uses_in.items[i]);
     }
     for (foreign.paramEntries(.uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .uses, i)) continue;

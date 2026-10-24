@@ -13,6 +13,13 @@ changed the language since it:
 
 ### Language and compiler
 
+- **Instances reached through an API are named as written:** an
+  addition's method shows its type's arguments and its own,
+  `Map[Int, Int].look[Float]` (it was `Map.look[Int, Int, Float]`), and
+  a public generic that nests itself through a call through an API on
+  a type of its module is reported where it is declared, as one that
+  calls itself is, though no module calls it (it was reported only at
+  an instance another module made).
 - **A module's members are its own declarations:** `lib.List[Int]`,
   `lib.print`, or `lib.Cell[Int]`, a built-in named through a module,
   is "no member `List` in module `lib`" as an expression and as a type.
