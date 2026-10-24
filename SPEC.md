@@ -3908,8 +3908,11 @@ type it hides is erased: a `Print` its braces or its API name, a
 a handle whose braces name it, and a read view's `Copy`; a handle's `+`
 adds a count, and a weak handle prints whether its value lives. It
 meets no bound by an API, since a box is not its value: `T = ^{Shape}`
-does not meet `[T: Shape]`. A List, an optional, or an array of
-objects prints as its objects do, and no frozen value holds one but a
+does not meet `[T: Shape]`. An object prints as the value it hides
+prints in its place: hidden text is written as is by `print(b)` and
+`String(b)`, and quoted inside a List or a field. A List, an optional,
+or an array of objects prints as its objects do, and no frozen value
+holds one but a
 `*{A + Syncs}`, another frozen value's handle (below), since the type
 it hides may hold a Cell.
 

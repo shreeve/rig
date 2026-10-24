@@ -4935,6 +4935,38 @@ Square(side: 2.0) Square(side: 1.0)
   print(a, b)
   print(l)
 
+test "apis object printed as its hidden text prints", '''
+x x y x
+x? ["z"] H(s: "x")
+xx
+'''
+  # An object prints its hidden value as the value would print in its
+  # place: text as its bytes at the top level, quoted inside another
+  # value; the same for a box, a view, a shared object, and an optional.
+  api Shape
+    fun area(?@) -> Float
+
+  add String: Shape
+    fun area(?@) -> Float
+      1.0
+
+  type B = ^{Shape + Print}
+
+  obj H
+    s: B
+
+  b: B = ^String("x")
+  s = ^String("x")
+  r: ?{Shape + Print} = ?s
+  h: *{Shape + Print} = *String("y")
+  o: B? = ^String("x")
+  print(b, r, h, o)
+  l: List[B] = List()
+  !l.push(^String("z"))
+  w = H(s: ^String("x"))
+  print(String(o, "?"), l, w)
+  print(String(b, r))
+
 test "apis object box cloned through the table", "Pt(x: 2, tag: \"a\") 4 9"
   # `+b` with `Clone` in the braces: a new box of a clone of the value,
   # through its table; a `String` among its fields copied.

@@ -69,7 +69,7 @@ docs/internals/backlog.md.
 
 | # | Item | Source | Class |
 |---|---|---|---|
-| 1 | `for i in 0..f.len` of a `*Frozen[List[T]]` fails in Zig | S4 p2 | fix, **high** |
+| 1 | `for i in 0..f.len` of a `*Frozen[List[T]]` fails in Zig | S4 p2 | done (#613) |
 | 2 | an object prints its hidden text quoted (`"x"`, not `x`) | S4 p3 | fix, **high** |
 | 3 | a generic `?T` of an optional view fails in Zig (track 1.7) | BL | fix, **high** |
 | 4 | a release build of a nested-by-value chain grows past 20 minutes | BL | fix |
@@ -103,6 +103,7 @@ docs/internals/backlog.md.
 | 32 | a handle parameter lent by a capture | BL, round 1 | owner |
 | 33 | a `NetError` member for "no local port free" | round 1 | owner |
 | 34 | faulting memory in ahead (the third form) | BL | owner |
+| 35 | the compiler treats a `fun` field directly in what a write view sees as able to hold any view (stricter than CORE §7); probe s7_fun_reach.rig, in #627's oracle-fun.md | #627 | fix or ROADMAP |
 
 Stage 4's associated types in braces (`^{Source[Item: Int]}`) wait for
 a program that needs them: a ROADMAP line.
