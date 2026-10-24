@@ -667,7 +667,9 @@ const Lowerer = struct {
         if (callee.isKind(.member)) try parts.append(self.a, ir.Member.object(callee));
         for (ir.Call.args(e)) |arg| try parts.append(self.a, if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
         for (parts.items) |part| {
-            const ty = self.ctx.typeOf(part) orelse continue;
+            // A value erased where it is passed goes as the object it
+            // becomes, by that object's braces (Core §4).
+            const ty = if (self.ctx.erasureOf(part)) |er| er.view else self.ctx.typeOf(part) orelse continue;
             const bare = part == .src or part.isKind(.member);
             const shares = part.isKind(.read) or (bare and self.ctx.types.get(ty) != .write_view);
             _ = (try kinds.objectBlocker(self.ctx, ty, shares)) orelse continue;

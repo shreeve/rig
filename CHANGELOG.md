@@ -41,7 +41,10 @@ changed the language since it:
   for every bound the object names: it had passed them all, so a box of
   `Owned` could outlive what it viewed and a box of `Sends` could carry
   a `*Int` to another core. `par.map` over read views of objects no
-  longer fails in Zig. `*{Shape}` and `~{Shape}` stay unbuilt.
+  longer fails in Zig. A value erased where a task or an actor takes an
+  object crosses by that object's braces, not its known type:
+  `work(^Sum(...))&` to a `^{Job}` is rejected toward `^{Job + Sends}`.
+  `*{Shape}` and `~{Shape}` stay unbuilt.
 - **`rig check` and `rig lsp` on a file of a directory module:** the
   file is checked as its module, whose imports are beside the
   directory, so opening `src/ast/ast.rig` in an editor no longer reports

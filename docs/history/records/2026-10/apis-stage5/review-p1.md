@@ -101,16 +101,26 @@ suite is green.
    fields, Lists, Maps, transitive APIs, and the object task; it
    abstains on most `test` bodies (a method through a handle).
 
+## The designer's answer: an argument erased at the call
+
+The review found that an argument erased at the task's call itself
+(`f(^Note(m: +h))&` with `f(s: ^{Shape})`, `look(?sq)&` with
+`look(s: ?{Shape})`, `!a.add(?sq)` to an actor's `?{Shape}`) crossed
+by its known type, not the object's braces: a known `Note` holding a
+`*Map` made the task local, a known `Square` let it cross. Sound, but
+not CORE's rule. The designer's answer: it crosses by the parameter's
+API object type, its braces, never the argument's known type, as CORE
+says ("an API object without the bound a task needs goes to no task, a
+local one included, at any depth"), so `work(^Sum(...))&` and
+`work(<j)&` of a `j: ^{Job}` are both rejected toward `^{Job + Sends}`.
+*Built:* the one crossing classifier of a task's and an actor's parts
+(`Checker.crossingTypeOf`) reads the erasure's object type, and the
+oracle's rule T1 reads it the same way. Cases "apis object crossing a
+value erased at the task's call crosses by the parameter's braces" and
+"... with the bound".
+
 ## Parked
 
-- Low, design note: an argument erased at the task call itself
-  (`f(^Note(m: +h))&` with `f(s: ^{Shape})`, or `!a.add(?sq)` to an
-  actor's `?{Shape}`) crosses by its known type, not the object's
-  braces: a known `Note` holding a `*Map` makes the task local, a known
-  `Square` lets it cross. Sound (the hidden type is the written one,
-  and no owned closure or task hides), and the oracle agrees, but CORE's
-  "an API object without the bound a task needs goes to no task" reads
-  stricter. For the designer: keep, or check the parameter's braces.
 - Low: an owned closure capturing a `T` whose instance holds a task is
   rejected by the loan rule (a task may hold a view), not by
   `holdsTask`; right today, but it rests on that classifier.

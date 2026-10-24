@@ -4179,7 +4179,9 @@ value syncs. So a form's braces name only the bound it can use:
 `!{Shape + Syncs}` toward `!{Shape + Sends}`; a box `^{Shape + Sends +
 Syncs}` lends a `?{Shape + Syncs}` and a `!{Shape + Sends}`. An object
 without the bound a task needs goes to no task, a local one included,
-at any depth of what the task is given: its hidden value may hold an
+at any depth of what the task is given, and a value erased where it is
+passed, `work(^Sum(...))&` to a `^{Job}`, goes as that object, by its
+braces, whatever its known type: its hidden value may hold an
 owned closure, whose captures its type does not show. `Sends` never
 implies `Owned`: a task keeps the loans of what it is given, but a
 channel's values and an actor's state hold none, so they take a

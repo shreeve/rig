@@ -802,3 +802,72 @@ fail "apis object crossing a held object names the bound it lacks", "`+h` is giv
   t = f(+h)&
   u = g(<p)&
   print(>t, >u)
+
+fail "apis object crossing a value erased at the task's call crosses by the parameter's braces", "`^Sum(n: 3)` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`?s` is lent to a task to read, and `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", "an actor runs its methods on a task of its own, and `?s` is lent to it to read: `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", errors: 4
+  # The designer's answer to the review of phase 1: an argument erased
+  # into an object parameter crosses by the parameter's braces, as one
+  # erased before the call does, whatever its known type.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  obj Acc
+    n: Int
+
+    sub add(!@, j: ?{Job})
+      @n += j.run()
+
+  fun work(j: ^{Job}) -> Int
+    j.run()
+
+  fun look(j: ?{Job}) -> Int
+    j.run()
+
+  t = work(^Sum(n: 3))&
+  j: ^{Job} = ^Sum(n: 4)
+  u = work(<j)&
+  s = Sum(n: 5)
+  v = look(?s)&
+  a = *Actor(Acc(n: 0))
+  !a.add(?s)
+  print(>t, >u, >v)
+
+test "apis object crossing a value erased at the task's call with the bound", seeds: 20, "3 4 5 5"
+  # The same calls with the bound in the parameters' braces.
+  api Job
+    fun run(?@) -> Int
+
+  obj Sum: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  obj Acc
+    n: Int
+
+    sub add(!@, j: ?{Job + Syncs})
+      @n += j.run()
+
+    fun get(?@) -> Int
+      @n
+
+  fun work(j: ^{Job + Sends}) -> Int
+    j.run()
+
+  fun look(j: ?{Job + Syncs}) -> Int
+    j.run()
+
+  t = work(^Sum(n: 3))&
+  j: ^{Job + Sends} = ^Sum(n: 4)
+  u = work(<j)&
+  s = Sum(n: 5)
+  v = look(?s)&
+  a = *Actor(Acc(n: 0))
+  !a.add(?s)
+  print(>t, >u, >v, a.get())

@@ -9127,11 +9127,16 @@ const Checker = struct {
     }
 
     /// The type `part`, an argument of `ty` going to another task (a
-    /// task's call or an actor's), crosses as: a closure literal written
-    /// there is lent as a callable view, as `?f` of a closure is, since
-    /// it views what it captures. The one classifier for both
+    /// task's call or an actor's), crosses as: a value erased there as
+    /// the API object it becomes; a closure literal written there is lent
+    /// as a callable view, as `?f` of a closure is, since it views what it
+    /// captures. The one classifier for both
     /// (`crossCheck`, `actorCall`).
     fn crossingTypeOf(self: *Checker, part: Sexp, ty: TypeId) Error!TypeId {
+        // A value erased where it is passed crosses as the API object it
+        // becomes, by that object's braces, never by its known type (Core
+        // §4: an object without the bound a task needs goes to no task).
+        if (self.ctx.erasureOf(part)) |er| return er.view;
         if (self.fnArg(part, ty) != .literal) return ty;
         const fn_ty = sema.unwrapViews(self.ctx, ty);
         return switch (self.ctx.types.get(fn_ty)) {
