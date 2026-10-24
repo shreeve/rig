@@ -258,6 +258,9 @@ python3 tools/state-bounds.py --dry-run src/main.rig   # print the diff
 python3 tools/state-bounds.py src/main.rig             # write the bounds
 ```
 
+Run it once for each module directory, one run at a time: two runs over
+the files of one directory race on the module they share.
+
 ```rig reject
 pub fun twice[T](x: T) -> T
   x + x
@@ -280,6 +283,60 @@ sub main()
 ```
 
 ## Step 4: what the compiler now asks for
+
+### A loop's write view is held, not copied
+
+One form changes meaning rather than failing. A binding with no type of
+a loop's value that is a write view at every `break` holds the write
+view, as a binding of an `if` does, so assigning the binding writes
+through. 0.2.9 copied the value. Give the binding its value's type to
+copy, as before:
+
+```rig
+fun slot(a: !Int) -> !Int
+  a
+
+sub main()
+  n = 12
+  copy: Int = while true
+    break slot(!n)
+  copy = 1
+  held = while true
+    break slot(!n)
+  held = 5
+  print(n, copy)
+```
+
+```output
+5 1
+```
+
+### A write view is not re-pointed at an arm's payload
+
+A write view re-pointed inside a `match` arm at the payload the arm
+binds is rejected, since the binding ends with the arm. Write through
+the binding inside the arm:
+
+```rig
+enum Bx
+  has(v: List[Int])
+  nothing
+
+sub main()
+  v = List[Int]()
+  !v.push(7)
+  o = Bx.has(<v)
+  match !o
+    .has(p) => p[0] = 3
+    .nothing => pass
+  match o
+    .has(p) => print(p[0])
+    .nothing => pass
+```
+
+```output
+3
+```
 
 What is left the compiler reports with the form to write. The common
 ones:

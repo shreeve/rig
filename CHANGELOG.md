@@ -119,6 +119,17 @@ Other:
 42. A read view of text, `?String`, is not lent to write (`w = !s`);
     hold a `String` to change text in place.
 
+43. A write view re-pointed inside a `match` arm at the payload the arm
+    binds (`w = !p[0..1]` in `.has(p)` of `match !o`) is rejected: the
+    binding ends with the arm. Write through `p` inside the arm instead.
+
+One form changes meaning rather than failing: a binding with no type of
+a loop's value that is a write view at every `break` (`l = while true`
+then `break slot(!n)`) holds the write view, as an `if` does, so `l = 1`
+writes 1 into `n`. `v0.2.9` copied the value, so such a program compiles
+under both and now writes where it read. Give the binding its value's
+type, `l: Int = while ...`, to copy as before.
+
 Programs written against `main` since `v0.2.9` also meet forms that
 changed again before 0.3.0: `Moves` and `Shares` are `Sends` and
 `Syncs` (`tools/rename-task-bounds.py`), `std.hash` is gone
