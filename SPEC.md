@@ -2931,7 +2931,10 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 `T`) is recorded, a viewed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, in any module, is
-checked against it. On a `T`, `==` compares whatever `==` compares
+checked against it. A method makes the instances its signature and
+body name where the program reaches the method, by a call, an API's
+table, or `drop`: `Wrap[T?]` named in a method of `Wrap[T]` is made
+for `Wrap[Int]` only where that method is reached on one. On a `T`, `==` compares whatever `==` compares
 outside a generic body, and ordering compares what `<` compares outside
 one. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
@@ -3140,11 +3143,11 @@ free b
 ```
 
 A body that calls itself, or builds its own type, with its type
-parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`)
-would need ever deeper instances, and is rejected rather than expanded
-forever: at an instance, or, for a `pub` generic and the generic
-methods of a `pub` type, whose instances other modules make, where it
-is declared. A chain of distinct generics, each instantiating the next
+parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`,
+or a method of `Wrap[T]` that reaches itself on a `Wrap[T?]`) would
+need ever deeper instances, and is rejected rather than expanded
+forever: at an instance, or, for a `pub` generic and the methods of a
+`pub` type, whose instances other modules make, where it is declared. A chain of distinct generics, each instantiating the next
 with its type arguments nested one deeper, is rejected too once an
 instance's type arguments nest more than 24 deep.
 

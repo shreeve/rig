@@ -7054,20 +7054,36 @@ fail "pub generic self nesting through method", "14:9: `f[T]` leads to ever deep
 
   print(1)
 
-fail "pub generic type self nesting", "5:9: `Deep[T]` leads to ever deeper instances of generic types (through `Deep[Deep[T]]`); a generic type's body cannot nest itself in its own type arguments"
-  # A public generic type whose methods use ever deeper instances of
-  # itself is reported where it is declared, even when no instance is made
-  # here: other modules would make them.
+fail "pub generic type self nesting", "8:11: `Deep[T]` leads to ever deeper instances of generic types (through `Deep[Deep[T]]`); a generic type's body cannot nest itself in its own type arguments"
+  # A public generic type whose method reaches itself on ever deeper
+  # instances is reported where the method is declared, even when no
+  # instance is made here: other modules would make them.
 
   pub obj Deep[T]
     v: T
 
-    fun deeper(?@) -> Int
+    pub fun deeper(?@) -> Int
+      d: Deep[Deep[T]]? = none
+      if d as x
+        return x.deeper()
+      1
+
+  print(1)
+
+test "pub generic type names a deeper instance of itself", "true\n1"
+  # A method that only names a deeper instance of its type makes it where
+  # the method is reached, and that instance's methods only where they
+  # are: nothing nests ever deeper.
+
+  pub obj Deep[T]
+    v: T
+
+    pub fun deeper(?@) -> Int
       d: Deep[Deep[T]]? = none
       print(d == none)
       1
 
-  print(1)
+  print(Deep(v: 1).deeper())
 
 test "range expression", "6"
   # `a..b` is a half-open integer range; `for i in a..b` iterates it.

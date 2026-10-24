@@ -2021,6 +2021,10 @@ pub const TypeResolver = struct {
     /// gives it the built-in bounds of that argument's parameter
     /// (`implyBounds`).
     implying: []const SymbolId = &.{},
+    /// The method whose body the types are spelled in, when one a call
+    /// reaches (`Checker.bodyRef`): a generic instance spelled there is
+    /// made where the method is reached (`SemContext.addUse`).
+    body: ?sema.FnRef = null,
 
     /// The type a type name not found here was likely meant as: a
     /// built-in one written in lower case (`i32`, `string`), or a type
@@ -2325,6 +2329,13 @@ pub const TypeResolver = struct {
         const prev_scope = self.scope;
         defer self.scope = prev_scope;
         if (self.ctx.scopeOf(node)) |s| self.scope = s;
+        // A method's signature is made where a call reaches the method,
+        // as its body is (`Checker.bodyRef`). (One called with no call
+        // written, a `drop` or a built-in API's, has the signature its
+        // API fixes, which names no instance deeper than its type.)
+        const prev_body = self.body;
+        defer self.body = prev_body;
+        if (nominal_sym != sema.symbol_invalid) self.body = .{ .module = self.ctx.module_id, .pos = name.src.pos };
 
         // The compile-time parameters first: the other types may use
         // them (`fun zeros[n: Int] -> [n]Int`).
@@ -4486,7 +4497,7 @@ pub const TypeResolver = struct {
                     try self.ctx.deferred_checks.append(self.ctx.allocator, .{ .bounds = .{ .pos = pos, .ty = ty, .widened = try sema.snapshotWidened(self.ctx) } });
                 } else _ = try sema.checkBounds(self.ctx, tps, inst.args, pos, .{ .type = ty });
             }
-            try self.ctx.addGeneric(.uses, ty);
+            try self.ctx.addUse(ty, self.body);
         }
         return ty;
     }

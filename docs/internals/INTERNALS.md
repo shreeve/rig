@@ -2201,13 +2201,20 @@ parameters (a generic body using `Opt[T]` or calling `max(x, y)` with
 `expandInstantiations` makes it concrete for each instance of the body
 it is in, at that instance's site, until nothing new appears; an
 instance nesting deeper than 24 levels is reported as ever deeper
-instances. Each work item keeps its `InstanceRoot`, the instance the
+instances. One spelled in a method of a generic type, in its signature
+or body, records the method (`generic_uses_in`, `generic_fn_uses_in`,
+from `Checker.bodyRef` and `TypeResolver.body`): a type's instance
+makes only the uses outside its methods, and a method's are made where
+the program reaches it (`BodyReach`, `madeBy`), as Zig compiles a
+method only where it is referenced. A method Zig's glue calls with no
+call written (a `drop`, a built-in API's, `sema.methodCalledUnwritten`)
+records none, so every instance makes its body's. Each work item keeps its `InstanceRoot`, the instance the
 program spelled, so a diagnostic names what the user wrote
 (`max[Point]`) even for an instance reached through other bodies. Then
 `checkSelfNesting` runs the same expansion (`expand`) from each `pub`
-generic function and type, and each generic method of a `pub` type,
-at its own parameters (`nest[T]`), following instances over type
-parameters too (kept apart in `Reached`, never recorded). As in the
+generic function and type, and each method of a `pub` type, at its own
+parameters (`nest[T]`), following instances over type parameters too,
+and the methods those reach (kept apart in `Reached`, never recorded). As in the
 program's expansion, a use over parameters the instance does not bind
 is left to the instances that bind them: `Chain[X]` does not follow
 `Chain[Pair[T, U]]` in its method `zip[U]`, which `zip[T, U]` follows.
