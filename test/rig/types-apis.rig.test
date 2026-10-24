@@ -3230,8 +3230,8 @@ fail "apis pub states its bounds arithmetic", "`pub fun sum[T]` adds `T`s: write
 
   print(sum(1, 2), neg(3), low(6, 3))
 
-fail "apis pub states its bounds clone", "`pub fun dup[T]` copies a `T`: write `[T: Copy]`"
-  # `+x` on a `T` makes a new owner only of a value that copies.
+fail "apis pub states its bounds clone", "`pub fun dup[T]` clones a `T`: write `[T: Clone]`"
+  # `+x` on a `T` makes a new owner of a value that clones.
 
   pub fun dup[T](a: ?T) -> T
     +a

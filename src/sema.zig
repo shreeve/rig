@@ -3058,6 +3058,9 @@ pub const Requirement = union(enum) {
     /// Copies (`copies` is not `no`): the body copies the parameter's
     /// value.
     copies,
+    /// Clones (`lacks` finds no `Clone`): the body makes a new owner of a
+    /// value that holds the parameter, `+x`, part by part.
+    clones,
     /// Needs no cleanup: the body discards the parameter's value, leaves
     /// a temporary of it, overwrites one, or keeps one in an array or a
     /// slice.
@@ -3128,6 +3131,7 @@ pub const Requirement = union(enum) {
             .fits => "an integer literal",
             .shift => "a constant shift",
             .copies => "a value that copies",
+            .clones => "a value that clones",
             .no_cleanup => "a value that owns no resource",
             .array_len => "an array length",
             .lane_count => "a lane count",

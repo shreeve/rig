@@ -156,10 +156,14 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
 - An unwrap of an optional that traps when it is `none`. The built-in Map's
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.
-- A deep clone of a type parameter's value in a generic body (`+k` of a
-  `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
-  `Set.add` take a `?K` and copy the key only when it is stored (owner
-  approved); today they take an owned `K`.
+- `Map.ensure`, `Map.put_new`, and `Set.add` taking a `?K` and cloning
+  the key only when it is stored (owner approved), now that `+k` of a
+  `?K: Clone` clones in a generic body; today they take an owned `K`.
+- A clone in a generic body of a value that holds a type parameter
+  behind a List or a box (`+xs` of a `?List[T]`, `+b` of a `^T`) is
+  still "a type parameter has no deep clone in a generic body": its
+  requirement would walk the parameters a value reaches
+  (`reachedTypeVars`), not those it holds by value.
 - Compiler memory on two generated shapes, the same on main, found by
   #270's review.
   - One straight-line function of 10,000 bindings takes 2.6 GB, and one

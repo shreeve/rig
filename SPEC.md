@@ -3232,8 +3232,9 @@ payload's fields, each of which must be ordered. A type's header names
 `Eq`, `Hash`, `Ord`, or `Print`, the APIs whose meaning a type may give.
 
 A body may do with a bounded `T` what its bounds name and no more: copy
-a `T: Copy`, compare a `T: Ord`, hash a `T: Hash`, and call no method
-on it. Whether a literal fits a `T` is still checked at each instance.
+a `T: Copy`, clone a `T: Clone` (`+x` of a `T`, a `?T`, or a `T?`, as
+each instance clones it), compare a `T: Ord`, hash a `T: Hash`, and
+call no method on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Sends` or `Syncs` does not cross to another
 task. A comparison reads its operands where they are and drops none: a
@@ -3241,6 +3242,20 @@ task. A comparison reads its operands where they are and drops none: a
 `==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
 binding of each (`ka = key(a)`, then `ka < kb`). Each instance must provide every bound, checked at the call or
 type that makes it, with the fix in the error.
+
+```rig
+fun keep[T: Clone](x: ?T) -> T
+  +x
+
+sub main()
+  s = String("ab")
+  t = keep(?s)
+  print(t, keep(?t), keep(?3))
+```
+
+```output
+ab ab 3
+```
 
 **Implied bounds.** A bound a signature's types already require counts
 as stated: a type parameter named as an argument of a generic type in

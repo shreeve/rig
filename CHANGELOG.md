@@ -306,6 +306,14 @@ changed the language since it:
   (`hasLenReached`) now says a length is read through handles and
   boxes alike.
 
+- **`[T: Clone]` clones:** `+x` of a `T`, a `?T`, or a `T?` in a
+  generic body asked for `Copy` ("`T` is bounded by `Clone`, which does
+  not give a value that copies"), though `Clone` is the bound that
+  gives `+x`; a `|+x|` capture too. It now clones as each instance
+  does (`rig.cloneAs`), a body without bounds is checked at each
+  instance (`Requirement.clones`), and an instance that does not
+  clone, a type with a `drop` body or a unique one, is rejected there.
+
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first
   use; `List(...)` of objects, and an array lent where a `?List[T]`
