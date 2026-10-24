@@ -86,17 +86,17 @@ docs/internals/backlog.md.
 | 15 | a type only named in a generic method expanded as an instance | BL | #645 |
 | 16 | `lib.List` as an expression and as a type disagree | BL | #646 |
 | 17 | messages about instances reached through an API (#609) | BL | #647 |
-| 18 | `whole = ?@; whole.text` reported as a view of `@` | FF | ROADMAP |
-| 19 | `Hold[I: Iter]{inner: I}` refused (rule 4) | FF | ROADMAP |
-| 20 | a `?String` of a `String` with `add String: Shape` is no `?{Shape}` | S4 p2 | ROADMAP |
-| 21 | `area_of(s)&` of a `?{Shape}`, and `make()&` giving an object, refused as local tasks | S4 p2, p3 | ROADMAP |
-| 22 | `fun me(?@) -> ?{Shape} from @` cannot leave (H12) | S4 p2 | ROADMAP |
-| 23 | `swap(!h.g, v)` of a `^{Shape}` refused | S4 p3 | ROADMAP |
-| 24 | `+s` of a `*{A}` result keeps its argument lent | S5 p2 | ROADMAP (CORE's rule) |
-| 25 | `hold(!@, c: ?Cursor)` keeps `c` lent | BL | ROADMAP |
-| 26 | copies out of a view and holding a held `T` in generic bodies | BL | ROADMAP |
-| 27 | compiler memory: 10,000 bindings, chained generics | BL | ROADMAP |
-| 28 | an addition built on another module's API (Rust's rule) | S3 p1 | ROADMAP |
+| 18 | `whole = ?@; whole.text` reported as a view of `@` | FF | ROADMAP (#651) |
+| 19 | `Hold[I: Iter]{inner: I}` refused (rule 4) | FF | ROADMAP (#651) |
+| 20 | a `?String` of a `String` with `add String: Shape` is no `?{Shape}` | S4 p2 | ROADMAP (#651) |
+| 21 | `area_of(s)&` of a `?{Shape}`, and `make()&` giving an object, refused as local tasks | S4 p2, p3 | ROADMAP (#651) |
+| 22 | `fun me(?@) -> ?{Shape} from @` cannot leave (H12) | S4 p2 | ROADMAP (#651) |
+| 23 | `swap(!h.g, v)` of a `^{Shape}` refused | S4 p3 | ROADMAP (#651) |
+| 24 | `+s` of a `*{A}` result keeps its argument lent | S5 p2 | ROADMAP, open questions: CORE's rule (#651) |
+| 25 | `hold(!@, c: ?Cursor)` keeps `c` lent | BL | ROADMAP (#651) |
+| 26 | copies out of a view and holding a held `T` in generic bodies | BL | ROADMAP (#651) |
+| 27 | compiler memory: 10,000 bindings, chained generics | BL | ROADMAP (#651) |
+| 28 | an addition built on another module's API (Rust's rule) | S3 p1 | ROADMAP, open questions (#651) |
 | 29 | a value of `S.Item` that may view its base: instance rule or body tracking (`iter.count` refused where safe) | S3 p34 | owner |
 | 30 | the shorthand `c.area()` through a box | S3 p2, BL | owner |
 | 31 | a discarded result passes silently | BL, round 1 | owner |
