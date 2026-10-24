@@ -146,6 +146,12 @@ changed the language since it:
   (`sema.isPlainEnum`), and the values `Int(x)`, ordering, and
   `$variants` read go through it.
 
+- **`.len` of a List behind a shared handle is an `Int`:** `0..f.len`,
+  `n = f.len`, and `f.is_empty()` of a `*Frozen[List[T]]` or a
+  `*List[T]` passed the check and then failed in Zig. One classifier
+  (`hasLenReached`) now says a length is read through handles and
+  boxes alike.
+
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first
   use; `List(...)` of objects, and an array lent where a `?List[T]`

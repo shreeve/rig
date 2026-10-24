@@ -1734,3 +1734,18 @@ test "zig std root hooks", '''
   sub main()
     print(debug + os + std_options + tracy, std_options_debug_io(), _start())
     WinMain("hi")
+
+test "shared list length is an Int", "0 1 7 true"
+  # `.len` of a List behind a `*` handle, as through a box.
+  fun last(h: ?*List[Int]) -> Int
+    n = h.len
+    h[n - 1]
+
+  v = List[Int]()
+  !v.push(7)
+  h = *<v
+  t = 0
+  for i in 0..h.len
+    t += i
+  e = *List[Int]()
+  print(t, h.len, last(?h), e.is_empty())
