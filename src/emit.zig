@@ -1140,7 +1140,9 @@ pub const Emitter = struct {
     /// `__rig_table_Shape_of(T, W)`, whose entries each call the witness's
     /// method on the value the object holds, self given as the method
     /// takes it. Zig makes one table per API and type, and only where a
-    /// conversion names it.
+    /// conversion names it. Every name it declares is hidden
+    /// (`__rig_T`, `__rig_W`, `__rig_entry_area`), so none shadows or
+    /// meets a declaration of the module's own (`fun area`, `type T`).
     fn emitApiTable(self: *Emitter, id: SymbolId, sym: facts.Symbol) Error!void {
         const entries = self.facts.objectTable(id);
         try self.w.print("pub const __rig_table_{s} = struct {{\n", .{sym.name});
@@ -1154,33 +1156,33 @@ pub const Emitter = struct {
         // name `Print`.
         try self.w.writeAll("    __rig_print: rig.ErasedPrint,\n");
         try self.w.writeAll("};\n\n");
-        try self.w.print("pub fn __rig_table_{s}_of(comptime T: type, comptime W: type) *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
+        try self.w.print("pub fn __rig_table_{s}_of(comptime __rig_T: type, comptime __rig_W: type) *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
         try self.w.writeAll("    return &struct {\n");
         try self.w.print("        const __rig_table: __rig_table_{s} = .{{", .{sym.name});
         var n: usize = 0;
         for (entries) |e| {
             if (!tableHolds(e)) continue;
-            try self.w.print(" .{f} = {f},", .{ ident(e.name), ident(e.name) });
+            try self.w.print(" .{f} = __rig_entry_{s},", .{ ident(e.name), e.name });
             n += 1;
         }
-        try self.w.writeAll(" .__rig_print = rig.printErased(T) };\n");
-        if (n == 0) try self.w.writeAll("        comptime {\n            _ = @TypeOf(W);\n        }\n");
+        try self.w.writeAll(" .__rig_print = rig.printErased(__rig_T) };\n");
+        if (n == 0) try self.w.writeAll("        comptime {\n            _ = @TypeOf(__rig_W);\n        }\n");
         for (entries) |e| {
             if (!tableHolds(e)) continue;
             const f = self.facts.types.get(e.fn_ty).function;
             const args = f.params[@min(1, f.params.len)..];
-            try self.w.print("        fn {f}(", .{ident(e.name)});
+            try self.w.print("        fn __rig_entry_{s}(", .{e.name});
             try self.writeEntrySignature(e, true);
             try self.w.writeAll(" {\n");
-            try self.w.print("            const p = rig.erasedSelf({s}T, __rig_ptr);\n", .{if (e.self_mode == .write) "*" else "*const "});
+            try self.w.print("            const __rig_p = rig.erasedSelf({s}__rig_T, __rig_ptr);\n", .{if (e.self_mode == .write) "*" else "*const "});
             try self.w.writeAll("            return ");
-            const call = try self.fmt("W.{f}(rig.selfArg(W.{f}, p){s}", .{ ident(e.name), ident(e.name), if (args.len > 0) ", " else "" });
+            const call = try self.fmt("__rig_W.{f}(rig.selfArg(__rig_W.{f}, __rig_p){s}", .{ ident(e.name), ident(e.name), if (args.len > 0) ", " else "" });
             var list: std.ArrayList(u8) = .empty;
             for (0..args.len) |i| try list.print(self.arena.allocator(), "{s}__rig_a{d}", .{ if (i > 0) ", " else "", i });
             // A fallible method's entry takes the slot, and passes it on
             // to a method that takes one (`rig.takesSlot`).
             if (self.facts.types.get(f.returns) == .fallible) {
-                try self.w.print("if (comptime rig.takesSlot(W.{f}, {d})) {s}{s}, __out) else {s}{s});\n", .{ ident(e.name), args.len + 1, call, list.items, call, list.items });
+                try self.w.print("if (comptime rig.takesSlot(__rig_W.{f}, {d})) {s}{s}, __rig_out) else {s}{s});\n", .{ ident(e.name), args.len + 1, call, list.items, call, list.items });
             } else try self.w.print("{s}{s});\n", .{ call, list.items });
             try self.w.writeAll("        }\n");
         }
@@ -1207,7 +1209,7 @@ pub const Emitter = struct {
             if (named) try self.w.print("__rig_a{d}: ", .{i});
             try self.emitTypeTy(p);
         }
-        if (self.facts.types.get(f.returns) == .fallible) try self.w.writeAll(if (named) ", __out: rig.ErrSlot" else ", rig.ErrSlot");
+        if (self.facts.types.get(f.returns) == .fallible) try self.w.writeAll(if (named) ", __rig_out: rig.ErrSlot" else ", rig.ErrSlot");
         try self.w.writeAll(") ");
         if (f.is_sub and f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
     }
@@ -2276,6 +2278,14 @@ pub const Emitter = struct {
             try self.w.writeAll(" = undefined; ");
             try self.erased_slots.append(self.allocator, .{ .key = key, .name = name });
         }
+    }
+
+    /// Whether statement `stmt` erases a value to an API object of a copy
+    /// (`sema.stmtErasedCopies`), whose slot a block declares.
+    fn hasErasedCopies(self: *Emitter, stmt: Sexp) Error!bool {
+        var nodes: std.ArrayList(Sexp) = .empty;
+        try self.facts.stmtErasedCopies(self.arena.allocator(), stmt, &nodes);
+        return nodes.items.len > 0;
     }
 
     fn erasedSlot(self: *Emitter, n: Sexp) ?[]const u8 {
@@ -7717,7 +7727,7 @@ pub const Emitter = struct {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last)) return self.emitYield(last, result, how);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last) and !self.hasTemps(last) and !try self.hasErasedCopies(last)) return self.emitYield(last, result, how);
 
         const terminates = isTerminatingStmt(last);
         // A block whose value is Void may end in a statement that gives
@@ -9757,6 +9767,12 @@ pub const Emitter = struct {
             .read_view, .write_view => true,
             else => false,
         } else false;
+        // `|?w|` of a `!{Shape}` holds the read view it lends, a value of
+        // another Zig type (`rig.ApiView`).
+        if (outer.ty) |t| if (self.facts.types.get(t) == .write_view and self.facts.objectView(t) != null and self.facts.types.get(ty) == .read_view) {
+            try self.writeLocalPlace(outer);
+            return self.w.writeAll(".read()");
+        };
         // A read view, in a generic body, of what a write view points
         // at is that value's own read view (`rig.lend`).
         const outer_writes = if (outer.ty) |t| self.facts.types.get(t) == .write_view else false;

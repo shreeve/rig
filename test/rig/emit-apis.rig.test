@@ -209,9 +209,9 @@ code "apis object the table", '''
   print(1)
 
 code "apis object an entry calls the witness's method", '''
-  fn area(__rig_ptr: rig.ErasedRead) f64 {
-      const p = rig.erasedSelf(*const T, __rig_ptr);
-      return W.area(rig.selfArg(W.area, p));
+  fn __rig_entry_area(__rig_ptr: rig.ErasedRead) f64 {
+      const __rig_p = rig.erasedSelf(*const __rig_T, __rig_ptr);
+      return __rig_W.area(rig.selfArg(__rig_W.area, __rig_p));
   }
 '''
   api Shape

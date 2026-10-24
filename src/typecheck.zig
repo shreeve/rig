@@ -6470,7 +6470,11 @@ const Checker = struct {
             .read_view => return inner,
             .write_view => |base| {
                 if (kind == .write) return inner;
-                return self.readViewOf(e, base);
+                const view = try self.readViewOf(e, base);
+                // A `!{Shape}` lends its `?{Shape}`, a value of another Zig
+                // type (`rig.ApiView`), by the lend table's `read_only` row.
+                if (sema.apiObject(self.ctx, base) != null) if (sema.lendsAs(self.ctx, base, .write, view)) |lend| try self.ctx.recordLend(e, lend);
+                return view;
             },
             else => {},
         }
@@ -9577,10 +9581,14 @@ const Checker = struct {
                         const name = try self.tyName(ty);
                         const direct = std.mem.eql(u8, name, "[]U8");
                         try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
-                    } else if (sema.objectUnprinted(self.ctx, ty)) |held| {
+                    } else if (try sema.objectUnprinted(self.ctx, ty)) |held| {
                         // An API object prints by the `Print` its braces or
                         // API name, through its table.
-                        const h = sema.objectHeld(self.ctx, held) orelse continue;
+                        const printed = if (std.mem.eql(u8, verb, "write")) "written" else "printed";
+                        const h = sema.objectHeld(self.ctx, held) orelse {
+                            try self.errAt(a, "`{s}` cannot be {s}: it holds an API object whose type is erased, and whose braces and API name no `Print`", .{ try self.tyName(ty), printed });
+                            continue;
+                        };
                         const api = try sema.apiName(self.ctx, h.object.api);
                         var with = h.object;
                         with.builtins.insert(.Print);
@@ -9589,7 +9597,7 @@ const Checker = struct {
                             .write => "!",
                             .box => "^",
                         };
-                        try self.errAt(a, "`{s}` cannot be {s}: its type is erased; write `{s}{s}`, or build `{s}` on `Print`", .{ try self.tyName(held), if (std.mem.eql(u8, verb, "write")) "written" else "printed", sigil, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with), api });
+                        try self.errAt(a, "`{s}` cannot be {s}: its type is erased; write `{s}{s}`, or build `{s}` on `Print`", .{ try self.tyName(held), printed, sigil, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with), api });
                     }
                     // Each instance answers for a type parameter the value
                     // holds, or that a view of it shows.

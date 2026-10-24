@@ -2633,6 +2633,11 @@ const Lowerer = struct {
                     },
                     .view => return abstain("a bare write view passed as a view"),
                     .take, .ret => {
+                        // A `!{A}` handed on bare is never copied, its
+                        // value having no size of its own: it lends its
+                        // read view (Core §4: a write lend may be read), as
+                        // a write slice lends its elements.
+                        if (how == .take and !wants_view and self.ctx.types.get(t_ty) == .api_object) return try self.lend(through, .read, e, p.ty);
                         if (!wants_view and ti.kind.copies()) {
                             if (elems) return try self.lend(through, .read, e, t_ty);
                             return try self.copy(through, t_ty, pos);

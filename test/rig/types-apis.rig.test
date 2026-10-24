@@ -4501,3 +4501,151 @@ test "apis object a type with no fields", "1.5"
     s.area()
 
   print(area_of(Unit()))
+
+test "apis object a table beside names of the module's own", whole: true, "4.0 4 4.0"
+  # Every API's table is written into its module, beside the module's
+  # own declarations: a function named as a method, and constants and
+  # types named `T`, `W`, and `p`.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  type T = ?{Shape}
+  type W = Square
+  p = 3
+
+  fun area(x: Int) -> Int
+    x + p
+
+  fun area_of(s: T) -> Float
+    s.area()
+
+  sub main()
+    sq: W = Square(side: 2.0)
+    print(sq.area(), area(1), area_of(sq))
+
+test "apis object a write view lent to read where it is written", "8.0 4.0 4.0"
+  # `?w` of a `!{Shape}` is the read view it lends, a value of another
+  # Zig type: as an argument, as a function's result, and inside an
+  # optional result.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun both(w: !{Shape}) -> Float
+    area_of(w) + area_of(?w)
+
+  fun read(w: !{Shape}) -> ?{Shape} from w
+    return ?w
+
+  fun maybe(w: !{Shape}) -> (?{Shape})? from w
+    ?w
+
+  sq = Square(side: 2.0)
+  m = 0.0
+  if maybe(!sq) as r
+    m = r.area()
+  print(both(!sq), read(!sq).area(), m)
+
+fail "apis object printed through a field", "`?{Shape}` cannot be printed: its type is erased; write `?{Shape + Print}`, or build `Shape` on `Print`"
+  # An object a field holds prints only as the object does; a type that
+  # prints itself chooses what it prints.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side
+
+  obj Pair
+    s: ?{Shape}
+    n: Int
+
+  obj Shown: Print
+    s: ?{Shape}
+
+    sub print(?@, out: !Printer)
+      !out.text("shown")
+
+  sq = Square(side: 2.0)
+  print(Shown(s: ?sq))
+  print(Pair(s: ?sq, n: 1))
+
+test "apis object of a copy in a branch of one line", "18.0 4.0 9.0"
+  # A branch of one expression that erases a copy is a block that holds
+  # the copy's slot: of an `if` that gives a binding its value, and of
+  # one that is a function's last statement.
+
+  api Shape
+    fun area(?@) -> Float
+
+  add Int: Shape
+    fun area(?@) -> Float
+      Float(@) * Float(@)
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun bound(p: ?Int, c: Bool) -> Float
+    x = if c
+      area_of(p)
+    else
+      area_of(p) * 0.5
+    x * 2.0
+
+  fun last(p: ?Int, c: Bool) -> Float
+    if c
+      area_of(p)
+    else
+      0.0
+
+  print(bound(3, true), bound(2, false), last(3, true))
+
+test "apis object a write view lent to read by a capture and a field", "12.0 4.0"
+  # `|?w|` of a `!{Shape}` captures the read view it lends, and a field
+  # of type `?{Shape}` takes the one a bare `w` lends.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Pair
+    s: ?{Shape}
+    n: Int
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun captured(w: !{Shape}) -> Float
+    g = |?w, k: Float| area_of(w) * k
+    g(1.0) + g(2.0)
+
+  fun held(w: !{Shape}) -> Float
+    p = Pair(s: w, n: 1)
+    p.s.area()
+
+  sq = Square(side: 2.0)
+  print(captured(!sq), held(!sq))

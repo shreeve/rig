@@ -7472,7 +7472,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
         .Ord => return ordLack(ctx, ty, 0),
         .Print => {
             if (!try printable(ctx, ty)) return .{ .ty = ty };
-            if (objectUnprinted(ctx, ty)) |held| return .{ .ty = held };
+            if (try objectUnprinted(ctx, ty)) |held| return .{ .ty = held };
             return heldLack(ctx, ty, api);
         },
         .Num => return if (isNumeric(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
@@ -7512,23 +7512,54 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
     }
 }
 
-/// An API object `ty` holds, by the walk `reachedTypeVars` makes, whose
-/// braces and API name no `Print`: `List[^{Shape}]` prints only as its
-/// objects do (`objectMeets`). Null when each prints.
-pub fn objectUnprinted(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    if (!mentionsObject(ctx, ty)) return null;
-    if (objectHeld(ctx, ty)) |h| return if (objectMeets(ctx, h.object, h.form, .Print)) null else ty;
-    if (apiObject(ctx, ty) != null) return ty;
-    return switch (ctx.types.get(ty)) {
-        .optional, .read_view, .write_view, .shared, .weak => |inner| objectUnprinted(ctx, inner),
-        .fallible => |inner| objectUnprinted(ctx, inner.ok),
-        .array => |arr| objectUnprinted(ctx, arr.elem),
-        .slice => |sl| objectUnprinted(ctx, sl.elem),
-        .parameterized_nominal => |pn| for (pn.args) |arg| {
-            if (objectUnprinted(ctx, arg)) |held| break held;
-        } else null,
-        else => null,
-    };
+/// An API object `ty` holds, through wrappers, type arguments, fields,
+/// and payloads (the walk `holdsByteSlice` makes), whose braces and API
+/// name no `Print`: `List[^{Shape}]`, and an `obj` with a `?{Shape}`
+/// field, print only as their objects do (`objectMeets`). The object's
+/// type, or `ty` when the object is another module's field's; null when
+/// each prints.
+pub fn objectUnprinted(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
+    const a = ctx.allocator;
+    var todo: std.ArrayList(ByteSliceItem) = .empty;
+    defer todo.deinit(a);
+    var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+    defer seen.deinit(a);
+    try todo.append(a, .{ .ctx = ctx, .ty = ty });
+    while (todo.pop()) |item| {
+        const c = item.ctx;
+        const found = if (objectHeld(c, item.ty)) |h| !objectMeets(c, h.object, h.form, .Print) else apiObject(c, item.ty) != null;
+        if (found) return if (c == ctx) item.ty else ty;
+        if (objectHeld(c, item.ty) != null) continue;
+        switch (c.types.get(item.ty)) {
+            .optional, .read_view, .write_view, .shared, .weak => |inner| {
+                try todo.append(a, .{ .ctx = c, .ty = inner });
+                continue;
+            },
+            .fallible => |f| {
+                try todo.append(a, .{ .ctx = c, .ty = f.ok });
+                continue;
+            },
+            .array => |arr| {
+                try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                continue;
+            },
+            .slice => |sl| {
+                try todo.append(a, .{ .ctx = c, .ty = sl.elem });
+                continue;
+            },
+            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+            .nominal, .imported_nominal => {},
+            else => continue,
+        }
+        const decl = nominalDecl(c, item.ty) orelse continue;
+        if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+        // A type that prints itself prints no field it does not choose to.
+        if (ownApiMethod(decl.ctx.symbols.items[decl.sym], .Print) != null) continue;
+        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
+        }
+    }
+    return null;
 }
 
 /// Whether an API object held as `form` meets built-in API `api`
