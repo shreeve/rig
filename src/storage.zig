@@ -124,7 +124,7 @@ pub fn moduleMemberSym(ctx: *const SemContext, obj: Sexp) ?sema.Symbol {
     const id = ctx.symbolOf(ir.Member.object(obj)) orelse return null;
     if (ctx.symbols.items[id].kind != .module) return null;
     const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
-    const fid = foreign.lookupInScopeOnly(sema.module_scope, srcText(ctx, ir.Member.name(obj))) orelse return null;
+    const fid = foreign.moduleMember(srcText(ctx, ir.Member.name(obj))) orelse return null;
     return foreign.symbols.items[fid];
 }
 

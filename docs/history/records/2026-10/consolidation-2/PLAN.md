@@ -84,7 +84,7 @@ docs/internals/backlog.md.
 | 13 | an empty `api Marker`; two defaults across modules at a call | S3 p1 | checked (#643): two defaults are rejected at each call that sees both, cases added; `api Marker` stays a parse error, as `obj Unit` is: owner |
 | 14 | a set without fields lent where a union with fields goes | BL | #644 |
 | 15 | a type only named in a generic method expanded as an instance | BL | #645 |
-| 16 | `lib.List` as an expression and as a type disagree | BL | fix |
+| 16 | `lib.List` as an expression and as a type disagree | BL | #646 |
 | 17 | messages about instances reached through an API (#609) | BL | fix |
 | 18 | `whole = ?@; whole.text` reported as a view of `@` | FF | ROADMAP |
 | 19 | `Hold[I: Iter]{inner: I}` refused (rule 4) | FF | ROADMAP |

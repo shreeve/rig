@@ -13,6 +13,11 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A module's members are its own declarations:** `lib.List[Int]`,
+  `lib.print`, or `lib.Cell[Int]`, a built-in named through a module,
+  is "no member `List` in module `lib`" as an expression and as a type.
+  As an expression it reached the built-in, and as a type it was "not
+  public". One lookup, `SemContext.moduleMember`, serves every pass.
 - **A method makes the instances it names where it is reached:** a
   generic type's method that names a deeper instance of its type
   (`$name(Wrap[T?])` in `Wrap[T]`'s method) makes it only where the

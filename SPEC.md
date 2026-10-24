@@ -11069,7 +11069,9 @@ standard library's module `name` ([STD.md](docs/STD.md)), which ships
 with the compiler; it is a different module from a `name.rig` beside
 the program. The module's `pub` declarations
 are then reached as `name.decl`, and its types are named `name.Type` in
-annotations. A type's members are named through the module too:
+annotations. Only its own declarations are: a built-in that every
+module sees, `List` or `print`, is no member of any (`geo.List` is
+"no member `List` in module `geo`", as an expression and as a type). A type's members are named through the module too:
 `name.Type.function(...)` calls an associated function, and
 `name.Enum.variant` names a variant. Imports are checked in dependency
 order, each module once; a cycle is an error.

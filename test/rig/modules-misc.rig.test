@@ -519,6 +519,24 @@ test "cross resource return", "42"
     pub fun make_box(v: Int) -> *Wrap
       *Wrap(value: v)
 
+fail "a built-in named through a module", errors: 5, "7:12: no member `List` in module `lib`", "8:11: no type `List` in module `lib`", "9:7: no member `print` in module `lib`", "10:11: no type `Cell` in module `lib`", "11:11: no member `Int` in module `lib`"
+  # A module's members are what it declares: a built-in every module sees
+  # is none of them, as an expression or as a type.
+
+  use lib
+
+  sub main()
+    xs = lib.List[Int].filled(2, 3)
+    ys: lib.List[String] = List[String]()
+    lib.print(1)
+    c: *lib.Cell[Int] = *Cell(1)
+    n = lib.Int(3)
+    print(xs.len, ys.len, n)
+
+  file "lib.rig"
+    pub fun one() -> Int
+      1
+
 fail "cross unknown member", "no member `no_such_fn` in module `a`"
   # Qualified access to a name that module `a` does not define is a Rig
   # diagnostic, not a fall-through to the Zig compiler.
