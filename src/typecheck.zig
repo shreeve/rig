@@ -9127,13 +9127,29 @@ const Checker = struct {
         for (found.items) |p| try self.require(p.param, .{ .task = p.reach }, pos, passed);
     }
 
-    /// A value of `ty` is hidden at `pos` from the rules that wait for a
-    /// task: erased to the API object `where`, or given out of `where`,
-    /// `task.isolate` or `task.supervise`, which ends every task started
-    /// in it. Each instance's type for a type parameter it holds must hold
-    /// no task (`Requirement.no_task`).
-    fn requireNoTask(self: *Checker, ty: TypeId, pos: u32, how: enum { erased, isolated }, where: []const u8) Error!void {
-        if (!self.ctx.typeInfo(ty).has_type_var) return;
+    /// How a value is hidden from the rules that wait for a task
+    /// (`hidesNoTask`).
+    const Hidden = enum { erased, isolated, captured };
+
+    /// The one check that a value of `ty`, hidden at `at` from the rules
+    /// that wait for a task, holds none (Core §4): erased to the API
+    /// object `where`; given out of `where`, `task.isolate` or
+    /// `task.supervise`, which ends every task started in it; or captured
+    /// by an owned closure, whose type does not show its captures. Its
+    /// known type holds no task (`sema.holdsTask`), and each instance's
+    /// type for a type parameter it holds none (`Requirement.no_task`).
+    /// False when its known type holds one, reported at `at`.
+    fn hidesNoTask(self: *Checker, at: Sexp, ty: TypeId, how: Hidden, where: []const u8) Error!bool {
+        if (sema.holdsTask(self.ctx, ty)) {
+            const shown = try self.tyName(ty);
+            switch (how) {
+                .erased => try self.errAt(at, "`{s}` is erased to `{s}`, which would hide a task from the rules that wait for one, and {s}: wait for the task before erasing", .{ shown, where, try taskWhy(self.ctx, ty) }),
+                .isolated => try self.errAt(at, "a task started in `{s}` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ where, self.sourceText(at), shown }),
+                .captured => try self.errAt(at, "an owned closure holds no task: `{s}` is a `{s}`{s}, which only the scope that waits for it may hold; wait for it first and capture its value", .{ self.sourceText(at), shown, if (sema.isTask(self.ctx, ty) or sema.isTaskSet(self.ctx, ty)) "" else " holding one" }),
+            }
+            return false;
+        }
+        if (!self.ctx.typeInfo(ty).has_type_var) return true;
         var held: std.ArrayList(SymbolId) = .empty;
         defer held.deinit(self.ctx.allocator);
         try sema.reachedTypeVars(self.ctx, ty, &held, self.ctx.allocator);
@@ -9143,9 +9159,11 @@ const Checker = struct {
             const op = switch (how) {
                 .erased => try a.print("the generic body erases a value that holds a `{s}` to `{s}`, which would hide a task from the rules that wait for one", .{ pname, where }),
                 .isolated => try a.print("a task started in `{s}` ends in it, so the generic body gives out of it no value that holds a `{s}`", .{ where, pname }),
+                .captured => try a.print("the generic body captures a value that holds a `{s}` in an owned closure, which would hide a task from the rules that wait for one", .{pname}),
             };
-            try self.require(param, .no_task, pos, op);
+            try self.require(param, .no_task, self.startOf(at), op);
         }
+        return true;
     }
 
     /// The type `part`, an argument of `ty` going to another task (a
@@ -14007,10 +14025,7 @@ const Checker = struct {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = &.{}, .returns = gives, .is_sub = sema.returnsNothing(self.ctx, gives) } });
         }
-        if (sema.holdsTask(self.ctx, value)) {
-            return try self.badCall(args, f, "a task started in `{s}` ends in it, and `{s}` gives a `{s}`, which holds one: wait for it inside", .{ shown, self.sourceText(f), try self.tyName(value) });
-        }
-        try self.requireNoTask(value, self.startOf(f), .isolated, shown);
+        if (!try self.hidesNoTask(f, value, .isolated, shown)) return try self.skipCall(args);
         const result = try self.ctx.intern(.{ .fallible = .{ .ok = value, .set = try self.waitSet(if (fails) &.{self.ctx.types.get(returns).fallible.set} else &.{}) } });
         // The function, then each option given, in the order written.
         const a = self.ctx.arena.allocator();
@@ -15413,12 +15428,7 @@ const Checker = struct {
         // A task, or a set of tasks, is waited for where its type shows
         // it (`task.isolate`, an error's field, a crossing): erased, no
         // rule would see it.
-        if (sema.holdsTask(self.ctx, reached)) {
-            const why = if (taskField(self.ctx, sema.nominalDecl(self.ctx, reached))) |f| f else try std.fmt.allocPrint(self.ctx.arena.allocator(), "a `{s}` holds one", .{try self.tyName(reached)});
-            try self.errAt(e, "`{s}` is erased to `{s}`, which would hide a task from the rules that wait for one, and {s}: wait for the task before erasing", .{ try self.tyName(reached), shown_view, why });
-            return null;
-        }
-        try self.requireNoTask(reached, self.startOf(e), .erased, shown_view);
+        if (!try self.hidesNoTask(e, reached, .erased, shown_view)) return null;
         // Its table holds every method the API names, which Zig compiles.
         if (self.tentative == 0) _ = try self.ctx.recordBodyReach(.{ .fun = .{ .module = 0, .pos = 0 }, .in = self.bodyRef(), .params = &.{}, .args = &.{}, .recv = reached, .method = "", .site = self.startOf(e), .erase = object.api });
         // The built-in APIs the braces name, checked on the value's type.
@@ -17945,16 +17955,8 @@ const Checker = struct {
             const name_node = sema.captureNameNode(cap) orelse continue;
             const id = self.ctx.symbolOf(name_node) orelse continue;
             const cty = self.ctx.symbols.items[id].ty;
-            // (A type parameter's instance holding a task is rejected where
-            // it is made: a task may hold a view, which no owned closure
-            // captures.)
-            if (self.isPoison(cty) or !sema.holdsTask(self.ctx, cty)) continue;
-            const direct = switch (self.ctx.types.get(cty)) {
-                .parameterized_nominal => |pn| pn.sym == self.ctx.task_sym_id or pn.sym == self.ctx.tasks_sym_id,
-                else => false,
-            };
-            try self.errAt(name_node, "an owned closure holds no task: `{s}` is a `{s}`{s}, which only the scope that waits for it may hold; wait for it first and capture its value", .{ self.text(name_node), try self.tyName(cty), if (direct) "" else " holding one" });
-            return self.t().invalid_id;
+            if (self.isPoison(cty)) continue;
+            if (!try self.hidesNoTask(name_node, cty, .captured, "")) return self.t().invalid_id;
         }
         return self.ctx.intern(.{ .shared = lty });
     }
@@ -19857,7 +19859,7 @@ fn reportTaskReq(ctx: *SemContext, req: sema.GenericRequirement, at: u32, inst: 
     const aname = try sema.formatType(ctx, arg);
     switch (req.req) {
         .no_task => {
-            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}, and {s}", .{ inst, pname, aname, req.op, if (taskField(ctx, sema.nominalDecl(ctx, arg))) |f| f else try ctx.arena.allocator().print("a `{s}` holds one", .{aname}) });
+            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}, and {s}", .{ inst, pname, aname, req.op, try taskWhy(ctx, arg) });
             try ctx.noteIn(req.module_id, req.pos, "`{s}` hidden here", .{pname});
         },
         .task => |reach| {
@@ -20582,6 +20584,13 @@ fn laterDefault(ctx: *SemContext, index: usize, name: []const u8, api: sema.ApiR
 
 /// The first field of the object `decl` whose type lacks `api`, as the
 /// end of an error says it: `; its field `cache` is a `*Cell[Int]``.
+/// Why a value of `ty`, which holds a task (`sema.holdsTask`), holds
+/// one: its first field that does (`taskField`), or "a `T` holds one".
+fn taskWhy(ctx: *SemContext, ty: TypeId) Error![]const u8 {
+    if (taskField(ctx, sema.nominalDecl(ctx, ty))) |f| return f;
+    return ctx.arena.allocator().print("a `{s}` holds one", .{try sema.formatType(ctx, ty)});
+}
+
 /// The first field or payload of `decl` that holds a task (`sema.holdsTask`),
 /// as `its field `t` is a `Task[Int]``; null when none of its own does.
 fn taskField(ctx: *SemContext, decl: ?sema.NominalDecl) ?[]const u8 {
