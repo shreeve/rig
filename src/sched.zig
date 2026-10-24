@@ -1211,8 +1211,8 @@ var kicking: std.atomic.Value(u32) = .init(0);
 ///
 /// A call that finds no thread idle, and more calls queued than threads
 /// on their way back from one (`finishing`, which take the next call
-/// without sleeping), starts a thread, up to `soft` (the performance
-/// cores): a stream of short calls (a file read each) keeps a few
+/// without sleeping), starts a thread, up to `soft` (one fewer than the
+/// performance cores): a stream of short calls (a file read each) keeps a few
 /// threads busy, each taking the next call as it ends one, rather than
 /// waking a sleeping thread for each, and does not crowd the file
 /// system. Past `soft`, the pool grows toward `max` only while its
@@ -1240,9 +1240,15 @@ const Pool = struct {
     soft: u32 = 0,
     max: u32 = 0,
     /// The monitor's word, which a call moves as it waits for a thread
-    /// past `soft`, and whether the monitor runs.
+    /// past `soft`; whether the monitor runs, and whether it looks every
+    /// `grow_after` (`ticking`), so a call need not wake it.
     monitor_word: std.atomic.Value(u32) = .init(0),
     monitoring: bool = false,
+    ticking: bool = false,
+    /// When a thread last ended a call, or the monitor last started one:
+    /// the pool grows past `soft` only once no thread has ended one for
+    /// `grow_after`, so its threads are blocked, not merely behind.
+    progress: i96 = 0,
 
     const default_max = 64;
 
@@ -1254,37 +1260,43 @@ const Pool = struct {
         if (p.tail) |t| t.next = c else p.head = c;
         p.tail = c;
         p.queued += 1;
+        // What the call needs: an idle thread woken; a thread started; the
+        // monitor started, or woken unless it already looks; or nothing,
+        // when a thread on its way back takes it, or every thread is busy
+        // and the first to end a call takes it.
+        var wake_idle = false;
         var start = false;
+        var start_monitor = false;
         var watch = false;
         if (p.idle > 0) {
             p.idle -= 1;
             p.reserved += 1;
+            wake_idle = true;
         } else if (p.queued - p.reserved > p.finishing.load(.seq_cst)) {
             if (p.threads < p.soft) {
                 p.threads += 1;
                 start = true;
-            } else if (p.threads < p.max) {
-                watch = true;
+            } else if (p.threads < p.max and !stopping.load(.acquire)) {
                 if (!p.monitoring) {
                     p.monitoring = true;
-                    const th = std.Thread.spawn(.{}, monitor, .{p}) catch rt.oom();
-                    th.detach();
-                }
+                    start_monitor = true;
+                } else watch = !p.ticking;
             }
         }
         p.lock.unlock();
         if (start) {
             const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
             th.detach();
-            return;
-        }
-        if (watch) {
+        } else if (start_monitor) {
+            const th = std.Thread.spawn(.{}, monitor, .{p}) catch rt.oom();
+            th.detach();
+        } else if (watch) {
             _ = p.monitor_word.fetchAdd(1, .seq_cst);
             rt.io().futexWake(u32, &p.monitor_word.raw, 1);
-            return;
+        } else if (wake_idle) {
+            _ = p.word.fetchAdd(1, .seq_cst);
+            rt.io().futexWake(u32, &p.word.raw, 1);
         }
-        _ = p.word.fetchAdd(1, .seq_cst);
-        rt.io().futexWake(u32, &p.word.raw, 1);
     }
 
     /// The next call, for a thread that waited for it when `waited`: it
@@ -1317,8 +1329,10 @@ const Pool = struct {
         while (true) {
             _ = p.word.fetchAdd(1, .seq_cst);
             rt.io().futexWake(u32, &p.word.raw, std.math.maxInt(u32));
+            _ = p.monitor_word.fetchAdd(1, .seq_cst);
+            rt.io().futexWake(u32, &p.monitor_word.raw, 1);
             p.lock.lock();
-            const left = p.threads;
+            const left = p.threads + @intFromBool(p.monitoring);
             p.lock.unlock();
             if (left == 0 or nowReal() - since >= stop_wait) return;
             std.Thread.yield() catch {};
@@ -1336,8 +1350,10 @@ const Pool = struct {
 var retire_after: i96 = 10 * std.time.ns_per_s;
 
 /// The pool's bounds: `RIG_BLOCKING_THREADS` for both, if set; else
-/// `soft` the performance cores (`performanceCores`), at least 2, and
-/// `max` `Pool.default_max`.
+/// `soft` one fewer than the performance cores (`performanceCores`),
+/// which the workers share, at least 2, and `max` `Pool.default_max`.
+/// On a Mac of 4 performance cores, loco read 125,000 files 9% faster
+/// with 3 threads than with 4.
 fn poolBounds(p: *Pool) void {
     if (rt.process) |proc| if (proc.environ.getPosix("RIG_BLOCKING_THREADS")) |v| {
         const n = std.fmt.parseInt(u32, v, 10) catch 0;
@@ -1347,7 +1363,7 @@ fn poolBounds(p: *Pool) void {
             return;
         }
     };
-    p.soft = @max(2, @min(performanceCores(), Pool.default_max));
+    p.soft = @max(2, @min(performanceCores() -| 1, Pool.default_max));
     p.max = Pool.default_max;
 }
 
@@ -1362,21 +1378,31 @@ fn performanceCores() u32 {
     return @intCast(@min(8, std.Thread.getCpuCount() catch 4));
 }
 
-/// Grow the pool past `soft` while its oldest queued call has waited
-/// `Pool.grow_after` for a thread: once a call waits past `soft` it looks
-/// every `grow_after`, starting a thread each time, up to `max`, and
-/// sleeps once no call waits.
+/// Grow the pool past `soft` while its threads are blocked: once its
+/// oldest queued call has waited `Pool.grow_after`, and no thread has
+/// ended a call for as long (`progress`), start one thread, up to `max`,
+/// and look again `grow_after` later; sleep while no call waits. It ends
+/// as `main` ends (`stop`).
 fn monitor(p: *Pool) void {
     defer rt.fast_alloc.threadExit();
-    while (!stopping.load(.acquire)) {
+    while (true) {
         const seen = p.monitor_word.load(.seq_cst);
         p.lock.lock();
+        if (stopping.load(.acquire)) {
+            p.monitoring = false;
+            p.ticking = false;
+            p.lock.unlock();
+            return;
+        }
+        const now = nowReal();
         const backlog = p.head != null and p.queued - p.reserved > p.finishing.load(.seq_cst);
         var start = false;
-        if (backlog and p.threads < p.max and nowReal() - p.head.?.at >= Pool.grow_after) {
+        if (backlog and p.threads < p.max and now - p.head.?.at >= Pool.grow_after and now - p.progress >= Pool.grow_after) {
             p.threads += 1;
+            p.progress = now;
             start = true;
         }
+        p.ticking = backlog;
         p.lock.unlock();
         if (start) {
             const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
@@ -1413,6 +1439,7 @@ fn poolMain(p: *Pool) void {
             c.run(c);
             p.lock.lock();
             _ = p.finishing.fetchSub(1, .seq_cst);
+            p.progress = nowReal();
             waited = false;
             continue;
         }

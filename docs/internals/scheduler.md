@@ -329,9 +329,9 @@ every time; the suite runs each concurrency case again under seeds 1 to
     blocking pool counts a thread busy as it hands it a call, and counts
     a thread on its way back from one (`finishing`), which takes the next
     call queued without sleeping. A call that finds neither starts a
-    thread, outside the lock, up to the performance cores (`soft`: on
-    macOS `hw.perflevel0.physicalcpu`, elsewhere the cores, at most 8;
-    at least 2), so a stream of short calls keeps a few threads busy
+    thread, outside the lock, up to one fewer than the performance cores
+    (`soft`: on macOS `hw.perflevel0.physicalcpu`, elsewhere the cores,
+    at most 8; at least 2), so a stream of short calls keeps a few threads busy
     rather than waking a sleeping one for each. Past `soft`, a monitor
     thread starts one more each millisecond while the oldest queued call
     has waited that long, up to 64, so calls that block for long (a pipe,
