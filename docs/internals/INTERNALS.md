@@ -12,7 +12,8 @@ Contents: [Pipeline](#pipeline), [Source map](#source-map), [Front end](#front-e
 (the grammar, the lexer and parser wrapper, [node shapes](#node-shapes),
 [syntax facts](#syntax-facts)), [The semantic IR](#the-semantic-ir),
 [Modules](#modules), [Sema](#sema) ([the facts table](#the-facts-table),
-[proven checks](#proven-checks), [vectors](#vectors)),
+[proven checks](#proven-checks), [APIs](#apis-and-api-objects),
+[vectors](#vectors)),
 [Ownership](#ownership), [Emit](#emit), [The runtime](#the-runtime)
 ([tasks](#tasks), [the program's stack](#the-programs-stack)),
 [Tests](#tests), and [Nexus notes](#nexus-notes).
@@ -2248,6 +2249,73 @@ value, or a write view, is no type argument, [Sema](#sema)), and every
 instance against the requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the
 body's ownership assumptions ([Ownership](#ownership)).
+
+### APIs and API objects
+
+An API of a program's own ([docs/design/apis.md](../design/apis.md))
+is checked in four steps, each recorded once.
+
+**Conformance.** `typecheck.checkDeclaredApis` runs before the
+instances are expanded. It checks each API, its defaults against its
+own methods, and each conformance, a header's `obj Square: Shape` or an
+`add`, recorded as a `sema.Conformance` (`checkConformance`): every
+required method is there, with the API's parameters, result, clauses,
+and set, and `Conformance.members` names the method that answers each,
+the type's own, the addition's, or a default (`WitnessMember`).
+`sema.provides` is the one answer to whether a type provides an API,
+and by what (`Provision`: a bound or a conformance); a conformance is
+written in the type's module or the API's, so only those are searched,
+and one type provides an API once in the program.
+
+**Dispatch.** Each method call records how it reaches its method,
+`sema.Dispatch` (`SemContext.recordDispatch`): `direct`, the method of
+the receiver's type, which Zig finds on the value; `static`, through a
+`Witness`, a bound's compile-time parameter (`W_T_Shape`) or a
+conformance's struct (`__rig_impl_Shape_Square`); or `dynamic`, through
+an API object's table, its entry's slot fixed by `sema.objectMethods`,
+the one decider of what a call through an object reaches. A call
+through an API (`Dispatch.viaApi`) is typed, and checked by the
+ownership checker, by the API's declaration and its clauses alone, so
+every implementation must keep within them. A static call over a
+body's parameters is an `ApiCall`, made concrete at each instance
+(Generics, above).
+
+**Erasure.** A value becomes an API object where its type is still
+known, in `Checker.erase` (a view, `?{A}` or `!{A}`, by the lend
+table's last row), `eraseBox` (a `^T` moved into a `^{A}`, keeping its
+allocation), and `eraseShared` (a `*T` moved into a `*{A}`, keeping its
+count). Each asks `Checker.erasable` for the witness and checks the
+built-in APIs the braces and the API name on the hidden value
+(`sema.objectBounds`, the one classifier of an object's bounds):
+`Print`, `Clone`, `Owned`, and the crossing bounds `Sends` and `Syncs`
+by `crossingBlocker` ([What crosses to a task](#what-crosses-to-a-task)).
+It records a `sema.Erasure` once: the API, the hidden type, the
+witness, the form, the holding (`Holding`: a box's allocation, a
+`*T`'s, or a frozen value's, by `sema.frozenObject`, so the braces
+alone decide whether counts are atomic), and `copy` for a read view of
+plain data, which views a hidden local of the erasing block
+(`Storage` `erased_copy`). A handle is erased only as it moves or
+counts: `handleThroughView` rejects `?*Square` lent as a `?*{Shape}`.
+In a generic body, a `T` erases only under a bound by the API, and a
+built-in API its bounds do not decide becomes a `Requirement` checked
+at each instance. After the erasure,
+nothing reads the hidden type again: an object crosses by its braces,
+and `reachMembers` marks every method its table holds as reached, so
+each instance's requirements are checked.
+
+**Ownership and emit.** The ownership checker roots an object's loan at
+its erasure, on the value or on its copy, and an object carries every
+loan its value carried: a view's to its last use, a box's and a
+handle's to its drop. Emit reads the erasure and the dispatch from
+`facts.zig`. `emitApiTable` writes, once per API, the table's struct
+`__rig_table_Shape` and `__rig_table_Shape_of(T, W, holding)`, which
+Zig makes once per type and holding, only where a conversion names it.
+An entry calls the witness's method on the value the object holds, and
+the table's `__rig_drop`, `__rig_clone`, `__rig_print`, and weak entries
+are the holding's (`rig.ApiHolding`). The objects are the runtime's
+`rig.ApiView`, `ApiBox`, `ApiShared`, and `ApiWeak`, each a value
+pointer and a table pointer, sixteen bytes; `emitObjectCall` writes
+`s.vt.area(s.ptr)`.
 
 ### Compile-time functions
 

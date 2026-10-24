@@ -22,7 +22,7 @@ journeys of [learn/](learn/README.md) teach each big idea once;
 | How do I write a form? | [SYNTAX.md](../SYNTAX.md) |
 | What exactly does a form mean? | [SPEC.md](../SPEC.md) |
 | Why was it designed this way? | [FAQ.md](../FAQ.md), then [DESIGN.md](DESIGN.md) and [design/](design/) |
-| Does Rig have traits or interfaces? | [design/apis.md](design/apis.md): APIs, `api Shape`, designed in five stages |
+| Does Rig have traits or interfaces? | [design/apis.md](design/apis.md): APIs, `api Shape`, and API objects, `?{Shape}`, built in five stages |
 | How fast is it, and how was that measured? | [launch/benchmarks.md](launch/benchmarks.md), and each benchmark's README under [bench/](../bench/) |
 | What changed since the last release? | [CHANGELOG.md](../CHANGELOG.md) |
 | What is planned? | [ROADMAP.md](ROADMAP.md), and the engineering detail in [internals/backlog.md](internals/backlog.md) |
