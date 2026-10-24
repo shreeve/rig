@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A function value held in an object holds nothing:** the checker
+  counted a `fun` field as a view that may point anywhere, so a call
+  through a `?sub` lent `!@` and `!n` kept `n` lent past it when `@`
+  held a `fun` field. A function value is a named function's address
+  (CORE §7); a function type walked itself (a closure binding's), a
+  lent `?fun`, and an owned closure still count as anything.
 - **API objects' messages give the fix:** `?{Shape}?` and `?{Shape}!E`
   read as a view of a suffixed `{Shape}` and say to write `(?{Shape})?`
   or `(?{Shape})!E`; `[T: {Shape}]` says a bound names the API,

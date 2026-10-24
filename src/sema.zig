@@ -10538,6 +10538,10 @@ const ViewNode = struct {
     /// An element of an array, a slice, or a generic instance's
     /// argument, which a slice may view (`elem_view`).
     elem: bool = false,
+    /// A part of a value (`ownedParts`): a function type there is a
+    /// function value, which holds nothing (Core §7), where the type
+    /// walked itself may be a closure binding's.
+    held: bool = false,
 };
 
 /// The bit `viewAtom` sets on the target of a slice: memory a slice
@@ -10551,23 +10555,23 @@ const elem_view: u64 = 1 << 62;
 fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
     const ctx = node.ctx;
     switch (ctx.types.get(node.ty)) {
-        .optional, .shared, .weak => |inner| try f.visit(.{ .ctx = ctx, .ty = inner, .args = node.args }),
-        .fallible => |inner| try f.visit(.{ .ctx = ctx, .ty = inner.ok, .args = node.args }),
-        .array => |a| try f.visit(.{ .ctx = ctx, .ty = a.elem, .args = node.args, .elem = true }),
+        .optional, .shared, .weak => |inner| try f.visit(.{ .ctx = ctx, .ty = inner, .args = node.args, .held = true }),
+        .fallible => |inner| try f.visit(.{ .ctx = ctx, .ty = inner.ok, .args = node.args, .held = true }),
+        .array => |a| try f.visit(.{ .ctx = ctx, .ty = a.elem, .args = node.args, .elem = true, .held = true }),
         .nominal, .imported_nominal => {
             const decl = nominalDecl(ctx, node.ty) orelse return;
             for (decl.symbol().fields orelse &.{}) |*fld| {
-                for (dataFields(fld)) |d| try f.visit(.{ .ctx = decl.ctx, .ty = d.ty });
+                for (dataFields(fld)) |d| try f.visit(.{ .ctx = decl.ctx, .ty = d.ty, .held = true });
             }
         },
         .parameterized_nominal => |pn| {
-            for (pn.args) |arg| try f.visit(.{ .ctx = ctx, .ty = arg, .args = node.args, .elem = true });
+            for (pn.args) |arg| try f.visit(.{ .ctx = ctx, .ty = arg, .args = node.args, .elem = true, .held = true });
             for (ctx.symbols.items[pn.sym].fields orelse &.{}) |*fld| {
-                for (dataFields(fld)) |d| try f.visit(.{ .ctx = ctx, .ty = d.ty, .args = .{ .ctx = ctx, .tys = pn.args } });
+                for (dataFields(fld)) |d| try f.visit(.{ .ctx = ctx, .ty = d.ty, .args = .{ .ctx = ctx, .tys = pn.args }, .held = true });
             }
         },
         // Several results are held as an object's fields are.
-        .results => |parts| for (parts) |part| try f.visit(.{ .ctx = ctx, .ty = part, .args = node.args }),
+        .results => |parts| for (parts) |part| try f.visit(.{ .ctx = ctx, .ty = part, .args = node.args, .held = true }),
         else => {},
     }
 }
@@ -10575,8 +10579,10 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
 /// What a type's own views point into: the target of each view it
 /// holds by value, not what those targets hold in turn (a view of a
 /// value that holds views keeps that value's loans, which keep the
-/// rest). A function, a lent callable, a type parameter, or a type
-/// not known points anywhere.
+/// rest). A function or lent callable walked itself (a closure
+/// binding's type), an owned closure, a type parameter, or a type not
+/// known points anywhere; a function value held in a value, a named
+/// function's address, points nowhere (Core §7).
 pub fn viewTargets(ctx: *const SemContext, a: std.mem.Allocator, view: TypeId) std.mem.Allocator.Error!ViewTargets {
     var w: TargetWalk = .{ .a = a };
     try w.walk(.{ .ctx = ctx, .ty = view });
@@ -10659,7 +10665,8 @@ const TargetWalk = struct {
         const ctx = node.ctx;
         const t = ctx.types.get(node.ty);
         const is_view = switch (t) {
-            .read_view, .write_view, .slice, .string_view, .function, .callable => true,
+            .read_view, .write_view, .slice, .string_view, .callable => true,
+            .function => !node.held,
             else => false,
         };
         if (is_view and (!self.written_only or self.written)) switch (t) {
@@ -10696,6 +10703,13 @@ const TargetWalk = struct {
             // An API object's value may hold a view of anything.
             .api_object, .invalid, .unknown => if (!self.written_only or self.written) {
                 self.out.any = true;
+            },
+            // An owned closure's environment counts as anything, as a
+            // closure binding's does; a function value alone holds
+            // nothing.
+            .shared, .weak => |inner| if (ctx.types.get(inner) == .function) {
+                if (!self.written_only or self.written) self.out.any = true;
+                return;
             },
             else => {},
         }
@@ -10786,9 +10800,13 @@ const ReachWalk = struct {
         const t = ctx.types.get(node.ty);
         const read: Path = .{ .read = true, .viewed = true };
         switch (t) {
-            // Anything at all, a view among them; an API object's value
-            // may be anything too.
-            .function, .callable, .api_object, .invalid, .unknown => return self.reached(path, true),
+            // Anything at all, a view among them; an API object's value,
+            // and an owned closure's environment, may be anything too. A
+            // function value held in a value, a named function's
+            // address, holds nothing (Core §7).
+            .callable, .api_object, .invalid, .unknown => return self.reached(path, true),
+            .shared, .weak => |inner| if (ctx.types.get(inner) == .function) return self.reached(path, true),
+            .function => return if (!node.held) self.reached(path, true),
             // A type parameter stands for anything; in a generic type's
             // field, for the instance's arguments, which are walked apart.
             .type_var => {

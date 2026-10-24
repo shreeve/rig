@@ -672,6 +672,39 @@ test "a function value held behind a read view views nothing", "2 2"
   (!c).run(!s, bump)
   print(c.k, s.p)
 
+test "a function value held where a write view sees views nothing", "4 2"
+  # `Checker.hook` is a function value held in the object `!@` sees,
+  # which holds nothing (Core §7): the call through `action` can store
+  # no view of `n` in it, so `n` is written after the call.
+  # oracle: Checker.run accept
+  # oracle: bump accept
+
+  obj State
+    p: Int
+    stack: List[Int]
+
+  obj Checker
+    k: Int
+    hook: fun(Int) -> Int
+    names: ?String
+
+    sub run(!@, n: !State, action: ?sub(!Checker, !State, Int))
+      action(!@, !n, 1)
+      n.p += 1
+
+  sub bump(c: !Checker, n: !State, d: Int)
+    c.k += c.hook(d) + c.names.len
+    n.p += d
+
+  fun twice(x: Int) -> Int
+    x * 2
+
+  names = String("ab")
+  c = Checker(k: 0, hook: twice, names: ?names)
+  s = State(p: 0, stack: List())
+  (!c).run(!s, bump)
+  print(c.k, s.p)
+
 fail "a call through a sub value may store a view of its write argument", "use of `n.stack` while a write loan on `n` is live", "`run` stores a view of `n` in `@`, which its caller reaches, but its signature does not keep `n`", errors: 2
   # The sibling shape: `names: ?List[Int]` could hold a view of
   # `n.stack`, and a function value's type names no `keeps` (Core s7),

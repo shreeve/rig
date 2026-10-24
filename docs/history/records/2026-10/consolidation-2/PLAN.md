@@ -103,7 +103,7 @@ docs/internals/backlog.md.
 | 32 | a handle parameter lent by a capture | BL, round 1 | owner |
 | 33 | a `NetError` member for "no local port free" | round 1 | owner |
 | 34 | faulting memory in ahead (the third form) | BL | owner |
-| 35 | the compiler treats a `fun` field directly in what a write view sees as able to hold any view (stricter than CORE §7); probe s7_fun_reach.rig, in #627's oracle-fun.md | #627 | fix or ROADMAP |
+| 35 | the compiler treats a `fun` field directly in what a write view sees as able to hold any view (stricter than CORE §7); probe s7_fun_reach.rig, in #627's oracle-fun.md | #627 | #649 |
 | 36 | `print` of a `Map` or `Set` writes its internal fields (`Map(len: 1, es: [...], hs: [...], ...)`); proposed: entries in insertion order, `{"a": 1, "b": 2}` for a Map and `{1, 2}` for a Set, `{}` when empty, quoted as a List quotes its elements | #628 | owner (the printed form), then fix |
 
 Stage 4's associated types in braces (`^{Source[Item: Int]}`) wait for
