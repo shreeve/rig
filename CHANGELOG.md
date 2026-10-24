@@ -32,6 +32,10 @@ changed the language since it:
   a holding, `__rig_table_Shape_of(T, W, .counted)`. A Cell of an API
   object is rejected for good, no longer as not built. The reference
   checker gains the kinds of both forms.
+- **`I.Item` of any iterator:** a generic body bounded by `Iter` that
+  names `I.Item` compiles for an iterator whose item's optional holds
+  its none in the item (an object with a `Bool` or enum field, or one
+  that names its none); it failed in Zig.
 - **A fallible result erases its value:** a function returning
   `(^{Shape})!`, `(*{Shape})!`, or `(?{Shape})!` erases its last
   expression, `return`'s operand, and `f()!` into the object, as a
