@@ -31,10 +31,11 @@ test "generic as binding move", '''
   c: Wrap[Int] = Wrap(v: 0)
   print(<c.first(none, 7))
 
-fail "generic as view", "23:5: `unwrap[Res]` cannot use `T = Res`: the generic body moves out of a view a value that holds a `T`", "24:1: `drain[Res]` cannot use `T = Res`"
+fail "generic as view", "24:5: `unwrap[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns", errors: 1
   # In a generic body, `if o as v` or `while o as v` over a viewed
-  # optional of `T` moves a `T` out of a view, so every instance must
-  # be plain data.
+  # optional of `T` binds the `T` where it stands, so only taking it out
+  # (`return v`) needs every instance to be plain data; `drain` only
+  # reads it.
 
   obj Res
     n: Int
@@ -56,6 +57,74 @@ fail "generic as view", "23:5: `unwrap[Res]` cannot use `T = Res`: the generic b
   r: Res? = Res(n: 1)
   s = unwrap(?r, Res(n: 2))
   drain(?r)
+
+test "generic as views the value inside a viewed optional", '''
+  x
+  P(a: 1, t: "y")
+  s
+  []
+  x
+  x
+  s
+  []
+  4.0 2 1 1 1
+'''
+  # `if ?o as v` and `while ?o as v` of a `?T?` under any bound bind the
+  # `T` where it stands, as a `for` binds an element it reads: no `Copy`.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj P
+    a: Int
+    t: String
+
+  obj Wrap[T]
+    f: T?
+
+  fun area_of[T: Shape](o: ?T?) -> Float
+    if ?o as v
+      return v.area()
+    0.0
+
+  fun show[T: Print](x: ?T) -> Int
+    print(x)
+    1
+
+  fun shown[T: Print](o: ?T?) -> Int
+    n = 0
+    while ?o as v
+      n += show(v)
+      break
+    n
+
+  fun field[T: Print](w: ?Wrap[T]) -> Int
+    if ?w.f as v
+      return show(?v)
+    0
+
+  sq: Square? = Square(side: 2.0)
+  t: String? = String("x")
+  p: P? = P(a: 1, t: String("y"))
+  w = Wrap(f: String("s"))
+  e: List[Int]? = List[Int]()
+  n = shown(?t) + shown(?p) + field(?w) + shown(?e)
+  print(area_of(?sq), shown(?t) + shown(?t), n / 4, field(?w), shown(?e))
+
+fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while it is lent", errors: 1
+  fun clear[T: Print](o: !T?) -> Int
+    if ?o as v
+      o = none
+      print(v)
+    1
+
+  t: String? = String("x")
+  print(clear(!t))
 
 test "generic catch all view guarded", release: true, '''
   2

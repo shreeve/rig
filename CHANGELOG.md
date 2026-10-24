@@ -313,6 +313,11 @@ changed the language since it:
   does (`rig.cloneAs`), a body without bounds is checked at each
   instance (`Requirement.clones`), and an instance that does not
   clone, a type with a `drop` body or a unique one, is rejected there.
+- **`if ?o as v` of a `?T?` in a generic body views the `T`:** under
+  any bound, `if ?o as v` and `while ?o as v` asked for `Copy`; the `T`
+  is now read where it stands, as a `for` reads an element of a
+  `?List[T]`, the optional stays lent while `v` lives, and only taking
+  `v` out needs a `T` that copies at each instance.
 
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first

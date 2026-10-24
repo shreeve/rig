@@ -9973,8 +9973,9 @@ view (`!T`), through which `x.f = v` changes the value in place and
 lend. A `?T?` parameter, or another read view of an optional,
 lends its value the same way with `if p as x`; a held write view is
 lent on as `!p`, and a write view a call returns is bound as one.
-Plain data read through a `?T?` is copied (in a generic body, so is
-every `T`). A view cannot give up
+Plain data read through a `?T?` is copied. In a generic body a `T`,
+which may own, is read where it stands, as a `for` reads an element:
+only taking it out (`return x`) needs `Copy`. A view cannot give up
 a resource it holds, so `?` and `??` reject one.
 
 ```rig
