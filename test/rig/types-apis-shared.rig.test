@@ -27,6 +27,49 @@ test "apis object shared a weak handle and the last drop", '''
   else
     print("gone")
 
+test "apis object shared a fallible result erases its last expression", "4.0 9.0"
+  # Through a result's `!`, a handle is erased as where a `*{Shape}`
+  # itself goes (`erasureTarget`).
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  error Bad
+    oops
+
+  fun counted(n: Int) -> (*{Shape})!
+    return Bad.oops if n < 0
+    *Square(side: 2.0)
+
+  fun frozen(n: Int) -> (*{Shape + Syncs})!
+    return Bad.oops if n < 0
+    *Frozen(Square(side: 3.0))
+
+  a = counted(1) catch return
+  b = frozen(1) catch return
+  print(a.area(), b.area())
+
+fail "apis object shared a fallible result keeps the erasure's rules", "a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomically", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun counted() -> (*{Shape})!
+    *Frozen(Square(side: 2.0))
+
+  a = counted() catch return
+  print(a.area())
+
 test "apis object shared a frozen value read by two tasks", seeds: 20, "8.0"
   # Core §4's second example: a frozen value's handle counts atomically,
   # so a `*{Shape + Syncs}` of it goes to any task.
