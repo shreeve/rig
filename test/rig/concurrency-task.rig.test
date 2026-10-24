@@ -929,7 +929,7 @@ fail "task generic instance chained", "`spawn[*fun() -> Int]` cannot use `T = *f
   cb: *fun() -> Int = *|| 4
   print(outer(?cb))
 
-fail "task generic type instance", "`Box[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
+fail "task generic type instance", "`Box[*fun() -> Int].run` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
   fun look[T](x: ?T) -> Int
     1
 
@@ -1027,3 +1027,45 @@ test "task generic instances mixed", seeds: 20, "1 1 1 2"
   f = *Frozen(String("ice"))
   c = *Cell(3)
   print(run_all(?3), run_all(?f), run_all(?c), pinned(?n, ?n))
+
+test "task generic type method not reached", seeds: 20, "1"
+  # Zig compiles a method only where the program reaches it: a `run`
+  # never called gives no task the `*Node`.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Box[T]
+    x: T
+
+    fun run(?@) -> Int
+      t = look(?@x)&
+      >t
+
+    fun get(?@) -> Int
+      1
+
+  b = Box(x: *Node(v: 1))
+  print(b.get())
+
+fail "task generic type method reached in a generic body", "`Box[*Node].run` cannot use `T = *Node`", errors: 1
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Box[T]
+    x: T
+
+    fun run(?@) -> Int
+      t = look(?@x)&
+      >t
+
+  fun outer[U](x: U) -> Int
+    b = Box(x: <x)
+    b.run()
+
+  print(outer(3), outer(*Node(v: 1)))

@@ -26,22 +26,29 @@ changed the language since it:
   body that gives or lends a task a `T`, or a value holding one (a
   task's arguments, self, and result, an actor's value, arguments, and
   result, `par`'s elements, values, and captures), is checked at each
-  instance, with the crossing walk that checks a known type: an instance
-  whose `T` holds an owned closure, an API object, or a set of tasks is
-  rejected at the call that makes it, with a note at the task. A bounded
-  `T` without `Syncs`, whose task is local, is checked so too. A body
-  whose task crosses gives it, at no instance, what stays on one thread
-  (`T = *Node`), which ran on another core. A generic
-  body that erases a `T` to an API object, or gives one out of
+  instance with the crossing walk that checks a known type, at the call
+  that makes the instance, with a note at the task. An instance whose
+  `T` holds an owned closure, an API object, or a set of tasks is
+  rejected, and so is one whose `T` stays on one thread (`*Node`) where
+  the body's task crosses, which ran on another core. A method of a
+  generic type, or an API's default, is checked at each type that
+  reaches it (a call, a call through a bound, or erasure to an object
+  of its API); one never reached is not compiled and is not checked. A
+  generic body that erases a `T` to an API object, or gives one out of
   `task.isolate`, is checked at each instance for a task the `T` holds.
-  No generic body is rejected. v0.2.9 accepted the forms this rejects,
-  each of which let a value reach a task its known type could not:
-  `spawn(<cb)` of `fun spawn[T](x: T)` whose body runs `use(<x)&`, with
-  `cb: *fun() -> Int`, or `n: *Node`; `par.map(xs, f)` over a `?List[T]` of owned
-  closures; `*Actor(Box[T](x: <x))` with `T` an owned closure; a
-  `fun go[T](f: fun() -> T)` whose task `call(f)&` gives back an owned
-  closure; `task.isolate(|<x| keep(<x))` with `T = Task[Int]`. Whether
-  an API object crosses (`Sends`, `Syncs`) is decided by the same walk.
+  A bounded or `pub` generic whose calls give its `T` to a task that
+  crosses states `Sends` or `Syncs`. Whether an API object crosses
+  (`Sends`, `Syncs`) is decided by the same walk. v0.2.9 accepted the
+  forms this rejects, each of which let a value reach a task its known
+  type could not: `spawn(<cb)` of `fun spawn[T](x: T)` whose body runs
+  `use(<x)&`, with `cb: *fun() -> Int` or `n: *Node`; `par.map(xs, f)`
+  over a `?List[T]` of owned closures; `*Actor(Box[T](x: <x))` with `T`
+  an owned closure; a `fun go[T](f: fun() -> T)` whose task `call(f)&`
+  gives back an owned closure; `h.go()`, an API default whose task
+  takes `?@`, on a type holding an owned closure;
+  `task.isolate(|<x| keep(<x))` with `T = Task[Int]`; and a `pub fun
+  outer[U]` that passes a `U` to a generic whose task crosses, which
+  now writes `[U: Sends]` or `[U: Syncs]`.
 - **Boxes of API objects (APIs Stage 4, phase 3):** a `^T` moves into a
   `^{Shape}` and keeps its allocation, `<c` or a `^Square(...)` written
   where one goes, and a `^T?` into a `^{Shape}?`. A box lends its

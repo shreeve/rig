@@ -359,6 +359,12 @@ const Checker = struct {
     /// type it is expected to have: the generic instances found there
     /// are not recorded.
     tentative: u32 = 0,
+    /// The declaration's position of the method being checked, of a
+    /// generic type, an addition, or an API's default, which Zig compiles
+    /// only where the program reaches it (`sema.BodyReach`); `no_body`
+    /// elsewhere, and in a method called without a call written: a
+    /// `drop`, or one that gives a built-in API its meaning.
+    body_pos: u32 = sema.no_body,
     /// Inside `noteTakeable`'s trial of a take, which only asks whether
     /// `<e` would be accepted: `requireAccess` records nothing.
     trial_take: bool = false,
@@ -819,6 +825,9 @@ const Checker = struct {
         const prev_scope = self.enter(node);
         defer self.scope = prev_scope;
         const name = ir.get(node, .name);
+        const prev_body = self.body_pos;
+        defer self.body_pos = prev_body;
+        self.body_pos = if (self.nominal.isEmpty() or self.calledUnwritten(name.src.pos)) sema.no_body else name.src.pos;
         // The root module's `main` is the program's entry point; in any
         // other module `main` is an ordinary function.
         const is_main = self.ctx.is_root and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
@@ -5488,7 +5497,41 @@ const Checker = struct {
 
     fn require(self: *Checker, param: SymbolId, req: Requirement, pos: u32, op: []const u8) Error!void {
         if (try self.decidedByOwnerBounds(param, req, pos)) return;
-        try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = req, .pos = pos, .op = op });
+        var r: sema.GenericRequirement = .{ .param = param, .req = req, .pos = pos, .op = op };
+        // What a method's body gives a task, or hides from the rules that
+        // wait for one, is checked where the method is reached.
+        if (req == .task or req == .no_task) if (self.bodyParam(param)) |index| {
+            r.body = self.body_pos;
+            r.index = index;
+        };
+        try self.ctx.generic_requirements.append(self.ctx.allocator, r);
+    }
+
+    /// `param`'s place among the parameters the reach of the method being
+    /// checked binds (`sema.BodyReach`): an API default's `Self`, or the
+    /// type's or the addition's own; null for another.
+    fn bodyParam(self: *Checker, param: SymbolId) ?u32 {
+        if (self.body_pos == sema.no_body) return null;
+        switch (self.ctx.types.get(self.nominal.self_type)) {
+            .type_var => |s| return if (s == param) 0 else null,
+            else => {},
+        }
+        const i = std.mem.findScalar(SymbolId, self.nominal.type_params, param) orelse return null;
+        return @intCast(i);
+    }
+
+    /// Whether the method of the type being checked declared at `pos` is
+    /// called without a call written: a `drop`, or one that gives a
+    /// built-in API its meaning (`sema.ownApiMethod`).
+    fn calledUnwritten(self: *Checker, pos: u32) bool {
+        const sym = self.ctx.symbols.items[self.nominal.sym];
+        for (sym.fields orelse &.{}) |f| {
+            if (!f.is_method or f.decl_pos != pos) continue;
+            if (f.is_drop_method) return true;
+            var it = sym.apis.iterator();
+            while (it.next()) |api| if (sema.apiMethodName(api)) |n| if (std.mem.eql(u8, n, f.name)) return true;
+        }
+        return false;
     }
 
     /// A requirement on a parameter that has the bounds of the method
@@ -11080,6 +11123,7 @@ const Checker = struct {
             // (`checkGenericInstantiations`).
             for (own_args) |arg| if (sema.containsTypeVar(self.ctx, arg)) {
                 _ = try sema.checkBounds(self.ctx, own.items, own_args, pos, .{ .func = inst });
+                if (self.body_pos == sema.no_body) try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolId, own.items), .args = own_args, .pos = pos });
                 break;
             };
             _ = try self.ctx.recordFnInstance(inst, pos, null);
@@ -12521,7 +12565,7 @@ const Checker = struct {
         // The type's parameters are bound by the object the receiver
         // reaches, through views, handles, and boxes, as the method was
         // found.
-        try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module, self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)));
+        try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module, self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)), sema.unwrapAccess(self.ctx, obj_ty), pos);
         if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos)) return self.skipCall(args);
         if (!try self.meetsOwnerBounds(resolved.field, resolved.owner_sym, resolved.module, self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)).args, pos, false)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
@@ -13329,10 +13373,21 @@ const Checker = struct {
     /// `noteTarget` for the method `field` of the type `owner`, declared
     /// in module `module` (null for this one), or, for a proxy of
     /// another module's generic type, in the module the proxy stands for.
-    fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32, recv: TypeSubst) Error!void {
+    /// The program reaches the method at the receiver's arguments, on
+    /// `recv_ty` (`sema.BodyReach`), at `pos`.
+    fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32, recv: TypeSubst, recv_ty: TypeId, pos: u32) Error!void {
         if (owner.decl_pos == sema.builtin_decl_pos) return;
         const declared = module orelse if (sema.isProxy(owner)) owner.from.module_id else self.ctx.module_id;
         try self.noteTarget(declared, field.decl_pos, field.inline_marked, recv);
+        if (recv.params.len == 0 or self.tentative != 0 or field.decl_pos >= sema.imported_decl_pos or self.isPoison(recv_ty)) return;
+        _ = try self.ctx.recordBodyReach(.{ .fun = .{ .module = declared, .pos = field.decl_pos }, .in = self.bodyRef(), .params = recv.params, .args = recv.args, .recv = recv_ty, .method = field.name, .site = pos });
+    }
+
+    /// The method whose body is being checked, when it is one a call
+    /// reaches (`body_pos`).
+    fn bodyRef(self: *Checker) ?sema.FnRef {
+        if (self.body_pos == sema.no_body) return null;
+        return .{ .module = self.ctx.module_id, .pos = self.body_pos };
     }
 
     /// Records `callee` as the member a call resolved as a method, which
@@ -14405,7 +14460,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
-                try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv);
+                try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv, if (recv.args.len > 0) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = nt.id, .args = try self.ctx.dupeIds(recv.args) } }) else sema.type_invalid, pos);
                 if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
                 if (!try self.meetsOwnerBounds(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv.args, pos, m.receiver != .none)) return self.skipCall(args);
                 try self.noteCallee(f);
@@ -15167,6 +15222,8 @@ const Checker = struct {
             return null;
         }
         try self.requireNoTask(reached, self.startOf(e), .erased, shown_view);
+        // Its table holds every method the API names, which Zig compiles.
+        if (self.tentative == 0) _ = try self.ctx.recordBodyReach(.{ .fun = .{ .module = 0, .pos = 0 }, .in = self.bodyRef(), .params = &.{}, .args = &.{}, .recv = reached, .method = "", .site = self.startOf(e), .erase = object.api });
         // The built-in APIs the braces name, checked on the value's type.
         var it = object.builtins.iterator();
         while (it.next()) |b| if (try sema.lacks(self.ctx, reached, b)) |_| {
@@ -18772,6 +18829,7 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!boo
 /// declare, checked before the instances are expanded, which read what
 /// each conformance's witness names (`sema.Conformance.members`).
 pub fn checkDeclaredApis(ctx: *SemContext) Error!void {
+    try checkStatedCrossings(ctx);
     try checkBoundedBodies(ctx);
     try checkHeaders(ctx);
     try checkApis(ctx);
@@ -18785,6 +18843,8 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         reqs.deinit(ctx.allocator);
     }
     for (ctx.generic_requirements.items, 0..) |req, i| {
+        // A method's own, where the method is reached (`checkReaches`).
+        if (req.body != sema.no_body) continue;
         const gop = try reqs.getOrPut(ctx.allocator, req.param);
         if (!gop.found_existing) gop.value_ptr.* = .empty;
         try gop.value_ptr.append(ctx.allocator, @intCast(i));
@@ -18825,6 +18885,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
         } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
     }
+    try checkReaches(ctx);
 }
 
 // ---- stack frames -----------------------------------------------------------
@@ -19500,6 +19561,51 @@ fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]cons
     return std.fmt.allocPrint(a, "{s} {s}", .{ what, why });
 }
 
+/// `inst`, made at `at`, gives its parameter `pname` the type `arg`, which
+/// fails `req`, a `Requirement.task` or `.no_task`: the error, and a note
+/// at the body's line.
+fn reportTaskReq(ctx: *SemContext, req: sema.GenericRequirement, at: u32, inst: []const u8, pname: []const u8, arg: TypeId) Error!void {
+    const aname = try sema.formatType(ctx, arg);
+    switch (req.req) {
+        .no_task => {
+            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}, and {s}", .{ inst, pname, aname, req.op, if (taskField(ctx, sema.nominalDecl(ctx, arg))) |f| f else try ctx.arena.allocator().print("a `{s}` holds one", .{aname}) });
+            try ctx.noteIn(req.module_id, req.pos, "`{s}` hidden here", .{pname});
+        },
+        .task => |reach| {
+            const blocker = (try sema.taskBlocker(ctx, arg, reach)).?;
+            // A value a local task takes: the task the body makes crosses.
+            const crosses = !reach.local and (try sema.localBlocker(ctx, arg, reach.how)) == null;
+            const whose = if (std.mem.find(u8, req.op, "actor") != null) "the actor's task" else "the body's task";
+            try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a value that holds a `{s}` {s} in the generic body, and `{s}` {s}{s}{s}{s}", .{ inst, pname, aname, pname, req.op, aname, try crossingReason(ctx, blocker, reach.how == .shares, if (blocker == arg) "is" else null), if (crosses) "; " else "", if (crosses) whose else "", if (crosses) " may run on another core in every instance, so it takes nothing that stays on one thread" else "" });
+            try ctx.noteIn(req.module_id, req.pos, "a `{s}` {s} here", .{ pname, req.op });
+        },
+        else => unreachable,
+    }
+}
+
+/// The methods the program reaches (`sema.BodyReach`), each checked
+/// against what its body requires of its type's parameters
+/// (`GenericRequirement.body`): at the call that reaches it, or that
+/// makes the instance of the body whose call does.
+fn checkReaches(ctx: *SemContext) Error!void {
+    var i: usize = 0;
+    while (i < ctx.body_reaches.items.len) : (i += 1) {
+        const r = ctx.body_reaches.items[i];
+        for (ctx.generic_requirements.items) |req| {
+            if (req.body == sema.no_body or req.body != r.fun.pos) continue;
+            if ((if (req.module_id == 0) ctx.module_id else req.module_id) != r.fun.module) continue;
+            if (req.index >= r.args.len) continue;
+            const arg = r.args[req.index];
+            if (sema.containsPoison(ctx, arg) or sema.containsTypeVar(ctx, arg)) continue;
+            if (try satisfies(ctx, arg, req.req)) continue;
+            const inst = try sema.rootName(ctx, .{ .func = try sema.reachInstance(ctx, r) });
+            try reportTaskReq(ctx, req, r.site, inst, ctx.symbols.items[req.param].name, arg);
+            if (r.via) |via| try ctx.note(r.site, "`{s}` is reached from `{s}`", .{ inst, try sema.rootName(ctx, via) });
+            break;
+        }
+    }
+}
+
 /// The positions of `generic_requirements` on each parameter, in order.
 const Requirements = std.AutoHashMapUnmanaged(SymbolId, std.ArrayList(u32));
 
@@ -19551,11 +19657,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                     try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
                 },
                 .frozen => try ctx.err(at, cannot ++ "freezes a value that holds a `{s}`, and {s}", .{ inst, pname, aname, pname, try sema.frozenReason(ctx, arg, (try sema.frozenBlocker(ctx, arg)).?) }),
-                .no_task => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: {s}, and {s}", .{ inst, pname, aname, req.op, if (taskField(ctx, sema.nominalDecl(ctx, arg))) |f| f else try ctx.arena.allocator().print("a `{s}` holds one", .{aname}) }),
-                .task => |reach| {
-                    const blocker = (try sema.taskBlocker(ctx, arg, reach)).?;
-                    try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a value that holds a `{s}` {s} in the generic body, and `{s}` {s}{s}", .{ inst, pname, aname, pname, req.op, aname, try crossingReason(ctx, blocker, reach.how == .shares, if (blocker == arg) "is" else null), if (reach.local or (try sema.localBlocker(ctx, arg, reach.how)) != null) "" else "; the body's task may run on another core in every instance, so it takes nothing that stays on one thread" });
-                },
+                .no_task, .task => try reportTaskReq(ctx, req, at, inst, pname, arg),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, (try sema.notHashable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
@@ -19572,8 +19674,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 .named => try ctx.noteIn(req.module_id, req.pos, "`$name` here", .{}),
                 .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
                 .frozen => try ctx.noteIn(req.module_id, req.pos, "frozen here", .{}),
-                .no_task => try ctx.noteIn(req.module_id, req.pos, "`{s}` hidden here", .{pname}),
-                .task => try ctx.noteIn(req.module_id, req.pos, "a `{s}` {s} here", .{ pname, req.op }),
+                .no_task, .task => {},
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -19785,6 +19886,53 @@ fn apiOf(req: Requirement) ?sema.Api {
         .printable => .Print,
         .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .error_set, .not_function, .named, .frozen, .no_task, .task => null,
     };
+}
+
+/// A type parameter checked by its bounds (`sema.checkedByBounds`) that a
+/// generic function's body gives, through the generic functions it calls
+/// at it (`SemContext.param_calls`), to a task that may run on another
+/// core must state `Sends`, or `Syncs` lent to read, as a body giving it
+/// so itself must: each instance is not checked for it, and an error at
+/// a callee's instance would name what the public generic does not show.
+fn checkStatedCrossings(ctx: *SemContext) Error!void {
+    const a = ctx.arena.allocator();
+    const Gone = struct { param: SymbolId, reach: sema.TaskReach, pos: u32 };
+    var gone: std.ArrayList(Gone) = .empty;
+    for (ctx.generic_requirements.items) |r| switch (r.req) {
+        .task => |reach| if (r.body == sema.no_body) try gone.append(a, .{ .param = r.param, .reach = reach, .pos = r.pos }),
+        else => {},
+    };
+    if (gone.items.len == 0 or ctx.param_calls.items.len == 0) return;
+    // What each callee's parameter takes, its caller's parameters take
+    // through the arguments, until nothing new.
+    var found: std.ArrayList(sema.TaskParam) = .empty;
+    defer found.deinit(ctx.allocator);
+    var i: usize = 0;
+    while (i < gone.items.len) : (i += 1) {
+        const g = gone.items[i];
+        for (ctx.param_calls.items) |c| for (c.params, c.args) |p, arg| {
+            if (p != g.param) continue;
+            found.clearRetainingCapacity();
+            try sema.taskParams(ctx, arg, g.reach, &found);
+            for (found.items) |f| {
+                const known = for (gone.items) |o| {
+                    if (o.param == f.param and o.reach.how == f.reach.how and o.reach.local == f.reach.local) break true;
+                } else false;
+                if (!known) try gone.append(a, .{ .param = f.param, .reach = f.reach, .pos = c.pos });
+            }
+        };
+    }
+    var reported: std.AutoHashMapUnmanaged(SymbolId, void) = .empty;
+    defer reported.deinit(ctx.allocator);
+    for (gone.items) |g| {
+        if (g.reach.local) continue;
+        const sym = ctx.symbols.items[g.param];
+        if (sema.isProxy(sym) or !sema.checkedByBounds(sym)) continue;
+        const api: sema.Api = if (g.reach.how == .moves) .Sends else .Syncs;
+        if (sema.boundApis(ctx, sym).contains(api)) continue;
+        if ((try reported.getOrPut(ctx.allocator, g.param)).found_existing) continue;
+        try reportUnbounded(ctx, g.pos, g.param, api, if (api == .Sends) "a value given to a task that may run on another core" else "a value lent to a task that may run on another core");
+    }
 }
 
 /// A type parameter with bounds is checked against its bounds alone: what

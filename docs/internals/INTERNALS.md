@@ -2586,26 +2586,41 @@ is, so it goes to no task.
 A type parameter in a part goes as each instance's type does. Every
 site that hands a value to a task (a task's parts and result, an
 actor's value, arguments, and result, `par`'s elements, values, and
-captures) passes the value it let through to `Checker.requireTask`,
-which runs the same walk, `sema.taskParams`, with `local` set and
-collects each type parameter it reaches outside a declaration's fields,
-with how it goes there (`TaskReach`: as `how` says, and to a local task
-or to any). A task's parts are collected first (`Checker.Gone`), since
-whether it is local is decided by all of them; a task that crosses, and
-an actor's or `par`'s, take each parameter as going to any task. Emit
-writes one Zig function for every instance of a generic body, so the
-body's choice of local or crossing holds for each, and an instance that
-would need the other is rejected. Each becomes a `Requirement.task`, checked at the
-instance by `sema.taskBlocker`, the walk again on the instance's type:
-an instance whose type holds what goes to no task, a local one included
-(an owned closure, an API object, a set of tasks), is rejected at the
-call that makes it, with a note at the task. A body is never rejected
-for it, and the instance meets exactly the check its known type would.
-`Requirement.no_task` does the same for `sema.holdsTask` where a value
-is hidden from the rules that wait for a task: erased to an API object,
-or given out of `task.isolate` (`Checker.requireNoTask`). Whether a type
-meets `Sends` or `Syncs` as a bound (`sema.lacks`) is the walk's answer
-too, `blockerOf`, an API object's included.
+captures) passes the value it let through to `Checker.requireTask`. It
+runs the same walk, `sema.taskParams`, collecting each type parameter
+the walk reaches outside a declaration's fields and how it goes there
+(`TaskReach`: as `how` says, to a local task or to any). A task's parts
+are collected first (`Checker.Gone`), since whether it is local is
+decided by all of them; a task that crosses, and an actor's or `par`'s,
+take each parameter as going to any task. Emit writes one Zig function
+for every instance of a generic body, so the body's choice of local or
+crossing holds for each, and an instance that would need the other is
+rejected. Each parameter becomes a `Requirement.task`, checked at the
+instance by `sema.taskBlocker`, the walk again on the instance's type,
+at the call that makes the instance, with a note at the task. A body is
+never rejected for it, and an instance meets exactly the check its
+known type would. `Requirement.no_task` does the same for
+`sema.holdsTask` where a value is hidden from the rules that wait for a
+task: erased to an API object, or given out of `task.isolate`
+(`Checker.requireNoTask`). Whether a type meets `Sends` or `Syncs` as a
+bound (`sema.lacks`) is the walk's answer too, `blockerOf`, an API
+object's included.
+
+Zig compiles a method only where something refers to it, so these two
+requirements, made in the body of a method of a generic type, an
+addition, or an API's default on the parameters its reach binds, are
+the method's (`GenericRequirement.body`), not its type's. They are
+checked at each `sema.BodyReach`: a call (`Checker.noteMethodTarget`),
+a call through a bound (`implInstance`), or an erasure to an object,
+whose table holds every method of its API (`reachMembers`, once
+conformances are known). A reach over a body's parameters is expanded
+with that body's instances (`expandReaches`), one in a method's body
+only where that method is reached. A `drop`, and a method that gives a
+built-in API its meaning, are called with no call written, so theirs
+stay their type's (`Checker.calledUnwritten`). A parameter checked by
+its bounds that a generic function's calls give to a crossing task
+must state `Sends` or `Syncs` (`checkStatedCrossings`, over
+`SemContext.param_calls`), as Stage 3 asks of what a body does.
 
 What a function value is where a call runs it is one fact,
 `Checker.fnArg`: a closure written in the call (`literal`, whose

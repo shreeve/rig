@@ -5701,3 +5701,146 @@ test "apis generic erasure of plain values", "1.0 4.0"
     area_of(x)
 
   print(lent(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())
+
+fail "apis default gives its self to a task", "`Holder.go` cannot use `Self = Holder`: a value that holds a `Self` is lent to a task to read in the generic body, and `Holder` holds `*fun() -> Int`, an owned closure", "`Keeper.go` cannot use `Self = Keeper`: a value that holds a `Self` is lent to a task to read in the generic body, and `Keeper` holds `{Shape}`, an API object", errors: 2
+  # A default is a body generic over `Self`, checked at each type that
+  # reaches it, as a value of that type given to the task would be.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Sq: Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s
+
+  api Runs
+    fun id(?@) -> Int
+
+    fun go(?@) -> Int
+      t = look(?@)&
+      >t
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Holder: Runs
+    f: *fun() -> Int
+
+    fun id(?@) -> Int
+      1
+
+  obj Keeper: Runs
+    s: ^{Shape}
+
+    fun id(?@) -> Int
+      2
+
+  h = Holder(f: *|| 4)
+  k = Keeper(s: ^Sq(s: 1.0))
+  print(h.go(), k.go())
+
+test "apis default gives plain selves to tasks", seeds: 20, "1 1"
+  # A `Self` with a bound and no `Syncs` makes the task local, which
+  # takes a `*Node`.
+  api Runs
+    fun id(?@) -> Int
+
+    fun go(?@) -> Int
+      t = look(?@)&
+      >t
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Node
+    v: Int
+
+  obj Holder: Runs
+    n: *Node
+
+    fun id(?@) -> Int
+      1
+
+  obj Plain: Runs
+    v: Int
+
+    fun id(?@) -> Int
+      2
+
+  print(Holder(n: *Node(v: 1)).go(), Plain(v: 1).go())
+
+fail "apis pub states the crossing of a task it forwards to", "10:15: `pub fun outer[U]` lets several tasks read a `U`: write `[U: Syncs]`", "11:3: here", errors: 1
+  # A `pub` generic states what the generics it calls do with its `T`,
+  # as it states what its own body does.
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun spawn[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  pub fun outer[U](x: ?U) -> Int
+    spawn(?x)
+
+  print(outer(?3))
+
+test "apis pub states Syncs for a task it forwards to", seeds: 20, "1"
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun spawn[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  pub fun outer[U: Syncs](x: ?U) -> Int
+    spawn(?x)
+
+  print(outer(?3))
+
+fail "apis erasure reaches every method", "`Box[*Node].run` cannot use `T = *Node`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
+  # An object's table holds every method its API names, so erasing a
+  # value reaches each, called or not.
+  api Runs
+    fun run(?@) -> Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  obj Node
+    v: Int
+
+  obj Box[T]: Runs
+    x: T
+
+    fun run(?@) -> Int
+      t = look(?@x)&
+      >t
+
+  b: ^{Runs} = ^Box(x: *Node(v: 1))
+  print(1)
+
+fail "apis witness call instance at the call", "21:5: `R.go[*Node]` cannot use `U = *Node`", errors: 1
+  # An instance whose arguments the call through a bound writes is
+  # reported at that call.
+  obj Node
+    v: Int
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  api Runner
+    fun go[U](?@, u: ?U) -> Int
+
+  obj R: Runner
+    k: Int
+
+    fun go[U](?@, u: ?U) -> Int
+      t = look(?u)&
+      >t
+
+  fun drive[T: Runner](r: ?T) -> Int
+    n = *Node(v: 1)
+    r.go(?n)
+
+  print(drive(?R(k: 1)))

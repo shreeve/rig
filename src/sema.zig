@@ -3089,6 +3089,40 @@ pub const GenericRequirement = struct {
     /// The module whose source `pos` is in: 0 for this one, or the
     /// module that declares the body of a proxy's requirement.
     module_id: u32 = 0,
+    /// The method whose body makes it, by its declaration's position in
+    /// module `module_id`, when the requirement is on a parameter of the
+    /// method's type (or an API default's `Self`), at `index` among them:
+    /// checked where the program reaches the method (`BodyReach`), not at
+    /// every instance of the type. `no_body` for any other.
+    body: u32 = no_body,
+    index: u32 = 0,
+};
+
+/// `GenericRequirement.body` of a requirement checked at every instance
+/// of its parameter.
+pub const no_body: u32 = std.math.maxInt(u32);
+
+/// A method of a generic type, an addition's, or an API's default, as
+/// the program reaches it at its type's arguments (`args`, for
+/// `params`): by a call, through an API's witness, or by erasing a value
+/// to an API object, whose table holds every method of the API. Zig
+/// compiles a method only where it is reached, so a requirement its body
+/// makes on its type's parameters is checked here
+/// (`GenericRequirement.body`). One over a body's parameters is in
+/// `generic_reaches`, which each instance of the body (`in`, a method;
+/// null for a function) makes concrete. With `erase`, it stands for
+/// every method `recv` gives `erase`, reached when `recv` is known.
+pub const BodyReach = struct {
+    fun: FnRef,
+    in: ?FnRef = null,
+    params: []const SymbolId,
+    args: []const TypeId,
+    /// The type the method is reached on, and its name, for messages.
+    recv: TypeId,
+    method: []const u8,
+    site: u32,
+    via: ?InstanceRoot = null,
+    erase: ?ApiRef = null,
 };
 
 /// A call `x.m(args)` a generic body makes on a value of a type
@@ -3175,7 +3209,7 @@ pub const PlainRequirement = struct {
 /// each instance makes concrete: `generic_fn_uses`, `generic_uses`,
 /// `generic_arrays`, `generic_frames`, `generic_api_calls`. Each entry is
 /// added through `SemContext.addGeneric`, which indexes it.
-pub const GenericList = enum(u8) { fn_uses, uses, arrays, frames, api_calls };
+pub const GenericList = enum(u8) { fn_uses, uses, arrays, frames, api_calls, reaches };
 
 /// A call through an API of a program's own (`t.look(?k)` on a bounded
 /// `T`, `c.look(?k)` on a type that provides the API, `Keyed.look(?c,
@@ -3414,6 +3448,20 @@ pub const SemContext = struct {
     generic_api_calls: std.ArrayList(ApiCall) = .empty,
     /// The calls through an API of a program's own whose types are known.
     api_calls: std.ArrayList(ApiCall) = .empty,
+    /// The methods the program reaches, every type known (`BodyReach`),
+    /// each once (`reach_set`), and those reached over a generic body's
+    /// parameters.
+    body_reaches: std.ArrayList(BodyReach) = .empty,
+    /// The calls of generic functions a generic function's body makes at
+    /// its own parameters (`spawn(?x)` in `outer[U]`): each callee
+    /// parameter's argument, and where. Read to find what a parameter
+    /// stated by its bounds must state of what the callees do
+    /// (`typecheck.checkStatedCrossings`).
+    param_calls: std.ArrayList(struct { params: []const SymbolId, args: []const TypeId, pos: u32 }) = .empty,
+    reach_set: std.StringHashMapUnmanaged(void) = .empty,
+    generic_reaches: std.ArrayList(BodyReach) = .empty,
+    /// The values erased to API objects, every type known (`BodyReach.erase`).
+    erase_reaches: std.ArrayList(BodyReach) = .empty,
     /// Every call in `api_calls` and `generic_api_calls`, each recorded
     /// once (`recordApiCall`).
     api_call_set: std.HashMapUnmanaged(ApiCall, void, ApiCall.Context, std.hash_map.default_max_load_percentage) = .empty,
@@ -3640,6 +3688,11 @@ pub const SemContext = struct {
         self.generic_api_calls.deinit(self.allocator);
         self.api_calls.deinit(self.allocator);
         self.api_call_set.deinit(self.allocator);
+        self.body_reaches.deinit(self.allocator);
+        self.param_calls.deinit(self.allocator);
+        self.reach_set.deinit(self.allocator);
+        self.generic_reaches.deinit(self.allocator);
+        self.erase_reaches.deinit(self.allocator);
         var index = self.generic_index.valueIterator();
         while (index.next()) |at| at.deinit(self.allocator);
         self.generic_index.deinit(self.allocator);
@@ -4939,6 +4992,36 @@ pub const SemContext = struct {
         try self.api_calls.append(self.allocator, owned);
     }
 
+    /// Record a method the program reaches (`BodyReach`): one over a
+    /// body's parameters for each instance of the body, one with every
+    /// type known once. Whether it was new and known.
+    pub fn recordBodyReach(self: *SemContext, r: BodyReach) !bool {
+        const a = self.arena.allocator();
+        var owned = r;
+        owned.params = try a.dupe(SymbolId, r.params);
+        owned.args = try a.dupe(TypeId, r.args);
+        const generic = for (r.args) |t| {
+            if (self.typeInfo(t).has_type_var) break true;
+        } else self.typeInfo(r.recv).has_type_var;
+        if (generic) {
+            try self.addGeneric(.reaches, owned);
+            return false;
+        }
+        // A table's methods are known once conformances are checked
+        // (`expandInstantiations`).
+        if (r.erase != null) {
+            try self.erase_reaches.append(self.allocator, owned);
+            return false;
+        }
+        var key: std.ArrayList(u8) = .empty;
+        try key.appendSlice(a, std.mem.asBytes(&r.fun));
+        try key.appendSlice(a, std.mem.sliceAsBytes(r.args));
+        const gop = try self.reach_set.getOrPut(self.allocator, key.items);
+        if (gop.found_existing) return false;
+        try self.body_reaches.append(self.allocator, owned);
+        return true;
+    }
+
     /// Add `entry` to `list`, indexed by the type and integer parameters
     /// it mentions; a use already in `generic_uses` is not added again.
     pub fn addGeneric(self: *SemContext, comptime list: GenericList, entry: @typeInfo(@FieldType(@FieldType(SemContext, "generic_" ++ @tagName(list)), "items")).pointer.child) !void {
@@ -4951,6 +5034,10 @@ pub const SemContext = struct {
             .fn_uses => for (entry.args) |ty| try self.indexParams(list, at, ty),
             .frames => for (entry.tys) |ty| try self.indexParams(list, at, ty),
             .api_calls => {
+                try self.indexParams(list, at, entry.recv);
+                for (entry.args) |ty| try self.indexParams(list, at, ty);
+            },
+            .reaches => {
                 try self.indexParams(list, at, entry.recv);
                 for (entry.args) |ty| try self.indexParams(list, at, ty);
             },
@@ -5245,10 +5332,11 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// checked for nesting themselves (`checkSelfNesting`).
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     // The instances calls through an API reach where every type is known.
-    for (ctx.api_calls.items) |c| if (try implInstance(ctx, c, c.pos)) |inst| {
+    for (ctx.api_calls.items) |c| if (try implInstance(ctx, c, c.pos, null)) |inst| {
         _ = try ctx.recordImplInstance(inst, c.pos, null);
     };
-    if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0 and ctx.generic_api_calls.items.len == 0) return;
+    for (ctx.erase_reaches.items) |r| try reachMembers(ctx, r.recv, r.erase.?, r.site, r.via);
+    if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0 and ctx.generic_api_calls.items.len == 0 and ctx.generic_reaches.items.len == 0) return;
     var work: std.ArrayList(ExpandItem) = .empty;
     defer work.deinit(ctx.allocator);
     var it = ctx.instantiation_sites.iterator();
@@ -5257,6 +5345,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
         try work.append(ctx.allocator, .{ .subst = item, .site = e.value_ptr.*, .root = .{ .type = e.key_ptr.* } });
     }
     for (ctx.fn_instances.items) |f| try work.append(ctx.allocator, .{ .subst = f.inst.subst(), .site = f.site, .root = .{ .func = f.inst } });
+    for (ctx.body_reaches.items) |r| try work.append(ctx.allocator, .{ .subst = .{ .params = r.params, .args = r.args }, .site = r.site, .root = r.via orelse .{ .func = try reachInstance(ctx, r) }, .body = r.fun });
     if (try expand(ctx, &work, null)) return;
     try checkSelfNesting(ctx);
 }
@@ -5264,7 +5353,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// An instance to expand: its parameters' arguments, where the program
 /// makes it, the instance written there that it is reached from, and
 /// the generics between the two (`Trail`).
-const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot, trail: ?*const Trail = null };
+const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot, trail: ?*const Trail = null, body: ?FnRef = null };
 
 /// The generics an expansion passed through to reach an instance, each
 /// named by its parameters, nearest first: whether one repeats tells a
@@ -5326,6 +5415,12 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
     var entries: std.ArrayList(u32) = .empty;
     defer entries.deinit(ctx.allocator);
     while (work.pop()) |item| {
+        // A reached method's own reaches (`BodyReach`); what else its
+        // body makes, its type's instance expands.
+        if (item.body != null) {
+            try expandReaches(ctx, work, item, &entries);
+            continue;
+        }
         try ctx.genericEntries(.fn_uses, item.subst.params, &entries);
         for (entries.items) |i| {
             const use = ctx.generic_fn_uses.items[i];
@@ -5412,8 +5507,11 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             const args = try ctx.arena.allocator().alloc(TypeId, call.args.len);
             for (call.args, args) |a, *out| out.* = try substituteType(ctx, a, item.subst);
             if (argsHaveTypeVar(ctx, args)) continue;
+            // A call whose own arguments its body writes is the site of
+            // what they make, as a call in a body of known types is.
+            const site = if (call.module_id == 0 and call.args.len > 0 and !argsHaveTypeVar(ctx, call.args)) call.pos else item.site;
             call.args = args;
-            const concrete = (try implInstance(ctx, call, item.site)) orelse continue;
+            const concrete = (try implInstance(ctx, call, site, item.root)) orelse continue;
             var deepest: u8 = 0;
             for (concrete.args) |a| deepest = @max(deepest, ctx.typeInfo(a).depth);
             if (deepest > max_instance_depth) {
@@ -5421,11 +5519,61 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
                 try deepInstance(ctx, item, concrete.params, "functions", try formatFnInstance(ctx, concrete), why);
                 return true;
             }
-            if (!try ctx.recordImplInstance(concrete, item.site, item.root)) continue;
+            if (!try ctx.recordImplInstance(concrete, site, item.root)) continue;
             try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
         }
+        try expandReaches(ctx, work, item, &entries);
     }
     return false;
+}
+
+/// The methods the body `item` expands reaches on its parameters, at its
+/// instance (`BodyReach`): one a method's body reaches, only where that
+/// method is reached.
+fn expandReaches(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandItem, entries: *std.ArrayList(u32)) std.mem.Allocator.Error!void {
+    try ctx.genericEntries(.reaches, item.subst.params, entries);
+    for (entries.items) |i| {
+        var r = ctx.generic_reaches.items[i];
+        if (r.in) |in| {
+            const b = item.body orelse continue;
+            if (b.module != in.module or b.pos != in.pos) continue;
+        }
+        r.recv = try substituteType(ctx, r.recv, item.subst);
+        const args = try ctx.arena.allocator().alloc(TypeId, r.args.len);
+        for (r.args, args) |a, *out| out.* = try substituteType(ctx, a, item.subst);
+        if (ctx.typeInfo(r.recv).has_type_var or argsHaveTypeVar(ctx, args)) continue;
+        r.args = args;
+        r.site = item.site;
+        r.via = item.root;
+        if (r.erase) |api| {
+            const before = ctx.body_reaches.items.len;
+            try reachMembers(ctx, r.recv, api, r.site, r.via);
+            for (ctx.body_reaches.items[before..]) |n| try work.append(ctx.allocator, .{ .subst = .{ .params = n.params, .args = n.args }, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item), .body = n.fun });
+            continue;
+        }
+        if (!try ctx.recordBodyReach(r)) continue;
+        if (ctx.typeInfo(r.recv).depth > max_instance_depth) continue;
+        try work.append(ctx.allocator, .{ .subst = .{ .params = r.params, .args = r.args }, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item), .body = r.fun });
+    }
+}
+
+/// `r` as an instance, for messages: `Box[*Node].run`, `Holder.go`.
+pub fn reachInstance(ctx: *SemContext, r: BodyReach) std.mem.Allocator.Error!FnInstance {
+    return .{ .name = try ctx.arena.allocator().print("{s}.{s}", .{ try formatType(ctx, r.recv), r.method }), .params = r.params, .args = r.args, .own = 0 };
+}
+
+/// Every method `recv`, whose type is known, gives `api` and those it
+/// builds on, reached at `site` (`BodyReach`): erasing it to an object
+/// of `api` makes a table that holds each.
+pub fn reachMembers(ctx: *SemContext, recv: TypeId, api: ApiRef, site: u32, via: ?InstanceRoot) std.mem.Allocator.Error!void {
+    if (containsPoison(ctx, recv)) return;
+    const w = switch ((try witnessFor(ctx, recv, api)) orelse return) {
+        .conformance => |c| c,
+        .param => return,
+    };
+    const found = conformanceOf(ctx, .{ .conformance = .{ .module_id = w.module_id, .index = w.index } }) orelse return;
+    for (found.conf.members) |m|
+        _ = try implReach(ctx, .{ .recv = recv, .api = api, .method = m.name, .args = &.{}, .slots = &.{}, .pos = site }, site, via, true);
 }
 
 /// The instance of the method a call through an API reaches (`ApiCall`,
@@ -5440,7 +5588,13 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
 /// already (`fn_instance_set`, looked up before its name is built). A
 /// witness that names no method a conformance gives is a compiler bug,
 /// reported at `site` (`implLost`), never a check skipped.
-pub fn implInstance(ctx: *SemContext, call: ApiCall, site: u32) std.mem.Allocator.Error!?FnInstance {
+pub fn implInstance(ctx: *SemContext, call: ApiCall, site: u32, via: ?InstanceRoot) std.mem.Allocator.Error!?FnInstance {
+    return implReach(ctx, call, site, via, false);
+}
+
+/// `implInstance`, recording the method the call reaches
+/// (`recordBodyReach`); with `reach_only`, that alone.
+fn implReach(ctx: *SemContext, call: ApiCall, site: u32, via: ?InstanceRoot, reach_only: bool) std.mem.Allocator.Error!?FnInstance {
     if (containsPoison(ctx, call.recv)) return null;
     for (call.args) |a| if (containsPoison(ctx, a)) return null;
     const w = switch ((try witnessFor(ctx, call.recv, call.api)) orelse return null) {
@@ -5454,11 +5608,14 @@ pub fn implInstance(ctx: *SemContext, call: ApiCall, site: u32) std.mem.Allocato
     const a = ctx.arena.allocator();
     var outer: TypeSubst = .empty;
     var fn_ty: FunctionType = undefined;
+    var fun: ?FnRef = null;
     switch (member.from) {
         .own => {
             const m = (try typeMethod(ctx, call.recv, call.method)) orelse return implLost(ctx, call, site, "its type declares no such method");
             fn_ty = m.fn_ty;
             outer = m.subst;
+            if (m.owner.decl_pos != builtin_decl_pos and m.field.decl_pos < imported_decl_pos)
+                fun = .{ .module = m.module orelse if (isProxy(m.owner)) m.owner.from.module_id else ctx.module_id, .pos = m.field.decl_pos };
         },
         .added => {
             const f = for (found.conf.methods) |f| {
@@ -5472,6 +5629,7 @@ pub fn implInstance(ctx: *SemContext, call: ApiCall, site: u32) std.mem.Allocato
             for (found.conf.params, params) |p, *out| out.* = if (local) p else try proxyOf(ctx, .{ .module_id = w.module_id, .sym = p });
             outer = .{ .params = params, .args = try conformanceArgs(ctx, a, call.recv) };
             if (outer.params.len != outer.args.len) return implLost(ctx, call, site, "its addition's parameters and its type's arguments differ in count");
+            fun = .{ .module = w.module_id, .pos = f.decl_pos };
         },
         .default => |ref| {
             const home = apiContext(ctx, ref) orelse return implLost(ctx, call, site, "the API that declares its default is not known");
@@ -5486,8 +5644,13 @@ pub fn implInstance(ctx: *SemContext, call: ApiCall, site: u32) std.mem.Allocato
             const home_self = (sym.type_params orelse return implLost(ctx, call, site, "its API has no `Self`"))[0];
             const self_param = if (local) home_self else try proxyOf(ctx, .{ .module_id = ref.module_id, .sym = home_self });
             outer = .{ .params = try a.dupe(SymbolId, &.{self_param}), .args = try a.dupe(TypeId, &.{call.recv}) };
+            fun = .{ .module = ref.module_id, .pos = f.decl_pos };
         },
     }
+    if (fun) |body| if (outer.params.len > 0) {
+        _ = try ctx.recordBodyReach(.{ .fun = body, .params = outer.params, .args = outer.args, .recv = call.recv, .method = call.method, .site = site, .via = via });
+    };
+    if (reach_only) return null;
     // The implementation declares the API's method's compile-time
     // parameters exactly (Stage 3 conformance), so the slots the call's
     // arguments fill are its own parameters too.
@@ -11396,7 +11559,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     const m = origin.module_id;
     const a = ctx.arena.allocator();
     for (foreign.generic_requirements.items) |r| if (r.param == origin.sym) {
-        try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id });
+        try ctx.generic_requirements.append(ctx.allocator, .{ .param = proxy, .req = r.req, .pos = r.pos, .op = r.op, .module_id = if (r.module_id == 0) m else r.module_id, .body = r.body, .index = r.index });
     };
     for (foreign.plain_reqs.items) |r| if (r.param == origin.sym) {
         try ctx.plain_reqs.append(ctx.allocator, .{ .param = proxy, .pos = r.pos, .element = r.element, .view = r.view, .module_id = if (r.module_id == 0) m else r.module_id });
@@ -11442,6 +11605,19 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
     for (foreign.paramEntries(.uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .uses, i)) continue;
         try ctx.addGeneric(.uses, try importType(ctx, foreign, foreign.generic_uses.items[i], m));
+    }
+    for (foreign.paramEntries(.reaches, origin.sym)) |i| {
+        if (!try firstImport(ctx, m, .reaches, i)) continue;
+        const r = foreign.generic_reaches.items[i];
+        const params = try a.alloc(SymbolId, r.params.len);
+        for (r.params, params) |p, *out| out.* = try proxyOf(ctx, .{ .module_id = m, .sym = p });
+        const args = try a.alloc(TypeId, r.args.len);
+        for (r.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
+        var copy = r;
+        copy.params = params;
+        copy.args = args;
+        copy.recv = try importType(ctx, foreign, r.recv, m);
+        try ctx.addGeneric(.reaches, copy);
     }
     for (foreign.paramEntries(.api_calls, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .api_calls, i)) continue;
