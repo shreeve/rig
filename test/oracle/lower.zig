@@ -318,6 +318,30 @@ fn moduleById(id: u32) ?*const lib.modules.Module {
     return null;
 }
 
+/// Whether symbol `sym_id` of `ctx` is one of the built-in types written
+/// in Rig (`std/__rig_builtin.rig`: `Map`, `Set`, their entries, and
+/// their iterators), which the oracle checks as it checks a List: by
+/// what their methods' signatures say (`from`, `keeps`, and the types
+/// that say what a call may store), never by their bodies.
+fn rigBuiltin(ctx: *const sema.SemContext, sym_id: SymbolId) bool {
+    const sym = ctx.symbols.items[sym_id];
+    const m = if (sema.isProxy(sym)) moduleById(sym.from.module_id) else for (program_modules) |*m| {
+        if (m.sema == ctx) break m;
+    } else null;
+    const home = m orelse return false;
+    return std.mem.eql(u8, home.name, "std." ++ lib.rig.builtin_module_name);
+}
+
+/// The context of the module that declares `sym`, whose IR holds its
+/// clauses (`from`, `keeps`): a symbol another module's declaration
+/// stands for (a `use`d function, or a generic type such as `Map`) is
+/// declared there, at its `decl_pos`.
+fn homeOf(ctx: *const sema.SemContext, sym: sema.Symbol) *const sema.SemContext {
+    if (!sema.isProxy(sym)) return ctx;
+    const m = moduleById(sym.from.module_id) orelse return ctx;
+    return m.sema;
+}
+
 /// The `fun` or `sub` of a module named `name` (declared at `pos`,
 /// when known), with a body.
 fn findDecl(m: *const lib.modules.Module, name: []const u8, pos: ?u32) ?Callee {
@@ -792,7 +816,16 @@ const Lowerer = struct {
     fn stmt(self: *Lowerer, s: Sexp) Error!void {
         try self.reachable();
         const saved_scope = self.stmt_scope;
-        defer self.stmt_scope = saved_scope;
+        // A statement is no block's last value, even inside one (an arm's
+        // earlier statements): a bare binding in it leaves with nothing
+        // (Core s1: only "the last value of the function or block that
+        // declares `x`" moves it).
+        const saved_floor = self.tail_floor;
+        defer {
+            self.stmt_scope = saved_scope;
+            self.tail_floor = saved_floor;
+        }
+        self.tail_floor = null;
         self.stmt_scope = self.regions.items.len -| 1;
         try self.pushRegion();
         try self.stmtIn(s);
@@ -922,7 +955,8 @@ const Lowerer = struct {
         // places", for fields and elements alike).
         const target_ty = try self.typeOf(target);
         const write_in = self.isWriteRef(target_ty) and !try self.pointsAnew(rhs);
-        const v = try self.eval(rhs, .take, if (write_in) try self.innerOf(target_ty) else target_ty);
+        const want = if (write_in) try self.innerOf(target_ty) else target_ty;
+        const v = try self.readWanted(try self.eval(rhs, .take, want), want, pos);
         const p = try self.place(target) orelse return abstain("an assignment to something not a place");
         if (p.via == .read) return abstain("a write through a read view");
         if (p.handle) return abstain("a write through a handle");
@@ -930,6 +964,17 @@ const Lowerer = struct {
         const deref = p.via == .write or write_in;
         const through: []const VarId = if (deref) try self.one(p.root) else &.{};
         try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .uses = try self.one(p.root), .weak = p.root, .through = through, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
+    }
+
+    /// A value `v` stored where a `want` goes: a `?T` or `!T` made
+    /// there, of a `want` that copies, is read there (SPEC §7
+    /// "Second-class views"), and the lend that reached it ends with the
+    /// read (`v[1] = slot(!v, 0)` stores an `Int`).
+    fn readWanted(self: *Lowerer, v: ?VarId, want: TypeId, pos: u32) Error!?VarId {
+        const x = v orelse return null;
+        const ty = self.f.vars.items[x].ty;
+        if (ty == want or try self.wantedValue(ty, want) != want) return x;
+        return try self.readPlainThrough(x, pos);
     }
 
     /// `f(x) op= value`, where the call gives a write view, or `f(x)? op=
@@ -944,7 +989,10 @@ const Lowerer = struct {
         if (compound_op) {
             v = try self.eval(rhs, .read, null);
             if (v) |rv| v = try self.readThrough(rv, pos);
-        } else v = try self.eval(rhs, .take, try self.innerOf(view_ty));
+        } else {
+            const want = try self.innerOf(view_ty);
+            v = try self.readWanted(try self.eval(rhs, .take, want), want, pos);
+        }
         const view = try self.eval(target, .take, view_ty) orelse return abstain("a call's write view the lowering did not make");
         const w = try self.temp(view_ty, pos);
         try self.store(w, view, pos);
@@ -3273,7 +3321,10 @@ const Lowerer = struct {
                     const ft = self.ctx.types.get(s.ty);
                     if (ft != .function) return abstain("an unusual callee");
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
-                    sig = .{ .ctx = self.ctx, .f = ft.function, .from = declaredFrom(self.ctx, s.decl_pos), .keeps = declaredKeeps(self.ctx, s.decl_pos) orelse 0 };
+                    // A `use`d function's clauses are in its own module.
+                    const home = homeOf(self.ctx, s);
+                    const at = if (home != self.ctx) home.symbols.items[s.from.sym].decl_pos else s.decl_pos;
+                    sig = .{ .ctx = self.ctx, .f = ft.function, .from = declaredFrom(home, at), .keeps = declaredKeeps(home, at) orelse 0 };
                 },
                 .nominal_type, .generic_type, .type_alias => {
                     is_ctor = true;
@@ -3341,7 +3392,7 @@ const Lowerer = struct {
                     // keep (Core s7).
                     if (fp.type_param) {
                         sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true };
-                    } else if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.ctx, fp.decl_pos) orelse 0, .paths = try declaredPaths(self.a, fp.ctx, fp.decl_pos) };
+                    } else if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.home orelse fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.home orelse fp.ctx, fp.decl_pos) orelse 0, .paths = try declaredPaths(self.a, fp.home orelse fp.ctx, fp.decl_pos) };
                     // A built-in generic's `T` parameter stores what it is
                     // given (`push`, `insert`, a Cell's `set`).
                     const st = try self.a.alloc(bool, fp.params.len);
@@ -3887,7 +3938,7 @@ const Lowerer = struct {
             .fallible => |inner| return self.plainInstance(inner.ok),
             .results => |rs| for (rs) |r| try self.plainInstance(r),
             .parameterized_nominal => |pn| {
-                if (sema.isBuiltinGeneric(self.ctx, pn.sym)) {
+                if (sema.isBuiltinGeneric(self.ctx, pn.sym) or rigBuiltin(self.ctx, pn.sym)) {
                     for (pn.args) |a| try self.plainInstance(a);
                     return;
                 }
@@ -4072,8 +4123,11 @@ const Lowerer = struct {
         full: sema.FunctionType = undefined,
         /// A built-in generic's method, which keeps what it is handed.
         builtin: bool = true,
-        /// Where its name is declared.
+        /// Where its name is declared, in `home`'s module.
         decl_pos: u32 = 0,
+        /// The context of the module that declares it (`homeOf`), when
+        /// not `ctx`'s.
+        home: ?*const sema.SemContext = null,
         /// A method called on a value of a type parameter, which each
         /// instance gives: its signature is the call's, with no `from` or
         /// `keeps` (SPEC "Generic bodies").
@@ -4193,7 +4247,7 @@ const Lowerer = struct {
             const params = ft.function.params;
             return switch (f.receiver) {
                 .none => abstain("a function of a type called on a value"),
-                .read, .write, .value => .{ f.receiver, .{ .ctx = decl.ctx, .params = if (params.len > 0) params[1..] else params, .full = ft.function, .builtin = decl.symbol().decl_pos == sema.builtin_decl_pos, .decl_pos = f.decl_pos } },
+                .read, .write, .value => .{ f.receiver, .{ .ctx = decl.ctx, .params = if (params.len > 0) params[1..] else params, .full = ft.function, .builtin = decl.symbol().decl_pos == sema.builtin_decl_pos, .decl_pos = f.decl_pos, .home = homeOf(decl.ctx, decl.symbol()) } },
             };
         }
         return null;

@@ -842,3 +842,89 @@ fail "keeps without write param", "5:35: `keeps s`: `size` takes nothing to writ
     s.len
 
   print(size("abc"))
+
+test "keeps a Map's and a Set's views by their signatures", '''
+  x
+  1 1
+  true
+  2
+'''
+  # The built-in Map and Set keep what their methods' signatures say, as
+  # a List does: `put` and `add` keep a key that is a view, which then
+  # lasts while the Map or Set is used; `get` is `from @`, viewing no key.
+  # oracle: get_after_key accept
+  # oracle: view_keys accept
+  # oracle: set_views accept
+  # oracle: edit_then_put accept
+
+  sub get_after_key()
+    m: Map[String, String] = Map()
+    !m.put(String("a"), String("x"))
+    k = String("a")
+    v = ?m.get(?k)
+    <k
+    if v as x
+      print(x)
+
+  sub view_keys()
+    s = String("a")
+    m: Map[?String, Int] = Map()
+    !m.put(?s, 1)
+    print(m.len, m.get(?s) ?? 0)
+
+  sub set_views()
+    s = String("a")
+    st: Set[?String] = Set()
+    _ = !st.add(?s)
+    print(st.has(?s))
+
+  sub edit_then_put()
+    m: Map[String, Int] = Map()
+    !m.put(String("a"), 1)
+    if (!m).edit(?String("a")) as w
+      w += 1
+    !m.put(String("b"), 2)
+    print(m.len)
+
+  get_after_key()
+  view_keys()
+  set_views()
+  edit_then_put()
+
+fail "keeps a Map's and a Set's views past their keys", "cannot drop `s` while it is lent", "cannot drop `s` while it is lent", "cannot lend `m` to write while a read loan is live", "cannot drop `m` while it is lent", errors: 6
+  # The sibling shapes: a key kept as a view outlives what it views, and
+  # a value `get` views outlives a write or the drop of its Map.
+  # oracle: key_dropped reject C4
+  # oracle: set_dropped reject C4
+  # oracle: write_while_viewed reject C4
+  # oracle: value_outlives reject C4
+
+  sub key_dropped()
+    m: Map[?String, Int] = Map()
+    s = String("a")
+    !m.put(?s, 1)
+    <s
+    print(m.len)
+
+  sub set_dropped()
+    st: Set[?String] = Set()
+    s = String("a")
+    _ = !st.add(?s)
+    <s
+    print(st.len)
+
+  sub write_while_viewed()
+    m: Map[String, Int] = Map()
+    !m.put(String("a"), 1)
+    v = ?m.get(?String("a"))
+    !m.put(String("b"), 2)
+    print(v)
+
+  sub value_outlives()
+    m: Map[String, String] = Map()
+    !m.put(String("a"), String("x"))
+    v = ?m.get(?String("a"))
+    <m
+    print(v)
+
+  print(1)

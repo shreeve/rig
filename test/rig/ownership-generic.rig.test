@@ -639,3 +639,47 @@ fail "type param method stores through an owned value", "`stash[Log]` cannot use
   stash(!xs, Log(last: ?a), ?b)
   <b
   print(xs[0].last)
+
+test "generic optional of a Copy parameter copies", "hello 3 world"
+  # An `E?` of an `E: Copy` copies as `E` does (SPEC "Generic bodies"):
+  # `if value as v` reads its payload, and `return v` copies an `E` out,
+  # which carries what the instance's `E` carried and no loan on
+  # `value`, which ends with the call (Core s1, s7).
+  # oracle: or_else accept
+  # oracle: first_non_zero accept
+
+  fun or_else[E: Copy](value: E?, default_value: E) -> E
+    if value as v
+      return v
+    default_value
+
+  fun first_non_zero[E: Copy](values: []E?) -> E?
+    for value in values
+      if value as v
+        return v
+    none
+
+  s = String("hello")
+  t = String("world")
+  a: (?String)? = ?s
+  xs: List[(?String)?] = List()
+  !xs.push(none)
+  !xs.push(?t)
+  print(or_else(a, ?t), or_else(none, 3), first_non_zero(?xs[..]) ?? ?s)
+
+fail "generic optional of a parameter keeps what its bounds say", "cannot return a view of `local`, which this function was not lent", "`E` is bounded by `Hash`, which does not give a copy", errors: 2
+  # The sibling shapes: an `E?` the body holds is still a local whose
+  # view cannot leave, and one of an `E` that does not copy is not copied.
+  # oracle: local_opt reject C5
+  # oracle: or_hash reject C2
+
+  fun local_opt[E: Copy](d: E) -> ?(E?)
+    local: E? = d
+    ?local
+
+  fun or_hash[E: Hash](value: E?, default_value: E) -> E
+    if value as v
+      return v
+    default_value
+
+  print(1)

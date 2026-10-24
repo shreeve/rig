@@ -318,3 +318,94 @@ test "block tail shadows outer", '''
   else
     R(n: 2)
   print(x.n, r.n)
+
+test "block arm earlier statement keeps its binding", '''
+  10
+  10
+  6
+  7 7 7
+'''
+  # Only the last value of the block that declares `x` moves it (Core
+  # s1). In an arm's earlier statement, `o ?? x` and an `if` value whose
+  # branch is `x` copy a plain `x`, which the arm uses after.
+  # oracle: a accept
+  # oracle: b accept
+  # oracle: c accept
+
+  obj Node
+    id: Int = 0
+
+  fun a(k: Int, o: Int?) -> Int
+    r = if k == 1
+      x = 5
+      y = o ?? x
+      print(x + y)
+      7
+    else
+      0
+    r
+
+  fun b(k: Int, o: Int?) -> Int
+    r = if k == 1
+      x = 5
+      y = if o as v
+        v
+      else
+        x
+      print(x + y)
+      7
+    else
+      0
+    r
+
+  fun c(k: Int, last: Node?, e: Node?) -> Int
+    r = match k
+      1
+        if last as lc
+          lo = e ?? lc
+          print(lc.id + lo.id)
+        7
+      _
+        0
+    r
+
+  print(a(1, none), b(1, none), c(1, Node(id: 3), none))
+
+fail "block arm earlier statement moves an owner only when told", "use of `x` after move", "`x` owns a `String`, which can't be copied by `=`", errors: 2
+  # The sibling shapes: an owner in an arm's earlier statement moves only
+  # with `<`, and is not copied; the arm's last value still moves its
+  # own binding.
+  # oracle: moved reject C1
+  # oracle: copied reject C2
+  # oracle: tail accept
+
+  fun moved(k: Int, o: String?) -> Int
+    r = if k == 1
+      x = String("abc")
+      y = <o ?? <x
+      print(x, y)
+      7
+    else
+      0
+    r
+
+  fun copied(k: Int, o: String?) -> Int
+    r = if k == 1
+      x = String("abc")
+      y = <o ?? x
+      print(x, y)
+      7
+    else
+      0
+    r
+
+  fun tail(k: Int) -> String
+    s = if k == 1
+      x = String("abc")
+      print(x)
+      x
+    else
+      String("d")
+    s
+
+  print(tail(1))
