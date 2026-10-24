@@ -3507,7 +3507,9 @@ set parameter. Its compile-time parameters are each the same kind, of
 the same type, with the same bounds. Only `from` and `keeps` may be narrower than the API's,
 compared by position, never wider: a call through the API keeps and
 views what the API says. An API's method whose result could view what
-it is passed says what with `from`. A method that meets a `pub` API on a
+it is passed says what with `from`; a box or a handle of an object
+whose braces say it holds no loan (`^{Job + Owned}`, `*{Job + Syncs}`)
+views nothing, and takes no `from`. A method that meets a `pub` API on a
 `pub` type is `pub`. A type that provides two APIs giving one method a
 default writes the method to choose.
 

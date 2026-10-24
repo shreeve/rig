@@ -530,7 +530,9 @@ pub const ObjectForm = enum { read, write, box, shared, weak };
 /// The API object `ty` holds directly, and how: a read view, a write
 /// view, a box, a counted handle, or a weak handle of one. Null for any
 /// other type, an optional of one included.
-pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObject, form: ObjectForm } {
+pub const ObjectHeld = struct { object: ApiObject, form: ObjectForm };
+
+pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?ObjectHeld {
     if (!ctx.typeInfo(ty).object) return null;
     const inner, const form: ObjectForm = switch (ctx.types.get(ty)) {
         .read_view => |v| .{ v, .read },
@@ -7882,8 +7884,15 @@ pub fn objectLoanReason(ctx: *const SemContext, a: std.mem.Allocator, ty: TypeId
     return try a.print("a `{s}` may hold one: write `{s}{s}`", .{ shown, sigil, try objectSpelling(ctx, a, with) });
 }
 
+/// Whether `ty`, which holds an API object as `h` says, holds no loan by
+/// its braces: they name `Owned`, or it is a frozen value's handle,
+/// `*{A + Syncs}`, which holds no view.
+pub fn heldObjectOwned(ctx: *const SemContext, ty: TypeId, h: ObjectHeld) bool {
+    return objectBounds(ctx, h.object).contains(.Owned) or (h.form == .shared and frozenObject(ctx, ctx.types.get(ty).shared));
+}
+
 fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
-    if (objectHeld(ctx, ty)) |h| return if (objectBounds(ctx, h.object).contains(.Owned) or (h.form == .shared and frozenObject(ctx, ctx.types.get(ty).shared))) null else ty;
+    if (objectHeld(ctx, ty)) |h| return if (heldObjectOwned(ctx, ty, h)) null else ty;
     if (apiObject(ctx, ty)) |o| return if (objectBounds(ctx, o).contains(.Owned)) null else ty;
     switch (ctx.types.get(ty)) {
         .optional, .read_view, .write_view, .shared, .weak, .range => |inner| return objectUnownedIn(ctx, inner, seen),
@@ -10522,6 +10531,9 @@ const TargetWalk = struct {
             else => {},
         }
         if (is_view) return;
+        // A box or a handle of an API object whose braces say it holds no
+        // loan views nothing (`heldObjectOwned`).
+        if (objectHeld(ctx, node.ty)) |h| if (heldObjectOwned(ctx, node.ty, h)) return;
         // Each type is walked once per context.
         const key: SeenKey = .{ .ctx = @intFromPtr(ctx), .ty = node.ty, .args = if (node.args) |args| @intFromPtr(args.tys.ptr) else 0, .written = self.written };
         if ((try self.seen.getOrPut(self.a, key)).found_existing) return;

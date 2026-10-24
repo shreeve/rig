@@ -328,6 +328,12 @@ changed the language since it:
   mismatch, and `f(?fz)` of a `*Frozen[Square]` for `f[T: Shape](s: ?T)`
   bound `T` to the handle, which provides no `Shape`; each now binds the
   value the lend reaches, as `first[P](?bx)` and `f[Square](?fz)` did.
+- **A box or a handle of an object that holds no loan views nothing:**
+  an API's method giving `^{Job + Owned}` or `*{Job + Syncs}` had to say
+  `from @`, as if the object could view what it was passed; the view
+  targets of a type now stop at a box or a handle whose braces say it
+  holds no loan (`sema.heldObjectOwned`, which `objectUnowned` asks
+  too), and such a result takes no `from`.
 
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first
