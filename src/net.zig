@@ -401,6 +401,19 @@ fn takeBack(token: u64) void {
 fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";
     defer _ = sys.close(fd);
+    // A read of up to `small_read` goes through the stack, so the String
+    // holds only what came, and nothing at the end of the file.
+    if (want <= small_read) {
+        var buf: [small_read]u8 = undefined;
+        while (true) {
+            const rc = sys.read(fd, &buf, want);
+            switch (posix.errno(rc)) {
+                .SUCCESS => return fresh(buf[0..@intCast(rc)]),
+                .INTR => try stopped(),
+                else => |e| return fileFailure(e),
+            }
+        }
+    }
     var s: rig.String = .empty;
     s.list.ensureTotalCapacityPrecise(rig.defaultAllocator(), want) catch rig.oom();
     while (true) {
@@ -408,6 +421,7 @@ fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 s.list.items.len = @intCast(rc);
+                if (s.list.items.len < want) s.list.shrinkAndFreePrecise(rig.defaultAllocator(), s.list.items.len) catch rig.oom();
                 return s;
             },
             .INTR => stopped() catch |err| {
@@ -421,6 +435,9 @@ fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
         }
     }
 }
+
+/// The largest read `readLent` makes through the stack: 64 KiB.
+const small_read = 64 << 10;
 
 fn writeLent(token: u64, bytes: []const u8) (rig.Stop || FileError)!void {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";

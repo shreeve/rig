@@ -85,30 +85,39 @@ fn absent(err: anyerror) FileError!void {
 // -----------------------------------------------------------------------------
 
 /// The file at `path` in a String whose buffer holds exactly its bytes,
-/// or null when nothing is there. A regular file's size sizes the
-/// buffer; a file that grows while it is read, or one that reports no
-/// size (a pipe, a device), is read to its end and the buffer trimmed.
+/// or null when nothing is there. A regular file is read up to the size
+/// it has when opened, with no last read to find its end: bytes another
+/// writer adds meanwhile are left out, as if they came after. One that
+/// reports no size (a pipe, a device, a Linux `/proc` file) is read to
+/// its end and the buffer trimmed.
 pub fn read(path: []const u8) Error!?rig.String {
     return pool(?rig.String, readHere, .{path});
 }
 
 fn readHere(path: []const u8) FileError!?rig.String {
     const io = rig.io();
-    const file = std.Io.Dir.cwd().openFile(io, path, .{ .allow_directory = false }) catch |err| {
+    // Opened as a directory may be, so that one stat gives both what it is
+    // and its size: Zig's own check for a directory is a second.
+    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| {
         try absent(err);
         return null;
     };
     defer file.close(io);
+    const st = file.stat(io) catch |err| return failure(err);
+    if (st.kind == .directory) return error.@"std.file.FileError.is_directory";
+    const size = std.math.cast(usize, st.size) orelse rig.oom();
+    const sized = st.kind == .file and size > 0;
     const gpa = rig.defaultAllocator();
     var list: std.ArrayList(u8) = .empty;
     errdefer list.deinit(gpa);
-    const size = std.math.cast(usize, file.length(io) catch |err| return failure(err)) orelse rig.oom();
     list.ensureTotalCapacityPrecise(gpa, size) catch rig.oom();
-    // Read into the spare capacity; once it is full, into `probe`, which
-    // finds the end of a regular file without growing the buffer.
+    // Read into the spare capacity; once it is full, a sized file is done,
+    // and any other goes on into `probe`, which finds its end without
+    // growing the buffer.
     var probe: [4096]u8 = undefined;
     while (true) {
         const spare = list.unusedCapacitySlice();
+        if (spare.len == 0 and sized) break;
         const into = if (spare.len > 0) spare else &probe;
         const n = file.readStreaming(io, &.{into}) catch |err| switch (err) {
             error.EndOfStream => break,
@@ -288,45 +297,47 @@ const Entries = struct {
 
 fn entriesHere(path: []const u8) FileError!?Entries {
     const io = rig.io();
-    const gpa = std.heap.smp_allocator;
     var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch |err| {
         // A file at the path, or on the way to it, is not a directory.
         if (failure(err) != not_found) return failure(err);
         return null;
     };
     defer dir.close(io);
-    const Found = struct { name: []u8, code: i64 };
-    var found: std.ArrayList(Found) = .empty;
-    defer {
-        for (found.items) |f| gpa.free(f.name);
-        found.deinit(gpa);
-    }
-    var it = dir.iterate();
-    while (it.next(io) catch |err| return failure(err)) |entry| {
+    var out: Entries = .{};
+    errdefer rig.dropElement(Entries, &out);
+    // Many entries to a system call, where `iterate`'s 2 KiB holds about
+    // 55; and no seek to the start of a directory just opened.
+    var buf: [32 << 10]u8 align(@alignOf(usize)) = undefined;
+    var reader: std.Io.Dir.Reader = .init(dir, &buf);
+    reader.state = .reading;
+    while (reader.next(io) catch |err| return failure(err)) |entry| {
         var kind = entry.kind;
         var link = kind == .sym_link;
         // A link's kind is what it names; a kind the directory does not
         // record is looked up.
-        if (link or kind == .unknown) {
+        if (kind == .unknown) {
             if (dir.statFile(io, entry.name, .{ .follow_symlinks = false })) |here| {
                 link = here.kind == .sym_link;
                 kind = here.kind;
-                if (link) kind = if (dir.statFile(io, entry.name, .{})) |target| target.kind else |_| .unknown;
-            } else |_| kind = .unknown;
+            } else |_| {}
         }
-        const name = gpa.dupe(u8, entry.name) catch rig.oom();
-        found.append(gpa, .{ .name = name, .code = kindCode(kind) + @as(i64, if (link) 4 else 0) }) catch rig.oom();
+        if (link) kind = if (dir.statFile(io, entry.name, .{})) |target| target.kind else |_| .unknown;
+        out.names.push(fresh(entry.name));
+        out.codes.push(kindCode(kind) + @as(i64, if (link) 4 else 0));
     }
-    std.mem.sort(Found, found.items, {}, struct {
-        fn later(_: void, a: Found, b: Found) bool {
-            return std.mem.order(u8, a.name, b.name) == .gt;
+    // Sorted in place, the two lists together.
+    const Later = struct {
+        names: []rig.String,
+        codes: []i64,
+        pub fn lessThan(s: @This(), a: usize, b: usize) bool {
+            return std.mem.order(u8, s.names[a].list.items, s.names[b].list.items) == .gt;
         }
-    }.later);
-    var out: Entries = .{};
-    for (found.items) |f| {
-        out.names.push(fresh(f.name));
-        out.codes.push(f.code);
-    }
+        pub fn swap(s: @This(), a: usize, b: usize) void {
+            std.mem.swap(rig.String, &s.names[a], &s.names[b]);
+            std.mem.swap(i64, &s.codes[a], &s.codes[b]);
+        }
+    };
+    std.sort.pdqContext(0, out.names.len, Later{ .names = out.names.items(), .codes = out.codes.items() });
     return out;
 }
 
@@ -403,8 +414,10 @@ pub fn read_from(fd: i64, into: *rig.String, max: i64) Error!i64 {
     if (want == 0) return 0;
     var got = try rig.net.fileRead(fd, want);
     defer rig.dropElement(rig.String, &got);
-    into.list.appendSlice(rig.defaultAllocator(), got.list.items) catch rig.oom();
-    return @intCast(got.list.items.len);
+    const n = got.list.items.len;
+    // Into a String with no buffer yet, the read's own is taken, not copied.
+    if (into.list.capacity == 0) std.mem.swap(rig.String, into, &got) else into.list.appendSlice(rig.defaultAllocator(), got.list.items) catch rig.oom();
+    return @intCast(n);
 }
 
 pub fn write_to(fd: i64, bytes: []const u8) Error!void {
