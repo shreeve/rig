@@ -322,7 +322,7 @@ directory.
 
 | Function | Result |
 |---|---|
-| `read(path: ?String) -> String?!` | the file at `path` as a fresh `String` of exactly its bytes; `none` when nothing is there |
+| `read(path: ?String) -> String?!` | the file at `path` as a fresh `String` of exactly its bytes; `none` when nothing is there. A regular file is read up to the size it has when opened: bytes another writer adds while it is read are left out, as if they came after. One that reports no size (a pipe, a device, a Linux `/proc` file) is read to its end |
 | `write(path: ?String, data: ?String, parents: Bool = false)!` | writes `data` as the whole file at `path`, creating it or replacing what it holds |
 | `append(path: ?String, data: ?String, parents: Bool = false)!` | writes `data` at the end of the file at `path`, creating it when it is not there |
 | `exists(path: ?String) -> Bool!` | whether anything is at `path`, following symbolic links: a link that names nothing is not |
