@@ -14075,12 +14075,7 @@ const Checker = struct {
         if (args.len != 1 or args[0].isKind(.kwarg)) return self.badCall(args, e, "`Chan[T](n)` takes how many values it holds: `*Chan[Job](64)`", .{});
         const elem = self.ctx.types.get(ty).parameterized_nominal.args[0];
         if (sema.mayHoldView(self.ctx, elem)) {
-            // A box of an API object, with the fix.
-            if (sema.objectHeld(self.ctx, elem)) |h| if (h.form == .box) {
-                var with = h.object;
-                with.builtins.insert(.Owned);
-                return self.badCall(args, e, "a channel's values hold no loan, and `{s}` may hold one: write `^{s}`", .{ try self.tyName(elem), try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with) });
-            };
+            if (try sema.objectLoanReason(self.ctx, self.ctx.arena.allocator(), elem)) |why| return self.badCall(args, e, "a channel's values hold no loan, and {s}", .{why});
             return self.badCall(args, e, "a channel's values hold no loan, and a `{s}` may hold a view", .{try self.tyName(elem)});
         }
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = ty, .is_sub = false };

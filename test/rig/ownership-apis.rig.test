@@ -482,6 +482,47 @@ fail "apis object shared an owned closure's capture", "an owned closure holds no
   f = *|<s| s.size()
   print(f())
 
+fail "apis object a generic body's owned closure names the object", "`stash[^{Shape}]` cannot use `T = ^{Shape}`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a `^{Shape}` may hold one: write `^{Shape + Owned}`", errors: 1
+  # Why an object may hold a loan is one reason with its fix
+  # (`sema.objectLoanReason`): an instance gives it as an owned closure's
+  # capture does.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun stash[T](x: T) -> *fun() -> Int
+    *|<x| 2
+
+  b: ^{Shape} = ^Square(side: 2.0)
+  g = stash(<b)
+  print(g())
+
+fail "apis object a channel's values and an Owned bound name the object", "a channel's values hold no loan, and a `*{Shape}` may hold one: write `*{Shape + Owned}`", "`keep[List[^{Shape}]]` cannot use `T = List[^{Shape}]`: `List[^{Shape}]` may hold a loan; it holds a `^{Shape}`", errors: 2
+  use std.task
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun keep[T: Owned](x: T) -> Int
+    1
+
+  type Counted = *{Shape}
+  ch = *Chan[Counted](1)
+  type Boxed = ^{Shape}
+  l = List[Boxed]()
+  print(keep(<l))
+
 test "apis object shared an owned closure of a frozen one", "3"
   api Named
     fun size(?@) -> Int

@@ -7760,7 +7760,9 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
             else => null,
         },
         .Owned => {
-            if (mayHoldView(ctx, ty)) return .{ .ty = ty };
+            // An API object it holds that may hold a loan is named
+            // (`objectUnowned`), as a home that holds none names it.
+            if (mayHoldView(ctx, ty)) return .{ .ty = if (unwrapViews(ctx, ty) == ty) (try objectUnowned(ctx, ty)) orelse ty else ty };
             return heldLack(ctx, ty, api);
         },
         .Sends, .Syncs => {
@@ -7837,6 +7839,29 @@ pub fn objectUnowned(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error
     var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
     defer seen.deinit(ctx.allocator);
     return objectUnownedIn(ctx, ty, &seen);
+}
+
+/// Why a value of `ty` may hold a loan where a home holds none (an owned
+/// closure, a channel's values, a generic body's Cell, Signal, or owned
+/// closure), when an API object it holds is why (`objectUnowned`): "a
+/// `^{Shape}` may hold one: write `^{Shape + Owned}`". Null when none is,
+/// or `ty` is a view, whose own loan is why. The one reason, with its
+/// fix, each such home gives.
+pub fn objectLoanReason(ctx: *const SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error!?[]const u8 {
+    if (unwrapViews(ctx, ty) != ty) return null;
+    const o = (try objectUnowned(ctx, ty)) orelse return null;
+    const shown = try formatTypeIn(ctx, a, o);
+    const h = objectHeld(ctx, o);
+    var with = if (h) |x| x.object else apiObject(ctx, o) orelse
+        return try a.print("`{s}` holds an API object whose braces name no `Owned`, which may hold one", .{shown});
+    with.builtins.insert(.Owned);
+    // A view holds a loan whatever it views: a box holds none.
+    const sigil: []const u8 = if (h) |x| switch (x.form) {
+        .shared => "*",
+        .weak => "~",
+        .read, .write, .box => "^",
+    } else "^";
+    return try a.print("a `{s}` may hold one: write `{s}{s}`", .{ shown, sigil, try objectSpelling(ctx, a, with) });
 }
 
 fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
