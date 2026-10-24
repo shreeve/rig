@@ -2564,3 +2564,35 @@ fail "write a call's write view kept past a write", "use of `v` while a write lo
     !v.push(2)
     w = 3
     print(v)
+
+fail "write view returned while a task holds it", "16:14: cannot move `s` while a write loan is live", "22:12: cannot move `s` while a write loan is live", "27:5: cannot move `s` while a write loan is live", errors: 3
+  # A returned write view moves, as `<s` would: not while a task it was
+  # lent to, waited for where its scope ends, still holds it.
+  obj Slot
+    key: Int
+
+  sub bump(s: !Slot)
+    s.key += 1
+
+  obj Tab
+    xs: List[Slot]
+    o: Slot?
+
+    fun early(!@) -> (!Slot)? from @
+      if !@o as s
+        t = bump(!s)&
+        return s
+      none
+
+    fun pair(!@) -> (!Slot, Int)
+      s = !@xs[0]
+      t = bump(!s)&
+      return s, 1
+
+    fun tail(!@) -> !Slot
+      s = !@xs[0]
+      t = bump(!s)&
+      s
+
+  t = Tab(xs: List(), o: none)
+  print(t.xs.len)

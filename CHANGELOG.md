@@ -99,24 +99,30 @@ Cells, handles, and views:
     out an object that holds a Cell.
 35. *Unsound:* a temporary that owns a resource, with nothing to drop
     it, is bound to a name first.
+36. *Unsound:* a scope's defers run after the value it gives, so a
+    `defer` may not change, drop, or lend to write what a block's value,
+    a `return` value, or a `break` value views (`defer !@xs.clear()`
+    before a last value `!@xs[0]`); and `return s` or a last value `s`
+    of a write view moves `s`, so no defer, closure a defer calls, or
+    task waited for at the scope's end may use it after.
 
 Effects and errors:
 
-36. `time.sleep` can fail (a canceled task stops there): `time.sleep(n)!`
+37. `time.sleep` can fail (a canceled task stops there): `time.sleep(n)!`
     or a `catch`.
-37. Two caught errors are not compared with `==`; compare one with a
+38. Two caught errors are not compared with `==`; compare one with a
     member, `e == E.bad`, or match it.
 
 Other:
 
-38. A closure never called (`_ = |x| x + 1`) is rejected.
-39. `*g` of a function, where a `*fun` goes, is `*|| g()`.
-40. A method's parameter may not take the name of a module-level
+39. A closure never called (`_ = |x| x + 1`) is rejected.
+40. `*g` of a function, where a `*fun` goes, is `*|| g()`.
+41. A method's parameter may not take the name of a module-level
     declaration.
-41. A directory's `.rig` files are one module, sharing one namespace, so
+42. A directory's `.rig` files are one module, sharing one namespace, so
     two files beside each other that 0.2.9 took as separate modules may
     not declare the same name; move one into a directory of its own.
-42. A read view of text, `?String`, is not lent to write (`w = !s`);
+43. A read view of text, `?String`, is not lent to write (`w = !s`);
     hold a `String` to change text in place.
 
 Programs written against `main` since `v0.2.9` also meet forms that
@@ -133,6 +139,19 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A scope's defers run after its value, which they may not touch:**
+  the checker re-checks each `defer` at every exit with the loans of
+  the value the exit leaves with in force (a block's or an arm's value,
+  a `return` or `break` value, a function's last value), so `if c` /
+  `defer !@xs.clear()` / `!@xs[0]` is "use of `@xs` while a write loan
+  is live", where the caller wrote into a freed element; an `errdefer`
+  runs only where that value is an error, and is checked without it.
+  `return s`, `return s, n`, and a last value `s` of a write view move
+  `s`, as `<s` does (CORE sentence 1), so a later `defer s = ...`, a
+  deferred `|!s|` closure, or a task lent `!s` and waited for at the
+  scope's end is rejected. The reference checker now holds a task's
+  loans until the task's drop waits for it, and keeps a write view
+  handed where a `(!T)?` goes a view.
 - **A release build of objects nested by value is linear:** the
   runtime's `==`, `.hash()`, and `+` reach a field that nests objects
   more than eight deep through a call of its own, so a chain of 400

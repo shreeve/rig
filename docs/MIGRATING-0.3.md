@@ -468,6 +468,7 @@ slept
 | `_ = \|x\| x + 1`, a closure never called | call it, or remove it |
 | `*g` of a function where a `*fun` goes | `*\|\| g()` |
 | a lend of a branch that may be a named value, `(a if c else b)[0].m()` | lend each branch: `(?a if c else ?b)[0].m()` |
+| a `defer` that changes what its scope's value views (`defer !@xs.clear()` before a last value `!@xs[0]`), or uses a write view `s` the scope returns | change it before the value is formed, or let the defer leave the value and `s` alone |
 
 ## Programs written against `main` between releases
 

@@ -243,7 +243,7 @@ journeys found in the compiler and its docs is at the end of
 
 Toward `v0.3.0` are a full run and the tag. Its migration guide is
 [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), and CHANGELOG's
-"Upgrading from v0.2.9" lists the 42 forms 0.2.9 accepted that 0.3.0
+"Upgrading from v0.2.9" lists the 43 forms 0.2.9 accepted that 0.3.0
 rejects, which the tag's release notes take over. The scripts:
 `tools/migrate-0.3.py` (box, list, string, obj), `tools/state-bounds.py`,
 and, for programs written against `main` between the releases,
