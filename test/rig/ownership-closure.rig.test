@@ -634,3 +634,60 @@ fail "closure path capture stores a view of itself once", "8:6: cannot let this 
   p = P(a: List[?String](), b: String("x"))
   f = |!p.a, ?p.b| !p.a.push(p.b)
   f()
+
+test "a function value held behind a read view views nothing", "2 2"
+  # `Prog.hook` is a function value, a named function's address, which
+  # holds nothing (Core §7), so a `?Prog` self holds views no part of a
+  # `State`: the call through `action`, known only by its type, stores
+  # nothing in `@` that carries the loan on `n`, and `n` is written after
+  # it.
+  # oracle: Checker.run accept
+  # oracle: bump accept
+
+  obj State
+    p: Int
+    stack: List[Int]
+
+  obj Prog
+    hook: fun(Int) -> Int
+
+  obj Checker
+    k: Int
+    program: ?Prog
+
+    sub run(!@, n: !State, action: ?sub(!Checker, !State, Int))
+      action(!@, !n, 1)
+      n.p += 1
+
+  sub bump(c: !Checker, n: !State, d: Int)
+    c.k += c.program.hook(d)
+    n.p += d
+
+  fun twice(x: Int) -> Int
+    x * 2
+
+  pr = Prog(hook: twice)
+  c = Checker(k: 0, program: ?pr)
+  s = State(p: 0, stack: List())
+  (!c).run(!s, bump)
+  print(c.k, s.p)
+
+fail "a call through a sub value may store a view of its write argument", "use of `n.stack` while a write loan on `n` is live", "`run` stores a view of `n` in `@`, which its caller reaches, but its signature does not keep `n`", errors: 2
+  # The sibling shape: `names: ?List[Int]` could hold a view of
+  # `n.stack`, and a function value's type names no `keeps` (Core s7),
+  # so the call may leave one in `@`.
+  # oracle: Checker.run reject C4
+
+  obj State
+    p: Int
+    stack: List[Int]
+
+  obj Checker
+    k: Int
+    names: ?List[Int]
+
+    sub run(!@, n: !State, action: ?sub(!Checker, !State, Int))
+      action(!@, !n, 1)
+      !n.stack.clear()
+
+  print(1)

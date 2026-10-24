@@ -11,14 +11,14 @@
 # errors: the hidden `E?` a fallible call's statement holds, which `!`,
 # `catch |e|`, and a nameless catch empty, and `g: E =>` arms, and API
 # objects' views, boxes, and shared and weak handles, their erasures, the copies they view, and
-# calls through them, and the built-in Map and Set, by their methods'
-# signatures, so each
+# calls through them, the built-in Map and Set, by their methods'
+# signatures, and values holding function values, which hold nothing, so each
 # floor is what it decides now. A value holding a Cell lives only
 # behind `*`, and a write view is never stored inside a value, so the
 # programs that hold either by value stop in sema, before either
 # checker decides them. A header whose subject makes a temporary and
 # reaches no place is rejected in sema (`rejectHeaderCopy`), so the
 # programs that have one stop there too.
-tests 22767
+tests 22796
 docs 1077
 matrix 71930
