@@ -12271,8 +12271,10 @@ below it at least twice the program's largest frame. A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).
 A call that blocks its thread, as reading a file does, runs on a pool
-of threads while its task waits; `RIG_BLOCKING_THREADS` sets how many
-at most (64 by default), and a thread idle 10 seconds ends. With
+of threads while its task waits: about as many as the machine has
+performance cores, more only while a call has waited a millisecond for
+one, up to 64. `RIG_BLOCKING_THREADS` sets how many at most, and a
+thread idle 10 seconds ends. With
 `RIG_SCHED_STATS=1` set, the program prints what each worker did as it
 ends.
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in

@@ -1206,9 +1206,19 @@ var kicking: std.atomic.Value(u32) = .init(0);
 /// Threads that run calls which block the thread they run on (reading a
 /// file, say), so no worker blocks on one: a fiber that makes such a call
 /// waits, and the pool thread that ran it wakes it. A call counts a
-/// thread busy as it is handed one (`submit`); a call that finds none
-/// idle starts one, outside the lock, up to `RIG_BLOCKING_THREADS` (64
-/// by default); a thread idle `retire_after` ends.
+/// thread busy as it is handed one (`submit`); a thread idle
+/// `retire_after` ends.
+///
+/// A call that finds no thread idle, and more calls queued than threads
+/// on their way back from one (`finishing`, which take the next call
+/// without sleeping), starts a thread, up to `soft` (the performance
+/// cores): a stream of short calls (a file read each) keeps a few
+/// threads busy, each taking the next call as it ends one, rather than
+/// waking a sleeping thread for each, and does not crowd the file
+/// system. Past `soft`, the pool grows toward `max` only while its
+/// oldest queued call has waited `grow_after` (`monitor`), so calls that
+/// block for long (a pipe, a slow disk) still get threads.
+/// `RIG_BLOCKING_THREADS` sets both bounds.
 const Pool = struct {
     lock: SpinLock = .{},
     head: ?*Call = null,
@@ -1219,33 +1229,58 @@ const Pool = struct {
     idle: u32 = 0,
     reserved: u32 = 0,
     queued: u32 = 0,
+    /// Threads that ran a call and woke its fiber, not yet back under the
+    /// lock, where each takes the next call queued.
+    finishing: std.atomic.Value(u32) = .init(0),
     /// Threads running, idle or not.
     threads: u32 = 0,
     word: std.atomic.Value(u32) = .init(0),
-    /// The most threads it runs, read from `RIG_BLOCKING_THREADS` once.
+    /// The threads a call starts at once (`soft`), and the most the pool
+    /// runs (`max`), read once (`poolBounds`).
+    soft: u32 = 0,
     max: u32 = 0,
+    /// The monitor's word, which a call moves as it waits for a thread
+    /// past `soft`, and whether the monitor runs.
+    monitor_word: std.atomic.Value(u32) = .init(0),
+    monitoring: bool = false,
 
     const default_max = 64;
 
     fn submit(p: *Pool, c: *Call) void {
         p.lock.lock();
-        if (p.max == 0) p.max = poolMax();
+        if (p.max == 0) poolBounds(p);
         c.next = null;
+        c.at = nowReal();
         if (p.tail) |t| t.next = c else p.head = c;
         p.tail = c;
         p.queued += 1;
         var start = false;
+        var watch = false;
         if (p.idle > 0) {
             p.idle -= 1;
             p.reserved += 1;
-        } else if (p.threads < p.max) {
-            p.threads += 1;
-            start = true;
+        } else if (p.queued - p.reserved > p.finishing.load(.seq_cst)) {
+            if (p.threads < p.soft) {
+                p.threads += 1;
+                start = true;
+            } else if (p.threads < p.max) {
+                watch = true;
+                if (!p.monitoring) {
+                    p.monitoring = true;
+                    const th = std.Thread.spawn(.{}, monitor, .{p}) catch rt.oom();
+                    th.detach();
+                }
+            }
         }
         p.lock.unlock();
         if (start) {
             const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
             th.detach();
+            return;
+        }
+        if (watch) {
+            _ = p.monitor_word.fetchAdd(1, .seq_cst);
+            rt.io().futexWake(u32, &p.monitor_word.raw, 1);
             return;
         }
         _ = p.word.fetchAdd(1, .seq_cst);
@@ -1277,6 +1312,8 @@ const Pool = struct {
     /// return: the process then ends under it.
     fn stop(p: *Pool) void {
         const since = nowReal();
+        _ = p.monitor_word.fetchAdd(1, .seq_cst);
+        rt.io().futexWake(u32, &p.monitor_word.raw, 1);
         while (true) {
             _ = p.word.fetchAdd(1, .seq_cst);
             rt.io().futexWake(u32, &p.word.raw, std.math.maxInt(u32));
@@ -1289,17 +1326,67 @@ const Pool = struct {
     }
 
     const stop_wait: i96 = std.time.ns_per_s;
+
+    /// How long the oldest queued call waits before the pool grows past
+    /// `soft`, and how often the monitor looks.
+    const grow_after: i96 = std.time.ns_per_ms;
 };
 
 /// How long a pool thread waits for a call before it ends.
 var retire_after: i96 = 10 * std.time.ns_per_s;
 
-fn poolMax() u32 {
-    if (rt.process) |p| if (p.environ.getPosix("RIG_BLOCKING_THREADS")) |v| {
+/// The pool's bounds: `RIG_BLOCKING_THREADS` for both, if set; else
+/// `soft` the performance cores (`performanceCores`), at least 2, and
+/// `max` `Pool.default_max`.
+fn poolBounds(p: *Pool) void {
+    if (rt.process) |proc| if (proc.environ.getPosix("RIG_BLOCKING_THREADS")) |v| {
         const n = std.fmt.parseInt(u32, v, 10) catch 0;
-        if (n > 0) return n;
+        if (n > 0) {
+            p.soft = n;
+            p.max = n;
+            return;
+        }
     };
-    return Pool.default_max;
+    p.soft = @max(2, @min(performanceCores(), Pool.default_max));
+    p.max = Pool.default_max;
+}
+
+/// The cores a thread runs fastest on: on macOS the performance cores
+/// (`hw.perflevel0.physicalcpu`), elsewhere every core, at most 8.
+fn performanceCores() u32 {
+    if (builtin.os.tag == .macos) {
+        var n: c_int = 0;
+        var len: usize = @sizeOf(c_int);
+        if (std.c.sysctlbyname("hw.perflevel0.physicalcpu", &n, &len, null, 0) == 0 and n > 0) return @intCast(n);
+    }
+    return @intCast(@min(8, std.Thread.getCpuCount() catch 4));
+}
+
+/// Grow the pool past `soft` while its oldest queued call has waited
+/// `Pool.grow_after` for a thread: once a call waits past `soft` it looks
+/// every `grow_after`, starting a thread each time, up to `max`, and
+/// sleeps once no call waits.
+fn monitor(p: *Pool) void {
+    defer rt.fast_alloc.threadExit();
+    while (!stopping.load(.acquire)) {
+        const seen = p.monitor_word.load(.seq_cst);
+        p.lock.lock();
+        const backlog = p.head != null and p.queued - p.reserved > p.finishing.load(.seq_cst);
+        var start = false;
+        if (backlog and p.threads < p.max and nowReal() - p.head.?.at >= Pool.grow_after) {
+            p.threads += 1;
+            start = true;
+        }
+        p.lock.unlock();
+        if (start) {
+            const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
+            th.detach();
+        }
+        // While a call waits, look again in `grow_after`; else sleep until
+        // a call waits past `soft` (or `retire_after`, to look anyway).
+        const wait_for = if (backlog) Pool.grow_after else retire_after;
+        rt.io().futexWaitTimeout(u32, &p.monitor_word.raw, seen, .{ .duration = .{ .raw = .{ .nanoseconds = wait_for }, .clock = .awake } }) catch {};
+    }
 }
 
 
@@ -1308,6 +1395,8 @@ fn poolMax() u32 {
 const Call = struct {
     run: *const fn (*Call) void,
     next: ?*Call = null,
+    /// When it was queued (`submit`), for the monitor.
+    at: i96 = 0,
 };
 
 var pool: Pool = .{};
@@ -1323,6 +1412,7 @@ fn poolMain(p: *Pool) void {
             p.lock.unlock();
             c.run(c);
             p.lock.lock();
+            _ = p.finishing.fetchSub(1, .seq_cst);
             waited = false;
             continue;
         }
@@ -1418,6 +1508,9 @@ fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolRe
             const self: *Self = @fieldParentPtr("call", c);
             self.result = @call(.auto, f, self.args);
             if (stoppable) freeArgs(&self.args);
+            // Counted on its way back before the fiber can call again
+            // (`Pool.finishing`).
+            _ = pool.finishing.fetchAdd(1, .seq_cst);
             if (self.state.cmpxchgStrong(pending, finishing, .seq_cst, .seq_cst) != null) {
                 // The waiter gave up: no one takes the result.
                 rt.dropElement(R, &self.result);
@@ -3854,6 +3947,7 @@ test "the blocking pool runs calls at once, counting a thread busy as it hands i
             // the first call is handed it, and the second, finding none
             // idle, starts another.
             pool.lock.lock();
+            pool.soft = 0;
             pool.max = 0;
             pool.lock.unlock();
             together = pair();
@@ -3861,13 +3955,50 @@ test "the blocking pool runs calls at once, counting a thread busy as it hands i
     };
     workers_override = 2;
     defer workers_override = null;
+    pool.soft = 1;
     pool.max = 1;
+    defer pool.soft = 0;
     defer pool.max = 0;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.together < 180 * std.time.ns_per_ms);
     try std.testing.expect(Run.one_thread >= 200 * std.time.ns_per_ms);
+}
+
+test "past its soft bound, the blocking pool grows once a queued call has waited" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var together: i96 = 0;
+        const Unit = struct {};
+        fn caller(_: *Unit, ms: u64) u64 {
+            return blocking(testSleepReal, .{ms});
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            // One thread at once, two at most: the second call, finding
+            // the first's thread busy, waits for the monitor, which
+            // starts a thread for it after `grow_after`, so the calls
+            // overlap, as a call that blocks for good would need.
+            const start = nowNs();
+            const a = spawn(u64, Unit, caller, .{200}, .{}, false).job;
+            const b = spawn(u64, Unit, caller, .{200}, .{}, false).job;
+            _ = a.join();
+            _ = b.join();
+            a.free();
+            b.free();
+            together = nowNs() - start;
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    pool.soft = 1;
+    pool.max = 2;
+    defer pool.soft = 0;
+    defer pool.max = 0;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.together < 350 * std.time.ns_per_ms);
 }
 
 test "a cancel or a deadline ends a wait on the blocking pool, and the call runs on" {

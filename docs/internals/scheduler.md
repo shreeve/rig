@@ -326,10 +326,18 @@ every time; the suite runs each concurrency case again under seeds 1 to
     answering a socket does, finds the watch held and kicks no one. A
     look at another worker's poller leaves the kick it finds there, which
     that worker, about to sleep, needs. The
-    blocking pool counts a thread busy as it hands it a call, starts
-    threads outside its lock, up to `RIG_BLOCKING_THREADS` (64 by
-    default), and ends a thread idle 10 s; a cancel or a deadline ends a
-    wait on it (`rig.blockingStop`).
+    blocking pool counts a thread busy as it hands it a call, and counts
+    a thread on its way back from one (`finishing`), which takes the next
+    call queued without sleeping. A call that finds neither starts a
+    thread, outside the lock, up to the performance cores (`soft`: on
+    macOS `hw.perflevel0.physicalcpu`, elsewhere the cores, at most 8;
+    at least 2), so a stream of short calls keeps a few threads busy
+    rather than waking a sleeping one for each. Past `soft`, a monitor
+    thread starts one more each millisecond while the oldest queued call
+    has waited that long, up to 64, so calls that block for long (a pipe,
+    a slow disk) still run. `RIG_BLOCKING_THREADS` sets both bounds. A
+    thread idle 10 s ends; a cancel or a deadline ends a wait on the pool
+    (`rig.blockingStop`).
 
 13. **Checks of where work runs**: with `RIG_SCHED_STATS=1` set, a
     program prints, as `main` ends, what each worker did, to stderr:
