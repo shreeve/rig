@@ -3395,6 +3395,13 @@ pub const SemContext = struct {
     /// The module makes an actor (`*Actor(x)`): the program's root
     /// declares `__rig_actors`, so its waits are watched for deadlocks.
     makes_actors: bool = false,
+    /// The module names `time.since_start`: the program's root declares
+    /// `__rig_since_start`, so the runtime reads the clock as it starts
+    /// (`noteRuntimeRead`).
+    reads_since_start: bool = false,
+    /// The module names `os.memory`: the program's root declares
+    /// `__rig_memory`, so its allocator counts what it hands out.
+    reads_memory: bool = false,
     simd_sym_id: SymbolId = symbol_invalid,
     /// `Table[T, n]` and `Slot[n]`: a table of `n` slots, and a number
     /// that names one (`Type.slot`).
@@ -5313,6 +5320,19 @@ pub const CheckOptions = struct {
 pub fn stdNameHint(foreign: *const SemContext, name: []const u8) []const u8 {
     if (foreign.is_std and std.mem.eql(u8, foreign.name, "std.random") and std.mem.eql(u8, name, "Rng")) return "; its generator is `Random`";
     return "";
+}
+
+/// `module.name`, a public declaration of the imported module `foreign`,
+/// named in `ctx`'s module: the two the runtime keeps an answer for only
+/// in a program that names one, so no other program pays for it.
+/// `time.since_start` needs the clock read as the program starts, and
+/// `os.memory` an allocator that counts. Every path to another module's
+/// declaration comes here (`Checker.foreignSymbol`); the runtime stops at
+/// compile time a program that reaches either one without its flag.
+pub fn noteRuntimeRead(ctx: *SemContext, foreign: *const SemContext, name: []const u8) void {
+    if (!foreign.is_std) return;
+    if (std.mem.eql(u8, foreign.name, "std.time") and std.mem.eql(u8, name, "since_start")) ctx.reads_since_start = true;
+    if (std.mem.eql(u8, foreign.name, "std.os") and std.mem.eql(u8, name, "memory")) ctx.reads_memory = true;
 }
 
 /// Report that `module.name`, a declaration of the imported module

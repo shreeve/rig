@@ -873,10 +873,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   such as "Memory used". The release allocator counts on each thread's
   heap and adds to atomic totals every 64 KiB or 1,024 blocks, so its
   fast paths gain no atomic operation (Trig 0.5-0.8% slower on pup,
-  within noise on the Mac).
+  within noise on the Mac). Only a program that names `os.memory`
+  counts: any other compiles to the allocator without the counts.
 - **`time.since_start()`:** the nanoseconds on the monotonic clock
   since the program started, an `Int`, so a plain function value reads
   a duration with no `Instant` to hold (virtual in a deterministic run).
+  Only a program that names it reads the clock as it starts, so any
+  other's code is what it would be without it (std.json's safe builds
+  on the Mac had moved 4-7% slower with the reading, their hot
+  functions 60 bytes later).
 - **`text.Interner`:** the run-time string interner, which gives each
   string a dense `U32` id, is std.text's `Interner` (`use std.text`,
   then `text.Interner()`), apart from the built-in `Symbol`, a name the

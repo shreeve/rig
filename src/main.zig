@@ -262,12 +262,15 @@ const Env = struct {
     /// module (`runtime.zig`); those that run a program's tasks on the
     /// scheduler, with the guard below each task's stack (`tasks`,
     /// `taskGuardOf`); the one that marks a program that makes actors,
-    /// whose waits a deadlock's walk follows (`actors`); and, in a
+    /// whose waits a deadlock's walk follows (`actors`); those that ask
+    /// the runtime for what only some programs read (`reads`); and, in a
     /// package `rig run` or `rig test` builds (`hook`), the variable
     /// naming the file the program creates as it starts (`buildCommand`).
-    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: ?u64, actors: bool) !void {
+    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: ?u64, actors: bool, reads: Reads) !void {
         if (tasks) |guard| try w.print("pub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{guard});
         if (actors) try w.writeAll("pub const __rig_actors = true;\n");
+        if (reads.since_start) try w.writeAll("pub const __rig_since_start = true;\n");
+        if (reads.memory) try w.writeAll("pub const __rig_memory = true;\n");
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.heapProfile()) try w.writeAll("pub const __rig_heap_profile = true;\n");
         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
@@ -983,11 +986,12 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_module});
-    try env.writeRootFlags(&root.writer, true, null, false);
+    try env.writeRootFlags(&root.writer, true, null, false, .{});
     try root.writer.writeAll("\nconst programs = .{\n");
     var links_libc = false;
     var makes_tasks = false;
     var makes_actors = false;
+    var reads: Reads = .{};
     var largest_frame: u64 = 0;
     var built: usize = 0;
     var inputs = std.crypto.hash.sha2.Sha256.init(.{});
@@ -1017,6 +1021,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         links_libc = links_libc or pkg.links_libc;
         makes_tasks = makes_tasks or makesTasks(&graph);
         makes_actors = makes_actors or makesActors(&graph);
+        reads = reads.with(readsOf(&graph));
         largest_frame = @max(largest_frame, largestFrame(&graph));
         const sub = try allocator.print("p{d}", .{n});
         try placeBatchFiles(allocator, sub, graph.root().out_basename, pkg.files.items, &placed, &seen);
@@ -1032,6 +1037,8 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     // One runtime serves the batch: it runs tasks if any program makes them.
     if (makes_tasks) try root.writer.print("\npub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{sema.taskGuard(largest_frame)});
     if (makes_actors) try root.writer.writeAll("pub const __rig_actors = true;\n");
+    if (reads.since_start) try root.writer.writeAll("pub const __rig_since_start = true;\n");
+    if (reads.memory) try root.writer.writeAll("pub const __rig_memory = true;\n");
     try root.writer.print(
         \\
         \\// The first argument names the program; it sees the others, after
@@ -1339,7 +1346,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_filename});
-    try env.writeRootFlags(w, true, taskGuardOf(graph), makesActors(graph));
+    try env.writeRootFlags(w, true, taskGuardOf(graph), makesActors(graph), readsOf(graph));
     // The driver is the root, so it names the program's error glue.
     if (declaresErrorFields(graph)) try w.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
     try w.writeAll(
@@ -1585,6 +1592,28 @@ fn makesActors(graph: *const modules.ModuleGraph) bool {
     return false;
 }
 
+/// What the runtime keeps only for a program that reads it
+/// (`sema.noteRuntimeRead`): the clock's reading as the program starts,
+/// and the allocator's counts.
+const Reads = struct {
+    since_start: bool = false,
+    memory: bool = false,
+
+    fn any(r: Reads) bool {
+        return r.since_start or r.memory;
+    }
+
+    fn with(r: Reads, o: Reads) Reads {
+        return .{ .since_start = r.since_start or o.since_start, .memory = r.memory or o.memory };
+    }
+};
+
+fn readsOf(graph: *const modules.ModuleGraph) Reads {
+    var r: Reads = .{};
+    for (graph.modules.items) |*m| r = r.with(.{ .since_start = m.sema.reads_since_start, .memory = m.sema.reads_memory });
+    return r;
+}
+
 /// How `emitPackage` writes a package.
 const PackageKind = struct {
     /// `rig run`: the root module names the file the program creates as
@@ -1618,6 +1647,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     var uses_symbols = false;
     const tasks = makesTasks(graph);
     const task_guard = taskGuardOf(graph);
+    const reads = readsOf(graph);
     const glue = declaresErrorFields(graph);
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
@@ -1645,9 +1675,9 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks)) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks or reads.any())) {
             try file_buffer.writer.writeAll("\n");
-            try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph));
+            try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph), reads);
         }
         // A program with error fields reads them through its glue.
         if (i == 0 and glue) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
