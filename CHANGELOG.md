@@ -594,6 +594,12 @@ changed the language since it:
   built-in one. `tools/migrate-builtin-map.py` rewrites a tree's
   programs, tests, and Markdown: it removes `use std.hash` and the
   `hash.` before these names.
+- **`os.memory()`:** what the program's allocations come to: `live`
+  bytes, the `peak`, and how many `allocs` it has made, for reports
+  such as "Memory used". The release allocator counts on each thread's
+  heap and adds to atomic totals every 64 KiB or 1,024 blocks, so its
+  fast paths gain no atomic operation (Trig 0.5-0.8% slower on pup,
+  within noise on the Mac).
 - **`time.since_start()`:** the nanoseconds on the monotonic clock
   since the program started, an `Int`, so a plain function value reads
   a duration with no `Instant` to hold (virtual in a deterministic run).

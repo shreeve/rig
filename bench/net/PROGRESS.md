@@ -37,3 +37,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-22 | #552: each worker on cache lines of its own (pup cores 8,9) | rig-fast | 4.88 us | 3.55 us | 26.46 us |
 | 2026-10-23 | main before #581, interleaved (pup cores 8,9) | rig-fast | 4.86 us | 3.81 us | 28.09 us |
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set (pup cores 8,9) | rig-fast | 4.93 us | 3.80 us | 28.06 us |
+| 2026-10-24 | main before #621, interleaved (pup cores 8,9) | rig-fast | 4.95 us | 3.62 us | 27.09 us |
+| 2026-10-24 | #621: os.memory counts each allocation (pup cores 8,9) | rig-fast | 4.98 us | 3.60 us | 26.72 us |

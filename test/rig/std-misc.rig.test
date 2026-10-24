@@ -2614,6 +2614,48 @@ test "time", '''
   print(time.unix_ns() > 1_700_000_000 * time.SECOND)
   print(time.NS, time.US, time.MS, time.SECOND, time.MINUTE)
 
+test "os memory", "true true true true true", seeds: 3
+  # `os.memory()`: live bytes rise by what a List holds and fall back when
+  # it drops, the peak keeps the most, and every allocation counts; on
+  # several threads too.
+  fun fill(n: Int) -> Int
+    v = List[Int]()
+    for i in 0..n
+      !v.push(i)
+    v.len
+
+  a = os.memory()
+  v = List[Int]()
+  for i in 0..100_000
+    !v.push(i)
+  b = os.memory()
+  <v
+  c = os.memory()
+  t = fill(200_000)&
+  n = >t
+  d = os.memory()
+  print(b.live - a.live >= 800_000, c.live < b.live, c.peak >= b.live, d.allocs > c.allocs, n == 200_000)
+
+test "os memory release", "true true true true true", release: true
+  # The same, counted by the release allocator, block by block.
+  fun fill(n: Int) -> Int
+    v = List[Int]()
+    for i in 0..n
+      !v.push(i)
+    v.len
+
+  a = os.memory()
+  v = List[Int]()
+  for i in 0..100_000
+    !v.push(i)
+  b = os.memory()
+  <v
+  c = os.memory()
+  t = fill(200_000)&
+  n = >t
+  d = os.memory()
+  print(b.live - a.live >= 800_000, c.live < b.live, c.peak >= b.live, d.allocs > c.allocs, n == 200_000)
+
 test "time since start", "true true true", seeds: 3
   # `since_start()`: the monotonic clock's nanoseconds since the program
   # started, which a function value reads with no `Instant` to hold; on

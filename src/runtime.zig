@@ -4886,6 +4886,10 @@ var profile_lock: std.Io.Mutex = .init;
 const LeakChecker = struct {
     live: std.AutoHashMapUnmanaged(usize, usize) = .empty,
     bytes: usize = 0,
+    /// The most `bytes` has been, and how many allocations were made
+    /// (`os.memory`).
+    peak: usize = 0,
+    allocs: usize = 0,
     /// The allocations made under an isolate, with its id, or `left`
     /// once a panic stopped that isolate and left them: counted apart,
     /// as `left_count` and `left_bytes`, not as leaks.
@@ -4962,6 +4966,8 @@ const LeakChecker = struct {
         const ptr = backing().rawAlloc(n, alignment, ret_addr) orelse return null;
         self.live.put(table_allocator, @intFromPtr(ptr), n) catch oom();
         self.bytes += n;
+        self.peak = @max(self.peak, self.bytes);
+        self.allocs += 1;
         const iso = isolateHere();
         if (iso != 0) self.tags.put(table_allocator, @intFromPtr(ptr), iso) catch oom();
         return ptr;
@@ -4982,6 +4988,7 @@ const LeakChecker = struct {
         const size = self.entry(memory);
         if (!backing().rawResize(memory, alignment, new_len, ret_addr)) return false;
         self.bytes = self.bytes - size.* + new_len;
+        self.peak = @max(self.peak, self.bytes);
         if (self.tags.get(@intFromPtr(memory.ptr)) == left) self.left_bytes = self.left_bytes - size.* + new_len;
         size.* = new_len;
         return true;
@@ -4996,6 +5003,7 @@ const LeakChecker = struct {
         _ = self.live.remove(@intFromPtr(memory.ptr));
         self.live.put(table_allocator, @intFromPtr(ptr), new_len) catch oom();
         self.bytes = self.bytes - memory.len + new_len;
+        self.peak = @max(self.peak, self.bytes);
         if (self.tags.fetchRemove(@intFromPtr(memory.ptr))) |kv| {
             if (kv.value == left) self.left_bytes = self.left_bytes - memory.len + new_len;
             self.tags.put(table_allocator, @intFromPtr(ptr), kv.value) catch oom();
@@ -5228,6 +5236,21 @@ fn usage() Usage {
     LeakChecker.lock();
     defer LeakChecker.unlock();
     return .{ .count = leak_checker.live.count() - leak_checker.left_count, .bytes = leak_checker.bytes - leak_checker.left_bytes };
+}
+
+/// `os.memory()`: the bytes of the program's live allocations, the most
+/// they have come to, and how many allocations it has made. A debug
+/// build counts each allocation's own length, under the leak checker's
+/// lock; a release build, each block's size, as `alloc.zig` counts it.
+pub fn memoryTotals() fast_alloc.Totals {
+    if (!leak_checked) return fast_alloc.totals();
+    LeakChecker.lock();
+    defer LeakChecker.unlock();
+    return .{
+        .live = @intCast(leak_checker.bytes - leak_checker.left_bytes),
+        .peak = @intCast(leak_checker.peak),
+        .allocs = @intCast(leak_checker.allocs),
+    };
 }
 
 /// The isolates begun so far, for each one's id.
