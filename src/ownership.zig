@@ -769,6 +769,15 @@ pub const Checker = struct {
     errors_found: u32 = 0,
     /// How many of `plain_reqs` this module's own bodies record.
     own_plain_reqs: usize = 0,
+    /// While a generic body is walked again as at an instance whose
+    /// associated type `item` (`S.Item`) may view memory its base owns
+    /// (`walkItemInstances`): a value of a type that reaches it is a view
+    /// that only reads, which keeps lent what the call that gave it was
+    /// passed.
+    item: ?SymbolId = null,
+    /// The associated types the calls of the module-level function being
+    /// walked give values of (`noteItems`), each walked again so.
+    items_seen: std.ArrayList(SymbolId) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
         const paths = try allocator.create(Paths);
@@ -803,6 +812,7 @@ pub const Checker = struct {
         self.vars.deinit(self.gpa);
         self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
+        self.items_seen.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
         self.part_temps.deinit(self.gpa);
         self.kept_lends.deinit(self.gpa);
@@ -843,6 +853,7 @@ pub const Checker = struct {
         const ctx = self.sema orelse return;
         const a = self.arena();
         for (self.plain_reqs.items[0..self.own_plain_reqs]) |r| {
+            if (r.item.len > 0) continue;
             const sym = ctx.symbols.items[r.param];
             if (!sema.checkedByBounds(sym)) continue;
             const api: sema.Api = if (r.view) .Owned else .Copy;
@@ -880,6 +891,13 @@ pub const Checker = struct {
                 }
                 try self.checkCopies(f.site, shown, param, arg);
                 try self.checkViews(f.site, shown, param, arg);
+                if (try self.checkItems(f.site, shown, param, arg)) if (f.via) |via| {
+                    const by = switch (via) {
+                        .type => |t| try sema.formatTypeIn(ctx, self.arena(), t),
+                        .func => |g| try sema.formatFnInstanceIn(ctx, self.arena(), g),
+                    };
+                    try self.note(f.site, "`{s}` is made by `{s}`", .{ shown, by });
+                };
             }
         }
         var it = ctx.instantiation_sites.iterator();
@@ -904,8 +922,34 @@ pub const Checker = struct {
                 }
                 try self.checkCopies(site, shown, param, arg);
                 try self.checkViews(site, shown, param, arg);
+                _ = try self.checkItems(site, shown, param, arg);
             }
         }
+    }
+
+    /// An instance whose argument for `param` gives one of its associated
+    /// types what may view memory the argument owns
+    /// (`SemContext.item_views`), where a generic body holds a value of
+    /// that associated type past a change of the `param` it came from
+    /// (`PlainRequirement.item`). Whether it was reported.
+    fn checkItems(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!bool {
+        const ctx = self.sema orelse return false;
+        for (self.plain_reqs.items) |r| {
+            if (r.param != param or r.item.len == 0) continue;
+            const assoc = for (ctx.symbols.items[param].assoc) |a| {
+                const of = ctx.symbols.items[a].assoc_of orelse continue;
+                if (std.mem.eql(u8, of.name, r.item)) break a;
+            } else continue;
+            const item = ctx.item_views.get(.{ .assoc = assoc, .base = arg }) orelse continue;
+            const aname = ctx.symbols.items[assoc].name;
+            const pname = ctx.symbols.items[param].name;
+            const iname = try sema.formatTypeIn(ctx, self.arena(), item);
+            const bname = try sema.formatTypeIn(ctx, self.arena(), arg);
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: a `{s}` may view memory `{s}` owns, and the generic body holds an `{s}` past a change of the `{s}` it came from; use `{s}` itself, or give items that own what they hold", .{ shown, aname, iname, iname, bname, aname, pname, bname });
+            try self.noteIn(r.module_id, r.pos, "the `{s}` changes here while an `{s}` it gave is held", .{ pname, aname });
+            return true;
+        }
+        return false;
     }
 
     /// An instance whose argument for `param` holds a view, or a `?String`,
@@ -931,7 +975,7 @@ pub const Checker = struct {
         if (sema.moves(ctx, arg) != .yes) return;
         const pname = ctx.symbols.items[param].name;
         for (self.plain_reqs.items) |r| {
-            if (r.param != param or r.view) continue;
+            if (r.param != param or r.view or r.item.len > 0) continue;
             if (sema.typeHasDropGlue(ctx, arg)) {
                 try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
             } else try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, and `{s}` is unique", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
@@ -1980,6 +2024,47 @@ pub const Checker = struct {
     /// Walk a function, method, drop body or test body. `tparams`: its
     /// compile-time parameters, whose values (`n: Int`) are Copy.
     fn walkFun(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+        const top = self.fn_depth == 0 and self.item == null;
+        if (top) self.items_seen.clearRetainingCapacity();
+        try self.walkFunOnce(name, tparams, params, returns, body);
+        if (top and self.items_seen.items.len > 0) try self.walkItemInstances(name, tparams, params, returns, body);
+    }
+
+    /// A generic body is checked once, a value of a type parameter's type
+    /// carrying no loan (SPEC "Generic bodies"). A value of an associated
+    /// type (`S.Item`) that a call gives is checked again as at an
+    /// instance whose associated type may view memory its base owns: the
+    /// body is walked once more with such a value a view that only reads
+    /// whatever the call was passed (`item`). An error that walk finds and
+    /// the first did not is a change of the base while such a value lives,
+    /// recorded as a requirement on the base (`PlainRequirement.item`):
+    /// each instance meets it unless its associated type may view memory
+    /// its base owns (`checkItems`). The walk reports nothing itself.
+    fn walkItemInstances(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+        const ctx = self.sema orelse return;
+        const seen = try self.gpa.dupe(SymbolId, self.items_seen.items);
+        defer self.gpa.free(seen);
+        for (seen) |assoc| {
+            const of = ctx.symbols.items[assoc].assoc_of orelse continue;
+            const reqs = self.plain_reqs.items.len;
+            const diags = self.diagnostics.items.len;
+            const found = self.errors_found;
+            self.item = assoc;
+            const walked = self.walkFunOnce(name, tparams, params, returns, body);
+            self.item = null;
+            try walked;
+            const at: ?u32 = for (self.diagnostics.items[diags..]) |d| {
+                if (d.severity == .@"error") break d.pos;
+            } else null;
+            for (self.diagnostics.items[diags..]) |d| self.gpa.free(d.message);
+            self.diagnostics.shrinkRetainingCapacity(diags);
+            self.plain_reqs.shrinkRetainingCapacity(reqs);
+            self.errors_found = found;
+            if (at) |pos| try self.plain_reqs.append(self.gpa, .{ .param = of.base, .pos = pos, .item = of.name });
+        }
+    }
+
+    fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
         const saved_func = self.func;
         const saved_loop = self.loop;
         const saved_reachable = self.reachable;
@@ -2943,7 +3028,9 @@ pub const Checker = struct {
     fn viewsOnlyRead(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return false;
         const info = ctx.typeInfo(ty);
-        if (info.poison or info.holds_type_var or info.views.write) return false;
+        if (info.poison or info.views.write) return false;
+        if (self.holdsItem(ty)) return true;
+        if (info.holds_type_var) return false;
         return info.views.marked or info.views.string_view;
     }
 
@@ -2999,6 +3086,8 @@ pub const Checker = struct {
     /// closure, and a var whose type is not known, may.
     fn mayOwnView(self: *Checker, id: VarId, view: TypeId) Error!bool {
         const ctx = self.sema orelse return true;
+        // An associated type an instance gives may view anything.
+        if (self.holdsItem(view)) return true;
         const v = self.vars.items[id];
         if (v.closure) return true;
         const t = v.ty orelse return true;
@@ -3979,7 +4068,7 @@ pub const Checker = struct {
         if (req.view) try sema.reachedTypeVars(ctx, ty, &held, self.arena()) else try sema.heldTypeVars(ctx, ty, &held, self.arena());
         for (held.items) |param| {
             for (self.plain_reqs.items) |r| {
-                if (r.param == param and r.pos == pos and r.view == req.view) break;
+                if (r.param == param and r.pos == pos and r.view == req.view and r.item.len == 0) break;
             } else {
                 var r = req;
                 r.param = param;
@@ -4788,9 +4877,14 @@ pub const Checker = struct {
         // Which arguments the call passes loans on from (Core sentence
         // 7): the callee's origins, by the parameter each argument fills.
         const params = if (self.sema) |ctx| ctx.callParamsOf(node) else null;
+        // A value of the associated type a walk as an instance judges
+        // carries what the call is passed, whatever the callee's origins
+        // say of a type parameter (`walkItemInstances`).
+        const carry_all = self.holdsItem(self.exprType(node));
+        try self.noteItems(self.exprType(node));
         // What the result carries of the receiver and arguments.
         var from_args: Value = .{};
-        if (params == null or params.?.resultCarriesReceiver()) {
+        if (params == null or carry_all or params.?.resultCarriesReceiver()) {
             // A `from` that names paths of self narrows what the result
             // carries of the receiver (Core sentence 7).
             const paths = if (params) |p| p.origins.self_paths else &.{};
@@ -4854,7 +4948,7 @@ pub const Checker = struct {
                 stored = try self.valueUnion(stored, if (self.copiedElem(callee)) |elem| try self.carry(elem, v.*) else v.*);
                 if (self.holdsGeneric(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) stores_generic = true;
             }
-            if (params == null or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
+            if (params == null or carry_all or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
         }
         result = try self.valueUnion(result, carried);
         from_args = try self.valueUnion(from_args, carried);
@@ -7299,7 +7393,31 @@ pub const Checker = struct {
     /// may view a String. Unknown types are assumed to.
     fn mayCarryLoan(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return true;
-        return sema.mayHoldView(ctx, ty orelse return true);
+        const t = ty orelse return true;
+        return sema.mayHoldView(ctx, t) or self.holdsItem(t);
+    }
+
+    /// Whether a value of `ty` reaches the associated type a walk as an
+    /// instance judges (`item`, `walkItemInstances`).
+    fn holdsItem(self: *const Checker, ty: ?TypeId) bool {
+        const it = self.item orelse return false;
+        const ctx = self.sema orelse return false;
+        return sema.reachesTypeVar(ctx, ty orelse return false, it);
+    }
+
+    /// Note the associated types a value of `ty`, a call's result,
+    /// reaches (`items_seen`).
+    fn noteItems(self: *Checker, ty: ?TypeId) Error!void {
+        if (self.item != null) return;
+        const ctx = self.sema orelse return;
+        const t = ty orelse return;
+        if (!ctx.typeInfo(t).has_type_var) return;
+        var held: std.ArrayList(SymbolId) = .empty;
+        try sema.reachedTypeVars(ctx, t, &held, self.arena());
+        for (held.items) |sym| {
+            if (ctx.symbols.items[sym].assoc_of == null) continue;
+            if (std.mem.findScalar(SymbolId, self.items_seen.items, sym) == null) try self.items_seen.append(self.gpa, sym);
+        }
     }
 
     /// Whether a value of `ty` may hold a view, here or in an instance.
@@ -7349,7 +7467,7 @@ pub const Checker = struct {
     fn genericType(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
-        return !sema.mayHoldView(ctx, t) and sema.holdsTypeParam(ctx, t);
+        return !self.mayCarryLoan(t) and sema.holdsTypeParam(ctx, t);
     }
 
     /// Whether a value of `ty` may hold a value of a type parameter's

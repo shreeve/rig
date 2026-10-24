@@ -97,7 +97,7 @@ docs/internals/backlog.md.
 | 26 | copies out of a view and holding a held `T` in generic bodies | BL | ROADMAP (#651) |
 | 27 | compiler memory: 10,000 bindings, chained generics | BL | ROADMAP (#651) |
 | 28 | an addition built on another module's API (Rust's rule) | S3 p1 | ROADMAP, open questions (#651) |
-| 29 | a value of `S.Item` that may view its base: instance rule or body tracking (`iter.count` refused where safe) | S3 p34 | owner |
+| 29 | a value of `S.Item` that may view its base: instance rule or body tracking (`iter.count` refused where safe) | S3 p34 | owner: per instance (#662) |
 | 30 | the shorthand `c.area()` through a box | S3 p2, BL | owner |
 | 31 | a discarded result passes silently | BL, round 1 | owner |
 | 32 | a handle parameter lent by a capture | BL, round 1 | owner |

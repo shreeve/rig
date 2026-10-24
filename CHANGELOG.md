@@ -144,6 +144,17 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A value of an associated type views its base per instance:** a
+  value of `S.Item` that a call on `s` gives (an item of `next`, or of
+  `fun one(!@) -> Item from @`) keeps `s` lent only at an instance whose
+  `Item` may view memory `s` owns, as Stage 3 checks a call through a
+  bound at each instance. A body that holds one past a change of its
+  base (a write, a move, a drop), itself or through the generic bodies
+  it calls, is rejected at each such instance, with a note at the
+  change; a body that holds none, as `iter.count` does, takes every
+  iterator. Such an
+  instance was rejected whatever the body did, so `iter.count` of an
+  iterator whose items view its own memory was refused.
 - **A Map and a Set print their entries:** `print(m)` writes
   `{"a": 1, "b": 2}` and `print(s)` writes `{1, 2}`, `{}` when empty,
   the entries in the order their keys were first put in, each key and
@@ -685,10 +696,9 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `Item` its `T`; `[I: Iter]` loops over and calls `next` on an `I`, an
   API may build on it, and no header names it. std.iter gives `count`
   and `sum` over any iterator; every std iterator is an `Iter` whose item
-  is what the loop gives. An instance whose associated type may view
-  memory its base owns is rejected, since a generic body does not track
-  that view across `next`; a Map's and a Set's iterators are walked by a
-  loop instead.
+  is what the loop gives. A body that holds an item past a change of
+  its iterator is rejected at each instance whose items may view memory
+  the iterator owns.
 
 - **APIs of a program's own (Stage 3, the proof):** formal/ proves, in
   Lean, that a call checked against an API's `from` and `keeps` is

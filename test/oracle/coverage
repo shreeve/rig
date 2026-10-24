@@ -19,7 +19,10 @@
 # checker decides them. A header whose subject makes a temporary and
 # reaches no place is rejected in sema (`rejectHeaderCopy`), so the
 # programs that have one stop there too, as do those whose generic owned
-# closure captures a `T` an instance makes a task (`hidesNoTask`).
-tests 22794
-docs 1077
-matrix 71930
+# closure captures a `T` an instance makes a task (`hidesNoTask`). A call of
+# a generic body at an owner whose associated type may view what the
+# owner holds is decided by the body lowered again with that type's
+# values carrying their loans (`itemFinding`).
+tests 22930
+docs 1139
+matrix 71945

@@ -512,11 +512,15 @@ method, by the one rule the loop uses to find an iterator, and its
 `Item` is what `next` gives; no header names it, as none names `Sends`.
 It comes with this stage because its useful bound names its item type,
 `[I: Iter, I.Item: Ord]`, and with it come `iter.count` and `iter.sum`.
-A generic body tracks no view an `I.Item` holds, so an instance whose
-items may view memory the iterator owns is rejected, unless its `next`
-names only fields declared as read views (`next(!@) -> (?K)? from
-@map`, Core sentence 7): its items view what the iterator only views,
-as a Map's and a Set's do.
+A value of `I.Item` that `next` gives views the iterator only at an
+instance whose items may view memory the iterator owns, judged per
+instance as a call through a bound is (Core sentence 7 at the
+instance's type): there a body that holds one past a change of the
+iterator is rejected, at the call that makes the instance. Items of a
+plain type, and those of a `next` that names only fields declared as
+read views (`next(!@) -> (?K)? from @map`), as a Map's and a Set's
+do, view no iterator, and a body that holds no item past the next
+`next`, as `iter.count`, takes every iterator.
 
 **A type provides an API on its header,** `obj Square: Shape`,
 beside `unique` (`obj Ticket unique: Print`). The type's methods are

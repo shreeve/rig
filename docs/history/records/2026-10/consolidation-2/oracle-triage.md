@@ -238,3 +238,11 @@ its unsafe sibling as one both checkers reject:
 Measured after the fixes: Trig 0 disagreements (was 7), 5,251 functions decided (was 5,174);
 the suite's `tests` set 22,767 decided (was 22,695: 32 more by Map and Set, 40 in the new
 tests), `docs` 1,077 (was 1,070, all by Map and Set), `matrix` 71,930 (unchanged). No rejection was lost.
+
+Row 29 (the owner: a value of `S.Item` views its base per instance) carries the C5 rule on: in a
+body's verdict a value of an associated type carries no loan, as the compiler checks the body;
+at a call of a generic body at an owner, the body is lowered again with each associated type of
+its parameters carrying its loans, `S.Item?` and `List[S.Item]` among them (`Kinds.item`,
+`itemFinding`), and a finding there is the call's when the instance's item may view memory the
+owner holds (`itemOf`: an iterator's `next`, or the conformance's binding, by `Reach.owns`).
+`fun one(!@) -> Item from @` held across a second call (`twoc`, `pair`) is then accepted by both.

@@ -222,9 +222,10 @@ test "iter holds two items", '''
   c = Cursor(items: ?l, at: 0)
   two(!c)
 
-fail "iter an owned path", "`iter.count[Own]` cannot use `I.Item = ?String`: a `?String` may view memory `Own` owns"
-  # An item that views a field the iterator owns (`from @buf`) still
-  # views the iterator, which a body bounded by `Iter` does not track.
+test "iter an owned path", "2"
+  # An item that views a field the iterator owns (`from @buf`) views the
+  # iterator, and `count` holds none past the next `next`, so it takes
+  # the iterator.
 
   obj Own
     buf: String
@@ -237,3 +238,21 @@ fail "iter an owned path", "`iter.count[Own]` cannot use `I.Item = ?String`: a `
 
   o = Own(buf: String("ab"), at: 0)
   print(iter.count(!o))
+
+fail "iter sum holds its first item", "`iter.sum[Nums]` cannot use `I.Item = ?Int`: the generic body applies `+=` to `I.Item`, which `?Int` does not support"
+  # `sum` holds its first item past the next `next`, and adds to it: an
+  # item that views the iterator's own List is no number to add to.
+
+  obj Nums
+    xs: List[Int]
+    at: Int
+
+    fun next(!@) -> (?Int)? from @
+      return none if @at >= @xs.len
+      @at += 1
+      ?@xs[@at - 1]
+
+  l: List[Int] = List()
+  !l.push(3)
+  n = Nums(xs: <l, at: 0)
+  print(iter.sum(!n) ?? 0)

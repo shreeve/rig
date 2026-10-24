@@ -75,22 +75,32 @@ pub const Kinds = struct {
     /// the body for; each instance is checked against what the body
     /// does with it.
     generic: bool = false,
+    /// In a generic body checked as at an instance whose associated type
+    /// `item` (`S.Item`) may view memory its base owns: a value of a type
+    /// that reaches it, `S.Item?` and `List[S.Item]` among them, may
+    /// carry a loan (SPEC "Generic bodies"). Without it a value of an
+    /// associated type carries none, as a type parameter's does.
+    item: ?sema.SymbolId = null,
 
     pub fn init(a: std.mem.Allocator, ctx: *const SemContext, planned: bool) Kinds {
         return .{ .a = a, .ctx = ctx, .planned = planned };
     }
 
-    pub fn of(self: *Kinds, ty: TypeId) !Info {
+    pub fn of(self: *Kinds, ty: TypeId) std.mem.Allocator.Error!Info {
         if (self.memo.get(ty)) |info| return info;
+        var info = try self.ofType(ty);
+        if (self.item) |it| if (sema.reachesTypeVar(self.ctx, ty, it)) {
+            info.holds_views = true;
+            info.holds_pointers = true;
+        };
+        try self.memo.put(self.a, ty, info);
+        return info;
+    }
+
+    fn ofType(self: *Kinds, ty: TypeId) std.mem.Allocator.Error!Info {
         const ctx = self.ctx;
-        if (callableInfo(ctx, ty)) |info| {
-            try self.memo.put(self.a, ty, info);
-            return info;
-        }
-        if (objectInfo(ctx, ty)) |info| {
-            try self.memo.put(self.a, ty, info);
-            return info;
-        }
+        if (callableInfo(ctx, ty)) |info| return info;
+        if (objectInfo(ctx, ty)) |info| return info;
         // A bounded type parameter in a generic body is what its bounds
         // say (docs/design/apis.md, Stage 2): `Copy` copies, and with
         // `Owned` views nothing; without `Copy` it is an owner that the
@@ -100,16 +110,16 @@ pub const Kinds = struct {
                 const bounds = sema.implied(ctx.symbols.items[sym].apis);
                 if (bounds.count() > 0) {
                     const copy = bounds.contains(.Copy);
-                    const owned = bounds.contains(.Owned);
-                    const info: Info = .{
+                    // An associated type's value views its base only at
+                    // an instance whose associated type may (`item`).
+                    const owned = bounds.contains(.Owned) or ctx.symbols.items[sym].assoc_of != null;
+                    return .{
                         .kind = if (!copy) .owning else if (owned) .plain else .read_view,
                         .holds_views = !owned,
                         .holds_pointers = !owned,
                         .drop_reads = false,
                         .unsupported = null,
                     };
-                    try self.memo.put(self.a, ty, info);
-                    return info;
                 }
             },
             else => {},
@@ -151,7 +161,6 @@ pub const Kinds = struct {
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
             .generic_copy = kind == .owning and !(ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell)) and !try self.holdsUncopied(ty),
         };
-        try self.memo.put(self.a, ty, info);
         return info;
     }
 };

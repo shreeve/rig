@@ -3119,6 +3119,21 @@ or an owned closure, which carry no loan (`checkViews`). A call site sees the
 instance's signature, so moves, lends, and the loans a result carries
 are checked there with the real types.
 
+A value of an associated type (`S.Item`) is judged per instance too.
+A module-level function whose calls give one (`noteItems`) is walked
+again for each such associated type, as at an instance whose `S.Item`
+may view memory its base owns (`walkItemInstances`): with `item` set,
+a value of a type that reaches it may carry a loan, is a view that
+only reads, may view anything a holder owns, and a call giving one
+carries what the call is passed. The walk reports nothing; its first
+error the plain walk did not find is a change of the base while such a
+value lives, recorded as `PlainRequirement.item` on the base, with its
+position. `checkItems` rejects each instance whose associated type may
+view memory its base owns, which sema records once per instance where
+it checks bounds (`SemContext.item_views`, `assocViewsBase`), with a
+note at that change, and, for an instance a generic body makes, at the
+instance that made it.
+
 **A holder of a read view.** A `^T`, an optional, a generic function's
 `T`, and a generic object's field or `T` hold a read view as a `List`
 element does, by one rule: a value whose type may hold a view
