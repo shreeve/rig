@@ -499,7 +499,7 @@ const Checker = struct {
     }
 
     fn resolver(self: *Checker) resolve.TypeResolver {
-        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal };
+        return .{ .ctx = self.ctx, .scope = self.scope, .nominal = self.nominal, .body = self.bodyRef() };
     }
 
     fn t(self: *Checker) *sema.TypeStore {
@@ -5519,14 +5519,7 @@ const Checker = struct {
     /// called without a call written: a `drop`, or one that gives a
     /// built-in API its meaning (`sema.ownApiMethod`).
     fn calledUnwritten(self: *Checker, pos: u32) bool {
-        const sym = self.ctx.symbols.items[self.nominal.sym];
-        for (sym.fields orelse &.{}) |f| {
-            if (!f.is_method or f.decl_pos != pos) continue;
-            if (f.is_drop_method) return true;
-            var it = sym.apis.iterator();
-            while (it.next()) |api| if (sema.apiMethodName(api)) |n| if (std.mem.eql(u8, n, f.name)) return true;
-        }
-        return false;
+        return sema.methodCalledUnwritten(self.ctx, self.nominal.sym, pos);
     }
 
     /// A requirement on a parameter that has the bounds of the method
@@ -11222,7 +11215,7 @@ const Checker = struct {
                 if (self.body_pos == sema.no_body) try self.ctx.param_calls.append(self.ctx.allocator, .{ .params = try a.dupe(SymbolId, own.items), .args = own_args, .pos = pos });
                 break;
             };
-            _ = try self.ctx.recordFnInstance(inst, pos, null);
+            _ = try self.ctx.recordFnInstanceIn(inst, pos, self.bodyRef());
         }
         return result;
     }
@@ -14712,7 +14705,7 @@ const Checker = struct {
                 // as a written one is (`resolve`'s `instance_stacking`).
                 try sema.checkInstanceStacked(self.ctx, ty, pos);
             }
-        } else try self.ctx.addGeneric(.uses, ty);
+        } else try self.ctx.addUse(ty, self.bodyRef());
         return ty;
     }
 

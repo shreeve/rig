@@ -83,7 +83,7 @@ docs/internals/backlog.md.
 | 12 | object messages: `+s` of `?{Shape}`, `[T: {Shape}]`, `?{Shape}?` and `?{Shape}!E` with no fix, braces across lines | S4 p1, p2 | fix |
 | 13 | an empty `api Marker`; two defaults across modules at a call | S3 p1 | checked (#643): two defaults are rejected at each call that sees both, cases added; `api Marker` stays a parse error, as `obj Unit` is: owner |
 | 14 | a set without fields lent where a union with fields goes | BL | #644 |
-| 15 | a type only named in a generic method expanded as an instance | BL | fix |
+| 15 | a type only named in a generic method expanded as an instance | BL | #645 |
 | 16 | `lib.List` as an expression and as a type disagree | BL | fix |
 | 17 | messages about instances reached through an API (#609) | BL | fix |
 | 18 | `whole = ?@; whole.text` reported as a view of `@` | FF | ROADMAP |

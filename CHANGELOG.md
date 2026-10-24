@@ -13,6 +13,16 @@ changed the language since it:
 
 ### Language and compiler
 
+- **A method makes the instances it names where it is reached:** a
+  generic type's method that names a deeper instance of its type
+  (`$name(Wrap[T?])` in `Wrap[T]`'s method) makes it only where the
+  program reaches the method, and that instance's methods only where
+  they are reached, so it is no longer "ever deeper instances". A
+  method that reaches itself on ever deeper instances still is, at the
+  call, or where it is declared for a `pub` type. An instance a method
+  the program never reaches would make is no longer checked against the
+  body's requirements (`Holder[*B]`'s uncalled method making an
+  `Opt[*B]`), as Zig compiles no such method.
 - **A code lent where a view of a union with fields goes:** an error of
   a set without fields, `B.y` or a binding of one, is lent where a `?L`
   of `error L = A | B` with fields goes, or a `?error`, as the error

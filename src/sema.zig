@@ -3473,6 +3473,11 @@ pub const SemContext = struct {
     /// generic declarations (`Opt[T]` in `Wrap[T]`'s methods). See
     /// `expandInstantiations`.
     generic_uses: std.ArrayList(TypeId) = .empty,
+    /// For each entry of `generic_uses`, the method whose body spells it
+    /// (`addUse`): an instance of the method's type makes it only where
+    /// the program reaches the method (`BodyReach`). Null for one spelled
+    /// anywhere else, which every instance makes.
+    generic_uses_in: std.ArrayList(?FnRef) = .empty,
     /// The instances of generic functions the module's calls make, each
     /// with the position of its first call, in the order found.
     fn_instances: std.ArrayList(struct {
@@ -3490,6 +3495,9 @@ pub const SemContext = struct {
     /// generic bodies (`max[T]` in `fun top[T]`); expanded like
     /// `generic_uses`.
     generic_fn_uses: std.ArrayList(FnInstance) = .empty,
+    /// For each entry of `generic_fn_uses`, the method whose body makes
+    /// it, as `generic_uses_in` is for `generic_uses`.
+    generic_fn_uses_in: std.ArrayList(?FnRef) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
     /// compile time, so sema checks their arithmetic. Module constants
@@ -3751,6 +3759,8 @@ pub const SemContext = struct {
         self.generic_requirements.deinit(self.allocator);
         self.instantiation_sites.deinit(self.allocator);
         self.generic_uses.deinit(self.allocator);
+        self.generic_uses_in.deinit(self.allocator);
+        self.generic_fn_uses_in.deinit(self.allocator);
         self.fn_instances.deinit(self.allocator);
         self.fn_instance_set.deinit(self.allocator);
         self.generic_fn_uses.deinit(self.allocator);
@@ -4081,7 +4091,6 @@ pub const SemContext = struct {
         const key = nodeKey(call) orelse return null;
         return self.facts.call_params.get(key);
     }
-
 
     /// What a bracket list instantiates; null for an index (or a node
     /// sema never reached).
@@ -5033,6 +5042,25 @@ pub const SemContext = struct {
         return self.recordInstanceOf(inst, site, via, false);
     }
 
+    /// `recordFnInstance` of a call in the body of method `in` (null for
+    /// any other place): one over type parameters is made where the
+    /// method is reached (`generic_fn_uses_in`).
+    pub fn recordFnInstanceIn(self: *SemContext, inst: FnInstance, site: u32, in: ?FnRef) !bool {
+        if (!argsHaveTypeVar(self, inst.args)) return self.recordInstanceOf(inst, site, null, false);
+        const same: FnInstance.Context = .{};
+        for (self.generic_fn_uses.items, self.generic_fn_uses_in.items) |u, at| {
+            if (!same.eql(u, inst)) continue;
+            const old = at orelse return false;
+            const new = in orelse continue;
+            if (old.module == new.module and old.pos == new.pos) return false;
+        }
+        const owned = try self.ownFnInstance(inst);
+        try self.fn_instance_set.put(self.allocator, owned, {});
+        try self.addGeneric(.fn_uses, owned);
+        try self.generic_fn_uses_in.append(self.allocator, in);
+        return true;
+    }
+
     /// Record the concrete instance `implInstance` gives a call through
     /// an API, made at `site` (`via` the instance written there). Whether
     /// it was new.
@@ -5046,6 +5074,7 @@ pub const SemContext = struct {
         try self.fn_instance_set.put(self.allocator, owned, {});
         for (inst.args) |a| if (self.typeInfo(a).has_type_var) {
             try self.addGeneric(.fn_uses, owned);
+            try self.generic_fn_uses_in.append(self.allocator, null);
             return true;
         };
         try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site, .via = via, .through_api = through_api });
@@ -5098,11 +5127,25 @@ pub const SemContext = struct {
         return true;
     }
 
+    /// Add `ty`, an instance spelled with type parameters, to
+    /// `generic_uses`, made in the body of method `in` (null for any
+    /// other place); one already there, made in the same place or in
+    /// every instance, is not added again.
+    pub fn addUse(self: *SemContext, ty: TypeId, in: ?FnRef) !void {
+        for (self.generic_uses.items, self.generic_uses_in.items) |u, at| {
+            if (u != ty) continue;
+            const old = at orelse return;
+            const new = in orelse continue;
+            if (old.module == new.module and old.pos == new.pos) return;
+        }
+        try self.addGeneric(.uses, ty);
+        try self.generic_uses_in.append(self.allocator, in);
+    }
+
     /// Add `entry` to `list`, indexed by the type and integer parameters
-    /// it mentions; a use already in `generic_uses` is not added again.
+    /// it mentions (`addUse` for `uses`).
     pub fn addGeneric(self: *SemContext, comptime list: GenericList, entry: @typeInfo(@FieldType(@FieldType(SemContext, "generic_" ++ @tagName(list)), "items")).pointer.child) !void {
         const items = &@field(self, "generic_" ++ @tagName(list));
-        if (list == .uses and std.mem.findScalar(TypeId, items.items, entry) != null) return;
         const at: u32 = @intCast(items.items.len);
         switch (list) {
             .uses => try self.indexParams(list, at, entry),
@@ -5430,7 +5473,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |e| {
         const item = typeItem(ctx, e.key_ptr.*) orelse continue;
-        try work.append(ctx.allocator, .{ .subst = item, .site = e.value_ptr.*, .root = .{ .type = e.key_ptr.* } });
+        try work.append(ctx.allocator, .{ .subst = item, .site = e.value_ptr.*, .root = .{ .type = e.key_ptr.* }, .of_type = true });
     }
     for (ctx.fn_instances.items) |f| try work.append(ctx.allocator, .{ .subst = f.inst.subst(), .site = f.site, .root = .{ .func = f.inst } });
     for (ctx.body_reaches.items) |r| try work.append(ctx.allocator, .{ .subst = .{ .params = r.params, .args = r.args }, .site = r.site, .root = r.via orelse .{ .func = try reachInstance(ctx, r) }, .body = r.fun });
@@ -5441,7 +5484,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// An instance to expand: its parameters' arguments, where the program
 /// makes it, the instance written there that it is reached from, and
 /// the generics between the two (`Trail`).
-const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot, trail: ?*const Trail = null, body: ?FnRef = null };
+const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot, trail: ?*const Trail = null, body: ?FnRef = null, of_type: bool = false };
 
 /// The generics an expansion passed through to reach an instance, each
 /// named by its parameters, nearest first: whether one repeats tells a
@@ -5485,10 +5528,14 @@ fn deepInstance(ctx: *SemContext, item: ExpandItem, callee: []const SymbolId, ki
 const Reached = struct {
     fns: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
     types: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+    /// The methods reached, each by its body and the type it is reached
+    /// on.
+    bodies: std.AutoHashMapUnmanaged(struct { fun: FnRef, recv: TypeId }, void) = .empty,
 
     fn deinit(self: *Reached, a: std.mem.Allocator) void {
         self.fns.deinit(a);
         self.types.deinit(a);
+        self.bodies.deinit(a);
     }
 };
 
@@ -5506,87 +5553,19 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
         // A reached method's own reaches (`BodyReach`); what else its
         // body makes, its type's instance expands.
         if (item.body != null) {
-            try expandReaches(ctx, work, item, &entries);
+            if (try expandFnUses(ctx, work, item, reached, &entries)) return true;
+            if (try expandUses(ctx, work, item, reached, &entries)) return true;
+            try expandReaches(ctx, work, item, reached, &entries);
             continue;
         }
-        try ctx.genericEntries(.fn_uses, item.subst.params, &entries);
-        for (entries.items) |i| {
-            const use = ctx.generic_fn_uses.items[i];
-            // A use over parameters this instance does not bind (a
-            // generic method's own `U`, reached from its type's instance)
-            // is made by the instances that bind them, as it is above.
-            if (reached != null and !argsUseOnlyParams(ctx, use.args, item.subst.params)) continue;
-            const args = try ctx.arena.allocator().alloc(TypeId, use.args.len);
-            var deepest: u8 = 0;
-            for (use.args, args) |a, *out| {
-                out.* = try substituteType(ctx, a, item.subst);
-                deepest = @max(deepest, ctx.typeInfo(out.*).depth);
-            }
-            if (reached == null and argsHaveTypeVar(ctx, args)) continue;
-            // A generic function that calls itself with its parameters
-            // nested deeper (`f[Wrap[T]]` in `f[T]`), or a generic type
-            // whose methods do so with its own instances, would expand
-            // forever; a long chain of distinct ones is cut off too.
-            if (deepest > max_instance_depth) {
-                const why = if (item.root == .func) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
-                try deepInstance(ctx, item, use.params, "functions", try formatFnInstance(ctx, use), why);
-                return true;
-            }
-            // An instance at a renaming of the callee's parameters expands
-            // as the callee at its own does, which is kept once.
-            if (reached != null and isRenaming(ctx, args)) try ownParamArgs(ctx, use.params, args);
-            const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
-            if (reached) |r| {
-                if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
-            } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
-            try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
-        }
-        try ctx.genericEntries(.uses, item.subst.params, &entries);
-        for (entries.items) |i| {
-            const use = ctx.generic_uses.items[i];
-            if (reached != null and !usesOnlyParams(ctx, use, item.subst.params)) continue;
-            var concrete = try substituteType(ctx, use, item.subst);
-            if (reached != null) if (typeItem(ctx, concrete)) |t| if (isRenaming(ctx, t.args)) {
-                const args = try ctx.arena.allocator().alloc(TypeId, t.args.len);
-                try ownParamArgs(ctx, t.params, args);
-                concrete = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.types.get(concrete).parameterized_nominal.sym, .args = args } });
-            };
-            const info = ctx.typeInfo(concrete);
-            if (reached == null and info.has_type_var) continue;
-            // A generic whose body uses ever-deeper instances of itself
-            // (`Wrap[T]` using `Wrap[Wrap[T]]`) would expand forever.
-            if (info.depth > max_instance_depth) {
-                const callee = if (typeItem(ctx, concrete)) |t| t.params else &.{};
-                try deepInstance(ctx, item, callee, "types", try formatType(ctx, use), "a generic type's body cannot nest itself in its own type arguments");
-                return true;
-            }
-            const inst = switch (ctx.types.get(concrete)) {
-                .parameterized_nominal => |pn| pn,
-                else => continue,
-            };
-            const builtin = ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos;
-            if (reached) |r| {
-                if (builtin or (try r.types.getOrPut(ctx.allocator, concrete)).found_existing) continue;
-            } else {
-                const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
-                if (gop.found_existing) continue;
-                gop.value_ptr.* = item.site;
-                // A frozen value of a parameter is checked by its requirement
-                // (`requireFrozen`), once for each parameter.
-                if (builtin and inst.sym == ctx.frozen_sym_id) continue;
-                if (builtin) {
-                    if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
-                        try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
-                    }
-                    continue;
-                }
-                try checkInstanceStacked(ctx, concrete, item.site);
-            }
-            try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
-        }
+        if (try expandFnUses(ctx, work, item, reached, &entries)) return true;
+        if (try expandUses(ctx, work, item, reached, &entries)) return true;
         // A call through an API on the body's parameters reaches, at this
         // instance, the method of the type that provides the API.
-        if (reached != null) continue;
+        if (reached != null) {
+            try expandReaches(ctx, work, item, reached, &entries);
+            continue;
+        }
         try ctx.genericEntries(.api_calls, item.subst.params, &entries);
         for (entries.items) |i| {
             var call = ctx.generic_api_calls.items[i];
@@ -5603,14 +5582,137 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             var deepest: u8 = 0;
             for (concrete.args) |a| deepest = @max(deepest, ctx.typeInfo(a).depth);
             if (deepest > max_instance_depth) {
-                const why = if (item.root == .func) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
+                const why = if (item.root == .func and item.body == null) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
                 try deepInstance(ctx, item, concrete.params, "functions", try formatFnInstance(ctx, concrete), why);
                 return true;
             }
             if (!try ctx.recordImplInstance(concrete, site, item.root)) continue;
             try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
         }
-        try expandReaches(ctx, work, item, &entries);
+        try expandReaches(ctx, work, item, reached, &entries);
+    }
+    return false;
+}
+
+/// Whether the method of `nominal_sym` declared at `pos` is called where
+/// no call is written: its drop, or a method of a built-in API the type
+/// names, which Zig's glue calls. Its body is made at every instance of
+/// its type, not only where a call reaches it.
+pub fn methodCalledUnwritten(ctx: *const SemContext, nominal_sym: SymbolId, pos: u32) bool {
+    if (nominal_sym == symbol_invalid) return false;
+    const sym = ctx.symbols.items[nominal_sym];
+    for (sym.fields orelse &.{}) |f| {
+        if (!f.is_method or f.decl_pos != pos) continue;
+        if (f.is_drop_method) return true;
+        var it = sym.apis.iterator();
+        while (it.next()) |api| if (apiMethodName(api)) |n| if (std.mem.eql(u8, n, f.name)) return true;
+    }
+    return false;
+}
+
+/// The instances `item` makes of the generic functions its body calls
+/// (`generic_fn_uses`), as `expandUses` makes those of types. True when
+/// one nests too deep, which is reported.
+fn expandFnUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandItem, reached: ?*Reached, entries: *std.ArrayList(u32)) std.mem.Allocator.Error!bool {
+    try ctx.genericEntries(.fn_uses, item.subst.params, entries);
+    for (entries.items) |i| {
+        const use = ctx.generic_fn_uses.items[i];
+        if (!madeBy(item, ctx.generic_fn_uses_in.items[i])) continue;
+        // A use over parameters this instance does not bind (a
+        // generic method's own `U`, reached from its type's instance)
+        // is made by the instances that bind them, as it is above.
+        if (reached != null and !argsUseOnlyParams(ctx, use.args, item.subst.params)) continue;
+        const args = try ctx.arena.allocator().alloc(TypeId, use.args.len);
+        var deepest: u8 = 0;
+        for (use.args, args) |a, *out| {
+            out.* = try substituteType(ctx, a, item.subst);
+            deepest = @max(deepest, ctx.typeInfo(out.*).depth);
+        }
+        if (reached == null and argsHaveTypeVar(ctx, args)) continue;
+        // A generic function that calls itself with its parameters
+        // nested deeper (`f[Wrap[T]]` in `f[T]`), or a generic type
+        // whose methods do so with its own instances, would expand
+        // forever; a long chain of distinct ones is cut off too.
+        if (deepest > max_instance_depth) {
+            const why = if (item.root == .func and item.body == null) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
+            try deepInstance(ctx, item, use.params, "functions", try formatFnInstance(ctx, use), why);
+            return true;
+        }
+        // An instance at a renaming of the callee's parameters expands
+        // as the callee at its own does, which is kept once.
+        if (reached != null and isRenaming(ctx, args)) try ownParamArgs(ctx, use.params, args);
+        const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
+        if (reached) |r| {
+            if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
+        } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
+        try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item) });
+    }
+    return false;
+}
+
+/// Whether `item` makes a use spelled in the body of method `in` (null
+/// for one spelled elsewhere): a reached method's body makes its own,
+/// and a type's instance those outside its methods; a function's
+/// instance makes all of them.
+fn madeBy(item: ExpandItem, in: ?FnRef) bool {
+    if (item.body) |b| {
+        const at = in orelse return false;
+        return at.module == b.module and at.pos == b.pos;
+    }
+    return in == null or !item.of_type;
+}
+
+/// The instances `item` makes of the generic types its body spells
+/// (`generic_uses`): a type's instance those spelled outside its
+/// methods, and a reached method's those its body spells. True when one
+/// nests too deep, which is reported.
+fn expandUses(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandItem, reached: ?*Reached, entries: *std.ArrayList(u32)) std.mem.Allocator.Error!bool {
+    try ctx.genericEntries(.uses, item.subst.params, entries);
+    for (entries.items) |i| {
+        const use = ctx.generic_uses.items[i];
+        // A use in a method's body is made where the method is
+        // reached, at the instance that reaches it, never at every
+        // instance of its type.
+        if (!madeBy(item, ctx.generic_uses_in.items[i])) continue;
+        if (reached != null and !usesOnlyParams(ctx, use, item.subst.params)) continue;
+        var concrete = try substituteType(ctx, use, item.subst);
+        if (reached != null) if (typeItem(ctx, concrete)) |t| if (isRenaming(ctx, t.args)) {
+            const args = try ctx.arena.allocator().alloc(TypeId, t.args.len);
+            try ownParamArgs(ctx, t.params, args);
+            concrete = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.types.get(concrete).parameterized_nominal.sym, .args = args } });
+        };
+        const info = ctx.typeInfo(concrete);
+        if (reached == null and info.has_type_var) continue;
+        // A generic whose body uses ever-deeper instances of itself
+        // (`Wrap[T]` using `Wrap[Wrap[T]]`) would expand forever.
+        if (info.depth > max_instance_depth) {
+            const callee = if (typeItem(ctx, concrete)) |t| t.params else &.{};
+            try deepInstance(ctx, item, callee, "types", try formatType(ctx, use), "a generic type's body cannot nest itself in its own type arguments");
+            return true;
+        }
+        const inst = switch (ctx.types.get(concrete)) {
+            .parameterized_nominal => |pn| pn,
+            else => continue,
+        };
+        const builtin = ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos;
+        if (reached) |r| {
+            if (builtin or (try r.types.getOrPut(ctx.allocator, concrete)).found_existing) continue;
+        } else {
+            const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
+            if (gop.found_existing) continue;
+            gop.value_ptr.* = item.site;
+            // A frozen value of a parameter is checked by its requirement
+            // (`requireFrozen`), once for each parameter.
+            if (builtin and inst.sym == ctx.frozen_sym_id) continue;
+            if (builtin) {
+                if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
+                    try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
+                }
+                continue;
+            }
+            try checkInstanceStacked(ctx, concrete, item.site);
+        }
+        try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item), .of_type = true });
     }
     return false;
 }
@@ -5618,7 +5720,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
 /// The methods the body `item` expands reaches on its parameters, at its
 /// instance (`BodyReach`): one a method's body reaches, only where that
 /// method is reached.
-fn expandReaches(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandItem, entries: *std.ArrayList(u32)) std.mem.Allocator.Error!void {
+fn expandReaches(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: ExpandItem, reached: ?*Reached, entries: *std.ArrayList(u32)) std.mem.Allocator.Error!void {
     try ctx.genericEntries(.reaches, item.subst.params, entries);
     for (entries.items) |i| {
         var r = ctx.generic_reaches.items[i];
@@ -5629,6 +5731,14 @@ fn expandReaches(ctx: *SemContext, work: *std.ArrayList(ExpandItem), item: Expan
         r.recv = try substituteType(ctx, r.recv, item.subst);
         const args = try ctx.arena.allocator().alloc(TypeId, r.args.len);
         for (r.args, args) |a, *out| out.* = try substituteType(ctx, a, item.subst);
+        // Over type parameters, a method a body reaches is followed into
+        // its own body and kept in `reached`, never recorded.
+        if (reached) |rr| {
+            if (r.erase != null or ctx.typeInfo(r.recv).depth > max_instance_depth) continue;
+            if ((try rr.bodies.getOrPut(ctx.allocator, .{ .fun = r.fun, .recv = r.recv })).found_existing) continue;
+            try work.append(ctx.allocator, .{ .subst = .{ .params = r.params, .args = args }, .site = item.site, .root = item.root, .trail = try trailFrom(ctx, item), .body = r.fun });
+            continue;
+        }
         if (ctx.typeInfo(r.recv).has_type_var or argsHaveTypeVar(ctx, args)) continue;
         r.args = args;
         r.site = item.site;
@@ -5821,13 +5931,20 @@ fn checkSelfNesting(ctx: *SemContext) std.mem.Allocator.Error!void {
             .nominal_type => &.{},
             else => continue,
         };
-        if (sym.kind == .generic_type) {
-            const self_ty = (try makeNominalContext(ctx, @intCast(i))).self_type;
-            if (typeItem(ctx, self_ty)) |subst| try work.append(ctx.allocator, .{ .subst = subst, .site = sym.decl_pos, .root = .{ .type = self_ty } });
-        }
+        const self_ty: ?TypeId = if (sym.kind == .generic_type) (try makeNominalContext(ctx, @intCast(i))).self_type else null;
+        const own = if (self_ty) |st| typeItem(ctx, st) else null;
+        if (own) |subst| try work.append(ctx.allocator, .{ .subst = subst, .site = sym.decl_pos, .root = .{ .type = self_ty.? }, .of_type = true });
         for (sym.fields orelse &.{}) |f| {
             if (!f.is_method) continue;
-            if (try selfSeed(ctx, f.name, outer, f.ty, f.decl_pos)) |item| try work.append(ctx.allocator, item);
+            if (try selfSeed(ctx, f.name, outer, f.ty, f.decl_pos)) |item| {
+                try work.append(ctx.allocator, item);
+            } else if (own) |subst| {
+                // A method of the type at its own parameters, by its body:
+                // what it spells, and the methods it reaches.
+                const fun: FnRef = .{ .module = ctx.module_id, .pos = f.decl_pos };
+                try reached.bodies.put(ctx.allocator, .{ .fun = fun, .recv = self_ty.? }, {});
+                try work.append(ctx.allocator, .{ .subst = subst, .site = f.decl_pos, .root = .{ .type = self_ty.? }, .body = fun });
+            }
         }
     }
     // Each is expanded once, as itself, so a nesting is reported at the
@@ -11769,11 +11886,11 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         // A module-level function is named as this module would call
         // it: `lib.helper[T]`; a method keeps its bare name.
         const name = if (isModuleFunction(foreign, use)) try a.print("{s}.{s}", .{ foreign.name, use.name }) else use.name;
-        _ = try ctx.recordFnInstance(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, null);
+        _ = try ctx.recordFnInstanceIn(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, foreign.generic_fn_uses_in.items[i]);
     }
     for (foreign.paramEntries(.uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .uses, i)) continue;
-        try ctx.addGeneric(.uses, try importType(ctx, foreign, foreign.generic_uses.items[i], m));
+        try ctx.addUse(try importType(ctx, foreign, foreign.generic_uses.items[i], m), foreign.generic_uses_in.items[i]);
     }
     for (foreign.paramEntries(.reaches, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .reaches, i)) continue;
@@ -11994,7 +12111,7 @@ fn indexMembers(ctx: *SemContext, fields: []const Field) std.mem.Allocator.Error
         const slot = try index.first.getOrPut(a, f.name);
         if (!slot.found_existing) slot.value_ptr.* = @splat(no_member);
         inline for (0..n_member_kinds) |k| {
-            const kind: MemberKind = @enumFromInt(k);
+            const kind: MemberKind = @fromBackingInt(@intCast(k));
             if (slot.value_ptr[k] == no_member and kind.has(f)) slot.value_ptr[k] = @intCast(i);
         }
     }
@@ -12025,7 +12142,7 @@ pub fn memberIn(ctx: *const SemContext, fields: []const Field, name: []const u8,
     if (ctx.member_index.getPtr(@intFromPtr(fields.ptr))) |index| {
         if (index.len == fields.len) {
             const firsts = index.first.get(name) orelse return null;
-            const i = firsts[@intFromEnum(kind)];
+            const i = firsts[@backingInt(kind)];
             return if (i == no_member) null else i;
         }
     }
@@ -13094,12 +13211,14 @@ pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
         const source = partSource(ctx, e);
         return if (source == .optional_part and viewsOnlyMade(ctx, root)) .made_part else source;
     }
-    const sym = ctx.symbols.items[ctx.symbolOf(root) orelse {
-        // A built-in type's member (`Int.min`) is a value; a name sema
-        // could not resolve was reported, and stands for a binding.
-        if (e != .src and ctx.typeOf(root) == null) return .made;
-        return if (e == .src) .binding else partSource(ctx, e);
-    }];
+    const sym = ctx.symbols.items[
+        ctx.symbolOf(root) orelse {
+            // A built-in type's member (`Int.min`) is a value; a name sema
+            // could not resolve was reported, and stands for a binding.
+            if (e != .src and ctx.typeOf(root) == null) return .made;
+            return if (e == .src) .binding else partSource(ctx, e);
+        }
+    ];
     switch (sym.kind) {
         .param, .generic_param => return if (e == .src) .binding else partSource(ctx, e),
         .capture => return if (e != .src) partSource(ctx, e) else if (ctx.isOnceCapture(ctx.symbolOf(root).?)) .binding else .capture,

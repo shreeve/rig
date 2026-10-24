@@ -181,11 +181,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   56 s, and 1000 (the depth limit) ran past 20 minutes on the Mac. A debug
   build of 1000 takes 2 s. Find which LLVM pass, or what emit gives it,
   grows so.
-- A type only named in a generic type's method is expanded as an
-  instance. `$name(Wrap[T?])` inside `Wrap[T]`'s own method is rejected
-  as "ever deeper instances of generic types", since `Wrap[Int?]`'s
-  methods are expanded too and name `Wrap[Int??]`, though nothing calls
-  them. Expand an instance's methods only where the program uses them.
 - Lending a handle parameter to write is accepted as `!c` but rejected
   as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter

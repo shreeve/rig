@@ -70,7 +70,7 @@ fail "generic body copies resource ownership", "`Wrap[*B]` cannot use `T = *B`: 
   # A generic body is checked once, for any `T`. Where it copies a `T`,
   # every instantiation must use plain data for `T`, including
   # instantiations reached through another generic's body (`Opt[*B]`
-  # through `Holder[*B]`).
+  # through `Holder[*B].peek`, which the program calls).
 
   obj B
     n: Int
@@ -102,6 +102,7 @@ fail "generic body copies resource ownership", "`Wrap[*B]` cannot use `T = *B`: 
   print(a.get())
   b: Wrap[*B] = Wrap(v: *B(n: 1))
   h: Holder[*B] = Holder(v: *B(n: 3))
+  print(h.peek(*B(n: 4), *B(n: 5)))
 
 fail "generic body method on param", "`Wrap[Int]` cannot use `T = Int`: the generic body calls `len` on a `T`, and a call on a `T` reaches only the methods of an `obj` or an `enum` a module declares, not those of `Int`"
   # A call on a `T` reaches a method an `obj` or an `enum` declares;
@@ -2633,10 +2634,10 @@ test "generic payload copy plain", '''
   print(while_field_of_branch(?w, ?w, true, 0))
   print(for_call(?xs, 0))
 
-fail "generic polymorphic recursion", "`Wrap[*B]` leads to ever deeper instances of generic types (through `Wrap[Wrap[T]]`)"
-  # A generic body that uses a deeper instance of its own type (`Wrap[T]`
-  # using `Wrap[Wrap[T]]`) would need ever deeper instances; it is rejected
-  # rather than expanded forever.
+fail "generic polymorphic recursion", "`Wrap[*B].deep` leads to ever deeper instances of generic types (through `Wrap[Wrap[T]]`)"
+  # A method that reaches itself on a deeper instance of its own type
+  # (`Wrap[T].deep` calling `Wrap[Wrap[T]].deep`) would need ever deeper
+  # instances; it is rejected rather than expanded forever.
 
   obj B
     n: Int
@@ -2647,7 +2648,35 @@ fail "generic polymorphic recursion", "`Wrap[*B]` leads to ever deeper instances
     fun wrap(<@) -> Wrap[Wrap[T]]
       Wrap(v: <@)
 
+    fun deep(<@) -> Int
+      w = Wrap(v: <@)
+      <w.deep()
+
   b: Wrap[*B] = Wrap(v: *B(n: 1))
+  print(<b.deep())
+
+test "generic method names a deeper instance of its type", "1 1 true"
+  # A deeper instance a method names (`Wrap[Wrap[T]]` in `wrap`) is made
+  # where the method is reached, once: an instance does not make the
+  # instances its methods name. Here `wrap` is called on `Wrap[*B]`
+  # alone, and `Wrap[Wrap[*B]]`'s `wrap` is never reached.
+
+  obj B
+    n: Int
+
+  obj Wrap[T]
+    v: T
+
+    fun wrap(<@) -> Wrap[Wrap[T]]
+      Wrap(v: <@)
+
+    fun name(?@) -> String
+      String($name(Wrap[Wrap[T]]))
+
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
+  c: Wrap[Int] = Wrap(v: 1)
+  w = <b.wrap()
+  print(w.v.v.n, c.v, c.name().len > 0)
 
 fail "generic share of weak", "15:5: `share[~Node]` cannot use `T = ~Node`: the generic body copies a `T`, which would duplicate the resource `~Node` owns", errors: 1
   # The meaning of `*x` is decided once, by the type the body sees: on a
@@ -2759,9 +2788,26 @@ fail "generic symbolic body type", "type mismatch: expected `T`, got `Static`"
   b: Wrap[Int] = Wrap(value: 5)
   print(b.value)
 
-fail "generic type method polymorphic recursion", "13:6: `Wrap[Int]` leads to ever deeper instances of generic functions (through `keep[Wrap[Wrap[T]]]`); a generic type's body cannot nest itself in its own type arguments"
-  # A generic type whose method uses its own instance nested deeper, here
-  # through a generic function, would need ever deeper instances.
+fail "generic type method polymorphic recursion", "`Wrap[Int].spin` leads to ever deeper instances of generic functions (through `keep[Wrap[Wrap[T]]]`); a generic type's body cannot nest itself in its own type arguments"
+  # A generic type whose method reaches itself on its own instance nested
+  # deeper, here through a generic function, would need ever deeper
+  # instances.
+
+  fun keep[T](x: T) -> T
+    x
+
+  obj Wrap[T]
+    v: T
+
+    fun spin(<@) -> Int
+      w = keep(Wrap(v: <@))
+      <w.spin()
+
+  print(<Wrap(v: 1).spin())
+
+test "generic type method makes one deeper instance", "1"
+  # A method reached once that makes its own instance nested deeper,
+  # through a generic function, makes that instance and no more.
 
   fun keep[T](x: T) -> T
     x
