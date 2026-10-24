@@ -864,6 +864,8 @@ pub const Checker = struct {
             const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
             for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
                 if (self.carriesWriteView(arg)) {
+                    // The call's instance of the API's method reports it.
+                    if (f.through_api) continue;
                     const pname = ctx.symbols.items[param].name;
                     try self.err(f.site, "`{s}` cannot use `{s} = {s}`: a write view is never stored inside a value; take `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname });
                     continue;

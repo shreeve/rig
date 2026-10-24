@@ -1496,6 +1496,237 @@ test "apis own compile-time parameters", "4 2 12"
 
   print(count(?Range(hi: 10)) catch -1, count(?Range(hi: 2)) catch -1, tripled(?Range(hi: 4)))
 
+fail "apis a call through a bound checks the method's instance", errors: 3, "`Sq.look[Float]` cannot use `K = Float`: the generic body hashes a `K` with `.hash()`", "`Sq.size[-1]` cannot use `n = -1`: the generic body uses `n` as an array length", "`Sq.scale[U8]` cannot use `T = U8`: the generic body applies `*` to a `T` and the literal `300`"
+  # A generic method an implementation declares is checked at the
+  # compile-time arguments a call through a bound gives it, at each
+  # instance of the body, as a call of the method itself is, whichever
+  # way it takes self: never left to Zig.
+  api Keyed
+    fun look[K](?@, k: ?K) -> Bool
+
+    fun size[n: Int](!@) -> Int
+
+    fun scale[T](<@, x: T) -> Int
+
+  obj Sq: Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+    fun size[n: Int](!@) -> Int
+      a: [n]Int = [n of 0]
+      a.len + @n
+
+    fun scale[T](<@, x: T) -> Int
+      y = x * 300
+      @n
+
+  fun look[T: Keyed](t: ?T) -> Bool
+    t.look(?1.5)
+
+  fun size[T: Keyed](t: !T) -> Int
+    (!t).size[-1]()
+
+  fun scale[T: Keyed](t: T) -> Int
+    (<t).scale(U8(1))
+
+  sub main()
+    s = Sq(n: 1)
+    print(look(?s), size(!s), scale(Sq(n: 2)))
+
+fail "apis a call through an API checks an addition's instance", errors: 2, "`Int.look[Float]` cannot use `K = Float`: the generic body hashes a `K` with `.hash()`", "`List.first[Float]` cannot use `T = Float`: the generic body hashes a `T` with `.hash()`", "`List.first[Float]` is made by `first[List[Float]]`"
+  # An addition's method is checked at its own compile-time arguments and
+  # at the addition's, which no type's instance checks: `List[Float]` is
+  # an instance of `add List[T]`.
+  api Keyed
+    fun look[K](?@, k: ?K) -> Bool
+
+    fun first(?@) -> Bool
+
+  add Int: Keyed
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+    fun first(?@) -> Bool
+      @ > 0
+
+  add List[T]: Keyed
+    fun look[K](?@, k: ?K) -> Bool
+      true
+
+    fun first(?@) -> Bool
+      @[0].hash() > 0
+
+  fun look[T: Keyed](t: ?T) -> Bool
+    t.look(?1.5)
+
+  fun first[T: Keyed](t: ?T) -> Bool
+    t.first()
+
+  sub main()
+    xs: List[Float] = List()
+    !xs.push(1.5)
+    print(look(?3), first(?xs))
+
+fail "apis a default's call through Self checks the method's instance", errors: 2, "`Sq.look[Float]` cannot use `K = Float`", "`Sq.look[Float]` is made by `Sq.show`", "`Tri.look[Float]` is made by `relay[Tri]`"
+  # A default reached through an API is its body at the type that
+  # provides it: what it calls on `Self` is that type's method.
+  api Keyed
+    fun look[K](?@, k: ?K) -> Bool
+
+    fun show(?@) -> Bool
+      @look(?1.5)
+
+    fun relay[J](?@, j: ?J) -> Bool
+      @look(?j)
+
+  obj Sq: Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+  obj Tri: Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 1
+
+  fun relay[T: Keyed](t: ?T) -> Bool
+    t.relay(?2.5)
+
+  sub main()
+    s = Sq(n: 1)
+    print(s.show(), relay(?Tri(n: 2)))
+
+fail "apis a call through an API's name checks the method's instance", errors: 2, "`Sq.look[Float]` cannot use `K = Float`", "`Sq.look[Float]` is made by `outer[Sq]`", "`Tri.look[Float]` is made by `named[Tri]`"
+  # `Keyed.look(?t, ?k)`, and a call whose arguments are a body's own
+  # parameters, reached through another generic body.
+  api Keyed
+    fun look[K](?@, k: ?K) -> Bool
+
+  obj Sq: Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+  obj Tri: Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 1
+
+  fun named[T: Keyed](t: ?T) -> Bool
+    Keyed.look(?t, ?1.5)
+
+  fun probe[T: Keyed, X](t: ?T, x: ?X) -> Bool
+    t.look(?x)
+
+  fun outer[U: Keyed](u: ?U) -> Bool
+    probe(?u, ?2.5)
+
+  sub main()
+    print(outer(?Sq(n: 1)), named(?Tri(n: 2)))
+
+fail "apis a call through a bound checks another module's method", errors: 2, "`Sq.look[Float]` cannot use `K = Float`", "`Sq.look[Float]` is made by `lib.probe[Sq]`", "`Int.look[Float]` cannot use `K = Float`", "6:5: `.hash()` used on `K` here"
+  # The body that calls through the bound, the method, and the API are
+  # in different modules from the instance.
+  use lib
+
+  sub main()
+    print(lib.probe(?Sq(n: 1)), lib.probe(?3))
+
+  obj Sq: lib.Keyed
+    n: Int
+
+    fun look[K](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+  file "lib.rig"
+    pub api Keyed
+      fun look[K](?@, k: ?K) -> Bool
+
+    add Int: Keyed
+      fun look[K](?@, k: ?K) -> Bool
+        k.hash() > 0
+
+    pub fun probe[T: Keyed](t: ?T) -> Bool
+      t.look(?1.5)
+
+fail "apis a call through a bound checks the method's copies", "`Sq.keep[String]` cannot use `K = String`: the generic body copies a `K`, which would duplicate the resource `String` owns"
+  # The ownership checker checks the instance too: a body that copies a
+  # `K` would free a `String` twice.
+  api Keep
+    fun keep[K](?@, k: K) -> Int
+
+  obj Sq: Keep
+    n: Int
+
+    fun keep[K](?@, k: K) -> Int
+      a = k
+      b = k
+      @n
+
+  fun probe[T: Keep](t: ?T) -> Int
+    t.keep(String("ab"))
+
+  sub main()
+    print(probe(?Sq(n: 1)))
+
+fail "apis a call through a bound reports a method's bound once", errors: 1, "`look[Float]` cannot use `K = Float`: `Float` cannot be hashed"
+  # The call's instance of the API's method checks the bounds, which the
+  # implementation's are; its instance does not report them again.
+  api Keyed
+    fun look[K: Hash](?@, k: ?K) -> Bool
+
+  obj Sq: Keyed
+    n: Int
+
+    fun look[K: Hash](?@, k: ?K) -> Bool
+      k.hash() > 0
+
+  fun probe[T: Keyed, X](t: ?T, x: ?X) -> Bool
+    t.look(?x)
+
+  print(probe(?Sq(n: 1), ?1.5))
+
+test "apis a call through a bound passes an addition's set", "3 -1 12"
+  # A set parameter and a value parameter of an addition's methods, at
+  # the instances a call through a bound makes.
+  error Stop
+    early
+
+  api Each
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+
+    fun times[n: Int](?@) -> Int
+
+  add Int: Each
+    fun each[E](?@, f: ?fun(Int) -> Bool!E) -> Int!E
+      k = 0
+      for i in 0..@
+        f(i)!
+        k += 1
+      k
+
+    fun times[n: Int](?@) -> Int
+      a: [n]Int = [n of @]
+      a[0] * n
+
+  fun check(i: Int) -> Bool!Stop
+    return Stop.early if i > 5
+    true
+
+  fun count[T: Each](x: ?T) -> Int!Stop
+    x.each(check)!
+
+  fun times[T: Each](x: ?T) -> Int
+    x.times[3]()
+
+  print(count(?3) catch -1, count(?9) catch -1, times(?4))
+
 test "apis own generic witnesses", '''
   8.0 2.0 3.0
   area 8.0 area 2.0
@@ -3200,7 +3431,7 @@ fail "apis pub states its bounds on lines of their own", "4:3: `pub fun pick[K, 
     !l.push(1)
     print(pick(?Map[Int, Int](), ?l))
 
-fail "apis a call through a bound checks the implementation's instance", known: true, "`Float` cannot be hashed"
+fail "apis a call through a bound checks the implementation's instance", "`Sq.look[Float]` cannot use `K = Float`: the generic body hashes a `K` with `.hash()`, which `Float` does not support", "`Sq.look[Float]` is made by `probe[Sq]`"
   # An implementation's generic method checked at each instance (`Sq` is
   # private) is reached through `T: Keyed` at `K = Float`, which it
   # hashes: the instance must be checked, not left to Zig.
