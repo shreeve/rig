@@ -146,10 +146,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   rejects ("cannot return a view of `s`, which this function was not
   lent"), as it does a payload bound by `match !@slots[j]`, while the
   read forms are accepted. A layout to try again starts from that.
-- A built-in generic named through a module agrees on both sides: as
-  an expression, `lib.List[Int].filled(2, 3)` reaches the local `List`,
-  while as a type, `lib.List[String]` is reported as "`lib.List` is not
-  public".
 - An unwrap of an optional that traps when it is `none`. The built-in Map's
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.

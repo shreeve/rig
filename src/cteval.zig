@@ -710,7 +710,7 @@ fn namesCtFunction(ctx: *SemContext, obj: Sexp, scope: sema.ScopeId) bool {
     const module = ctx.lookupBefore(scope, identAt(ctx.source, m) orelse return false, m.src.pos) orelse return false;
     if (ctx.symbols.items[module].kind != .module) return false;
     const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return false) orelse return false;
-    const fid = foreign.lookupInScopeOnly(sema.module_scope, identAt(ctx.source, ir.Member.name(obj)) orelse return false) orelse return false;
+    const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(obj)) orelse return false) orelse return false;
     return isCtFunction(foreign, fid);
 }
 
@@ -731,7 +731,7 @@ pub fn targetOf(ctx: *SemContext, obj: Sexp, names: anytype) ?Target {
     if (ctx.symbols.items[module].kind != .module) return null;
     const module_id = ctx.module_refs.get(module) orelse return null;
     const foreign = ctx.foreign_semas.get(module_id) orelse return null;
-    const fid = foreign.lookupInScopeOnly(sema.module_scope, identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
+    const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(obj)) orelse return null) orelse return null;
     if (!isCtFunction(foreign, fid) or !foreign.symbols.items[fid].flags.is_public) return null;
     return .{ .ctx = foreign, .sym = fid, .module_id = module_id };
 }

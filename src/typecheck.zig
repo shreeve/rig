@@ -8442,7 +8442,7 @@ const Checker = struct {
     fn foreignLookup(self: *Checker, module_sym: SymbolId, name: []const u8) ?Foreign {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+        const fid = foreign.moduleMember(name) orelse return null;
         return .{ .ctx = foreign, .module_id = origin, .id = fid, .sym = foreign.symbols.items[fid] };
     }
 
@@ -8459,7 +8459,7 @@ const Checker = struct {
             try self.err(pos, "no member `{s}` in module `{s}`{s}", .{ name, module_name, sema.stdNameHint(foreign, name) });
             return null;
         };
-        if (!found.sym.flags.is_public and found.sym.decl_pos != sema.builtin_decl_pos) {
+        if (!found.sym.flags.is_public) {
             try sema.notPublic(self.ctx, pos, module_name, name, found.ctx);
             return null;
         }

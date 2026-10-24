@@ -3917,6 +3917,14 @@ pub const SemContext = struct {
         return self.scopes.items[scope_id].by_name.get(name);
     }
 
+    /// The declaration named `name` this module makes, as another module
+    /// reaches it (`lib.name`), public or not: never a built-in, which
+    /// every module sees and none declares (`lib.List` names no `List`).
+    pub fn moduleMember(self: *const SemContext, name: []const u8) ?SymbolId {
+        const id = self.lookupInScopeOnly(module_scope, name) orelse return null;
+        return if (self.symbols.items[id].decl_pos == builtin_decl_pos) null else id;
+    }
+
     /// The module a `use` in the file `pos` is in binds as `name`
     /// (`file_uses`). A `use` binds its name in its own file only, so its
     /// module symbol is in no scope: a lookup that reaches the module's
@@ -13653,7 +13661,7 @@ const CheckedNames = struct {
         const id = self.symbol(obj) orelse return null;
         if (self.ctx.symbols.items[id].kind != .module) return null;
         const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(id) orelse return null) orelse return null;
-        const fid = foreign.lookupInScopeOnly(module_scope, identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+        const fid = foreign.moduleMember(identAt(self.ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
         const c = foreign.const_ints.get(fid) orelse return null;
         return .{ .v = c.value };
     }
@@ -13895,7 +13903,7 @@ pub fn aliasIntType(ctx: *const SemContext, id: SymbolId) ?IntInfo {
             const module = c.lookupAt(sym.scope, identAt(c.source, m) orelse return null, m.src.pos) orelse return null;
             if (c.symbols.items[module].kind != .module) return null;
             const foreign = c.foreign_semas.get(c.module_refs.get(module) orelse return null) orelse return null;
-            alias = foreign.lookupInScopeOnly(module_scope, identAt(c.source, ir.Member.name(target)) orelse return null) orelse return null;
+            alias = foreign.moduleMember(identAt(c.source, ir.Member.name(target)) orelse return null) orelse return null;
             if (!foreign.symbols.items[alias].flags.is_public) return null;
             c = foreign;
             continue;
@@ -13933,7 +13941,7 @@ fn intTypeBy(ctx: *const SemContext, e: Sexp, names: anytype) ?IntInfo {
             const module = names.symbol(ir.Member.object(e)) orelse return null;
             if (ctx.symbols.items[module].kind != .module) return null;
             const foreign = ctx.foreign_semas.get(ctx.module_refs.get(module) orelse return null) orelse return null;
-            const alias = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+            const alias = foreign.moduleMember(identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
             if (!foreign.symbols.items[alias].flags.is_public) return null;
             return aliasIntType(foreign, alias);
         },
@@ -13994,7 +14002,7 @@ pub fn patternConst(ctx: *const SemContext, pattern: Sexp) ?PatternConst {
             const id = ctx.symbolOf(obj) orelse ctx.lookupInScopeOnly(module_scope, identAt(ctx.source, obj) orelse return null) orelse return null;
             if (ctx.symbols.items[id].kind != .module) return null;
             const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
-            const fid = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(pattern)) orelse return null) orelse return null;
+            const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(pattern)) orelse return null) orelse return null;
             return if (isModuleConst(foreign, fid)) .{ .ctx = foreign, .id = fid } else null;
         },
         else => return null,
@@ -14092,7 +14100,7 @@ fn foreignMemberOf(ctx: *const SemContext, e: Sexp) ?Symbol {
     const id = ctx.symbolOf(obj) orelse ctx.lookupAt(module_scope, identAt(ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
     if (ctx.symbols.items[id].kind != .module) return null;
     const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
-    const fid = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+    const fid = foreign.moduleMember(identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
     return foreign.symbols.items[fid];
 }
 
