@@ -2905,9 +2905,31 @@ pub const ApiCall = struct {
     /// The method's own type and integer arguments, in order, as the API
     /// declares its parameters, which every implementation has exactly.
     args: []const TypeId,
+    /// The compile-time slot each of `args` fills (`ownParamOf`), as the
+    /// call's instance of the API's method binds them
+    /// (`typecheck.instantiateCall`): recorded once, here, and read by
+    /// `implInstance` at the implementation's same slots.
+    slots: []const u32,
     /// Where the call is, in module `module_id` (0 for this one).
     pos: u32,
     module_id: u32 = 0,
+
+    /// The same call: its position aside, what it reaches is the same.
+    const Context = struct {
+        pub fn hash(_: Context, k: ApiCall) u64 {
+            var h = std.hash.Wyhash.init(0);
+            h.update(std.mem.asBytes(&k.recv));
+            h.update(std.mem.asBytes(&k.api.module_id));
+            h.update(std.mem.asBytes(&k.api.sym));
+            h.update(k.method);
+            h.update(std.mem.sliceAsBytes(k.args));
+            return h.final();
+        }
+        pub fn eql(_: Context, a: ApiCall, b: ApiCall) bool {
+            return a.recv == b.recv and a.api.eql(b.api) and std.mem.eql(u8, a.method, b.method) and
+                std.mem.eql(TypeId, a.args, b.args) and std.mem.eql(u32, a.slots, b.slots);
+        }
+    };
 };
 
 /// An entry of one of another module's lists of what its generic bodies
@@ -3094,6 +3116,9 @@ pub const SemContext = struct {
     generic_api_calls: std.ArrayList(ApiCall) = .empty,
     /// The calls through an API of a program's own whose types are known.
     api_calls: std.ArrayList(ApiCall) = .empty,
+    /// Every call in `api_calls` and `generic_api_calls`, each recorded
+    /// once (`recordApiCall`).
+    api_call_set: std.HashMapUnmanaged(ApiCall, void, ApiCall.Context, std.hash_map.default_max_load_percentage) = .empty,
     /// For each `GenericList` and each type or integer parameter, the
     /// positions of the list's entries that mention the parameter, in
     /// order: an instance visits only the entries over its own parameters
@@ -3315,6 +3340,7 @@ pub const SemContext = struct {
         self.generic_frames.deinit(self.allocator);
         self.generic_api_calls.deinit(self.allocator);
         self.api_calls.deinit(self.allocator);
+        self.api_call_set.deinit(self.allocator);
         var index = self.generic_index.valueIterator();
         while (index.next()) |at| at.deinit(self.allocator);
         self.generic_index.deinit(self.allocator);
@@ -4584,8 +4610,11 @@ pub const SemContext = struct {
     /// whose types are known, or one over the parameters of the generic
     /// body it is in.
     pub fn recordApiCall(self: *SemContext, call: ApiCall) !void {
+        if (self.api_call_set.contains(call)) return;
         var owned = call;
         owned.args = try self.arena.allocator().dupe(TypeId, call.args);
+        owned.slots = try self.arena.allocator().dupe(u32, call.slots);
+        try self.api_call_set.put(self.allocator, owned, {});
         const generic = for (call.args) |a| {
             if (self.typeInfo(a).has_type_var) break true;
         } else self.typeInfo(call.recv).has_type_var;
@@ -4899,7 +4928,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// checked for nesting themselves (`checkSelfNesting`).
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     // The instances calls through an API reach where every type is known.
-    for (ctx.api_calls.items) |c| if (try implInstance(ctx, c)) |inst| {
+    for (ctx.api_calls.items) |c| if (try implInstance(ctx, c, c.pos)) |inst| {
         _ = try ctx.recordImplInstance(inst, c.pos, null);
     };
     if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0 and ctx.generic_api_calls.items.len == 0) return;
@@ -5067,7 +5096,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
             for (call.args, args) |a, *out| out.* = try substituteType(ctx, a, item.subst);
             if (argsHaveTypeVar(ctx, args)) continue;
             call.args = args;
-            const concrete = (try implInstance(ctx, call)) orelse continue;
+            const concrete = (try implInstance(ctx, call, item.site)) orelse continue;
             var deepest: u8 = 0;
             for (concrete.args) |a| deepest = @max(deepest, ctx.typeInfo(a).depth);
             if (deepest > max_instance_depth) {
@@ -5090,77 +5119,96 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
 /// `Self`, whose own parameters the call's instance of the API's method
 /// checks, so this one only reaches what the body calls on `Self`. Null
 /// when the type does not provide the API, which the bound's check
-/// reports, or when the instance binds nothing.
-pub fn implInstance(ctx: *SemContext, call: ApiCall) std.mem.Allocator.Error!?FnInstance {
+/// reports; when the instance binds nothing; or when it is recorded
+/// already (`fn_instance_set`, looked up before its name is built). A
+/// witness that names no method a conformance gives is a compiler bug,
+/// reported at `site` (`implLost`), never a check skipped.
+pub fn implInstance(ctx: *SemContext, call: ApiCall, site: u32) std.mem.Allocator.Error!?FnInstance {
     if (containsPoison(ctx, call.recv)) return null;
     for (call.args) |a| if (containsPoison(ctx, a)) return null;
     const w = switch ((try witnessFor(ctx, call.recv, call.api)) orelse return null) {
         .conformance => |c| c,
-        .param => return null,
+        .param => return implLost(ctx, call, site, "its type is a type parameter"),
     };
-    const found = conformanceOf(ctx, .{ .conformance = .{ .module_id = w.module_id, .index = w.index } }) orelse return null;
+    const found = conformanceOf(ctx, .{ .conformance = .{ .module_id = w.module_id, .index = w.index } }) orelse return implLost(ctx, call, site, "its witness names no conformance");
     const member = for (found.conf.members) |m| {
         if (std.mem.eql(u8, m.name, call.method)) break m;
-    } else return null;
+    } else return implLost(ctx, call, site, "its conformance's witness has no such method");
     const a = ctx.arena.allocator();
-    const shown = try formatType(ctx, call.recv);
-    const base = shown[0 .. std.mem.findScalar(u8, shown, '[') orelse shown.len];
-    const name = try a.print("{s}.{s}", .{ base, call.method });
     var outer: TypeSubst = .empty;
     var fn_ty: FunctionType = undefined;
     switch (member.from) {
         .own => {
-            const m = (try typeMethod(ctx, call.recv, call.method)) orelse return null;
+            const m = (try typeMethod(ctx, call.recv, call.method)) orelse return implLost(ctx, call, site, "its type declares no such method");
             fn_ty = m.fn_ty;
             outer = m.subst;
         },
         .added => {
             const f = for (found.conf.methods) |f| {
                 if (std.mem.eql(u8, f.name, call.method)) break f;
-            } else return null;
+            } else return implLost(ctx, call, site, "its addition declares no such method");
             const local = found.home == @as(*const SemContext, ctx);
             const ty = if (local) f.ty else try importType(ctx, found.home, f.ty, w.module_id);
-            if (ctx.types.get(ty) != .function) return null;
+            if (ctx.types.get(ty) != .function) return implLost(ctx, call, site, "its addition's method is no function");
             fn_ty = ctx.types.get(ty).function;
             const params = try a.alloc(SymbolId, found.conf.params.len);
             for (found.conf.params, params) |p, *out| out.* = if (local) p else try proxyOf(ctx, .{ .module_id = w.module_id, .sym = p });
             outer = .{ .params = params, .args = try conformanceArgs(ctx, a, call.recv) };
-            if (outer.params.len != outer.args.len) return null;
+            if (outer.params.len != outer.args.len) return implLost(ctx, call, site, "its addition's parameters and its type's arguments differ in count");
         },
         .default => |ref| {
-            const home = apiContext(ctx, ref) orelse return null;
-            const sym = apiSymbol(ctx, ref) orelse return null;
+            const home = apiContext(ctx, ref) orelse return implLost(ctx, call, site, "the API that declares its default is not known");
+            const sym = apiSymbol(ctx, ref) orelse return implLost(ctx, call, site, "the API that declares its default is not known");
             const f = for (sym.fields orelse &.{}) |f| {
                 if (f.is_method and std.mem.eql(u8, f.name, call.method)) break f;
-            } else return null;
+            } else return implLost(ctx, call, site, "its API declares no such default");
             const local = home == @as(*const SemContext, ctx);
             const ty = if (local) f.ty else try importType(ctx, home, f.ty, ref.module_id);
-            if (ctx.types.get(ty) != .function) return null;
+            if (ctx.types.get(ty) != .function) return implLost(ctx, call, site, "its default is no function");
             fn_ty = ctx.types.get(ty).function;
-            const home_self = (sym.type_params orelse return null)[0];
+            const home_self = (sym.type_params orelse return implLost(ctx, call, site, "its API has no `Self`"))[0];
             const self_param = if (local) home_self else try proxyOf(ctx, .{ .module_id = ref.module_id, .sym = home_self });
             outer = .{ .params = try a.dupe(SymbolId, &.{self_param}), .args = try a.dupe(TypeId, &.{call.recv}) };
         },
     }
-    var own: std.ArrayList(SymbolId) = .empty;
-    for (fn_ty.ct_params, 0..) |slot, i| {
-        if (typeParamOf(ctx, slot)) |p| {
-            try own.append(a, p);
-        } else if (i < fn_ty.ct_syms.len and fn_ty.ct_syms[i] != symbol_invalid and ctx.types.get(slot) == .int) try own.append(a, fn_ty.ct_syms[i]);
+    // The implementation declares the API's method's compile-time
+    // parameters exactly (Stage 3 conformance), so the slots the call's
+    // arguments fill are its own parameters too.
+    const own = try a.alloc(SymbolId, call.slots.len);
+    for (call.slots, own) |slot, *p| {
+        p.* = (if (slot < fn_ty.ct_params.len) ownParamOf(ctx, fn_ty, slot) else null) orelse
+            return implLost(ctx, call, site, "a compile-time slot its arguments fill is none of the implementation's own parameters");
     }
-    if (own.items.len != call.args.len) return null;
+    var declared: usize = 0;
+    for (0..fn_ty.ct_params.len) |i| declared += @intFromBool(ownParamOf(ctx, fn_ty, i) != null);
+    if (declared != own.len or call.args.len != own.len) return implLost(ctx, call, site, "the implementation's own compile-time parameters differ in count from the arguments the call gives");
     const own_n: u32 = switch (member.from) {
-        .own => @intCast(own.items.len),
-        .added => @intCast(outer.params.len + own.items.len),
+        .own => @intCast(own.len),
+        .added => @intCast(outer.params.len + own.len),
         .default => 0,
     };
     if (own_n == 0 and member.from != .default) return null;
-    return .{
-        .name = name,
-        .params = try std.mem.concat(a, SymbolId, &.{ outer.params, own.items }),
+    var inst: FnInstance = .{
+        .name = "",
+        .params = try std.mem.concat(a, SymbolId, &.{ outer.params, own }),
         .args = try std.mem.concat(a, TypeId, &.{ outer.args, call.args }),
         .own = own_n,
     };
+    if (ctx.fn_instance_set.contains(inst)) return null;
+    const shown = try formatType(ctx, call.recv);
+    const base = shown[0 .. std.mem.findScalar(u8, shown, '[') orelse shown.len];
+    inst.name = try a.print("{s}.{s}", .{ base, call.method });
+    return inst;
+}
+
+/// `implInstance` found no method where the conformance's witness names
+/// one, `why`: a compiler bug, which a self-checking build reports at
+/// `site` rather than skip checking what the call reaches. After another
+/// error (a conformance rejected, say) it may be that error's doing.
+fn implLost(ctx: *SemContext, call: ApiCall, site: u32, why: []const u8) std.mem.Allocator.Error!?FnInstance {
+    if ((@import("build_options").self_check or zig_builtin.is_test) and !ctx.hasErrors())
+        try ctx.err(site, "internal error: the call of `{s}` through an API reaches no instance of its implementation: {s}", .{ call.method, why });
+    return null;
 }
 
 /// A method a type declares, as a call reaches it: its signature at the
@@ -8615,6 +8663,24 @@ pub fn typeParamOf(ctx: *const SemContext, slot: TypeId) ?SymbolId {
     };
 }
 
+/// The parameter compile-time slot `i` of `f` binds in an instance: a
+/// type parameter, or an integer value parameter (`intParamOf`); null
+/// for a value an instance does not bind (`mode: Mode`). The one
+/// classifier of a function's own compile-time parameters, which
+/// `typecheck.instantiateCall` binds and `implInstance` reads.
+pub fn ownParamOf(ctx: *const SemContext, f: FunctionType, i: usize) ?SymbolId {
+    return typeParamOf(ctx, f.ct_params[i]) orelse intParamOf(ctx, f, i);
+}
+
+/// The symbol of compile-time slot `i` of `f` when it is an integer
+/// value parameter (`n: Int`), which an instance binds; null for any
+/// other slot.
+pub fn intParamOf(ctx: *const SemContext, f: FunctionType, i: usize) ?SymbolId {
+    if (i >= f.ct_syms.len or f.ct_syms[i] == symbol_invalid) return null;
+    if (ctx.types.get(f.ct_params[i]) != .int) return null;
+    return f.ct_syms[i];
+}
+
 /// Whether a function takes type parameters: a generic function.
 pub fn isGenericFn(ctx: *const SemContext, f: FunctionType) bool {
     for (f.ct_params) |p| if (typeParamOf(ctx, p) != null) return true;
@@ -10783,7 +10849,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const c = foreign.generic_api_calls.items[i];
         const args = try a.alloc(TypeId, c.args.len);
         for (c.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        try ctx.addGeneric(.api_calls, .{ .recv = try importType(ctx, foreign, c.recv, m), .api = c.api, .method = c.method, .args = args, .pos = c.pos, .module_id = if (c.module_id == 0) m else c.module_id });
+        try ctx.addGeneric(.api_calls, .{ .recv = try importType(ctx, foreign, c.recv, m), .api = c.api, .method = c.method, .args = args, .slots = c.slots, .pos = c.pos, .module_id = if (c.module_id == 0) m else c.module_id });
     }
 }
 

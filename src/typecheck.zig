@@ -161,6 +161,10 @@ const Checker = struct {
     /// instance the last `instantiateCall` made; empty for a function that
     /// has none (`noteTarget`).
     inst_own: TypeSubst = .empty,
+    /// The compile-time slot each of `inst_own`'s parameters fills
+    /// (`sema.ownParamOf`), which a call through an API records
+    /// (`sema.ApiCall.slots`).
+    inst_slots: []const u32 = &.{},
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
     /// The names `new q, r = f()` declares, while its call is checked.
@@ -10892,6 +10896,7 @@ const Checker = struct {
     /// arguments not worth checking.
     fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, receiver_arg: bool, recv: TypeSubst) Error!?FunctionType {
         self.inst_own = .empty;
+        self.inst_slots = &.{};
         if (ct) |b| try self.ctx.recordInstance(b, .function);
         // A compile-time parameter was rejected: the declaration's
         // diagnostic says what is wrong with every call.
@@ -10901,11 +10906,11 @@ const Checker = struct {
         // The parameters an instance binds: the type parameters and the
         // integer value parameters, at their slots.
         var own: std.ArrayList(SymbolId) = .empty;
-        var own_slots: std.ArrayList(usize) = .empty;
-        for (f.ct_params, 0..) |slot, i| {
-            const sym = sema.typeParamOf(self.ctx, slot) orelse self.intSlot(f, i) orelse continue;
+        var own_slots: std.ArrayList(u32) = .empty;
+        for (0..n) |i| {
+            const sym = sema.ownParamOf(self.ctx, f, i) orelse continue;
             try own.append(a, sym);
-            try own_slots.append(a, i);
+            try own_slots.append(a, @intCast(i));
         }
         const given: []const Sexp = if (ct) |b| sema.bracketArgs(b) else &.{};
         if (ct) |b| if (given.len != n) {
@@ -10920,7 +10925,7 @@ const Checker = struct {
         // brackets.
         if (ct == null) for (f.ct_params, 0..) |slot, i| {
             if (sema.typeParamOf(self.ctx, slot) != null) continue;
-            if (self.intSlot(f, i)) |sym| if (self.signatureUses(f, sym)) continue;
+            if (sema.intParamOf(self.ctx, f, i)) |sym| if (self.signatureUses(f, sym)) continue;
             // A rejected parameter type may be what would have held it.
             for (f.params) |p| if (sema.containsPoison(self.ctx, p)) return null;
             const parens = if (f.params.len > skip) "(...)" else "()";
@@ -10941,7 +10946,7 @@ const Checker = struct {
             if (sema.typeParamOf(self.ctx, slot) != null) {
                 type_args[i] = try self.typeArg(g);
                 if (self.isPoison(type_args[i])) bad = true;
-            } else if (self.intSlot(f, i)) |sym| {
+            } else if (sema.intParamOf(self.ctx, f, i)) |sym| {
                 type_args[i] = (try self.ctIntArg(g, sym, i, callee)) orelse blk: {
                     bad = true;
                     break :blk sema.type_invalid;
@@ -10952,6 +10957,7 @@ const Checker = struct {
         if (own.items.len == 0) {
             if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args) });
             self.inst_own = .empty;
+            self.inst_slots = &.{};
             return f;
         }
         if (ct == null) {
@@ -10969,6 +10975,7 @@ const Checker = struct {
         const result = self.ctx.types.get(instance).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg, .sets = self.setArgs(f), .fails_by_set = self.failsBySet(f), .witnesses = try self.ctWitnesses(f, type_args) });
         self.inst_own = .{ .params = own.items, .args = own_args };
+        self.inst_slots = own_slots.items;
         if (self.tentative == 0) {
             const inst: sema.FnInstance = .{
                 .name = callee,
@@ -11003,15 +11010,6 @@ const Checker = struct {
         if (!any) return &.{};
         for (type_args) |ty| if (ty == sema.type_invalid or self.isPoison(ty)) return &.{};
         return (try sema.argWitnesses(self.ctx, self.ctx, params, type_args)) orelse &.{};
-    }
-
-    /// The symbol of compile-time slot `i` of `f` when it is an integer
-    /// value parameter of this module's (`n: Int`), which an instance
-    /// binds; null for any other slot.
-    fn intSlot(self: *Checker, f: FunctionType, i: usize) ?SymbolId {
-        if (i >= f.ct_syms.len or f.ct_syms[i] == sema.symbol_invalid) return null;
-        if (self.ctx.types.get(f.ct_params[i]) != .int) return null;
-        return f.ct_syms[i];
     }
 
     /// Whether the types of `f`'s parameters or result hold `sym`.
@@ -12729,7 +12727,7 @@ const Checker = struct {
         }
         const info = methodParams(m.field, true, m.home.source);
         const f = (try self.instantiateCall(fn_ty, ct, args, info, 1, method, pos, false, .empty)) orelse return self.skipCall(args);
-        const own_args = self.inst_own.args;
+        const own: OwnArgs = .{ .args = self.inst_own.args, .slots = self.inst_slots };
         if (sema.isGenericFn(self.ctx, fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub };
         // A temporary self the result or an argument may keep a view of
@@ -12755,16 +12753,20 @@ const Checker = struct {
             if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
         }
         if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_mode = receiver } });
-        try self.recordApiCall(self_ty, m, own_args, pos);
+        try self.recordApiCall(self_ty, m, own, pos);
         return f.returns;
     }
 
+    /// A call's own compile-time arguments and the slots they fill, as
+    /// `instantiateCall` binds them.
+    const OwnArgs = struct { args: []const TypeId, slots: []const u32 };
+
     /// Record a call through API method `m` on `self_ty`, at the method's
-    /// own compile-time arguments `own_args` (`instantiateCall`), whose
+    /// own compile-time arguments `own` (`instantiateCall`), whose
     /// instance of the implementation is checked (`sema.ApiCall`).
-    fn recordApiCall(self: *Checker, self_ty: TypeId, m: ApiMethod, own_args: []const TypeId, pos: u32) Error!void {
+    fn recordApiCall(self: *Checker, self_ty: TypeId, m: ApiMethod, own: OwnArgs, pos: u32) Error!void {
         if (self.tentative != 0 or self.isPoison(self_ty)) return;
-        try self.ctx.recordApiCall(.{ .recv = self_ty, .api = m.api, .method = m.field.name, .args = own_args, .pos = pos });
+        try self.ctx.recordApiCall(.{ .recv = self_ty, .api = m.api, .method = m.field.name, .args = own.args, .slots = own.slots, .pos = pos });
     }
 
     /// `c.area()` on a value of a type that has no method `area` of its
@@ -12843,12 +12845,12 @@ const Checker = struct {
         const info = methodParams(m.field, false, m.home.source);
         const shown = try self.ctx.arena.allocator().print("{s}.{s}", .{ api_text, method });
         const f = (try self.instantiateCall(fn_ty, ct, args, info, 0, shown, pos, true, .empty)) orelse return self.skipCall(args);
-        const own_args = self.inst_own.args;
+        const own: OwnArgs = .{ .args = self.inst_own.args, .slots = self.inst_slots };
         try self.noteCallee(f);
         self.lend_call = true;
         try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
         if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .receiver_arg = true, .self_mode = m.field.receiver } });
-        try self.recordApiCall(value, m, own_args, pos);
+        try self.recordApiCall(value, m, own, pos);
         return f.returns;
     }
 
