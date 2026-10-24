@@ -50,6 +50,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | A method's view names the path of self it views (`from @field`) | CORE sentence 7: `-> ?String from @text` carries self's loans and a loan on that path alone; a field declared as a read view puts none on self, so Map's and Set's iterators say `from @map`/`from @set` and go through `[I: Iter]`; a panel of four, and the owner's approval | [from-field/](2026-10/from-field/) |
 | APIs Stage 4's refresh (2026-10-23) | Stage 4 of docs/design/apis.md for what Stage 3 built: an object's table calls its conformance's witness, a dynamic call is checked as a call through a bound (the API's clauses and set, the slot through the table), one API of a program's own per braces, an object of an associated-type API names the type, an object of a plain view's copy stays in its block; a Core change first, then phases for the type, views, boxes, the proof, and associated types; 21 questions with defaults, approved by the owner; phase 1's notes and its [review](2026-10/apis-stage4/review-p1.md); phase 2's notes and its [review](2026-10/apis-stage4/review-p2.md); phase 3's notes and its [review](2026-10/apis-stage4/review-p3.md) | [apis-stage4/](2026-10/apis-stage4/) |
 | CORE's "An API object hides its value's type, never its loans" (Stage 4, phase 0) | §1's and §4's rows and a paragraph with its list: the object may hold anything, so its loans end at its last use or, for a box, its drop; a copy decided by kind, local to its block; only `^{A}` has `+`; it meets only the bounds its braces or API name; no default, never a type argument; a panel of four (H1 to H13), and the owner's approval | [apis-stage4/core-panel/](2026-10/apis-stage4/core-panel/) |
+| APIs Stage 5's design (2026-10-23) | `*{A}`, a counted handle to an API object whose count operations live in its table, atomic as the hidden allocation is; `~{A}` its weak handle; `Sends` and `Syncs` in the braces as facts of the hidden value checked at erasure, each form crossing by its own row of SPEC §18; `*{A + Syncs}` only of a frozen value; owned closures as objects of one method if measured faster; two holes of Stage 4's boxes (an owned closure hidden from a local task, a task hidden from `task.isolate`); a build plan, 22 questions with defaults, and a draft CORE paragraph for the panel and the owner | [apis-stage5/](2026-10/apis-stage5/) |
 
 ## Every record
 
@@ -92,6 +93,12 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [6-final.md](2026-10/apis-stage4/core-panel/6-final.md): the final CORE text (§1's rows, §4's row, the paragraph and list, the examples), the holes it closes, and its accepted limits
 - [4-draft.md](2026-10/apis-stage4/core-panel/4-draft.md): the combined draft, each hole with its rule
 - [1-core.md](2026-10/apis-stage4/core-panel/1-core.md), [2-compiler.md](2026-10/apis-stage4/core-panel/2-compiler.md), [3-adversary.md](2026-10/apis-stage4/core-panel/3-adversary.md), [5-review.md](2026-10/apis-stage4/core-panel/5-review.md): the panel's reports
+
+### 2026-10/apis-stage5/
+
+- [build-plan.md](2026-10/apis-stage5/build-plan.md): what Stage 5 reuses from Stage 4, where each piece goes, the Core change first, four phases (crossing bounds, shared and weak objects, the proof, owned closures as objects) with their cases and exact messages, the oracle's and Lean's parts, risks, and sizes
+- [open-questions.md](2026-10/apis-stage5/open-questions.md): what the record does not settle, each with a default and a reason; 13 and 14 close holes of Stage 4's boxes and need the owner's word
+- [core-draft.md](2026-10/apis-stage5/core-draft.md): the draft CORE text for the panel (§1's and §4's rows, clauses to sentences 8 and 9, a paragraph with each sentence's source, `rig pending` examples, SPEC §18's rows, and what to probe)
 
 ### 2026-10/clone/
 
