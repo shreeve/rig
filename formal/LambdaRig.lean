@@ -12,3 +12,4 @@ import LambdaRig.Examples
 import LambdaRig.Wait
 import LambdaRig.Tasks
 import LambdaRig.TasksSound
+import LambdaRig.Crossing

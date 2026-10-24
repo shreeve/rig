@@ -59,6 +59,16 @@ changed the language since it:
   error with fields where a `?error` goes is told to bind it first, as
   where a `?L` goes, moving a place that moves (`k: error = <a`); it was
   told to write `?a`, which is rejected too.
+- **API objects crossing tasks (Stage 5, the proof):** formal/ proves,
+  in Lean, that erasing a type keeps what a crossing check reads: an
+  object holds what its hidden value holds, so a value that may not
+  cross before erasure may not cross after (`crosses_erase`); an object
+  whose bound was checked at erasure holds nothing that stays on one
+  thread and no task, so a free task may take it (`erase_sends`); one
+  naming no bound goes to no task (`bare_no_spawn`); and after a spawn
+  of an erased value, two tasks holding one value that stays on one
+  thread are still pinned to one core (`erase_confined`).
+
 - **API objects (Stage 4, the proof):** formal/ proves, in Lean, that
   erasing a type keeps its loans: the checker's rule for an access to an
   owner reads only each name's loans, so an object's type, rebuilt from

@@ -44,6 +44,7 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
 | `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
+| `LambdaRig/Crossing.lean` | API objects crossing tasks: erasing keeps what a crossing check reads |
 | `Models/Explore.lean` | An explicit-state model checker: every state a system of atomic steps reaches |
 | `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, steal, and the overflow |
 | `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, and the pinned queue's `idle` flag |
@@ -239,6 +240,37 @@ the panel's `ret.rig`: task 1 makes task 2 and ends while 2 runs,
 holding 2's handle in its result; `main` waits for 1 and takes 2, then
 hands 2 to a new task 3.
 
+**`Crossing.lean`** proves Stage 5's crossing obligations
+(docs/design/apis.md): an API object crosses tasks only by a bound it
+names, `Sends` or `Syncs`, a fact of the hidden value checked where it
+is erased. `CVal` is a value as a crossing check sees it: the values
+that stay on one thread it holds, its task handles, its parts at any
+depth, and the API objects in it, each with the bound it names. An
+object's facts are its hidden value's (`holds_erase`, `tasks_erase`).
+`Spawn` is `f(args)&`: free when the arguments cross (`Crosses`, what
+`crossingBlocker` checks), local otherwise, and never with an object
+naming no bound among them. Of these:
+
+- `crosses_erase`: a value that may not cross before erasure may not
+  cross after, and one that may, may; `spawn_erase`: a spawn of an
+  object with a bound is the spawn of the value it hides, to the same
+  state;
+- `erase_sends`: an object whose bound was checked at erasure
+  (`EraseOk`) holds nothing that stays on one thread and no task, so a
+  free spawn may take it, and checking the bound there suffices;
+- `bare_no_spawn`: an object naming no bound goes to no task, a local
+  one included, at any depth;
+- `spawn_step`: a spawn of arguments a running task holds is a step of
+  the task machine, `spawnFree` or `spawnLocal`;
+- `erase_confined`: after a spawn of an erased value from a reached
+  state, the object names a bound, the state is reached, and `confined`
+  holds in it, as `pin_kept` does from it on.
+
+`sendsJob` reaches a state where `main` gives a `^{Job + Sends}` to a
+free task. `#guard_msgs` pins the axioms: Lean's three for
+`erase_confined`, `propext` and `Quot.sound` for `crosses_erase` and
+`erase_sends`.
+
 Not yet: `Tasks` sets, actors and channels (whose contents the crossing
 rule restricts), that dropping a handle cancels and waits (the model
 has a task wait before it ends instead), the deadlock walk, and
@@ -362,6 +394,17 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
   as a static one is, against the API's clauses, since `checkCall` never
   reads the implementation. The copy of an erased view of plain data, a
   local of the erasing block, is not modeled.
+- **Crossing beyond the task machine (docs/design/apis.md, Stage 5).**
+  `CVal` abstracts a value to what a crossing check reads; it is not
+  λRig's `Val`, and that `sema.crossingBlocker` computes `Crosses` and
+  `EraseOk` is assumed, the compiler's part, held by the suite. The task
+  machine does not tell moving a value to another task from sharing it,
+  so `Sends` and `Syncs` are one fact here: the hidden value holds
+  nothing that stays on one thread. That a `*{A + Syncs}` holds only a
+  frozen value is that fact for its handle, since a `*T` whose count is
+  not atomic stays on one thread; atomic counts themselves, and a
+  `*{A}` carrying its value's loans to its last count, are not modeled,
+  since λRig has no counted handles (Next, 5).
 - **Bounds (docs/design/apis.md, Stage 2).** A body may copy a type
   parameter bounded `Copy`, so a proof that generic bodies keep the
   Core needs `Copy` to hold only of the kinds that copy: plain data and
