@@ -12,6 +12,10 @@ pub fn monotonic() i64 {
     return rig.monotonicNs();
 }
 
+pub fn since_start() i64 {
+    return rig.sinceStartNs();
+}
+
 pub fn unix_ns() i64 {
     return nanoseconds(.real);
 }

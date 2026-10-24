@@ -108,6 +108,36 @@ pub fn Task(comptime T: type) type {
             return start(true, f, .{rt.selfArg(f, recv)} ++ args);
         }
 
+        /// `s.area()&` through an API object (docs/design/apis.md, Stage
+        /// 5): the entry `name` of its table, given the address the object
+        /// holds; the object, its two words, goes to the task, which its
+        /// braces' crossing bound allows. An entry of a fallible method
+        /// takes the slot, which the task's record gives it.
+        pub fn spawnObject(obj: anytype, comptime name: []const u8, args: anytype) Self {
+            return startObject(false, obj, name, args);
+        }
+
+        /// `spawnObject` for a local task (`spawnLocal`).
+        pub fn spawnObjectLocal(obj: anytype, comptime name: []const u8, args: anytype) Self {
+            return startObject(true, obj, name, args);
+        }
+
+        fn startObject(comptime local: bool, obj: anytype, comptime name: []const u8, args: anytype) Self {
+            const O = @TypeOf(obj);
+            const A = @TypeOf(args);
+            const Entry = @TypeOf(@field(obj.vt.*, name));
+            const Call = if (comptime takesSlot(Entry)) struct {
+                fn run(o: O, a: A, out: rt.ErrSlot) T {
+                    return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{out});
+                }
+            } else struct {
+                fn run(o: O, a: A) T {
+                    return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a);
+                }
+            };
+            return start(local, Call.run, .{ obj, args });
+        }
+
         fn startMethod(comptime local: bool, recv: anytype, comptime name: []const u8, args: anytype) Self {
             const P = @TypeOf(recv);
             const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;

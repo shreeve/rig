@@ -8322,6 +8322,16 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
         };
+        // Through an API object whose braces let it go to the task: its
+        // table's entry, given the address the object holds.
+        if (self.facts.dispatchOf(sexp)) |d| if (d == .dynamic) {
+            const recv = if (d.dynamic.receiver_arg) ir.Call.args(sexp)[0] else self.receiverOf(sexp) orelse return self.unsupported(sexp, "a call through an API object without its receiver");
+            try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnObjectLocal(" else ".spawnObject(");
+            try self.emitExpr(lentPlace(recv));
+            try self.w.print(", \"{s}\", .{{ ", .{d.dynamic.method});
+            try self.emitArgsFrom(sexp, @intFromBool(d.dynamic.receiver_arg));
+            return self.w.writeAll(" })");
+        };
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static) {
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else ".spawn(");
             try self.writeWitnessMethod(d.static);

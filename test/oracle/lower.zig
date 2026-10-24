@@ -656,6 +656,28 @@ const Lowerer = struct {
         } else "an expression without a type: a name");
     }
 
+    /// `f(x)&`: each API object its self and arguments hold goes to the
+    /// task as its form's row lets it (rule T1, `kinds.objectBlocker`): a
+    /// part lent to read, `?x`, or a name or path written bare (a view
+    /// copied, or an owner lent implicitly) is read there; one moved,
+    /// cloned, lent to write, or made in the call is given.
+    fn taskObjects(self: *Lowerer, e: Sexp) Error!void {
+        const callee = ir.Call.callee(e);
+        var parts: std.ArrayList(Sexp) = .empty;
+        if (callee.isKind(.member)) try parts.append(self.a, ir.Member.object(callee));
+        for (ir.Call.args(e)) |arg| try parts.append(self.a, if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
+        for (parts.items) |part| {
+            // A value erased where it is passed goes as the object it
+            // becomes, by that object's braces (Core §4).
+            const ty = if (self.ctx.erasureOf(part)) |er| er.view else self.ctx.typeOf(part) orelse continue;
+            const bare = part == .src or part.isKind(.member);
+            const shares = part.isKind(.read) or (bare and self.ctx.types.get(ty) != .write_view);
+            _ = (try kinds.objectBlocker(self.ctx, ty, shares)) orelse continue;
+            const span = self.parser.span(part);
+            return self.found(.T1, self.posOf(part), "`{s}` goes to a task, and an API object it holds names no bound its form crosses by", .{self.src[span.start..@min(span.end, self.src.len)]});
+        }
+    }
+
     fn posOf(self: *Lowerer, e: Sexp) u32 {
         return switch (e) {
             .src => |s| s.pos,
@@ -3166,6 +3188,7 @@ const Lowerer = struct {
     fn call(self: *Lowerer, e: Sexp, how: How, parts: []const VarId) Error!?VarId {
         _ = how;
         const pos = self.posOf(e);
+        if (ir.Call.task(e) != .nil) try self.taskObjects(e);
         const callee = self.ctx.calleeOf(e);
         const args = ir.Call.args(e);
         var reads: std.ArrayList(VarId) = .empty;

@@ -71,6 +71,28 @@ printf 'fun one() -> Int\n  1\n\nsub main()\n  t = one()&\n  print(>t)\n' >free.
 out=$("$RIG" check --tasks free.rig 2>&1) || fail "rig check --tasks free.rig: $out"
 expect_eq "$out" "" "rig check --tasks of a program with no local task"
 
+# A task over an API object whose braces let it cross is not local.
+cat >object.rig <<'RIG'
+api Job
+  fun run(?@) -> Int
+
+obj Sum: Job
+  n: Int
+
+  fun run(?@) -> Int
+    @n
+
+fun work(j: ^{Job + Sends}) -> Int
+  j.run()
+
+sub main()
+  j: ^{Job + Sends} = ^Sum(n: 6)
+  t = work(<j)&
+  print(>t)
+RIG
+out=$("$RIG" check --tasks object.rig 2>&1) || fail "rig check --tasks object.rig: $out"
+expect_eq "$out" "" "rig check --tasks of a task over a crossing API object"
+
 out=$("$RIG" emit --tasks main.rig 2>&1)
 expect_rc $? 2 "rig emit --tasks"
 expect_has "$out" '`--tasks` applies to check' "rig emit --tasks"
