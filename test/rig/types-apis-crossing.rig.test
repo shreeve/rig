@@ -502,7 +502,7 @@ fail "apis object crossing a generic without the bound", "`T` is erased to `^{Sh
   fun boxed[T: Shape](x: ^T) -> ^{Shape + Sends}
     <x
 
-fail "apis object crossing a channel of boxes that may hold a loan", "a channel's values hold no loan, and `^{Job + Sends}` may hold one: write `^{Job + Owned + Sends}`", errors: 1
+fail "apis object crossing a channel of boxes that may hold a loan", "a channel's values hold no loan, and a `^{Job + Sends}` may hold one: write `^{Job + Owned + Sends}`", errors: 1
   use std.task
 
   api Job

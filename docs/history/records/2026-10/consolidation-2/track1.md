@@ -148,3 +148,74 @@ Zig at `rig.IterItem`. A `for` loop over the same iterator, and
 reading of either optional, so it gives the `T` `sema.iterItem` gives
 for every `T?` emit writes. Case: "iter an item whose optional holds
 its none in the item" (std-iter), failing in Zig on main.
+
+## 1.2 What an object meets
+
+### The map
+
+| Path | Place (main 55a21e1b1) | Fact |
+|---|---|---|
+| `objectBounds` | sema.zig:457 | the built-in APIs an object names: its braces and its API's supers; every path below reads it |
+| `objectMeets` | sema.zig:7887 | a form (read, write, box, shared, weak) and a built-in API: `Copy`, `Print`, `Clone`, `Owned` |
+| `lacks` | sema.zig:7715 | an object held directly through `objectMeets`; a type holding one through `mayHoldView` (`Owned`, the reach facts), `cloneable` (`Clone`), `objectUnprinted` (`Print`) |
+| `reachOf`, `.api_object` and `.shared` rows | sema.zig:6330, 6335 | `Owned` as a fact of reach: an object naming it holds no marked view; a `*{A + Syncs}` reaches nothing |
+| `deepCloneable` | sema.zig:11272 | `Clone` through `objectMeets` |
+| `objectUnowned` | sema.zig:7835 | the first object a type holds, at any depth, that may hold a loan; read by an owned closure's capture (ownership.zig:5587) |
+| `Requirement.meets` | typecheck.zig:21076 | each instance's `T` at an erasure, through `lacks` |
+| a channel's element | typecheck.zig:14062 | `mayHoldView`, with a fix for a box alone |
+| a generic body's Cell, Signal, or owned closure (`checkViews`) | ownership.zig:911 | `mayHoldView` of the instance, with the reason "a view keeps what it views lent" |
+
+Accept and reject agree on every input probed: seven object types
+(`^{Shape}`, `^{Shape + Owned}`, `*{Shape}`, `*{Shape + Owned}`,
+`*{Shape + Syncs}`, `~{Shape}`, `~{Shape + Owned}`) in six homes (an
+owned closure's capture, a `[T: Owned]` instance, a generic owned
+closure, a generic channel, a `List` captured), and five (`^{Shape}`,
+`^{Shape + Clone}`, `^{CShape}` of `api CShape: Clone`, `*{Shape}`,
+`?{Shape}`) under `+x` directly, in an optional, an array, and a
+field: each accepted exactly where `objectMeets` says.
+
+**What split is the reason.** Why an object may hold a loan was said
+three ways: an owned closure's capture named the object and its fix
+(`objectUnowned`); a channel named the fix for a box only, and called a
+`*{Shape}` one that "may hold a view"; a generic body's instance said "a
+view keeps what it views lent" of a `^{Shape}`, which is no view; and an
+`Owned` bound said "`List[^{Shape}]` may hold a loan" with no part
+named.
+
+### The case
+
+`stash[^{Shape}]` (a generic owned closure), `*Chan[Counted]` of `type
+Counted = *{Shape}`, and `keep[List[^{Shape}]]` of `[T: Owned]`: each
+rejected on main with the wrong reason or none.
+
+### What merged
+
+`sema.objectLoanReason` is the one reason, with its fix, for an object
+that may hold a loan (`objectUnowned`'s object, with `Owned` added to
+its braces), and null for a view, whose own loan is why. The owned
+closure's capture, a channel's element, and `checkViews` read it, and
+`lacks(Owned)` names the object (`; it holds a ^{Shape}`). Cases
+"apis object a generic body's owned closure names the object" and "...
+a channel's values and an Owned bound name the object", failing on main.
+No outcome changed.
+
+## 1.4 Witnesses and dispatch (mapped; no split found)
+
+| Path | Place (main 55a21e1b1) | Fact |
+|---|---|---|
+| `provides`, `witnessFor` | sema.zig:8138, 8270 | whether a type provides an API, and by which witness (its own methods, an addition's, the API's defaults) |
+| `witnessName` | sema.zig:2903, read by emit through facts.zig:442 | the witness's Zig name |
+| `ownerWitnesses` | sema.zig:8730 | the witnesses a method under an owner bound takes |
+| `Dispatch`, `viaApi` | sema.zig:1470 | how each method call reaches its method, recorded once; every pass asks `viaApi` |
+| `Emitter.calleeTakesSlot` | emit.zig:8847 | whether a callee takes the slot a failure's fields go in, from recorded facts (`callTargetOf`, `dispatchOf`, an actor call, a `T` receiver, a callable) |
+
+Probed: an API's default calling a required method, through a bound
+`[T: Shape]`, a generic type's bounded parameter (`Pair[T: Shape]`),
+a box `^{Shape}` of an object and of an addition's `Int`, across
+modules (a `pub api` with a default, its addition for `Float` overriding
+the default, an object of a third module, a bounded generic of the
+caller's), each right under the sanitizer. `calleeTakesSlot`'s `T`
+receiver (always a Rig method) rests on the instance rule that a call on
+a `T` reaches only the methods of an `obj` or `enum` a module declares
+(probed: `(!c).recv()!` of `T = *Chan[Int]` is refused there). The
+shorthand `c.area()` through a box is track 2's row 30, the owner's.
