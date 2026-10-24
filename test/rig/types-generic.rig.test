@@ -37,10 +37,10 @@ fail "generic body arith string", "11:4: `Wrap[?String]` cannot use `T = ?String
   b: Wrap[?String] = Wrap(value: "a")
   print(b.bump())
 
-fail "generic body copies resource", "`Keeper[*B]` cannot use `T = *B`: the generic body discards a value that holds a `T`", "`Counter[*B]` cannot use `T = *B`: the generic body copies into a closure a value that holds a `T`"
+fail "generic body copies resource", "`Keeper[*B]` cannot use `T = *B`: the generic body discards a value that holds a `T`", errors: 1
   # A generic body is checked once, for any `T`. Where it discards a `T`,
-  # leaves one as a temporary, or copies one into a closure, every
-  # instantiation must use plain data for `T`.
+  # or leaves one as a temporary, every instantiation must use plain data
+  # for `T`. A `|+x|` capture clones, which a handle does: `Counter[*B]`.
 
   obj B
     n: Int

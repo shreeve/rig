@@ -7199,7 +7199,7 @@ const Checker = struct {
         const value = try self.readThrough(operand, inner, sema.unwrapViews(self.ctx, inner));
         switch (sema.cloneable(self.ctx, inner)) {
             .copy, .bump, .text, .deep => {},
-            .depends => try self.requireOf(value, .copies, self.startOf(operand), "clones a value"),
+            .depends => try self.requireOf(value, .clones, self.startOf(operand), "clones a value"),
             .no => {
                 const shown = try self.tyName(value);
                 if (sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, value)) != null) {
@@ -18337,7 +18337,11 @@ const Checker = struct {
                 const value = sema.unwrapViews(self.ctx, ty);
                 return switch (sema.cloneable(self.ctx, ty)) {
                     .bump, .text, .deep => value,
-                    .copy, .depends, .no => null,
+                    .depends => {
+                        try self.requireOf(value, .clones, pos, "clones into a closure a value");
+                        return value;
+                    },
+                    .copy, .no => null,
                 };
             },
             else => {},
@@ -18346,7 +18350,10 @@ const Checker = struct {
             .copy, .bump, .deep => ty,
             // A `?String` view clones into the `String` that owns its bytes.
             .text => if (ty == self.t().string_view_id) self.t().string_id else ty,
-            .depends => if (try self.cannotCopy(ty, pos, "copies into a closure a value")) null else ty,
+            .depends => {
+                try self.requireOf(ty, .clones, pos, "clones into a closure a value");
+                return ty;
+            },
             .no => null,
         };
     }
@@ -19926,6 +19933,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
+                .clones => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is not `Clone`", .{ inst, pname, aname, req.op, pname, aname }),
                 .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
                 .lane_count => try ctx.err(at, cannot ++ "uses `{s}` as a lane count, a power of two from 2 to 64", .{ inst, pname, aname, pname }),
                 .slot_count => try ctx.err(at, cannot ++ "names `Slot[{s}]`, and a slot names one of `n` slots, `n` at least 1", .{ inst, pname, aname, pname }),
@@ -19955,7 +19963,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .copies, .no_cleanup => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .copies, .no_cleanup, .clones => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .lane_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a lane count here", .{pname}),
                 .slot_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a slot count here", .{pname}),
@@ -20176,6 +20184,7 @@ fn apiOf(req: Requirement) ?sema.Api {
         .equatable => .Eq,
         .hashable => .Hash,
         .copies, .no_cleanup => .Copy,
+        .clones => .Clone,
         .printable => .Print,
         .meets => |api| api,
         .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .error_set, .not_function, .named, .frozen, .no_task, .task => null,
@@ -21041,6 +21050,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             else => false,
         },
         .copies => sema.copies(ctx, ty) != .no,
+        .clones => (try sema.lacks(ctx, ty, .Clone)) == null,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
         .lane_count => switch (ctx.types.get(ty)) {
             .ct_value => |v| sema.lanesInRange(v.int),

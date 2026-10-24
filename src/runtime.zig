@@ -1970,6 +1970,14 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
     }
 }
 
+/// `+x` of a value of type parameter `T` in a generic body, `value` being
+/// a `T` or what a read view of one reaches: a new owner, part by part
+/// (`cloneValue`), and for a String's bytes a new String of them.
+pub fn cloneAs(comptime T: type, value: anytype) T {
+    if (comptime T == String and @TypeOf(value) != String) return String.of(.{value});
+    return cloneValue(&value);
+}
+
 /// `+x` for an optional handle: another handle to the same box, or null.
 /// A counted API object's is strong, as a `*T`'s is.
 pub fn cloneOptional(value: anytype) @TypeOf(value) {

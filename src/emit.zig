@@ -6205,9 +6205,16 @@ pub const Emitter = struct {
                         try self.emitExpr(operand);
                         try self.w.writeAll("))");
                     },
-                    // A generic `T` is cloned only where each instance
-                    // copies, so it is copied.
-                    .copy, .depends => try self.emitExpr(operand),
+                    // A generic `T` as each instance clones it, which
+                    // copies what copies (`rig.cloneAs`).
+                    .depends => {
+                        try self.w.writeAll("rig.cloneAs(");
+                        try self.emitTypeTy(self.typeOf(sexp).?);
+                        try self.w.writeAll(", ");
+                        try self.emitExpr(operand);
+                        try self.w.writeAll(")");
+                    },
+                    .copy => try self.emitExpr(operand),
                     .no => return self.unsupported(sexp, "a clone of a value that moves"),
                 }
             },
@@ -9803,7 +9810,15 @@ pub const Emitter = struct {
                 try self.writeLocalPlace(outer);
                 try self.w.writeAll("))");
             },
-            .copy, .depends => try self.writeLocalPlace(outer),
+            // A generic `T` as each instance clones it (`rig.cloneAs`).
+            .depends => {
+                try self.w.writeAll("rig.cloneAs(");
+                try self.emitTypeTy(self.facts.unwrapViews(ty));
+                try self.w.writeAll(", ");
+                try self.writeLocalPlace(outer);
+                try self.w.writeAll(")");
+            },
+            .copy => try self.writeLocalPlace(outer),
             .no => return self.unsupported(node, "a clone of a value that moves"),
         }
     }
