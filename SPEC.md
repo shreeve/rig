@@ -4072,7 +4072,9 @@ written.
 
 A box moves into a box of an object and keeps its allocation, `<c` of
 a `^Square` or a `^Square(...)` written where a `^{Shape}` goes, and a
-`^Square?` into a `^{Shape}?`; nothing is allocated. Only the box's
+`^Square?` into a `^{Shape}?`; nothing is allocated. A result that
+can fail, `(^{Shape})!`, takes its value as a `^{Shape}` result does,
+as it takes a view or a handle of an object. Only the box's
 value is erased: a `!^Square` is no `!^{Shape}`, nor a `List[^Square]`
 a `List[^{Shape}]`. A `^{Shape}` lends its `?{Shape}` and `!{Shape}`
 as any box lends its value, a new box assigned to it replaces the old

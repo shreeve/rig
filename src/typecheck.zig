@@ -15027,6 +15027,13 @@ const Checker = struct {
     /// `e`, of type `actual` (`synthExpr`), where `expected` goes: adapted
     /// or lent to it, or reported.
     fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        // A value where a result `T!` goes, a `return`'s or a body's last,
+        // goes there as it goes where a `T` does: lent, erased to an API
+        // object, or adapted to it. Failing is an error value's alone.
+        const exp = self.ctx.types.get(expected);
+        if (exp == .fallible and self.ctx.types.get(actual) != .fallible and !sema.isErrorValue(self.ctx, actual)) {
+            return self.checkActual(e, actual, exp.fallible.ok);
+        }
         // A written `!x` where a read view goes only lends to read.
         if (self.readViewSlot(expected) and try self.writeLendRead(e, actual, .{ .read_view = expected })) return;
         if (try self.lendView(e, actual, expected)) return;

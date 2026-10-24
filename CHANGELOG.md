@@ -270,6 +270,13 @@ changed the language since it:
   (`hasLenReached`) now says a length is read through handles and
   boxes alike.
 
+- **A result that can fail takes a value as its value type does:**
+  `^Square(...)` as the last line or the `return` of a function that
+  gives `(^{Shape})!`, `(*{Shape})!`, `(?{Shape})!`, or `(^{Shape}?)!`
+  was "type mismatch: expected `^{Shape}!`"; a value where a `T!`
+  result goes is now checked as where a `T` goes, and erased to its
+  object, lent, or adapted there.
+
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first
   use; `List(...)` of objects, and an array lent where a `?List[T]`

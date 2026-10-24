@@ -4935,6 +4935,83 @@ Square(side: 2.0) Square(side: 1.0)
   print(a, b)
   print(l)
 
+test "apis object result that can fail erases its value", "4.0 1.0 9.0 4.0 9.0 16.0 25.0 0.0"
+  # A value where a result `T!` goes, a body's last or a `return`'s, is
+  # erased as where a `T` goes: a box, a counted handle, a read view, an
+  # optional of one, and through branches.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  error Bad
+    bad
+
+  fun boxed(n: Int) -> (^{Shape})!Bad
+    return Bad.bad if n < 0
+    if n > 0
+      ^Square(side: 2.0)
+    else
+      ^Square(side: 1.0)
+
+  fun counted() -> (*{Shape})!
+    return *Square(side: 3.0)
+
+  fun first(xs: ?List[Square]) -> (?{Shape})!
+    ?xs[0]
+
+  fun maybe(n: Int) -> (^{Shape}?)!
+    return none if n == 0
+    ^Square(side: 4.0)
+
+  fun each(f: ?fun(Float) -> (^{Shape})!, n: Float) -> (^{Shape})!
+    f(n)!
+
+  sub main()!
+    xs = List[Square]()
+    !xs.push(Square(side: 2.0))
+    m = maybe(1)! ?? ^Square(side: 0.0)
+    e = boxed(-1) catch |_| ^Square(side: 0.0)
+    print(boxed(1)!.area(), boxed(0)!.area(), counted()!.area(), first(?xs)!.area(), counted()!.area(), m.area(), each(|n: Float| ^Square(side: n), 5.0)!.area(), e.area())
+
+fail "apis object result that can fail checks what it erases", "14:3: `^Circle(r: 1.0)` cannot be lent as a `^{Shape}`: `Circle` does not provide `Shape`; declare `obj Circle: Shape`", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle
+    r: Float
+
+  fun round() -> (^{Shape})!
+    ^Circle(r: 1.0)
+
+  print(1)
+
+fail "apis object result that can fail views no local", "cannot return a view of `sq`, which this function was not lent", errors: 1
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun local() -> (?{Shape})!
+    sq = Square(side: 1.0)
+    ?sq
+
+  print(1)
+
 test "apis object box cloned through the table", "Pt(x: 2, tag: \"a\") 4 9"
   # `+b` with `Clone` in the braces: a new box of a clone of the value,
   # through its table; a `String` among its fields copied.
