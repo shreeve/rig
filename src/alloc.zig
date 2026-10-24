@@ -374,9 +374,14 @@ fn mapOwnSegment() ?*Segment {
 /// blocks the program has taken. Each heap adds to them what it counted
 /// once it is `flush_bytes` bytes or `flush_allocs` blocks away, so they
 /// trail each thread by at most that much (`Heap.count`).
-var total_live: std.atomic.Value(isize) = .init(0);
-var total_peak: std.atomic.Value(isize) = .init(0);
-var total_allocs: std.atomic.Value(u64) = .init(0);
+///
+/// Each sits on a cache line of its own: placed among the runtime's other
+/// globals, they shifted those, and a task's spawn ran about 60% slower
+/// on Apple cores (bench/tasks), as a line shared by cores that write it
+/// would make it.
+var total_live: std.atomic.Value(isize) align(128) = .init(0);
+var total_peak: std.atomic.Value(isize) align(128) = .init(0);
+var total_allocs: std.atomic.Value(u64) align(128) = .init(0);
 const flush_bytes: isize = 64 << 10;
 const flush_allocs: u32 = 1024;
 
