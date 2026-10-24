@@ -5588,7 +5588,13 @@ pub const Checker = struct {
                 const h = sema.objectHeld(ctx, o);
                 var with = if (h) |x| x.object else sema.apiObject(ctx, o).?;
                 with.builtins.insert(.Owned);
-                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure holds no loan, and a `{s}` may hold one: write `^{s}`", .{ try sema.formatTypeIn(ctx, self.arena(), o), try sema.objectSpelling(ctx, self.arena(), with) });
+                // A view holds a loan whatever it views: a box holds none.
+                const sigil: []const u8 = if (h) |x| switch (x.form) {
+                    .shared => "*",
+                    .weak => "~",
+                    .read, .write, .box => "^",
+                } else "^";
+                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure holds no loan, and a `{s}` may hold one: write `{s}{s}`", .{ try sema.formatTypeIn(ctx, self.arena(), o), sigil, try sema.objectSpelling(ctx, self.arena(), with) });
                 value = try self.valueUnion(value, cv);
                 continue;
             };

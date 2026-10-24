@@ -3150,8 +3150,8 @@ pub const TypeResolver = struct {
             return true;
         }
         // A frozen value lives only behind `*`, whose allocation holds it.
-        if (home != .handle and sema.frozenValue(self.ctx, ty) != null) {
-            try self.ctx.errAt(node, "a frozen value lives only behind a shared handle: write `*{s}`", .{try sema.formatType(self.ctx, ty)});
+        if (sema.frozenMisplaced(self.ctx, ty, home)) {
+            try self.ctx.errAt(node, sema.frozen_misplaced, .{try sema.formatType(self.ctx, ty)});
             return true;
         }
         switch (home) {
@@ -3166,23 +3166,17 @@ pub const TypeResolver = struct {
     fn bareObject(self: *TypeResolver, node: Sexp, ty: TypeId, home: sema.Home) Error!bool {
         if (!sema.unsizedAt(self.ctx, ty, home)) return false;
         const shown = try sema.formatType(self.ctx, ty);
-        try self.ctx.errAt(node, sema.object_unsized, .{ shown, shown, shown, shown });
-        return true;
-    }
-
-    /// `*{Shape}` or `~{Shape}`: an API object many tasks or a weak
-    /// handle reach is Stage 5's. Reported.
-    fn sharedObject(self: *TypeResolver, node: Sexp, inner: TypeId) Error!bool {
-        if (sema.apiObject(self.ctx, inner) == null) return false;
-        const what = if (node.isKind(.weak)) "a weak handle of an API object" else "a shared API object";
-        try self.ctx.errAt(node, "{s}, `{s}`, is not built yet (docs/design/apis.md, Stage 5)", .{ what, diag.textOf(self.ctx.source, self.ctx.span(node)) });
+        try self.ctx.errAt(node, sema.object_unsized, .{ shown, shown, shown, shown, shown });
         return true;
     }
 
     /// `{Shape + Print}`: an API object's braces (docs/design/apis.md,
-    /// Stage 4). They name one API of a program's own and, beside it,
-    /// only `Owned`, `Print`, and `Clone`, which an object serves
-    /// itself; each other name is reported with why.
+    /// Stages 4 and 5). They name one API of a program's own and, beside
+    /// it, only `Owned`, `Print`, and `Clone`, which an object serves
+    /// itself, and the crossing bound its form can use; each other name is
+    /// reported with why. A handle's braces name no `Clone`, since its
+    /// `+` counts; a `*{A + Syncs}` holds a frozen value, so no `Owned`;
+    /// and a weak handle, which never crosses, no crossing bound.
     fn resolveApiObject(self: *TypeResolver, node: Sexp) Error!TypeId {
         const t = &self.ctx.types;
         const src = self.ctx.source;
@@ -3195,6 +3189,8 @@ pub const TypeResolver = struct {
         var api_leaf: Sexp = .nil;
         var builtins: sema.Apis = .empty;
         var bad = false;
+        // `Clone` in a handle's braces, reported once the API is known.
+        var clone_leaf: Sexp = .nil;
         for (ir.ApiObject.apis(node)) |leaf| {
             const text = diag.textOf(src, self.ctx.span(leaf));
             // `{Source[Item: Int]}`: an associated type named.
@@ -3218,7 +3214,11 @@ pub const TypeResolver = struct {
             }
             switch (try apiNamed(self.ctx, self.scope, leaf)) {
                 .builtin => |b| switch (b) {
-                    .Owned, .Print, .Clone => try self.namedOnce(leaf, &builtins, b, written),
+                    // A handle's `+` adds a count, never a clone.
+                    .Clone => if (sigil[0] == '*' or sigil[0] == '~') {
+                        clone_leaf = leaf;
+                    } else try self.namedOnce(leaf, &builtins, b, written),
+                    .Owned, .Print => try self.namedOnce(leaf, &builtins, b, written),
                     .Copy => {
                         try self.ctx.errAt(leaf, "an API object never copies but as a view does: `?{{Shape}}` copies, `^{{Shape}}` moves; take `Copy` out of the braces", .{});
                         bad = true;
@@ -3243,8 +3243,16 @@ pub const TypeResolver = struct {
                             bad = true;
                         } else try self.namedOnce(leaf, &builtins, b, written),
                         '^' => try self.namedOnce(leaf, &builtins, b, written),
-                        // `*{...}` and `~{...}` are reported whole
-                        // (`sharedObject`).
+                        // A counted handle crosses by its count, atomic
+                        // only for a frozen value, which many tasks read.
+                        '*' => if (b == .Sends) {
+                            try self.ctx.errAt(leaf, "a shared handle goes to another task when several tasks may read its value: write `*{{{s}}}`", .{try self.bracesWith(node, .Sends, .Syncs)});
+                            bad = true;
+                        } else try self.namedOnce(leaf, &builtins, b, written),
+                        '~' => {
+                            try self.ctx.errAt(leaf, "a weak handle never crosses: take `{s}` out of `{s}`", .{ @tagName(b), written });
+                            bad = true;
+                        },
                         else => {},
                     },
                     .Iter => {
@@ -3293,7 +3301,35 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(node, "`{s}` names no API of a program's own, whose methods an object reaches: name one beside the built-in ones, `{s}{{Shape + {s}}}`", .{ written, sigil, diag.textOf(src, self.ctx.span(ir.ApiObject.apis(node)[0])) });
             return t.invalid_id;
         };
-        return self.ctx.intern(.{ .api_object = .{ .api = ref, .builtins = builtins } });
+        const object: sema.ApiObject = .{ .api = ref, .builtins = builtins };
+        if (clone_leaf != .nil) {
+            try self.ctx.errAt(clone_leaf, "a `{s}{s}` is counted, so `+{s}` never clones its value: take `Clone` out of the braces", .{ sigil, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), object), if (sigil[0] == '*') "s" else "w" });
+            return t.invalid_id;
+        }
+        if (try self.handleBraces(node, sigil[0], object, written)) return t.invalid_id;
+        return self.ctx.intern(.{ .api_object = object });
+    }
+
+    /// The braces `node` of a handle of an object, `*{...}` or `~{...}`,
+    /// written `written`, against the holding they give
+    /// (`sema.frozenObject`): a `*{A + Syncs}` holds a frozen value,
+    /// which holds no view, so it names no `Owned`, and has no weak
+    /// handle, so no `~{...}` names `Syncs` by its API. Reported.
+    fn handleBraces(self: *TypeResolver, node: Sexp, sigil: u8, object: sema.ApiObject, written: []const u8) Error!bool {
+        if (sigil != '*' and sigil != '~') return false;
+        const bounds = sema.objectBounds(self.ctx, object);
+        if (!bounds.contains(.Syncs)) return false;
+        const a = self.ctx.arena.allocator();
+        if (sigil == '~') {
+            const api = try sema.apiName(self.ctx, object.api);
+            try self.ctx.errAt(node, "`{s}` would be a weak handle of a frozen value: `{s}` builds on `Syncs`, so every `*{s}` holds one, which has no weak handle", .{ written, api, try sema.objectSpelling(self.ctx, a, object) });
+            return true;
+        }
+        if (!object.builtins.contains(.Owned)) return false;
+        var without = object;
+        without.builtins.remove(.Owned);
+        try self.ctx.errAt(node, "`*{s}` holds a frozen value, which holds no view: take `Owned` out of the braces", .{try sema.objectSpelling(self.ctx, a, without)});
+        return true;
     }
 
     /// Built-in API `b` added to `builtins`, named by `leaf` in the braces
@@ -3775,7 +3811,6 @@ pub const TypeResolver = struct {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
-                        if (head == .weak and try self.sharedObject(sexp, inner)) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
                         const home: sema.Home = switch (head) {
                             .optional => .optional,
@@ -3808,7 +3843,6 @@ pub const TypeResolver = struct {
                         const inner_node = ir.Shared.type(sexp);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
-                        if (try self.sharedObject(sexp, inner)) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner) or try self.misplacedAt(inner_node, inner, .handle)) return t.invalid_id;
                         if (sema.heapStacked(self.ctx, inner)) {
                             try self.ctx.errAt(sexp, sema.heap_stacked, .{try self.stackedSpelling('*', inner)});
@@ -4579,11 +4613,17 @@ fn tableElementError(ctx: *SemContext, args: []const TypeId) Error!?[]const u8 {
     const table = try a.print("Table[{s}, {d}]", .{ shown, n });
     // An API object has no default value (Core §4): a slot that may be
     // empty holds an optional of it.
-    // A table's slots hold no loan, so the object names `Owned`.
-    if (sema.objectHeld(ctx, elem)) |h| if (h.form == .box) {
+    // A table's slots hold no loan, so the object names `Owned`, which
+    // a `*{A + Syncs}` meets as it is.
+    if (sema.objectHeld(ctx, elem)) |h| if (h.form == .box or h.form == .shared or h.form == .weak) {
         var with = h.object;
-        with.builtins.insert(.Owned);
-        return try a.print("an API object has no default value: write `^{s}?`", .{try sema.objectSpelling(ctx, a, with)});
+        if (!sema.objectMeets(ctx, h.object, h.form, .Owned)) with.builtins.insert(.Owned);
+        const sigil: []const u8 = switch (h.form) {
+            .shared => "*",
+            .weak => "~",
+            else => "^",
+        };
+        return try a.print("an API object has no default value: write `{s}{s}?`", .{ sigil, try sema.objectSpelling(ctx, a, with) });
     };
     if (sema.holdsCallable(ctx, elem) or sema.mayHoldView(ctx, elem) or sema.isViewType(ctx, elem)) {
         return try a.print("a `Table` holds values; a view cannot be one, since every slot holds a value before it is written; got `{s}`", .{shown});

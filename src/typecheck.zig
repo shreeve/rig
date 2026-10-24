@@ -6973,6 +6973,15 @@ const Checker = struct {
             try self.errAt(operand, "this value is already a shared handle `{s}`; `*` would nest handles. Clone it with `+x` for another handle", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
+        // A box of an API object holds a value whose size is erased, which
+        // no new allocation could take.
+        if (sema.objectHeld(self.ctx, inner)) |h| if (h.form == .box) {
+            var shared = h.object;
+            shared.builtins.remove(.Sends);
+            shared.builtins.remove(.Clone);
+            try self.errAt(e, "`{s}` would move a value whose type is erased: share the value before erasing it, `*<x` where a `*{s}` goes", .{ self.sourceText(e), try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), shared) });
+            return self.t().invalid_id;
+        };
         if (sema.heapStacked(self.ctx, inner)) {
             // `*o` of an optional weak handle: `*` upgrades the handle
             // inside, once it is taken out.
@@ -7139,6 +7148,11 @@ const Checker = struct {
                 // A frozen value is kept by any handle, from any task.
                 if (sema.frozenValue(self.ctx, target) != null) {
                     try self.errAt(operand, "a frozen value has no weak handle: `+{s}` shares it", .{self.sourceText(operand)});
+                    return self.t().invalid_id;
+                }
+                // A `*{A + Syncs}` holds one.
+                if (sema.frozenObject(self.ctx, target)) {
+                    try self.errAt(e, "`{s}` of a `{s}`: a frozen value has no weak handle", .{ self.sourceText(e), try self.tyName(inner) });
                     return self.t().invalid_id;
                 }
                 return self.ctx.intern(.{ .weak = target });
@@ -8248,7 +8262,7 @@ const Checker = struct {
             if (self.isPoison(a.*)) bad = true;
             // A frozen value lives only behind `*`, never as an argument.
             if (sema.frozenValue(self.ctx, a.*) != null) {
-                try self.errAt(g, "a frozen value lives only behind a shared handle: write `*{s}`", .{try self.tyName(a.*)});
+                try self.errAt(g, sema.frozen_misplaced, .{try self.tyName(a.*)});
                 bad = true;
             }
         }
@@ -9073,20 +9087,28 @@ const Checker = struct {
         };
         if (types.get(held_ty) == .optional) held_ty = types.get(held_ty).optional;
         const held = sema.objectHeld(self.ctx, held_ty) orelse return null;
+        const a = self.ctx.arena.allocator();
         switch (held.form) {
             .read => how = .shares,
             .write => if (how == .shares) return null,
             .box => {},
+            // A counted handle crosses by its count, which only a frozen
+            // value's is atomically; a weak handle never.
+            .shared => {
+                if (sema.frozenObject(self.ctx, self.ctx.types.get(held_ty).shared)) return null;
+                return try a.print("`{s}` stays with its task, as a `*T` does: its braces name no `Syncs`", .{try self.tyName(held_ty)});
+            },
+            .weak => return try a.print("`{s}`, a weak handle, goes to no task", .{try self.tyName(held_ty)}),
         }
         const need = sema.crossingBound(how);
         if (sema.objectBounds(self.ctx, held.object).contains(need)) return null;
-        const a = self.ctx.arena.allocator();
         var fixed = held.object;
         fixed.builtins.insert(need);
         const sigil: []const u8 = switch (held.form) {
             .read => "?",
             .write => "!",
             .box => "^",
+            .shared, .weak => unreachable,
         };
         return try a.print("`{s}` hides its value's type without naming `{s}`: write `{s}{s}`", .{ try self.tyName(held_ty), @tagName(need), sigil, try sema.objectSpelling(self.ctx, a, fixed) });
     }
@@ -9723,6 +9745,8 @@ const Checker = struct {
                             .read => "?",
                             .write => "!",
                             .box => "^",
+                            .shared => "*",
+                            .weak => "~",
                         };
                         try self.errAt(a, "`{s}` cannot be {s}: its type is erased; write `{s}{s}`, or build `{s}` on `Print`", .{ try self.tyName(held), printed, sigil, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with), api });
                     }
@@ -12890,6 +12914,12 @@ const Checker = struct {
             .self_type => self.badCall(args, pos, "`{s}.{s}` names `Self` outside self, which a call through `{s}` cannot know: call it through a bound, `[T: {s}]`", .{ declarer, method, form, api }),
         };
         if (m.field.receiver == .none) return self.badCall(args, pos, "`{s}.{s}` takes no self, so a call through `{s}` cannot reach it: call it through a bound, `[T: {s}]`", .{ declarer, method, form, api });
+        // A handle only reads (Core sentence 8): a call through a `*{A}`
+        // reaches `?@` methods alone, as through a `*T`.
+        if (m.field.receiver == .write or m.field.receiver == .value) if (sema.objectHeld(self.ctx, sema.unwrapViews(self.ctx, obj_ty))) |h| if (h.form == .shared) {
+            const shown = try self.tyName(sema.unwrapViews(self.ctx, obj_ty));
+            return self.badCall(args, pos, "`{s}` only reads, as any handle: `{s}` takes `{s}`; hold a `^{s}`, or change the value through a `Cell` it holds", .{ shown, method, if (m.field.receiver == .write) "!@" else "<@", try sema.objectSpelling(self.ctx, a, h.object) });
+        };
         const home = sema.apiContext(self.ctx, m.api) orelse return self.skipCall(args);
         const am: ApiMethod = .{ .api = m.api, .home = home, .field = m.field };
         const object = try self.ctx.intern(.{ .api_object = o });
@@ -15010,6 +15040,8 @@ const Checker = struct {
             return;
         }
         if (try self.eraseBox(e, actual, expected)) return;
+        if (try self.eraseShared(e, actual, expected)) return;
+        if (try self.handleThroughView(e, actual, expected)) return;
         // Failing is written: an error value meets a `T!` only as the
         // operand of `return`.
         if (self.ctx.types.get(expected) == .fallible and sema.isErrorValue(self.ctx, actual)) {
@@ -15251,6 +15283,100 @@ const Checker = struct {
         const witness = (try self.erasable(e, e, actual, reached, want, h.object)) orelse return true;
         try self.ctx.recordErasure(e, .{ .api = h.object.api, .from = reached, .view = want, .witness = witness, .form = .box, .optional = optional });
         try self.recordLift(e, if (optional) expected else want, expected);
+        return true;
+    }
+
+    /// `e`, a counted handle (or an optional one) moved where a shared API
+    /// object goes, `*{A}` (or `*{A}?`): the handle keeps its allocation
+    /// and its count, and its value's type is erased (Core §4, "A `*T`
+    /// moves into a `*{A}`, keeping its allocation, and a frozen value's
+    /// handle only into a `*{A + Syncs}`"). The holding follows from the
+    /// braces (`sema.frozenObject`): a `*T`'s allocation counts plainly,
+    /// a frozen value's atomically, and neither becomes the other. An
+    /// actor's, a channel's, and a Cell's handles are none: their methods
+    /// are messages, or change what they hold. True when handled.
+    fn eraseShared(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const types = &self.ctx.types;
+        if (self.isPoison(actual)) return false;
+        const want = switch (types.get(expected)) {
+            .optional => |inner| inner,
+            else => expected,
+        };
+        const h = sema.objectHeld(self.ctx, want) orelse return false;
+        if (h.form != .shared) return false;
+        const optional = types.get(actual) == .optional;
+        if (optional and want == expected) return false;
+        const handle = if (optional) types.get(actual).optional else actual;
+        const inner = switch (types.get(handle)) {
+            .shared => |inner| inner,
+            else => return false,
+        };
+        // Another object, or an owned closure, mismatches.
+        if (sema.apiObject(self.ctx, inner) != null or types.get(inner) == .function) return false;
+        const shown = try self.tyName(handle);
+        const shown_view = try self.tyName(want);
+        const what: ?[]const u8 = if (sema.actorValue(self.ctx, inner) != null)
+            "an actor's handle, whose methods are messages"
+        else if (sema.chanValue(self.ctx, inner) != null)
+            "a channel's handle, whose methods are messages"
+        else if (sema.isCell(self.ctx, inner))
+            "a Cell's handle, which changes what it holds"
+        else
+            null;
+        if (what) |w| {
+            try self.errAt(e, "`{s}` is {s}, so it is no `{s}`", .{ shown, w, shown_view });
+            return true;
+        }
+        const syncs = sema.frozenObject(self.ctx, types.get(want).shared);
+        const frozen = sema.frozenValue(self.ctx, inner);
+        if (frozen != null and !syncs) {
+            // A frozen value holds no view, so `Owned` is no longer written.
+            var with = h.object;
+            with.builtins.insert(.Syncs);
+            with.builtins.remove(.Owned);
+            const fixed = try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with);
+            try self.errAt(e, "a frozen value's handle is erased only to `*{s}`, which counts atomically: write `*{s}`", .{ fixed, fixed });
+            return true;
+        }
+        if (frozen == null and syncs) {
+            const by_api = !h.object.builtins.contains(.Syncs);
+            const why = if (by_api) try std.fmt.allocPrint(self.ctx.arena.allocator(), " (`{s}` builds on `Syncs`)", .{try sema.apiName(self.ctx, h.object.api)}) else "";
+            try self.errAt(e, "`{s}` is erased to `{s}`, which several tasks read{s}, but its count is not atomic: freeze the value, `*Frozen(...)`", .{ shown, shown_view, why });
+            return true;
+        }
+        const reached = frozen orelse inner;
+        const witness = (try self.erasable(e, e, actual, reached, want, h.object)) orelse return true;
+        try self.ctx.recordErasure(e, .{ .api = h.object.api, .from = reached, .view = want, .witness = witness, .form = .shared, .holding = if (frozen != null) .frozen else .counted, .optional = optional });
+        try self.recordLift(e, if (optional) expected else want, expected);
+        return true;
+    }
+
+    /// `e`, a view of a handle (`?h`, `!h`) where a view of a handle of
+    /// an API object goes, `?*{A}`: rejected (reported), as a handle is
+    /// erased only as it moves or counts (the adversary's A5). A `!h`
+    /// lent as a `!*{Shape}` would let a `Circle` be written into a
+    /// `*Square`, and a `?*Square` read as a `?*{Shape}` read 8 bytes as
+    /// 16. True when reported.
+    fn handleThroughView(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const types = &self.ctx.types;
+        if (self.isPoison(actual)) return false;
+        const want = switch (types.get(expected)) {
+            .optional => |inner| inner,
+            else => expected,
+        };
+        const viewed = switch (types.get(want)) {
+            .read_view, .write_view => |inner| inner,
+            else => return false,
+        };
+        const h = sema.objectHeld(self.ctx, viewed) orelse return false;
+        if (h.form != .shared and h.form != .weak) return false;
+        const got = sema.unwrapViews(self.ctx, sema.unwrapOptionals(self.ctx, actual));
+        switch (types.get(got)) {
+            .shared, .weak => |inner| if (sema.apiObject(self.ctx, inner) != null) return false,
+            else => return false,
+        }
+        const lent = if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e;
+        try self.errAt(e, "`{s}` would view a `{s}` as a `{s}`: a handle is erased only as it moves or counts, never through a view; pass `+{s}`", .{ self.sourceText(e), try self.tyName(got), try self.tyName(viewed), try self.plainText(lent) });
         return true;
     }
 
@@ -15911,6 +16037,9 @@ const Checker = struct {
                 }
                 const tt = self.ctx.types.get(target);
                 if (tt != .shared) return null;
+                // A handle made where a shared API object goes is made of
+                // its own type, then erased (`eraseShared`).
+                if (sema.apiObject(self.ctx, tt.shared) != null) return null;
                 // An owned closure is made only from a closure literal,
                 // where a handle's value is a function as where `*f`
                 // stands alone (`synthShare`).
@@ -18957,7 +19086,8 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`@value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 /// An instance's type arguments, each standing as one (`sema.misplaced`):
-/// a value holding a Cell by value, or a write view, is no type argument.
+/// a value holding a Cell by value, a write view, a bare API object, or a
+/// frozen value is no type argument.
 /// True when one stands misplaced, reported at the instance's site when
 /// `report` gives one.
 fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!bool {
@@ -18970,6 +19100,7 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!boo
             .cell => try ctx.err(site, sema.cell_misplaced, .{ shown, shown }),
             .write_view => try ctx.err(site, sema.write_view_misplaced, .{shown}),
             .unsized => try ctx.err(site, sema.object_unsized_arg, .{shown}),
+            .frozen => try ctx.err(site, sema.frozen_misplaced_arg, .{ shown, shown }),
         }
         return true;
     }

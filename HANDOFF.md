@@ -124,13 +124,17 @@ In the owner's order:
    ([build-plan.md](docs/history/records/2026-10/apis-stage5/build-plan.md);
    its defaults approved with the panel's changes,
    [open-questions.md](docs/history/records/2026-10/apis-stage5/open-questions.md)).
-   Phase 0, the Core, is done: CORE §1 and §4 state the rules as
-   planned, from a panel the owner approved
+   Phase 0, the Core, is done: CORE §1 and §4 state the rules, from a
+   panel the owner approved
    ([core-panel/](docs/history/records/2026-10/apis-stage5/core-panel/approved.md)).
    Phase 1, crossing bounds in the braces (`^{Job + Sends}`,
    `?{Shape + Syncs}`), is built, in review
    ([phase1-notes.md](docs/history/records/2026-10/apis-stage5/phase1-notes.md));
-   phase 2, `*{Shape}` and `~{Shape}`, is next.
+   phase 2, `*{Shape}`, `~{Shape}`, and `*{Shape + Syncs}`, is built
+   on it, in review
+   ([phase2-notes.md](docs/history/records/2026-10/apis-stage5/phase2-notes.md)).
+   Phase 3, the Lean obligation, and phase 4, owned closures as objects
+   (a performance PR, kept only if faster), remain.
 3. **`rig lsp` on Nexus's generated server** (`nexus --editor --lang
    src/rig.zig rig.grammar DIR`): Rig fills in the generated `hooks.zig`
    (tokens, Rig-worded syntax errors, analysis of the editor's unsaved
@@ -191,7 +195,8 @@ each in review in turn; objects of an API with an associated type
 crossing objects, is in progress (phase 0, its Core text, done; phase 1,
 crossing bounds, built and reviewed,
 [review-p1.md](docs/history/records/2026-10/apis-stage5/review-p1.md),
-awaiting its gates); a
+awaiting its gates; phase 2, shared and weak objects, built and in
+review); a
 design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.

@@ -467,15 +467,31 @@ pub fn crossingBound(how: Crossing) Api {
 /// The braces of an object held as `form`, less a crossing bound the form
 /// cannot use: a read view crosses only when its value syncs, and a write
 /// view only when it sends, so `?{A + Sends}` is `?{A}` and `!{A +
-/// Syncs}` is `!{A}`, one spelling per meaning. A box keeps both.
+/// Syncs}` is `!{A}`, one spelling per meaning. A box keeps both; a
+/// counted handle crosses only when its value syncs, and a weak handle
+/// never.
 pub fn formBraces(builtins: Apis, form: ObjectForm) Apis {
     var out = builtins;
     switch (form) {
-        .read => out.remove(.Sends),
+        .read, .shared => out.remove(.Sends),
         .write => out.remove(.Syncs),
         .box => {},
+        .weak => {
+            out.remove(.Sends);
+            out.remove(.Syncs);
+        },
     }
     return out;
+}
+
+/// Whether a `*` of `inner` is a `*{A + Syncs}`, its `Syncs` in the
+/// braces or the API: such a handle holds a frozen value, counted
+/// atomically, which holds no view and has no weak handle; a `*{A}`
+/// without it holds a `*T`'s allocation, counted plainly. The holding
+/// follows from the braces alone (docs/design/apis.md, Stage 5).
+pub fn frozenObject(ctx: *const SemContext, inner: TypeId) bool {
+    const o = apiObject(ctx, inner) orelse return false;
+    return objectBounds(ctx, o).contains(.Syncs);
 }
 
 /// Whether API `sym` declares an associated type, `type Item`: a hidden
@@ -508,17 +524,19 @@ pub fn apiObject(ctx: *const SemContext, ty: TypeId) ?ApiObject {
 }
 
 /// How a value holds the API object it holds directly: `?{Shape}`,
-/// `!{Shape}`, or `^{Shape}`.
-pub const ObjectForm = enum { read, write, box };
+/// `!{Shape}`, `^{Shape}`, `*{Shape}`, or `~{Shape}`.
+pub const ObjectForm = enum { read, write, box, shared, weak };
 
 /// The API object `ty` holds directly, and how: a read view, a write
-/// view, or a box of one. Null for any other type, an optional of one
-/// included.
+/// view, a box, a counted handle, or a weak handle of one. Null for any
+/// other type, an optional of one included.
 pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObject, form: ObjectForm } {
     if (!ctx.typeInfo(ty).object) return null;
     const inner, const form: ObjectForm = switch (ctx.types.get(ty)) {
         .read_view => |v| .{ v, .read },
         .write_view => |v| .{ v, .write },
+        .shared => |v| .{ v, .shared },
+        .weak => |v| .{ v, .weak },
         else => .{ boxedType(ctx, ty) orelse return null, .box },
     };
     const o = apiObject(ctx, inner) orelse return null;
@@ -527,8 +545,9 @@ pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObjec
 
 /// A value erased to an API object (docs/design/apis.md, Stage 4): the
 /// value reached by a lend's rows, of type `from`, which provides the
-/// object's API by `witness`, made a `view`, `?{A}` or `!{A}`; or a box
-/// `^T` moved into a `^{A}`, keeping its allocation. Recorded
+/// object's API by `witness`, made a `view`, `?{A}` or `!{A}`; a box
+/// `^T` moved into a `^{A}`, keeping its allocation; or a counted handle
+/// moved into a `*{A}`, keeping its allocation and its count. Recorded
 /// once, where the type checker makes it (`SemContext.recordErasure`);
 /// emit writes the object and the ownership checker roots its loan from
 /// it.
@@ -537,12 +556,16 @@ pub const Erasure = struct {
     api: ApiRef,
     /// The erased value's type.
     from: TypeId,
-    /// The object it becomes: `?{A}`, `!{A}`, or `^{A}`.
+    /// The object it becomes: `?{A}`, `!{A}`, `^{A}`, or `*{A}`.
     view: TypeId,
     witness: Witness,
     form: ObjectForm,
-    /// A box's: the value is an optional box, `^T?`, whose box, if any,
-    /// is erased.
+    /// Where the value is held, which picks the table's drop, clone, and
+    /// weak entries: a box's allocation (a view's table is a box's), a
+    /// `*T`'s, or a frozen value's (`frozenObject`).
+    holding: Holding = .box,
+    /// A box's or a handle's: the value is an optional one, `^T?` or
+    /// `*T?`, which, if any, is erased.
     optional: bool = false,
     /// The value is a read view of plain data or of a type parameter's
     /// value, which may be held as a copy with no address of its own: the
@@ -550,6 +573,10 @@ pub const Erasure = struct {
     /// (`Storage` `erased_copy`), and cannot leave the block.
     copy: bool = false,
 };
+
+/// How an erased value is held (`Erasure.holding`), as the runtime's
+/// `rig.ApiHolding` spells it.
+pub const Holding = enum { box, counted, frozen };
 
 /// An entry of an API's table (docs/design/apis.md, Stage 4): a method a
 /// call through an object reaches (`objectMethods`), in its slot, with
@@ -563,10 +590,10 @@ pub const TableEntry = struct {
 };
 
 /// The API object a view `ty` is, `?{Shape}` or `!{Shape}`, and how it
-/// views it; null for any other type, a box of one included.
+/// views it; null for any other type, a box or a handle of one included.
 pub fn objectView(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObject, form: ObjectForm } {
     const h = objectHeld(ctx, ty) orelse return null;
-    if (h.form == .box) return null;
+    if (h.form != .read and h.form != .write) return null;
     return .{ .object = h.object, .form = h.form };
 }
 
@@ -578,8 +605,10 @@ pub fn isErasedView(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// A Cell that `ty` is or holds in its structure whose value holds an
-/// API object, `Cell[^{Shape}]`: changing an object in place is Stage
-/// 5's, beside `*{A}` and `~{A}` (Core §4). Null for any other type.
+/// API object, `Cell[^{Shape}]`: a Cell's value is replaced through any
+/// handle to it, and an object changes only through its methods, so a
+/// shared object changes through a Cell its value holds, behind a
+/// `*{A}` (docs/design/apis.md, Stage 5). Null for any other type.
 pub fn objectCell(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return objectCellAt(ctx, ty, 0);
 }
@@ -596,7 +625,7 @@ fn objectCellAt(ctx: *const SemContext, ty: TypeId, depth: u32) ?TypeId {
 }
 
 /// The error for a Cell of an API object (`objectCell`).
-pub const object_cell = "a Cell of an API object, `{s}`, is not built yet (docs/design/apis.md, Stage 5)";
+pub const object_cell = "a Cell holds no API object: `{s}`; a shared object changes through a `Cell` its value holds";
 
 /// Why a call through an API object cannot reach a method of its API
 /// (docs/design/apis.md, Stage 4): the call would pass what a table's
@@ -2957,6 +2986,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             try writeWitness(ctx, a, w, v.witness);
             if (v.copy) try w.writeAll(" copy");
             if (v.optional) try w.writeAll(" optional");
+            if (v.holding != .box) try w.print(" {s}", .{@tagName(v.holding)});
         },
         OwnerWitnesses => {
             if (v.receiver_arg) try w.writeAll(" receiver_arg");
@@ -6301,7 +6331,8 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         .optional => |inner| return reachOf(ctx, inner, mask, into),
         .fallible => |inner| return reachOf(ctx, inner.ok, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
-        .shared, .weak => |inner| return reachOf(ctx, inner, mask.within(Reach.views_only), into),
+        // A `*{A + Syncs}` holds a frozen value, which holds no view.
+        .shared, .weak => |inner| return if (frozenObject(ctx, inner)) .{} else reachOf(ctx, inner, mask.within(Reach.views_only), into),
         .nominal => |sym| blk: {
             const e = into orelse break :blk Reach.of(ctx.symbols.items[sym].contents);
             try e.edges.append(ctx.allocator, .{ .from = sym, .to = e.owner, .mask = mask });
@@ -7808,7 +7839,7 @@ pub fn objectUnowned(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error
 }
 
 fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
-    if (objectHeld(ctx, ty)) |h| return if (objectBounds(ctx, h.object).contains(.Owned)) null else ty;
+    if (objectHeld(ctx, ty)) |h| return if (objectBounds(ctx, h.object).contains(.Owned) or (h.form == .shared and frozenObject(ctx, ctx.types.get(ty).shared))) null else ty;
     if (apiObject(ctx, ty)) |o| return if (objectBounds(ctx, o).contains(.Owned)) null else ty;
     switch (ctx.types.get(ty)) {
         .optional, .read_view, .write_view, .shared, .weak, .range => |inner| return objectUnownedIn(ctx, inner, seen),
@@ -7847,8 +7878,9 @@ fn objectUnownedFields(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHas
 /// (docs/design/apis.md, Stage 4): a read view copies, as any read view
 /// does, so it clones too; `Print` where its braces name it or its API
 /// builds on it, and `Clone` so for a box, the one form whose `+` makes a
-/// new owner of the value; `Owned`
-/// for a box whose braces name it, checked where the type is erased.
+/// new owner of the value, and for a handle, whose `+` adds a count;
+/// `Owned` for a box or a handle whose braces name it, checked where the
+/// type is erased, and for a `*{A + Syncs}`, which holds a frozen value.
 /// Nothing else: two objects may hide two types, which `==`, hashing,
 /// and `<` cannot compare, and an erased type crosses no task until
 /// Stage 5. A bare object meets nothing (`lacks`).
@@ -7856,9 +7888,12 @@ pub fn objectMeets(ctx: *const SemContext, o: ApiObject, form: ObjectForm, api: 
     const named = objectBounds(ctx, o);
     return switch (api) {
         .Copy => form == .read,
-        .Print => named.contains(.Print),
-        .Clone => form == .read or (form == .box and named.contains(.Clone)),
-        .Owned => form == .box and named.contains(.Owned),
+        // A weak handle prints whether its value lives, never the value.
+        .Print => form == .weak or named.contains(.Print),
+        // A handle's `+` adds a count, as any handle's does.
+        .Clone => form == .read or form == .shared or form == .weak or (form == .box and named.contains(.Clone)),
+        // A `*{A + Syncs}` holds a frozen value, which holds no view.
+        .Owned => (form == .box or form == .shared or form == .weak) and named.contains(.Owned) or (form == .shared and named.contains(.Syncs)),
         .Eq, .Hash, .Ord, .Num, .Integer, .Signed, .Iter => false,
         // The crossing walk decides these (`lacks`, `blockerOf`).
         .Sends, .Syncs => false,
@@ -9489,11 +9524,12 @@ pub fn frozenOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// Whether a `*` handle to `inner` counts its handles atomically, and so
-/// goes to other tasks: a Cell of one word's, an actor's, a channel's, or
-/// a frozen value's. The one test of whether a count is atomic; the
+/// goes to other tasks: a Cell of one word's, an actor's, a channel's, a
+/// frozen value's, or a `*{A + Syncs}`'s, which holds a frozen value
+/// (`frozenObject`). The one test of whether a count is atomic; the
 /// runtime's `synchronized` makes the same choice.
 pub fn atomicHandle(ctx: *const SemContext, inner: TypeId) bool {
-    return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null;
+    return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null or frozenObject(ctx, inner);
 }
 
 /// Whether `ty` is a `Cell[T]`.
@@ -9525,15 +9561,15 @@ pub const Home = enum {
 };
 
 /// What may not stand where `misplaced` says.
-pub const Misplaced = enum { cell, write_view, unsized };
+pub const Misplaced = enum { cell, write_view, unsized, frozen };
 
 /// The one decider of where a Cell, a write view, and an API object may
 /// stand (Core §1), by a positive list of homes:
 /// - An API object, `{Shape}`, has no size of its own: it stands only
-///   behind a view (`.viewed`) or a box (`^{Shape}`, which holds it
-///   through its allocation), never as a value's, an element's, or a
-///   type argument's type, written or inferred (docs/design/apis.md,
-///   Stage 4).
+///   behind a view (`.viewed`), a box (`^{Shape}`, which holds it
+///   through its allocation), or a handle (`*{Shape}`, `~{Shape}`), never
+///   as a value's, an element's, or a type argument's type, written or
+///   inferred (docs/design/apis.md, Stages 4 and 5).
 /// - A value that holds a Cell by value lives only behind a shared
 ///   handle: such a type stands in a field (of a value itself so held),
 ///   behind `*` or `~`, or behind a view. A type that holds one through
@@ -9541,11 +9577,16 @@ pub const Misplaced = enum { cell, write_view, unsized };
 ///   declared type that holds one counts (`holdsOwnCell`); a type
 ///   argument counts however it holds one.
 /// - A write view is never stored inside a value (`writeViewMisplaced`).
+/// - A frozen value, `Frozen[T]`, lives only behind `*`, whose
+///   allocation holds it: never a value's, an element's, or a type
+///   argument's type, written or inferred, so no generic `*T` or `~T`
+///   stands for a frozen value's handle.
 /// Null where `ty` may stand at `home`. The Cell rule needs what every
 /// type holds (`SemContext.contents_ready`).
 pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
     if (unsizedAt(ctx, ty, home)) return .unsized;
     if (writeViewMisplaced(ctx, ty, home)) return .write_view;
+    if (frozenMisplaced(ctx, ty, home)) return .frozen;
     switch (home) {
         .field, .handle, .viewed => {},
         .type_arg => if (holdsCellByValue(ctx, ty)) return .cell,
@@ -9554,12 +9595,20 @@ pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
     return null;
 }
 
+/// Whether `ty` is a frozen value, `Frozen[T]`, at a home other than
+/// behind `*` (`Misplaced.frozen`). Decided by the type's structure alone,
+/// so a type is rejected where it is written.
+pub fn frozenMisplaced(ctx: *const SemContext, ty: TypeId, home: Home) bool {
+    return home != .handle and frozenValue(ctx, ty) != null;
+}
+
 /// Whether `ty` is a bare API object, `{Shape}`, which has no size of its
-/// own, at a home other than behind a view (`Misplaced.unsized`).
+/// own, at a home other than behind a view or a handle
+/// (`Misplaced.unsized`).
 /// Decided by the type's structure alone, so a type is rejected where it
 /// is written, before what types hold is known.
 pub fn unsizedAt(ctx: *const SemContext, ty: TypeId, home: Home) bool {
-    return home != .viewed and apiObject(ctx, ty) != null;
+    return home != .viewed and home != .handle and apiObject(ctx, ty) != null;
 }
 
 /// Whether `ty`, a write view or a value that holds one anywhere
@@ -9620,12 +9669,20 @@ fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
 /// twice, a write view's once.
 pub const cell_misplaced = "a value of `{s}` holds a Cell, so it lives only behind a shared handle: write `*{s}`";
 /// A bare API object where a value's type goes (`Misplaced.unsized`).
-pub const object_unsized = "`{s}` has no size of its own: hold it behind a view or a box, `?{s}`, `!{s}`, or `^{s}`";
+pub const object_unsized = "`{s}` has no size of its own: hold it behind a view, a box, or a handle, `?{s}`, `!{s}`, `^{s}`, or `*{s}`";
 
 /// A bare API object as an instance's type argument, inferred or
 /// written (`Misplaced.unsized`): no value has its type, so a generic
 /// body would write a value of one type where another lives.
 pub const object_unsized_arg = "`{s}` has no size of its own, so it is no type argument, written or inferred";
+
+/// A frozen value where a value's type goes (`Misplaced.frozen`).
+pub const frozen_misplaced = "a frozen value lives only behind a shared handle: write `*{s}`";
+
+/// A frozen value as an instance's type argument, inferred or written
+/// (`Misplaced.frozen`): a generic `*T` would be a plain count of it, and
+/// a `~T` a weak handle of a frozen value, which has none.
+pub const frozen_misplaced_arg = "a frozen value lives only behind its handle, so `{s}` is no type argument, written or inferred: pass the handle whole where a `T` goes, `*{s}`";
 
 /// An error that a form holding an API object is not built yet (a Cell
 /// of one, Stage 5's), remembered so that `recordType` reports none
@@ -9910,7 +9967,8 @@ pub fn frozenBlocker(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?Type
 fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
     const here: Blocker = .{ .ctx = ctx, .ty = ty };
     return switch (ctx.types.get(ty)) {
-        .shared => |inner| if (frozenValue(ctx, inner) != null) null else here,
+        // Another frozen value's handle, a `*{A + Syncs}` included.
+        .shared => |inner| if (frozenValue(ctx, inner) != null or frozenObject(ctx, inner)) null else here,
         .weak, .callable, .read_view, .write_view, .string_view, .slice => here,
         // An API object's hidden type may hold a Cell or a handle, so
         // whether it freezes is not known (docs/design/apis.md, Stage 4).

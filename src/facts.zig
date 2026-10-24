@@ -186,6 +186,13 @@ pub const Facts = struct {
         return if (h.form == .box) h.object else null;
     }
 
+    /// The API object a counted or a weak handle `ty` holds, `*{Shape}`
+    /// or `~{Shape}`; null for any other type.
+    pub fn objectHandle(f: Facts, ty: TypeId) ?sema.ApiObject {
+        const h = sema.objectHeld(f.c(), ty) orelse return null;
+        return if (h.form == .shared or h.form == .weak) h.object else null;
+    }
+
     /// Whether `f` and `g` are the facts of the same module.
     pub fn same(f: Facts, g: Facts) bool {
         return f.sema_context == g.sema_context;

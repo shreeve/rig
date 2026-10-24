@@ -1,0 +1,944 @@
+# types: tests whose names start `apis object shared`: a counted API
+# object, `*{Shape}`, and its weak handle, `~{Shape}` (docs/design/apis.md,
+# Stage 5).
+
+test "apis object shared a weak handle and the last drop", '''
+  4.0
+  gone
+'''
+  # Core §4's example: `~s` holds the value weakly, `*w` gives a new
+  # count while it lives and `none` after its last count is dropped.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: *{Shape} = *Square(side: 2.0)
+  w = ~s
+  if *w as h
+    print(h.area())
+  <s
+  if *w as h
+    print("still here")
+  else
+    print("gone")
+
+test "apis object shared a frozen value read by two tasks", seeds: 20, "8.0"
+  # Core §4's second example: a frozen value's handle counts atomically,
+  # so a `*{Shape + Syncs}` of it goes to any task.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: *{Shape + Syncs}) -> Float
+    s.area()
+
+  s: *{Shape + Syncs} = *Frozen(Square(side: 2.0))
+  a = area_of(+s)&
+  b = area_of(+s)&
+  print(>a + >b)
+
+test "apis object shared a handle moved keeps its allocation", "4.0 4.0"
+  # `<h` moves the `*Square` in, `+h` adds a count first: both keep the
+  # allocation `*Square(...)` made.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  h = *Square(side: 2.0)
+  t: *{Shape} = +h
+  s: *{Shape} = <h
+  print(s.area(), t.area())
+
+test "apis object shared made where it goes", "9.0 1.0"
+  # `*S(...)` and `*<x` written where a `*{Shape}` goes make the
+  # allocation there, of the value's own type.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  sq = Square(side: 1.0)
+  a: *{Shape} = *Square(side: 3.0)
+  b: *{Shape} = *<sq
+  print(a.area(), b.area())
+
+test "apis object shared counts", '''
+  3
+  2
+  1
+'''
+  # `+s` adds a count through the table, and a drop gives one back.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun count(w: ?~{Shape}) -> Int
+    n = 0
+    if *w as h
+      n = 1
+    n
+
+  s: *{Shape} = *Square(side: 1.0)
+  t = +s
+  u = +t
+  w = ~s
+  print(count(?w) + 2)
+  <u
+  print(count(?w) + 1)
+  <t
+  print(count(?w))
+
+test "apis object shared a List of two types with a shared element", "4.0 3.14 4.0 3"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.14 * @r * @r
+
+  sq: *{Shape} = *Square(side: 2.0)
+  shapes: List[*{Shape}] = List()
+  !shapes.push(+sq)
+  !shapes.push(*Circle(r: 1.0))
+  !shapes.push(<sq)
+  print(shapes[0].area(), shapes[1].area(), shapes[2].area(), shapes.len)
+
+test "apis object shared changed through a Cell its value holds", "3"
+  # A `*{A}` reaches `?@` methods only; one changes a shared Cell its
+  # value holds by a marked call on a count of its own.
+  api Tick
+    sub tick(?@)
+    fun count(?@) -> Int
+
+  obj Counter: Tick
+    hits: *Cell[Int]
+
+    sub tick(?@)
+      c = +@hits
+      !c.set(c.get() + 1)
+
+    fun count(?@) -> Int
+      @hits.get()
+
+  t: *{Tick} = *Counter(hits: *Cell(0))
+  u = +t
+  t.tick()
+  u.tick()
+  t.tick()
+  print(u.count())
+
+test "apis object shared a long chain drops without deep recursion", "100000 1 gone"
+  # 100,000 `*{Node}` links, each with a weak handle to the root: the
+  # last count of the head drops the chain through the drop queue a
+  # `*T` uses, and each link's weak handle once.
+  api Node
+    fun depth(?@) -> Int
+
+  obj Root: Node
+    n: Int
+
+    fun depth(?@) -> Int
+      0
+
+  obj Link: Node
+    next: (*{Node})?
+    root: ~{Node}
+
+    fun depth(?@) -> Int
+      1
+
+  root: *{Node} = *Root(n: 0)
+  head: (*{Node})? = none
+  n = 0
+  for 0..100000
+    head = *Link(next: <head, root: ~root)
+    n += 1
+  d = 0
+  if head as h
+    d = h.depth()
+  <head
+  w = ~root
+  <root
+  gone = "alive"
+  if *w as r
+    gone = "still"
+  else
+    gone = "gone"
+  print(n, d, gone)
+
+test "apis object shared a plugin registry frozen and read by two tasks", seeds: 20, "6 6"
+  # The reviewer's fix 2: a frozen value holds `*{A + Syncs}` handles,
+  # another frozen value's, so a registry of plugins is frozen whole.
+  api Plugin
+    fun run(?@, n: Int) -> Int
+
+  obj Double: Plugin
+    k: Int
+
+    fun run(?@, n: Int) -> Int
+      n * @k
+
+  obj Add: Plugin
+    k: Int
+
+    fun run(?@, n: Int) -> Int
+      n + @k
+
+  fun total(reg: *Frozen[List[*{Plugin + Syncs}]]) -> Int
+    n = 1
+    for i in 0..reg.len
+      n = reg[i].run(n)
+    n
+
+  ps: List[*{Plugin + Syncs}] = List()
+  !ps.push(*Frozen(Double(k: 2)))
+  !ps.push(*Frozen(Add(k: 4)))
+  reg = *Frozen(<ps)
+  a = total(+reg)&
+  b = total(+reg)&
+  print(>a, >b)
+
+test "apis object shared printed by its braces", '''
+  Square(side: 2.0)
+  ~(alive)
+'''
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: *{Shape + Print} = *Square(side: 2.0)
+  w = ~s
+  print(s)
+  print(w)
+
+test "apis object shared lends the read view it holds", "4.0 8.0"
+  # `?s` lends the `?{Shape}` the handle holds, the same two words.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun twice(s: ?*{Shape}) -> Float
+    area_of(?s) * 2.0
+
+  s: *{Shape} = *Square(side: 2.0)
+  print(area_of(?s), twice(?s))
+
+test "apis object shared lent to write is the handle", "1.0"
+  # `!s` lends the handle itself: the callee may put another in its
+  # place, erased where it is written.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      @r
+
+  sub replace(s: !*{Shape})
+    s = *Circle(r: 1.0)
+
+  s: *{Shape} = *Square(side: 2.0)
+  replace(!s)
+  print(s.area())
+
+test "apis object shared optional handles", "4.0 none"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: (*{Shape})?) -> Float?
+    if s as h
+      return h.area()
+    none
+
+  h: (*Square)? = *Square(side: 2.0)
+  a: (*{Shape})? = <h
+  b: (*{Shape})? = none
+  print(area_of(<a), area_of(<b))
+
+test "apis object shared a field and a drop body", '''
+  4.0
+  dropped
+  done
+'''
+  # The hidden value's `drop` body runs at the last count's drop.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    drop(!@)
+      print("dropped")
+
+  obj Holder
+    s: *{Shape}
+
+  h = Holder(s: *Square(side: 2.0))
+  t = +h.s
+  <h
+  print(t.area())
+  <t
+  print("done")
+
+test "apis object shared by the API's bound", seeds: 20, "4.0"
+  # Under `api Shape: Syncs`, every `*{Shape}` holds a frozen value and
+  # counts atomically.
+  api Shape: Syncs
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: *{Shape}) -> Float
+    s.area()
+
+  s: *{Shape} = *Frozen(Square(side: 2.0))
+  t = area_of(+s)&
+  print(>t)
+
+test "apis object shared generic erasures by their bounds", "4.0 9.0"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun share[T: Shape](h: *T) -> *{Shape}
+    <h
+
+  fun freeze[T: Shape + Syncs](h: *Frozen[T]) -> *{Shape + Syncs}
+    <h
+
+  a = share(*Square(side: 2.0))
+  b = freeze(*Frozen(Square(side: 3.0)))
+  print(a.area(), b.area())
+
+test "apis object shared weak handles counted", "true false"
+  # `+w` makes another weak handle; each is dropped once.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun alive(w: ?~{Shape}) -> Bool
+    if *w as h
+      return true
+    false
+
+  s: *{Shape} = *Square(side: 2.0)
+  w = ~s
+  v = +w
+  a = alive(?v)
+  <s
+  print(a, alive(?w))
+
+test "apis object shared a call by the API's name", "4.0"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: *{Shape} = *Square(side: 2.0)
+  print(Shape.area(s))
+
+test "apis object shared names its type", '''
+  *{Shape}
+  ~{Shape + Print}
+  *{Shape + Syncs}
+'''
+  api Shape
+    fun area(?@) -> Float
+
+  type S = *{Shape}
+  type W = ~{Shape + Print}
+  type F = *{Shape + Syncs}
+
+  sub show[T]()
+    print($name(T))
+
+  show[S]()
+  show[W]()
+  show[F]()
+
+# ---- rejections ----
+
+fail "apis object shared a count that is not atomic", "`*Square` is erased to `*{Shape + Syncs}`, which several tasks read, but its count is not atomic: freeze the value, `*Frozen(...)`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: *{Shape + Syncs} = *Square(side: 2.0)
+  print(s.area())
+
+fail "apis object shared a generic count that is not atomic", "`*T` is erased to `*{Shape + Syncs}`, which several tasks read, but its count is not atomic: freeze the value, `*Frozen(...)`"
+  # The adversary's A2: `T` syncs, but `*T` counts plainly.
+  api Shape
+    fun area(?@) -> Float
+
+  fun sh[T: Shape + Syncs](h: *T) -> *{Shape + Syncs}
+    <h
+
+  print(1)
+
+fail "apis object shared a frozen value's handle only syncs", "a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomically: write `*{Shape + Syncs}`"
+  # The adversary's A1: a `*{Shape}` hiding a frozen allocation would
+  # have a weak handle racing its atomic last drop.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: *{Shape} = *Frozen(Square(side: 2.0))
+  print(s.area())
+
+fail "apis object shared Sends in the braces", "a shared handle goes to another task when several tasks may read its value: write `*{Shape + Syncs}`"
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(s: *{Shape + Sends})
+    print(1)
+
+  print(1)
+
+fail "apis object shared Clone in the braces", "a `*{Shape}` is counted, so `+s` never clones its value: take `Clone` out of the braces"
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(s: *{Shape + Clone})
+    print(1)
+
+  print(1)
+
+fail "apis object shared Owned with Syncs", "`*{Shape + Syncs}` holds a frozen value, which holds no view: take `Owned` out of the braces"
+  # The reviewer's fix 3: one spelling.
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(s: *{Shape + Owned + Syncs})
+    print(1)
+
+  print(1)
+
+fail "apis object shared a weak handle never crosses", "a weak handle never crosses: take `Syncs` out of `~{Shape + Syncs}`", "a weak handle never crosses: take `Sends` out of `~{Shape + Sends}`"
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(w: ~{Shape + Syncs})
+    print(1)
+
+  sub keep2(w: ~{Shape + Sends})
+    print(1)
+
+  print(1)
+
+fail "apis object shared a weak handle of an API that syncs", "`~{Shape}` would be a weak handle of a frozen value: `Shape` builds on `Syncs`, so every `*{Shape}` holds one, which has no weak handle"
+  api Shape: Syncs
+    fun area(?@) -> Float
+
+  sub keep(w: ~{Shape})
+    print(1)
+
+  print(1)
+
+fail "apis object shared no weak handle of a frozen value", "`~f` of a `*{Shape + Syncs}`: a frozen value has no weak handle"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  f: *{Shape + Syncs} = *Frozen(Square(side: 2.0))
+  w = ~f
+  print(1)
+
+fail "apis object shared only reads", "`*{Shape}` only reads, as any handle: `grow` takes `!@`; hold a `^{Shape}`, or change the value through a `Cell` it holds", "`*{Shape}` only reads, as any handle: `close` takes `<@`; hold a `^{Shape}`, or change the value through a `Cell` it holds"
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@)
+    fun close(<@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@)
+      @side += 1.0
+
+    fun close(<@) -> Float
+      @side
+
+  s: *{Shape} = *Square(side: 2.0)
+  !s.grow()
+  print((<s).close())
+
+fail "apis object shared a box's value has no size to share", "`*<b` would move a value whose type is erased: share the value before erasing it, `*<x` where a `*{Shape}` goes"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 2.0)
+  s: *{Shape} = *<b
+  print(s.area())
+
+fail "apis object shared no form becomes another", "type mismatch: expected `*{Shape}`, got `^{Shape}`", "type mismatch: expected `^{Shape}`, got `*{Shape}`", "type mismatch: expected `*{Shape + Syncs}`, got `*{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  b: ^{Shape} = ^Square(side: 2.0)
+  s: *{Shape} = <b
+  c: ^{Shape} = +s
+  f: *{Shape + Syncs} = +s
+  print(1)
+
+fail "apis object shared never through a view", "`?sq` would view a `*Square` as a `*{Shape}`: a handle is erased only as it moves or counts, never through a view; pass `+sq`", "`!sq` would view a `*Square` as a `*{Shape}`: a handle is erased only as it moves or counts, never through a view; pass `+sq`"
+  # The adversary's A5: `!sq` as a `!*{Shape}` would write a `Circle`
+  # into a `*Square`; `?sq` as a `?*{Shape}` would read 8 bytes as 16.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?*{Shape}) -> Float
+    s.area()
+
+  sub replace(s: !*{Shape})
+    print(1)
+
+  sq = *Square(side: 2.0)
+  print(area_of(?sq))
+  replace(!sq)
+
+fail "apis object shared an actor's and a channel's handles", "`*Actor[Counter]` is an actor's handle, whose methods are messages, so it is no `*{Shape}`", "`*Chan[Int]` is a channel's handle, whose methods are messages, so it is no `*{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Counter: Shape
+    hits: Int
+
+    fun area(?@) -> Float
+      1.0
+
+  c = *Actor(Counter(hits: 0))
+  s: *{Shape} = <c
+  ch = *Chan[Int](1)
+  t: *{Shape} = <ch
+  print(1)
+
+fail "apis object shared a holding sigil over a held object", "`*^{Shape}` stacks one heap holding on another", "`^*{Shape}` stacks one heap holding on another"
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(s: *^{Shape})
+    print(1)
+
+  sub keep2(s: ^*{Shape})
+    print(1)
+
+  print(1)
+
+fail "apis object shared stays with its task", "`*{Shape}` stays with its task, as a `*T` does: its braces name no `Syncs`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: *{Shape}) -> Float
+    s.area()
+
+  s: *{Shape} = *Square(side: 2.0)
+  t = area_of(+s)&
+  print(>t)
+
+fail "apis object shared a weak handle stays with its task", "`~{Shape}`, a weak handle, goes to no task"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun alive(w: ~{Shape}) -> Bool
+    if *w as h
+      return true
+    false
+
+  s: *{Shape} = *Square(side: 2.0)
+  t = alive(~s)&
+  print(>t)
+
+fail "apis object shared hides no task", "`Runner` is erased to `*{Shape}`, which would hide a task from the rules that wait for one, and its field `t` is a `Task[Float]`: wait for the task before erasing"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Runner: Shape
+    t: Task[Float]
+
+    fun area(?@) -> Float
+      1.0
+
+  fun slow() -> Float
+    2.0
+
+  s: *{Shape} = *Runner(t: slow()&)
+  print(s.area())
+
+fail "apis object shared names Print to print", "`*{Shape}` cannot be printed: its type is erased; write `*{Shape + Print}`, or build `Shape` on `Print`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: *{Shape} = *Square(side: 2.0)
+  print(s)
+
+fail "apis object shared a table's slot", "an API object has no default value: write `*{Shape + Owned}?`", "an API object has no default value: write `*{Shape + Syncs}?`"
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(t: ?Table[*{Shape}, 4], u: ?Table[*{Shape + Syncs}, 4])
+    print(1)
+
+  print(1)
+
+test "apis object shared a channel of frozen objects", seeds: 20, "6.0"
+  # A `*{A + Syncs}` goes to any task: a channel's elements move.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side
+
+  type S = *{Shape + Syncs}
+
+  sub feed(ch: *Chan[S])!
+    for i in 1..4
+      !ch.send(*Frozen(Square(side: Float(i))))!
+    !ch.close()
+
+  fun drain(ch: *Chan[S]) -> Float!
+    t = feed(+ch)&
+    n = 0.0
+    while (!ch).recv()! as s
+      n += s.area()
+    >t!
+    n
+
+  ch = *Chan[S](2)
+  print(drain(+ch) catch 0.0)
+
+test "apis object shared an actor holding frozen objects", seeds: 20, "4.0"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Keep
+    s: *{Shape + Syncs}
+
+    fun get(?@) -> Float
+      @s.area()
+
+  a = *Actor(Keep(s: *Frozen(Square(side: 2.0))))
+  print(a.get())
+
+fail "apis object shared an actor's state", "an actor's value goes to a task of its own, and `Keep` holds `*{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Keep
+    s: *{Shape}
+
+  a = *Actor(Keep(s: *Square(side: 2.0)))
+  print(1)
+
+fail "apis object shared a frozen value holds no plain one", "a frozen value holds only data that never changes, and `F` holds `*{Shape}`"
+  # Only a `*{A + Syncs}`, another frozen value's handle, is frozen.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj F
+    s: *{Shape}
+
+  f = *Frozen(F(s: *Square(side: 1.0)))
+  print(1)
+
+fail "apis object shared a Cell holds none", "a Cell holds no API object: `Cell[*{Shape}]`; a shared object changes through a `Cell` its value holds"
+  # Open question 17: a Cell of an object is rejected for good.
+  api Shape
+    fun area(?@) -> Float
+
+  sub keep(c: *Cell[*{Shape}])
+    print(1)
+
+  print(1)
+
+test "apis object shared erased at a task's call", seeds: 20, "4.0"
+  # A value erased where a task takes a `*{A + Syncs}` crosses by those
+  # braces: a frozen value's handle, counted atomically.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: *{Shape + Syncs}) -> Float
+    s.area()
+
+  t = area_of(*Frozen(Square(side: 2.0)))&
+  print(>t)
+
+fail "apis object shared erased at a task's call stays", "`*{Shape}` stays with its task, as a `*T` does: its braces name no `Syncs`"
+  # A `*Square` erased where a task takes a `*{Shape}` crosses by the
+  # parameter's braces, never by its known type.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: *{Shape}) -> Float
+    s.area()
+
+  t = area_of(*Square(side: 2.0))&
+  print(>t)
+
+test "apis object shared a value of small alignment", '''
+  alive 1.0
+  unit drop
+  gone
+  2.0 4.0
+'''
+  # A value aligned below its counted allocation, an object of no fields
+  # or a plain enum: each table entry finds the allocation around it.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Unit: Shape
+    fun area(?@) -> Float
+      1.0
+
+    drop(!@)
+      print("unit drop")
+
+  enum Kind: Shape
+    a
+    b
+
+    fun area(?@) -> Float
+      2.0
+
+  s: *{Shape} = *Unit()
+  t = +s
+  w = ~s
+  k: *{Shape} = *Kind.b
+  kw = ~k
+  <s
+  if *w as h
+    print("alive", h.area())
+  <t
+  if *w as h
+    print("still here")
+  else
+    print("gone")
+  n = 0.0
+  if *kw as h
+    n = h.area()
+  f = *Frozen(Kind.a)
+  g: *{Shape + Syncs} = <f
+  g2 = +g
+  print(n, g.area() + g2.area())
+
+test "apis object shared optional handles counted", "4.0 9.0 end"
+  # `+o` of an optional handle adds a count of the value, plain or
+  # frozen.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: (*{Shape})? = *Square(side: 2.0)
+  t = +s
+  s = none
+  a = 0.0
+  if t as h
+    a = h.area()
+  u: (*{Shape + Syncs})? = *Frozen(Square(side: 3.0))
+  v = +u
+  u = none
+  b = 0.0
+  if v as h
+    b = h.area()
+  print(a, b, "end")
+
+test "apis object shared a long frozen chain drops without deep recursion", seeds: 20, "200000 2"
+  # 200,000 frozen links, each holding the next as a `*{Node + Syncs}`
+  # (fix 2): the last count of the head, given back on whichever task
+  # holds it, drops the chain through the drop queue.
+  use std.task
+
+  api Node
+    fun depth(?@) -> Int
+
+  obj Link: Node
+    next: (*{Node + Syncs})?
+
+    fun depth(?@) -> Int
+      1
+
+  fun hold(h: (*{Node + Syncs})?) -> Int
+    n = 0
+    if h as x
+      n = x.depth()
+    n
+
+  head: (*{Node + Syncs})? = none
+  n = 0
+  for 0..200000
+    head = *Frozen(Link(next: <head))
+    n += 1
+  a = hold(+head)&
+  b = hold(<head)&
+  print(n, >a + >b)

@@ -3825,9 +3825,11 @@ sub main()
 ### API objects
 
 An API object is a value of some type that provides an API, the type
-chosen as the program runs (docs/design/apis.md, Stage 4). Its type is
-the API in braces behind a view or a box: `?{Shape}` a read view of
-one, `!{Shape}` a write view, `^{Shape}` a box that owns one. Braces
+chosen as the program runs (docs/design/apis.md, Stages 4 and 5). Its
+type is the API in braces behind a view, a box, or a handle: `?{Shape}`
+a read view of one, `!{Shape}` a write view, `^{Shape}` a box that owns
+one, `*{Shape}` a counted handle to one, and `~{Shape}` its weak handle.
+Braces
 stand only in a type. They name one API of a program's own, which may
 build on others, and beside it only the built-in APIs an object serves
 itself: `Owned`, `Print`, and `Clone`, joined with `+`, `^{Shape +
@@ -3868,7 +3870,7 @@ sub main()
 ```
 
 ```error
-`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`
+`{Shape}` has no size of its own: hold it behind a view, a box, or a handle, `?{Shape}`, `!{Shape}`, `^{Shape}`, or `*{Shape}`
 ```
 
 Each other name in the braces says why it does not belong: a type
@@ -3878,9 +3880,9 @@ name first, `api Both: Shape + Named`), `Copy` (each form copies as
 its kind does: `?{Shape}` copies, `^{Shape}` moves), `Eq`, `Hash`, and
 `Ord` (two objects may hide two types, which `==` and `<` cannot
 compare), and the number APIs. `Sends` and `Syncs` say how the object
-crosses tasks (below), each where its form can use it; the shared and
-weak forms, `*{Shape}` and `~{Shape}`, are Stage 5's; an API with an
-associated type forms objects only with it named,
+crosses tasks (below), each where its form can use it; a handle's
+braces name no `Clone`, since its `+` adds a count (below); an API with
+an associated type forms objects only with it named,
 `^{Source[Item: Int]}`, which a later phase builds.
 
 ```rig reject
@@ -3902,11 +3904,14 @@ sub main()
 
 An object meets only the built-in bounds its braces name, as the
 type it hides is erased: a `Print` its braces or its API name, a
-`Clone` and an `Owned` of a box whose braces name them, and a read
-view's `Copy`. It meets no bound by an API, since a box is not its
-value: `T = ^{Shape}` does not meet `[T: Shape]`. A List, an
-optional, or an array of objects prints as its objects do, and no
-frozen value holds one, since the type it hides may hold a Cell.
+`Clone` and an `Owned` of a box whose braces name them, an `Owned` of
+a handle whose braces name it, and a read view's `Copy`; a handle's `+`
+adds a count, and a weak handle prints whether its value lives. It
+meets no bound by an API, since a box is not its value: `T = ^{Shape}`
+does not meet `[T: Shape]`. A List, an optional, or an array of
+objects prints as its objects do, and no frozen value holds one but a
+`*{A + Syncs}`, another frozen value's handle (below), since the type
+it hides may hold a Cell.
 
 ```rig reject
 api Shape
@@ -4149,7 +4154,8 @@ cannot lend `t` to write while a read loan is live
 
 An object has no default value, so a `Table` of them holds
 `^{Shape + Owned}?`. An object goes into no error's field, which holds
-no handle; a Cell of one is Stage 5's, beside `*{Shape}` and `~{Shape}`.
+no handle, and into no Cell, whose value is replaced through any
+handle: a shared object changes through a `Cell` its value holds.
 
 ```rig reject
 api Shape
@@ -4164,6 +4170,92 @@ sub main()
 an API object has no default value: write `^{Shape + Owned}?`
 ```
 
+**Shared and weak objects.** A counted handle moves into a `*{Shape}`
+and keeps its allocation and its count: `<h` of a `*Square`, `+h` of
+one (a new count first), and a `*Square(...)` or `*<sq` written where a
+`*{Shape}` goes. A handle is erased only as it moves or counts, never
+through a view: a `?*Square` is no `?*{Shape}`, since a `!*{Shape}`
+could take a `Circle` in a `*Square`'s place. A box's value is never
+shared, as its size is erased (`*<b` of a `^{Shape}`), and no other
+form becomes a `*{Shape}`: an actor's or a channel's handle, whose
+methods are messages, a Cell's, or a `^{Shape}`. Like every handle it
+only reads: a call through it reaches the API's `?@` methods, `?s`
+lends the `?{Shape}` it holds, `!s` the handle itself, and `+s` adds a
+count; the last count's drop drops the value through its table, a long
+chain without deep recursion. `~s` makes its weak handle, a
+`~{Shape}`, and `*w` gives a `*{Shape}?`, a new count while the value
+lives and `none` after; `+w` makes another weak handle. Both carry the
+loans of what they hold until the last count is dropped, since the
+hidden type may have a `drop` body, and none with `Owned` in the
+braces.
+
+```rig
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+obj Circle: Shape
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+sub main()
+  h = *Square(side: 2.0)
+  shapes: List[*{Shape}] = List()
+  !shapes.push(+h)
+  !shapes.push(*Circle(r: 1.0))
+  s: *{Shape} = <h
+  w = ~s
+  print(shapes[0].area(), shapes[1].area(), s.area())
+  <s
+  <shapes
+  if *w as again
+    print(again.area())
+  else
+    print("gone")
+```
+
+```output
+4.0 3.0 4.0
+gone
+```
+
+The holding follows from the braces. A `*{Shape}` holds a `*T`'s
+allocation, counted plainly; a `*{Shape + Syncs}`, `Syncs` in its
+braces or its API, holds a frozen value's, counted atomically, so only
+a frozen value's handle becomes one: `*Frozen(Square(...))`, or a
+`*Frozen[T]` in a generic body, never a `*T` whose `T` syncs. Neither
+becomes the other. A `*{Shape + Syncs}` names no `Owned`, as a frozen
+value holds no view, and has no weak handle, as a frozen value has
+none: `~` of one is rejected, and so is a `~{...}` whose API syncs. A
+frozen value may hold one, another frozen value's handle, so a
+`*Frozen[List[*{Plugin + Syncs}]]` is a registry many tasks read.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+sub main()
+  s: *{Shape} = *Frozen(Square(side: 2.0))
+  print(s.area())
+```
+
+```error
+a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomically: write `*{Shape + Syncs}`
+```
+
 **Crossing tasks.** An API object crosses tasks only by a bound it
 names, in its braces or in its API (`api Job: Sends`): `Sends` and
 `Syncs` are facts of the hidden value, checked where its type is
@@ -4174,10 +4266,14 @@ checked at each instance. After that, each form crosses by its row
 of [§18's table](#18-tasks): a box goes to another task when its value
 sends and is read by several when it syncs; a write view goes when its
 value sends and is never read by two; a read view does both when its
-value syncs. So a form's braces name only the bound it can use:
-`?{Shape + Sends}` is rejected toward `?{Shape + Syncs}`, and
-`!{Shape + Syncs}` toward `!{Shape + Sends}`; a box `^{Shape + Sends +
-Syncs}` lends a `?{Shape + Syncs}` and a `!{Shape + Sends}`. An object
+value syncs; a `*{Shape + Syncs}` does both, counted atomically, while
+a `*{Shape}` stays with its task, as a `*T` does, and a `~{Shape}` goes
+to none. So a form's braces name only the bound it can use:
+`?{Shape + Sends}` is rejected toward `?{Shape + Syncs}`,
+`!{Shape + Syncs}` toward `!{Shape + Sends}`, and `*{Shape + Sends}`
+toward `*{Shape + Syncs}`; a weak handle's braces name neither; a box
+`^{Shape + Sends + Syncs}` lends a `?{Shape + Syncs}` and a
+`!{Shape + Sends}`. An object
 without the bound a task needs goes to no task, a local one included,
 at any depth of what the task is given, and a value erased where it is
 passed, `work(^Sum(...))&` to a `^{Job}`, goes as that object, by its
@@ -12147,16 +12243,15 @@ thread.
 | an API object `?{A}` | when its braces or API name `Syncs` | when they name `Syncs` |
 | an API object `!{A}` | when they name `Sends` | never |
 | an API object `^{A}` | when they name `Sends` | when they name `Syncs` |
-| a shared API object `*{A}`, or its weak `~{A}` *(planned)* | never | never |
-| a frozen value's shared API object, `*{A + Syncs}` *(planned)* | yes | yes |
+| a shared API object `*{A}`, or its weak `~{A}` | never | never |
+| a frozen value's shared API object, `*{A + Syncs}` | yes | yes |
 
 So a task may be handed to another task, which waits for it, and keeps
 its loans for that task's whole life. A `*T` or `~T` handle never
 crosses, by value, through a view, or in a field, an element, or an
 optional, since its count is not atomic. An API object crosses only
 by a bound it names ([API objects](#api-objects)), and without it goes
-to no task, a local one included; the shared rows, marked planned, are
-the rest of Stage 5's (docs/design/apis.md).
+to no task, a local one included.
 
 **Local tasks.** A task given or lent a value that does not cross (a
 `*T` or `~T` whose count is not atomic, a `Cell` of more than one word,
@@ -12576,13 +12671,15 @@ value holds never changes, so it holds plain data, owners, `String`s,
 closure, or view. `Frozen[T]` is checked where it is written, and a
 generic parameter in each instance that freezes it. A frozen value
 lives only behind `*`: `Frozen[T]` is never a field, parameter,
-element, or type argument by value.
+element, or type argument by value, written or inferred, so a
+generic `*T` is never given a frozen value's handle (a `T` is).
 
 - Fields, read methods, and elements are reached through the handle,
   `f.title`, `f.get()`, `f[0]`, as through any `*T`, and nothing writes
   through it; `?f` lends the frozen value as a `?T`.
 - `+f` adds a handle, in one atomic step; the last one dropped, on
-  whichever task drops it, drops the value.
+  whichever task drops it, drops the value, a long chain through the
+  same queue a `*T`'s takes.
 - The handles move and share: they go to any task, by value, through a
   view, in a field, or through a channel, and never make a task local.
 - They compare, order, and hash as the value they reach, so `*Frozen[String]`

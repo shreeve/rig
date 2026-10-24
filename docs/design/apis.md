@@ -42,8 +42,8 @@ it.
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Sends`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
 | 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(built)* |
-| 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(in part: the types, the views, and calls through them)* |
-| 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `~{Shape}`, `^{Job + Sends}`, `?{Job + Syncs}` | *(planned: designed, its Core change awaiting the owner)* |
+| 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(built, but for associated types)* |
+| 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `~{Shape}`, `^{Job + Sends}`, `?{Job + Syncs}` | *(built, but owned closures as objects)* |
 
 Two principles hold across every stage:
 
@@ -1206,7 +1206,7 @@ reaches.
 **The errors a reader meets first**, each with its fix:
 
 ```text
-`{Shape}` has no size of its own: hold it behind a view or a box, `?{Shape}`, `!{Shape}`, or `^{Shape}`
+`{Shape}` has no size of its own: hold it behind a view, a box, or a handle, `?{Shape}`, `!{Shape}`, `^{Shape}`, or `*{Shape}`
 braces hold APIs, and `Square` is a type: write `?Square` for a view of it, or name an API it provides, `?{Shape}`
 `{Shape + Named}` names two APIs of a program's own, and an object has one table: declare `api Both: Shape + Named` and write `?{Both}`
 `area_of(?l)` cannot lend `l` as a `?{Shape}`: `Label` does not provide `Shape`; declare `obj Label: Shape`
@@ -1218,21 +1218,24 @@ cannot assign through `w`, a `!{Shape}`: the value it views may be of another ty
 `Source` declares `type Item`, so an object of it names that type: `^{Source[Item: Int]}`
 ```
 
-## Stage 5: shared objects, and crossing tasks *(in part)*
+## Stage 5: shared objects, and crossing tasks *(built, but owned closures as objects)*
 
-*Phase 1 is built:* crossing bounds in the braces and the API, checked
-where the type is erased, each form crossing by its row, and no owned
-closure holding a task
-([phase1-notes.md](../history/records/2026-10/apis-stage5/phase1-notes.md)).
-`*{Shape}` and `~{Shape}` (phase 2) and owned closures as objects
-(phase 4) are not built yet.
+*Phases 1 and 2 are built:* crossing bounds in the braces and the API,
+checked where the type is erased, each form crossing by its row, and no
+owned closure holding a task
+([phase1-notes.md](../history/records/2026-10/apis-stage5/phase1-notes.md));
+`*{Shape}`, `~{Shape}`, and `*{Shape + Syncs}`, counted through the
+table
+([phase2-notes.md](../history/records/2026-10/apis-stage5/phase2-notes.md)).
+Owned closures as objects of one method (phase 4, a performance
+change) and the Lean obligation (phase 3) are not built yet.
 
 *Designed and approved (2026-10-23).* The owner: "Approve
 the Stage 5 CORE text as written in core-stage5/6-final.md and #615's
 design defaults (with the reviewer's three fixes). Build Stage 5 in
 phases with adversarial reviews; land each after the suite and light
 gate." Its ownership rules are CORE §4's paragraph "A shared API object
-counts a value of hidden type", *(planned)*, revised by a Core panel
+counts a value of hidden type", *(built)*, revised by a Core panel
 ([core-panel/](../history/records/2026-10/apis-stage5/core-panel/))
 from the draft in
 [core-draft.md](../history/records/2026-10/apis-stage5/core-draft.md);
@@ -1313,9 +1316,12 @@ It is a handle, so it only reads (CORE sentence 8):
   erased, as for every object.
 
 A type that holds a `Cell` lives only behind `*` (CORE sentence 9), so
-`*{A}` is the one object such a type makes. Its `?@` methods change the
-Cell by a marked call, as through a `*T`; that is how a shared object
-changes.
+`*{A}` is the one object such a type makes. Through a `*T`, a type that
+holds a Cell by value changes by its `!@` methods, a marked call; a
+`*{A}` reaches `?@` methods only, since whether the hidden type holds a
+Cell is erased. So a shared object changes through a `*Cell` its value
+holds, which a `?@` method counts and changes by a marked call
+(`c = +@hits; !c.set(...)`).
 
 **Its table holds the count operations.** A `Shared`'s layout, and
 whether its counts are atomic, depend on the hidden type, so a
@@ -1497,9 +1503,9 @@ bound follows it, `^{Source[Item: Int] + Sends}`.
   `^{A}`, and a `*{A}` never a `*{A + Syncs}`, nor back.
 - A handle is erased only as it moves or counts, never through a view.
 - A `~{A}` never crosses, and a `*{A + Syncs}` has no weak handle.
-- A Cell of an object is rejected by the Cell's own rule: its value
-  copies and holds no loan (`Copy + Owned`), and no object is both, as
-  a view copies but carries a loan and a box owns but moves. Stage 4's
+- A Cell of an object is rejected: a Cell's value is replaced through
+  any handle to it, and an object changes only through its methods, so
+  a shared object changes through a `Cell` its value holds. Stage 4's
   "Stage 5" message for it gives way to that one.
 
 ### Lowering
@@ -1507,12 +1513,18 @@ bound follows it, `^{Source[Item: Int] + Sends}`.
 `*{Shape}` is `rig.ApiShared(__rig_table_Shape, builtins)` and
 `~{Shape}` `rig.ApiWeak(__rig_table_Shape, builtins)`, beside
 `rig.ApiView` and `rig.ApiBox`. A conversion writes
-`.{ .ptr = &h.value, .vt = __rig_table_Shape_of(Square,
-__rig_impl_Shape_Square, .shared) }`; `+s` writes
-`s.vt.__rig_share(s.ptr)`; `?s` writes `s.read()`, the same two words;
-a call `s.vt.area(s.ptr)`, as through a view. A crossing bound changes
-no Zig: it is a check. Emit writes each from facts: the erasure (now
-with its holding), the dispatch, and the methods an object reaches.
+`rig.ApiShared(__rig_table_Shape, "").of(h, __rig_table_Shape_of(Square,
+__rig_impl_Shape_Square, .counted))`, whose `ptr` is `&h.value`; `+s`
+writes `s.cloneStrong()`, which calls the table's `__rig_clone`; `?s`
+writes `s.read()`, the same two words; a call `s.vt.area(s.ptr)`, as
+through a view. The table's `__rig_drop` and `__rig_clone` are the
+holding's (`rig.ApiHolding`: `.box`, which views share, `.counted`, or
+`.frozen`), and `__rig_weak`, `__rig_weak_drop`, and `__rig_upgrade`
+are `.counted`'s alone, each reaching the counts from the value's
+address by `@fieldParentPtr`: three words more per table, and a
+`*{Shape}` is sixteen bytes. A crossing bound changes no Zig: it is a
+check. Emit writes each from facts: the erasure with its holding, the
+dispatch, and the methods an object reaches.
 
 ### The errors a reader meets first
 
@@ -1523,7 +1535,7 @@ with its holding), the dispatch, and the methods an object reaches.
 a read view goes to another task when its value syncs: write `?{Shape + Syncs}`
 a shared handle goes to another task when several tasks may read its value: write `*{Shape + Syncs}`
 `*{Shape}` only reads, as any handle: `grow` takes `!@`; hold a `^{Shape}`, or change the value through a `Cell` it holds
-`*<b` would move a value whose type is erased: share the value before erasing it, `*<sq` where a `*{Shape}` goes
+`*<b` would move a value whose type is erased: share the value before erasing it, `*<x` where a `*{Shape}` goes
 `~f` of a `*{Shape + Syncs}`: a frozen value has no weak handle
 a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomically: write `*{Shape + Syncs}`
 `*{Shape + Syncs}` holds a frozen value, which holds no view: take `Owned` out of the braces

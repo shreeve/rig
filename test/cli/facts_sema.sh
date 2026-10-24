@@ -183,6 +183,28 @@ EOF2
 "$RIG" check --facts=sema crossing.rig >crossing.txt 2>err.txt || fail "rig check --facts=sema crossing.rig: $(cat err.txt)"
 expect_has "$(cat crossing.txt)" 'erasures box 14:23-14:33 "^Sum(n: 6)" Sum ^{Job + Sends} __rig_impl_Job_Sum(Sum)' "a box erased with its crossing bound"
 
+# A counted handle moved into a shared API object, and a frozen value's
+# handle into a `*{A + Syncs}`, each with its holding.
+cat >shared.rig <<'EOF2'
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+sub main()
+  h = *Square(side: 2.0)
+  s: *{Shape} = <h
+  f: *{Shape + Syncs} = *Frozen(Square(side: 1.0))
+  print(s.area(), f.area())
+EOF2
+"$RIG" check --facts=sema shared.rig >shared.txt 2>err.txt || fail "rig check --facts=sema shared.rig: $(cat err.txt)"
+expect_has "$(cat shared.txt)" 'erasures move 12:17-12:19 "<h" Square *{Shape} __rig_impl_Shape_Square(Square) counted' "a counted handle erased"
+expect_has "$(cat shared.txt)" 'erasures share 13:25-13:51 "*Frozen(Square(side: 1.0))" Square *{Shape + Syncs} __rig_impl_Shape_Square(Square) frozen' "a frozen value's handle erased"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)

@@ -1139,12 +1139,16 @@ pub const Emitter = struct {
     /// function pointer per method a call through an object reaches
     /// (`sema.TableEntry`), `pub const __rig_table_Shape = struct`, and
     /// the function that gives the table of type `T` and its witness `W`,
-    /// `__rig_table_Shape_of(T, W)`, whose entries each call the witness's
-    /// method on the value the object holds, self given as the method
-    /// takes it. Zig makes one table per API and type, and only where a
-    /// conversion names it. Every name it declares is hidden
-    /// (`__rig_T`, `__rig_W`, `__rig_entry_area`), so none shadows or
-    /// meets a declaration of the module's own (`fun area`, `type T`).
+    /// `__rig_table_Shape_of(T, W, holding)`, whose entries each call the
+    /// witness's method on the value the object holds, self given as the
+    /// method takes it, and whose drop, clone, and weak entries are the
+    /// holding's (`rig.ApiHolding`). Zig makes one table per API, type,
+    /// and holding, and only where a conversion names it. Every name it
+    /// declares is hidden (`__rig_T`, `__rig_W`, `__rig_H`,
+    /// `__rig_entry_area`), so none shadows or meets a declaration of the
+    /// module's own (`fun area`, `type T`), and every entry it holds
+    /// beside the API's methods is `__rig_` and a word, which no method
+    /// is named.
     fn emitApiTable(self: *Emitter, id: SymbolId, sym: facts.Symbol) Error!void {
         const entries = self.facts.objectTable(id);
         try self.w.print("pub const __rig_table_{s} = struct {{\n", .{sym.name});
@@ -1156,14 +1160,18 @@ pub const Emitter = struct {
         }
         // How the value prints, read only where the braces or the API
         // name `Print`; how a box of it is dropped, and cloned where the
-        // braces name `Clone`.
+        // braces name `Clone`, or a count of it given back and added; and
+        // the weak count of a `*{A}`, made, given back, and upgraded.
         try self.w.writeAll("    __rig_print: rig.ErasedPrint,\n");
         try self.w.writeAll("    __rig_drop: rig.ErasedDrop,\n");
         try self.w.writeAll("    __rig_clone: rig.ErasedClone,\n");
+        try self.w.writeAll("    __rig_weak: rig.ErasedWeak,\n");
+        try self.w.writeAll("    __rig_weak_drop: rig.ErasedWeak,\n");
+        try self.w.writeAll("    __rig_upgrade: rig.ErasedUpgrade,\n");
         // The API's name, for `$name` of an object's type (`rig.typeName`).
         try self.w.print("\n    pub const __rig_name = .{{ .module = \"{s}\", .name = \"{s}\" }};\n", .{ nameModule(self.facts), sym.name });
         try self.w.writeAll("};\n\n");
-        try self.w.print("pub fn __rig_table_{s}_of(comptime __rig_T: type, comptime __rig_W: type) *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
+        try self.w.print("pub fn __rig_table_{s}_of(comptime __rig_T: type, comptime __rig_W: type, comptime __rig_H: rig.ApiHolding) *const __rig_table_{s} {{\n", .{ sym.name, sym.name });
         try self.w.writeAll("    return &struct {\n");
         try self.w.print("        const __rig_table: __rig_table_{s} = .{{", .{sym.name});
         var n: usize = 0;
@@ -1172,7 +1180,7 @@ pub const Emitter = struct {
             try self.w.print(" .{f} = __rig_entry_{s},", .{ ident(e.name), e.name });
             n += 1;
         }
-        try self.w.writeAll(" .__rig_print = rig.printErased(__rig_T), .__rig_drop = rig.dropErased(__rig_T), .__rig_clone = rig.cloneErased(__rig_T) };\n");
+        try self.w.writeAll(" .__rig_print = rig.printErased(__rig_T), .__rig_drop = rig.dropErased(__rig_T, __rig_H), .__rig_clone = rig.cloneErased(__rig_T, __rig_H), .__rig_weak = rig.weakErased(__rig_T, __rig_H), .__rig_weak_drop = rig.weakDropErased(__rig_T, __rig_H), .__rig_upgrade = rig.upgradeErased(__rig_T, __rig_H) };\n");
         if (n == 0) try self.w.writeAll("        comptime {\n            _ = @TypeOf(__rig_W);\n        }\n");
         for (entries) |e| {
             if (!tableHolds(e)) continue;
@@ -5277,20 +5285,24 @@ pub const Emitter = struct {
         };
         // A box moved into a box of an API object keeps its allocation,
         // its value's type erased (`sema.Erasure`): `rig.ApiBox(T).of(Square,
-        // b, __rig_table_Shape_of(Square, W))`, allocating nothing.
-        if (!sameNode(sexp, self.erasing_box)) if (self.facts.erasureOf(sexp)) |e| if (e.form == .box) {
+        // b, __rig_table_Shape_of(Square, W, .box))`, allocating nothing; a
+        // counted handle moved into a `*{A}` keeps its allocation and its
+        // count, `rig.ApiShared(T).of(h, __rig_table_Shape_of(Square, W,
+        // .counted))`.
+        if (!sameNode(sexp, self.erasing_box)) if (self.facts.erasureOf(sexp)) |e| if (e.form == .box or e.form == .shared) {
             const saved = self.erasing_box;
             defer self.erasing_box = saved;
             self.erasing_box = sexp;
             const ty = try self.typeText(e.from);
             try self.emitTypeTy(e.view);
-            try self.w.print(".{s}({s}, ", .{ if (e.optional) "ofSome" else "of", ty });
+            try self.w.writeAll(if (e.optional) ".ofSome(" else ".of(");
+            if (e.form == .box) try self.w.print("{s}, ", .{ty});
             try self.emitValue(sexp, tail);
             try self.w.writeAll(", ");
             try self.writeTableName(e.api);
             try self.w.print("_of({s}, ", .{ty});
             try self.writeWitness(e.witness);
-            return self.w.writeAll("))");
+            return self.w.print(", .{s}))", .{@tagName(e.holding)});
         };
         // An error value the function fails with, held rather than made
         // here, sends its fields through the caller's slot.
@@ -5501,7 +5513,7 @@ pub const Emitter = struct {
         try self.writeTableName(e.api);
         try self.w.print("_of({s}, ", .{ty});
         try self.writeWitness(e.witness);
-        try self.w.writeAll(") }");
+        try self.w.writeAll(", .box) }");
         return buf.written();
     }
 
@@ -5535,6 +5547,9 @@ pub const Emitter = struct {
             // A handle is a pointer: reached through a pointer to it, it is
             // dereferenced first.
             .handle => {
+                // A counted API object lends the view it holds, the same
+                // two words, `s.read()`.
+                if (self.facts.objectHandle(from) != null) return self.fmt("{s}.read()", .{at.text});
                 const handle = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
                 at = .{ .text = try self.fmt("{s}.value", .{handle}), .ptr = false };
                 from = types.get(from).shared;
@@ -10045,6 +10060,15 @@ pub const Emitter = struct {
                 try self.emitTypeTy(inner);
             },
             .shared, .weak => |inner| {
+                // `*{Shape}` and `~{Shape}`: `rig.ApiShared(__rig_table_Shape,
+                // "")`, `rig.ApiWeak(...)`.
+                if (ctx.objectHandle(ty)) |o| {
+                    try self.w.writeAll(if (ctx.types.get(ty) == .shared) "rig.ApiShared(" else "rig.ApiWeak(");
+                    try self.writeTableName(o.api);
+                    try self.w.writeAll(", ");
+                    try self.writeObjectBuiltins(o);
+                    return self.w.writeAll(")");
+                }
                 // `*Frozen[T]`: a `T` behind a handle counted atomically.
                 if (ctx.frozenValue(inner)) |value| {
                     try self.w.writeAll("*rig.Frozen(");

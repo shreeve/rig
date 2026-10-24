@@ -70,7 +70,7 @@ side; Rig names everything from the side the sigil is on.
 |---|---|---|---|
 | **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, objects whose parts are all plain | copies | built |
 | **owning** | `List[T]`, `^T` (`^{A}` too), `String`, `error`, objects holding an owner | moves; one owner; dropped once | built |
-| **handle** | `*T` (counted; `*{A}` too), `~T` (weak; `~{A}` too), owned closures (`*fun`) | moves; `+h` adds a count | built; `*{A}`, `~{A}` planned |
+| **handle** | `*T` (counted; `*{A}` too), `~T` (weak; `~{A}` too), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T` (`?{A}`, `!{A}` too), `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** An object
@@ -754,8 +754,7 @@ holding sigil over a held value (`^*T`, `**T`, `*~T`) is rejected; an
 API object is held the same three ways, `^{A}`, `*{A}`, and `~{A}`
 (§4). Handles only read (a `Cell` inside one changes by a marked call:
 sentence 9). `~h` holds the counted value weakly, and `*w` is the way
-back: a new handle while the value lives, `none` after. *(built;*
-`*{A}` and `~{A}` are *planned*.*)*
+back: a new handle while the value lives, `none` after. *(built)*
 
 ```rig
 obj User
@@ -794,7 +793,7 @@ and go to any task, and erased they are a `*{A + Syncs}` (§4), and `?f`
 lends the frozen value as a `?T`. `Cell`, `Signal`, and owned closures
 are no-loan homes: they hold no view that carries a loan, so they keep
 text only as a `Static`; a `*T` carries the loans of what it holds.
-*(built;* erasing a frozen value's handles is *planned*.*)*
+*(built)*
 
 ```rig
 sub main()
@@ -1121,7 +1120,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | `![]T` | `[]T` | `![]T` (lent on) | built |
 | `String` | `?String` (also `(?String)?`) | `!String` | built |
 | `^T` | the views of `T` | the write views of `T` | built |
-| `*T`, `*{A}` | the read views of `T`; of a `*{A}`, the `?{A}` it holds | nothing of the value (`!h` lends the handle itself) | built; `*{A}` planned |
+| `*T`, `*{A}` | the read views of `T`; of a `*{A}`, the `?{A}` it holds | nothing of the value (`!h` lends the handle itself) | built |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 | a `T` that provides `A` | `?{A}` | `!{A}` | built |
@@ -1279,7 +1278,7 @@ views a local of the erasing block. *(built)*
 - a `<@` method ends the box, which is dropped exactly once, even if
   the method fails;
 - `*{A}` and `~{A}` count, and an API object crosses, as below.
-  *(built;* `*{A}` and `~{A}` are *planned*.*)*
+  *(built)*
 
 ```rig
 api Shape
@@ -1338,23 +1337,23 @@ value's handle only into a `*{A + Syncs}`. A handle is erased only as
 it moves or counts, never through a view. Like every handle, it only
 reads: calls reach `?@` methods, `?s` lends the `?{A}` it holds, and
 `+s` adds a count. Both forms carry the loans of what they hold until
-the last count is dropped. *(planned)*
+the last count is dropped. *(built)*
 
 - `Sends` and `Syncs`, in the braces or the API, are facts of the
   hidden value, checked where it is erased (a type parameter's by its
   bounds), as `Owned` is. *(built)*
 - A box or a write view goes to another task when its value sends. A
   box, a read view, or a `*{A + Syncs}` is read by several tasks when
-  its value syncs. *(built, but for `*{A + Syncs}`)*
+  its value syncs. *(built)*
 - A `*{A + Syncs}` holds only a frozen value: it counts atomically, has
-  no `~`, and names no `Owned`. *(planned)*
+  no `~`, and names no `Owned`. *(built)*
 - An API object without the bound a task needs goes to no task, a
   local one included, at any depth. *(built)*
 - No API object, and no owned closure, holds a task. *(built)*
 
 A shared object, its weak handle, and the last count's drop:
 
-```rig pending
+```rig
 api Shape
   fun area(?@) -> Float
 
@@ -1383,7 +1382,7 @@ gone
 
 A frozen value erased, read by two tasks:
 
-```rig pending
+```rig
 api Shape
   fun area(?@) -> Float
 
@@ -1437,7 +1436,7 @@ sub main()
 
 A `*T` whose count is not atomic is no `*{A + Syncs}`:
 
-```rig pending
+```rig reject
 api Shape
   fun area(?@) -> Float
 

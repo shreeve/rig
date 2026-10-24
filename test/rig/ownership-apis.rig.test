@@ -370,3 +370,128 @@ fail "apis a call by the API's name keeps what the API keeps", "`t` is dropped b
   n = Note(t: ?s)
   t = String("t")
   Shape.watch(!n, ?t)
+
+# ---- Stage 5, phase 2: shared and weak objects ----
+
+fail "apis object shared keeps a loan to its last count", "cannot lend `t` to write while a read loan is live"
+  # A `*{A}` carries its value's loans across `+s` until the last count
+  # is dropped: `g` still holds `t`'s loan after `<s`.
+  api Named
+    fun size(?@) -> Int
+
+  obj Holder: Named
+    name: ?String
+
+    fun size(?@) -> Int
+      @name.len
+
+  t = String("abc")
+  s: *{Named} = *Holder(name: ?t)
+  g = +s
+  <s
+  !t.add("d")
+  print(g.size())
+
+fail "apis object shared keeps a loan to its drop", "cannot lend `t` to write while a read loan is live"
+  # The hidden type may have a `drop` body, which reads what it holds:
+  # the loan lasts to the drop, past the last use.
+  api Named
+    fun size(?@) -> Int
+
+  obj Holder: Named
+    name: ?String
+
+    fun size(?@) -> Int
+      @name.len
+
+  t = String("abc")
+  s: *{Named} = *Holder(name: ?t)
+  print(s.size())
+  !t.add("d")
+  print(t)
+
+fail "apis object shared a weak handle keeps the loan", "cannot lend `t` to write while a read loan is live"
+  # The adversary's A4: `~{A}` carries its `*{A}`'s loans, so `*w` never
+  # gives a count that has escaped them.
+  api Named
+    fun size(?@) -> Int
+
+  obj Holder: Named
+    name: ?String
+
+    fun size(?@) -> Int
+      @name.len
+
+  t = String("abc")
+  s: *{Named} = *Holder(name: ?t)
+  w = ~s
+  <s
+  !t.add("d")
+  if *w as g
+    print(g.size())
+
+test "apis object shared Owned and Syncs hold no loan", "3 3 abcd"
+  # `+ Owned` is checked where the value is erased, and a `*{A + Syncs}`
+  # holds a frozen value, which holds no view: `t` changes while both
+  # live.
+  api Named
+    fun size(?@) -> Int
+
+  obj Holder: Named
+    name: String
+
+    fun size(?@) -> Int
+      @name.len
+
+  t = String("abc")
+  s: *{Named + Owned} = *Holder(name: +t)
+  f: *{Named + Syncs} = *Frozen(Holder(name: +t))
+  !t.add("d")
+  print(s.size(), f.size(), t)
+
+test "apis object shared a loan ends with the last count", "3 abcd"
+  api Named
+    fun size(?@) -> Int
+
+  obj Holder: Named
+    name: ?String
+
+    fun size(?@) -> Int
+      @name.len
+
+  t = String("abc")
+  s: *{Named} = *Holder(name: ?t)
+  g = +s
+  n = g.size()
+  <s
+  <g
+  !t.add("d")
+  print(n, t)
+
+fail "apis object shared an owned closure's capture", "an owned closure holds no loan, and a `*{Named}` may hold one: write `*{Named + Owned}`"
+  api Named
+    fun size(?@) -> Int
+
+  obj Holder: Named
+    name: String
+
+    fun size(?@) -> Int
+      @name.len
+
+  s: *{Named} = *Holder(name: String("abc"))
+  f = *|<s| s.size()
+  print(f())
+
+test "apis object shared an owned closure of a frozen one", "3"
+  api Named
+    fun size(?@) -> Int
+
+  obj Holder: Named
+    name: String
+
+    fun size(?@) -> Int
+      @name.len
+
+  s: *{Named + Syncs} = *Frozen(Holder(name: String("abc")))
+  f = *|<s| s.size()
+  print(f())

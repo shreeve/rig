@@ -240,6 +240,34 @@ fail "frozen by value", "4:6: a frozen value lives only behind a shared handle: 
 fail "frozen as a type argument", "1:11: a frozen value lives only behind a shared handle: write `*Frozen[Int]`"
   xs = List[Frozen[Int]]()
 
+fail "frozen as an inferred type argument", "a frozen value lives only behind its handle, so `Frozen[Int]` is no type argument, written or inferred: pass the handle whole where a `T` goes, `*Frozen[Int]`", "a frozen value lives only behind its handle, so `Frozen[Int]` is no type argument, written or inferred", errors: 2
+  # A `*T` given a frozen value's handle would stand for `Frozen[Int]`:
+  # a generic `*T` counts plainly, and a `~T` would be a weak handle of
+  # a frozen value, which has none.
+  fun count[T](h: *T) -> Int
+    1
+
+  fun weak[T](h: *T) -> ~T
+    ~h
+
+  f = *Frozen(5)
+  print(count(+f))
+  _ = weak(<f)
+
+test "frozen chain drops without deep recursion", "300000"
+  # The last count of a frozen chain's head drops it through the drop
+  # queue a `*T` uses, whichever task holds it.
+  obj Link
+    next: (*Frozen[Link])?
+    n: Int
+
+  head: (*Frozen[Link])? = none
+  n = 0
+  for i in 0..300000
+    head = *Frozen(Link(next: <head, n: i))
+    n += 1
+  print(n)
+
 fail "frozen box", "this value is already `^Int`; `*Frozen` would hold it twice"
   b = ^5
   f = *Frozen(<b)

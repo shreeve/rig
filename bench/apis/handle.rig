@@ -1,0 +1,16 @@
+# Counts of a `*Square`: `+h` and the drop of the count it made, each
+# inline, the baseline of `shared.rig`.
+obj Square
+  side: Float
+
+called fun run(h: ?*Square, n: Int) -> Int
+  k = 0
+  for _ in 0..n
+    t = +h
+    k += 1
+    <t
+  k
+
+sub main()
+  h = *Square(side: 1.5)
+  print(run(?h, 300000000))

@@ -181,7 +181,7 @@ code "apis object a call through its table", "return s.vt.area(s.ptr);"
 
   print(area_of(Square(side: 1.0)))
 
-code "apis object an erasure names its type's table", ".vt = __rig_table_Shape_of(Square, __rig_impl_Shape_Square)"
+code "apis object an erasure names its type's table", ".vt = __rig_table_Shape_of(Square, __rig_impl_Shape_Square, .box)"
   api Shape
     fun area(?@) -> Float
 
@@ -265,7 +265,7 @@ code "apis object box its type", "var b: rig.ApiBox(__rig_table_Shape, \"\") =",
   c: ^{Shape + Print + Owned} = ^Square(side: 1.0)
   print(b.area(), c.area())
 
-code "apis object box a move allocates nothing", "rig.ApiBox(__rig_table_Shape, \"\").of(Square, rig.take(&__rig_alive_c, c), __rig_table_Shape_of(Square, __rig_impl_Shape_Square))"
+code "apis object box a move allocates nothing", "rig.ApiBox(__rig_table_Shape, \"\").of(Square, rig.take(&__rig_alive_c, c), __rig_table_Shape_of(Square, __rig_impl_Shape_Square, .box))"
   # `<c` keeps the allocation its `^Square` made.
 
   api Shape
@@ -293,7 +293,7 @@ code "apis object box a consuming entry frees the box", '''
 
   print(1)
 
-code "apis object box the drop and clone entries", ".__rig_drop = rig.dropErased(__rig_T), .__rig_clone = rig.cloneErased(__rig_T)"
+code "apis object box the drop and clone entries", ".__rig_drop = rig.dropErased(__rig_T, __rig_H), .__rig_clone = rig.cloneErased(__rig_T, __rig_H)"
   api Shape
     fun area(?@) -> Float
 
@@ -319,3 +319,77 @@ code "apis object crossing a task through its table", "rig.Task(f64).spawnObject
   t = ?b.area()&
   u = area_of(?b)&
   print(>t, >u)
+
+# ---- Stage 5, phase 2: shared and weak objects ----
+
+code "apis object shared its types", "const s: rig.ApiShared(__rig_table_Shape, \"\") =", "const w = s.weakRef();", "const f: rig.ApiShared(__rig_table_Shape, \" + Syncs\") ="
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: *{Shape} = *Square(side: 2.0)
+  w = ~s
+  f: *{Shape + Syncs} = *Frozen(Square(side: 1.0))
+  print(s.area(), f.area())
+
+code "apis object shared a move keeps its allocation and count", "rig.ApiShared(__rig_table_Shape, \"\").of(rig.take(&__rig_alive_h, h), __rig_table_Shape_of(Square, __rig_impl_Shape_Square, .counted))"
+  # `<h` keeps the allocation `*Square(...)` made: nothing is allocated
+  # or counted again.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  h = *Square(side: 2.0)
+  s: *{Shape} = <h
+  print(s.area())
+
+code "apis object shared a frozen value's table", "__rig_table_Shape_of(Square, __rig_impl_Shape_Square, .frozen)"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  f: *{Shape + Syncs} = *Frozen(Square(side: 1.0))
+  print(f.area())
+
+code "apis object shared counts, lends, and calls through the table", "const t = s.cloneStrong();", "area_of(s.read())", "t.vt.area(t.ptr)", "if (w.upgrade()) |"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  s: *{Shape} = *Square(side: 2.0)
+  t = +s
+  w = ~s
+  print(area_of(?s), t.area())
+  if *w as u
+    print(u.area())
+
+code "apis object shared the count entries", ".__rig_weak = rig.weakErased(__rig_T, __rig_H), .__rig_weak_drop = rig.weakDropErased(__rig_T, __rig_H), .__rig_upgrade = rig.upgradeErased(__rig_T, __rig_H)", "comptime __rig_H: rig.ApiHolding"
+  # Three entries beside a box's: a weak count made, given back, and
+  # upgraded, each reaching the counts from the value's address.
+  api Shape
+    fun area(?@) -> Float
+
+  print(1)
