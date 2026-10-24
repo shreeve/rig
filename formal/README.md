@@ -39,6 +39,7 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Steps.lean` | One theorem per form: each step the checker accepts keeps `Rel` |
 | `LambdaRig/Sound.lean` | `sound`, the induction over programs, and `accepts_runs` |
 | `LambdaRig/Calls.lean` | Calls checked against an API's `from` and `keeps`, and why they are sound for any implementation within them |
+| `LambdaRig/Erase.lean` | API objects: erasing a type keeps its loans, and programs whose objects only calls reach |
 | `LambdaRig/Examples.lean` | Programs, whether the checker accepts each, and how each run ends |
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
@@ -125,6 +126,39 @@ The examples call `pick(a: ?Int, b: ?Int) -> ?Int from a`, then write
 and returns `a` runs to the end, and one `from b`, outside the API's
 clauses, which `checkP` accepts all the same, stops at `deadTag`. A
 third calls an API `from a, b` with an implementation `from b`.
+
+**API objects** (Erase.lean). `?{A}`, `!{A}`, and `^{A}` hide their
+value's type, never its loans (CORE §4; docs/design/apis.md, Stage 4).
+An object's type, as the checker sees it, is its kind and its loans
+(`OTy`), and erasing a type keeps them (`erase_loans`). Three results:
+
+- **`allows_erase`**, for the checker: the rule for an access to an
+  owner reads only the loans of the names in scope (`allows_loans`), so
+  a name given any type that carries an object's loans is allowed
+  exactly the accesses its erased type was.
+- **`erase_live`**, for values: erasing evaluates as its operand (a read
+  view copies; a write view or a box moves into the object), and the
+  object's value holds, for each loan its type carries, a view of that
+  owner whose loan is live.
+- **`erased_runs`**, for programs: `EProg` is the programs of Calls.lean
+  with erasure, `r: ?{A} = x`, `r: !{A} = <x`, and `r: ^{A} = <x`.
+  `checkE` gives the object the type rebuilt from its kind and loans
+  alone, and lets only calls, checked against their API's clauses,
+  reach it: no expression names an object, so nothing reads, assigns
+  through, or moves it in place. If `checkE` accepts a program and every
+  implementation meets clauses within its API's, the program runs to the
+  end without a fault, by `accepts_runs`. The step is `checkE_elab`: the
+  type rebuilt from the loans is the type `check` gives the erasure run
+  (`operand_check`). On a program without erasure `checkE` is `checkP`
+  (`checkE_lift`), so the extension is conservative.
+
+`#guard_msgs` pins each one's axioms: Lean's three for `erased_runs` and
+`erase_live`, and `propext` and `Quot.sound` alone for `allows_erase`
+and `checkE_lift`. The examples call `area` through a `?{Shape}` and
+run; write the owner while the object is used later, which `checkE`
+rejects and which, run all the same, stops at `deadTag`; print an object
+in place, which it rejects; and move a box into a `^{Shape}`, which
+keeps it and drops it once.
 
 **`Examples.lean`**: eleven programs, each with whether `check` accepts
 it and how its run ends. Four are accepted and end well; seven are
@@ -315,6 +349,19 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
   inlining runs it, which is what binding each read-view parameter to
   its argument does; a callee checked once, in a scope of its own, needs
   functions in λRig (Next, 4).
+- **API objects beyond the slice (docs/design/apis.md, Stage 4).** A
+  λRig box holds only an Int, so a `^{A}` carries no loans, and that a
+  box of erased type keeps its loans to its drop is proved only of boxes
+  that carry none; a box of views, whose drop reads its loans, needs
+  objects in λRig (Next, 1). A view's type names its owner, not what the
+  owner holds, so erasing a view hides nothing `check` read, and
+  `OTy.ty` rebuilds the type erased; an object hiding a type the checker
+  reads also waits for objects. A call takes an object as a read view,
+  as Calls.lean's calls do, so calls through a `!{A}` or a `^{A}`, and a
+  `<@` method ending the box, are not modeled. A dynamic call is checked
+  as a static one is, against the API's clauses, since `checkCall` never
+  reads the implementation. The copy of an erased view of plain data, a
+  local of the erasing block, is not modeled.
 - **Bounds (docs/design/apis.md, Stage 2).** A body may copy a type
   parameter bounded `Copy`, so a proof that generic bodies keep the
   Core needs `Copy` to hold only of the kinds that copy: plain data and

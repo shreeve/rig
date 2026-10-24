@@ -59,6 +59,16 @@ changed the language since it:
   error with fields where a `?error` goes is told to bind it first, as
   where a `?L` goes, moving a place that moves (`k: error = <a`); it was
   told to write `?a`, which is rejected too.
+- **API objects (Stage 4, the proof):** formal/ proves, in Lean, that
+  erasing a type keeps its loans: the checker's rule for an access to an
+  owner reads only each name's loans, so an object's type, rebuilt from
+  its kind and loans alone, gets the verdicts the erased type got
+  (`allows_erase`); an object's value carries a live loan on each owner
+  its type names (`erase_live`); and a λRig program with API objects,
+  reached only by calls checked against their APIs' clauses, runs
+  without a fault (`erased_runs`), while a program without erasure
+  checks as before (`checkE_lift`).
+
 - **Shared and weak API objects (APIs Stage 5, phase 2):** `*{Shape}`
   is a counted handle to a value of some type that provides `Shape`, and
   `~{Shape}` its weak handle. A `*Square` moves into a `*{Shape}` and
