@@ -988,6 +988,11 @@ pub const Facts = struct {
         return sema.setHasFields(f.c(), ty);
     }
 
+    /// Whether a value of `ty` is a `rig.ErrorValue` (`sema.isErrorValueForm`).
+    pub fn isErrorValueForm(f: Facts, ty: TypeId) bool {
+        return sema.isErrorValueForm(f.c(), ty);
+    }
+
     /// A member of a declared error set, with the facts of the module
     /// that declares the set.
     pub const ErrorMember = struct { facts: Facts, set: []const u8, name: []const u8 };

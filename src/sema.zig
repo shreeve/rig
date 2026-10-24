@@ -7256,6 +7256,17 @@ pub fn setHasFields(ctx: *const SemContext, ty: TypeId) bool {
     return fieldsAt(ctx, ty, 0);
 }
 
+/// Whether a value of `ty` is a `rig.ErrorValue`, an error's code with
+/// room for its fields: `error`, a function's set parameter, or a set
+/// with a member with fields. A view of one is a pointer to it, not one.
+pub fn isErrorValueForm(ctx: *const SemContext, ty: TypeId) bool {
+    if (ctx.types.get(ty) == .any_error or isSetParam(ctx, ty)) return true;
+    return switch (ctx.types.get(ty)) {
+        .read_view, .write_view => false,
+        else => setHasFields(ctx, ty),
+    };
+}
+
 fn fieldsAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
     if (depth > union_depth) return false;
     const d = nominalDecl(ctx, ty) orelse return false;
@@ -9451,14 +9462,17 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 
 /// A type a read view copies: a number, `Bool`, `?String`, a slice, a
 /// read view, a function or callable view (a `rig.FnRef`), a vector, a
-/// plain enum, an error, or an optional of one of those. The runtime's
-/// `ReadView` holds a generic `?T` by the same rule.
+/// plain enum, an error of a set without fields (a Zig error), or an
+/// optional of one of those. An error that is a `rig.ErrorValue`
+/// (`isErrorValueForm`) is a struct, and lent by address. The runtime's
+/// `ReadView` holds a generic `?T` by the same rule, read off the Zig
+/// type each of these is.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd, .slot, .read_view => true,
+        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .slice, .function, .callable, .simd, .slot, .read_view => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
-        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
+        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or (isErrorSet(ctx, ty) and !isErrorValueForm(ctx, ty)),
         else => false,
     };
 }

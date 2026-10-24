@@ -168,14 +168,6 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   - A chain of generic functions, each calling the next at
     `(fun(T) -> Int)?` of its `T` (which adds no instance depth), grows
     about cubically: 300 links take 1 GB, 1000 take 19 GB.
-- A generic `?T` parameter bound to an optional of a view fails in Zig
-  (rule 2): `sub show[T](x: ?T)` called as `show(b)` with
-  `b: (?Node)? = ?n` emits `show(?*const Node, &b)`, and Zig wants a
-  `T`.
-  - Cause: sema's `copiedByReadView` holds a read view of a view by
-    address, while the runtime's `ReadView(T)` copies any pointer.
-  - Make the two rules one. This changes how such views are held, so it
-    is its own round.
 - An error of a set without fields where a view of a union with fields
   goes (`code(B.y)` for `code(k: ?L)` of `error L = A | B`, `A` with
   fields) is rejected with "bind it first". Emit takes the code's
