@@ -46,6 +46,11 @@ extern zig "time.zig"
   # Nanoseconds on the monotonic clock, since an unspecified moment.
   fun monotonic() -> Int
 
+  # Nanoseconds on the monotonic clock since the program started: a
+  # duration, like `t.elapsed()` of a reading taken first, which a
+  # function value can read with no `Instant` to hold.
+  pub fun since_start() -> Int
+
   # Nanoseconds since 1970-01-01 00:00 UTC on the wall clock, which can
   # be set, so it may jump.
   pub fun unix_ns() -> Int

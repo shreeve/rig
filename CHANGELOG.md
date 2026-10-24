@@ -529,6 +529,9 @@ changed the language since it:
   built-in one. `tools/migrate-builtin-map.py` rewrites a tree's
   programs, tests, and Markdown: it removes `use std.hash` and the
   `hash.` before these names.
+- **`time.since_start()`:** the nanoseconds on the monotonic clock
+  since the program started, an `Int`, so a plain function value reads
+  a duration with no `Instant` to hold (virtual in a deterministic run).
 - **`text.Interner`:** the run-time string interner, which gives each
   string a dense `U32` id, is std.text's `Interner` (`use std.text`,
   then `text.Interner()`), apart from the built-in `Symbol`, a name the

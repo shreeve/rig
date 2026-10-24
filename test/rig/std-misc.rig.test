@@ -2614,6 +2614,19 @@ test "time", '''
   print(time.unix_ns() > 1_700_000_000 * time.SECOND)
   print(time.NS, time.US, time.MS, time.SECOND, time.MINUTE)
 
+test "time since start", "true true true", seeds: 3
+  # `since_start()`: the monotonic clock's nanoseconds since the program
+  # started, which a function value reads with no `Instant` to hold; on
+  # the virtual clock of a deterministic run too.
+  fun clock() -> Int
+    time.since_start()
+
+  read: fun() -> Int = clock
+  a = read()
+  time.sleep(2 * time.MS)!
+  b = time.since_start()
+  print(a >= 0, b - a >= 2 * time.MS, b < 10 * time.SECOND)
+
 test "unicode ids", '''
   true false true
   true false true
