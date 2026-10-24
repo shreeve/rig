@@ -1,15 +1,135 @@
 # Changelog
 
 What changed in Rig. The entry under "Unreleased" lists what
-`main` carries beyond the last tag; the tag's release notes take it over
-and add a migration guide for the renames (`tools/migrate-0.3.py`).
+`main` carries beyond the last tag; the tag's release notes take it
+over, with its "Upgrading" section and the migration guide,
+[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md).
 [HANDOFF](HANDOFF.md) says where the work stands, and
 [docs/ROADMAP.md](docs/ROADMAP.md) lists what is planned.
 
 ## Unreleased (toward v0.3.0)
 
 `v0.2.9` is the latest release (Zig 0.17.0, Nexus 2.0.0). `main` has
-changed the language since it:
+changed the language since it.
+
+### Upgrading from v0.2.9
+
+[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md) takes a 0.2.9 program to
+0.3.0 in order: `tools/migrate-0.3.py`, the spellings rewritten by hand,
+`tools/state-bounds.py`, and what the compiler asks for. Each form
+below was accepted by `v0.2.9` and is rejected by 0.3.0, most with the
+form to write in the message. A form marked *unsound* let a program
+read freed memory or write through a view it should not have; the rest
+are renames and spellings.
+
+Renamed, by `tools/migrate-0.3.py`:
+
+1. `struct Name` is `obj Name`.
+2. `Box[T]` and `Box(v)` are `^T` and `^v`.
+3. `Vec[T]` is `List[T]`; a type of a program's own named `List` is
+   renamed `Chain`.
+4. `Text` is `String`, and 0.2's `String`, a read view, is `?String`.
+
+Renamed, by hand (no script):
+
+5. Self is `@`: a method declares `?@`, `!@`, or `<@` and its body says
+   `@x`, `@m()`; `?self`, `self.x`, and a typed `self: ?P` are rejected.
+6. A label is `$outer:` and `break $outer`, not `:outer`.
+7. A built-in call is `$size(T)`, `$truncate(x)`, not `@size(T)`.
+8. A fixed binding is `x =! e`; `const` is rejected.
+9. `replace(!p, v)` is `swap(!p, v)`, and a Cell's `c.replace(v)` is
+   `(!c).swap(v)`.
+10. A statement `-x` no longer drops `x`; `<x` does.
+11. `w.upgrade()` of a weak handle is `*w`.
+12. A compile-time value parameter starts with a lowercase letter,
+    `[n: Int]`, and a type parameter with a capital, `[T]`.
+13. `text.valid_utf8` is gone; `utf8.is_valid` checks a `?String`.
+14. A built-in named through a module, `lib.Vec[Int]()` or
+    `lib.Cell(1)`, is "no member" (#646); write `List[Int]()`, `Cell(1)`.
+15. `panic` is a keyword, so no function or binding takes the name.
+16. `Task`, `Tasks`, `Chan`, `Actor`, `Frozen`, `Simd`, `Symbol`,
+    `Static`, `Int`, `Float`, `Bool`, and the sized numbers name built-in
+    types, and a program's own type may not take one.
+17. An enum's variant may not be named `none`.
+
+Public generics:
+
+18. A `pub` generic states, by bounds, everything its body does with a
+    type parameter (`[T: Num]`, `[T: Ord]`, `[T: Copy]`, `[T: Eq]`,
+    `[T: Print]`, `[T: Clone]`); `tools/state-bounds.py` writes them.
+
+Syntax:
+
+19. An operator has the same spacing on both sides: `x -1`, `a <b`,
+    `a *b`, `a +b`, `steps= 1`, and `n.. 3` are rejected with the two
+    spellings each could mean.
+20. A bracket, a call's parenthesis, a member's `.`, and a postfix `?`
+    touch what they follow: `a [1]`, `obj Wrap [T]`, `xs .len`, `. red`,
+    `Int? ?`, and `f(x) ?`.
+21. `not a == b` is `a != b` or `not (a == b)`.
+22. `catch` binds as `??` does, so a handler that compares or chooses is
+    parenthesized: `f() catch |e| (1 if e == E.bad else 2)`.
+23. A closure body below its bar list ends with its line; the `)` that
+    closes the call goes on the next line.
+24. A write call whose value is used is parenthesized: `x = (!v).pop()`,
+    not `x = !v.pop()`.
+25. A lend is written on a whole path, not its base: `v.len` and
+    `<s.o`, not `(?v).len` and `<(!s).o`.
+
+Cells, handles, and views:
+
+26. An object, enum, or element that holds a `Cell` or a `Signal` lives
+    behind a shared handle, `*C(...)`.
+27. A call that changes a Cell or a Signal is marked with `!`:
+    `!c.set(v)`, `!s.subscribe(f)`, `(!b.c)[i] = e`; through a read view
+    a Cell is not changed.
+28. A write view, `!T`, is no field's or element's type.
+29. One heap holding: `Box[Box[T]]`, `Box[*T]`, `*~T`, and a box of a
+    function are rejected; and a type alias of a box is not called as a
+    constructor (`^5`, not `BI(5)`).
+30. `read[U8, .big]`, a byte order on a one-byte type, is rejected.
+31. `!x` lent where the callee only reads, or a copy goes, is `?x` or
+    `x`.
+32. A method's result that views self, bound to a name, is written as
+    the lend it is: `r = ?b.first()`, not `r = b.first()`.
+33. *Unsound:* a function that stores a view of a parameter in what its
+    caller reaches says so, `keeps t`.
+34. *Unsound:* a lend of a branching value that may be a named value,
+    `(a if c else b)[0].m()`, lends each branch; `o ?? w` does not copy
+    out an object that holds a Cell.
+35. *Unsound:* a temporary that owns a resource, with nothing to drop
+    it, is bound to a name first.
+
+Effects and errors:
+
+36. `time.sleep` can fail (a canceled task stops there): `time.sleep(n)!`
+    or a `catch`.
+37. Two caught errors are not compared with `==`; compare one with a
+    member, `e == E.bad`, or match it.
+
+Other:
+
+38. A closure never called (`_ = |x| x + 1`) is rejected.
+39. `*g` of a function, where a `*fun` goes, is `*|| g()`.
+40. A method's parameter may not take the name of a module-level
+    declaration.
+41. A directory's `.rig` files are one module, sharing one namespace, so
+    two files beside each other that 0.2.9 took as separate modules may
+    not declare the same name; move one into a directory of its own.
+42. A read view of text, `?String`, is not lent to write (`w = !s`);
+    hold a `String` to change text in place.
+
+Programs written against `main` since `v0.2.9` also meet forms that
+changed again before 0.3.0: `Moves` and `Shares` are `Sends` and
+`Syncs` (`tools/rename-task-bounds.py`), `std.hash` is gone
+(`tools/migrate-builtin-map.py`), `Symbols` is `text.Interner`
+(`tools/rename-interner.py`), `rarely fun` is `rarely` in the body
+(`tools/rarely-body.py`), `b'A'` is `'A'`, an iterator in a place is
+`for x in !it`, `within:`, `wait_all`, and `task.both` are gone, and a
+public generic that nests itself through a call through an API is
+reported where it is declared (#647). MIGRATING-0.3 lists each.
+`std.json` callers change nothing: `parse` still answers a `Bool`, and
+`load`, failing with `JsonError`, is new.
 
 ### Language and compiler
 

@@ -596,8 +596,8 @@ machine, please say so.
 
 Rig is young, and its language still changes. The latest release is
 `v0.2.9`. The `main` branch renames `Box`, `Vec`, `Text`, and `struct`
-to `^T`, `List`, `String`, and `obj`; `tools/migrate-0.3.py` migrates
-0.2 programs.
+to `^T`, `List`, `String`, and `obj`; [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md)
+migrates 0.2 programs, `tools/migrate-0.3.py` first.
 
 **Built and tested:** the language in this README, its ownership
 checker, declared error sets whose members carry fields, generics with

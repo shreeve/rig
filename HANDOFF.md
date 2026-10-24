@@ -241,16 +241,18 @@ is written last; how a journey is written, and its outline, are in
 journeys found in the compiler and its docs is at the end of
 [docs/internals/backlog.md](docs/internals/backlog.md).
 
-Toward `v0.3.0` are the docs pass, a full run, and the tag with its
-migration guide. `tools/migrate-0.3.py` migrates the 0.2 renames it
-names (box, list, string, obj); the renames since live in their own
-scripts, `tools/migrate-builtin-map.py` (`Map`, `Set`, and `Hasher`
-built in), `tools/rename-interner.py` (`text.Interner`), and
-`tools/rarely-body.py` (`rarely` as a body's first line), and a few
-have none yet: `catch` at `??`'s level, a byte as a string literal
-where a `U8` is expected (`b'A'` gone), the capitalization of
-generic parameters, and the forms CHANGELOG lists as removed. The
-release folds them into one guide. Everything after that is in
+Toward `v0.3.0` are a full run and the tag. Its migration guide is
+[docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), and CHANGELOG's
+"Upgrading from v0.2.9" lists the 42 forms 0.2.9 accepted that 0.3.0
+rejects, which the tag's release notes take over. The scripts:
+`tools/migrate-0.3.py` (box, list, string, obj), `tools/state-bounds.py`,
+and, for programs written against `main` between the releases,
+`tools/migrate-builtin-map.py`, `tools/rename-interner.py`,
+`tools/rarely-body.py`, and `tools/rename-task-bounds.py`. Self, labels,
+built-in calls, and `const` have no script; the guide gives them by
+hand, and whether to restore theirs is the owner's question
+([release-0.3.0.md](docs/history/records/2026-10/consolidation-2/release-0.3.0.md)).
+Everything after that is in
 [docs/ROADMAP.md](docs/ROADMAP.md); the decided engineering items, with
 their probe cases, are in [docs/internals/backlog.md](docs/internals/backlog.md).
 
