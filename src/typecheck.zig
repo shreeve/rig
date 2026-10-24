@@ -3433,15 +3433,6 @@ const Checker = struct {
         return self.loopElement(.write, elem);
     }
 
-    /// The binding of an element a loop reads where it is: a copy of
-    /// plain data, a view (`?E`) of anything else, so a unique value is
-    /// never copied. Inside a generic body an element whose type depends
-    /// on the instance is a copy, so every instance must supply one that
-    /// copies.
-    fn readElement(self: *Checker, pos: u32, elem: TypeId) Error!TypeId {
-        if (sema.copies(self.ctx, elem) == .depends) try self.requireOf(elem, .copies, pos, "copies into a loop binding a value");
-        return self.loopElement(.read, elem);
-    }
 
     /// The type of a loop's element binding, of an element of type
     /// `elem` the loop writes, takes, or reads: its access
@@ -3505,7 +3496,7 @@ const Checker = struct {
             },
             .array => |a| {
                 if (mode == .write) return self.writeElement(source, inner_source, a.elem);
-                if (mode != .move) return self.readElement(pos, a.elem);
+                if (mode != .move) return self.loopElement(.read, a.elem);
                 return self.loopElement(.take, a.elem);
             },
             .slice, .string_view, .static => {
@@ -3518,7 +3509,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 return switch (self.ctx.types.get(peeled)) {
-                    .slice => |sl| try self.readElement(pos, sl.elem),
+                    .slice => |sl| try self.loopElement(.read, sl.elem),
                     else => try self.byteType(),
                 };
             },
