@@ -1,0 +1,4 @@
+sub main()
+  :outer while true
+    break :outer
+  print(1)

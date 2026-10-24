@@ -29,14 +29,14 @@ Renamed, by `tools/migrate-0.3.py`:
 3. `Vec[T]` is `List[T]`; a type of a program's own named `List` is
    renamed `Chain`.
 4. `Text` is `String`, and 0.2's `String`, a read view, is `?String`.
-
-Renamed, by hand (no script):
-
 5. Self is `@`: a method declares `?@`, `!@`, or `<@` and its body says
    `@x`, `@m()`; `?self`, `self.x`, and a typed `self: ?P` are rejected.
 6. A label is `$outer:` and `break $outer`, not `:outer`.
 7. A built-in call is `$size(T)`, `$truncate(x)`, not `@size(T)`.
 8. A fixed binding is `x =! e`; `const` is rejected.
+
+Renamed, by hand (no script):
+
 9. `replace(!p, v)` is `swap(!p, v)`, and a Cell's `c.replace(v)` is
    `(!c).swap(v)`.
 10. A statement `-x` no longer drops `x`; `<x` does.
@@ -1006,7 +1006,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `src/parser.zig` is generated at build time from `rig.grammar`
   with Nexus, which is co-developed with Rig; and `tools/migrate-0.3.py`
   migrates 0.2 programs, each rename an independent pass (box, list,
-  string, `obj`).
+  string, `obj`, builtin, label, self, `const`), in `.rig` files, test
+  files' cases, and Markdown's `rig` blocks, with `--dry-run` to print
+  the diff. Of the 4,836 programs `v0.2.9` accepts, `main` accepts
+  1,094 as written and 3,495 after the guide's scripts.
 - **Rig's own repository:** `tools/heavy`, `test/rig.rip`,
   `test/matrix.py`, `tools/equiv.py`, and `tools/zig-next.py` find their
   git directory through `tools/gitdir`, which takes only a repository

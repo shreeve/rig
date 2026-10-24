@@ -12,14 +12,15 @@ Commit first: each script rewrites text in place. Run them from the
 checkout of Rig whose `bin/rig` you will use, and run `rig check` on
 your program after each step.
 
-## Step 1: the 0.2 renames, `tools/migrate-0.3.py`
+## Step 1: the renames, `tools/migrate-0.3.py`
 
 ```sh
-python3 tools/migrate-0.3.py scan  src/      # what would change
-python3 tools/migrate-0.3.py apply src/      # rewrite in place
+python3 tools/migrate-0.3.py --dry-run src/   # the diff of what would change
+python3 tools/migrate-0.3.py apply src/       # rewrite in place
 ```
 
-It rewrites every `.rig` file under the path:
+It rewrites every `.rig` file under the path, the cases of its
+`.rig.test` files, and the ```` ```rig ```` blocks of its Markdown:
 
 | 0.2.9 | 0.3.0 |
 |---|---|
@@ -28,12 +29,24 @@ It rewrites every `.rig` file under the path:
 | `Vec[T]`, `Vec()` | `List[T]`, `List()` (a type of your own named `List` becomes `Chain`) |
 | `Text`, the owned text | `String` |
 | `String`, the read view of text | `?String` (`String?` is `(?String)?`) |
+| `fun get(?self)`, `!self`, `<self` | `fun get(?@)`, `!@`, `<@` |
+| a typed self, `self: ?Self`, `self: P` in `P` | `?@`, `<@` |
+| `self.x`, `self.m()`, `self` in a method | `@x`, `@m()`, `@` |
+| `:outer for`, `break :outer`, `continue :outer` | `$outer: for`, `break $outer`, `continue $outer` |
+| `@size(T)`, `@name(T)`, `@intCast(x)` under `raw` | `$size(T)`, `$name(T)`, `$intCast(x)` |
+| `const x = e`, `new const x = e` | `x =! e`, `new x =! e` |
 
 A file that spells none of `Vec[`, `Vec(`, `Box[`, `Box(`, or `Text` is
-taken as 0.3 already, and only `struct` is renamed in it; name such a
-0.2 file after `--force` (`apply src/ --force src/greet.rig`) to rename
-its `String` too. The script prints `MANUAL path:line` for each thing
-it cannot decide.
+taken as 0.3 already for the first renames; name such a 0.2 file after
+`--force` (`apply src/ --force src/greet.rig`) to rename its `String`
+too. Self, labels, built-in calls, `const`, and `struct` are renamed in
+every file: 0.3 rejects each old spelling, so the rename is safe on any
+file, and a second run changes nothing. Strings and comments keep
+their words. The script prints `MANUAL path:line` for each thing it
+cannot decide: a self with no type or a handle's (`self`,
+`self: *Self`), a label after `=>`, `defer`, or `errdefer`, a
+`!String`, and a ```` ```rig reject ```` block, which may show the old
+spelling rejected on purpose.
 
 ```rig reject
 struct Point
@@ -63,17 +76,8 @@ sub main()
 a 1 1 p
 ```
 
-## Step 2: the spellings no script rewrites
-
-Rewrite these by hand; each is rejected with the new spelling in its
-message.
-
-### Self is `@`
-
 A method declares self `?@`, `!@`, or `<@`, with no type, and its body
-names it `@`: `self.x` is `@x`, `self.m()` is `@m()`, and `self` alone
-is `@`. `self` is an ordinary name now. A typed self, `fun get(self: ?P)`,
-is `fun get(?@)`.
+names it `@`; `self` is an ordinary name now.
 
 ```rig reject
 obj P
@@ -107,10 +111,8 @@ sub main()
 2
 ```
 
-### Labels are `$name:`
-
-A label is written `$outer:` where it is declared and `$outer` after
-`break` or `continue`; it was `:outer` in both places.
+A label is `$outer:` where it is declared and `$outer` after `break`
+or `continue`; it was `:outer` in both places.
 
 ```rig reject
 sub main()
@@ -133,8 +135,6 @@ sub main()
 ```output
 0 0
 ```
-
-### Built-in calls are `$name(...)`
 
 The compiler's own functions, `@size(T)`, `@align(T)`, `@name(T)`, and
 Zig's under `raw` (`@truncate(x)`, `@intCast(x)`, ...), are `$size(T)`,
@@ -161,7 +161,7 @@ sub main()
 8 44
 ```
 
-### A fixed binding is `x =! e`
+A fixed binding is `x =! e`, and a module-level binding needs neither:
 
 ```rig reject
 sub main()
@@ -184,6 +184,11 @@ sub main()
 ```output
 20
 ```
+
+## Step 2: the spellings no script rewrites
+
+Rewrite these by hand; each is rejected with the new spelling in its
+message.
 
 ### `swap` replaces `replace`
 
