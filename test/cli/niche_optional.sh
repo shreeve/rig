@@ -82,9 +82,11 @@ expect_has "$(cat main.zig)" 'fn has(c: *const rig.Opt(Cheese)) bool' "has takes
 expect_has "$(cat main.zig)" 'return rig.some(c.*) != null;' "has tests it through the helper"
 RIG_STRICT_OPTIONALS= rig build --release -o prog main.rig >out.txt 2>err.txt || fail "rig build --release: $(cat err.txt)"
 expect_eq "$(./prog)" "true false" "the program"
-body=$(objdump -d --no-show-raw-insn prog | awk '/[<]_*__rig_main\.has[>]:/ {f = 1; next} f && /^$/ {exit} f' | sed -E 's/^ *[0-9a-f]+:[[:space:]]*//')
+# The body ends at its last `ret`: on x86 the next function starts on a 16-byte
+# boundary, and the gap is `nopl`, `nopw`, or `cs nopw` padding, not code of `has`.
+body=$(objdump -d --no-show-raw-insn prog | awk '/[<]_*__rig_main\.has[>]:/ {f = 1; next} f && /^$/ {exit} f' | sed -E 's/^ *[0-9a-f]+:[[:space:]]*//' | awk '{l[NR] = $0} /^ret/ {r = NR} END {for (i = 1; i <= (r ? r : NR); i++) print l[i]}')
 [[ -n $body ]] || fail "no __rig_main.has in the program"
-work=$(grep -vE '^(stp|ldp|ret|push|pop|nop|endbr64)\b|^mov[[:space:]]+(x29, sp|%rsp,%rbp|rbp, ?rsp)' <<<"$body")
+work=$(grep -vE '^(stp|ldp|ret|push|pop|nop[a-z]*|endbr64)\b|^mov[[:space:]]+(x29, sp|%rsp,%rbp|rbp, ?rsp)' <<<"$body")
 n=$(grep -c . <<<"$work")
 ((n <= 2)) || fail "has is $n instructions besides its frame: $body"
 # One read, of the word at the optional's start: never a flag byte.
