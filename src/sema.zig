@@ -12483,6 +12483,10 @@ pub const LendStep = enum(u8) {
     /// and to write a `!{A}`: the last row, after the others reach the
     /// value (docs/design/apis.md, Stage 4; `SemContext.erasureOf`).
     erase,
+    /// An error of a set without fields, a code, lends a view of the error
+    /// value of it where a view of `error` or of a set with fields that
+    /// holds it goes (`codeLends`): a constant, `rig.codeView`.
+    code,
 };
 
 /// How a view is lent from a value of another type: the rows of the
@@ -12639,6 +12643,7 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
             return lend.push(.erase);
         },
     };
+    if (kind == .read and codeLends(ctx, from, view)) return lend.push(.code);
     switch (types.get(from)) {
         // An array lends `[]T`, and `![]T` to write.
         .array => |a| return lendElems(ctx, a.elem, kind, view, lend),
@@ -12660,6 +12665,19 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         },
     }
     return false;
+}
+
+/// Whether an error of set `from` is a code lent as an error value where
+/// `view` goes: `from` has no fields, and `view` is a read view of
+/// `error` or of another set with fields that holds `from`.
+fn codeLends(ctx: *const SemContext, from: TypeId, view: TypeId) bool {
+    if (!isErrorSet(ctx, from) or setHasFields(ctx, from)) return false;
+    const want = switch (ctx.types.get(view)) {
+        .read_view => |inner| inner,
+        else => return false,
+    };
+    if (want == ctx.types.any_error_id) return true;
+    return want != from and isErrorSet(ctx, want) and setHasFields(ctx, want) and errorSubset(ctx, from, want);
 }
 
 /// Whether `t` is the object a view as `form` of object `from` views: of

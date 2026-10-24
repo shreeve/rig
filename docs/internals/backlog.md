@@ -169,14 +169,12 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   - A chain of generic functions, each calling the next at
     `(fun(T) -> Int)?` of its `T` (which adds no instance depth), grows
     about cubically: 300 links take 1 GB, 1000 take 19 GB.
-- An error of a set without fields where a view of a union with fields
-  goes (`code(B.y)` for `code(k: ?L)` of `error L = A | B`, `A` with
-  fields) is rejected with "bind it first". Emit takes the code's
-  address before widening it to an error value; the lend should widen
-  through the coercion fact into the statement's temporary first, as a
-  member with fields is lent (`Checker.widenedError`). The case
-  `sets a member without fields lent where a union with fields goes`
-  of test/rig/errors-sets.rig.test.
+- A view of an error with fields as a view of a set that holds it: `?a`
+  of `a: A` where a `?L` or `?error` goes is a type mismatch, and the
+  value is bound as the union first. Both read the same
+  `rig.ErrorValue`, but the ownership checker's reach (`sema.viewReach`)
+  would have to see a `?L` reach an `A`, or a view of a temporary `A`
+  outlives it.
 - A release build of a chain of objects nested by value grows faster
   than the chain: 100 objects, each made by a function calling the next
   one's, cloned, compared, and hashed, build in 6 s, 200 in 13 s, 400 in

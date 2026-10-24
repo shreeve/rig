@@ -197,6 +197,17 @@ pub const ErrorValue = struct {
     }
 };
 
+/// A read view of the error value of `code`, an error of a set without
+/// fields, where a view of `error` or of a set with fields goes: a
+/// constant of the program, one for each member of the set.
+pub fn codeView(code: anytype) *const ErrorValue {
+    switch (code) {
+        inline else => |c| return &struct {
+            const value: ErrorValue = .{ .code = c, .data = no_error_data };
+        }.value,
+    }
+}
+
 /// The fields of a failure no one reads: none.
 pub const no_error_data: ErrData = std.mem.zeroes(ErrData);
 

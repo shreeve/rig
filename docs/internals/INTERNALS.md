@@ -4728,7 +4728,9 @@ program-wide mode.
   optionals) is recorded where the checker adapts it
   (`recordCodeWidening`, in `recordAdapted`), and emit makes it
   `rig.ErrorValue.of(code, .{})` at `emitValue`, inside any optional it
-  is lifted into.
+  is lifted into. Lent where a view of one goes, a code is the lend
+  table's `code` row (`sema.codeLends`): emit's `rig.codeView` reaches
+  the error value of the code, a constant, so no temporary holds it.
 - **Set parameters.** A function's type parameter written after `!`,
   `fun total[E](f: ?fun() -> Int!E) -> Int!E`, is a set parameter
   (`SymbolFlags.set_param`, marked by `resolve.markSetParams`): bound

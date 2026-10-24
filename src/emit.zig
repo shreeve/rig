@@ -5478,6 +5478,12 @@ pub const Emitter = struct {
                 } else if (first == .handle or first == .optional or (first == .elems and list)) {
                     try self.emitMemberBase(operand, self.typeOf(operand));
                     at.ptr = false;
+                } else if (first == .code) {
+                    // A code: its value, whose error value `rig.codeView`
+                    // reaches.
+                    self.bare = true;
+                    try self.emitValue(operand, false);
+                    at.ptr = false;
                 } else if (first == .erase and operand == .src and isNumberText(self.srcText(operand))) {
                     // A number lent where it is written, held by Zig, typed.
                     const e = self.facts.erasureOf(sexp) orelse return self.unsupported(sexp, "an API object no check recorded");
@@ -5589,6 +5595,8 @@ pub const Emitter = struct {
             },
             .callable => unreachable,
             .erase => return self.erasedObject(node, at, from),
+            // A code's error value, a constant of the program.
+            .code => at = .{ .text = try self.fmt("rig.codeView({s})", .{if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text}), .ptr = true },
         };
         const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         return switch (types.get(view)) {
