@@ -530,7 +530,9 @@ pub const ObjectForm = enum { read, write, box, shared, weak };
 /// The API object `ty` holds directly, and how: a read view, a write
 /// view, a box, a counted handle, or a weak handle of one. Null for any
 /// other type, an optional of one included.
-pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObject, form: ObjectForm } {
+pub const ObjectHeld = struct { object: ApiObject, form: ObjectForm };
+
+pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?ObjectHeld {
     if (!ctx.typeInfo(ty).object) return null;
     const inner, const form: ObjectForm = switch (ctx.types.get(ty)) {
         .read_view => |v| .{ v, .read },
@@ -3058,6 +3060,9 @@ pub const Requirement = union(enum) {
     /// Copies (`copies` is not `no`): the body copies the parameter's
     /// value.
     copies,
+    /// Clones (`lacks` finds no `Clone`): the body makes a new owner of a
+    /// value that holds the parameter, `+x`, part by part.
+    clones,
     /// Needs no cleanup: the body discards the parameter's value, leaves
     /// a temporary of it, overwrites one, or keeps one in an array or a
     /// slice.
@@ -3128,6 +3133,7 @@ pub const Requirement = union(enum) {
             .fits => "an integer literal",
             .shift => "a constant shift",
             .copies => "a value that copies",
+            .clones => "a value that clones",
             .no_cleanup => "a value that owns no resource",
             .array_len => "an array length",
             .lane_count => "a lane count",
@@ -3264,6 +3270,9 @@ pub const PlainRequirement = struct {
     /// The value is an element its collection still owns, taken out
     /// (moved, dropped, reassigned) rather than copied.
     element: bool = false,
+    /// The value is one an `as` binds where it stands, inside an optional
+    /// a read view reaches, taken out rather than copied.
+    as_view: bool = false,
     /// Not a copy: the value is stored where no loan is tracked (a Cell,
     /// a Signal, an owned closure), so each instance's argument must
     /// hold no `?String`, which may view a String.
@@ -7256,6 +7265,17 @@ pub fn setHasFields(ctx: *const SemContext, ty: TypeId) bool {
     return fieldsAt(ctx, ty, 0);
 }
 
+/// Whether a value of `ty` is a `rig.ErrorValue`, an error's code with
+/// room for its fields: `error`, a function's set parameter, or a set
+/// with a member with fields. A view of one is a pointer to it, not one.
+pub fn isErrorValueForm(ctx: *const SemContext, ty: TypeId) bool {
+    if (ctx.types.get(ty) == .any_error or isSetParam(ctx, ty)) return true;
+    return switch (ctx.types.get(ty)) {
+        .read_view, .write_view => false,
+        else => setHasFields(ctx, ty),
+    };
+}
+
 fn fieldsAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
     if (depth > union_depth) return false;
     const d = nominalDecl(ctx, ty) orelse return false;
@@ -7864,8 +7884,15 @@ pub fn objectLoanReason(ctx: *const SemContext, a: std.mem.Allocator, ty: TypeId
     return try a.print("a `{s}` may hold one: write `{s}{s}`", .{ shown, sigil, try objectSpelling(ctx, a, with) });
 }
 
+/// Whether `ty`, which holds an API object as `h` says, holds no loan by
+/// its braces: they name `Owned`, or it is a frozen value's handle,
+/// `*{A + Syncs}`, which holds no view.
+pub fn heldObjectOwned(ctx: *const SemContext, ty: TypeId, h: ObjectHeld) bool {
+    return objectBounds(ctx, h.object).contains(.Owned) or (h.form == .shared and frozenObject(ctx, ctx.types.get(ty).shared));
+}
+
 fn objectUnownedIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) std.mem.Allocator.Error!?TypeId {
-    if (objectHeld(ctx, ty)) |h| return if (objectBounds(ctx, h.object).contains(.Owned) or (h.form == .shared and frozenObject(ctx, ctx.types.get(ty).shared))) null else ty;
+    if (objectHeld(ctx, ty)) |h| return if (heldObjectOwned(ctx, ty, h)) null else ty;
     if (apiObject(ctx, ty)) |o| return if (objectBounds(ctx, o).contains(.Owned)) null else ty;
     switch (ctx.types.get(ty)) {
         .optional, .read_view, .write_view, .shared, .weak, .range => |inner| return objectUnownedIn(ctx, inner, seen),
@@ -7908,8 +7935,9 @@ fn objectUnownedFields(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHas
 /// `Owned` for a box or a handle whose braces name it, checked where the
 /// type is erased, and for a `*{A + Syncs}`, which holds a frozen value.
 /// Nothing else: two objects may hide two types, which `==`, hashing,
-/// and `<` cannot compare, and an erased type crosses no task until
-/// Stage 5. A bare object meets nothing (`lacks`).
+/// and `<` cannot compare. `Sends` and `Syncs` are the crossing walk's,
+/// by the bounds the braces name (`lacks`, `blockerOf`). A bare object
+/// meets nothing (`lacks`).
 pub fn objectMeets(ctx: *const SemContext, o: ApiObject, form: ObjectForm, api: Api) bool {
     const named = objectBounds(ctx, o);
     return switch (api) {
@@ -9451,14 +9479,17 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 
 /// A type a read view copies: a number, `Bool`, `?String`, a slice, a
 /// read view, a function or callable view (a `rig.FnRef`), a vector, a
-/// plain enum, an error, or an optional of one of those. The runtime's
-/// `ReadView` holds a generic `?T` by the same rule.
+/// plain enum, an error of a set without fields (a Zig error), or an
+/// optional of one of those. An error that is a `rig.ErrorValue`
+/// (`isErrorValueForm`) is a struct, and lent by address. The runtime's
+/// `ReadView` holds a generic `?T` by the same rule, read off the Zig
+/// type each of these is.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd, .slot, .read_view => true,
+        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .slice, .function, .callable, .simd, .slot, .read_view => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
-        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
+        .nominal, .imported_nominal => isPlainEnum(ctx, ty) or (isErrorSet(ctx, ty) and !isErrorValueForm(ctx, ty)),
         else => false,
     };
 }
@@ -10500,6 +10531,9 @@ const TargetWalk = struct {
             else => {},
         }
         if (is_view) return;
+        // A box or a handle of an API object whose braces say it holds no
+        // loan views nothing (`heldObjectOwned`).
+        if (objectHeld(ctx, node.ty)) |h| if (heldObjectOwned(ctx, node.ty, h)) return;
         // Each type is walked once per context.
         const key: SeenKey = .{ .ctx = @intFromPtr(ctx), .ty = node.ty, .args = if (node.args) |args| @intFromPtr(args.tys.ptr) else 0, .written = self.written };
         if ((try self.seen.getOrPut(self.a, key)).found_existing) return;

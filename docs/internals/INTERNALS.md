@@ -1645,7 +1645,7 @@ emitter ask these, never a predicate built for another question:
 | `readByAddress` | moves (`moves` is not `no`): `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `resourceKind` | how a value that moves is held and dropped: a shared handle (`dropStrong`), a weak one (`dropWeak`), an optional, or a value `rig.drop` releases; null for one that copies. The storage plan records it for each binding and each value emit holds or discards (Storage facts) |
 | `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell and a Signal hold |
-| `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
+| `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address; the runtime's `ReadView(T)` holds a generic `?T` by the same rule, read off the Zig type, so a kind lowered to a struct (a `rig.ErrorValue`, `isErrorValueForm`) is lent by address |
 | `readsAsValue` | a scalar (`isScalar`) or a plain enum: an operator, generic inference, and a binding with no type read a read view of one as the value |
 | `isScalar` | a primitive that copies, or a vector: a method takes it by value, never by address |
 | `holdsVector` | is or holds inline a vector, whose size and alignment are the target's: `$size` and `$align` take none |

@@ -3230,8 +3230,8 @@ fail "apis pub states its bounds arithmetic", "`pub fun sum[T]` adds `T`s: write
 
   print(sum(1, 2), neg(3), low(6, 3))
 
-fail "apis pub states its bounds clone", "`pub fun dup[T]` copies a `T`: write `[T: Copy]`"
-  # `+x` on a `T` makes a new owner only of a value that copies.
+fail "apis pub states its bounds clone", "`pub fun dup[T]` clones a `T`: write `[T: Clone]`"
+  # `+x` on a `T` makes a new owner of a value that clones.
 
   pub fun dup[T](a: ?T) -> T
     +a
@@ -4987,6 +4987,167 @@ Square(side: 2.0) Square(side: 1.0)
   !l.push(^Square(side: 2.0))
   print(a, b)
   print(l)
+
+test "apis object printed as its hidden text prints", '''
+x x y x
+x? ["z"] H(s: "x")
+xx
+'''
+  # An object prints its hidden value as the value would print in its
+  # place: text as its bytes at the top level, quoted inside another
+  # value; the same for a box, a view, a shared object, and an optional.
+  api Shape
+    fun area(?@) -> Float
+
+  add String: Shape
+    fun area(?@) -> Float
+      1.0
+
+  type B = ^{Shape + Print}
+
+  obj H
+    s: B
+
+  b: B = ^String("x")
+  s = ^String("x")
+  r: ?{Shape + Print} = ?s
+  h: *{Shape + Print} = *String("y")
+  o: B? = ^String("x")
+  print(b, r, h, o)
+  l: List[B] = List()
+  !l.push(^String("z"))
+  w = H(s: ^String("x"))
+  print(String(o, "?"), l, w)
+  print(String(b, r))
+
+test "apis inference sees through a box or a handle lent as a view", '''
+  4.0 4.0 8.0
+  5.0 9.0 1
+  Square(side: 2.0)
+'''
+  # A box or a handle where a view goes is matched by the value it
+  # lends: a pattern naming a type of its own, and a `T` bounded by an
+  # API of the program's own, which no handle provides; an unbounded `T`
+  # binds the box itself.
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@)
+      @side += 1.0
+
+  obj P
+    n: Int
+
+  fun f[T: Shape](s: ?T) -> Float
+    s.area()
+
+  sub g[T: Shape](s: !T)
+    !s.grow()
+
+  fun both[T: Shape](a: ?T, b: ?T) -> Float
+    a.area() + b.area()
+
+  fun total[T: Shape](xs: ?List[T]) -> Float
+    t = 0.0
+    for x in xs
+      t += x.area()
+    t
+
+  fun first[T](xs: ?List[T]) -> ?T
+    ?xs[0]
+
+  fun same[T](x: ?T) -> ?T
+    x
+
+  fz = *Frozen(Square(side: 2.0))
+  bx = ^Square(side: 1.0)
+  g(!bx)
+  print(f(fz), f(?bx), both(?bx, ?fz))
+  sq = Square(side: 1.0)
+  l = List[Square]()
+  !l.push(Square(side: 3.0))
+  sl = *<l
+  ps = List[P]()
+  !ps.push(P(n: 1))
+  bp = ^<ps
+  print(both(?sq, ?bx), total(?sl), first(?bp).n)
+  b2 = ^Square(side: 2.0)
+  print(same(?b2))
+
+test "apis object result that holds no loan says no from", "4 4 4 5 1"
+  # A box or a handle of an object whose braces say it holds no loan
+  # views nothing: an API's method gives one with no `from`.
+  api Job
+    fun run(?@) -> Int
+
+  obj Work: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  api Factory
+    fun make(?@) -> ^{Job + Owned}
+    fun shared(?@) -> *{Job + Syncs}
+    fun counted(?@) -> *{Job + Owned}
+    fun maybe(?@) -> ^{Job + Owned}?
+    fun many(?@) -> List[^{Job + Owned}]
+
+  obj F: Factory
+    n: Int
+
+    fun make(?@) -> ^{Job + Owned}
+      ^Work(n: @n)
+
+    fun shared(?@) -> *{Job + Syncs}
+      *Frozen(Work(n: @n))
+
+    fun counted(?@) -> *{Job + Owned}
+      *Work(n: @n)
+
+    fun maybe(?@) -> ^{Job + Owned}?
+      ^Work(n: @n + 1)
+
+    fun many(?@) -> List[^{Job + Owned}]
+      l: List[^{Job + Owned}] = List()
+      !l.push(^Work(n: @n))
+      l
+
+  fun first[T: Factory](f: ?T) -> ^{Job + Owned}
+    f.make()
+
+  f = F(n: 4)
+  m = f.maybe() ?? ^Work(n: 0)
+  print(first(?f).run(), f.shared().run(), f.counted().run(), m.run(), f.many().len)
+
+fail "apis object result that may hold a loan says from", "`Factory.view` gives `?{Job + Owned}`, which may view what it is passed", "`Factory.boxed` gives `^{Job}`, which may view what it is passed", "`make` returns `^{Job + Owned}`, which views nothing; `from` names what a result views"
+  api Job
+    fun run(?@) -> Int
+
+  obj Work: Job
+    n: Int
+
+    fun run(?@) -> Int
+      @n
+
+  api Factory
+    fun view(?@) -> ?{Job + Owned}
+    fun boxed(?@) -> ^{Job}
+
+  obj G
+    n: Int
+
+    fun make(?@) -> ^{Job + Owned} from @
+      ^Work(n: @n)
+
+  print(1)
 
 test "apis object box cloned through the table", "Pt(x: 2, tag: \"a\") 4 9"
   # `+b` with `Clone` in the braces: a new box of a clone of the value,

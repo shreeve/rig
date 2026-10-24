@@ -286,11 +286,54 @@ changed the language since it:
   (`sema.isPlainEnum`), and the values `Int(x)`, ordering, and
   `$variants` read go through it.
 
+- **An API object prints as the value it hides:** `print(b)` of a
+  `^{Shape + Print}`, `?{Shape + Print}`, or `*{Shape + Print}` hiding
+  a String writes its text as is, as `print` of the String does, and
+  quotes it only inside a List or a field; the table's print entry
+  takes `print`'s `top` flag, as a box passes it on.
+- **A generic `?T` of an error with fields:** `show(a)` for a
+  `sub show[T](x: ?T)` and `a` of an error set with a member with
+  fields, or `A?` of one, checked and then failed in Zig: sema lent it
+  as a copy, and the runtime's `ReadView`, which a generic body's
+  parameter is, held its `rig.ErrorValue` by address. Sema now lends
+  every error that is a `rig.ErrorValue` by address
+  (`sema.isErrorValueForm`, the one test emit asks too), the rule the
+  runtime applies.
+
 - **`.len` of a List behind a shared handle is an `Int`:** `0..f.len`,
   `n = f.len`, and `f.is_empty()` of a `*Frozen[List[T]]` or a
   `*List[T]` passed the check and then failed in Zig. One classifier
   (`hasLenReached`) now says a length is read through handles and
   boxes alike.
+
+- **`[T: Clone]` clones:** `+x` of a `T`, a `?T`, or a `T?` in a
+  generic body asked for `Copy` ("`T` is bounded by `Clone`, which does
+  not give a value that copies"), though `Clone` is the bound that
+  gives `+x`; a `|+x|` capture too. It now clones as each instance
+  does (`rig.cloneAs`), a body without bounds is checked at each
+  instance (`Requirement.clones`), and an instance that does not
+  clone, a type with a `drop` body or a unique one, is rejected there.
+- **`if ?o as v` of a `?T?` in a generic body views the `T`:** under
+  any bound, `if ?o as v` and `while ?o as v` asked for `Copy`; the `T`
+  is now read where it stands, as a `for` reads an element of a
+  `?List[T]`, the optional stays lent while `v` lives, and only taking
+  `v` out needs a `T` that copies at each instance.
+- **A loop over a slice of a `T` reads its elements in place:** in a
+  generic body, `for s in xs` and `for s in ?xs` of a `[]T` (or an
+  array of `T`) asked for `Copy` under any bound, where a loop over a
+  `?List[T]` did not; both now read each element where it stands, and
+  only taking one out needs a `T` that copies at each instance.
+- **Inference sees through a box or a handle lent as a view:**
+  `first(?bx)` of a `^List[P]` for `first[T](xs: ?List[T])` was a type
+  mismatch, and `f(?fz)` of a `*Frozen[Square]` for `f[T: Shape](s: ?T)`
+  bound `T` to the handle, which provides no `Shape`; each now binds the
+  value the lend reaches, as `first[P](?bx)` and `f[Square](?fz)` did.
+- **A box or a handle of an object that holds no loan views nothing:**
+  an API's method giving `^{Job + Owned}` or `*{Job + Syncs}` had to say
+  `from @`, as if the object could view what it was passed; the view
+  targets of a type now stop at a box or a handle whose braces say it
+  holds no loan (`sema.heldObjectOwned`, which `objectUnowned` asks
+  too), and such a result takes no `from`.
 
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first

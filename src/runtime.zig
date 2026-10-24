@@ -697,8 +697,9 @@ pub fn needsDrop(comptime T: type) bool {
 }
 
 /// How a read view `?T` is held: a copy of a scalar or a view (a
-/// number, `Bool`, a vector, a plain enum, an error, a slice or
-/// `?String`, a function, or an optional of one), a pointer to anything else, and
+/// number, `Bool`, a vector, a plain enum, an error of a set without
+/// fields, a slice or `?String`, a function, or an optional of one), a
+/// pointer to anything else (an `ErrorValue` among them), and
 /// for a `String` its bytes, the one text view, `?String`. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
@@ -771,10 +772,11 @@ fn ApiViewOf(comptime Entries: type, comptime form: ApiForm, comptime builtins: 
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
 
-        /// The hidden value, printed through the table: the checker lets
-        /// only an object whose braces or API name `Print` be printed.
-        pub fn __rig_print(self: @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
-            return self.vt.__rig_print(self.ptr, w);
+        /// The hidden value, printed through the table as it prints in
+        /// the object's place (`top`): the checker lets only an object
+        /// whose braces or API name `Print` be printed.
+        pub fn __rig_print(self: @This(), w: *std.Io.Writer, top: bool) std.Io.Writer.Error!void {
+            return self.vt.__rig_print(self.ptr, w, top);
         }
     };
 }
@@ -820,10 +822,11 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
 
-        /// The hidden value, printed through the table: the checker lets
-        /// only an object whose braces or API name `Print` be printed.
-        pub fn __rig_print(self: *const Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
-            return self.vt.__rig_print(self.ptr, w);
+        /// The hidden value, printed through the table as it prints in
+        /// the object's place (`top`): the checker lets only an object
+        /// whose braces or API name `Print` be printed.
+        pub fn __rig_print(self: *const Self, w: *std.Io.Writer, top: bool) std.Io.Writer.Error!void {
+            return self.vt.__rig_print(self.ptr, w, top);
         }
 
         /// `+b`: a new box of a clone of the value, through the table: the
@@ -899,10 +902,11 @@ pub fn ApiShared(comptime Entries: type, comptime builtins: []const u8) type {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
 
-        /// The hidden value, printed through the table: the checker lets
-        /// only an object whose braces or API name `Print` be printed.
-        pub fn __rig_print(self: *const Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
-            return self.vt.__rig_print(self.ptr, w);
+        /// The hidden value, printed through the table as it prints in
+        /// the object's place (`top`): the checker lets only an object
+        /// whose braces or API name `Print` be printed.
+        pub fn __rig_print(self: *const Self, w: *std.Io.Writer, top: bool) std.Io.Writer.Error!void {
+            return self.vt.__rig_print(self.ptr, w, top);
         }
 
         pub fn __rig_drop(self: *Self) void {
@@ -943,9 +947,9 @@ pub fn ApiWeak(comptime Entries: type, comptime builtins: []const u8) type {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
 
-        /// Whether the value lives, as a `~T` prints it: a count taken and
-        /// given back, never the last.
-        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        /// Whether the value lives, as a `~T` prints it, wherever it is: a
+        /// count taken and given back, never the last.
+        pub fn __rig_print(self: Self, w: *std.Io.Writer, _: bool) std.Io.Writer.Error!void {
             const alive = self.vt.__rig_upgrade(self.ptr);
             if (alive) self.vt.__rig_drop(self.ptr);
             try w.writeAll(if (alive) "~(alive)" else "~(gone)");
@@ -1114,8 +1118,9 @@ fn clonesErased(comptime T: type) bool {
 pub const ErasedRead = *const anyopaque;
 pub const ErasedWrite = *anyopaque;
 
-/// A table's entry that prints the value (`printErased`).
-pub const ErasedPrint = *const fn (ErasedRead, *std.Io.Writer) std.Io.Writer.Error!void;
+/// A table's entry that prints the value (`printErased`), at the top
+/// level or inside another value, as `writeValue`'s `top` says.
+pub const ErasedPrint = *const fn (ErasedRead, *std.Io.Writer, bool) std.Io.Writer.Error!void;
 
 /// The value of type `T` at `ptr`, the address an API object holds, as a
 /// table entry for `T` reads or writes it.
@@ -1124,11 +1129,11 @@ pub inline fn erasedSelf(comptime P: type, ptr: anytype) P {
 }
 
 /// The table entry that prints the value of type `T` at `ptr`, as `print`
-/// writes it (`ApiView.__rig_print`).
+/// writes it in the object's place (`ApiView.__rig_print`).
 pub fn printErased(comptime T: type) ErasedPrint {
     return &struct {
-        fn print(ptr: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
-            return writeValue(w, erasedSelf(*const T, ptr).*, false);
+        fn print(ptr: *const anyopaque, w: *std.Io.Writer, top: bool) std.Io.Writer.Error!void {
+            return writeValue(w, erasedSelf(*const T, ptr).*, top);
         }
     }.print;
 }
@@ -1970,6 +1975,14 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
         },
         else => @compileError("rig: cannot clone " ++ @typeName(T)),
     }
+}
+
+/// `+x` of a value of type parameter `T` in a generic body, `value` being
+/// a `T` or what a read view of one reaches: a new owner, part by part
+/// (`cloneValue`), and for a String's bytes a new String of them.
+pub fn cloneAs(comptime T: type, value: anytype) T {
+    if (comptime T == String and @TypeOf(value) != String) return String.of(.{value});
+    return cloneValue(&value);
 }
 
 /// `+x` for an optional handle: another handle to the same box, or null.
@@ -6612,8 +6625,9 @@ const max_print_depth = 64;
 /// quoted and escaped inside other values (`writeQuoted`); a float in
 /// its shortest form (`writeFloat`), `none` for an absent optional,
 /// `Name(field: v)` for an object, `.variant` / `.variant(field: v)` for
-/// an enum, and `[a, b]` for arrays and Lists. A shared handle or a box
-/// prints its value, a function `<fun>`. `top` is the one flag that
+/// an enum, and `[a, b]` for arrays and Lists. A shared handle, a box, or
+/// an API object prints its value as the value prints in its place, a
+/// function `<fun>`. `top` is the one flag that
 /// changes how a value is written: text at the top level is written as
 /// is, and quoted everywhere else.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
@@ -6636,6 +6650,9 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         .@"fn" => return w.writeAll("<fun>"),
         .@"struct" => {
             if (@hasDecl(T, "__rig_box")) return writeValue(w, value.value.*, top);
+            // An API object prints its hidden value as that value prints
+            // in its place, as a box does.
+            if (@hasDecl(T, "__rig_api_object")) return value.__rig_print(w, top);
             if (@hasDecl(T, "__rig_string")) return writeValue(w, value.list.items, top);
             // A mask prints as the array of its lanes, as a vector does.
             if (@hasDecl(T, "__rig_mask")) return writeValue(w, maskArray(value), top);

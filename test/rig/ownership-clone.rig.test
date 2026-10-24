@@ -60,6 +60,72 @@ test "a Map and a Set clone, and the clones are their own", '''
   mm2 = +mm
   print(mm2.len)
 
+test "a type parameter bounded by Clone clones", '''
+  ab ab o 2 Wrap(v: "w", n: 1)
+  ab abc 3 [5]
+'''
+  # `+x` of a `T`, a `?T`, and a `T?` in a generic body, and a `|+x|`
+  # capture, clone as each instance clones: a new owner, which the
+  # original outlives.
+  obj Wrap[T]
+    v: T
+    n: Int
+
+  fun dup[T: Clone](x: ?T) -> T
+    +x
+
+  fun opt[T: Clone](x: ?T?) -> T?
+    +x
+
+  fun own[T: Clone](x: T) -> T
+    y = +x
+    <x
+    y
+
+  fun cap[T: Clone](x: ?T) -> T
+    f = |+x| +x
+    f()
+
+  fun loose[T](x: ?T) -> T
+    +x
+
+  s = String("ab")
+  o: String? = String("o")
+  w = Wrap(v: String("w"), n: 1)
+  t = dup(?s)
+  !t.add("c")
+  xs = List[Int]()
+  !xs.push(5)
+  print(dup(?s), cap(?s), opt(?o), own(2), loose(?w))
+  print(s, t, loose(?3), dup(?xs))
+
+fail "a type parameter clones only where its instance clones", "`dup[Res]` cannot use `T = Res`: `Res` cannot be cloned", "`loose[Res]` cannot use `T = Res`: the generic body clones a value that holds a `T`, and `Res` is not `Clone`", "`capl[Once]` cannot use `T = Once`: the generic body clones into a closure a value that holds a `T`, and `Once` is not `Clone`", "`T` is bounded by `Ord`, which does not give a value that clones; add `Clone` to its bounds: `[T: Clone + Ord]`", errors: 4
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop")
+
+  obj Once unique
+    n: Int
+
+  fun dup[T: Clone](x: ?T) -> T
+    +x
+
+  fun loose[T](x: ?T) -> T
+    +x
+
+  fun capl[T](x: ?T) -> Int
+    f = |+x| 1
+    f()
+
+  fun ord[T: Ord](x: ?T) -> T
+    +x
+
+  r = Res(n: 1)
+  o = Once(n: 2)
+  print(dup(?r).n, loose(?r).n, capl(?o))
+
 fail "another module's type with a drop body has no clone", "`+x` cannot clone a `lib.Res`: a value with a `drop` body, or holding a Signal or a write view, has no clone; move it with `<x`, or lend it"
   use lib
 

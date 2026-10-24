@@ -2727,6 +2727,10 @@ const Checker = struct {
             const writes = self.ctx.types.get(ty) == .write_view;
             if (try sema.makesWriteView(self.ctx, expr)) {
                 reach = .written;
+            } else if (!writes and sema.copies(self.ctx, inner) == .depends) {
+                // A type parameter's value, which may own, is viewed where
+                // it is in every instance, as an element `for` reads is.
+                reach = .read;
             } else if (try self.cannotCopy(inner, self.startOf(expr), "moves out of a view a value")) {
                 if (writes) {
                     // A held write view is lent on visibly, as `!o`; one a
@@ -3433,15 +3437,6 @@ const Checker = struct {
         return self.loopElement(.write, elem);
     }
 
-    /// The binding of an element a loop reads where it is: a copy of
-    /// plain data, a view (`?E`) of anything else, so a unique value is
-    /// never copied. Inside a generic body an element whose type depends
-    /// on the instance is a copy, so every instance must supply one that
-    /// copies.
-    fn readElement(self: *Checker, pos: u32, elem: TypeId) Error!TypeId {
-        if (sema.copies(self.ctx, elem) == .depends) try self.requireOf(elem, .copies, pos, "copies into a loop binding a value");
-        return self.loopElement(.read, elem);
-    }
 
     /// The type of a loop's element binding, of an element of type
     /// `elem` the loop writes, takes, or reads: its access
@@ -3505,7 +3500,7 @@ const Checker = struct {
             },
             .array => |a| {
                 if (mode == .write) return self.writeElement(source, inner_source, a.elem);
-                if (mode != .move) return self.readElement(pos, a.elem);
+                if (mode != .move) return self.loopElement(.read, a.elem);
                 return self.loopElement(.take, a.elem);
             },
             .slice, .string_view, .static => {
@@ -3518,7 +3513,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 return switch (self.ctx.types.get(peeled)) {
-                    .slice => |sl| try self.readElement(pos, sl.elem),
+                    .slice => |sl| try self.loopElement(.read, sl.elem),
                     else => try self.byteType(),
                 };
             },
@@ -7199,7 +7194,7 @@ const Checker = struct {
         const value = try self.readThrough(operand, inner, sema.unwrapViews(self.ctx, inner));
         switch (sema.cloneable(self.ctx, inner)) {
             .copy, .bump, .text, .deep => {},
-            .depends => try self.requireOf(value, .copies, self.startOf(operand), "clones a value"),
+            .depends => try self.requireOf(value, .clones, self.startOf(operand), "clones a value"),
             .no => {
                 const shown = try self.tyName(value);
                 if (sema.tableElem(self.ctx, sema.unwrapViews(self.ctx, value)) != null) {
@@ -11861,10 +11856,11 @@ const Checker = struct {
                 const viewing = inf.viewing;
                 defer inf.viewing = viewing;
                 inf.viewing = at == .string_view and self.ctx.types.get(pattern) == .read_view;
-                try self.bindArg(inf, p, switch (at) {
+                const viewed = switch (at) {
                     .read_view, .write_view => |inner| inner,
                     else => actual,
-                }, arg, depth + 1);
+                };
+                try self.bindArg(inf, p, try self.reachedForView(p, viewed), arg, depth + 1);
             },
             .fallible => |p| if (at == .fallible) {
                 try self.bindArg(inf, p.ok, at.fallible.ok, arg, depth + 1);
@@ -11942,6 +11938,32 @@ const Checker = struct {
                 try self.bindReturns(inf, pf.returns, at.function.returns, arg, depth + 1);
             } else self.noteMismatch(inf, pattern, actual, arg),
             else => {},
+        }
+    }
+
+    /// The value a view argument of type `actual` reaches where a view of
+    /// `pattern` goes: through a box, a counted handle, and a frozen
+    /// value's handle, as the lend table lends (`sema.lendsAs`). A pattern
+    /// that names a type of its own matches what it reaches: `first(?bx)`
+    /// of a `^List[P]` binds `T = P` in `first[T](xs: ?List[T])`, as
+    /// `first[P](?bx)` lends it. A type parameter bounded by an API of
+    /// the program's own, which no handle provides, binds the value when
+    /// the box or handle does not provide it and the value does:
+    /// `f(?fz)` of a `*Frozen[Square]` is `f[Square]`. Any other type
+    /// parameter binds the box or handle itself.
+    fn reachedForView(self: *Checker, pattern: TypeId, actual: TypeId) Error!TypeId {
+        switch (self.ctx.types.get(pattern)) {
+            .type_var => |tv| {
+                const apis = self.ctx.symbols.items[tv].user_apis;
+                if (apis.len == 0) return actual;
+                const reached = reachedValue(self.ctx, actual);
+                if (reached == actual) return actual;
+                for (apis) |api| if ((try sema.provides(self.ctx, actual, api)) != null) return actual;
+                for (apis) |api| if ((try sema.provides(self.ctx, reached, api)) == null) return actual;
+                return reached;
+            },
+            .shared, .weak => return actual,
+            else => return if (sema.boxedType(self.ctx, pattern) != null) actual else reachedValue(self.ctx, actual),
         }
     }
 
@@ -18355,7 +18377,11 @@ const Checker = struct {
                 const value = sema.unwrapViews(self.ctx, ty);
                 return switch (sema.cloneable(self.ctx, ty)) {
                     .bump, .text, .deep => value,
-                    .copy, .depends, .no => null,
+                    .depends => {
+                        try self.requireOf(value, .clones, pos, "clones into a closure a value");
+                        return value;
+                    },
+                    .copy, .no => null,
                 };
             },
             else => {},
@@ -18364,7 +18390,10 @@ const Checker = struct {
             .copy, .bump, .deep => ty,
             // A `?String` view clones into the `String` that owns its bytes.
             .text => if (ty == self.t().string_view_id) self.t().string_id else ty,
-            .depends => if (try self.cannotCopy(ty, pos, "copies into a closure a value")) null else ty,
+            .depends => {
+                try self.requireOf(ty, .clones, pos, "clones into a closure a value");
+                return ty;
+            },
             .no => null,
         };
     }
@@ -19944,6 +19973,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname })
                 else
                     try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is unique", .{ inst, pname, aname, req.op, pname, aname }),
+                .clones => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, and `{s}` is not `Clone`", .{ inst, pname, aname, req.op, pname, aname }),
                 .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
                 .lane_count => try ctx.err(at, cannot ++ "uses `{s}` as a lane count, a power of two from 2 to 64", .{ inst, pname, aname, pname }),
                 .slot_count => try ctx.err(at, cannot ++ "names `Slot[{s}]`, and a slot names one of `n` slots, `n` at least 1", .{ inst, pname, aname, pname }),
@@ -19973,7 +20003,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .copies, .no_cleanup => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .copies, .no_cleanup, .clones => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
                 .lane_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a lane count here", .{pname}),
                 .slot_count => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as a slot count here", .{pname}),
@@ -20178,6 +20208,20 @@ fn reportApiUnbound(ctx: *SemContext, c: sema.GenericMethodCall, base: TypeId, a
 /// Whether `api` says how a value is copied, kept, or crosses to
 /// another task: a fact of a type's parts that every method of a generic
 /// type shares, never one a method's own bounds add.
+/// The value a box, a counted handle, or a frozen value's handle of type
+/// `ty` reaches, through each in turn; `ty` itself for any other type.
+fn reachedValue(ctx: *const SemContext, ty: TypeId) TypeId {
+    var a = ty;
+    while (true) {
+        if (sema.boxedType(ctx, a)) |inner| {
+            a = inner;
+        } else switch (ctx.types.get(a)) {
+            .shared => |inner| a = sema.frozenValue(ctx, inner) orelse inner,
+            else => return a,
+        }
+    }
+}
+
 fn ownershipApi(api: sema.Api) bool {
     return switch (api) {
         .Copy, .Clone, .Owned, .Sends, .Syncs => true,
@@ -20194,6 +20238,7 @@ fn apiOf(req: Requirement) ?sema.Api {
         .equatable => .Eq,
         .hashable => .Hash,
         .copies, .no_cleanup => .Copy,
+        .clones => .Clone,
         .printable => .Print,
         .meets => |api| api,
         .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .error_set, .not_function, .named, .frozen, .no_task, .task => null,
@@ -21066,6 +21111,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             else => false,
         },
         .copies => sema.copies(ctx, ty) != .no,
+        .clones => (try sema.lacks(ctx, ty, .Clone)) == null,
         .no_cleanup => !sema.typeHasDropGlue(ctx, ty),
         .lane_count => switch (ctx.types.get(ty)) {
             .ct_value => |v| sema.lanesInRange(v.int),

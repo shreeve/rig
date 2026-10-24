@@ -2759,7 +2759,12 @@ order:
 1. **From the arguments.** Each parameter's type is matched against
    its argument's type (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
    `[N]T`, `Wrap[T]`, `fun(T) -> U`, `?fun(T) -> U`), and a method's
-   self gives its type's parameters. Every argument must agree, and
+   self gives its type's parameters. A box or a handle given where a
+   view goes is matched by the value it lends: `first(?b)` of a
+   `^List[P]` for `first[T](xs: ?List[T])` is `first[P]`, and `f(?h)`
+   of a `*Frozen[Square]` for `f[T: Shape](s: ?T)` is `f[Square]`, since
+   no handle provides an API of the program's own (a `?T` of any other
+   `T` binds the box or handle itself). Every argument must agree, and
    an argument whose type does not have its parameter's shape is a type
    mismatch. An argument that is not a literal keeps the type it gives,
    even where the result is expected to have another.
@@ -3232,8 +3237,9 @@ payload's fields, each of which must be ordered. A type's header names
 `Eq`, `Hash`, `Ord`, or `Print`, the APIs whose meaning a type may give.
 
 A body may do with a bounded `T` what its bounds name and no more: copy
-a `T: Copy`, compare a `T: Ord`, hash a `T: Hash`, and call no method
-on it. Whether a literal fits a `T` is still checked at each instance.
+a `T: Copy`, clone a `T: Clone` (`+x` of a `T`, a `?T`, or a `T?`, as
+each instance clones it), compare a `T: Ord`, hash a `T: Hash`, and
+call no method on it. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Sends` or `Syncs` does not cross to another
 task. A comparison reads its operands where they are and drops none: a
@@ -3241,6 +3247,20 @@ task. A comparison reads its operands where they are and drops none: a
 `==`, `!=`, `<`, `<=`, `>`, and `>=` of made `T`s need `Copy`, else a
 binding of each (`ka = key(a)`, then `ka < kb`). Each instance must provide every bound, checked at the call or
 type that makes it, with the fix in the error.
+
+```rig
+fun keep[T: Clone](x: ?T) -> T
+  +x
+
+sub main()
+  s = String("ab")
+  t = keep(?s)
+  print(t, keep(?t), keep(?3))
+```
+
+```output
+ab ab 3
+```
 
 **Implied bounds.** A bound a signature's types already require counts
 as stated: a type parameter named as an argument of a generic type in
@@ -3487,7 +3507,9 @@ set parameter. Its compile-time parameters are each the same kind, of
 the same type, with the same bounds. Only `from` and `keeps` may be narrower than the API's,
 compared by position, never wider: a call through the API keeps and
 views what the API says. An API's method whose result could view what
-it is passed says what with `from`. A method that meets a `pub` API on a
+it is passed says what with `from`; a box or a handle of an object
+whose braces say it holds no loan (`^{Job + Owned}`, `*{Job + Syncs}`)
+views nothing, and takes no `from`. A method that meets a `pub` API on a
 `pub` type is `pub`. A type that provides two APIs giving one method a
 default writes the method to choose.
 
@@ -3908,8 +3930,11 @@ type it hides is erased: a `Print` its braces or its API name, a
 a handle whose braces name it, and a read view's `Copy`; a handle's `+`
 adds a count, and a weak handle prints whether its value lives. It
 meets no bound by an API, since a box is not its value: `T = ^{Shape}`
-does not meet `[T: Shape]`. A List, an optional, or an array of
-objects prints as its objects do, and no frozen value holds one but a
+does not meet `[T: Shape]`. An object prints as the value it hides
+prints in its place: hidden text is written as is by `print(b)` and
+`String(b)`, and quoted inside a List or a field. A List, an optional,
+or an array of objects prints as its objects do, and no frozen value
+holds one but a
 `*{A + Syncs}`, another frozen value's handle (below), since the type
 it hides may hold a Cell.
 
@@ -9955,8 +9980,9 @@ view (`!T`), through which `x.f = v` changes the value in place and
 lend. A `?T?` parameter, or another read view of an optional,
 lends its value the same way with `if p as x`; a held write view is
 lent on as `!p`, and a write view a call returns is bound as one.
-Plain data read through a `?T?` is copied (in a generic body, so is
-every `T`). A view cannot give up
+Plain data read through a `?T?` is copied. In a generic body a `T`,
+which may own, is read where it stands, as a `for` reads an element:
+only taking it out (`return x`) needs `Copy`. A view cannot give up
 a resource it holds, so `?` and `??` reject one.
 
 ```rig

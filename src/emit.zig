@@ -997,12 +997,7 @@ pub const Emitter = struct {
     /// with a member with fields, or a union of one. (With no field in
     /// the program, an `ErrorValue` is its code.)
     fn isErrorValueTy(self: *Emitter, ty: TypeId) bool {
-        if (ty == self.facts.types.any_error_id or self.facts.isSetParam(ty)) return true;
-        // A view of one is a pointer to it, not one.
-        return switch (self.facts.types.get(ty)) {
-            .read_view, .write_view => false,
-            else => self.facts.setHasFields(ty),
-        };
+        return self.facts.isErrorValueForm(ty);
     }
 
     /// The struct of the fields of member `member` of error set `set`, as
@@ -4920,7 +4915,7 @@ pub const Emitter = struct {
     /// `copy`: a viewed binding of a copy of the value inside, which the
     /// header captures by value (`Facts.copiesHeader`), held in a local.
     /// `value`: `tmp` holds the optional's payload itself, not a pointer to it.
-    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false, value: bool = false };
+    const OptionalBinding = struct { cond: Sexp, name: Sexp, tmp: []const u8, copy: bool = false, value: bool = false, held: bool = false };
 
     /// `payloadLocal` for a binding used in `used_in`, or anywhere when
     /// it is `.nil`.
@@ -5098,6 +5093,25 @@ pub const Emitter = struct {
             try self.w.print("|{s}{s}| ", .{ if (routed) "" else "*", tmp });
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
+        // Over a generic view of an optional (`rig.ReadView`), the value
+        // inside is read through `rig.viewed` and captured as a copy that
+        // owns nothing, as a `for` binds an element it reads.
+        if (try self.viewsOptionalValue(value)) if (self.genericReadView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value"))) |viewed| {
+            try self.w.writeAll(if (routed) "(rig.some(" else "(");
+            const h = try self.openHeader(value);
+            try self.writeViewedOpen(viewed);
+            try self.emitWriteViewPtr(value);
+            try self.w.writeAll(")");
+            try self.closeHeader(h);
+            try self.w.writeAll(if (routed) ")) " else ") ");
+            if (sym == null or !self.usage.used.contains(sym.?)) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.hiddenStorage(cond, .as_value, .copy, .next);
+            try self.w.print("|{s}| ", .{tmp});
+            return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp, .held = true } };
+        };
         // Over a view of an optional, a viewed binding points into it.
         if ((try self.viewsOptionalValue(value)) and copies) {
             // A view of a temporary the header drops: the optional is
@@ -5207,6 +5221,7 @@ pub const Emitter = struct {
         const inner = self.optionalInner(ir.As.value(o.cond));
         const bytes = if (inner) |i| self.facts.viewsStringBytes(i, ty) else false;
         const through_ptr = bytes and self.facts.types.get(inner.?) == .write_view and !o.value;
+        if (o.held) return self.line("const {s} = {s};", .{ local.zig_name, o.tmp });
         if (o.copy) {
             const copy = try self.hiddenStorage(o.cond, .as_copy, .copy, .{ .copy_of = o.tmp });
             try self.line("var {s} = {s};", .{ copy, o.tmp });
@@ -6205,9 +6220,16 @@ pub const Emitter = struct {
                         try self.emitExpr(operand);
                         try self.w.writeAll("))");
                     },
-                    // A generic `T` is cloned only where each instance
-                    // copies, so it is copied.
-                    .copy, .depends => try self.emitExpr(operand),
+                    // A generic `T` as each instance clones it, which
+                    // copies what copies (`rig.cloneAs`).
+                    .depends => {
+                        try self.w.writeAll("rig.cloneAs(");
+                        try self.emitTypeTy(self.typeOf(sexp).?);
+                        try self.w.writeAll(", ");
+                        try self.emitExpr(operand);
+                        try self.w.writeAll(")");
+                    },
+                    .copy => try self.emitExpr(operand),
                     .no => return self.unsupported(sexp, "a clone of a value that moves"),
                 }
             },
@@ -9803,7 +9825,15 @@ pub const Emitter = struct {
                 try self.writeLocalPlace(outer);
                 try self.w.writeAll("))");
             },
-            .copy, .depends => try self.writeLocalPlace(outer),
+            // A generic `T` as each instance clones it (`rig.cloneAs`).
+            .depends => {
+                try self.w.writeAll("rig.cloneAs(");
+                try self.emitTypeTy(self.facts.unwrapViews(ty));
+                try self.w.writeAll(", ");
+                try self.writeLocalPlace(outer);
+                try self.w.writeAll(")");
+            },
+            .copy => try self.writeLocalPlace(outer),
             .no => return self.unsupported(node, "a clone of a value that moves"),
         }
     }

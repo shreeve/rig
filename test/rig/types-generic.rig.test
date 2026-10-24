@@ -37,10 +37,10 @@ fail "generic body arith string", "11:4: `Wrap[?String]` cannot use `T = ?String
   b: Wrap[?String] = Wrap(value: "a")
   print(b.bump())
 
-fail "generic body copies resource", "`Keeper[*B]` cannot use `T = *B`: the generic body discards a value that holds a `T`", "`Counter[*B]` cannot use `T = *B`: the generic body copies into a closure a value that holds a `T`"
+fail "generic body copies resource", "`Keeper[*B]` cannot use `T = *B`: the generic body discards a value that holds a `T`", errors: 1
   # A generic body is checked once, for any `T`. Where it discards a `T`,
-  # leaves one as a temporary, or copies one into a closure, every
-  # instantiation must use plain data for `T`.
+  # or leaves one as a temporary, every instantiation must use plain data
+  # for `T`. A `|+x|` capture clones, which a handle does: `Counter[*B]`.
 
   obj B
     n: Int
@@ -3409,3 +3409,76 @@ test "generic read view of an optional view", '''
   show(b)
   c: (?Node)? = none
   show(c)
+
+test "generic read view of an error with fields", '''
+  A.x(n: 4) A.x(n: 4) A.x(n: 6) B.y A.x(n: 5)
+  A.x(n: 4) 4
+'''
+  # A value of an error set with fields, or of `error`, is a
+  # `rig.ErrorValue`, which a read view holds by address: in a generic
+  # body, as anywhere.
+  error A
+    x(n: Int)
+
+  error B
+    y
+
+  error L = A | B
+
+  fun show[T](x: ?T) -> ?T
+    x
+
+  fun plain(x: ?A) -> Int
+    match x
+      A.x(n) => n
+
+  a: A = A.x(n: 4)
+  oa: A? = A.x(n: 6)
+  l: L = B.y
+  e: error = A.x(n: 5)
+  print(show(a), show(?a), show(oa), show(l), show(e))
+  r = ?a
+  print(show(r), plain(r))
+
+test "generic read view of each kind a read view copies", '''
+  0 <fun> [true, true] 3 :hi o .b B.y
+  1.0
+'''
+  # Each kind `sema.copiedByReadView` copies, given where a generic `?T`
+  # goes: the call lends it as the runtime's `ReadView(T)` holds it.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  enum E
+    a
+    b
+
+  error B
+    y
+
+  fun inc(x: Int) -> Int
+    x + 1
+
+  fun show[T](x: ?T) -> ?T
+    x
+
+  t = Table[Int, 4]()
+  s = (!t).push(7)
+  f = inc
+  m = Simd[Int, 2].splat(1) == Simd[Int, 2].splat(1)
+  o: Int? = 3
+  y = :hi
+  ot: (?String)? = "o"
+  e = E.b
+  b: B = B.y
+  sq = Square(side: 1.0)
+  v: (?{Shape})? = ?sq
+  print(show(s), show(f), show(m), show(o), show(y), show(ot), show(e), show(b))
+  if show(v) as w
+    print(w.area())
