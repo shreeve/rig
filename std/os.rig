@@ -1,4 +1,5 @@
-# std.os: the process's arguments, environment, and working directory.
+# std.os: the process's arguments, environment, working directory, and
+# what its allocations come to.
 
 use std.file
 
@@ -12,6 +13,24 @@ pub fun cwd() -> String!
     return path
   return file.FileError.not_found
 
+# What the program's allocations come to, as `memory()` reads them.
+pub obj Memory
+  # The bytes of its live allocations.
+  pub ?live: Int
+  # The most `live` has been.
+  pub ?peak: Int
+  # How many allocations it has made.
+  pub ?allocs: Int
+
+# What the program's allocations come to now. A debug build counts each
+# allocation's own length; a release build counts each block at the size
+# the allocator keeps for it, and adds each thread's count to the totals
+# every 64 KiB or 1,024 allocations, so with tasks on several threads a
+# reading may trail by that much for each (the calling thread's own count
+# is always in).
+pub fun memory() -> Memory
+  Memory(live: memory_live(), peak: memory_peak(), allocs: memory_allocs())
+
 extern zig "os.zig"
   # Every argument, the program's name first. The text lives as long as
   # the program, like a literal's.
@@ -22,3 +41,8 @@ extern zig "os.zig"
   # environment the process started with, which nothing in std changes
   # (a `set_env` would have to revisit this `Static`).
   pub fun env(name: ?String) -> Static?
+
+  # `memory()`'s parts.
+  fun memory_live() -> Int
+  fun memory_peak() -> Int
+  fun memory_allocs() -> Int

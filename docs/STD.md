@@ -236,7 +236,8 @@ operator `<` orders values of one type that provides `Ord`, and `bigint.BigInt` 
 
 ## std.os
 
-The arguments and environment the program started with. Their text
+The arguments and environment the program started with, and what its
+allocations come to. Their text
 lives as long as the program, as a literal's does, and views no `String`,
 so both are a `Static` ([SPEC §2](../SPEC.md#static)). They hold the
 bytes the operating system gave, which are not checked to be UTF-8.
@@ -248,6 +249,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 | `args() -> []Static` | every argument, the program's name first |
 | `env(name: ?String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
 | `cwd() -> String!` | the working directory, as an absolute path, its links resolved; fails with a `file.FileError` ([std.file](#stdfile)) when it was removed or cannot be read |
+| `memory() -> Memory` | what the program's allocations come to now: `live`, the bytes of its live allocations; `peak`, the most `live` has been; and `allocs`, how many it has made |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -283,6 +285,34 @@ sub main()
 
 ```output
 nowhere
+```
+
+`memory()` reads the totals the allocator keeps as it goes, for a
+report such as "Memory used". A debug build counts each allocation's
+own length. A release build counts each block at the size its
+allocator keeps for it, and adds each thread's count to the totals
+every 64 KiB or 1,024 allocations, so with tasks on several threads a
+reading may trail by that much for each; the calling thread's own count
+is always in, and a program on one thread reads them exactly.
+
+```rig
+use std.os
+
+sub main()
+  before = os.memory()
+  v = List[Int]()
+  for i in 0..100_000
+    !v.push(i)
+  held = os.memory()
+  <v
+  after = os.memory()
+  print(held.live - before.live >= 800_000, held.allocs > before.allocs)
+  print(after.live < held.live, after.peak >= held.live)
+```
+
+```output
+true true
+true true
 ```
 
 ## std.file

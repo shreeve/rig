@@ -157,6 +157,11 @@ pub const Heap = struct {
     /// for the next, and how many bytes they hold.
     large: [large_buckets]?*LargeFree = @splat(null),
     large_bytes: usize = 0,
+    /// The bytes of blocks this thread took less those it gave back, and
+    /// the blocks it took, not yet added to the program's totals
+    /// (`count`).
+    pending_bytes: isize = 0,
+    pending_allocs: u32 = 0,
     /// The next heap given back by a thread that ended (`threadExit`).
     next_free: ?*Heap = null,
     /// In a safe build, the thread that owns it (`threadToken`).
@@ -198,6 +203,27 @@ pub const Heap = struct {
         s.* = .{ .heap = h, .used = 2 };
         h.segment = s;
         return @intFromPtr(s) + page_size;
+    }
+
+    /// A block of `bytes` taken (`allocs` 1) or given back (negative
+    /// `bytes`, `allocs` 0): counted on this heap, and added to the
+    /// program's totals once the heap is `flush_bytes` or `flush_allocs`
+    /// from them.
+    inline fn count(h: *Heap, bytes: isize, allocs: u32) void {
+        h.pending_bytes += bytes;
+        h.pending_allocs += allocs;
+        if (h.pending_bytes >= flush_bytes or h.pending_bytes <= -flush_bytes or h.pending_allocs >= flush_allocs) h.flush();
+    }
+
+    /// Add what this heap counted to the program's totals, and raise the
+    /// peak to what the program now holds.
+    fn flush(h: *Heap) void {
+        @branchHint(.cold);
+        const now = total_live.fetchAdd(h.pending_bytes, .monotonic) + h.pending_bytes;
+        _ = total_allocs.fetchAdd(h.pending_allocs, .monotonic);
+        h.pending_bytes = 0;
+        h.pending_allocs = 0;
+        _ = total_peak.fetchMax(now, .monotonic);
     }
 
     fn freeSmall(h: *Heap, p: [*]u8, c: usize) void {
@@ -336,6 +362,34 @@ fn mapOwnSegment() ?*Segment {
     return @ptrFromInt(aligned);
 }
 
+// -----------------------------------------------------------------------------
+// What the program's allocations come to
+// -----------------------------------------------------------------------------
+
+/// The bytes of the program's live blocks (each counted at its class's
+/// size, or a large block's), the most they have come to, and how many
+/// blocks the program has taken. Each heap adds to them what it counted
+/// once it is `flush_bytes` bytes or `flush_allocs` blocks away, so they
+/// trail each thread by at most that much (`Heap.count`).
+var total_live: std.atomic.Value(isize) = .init(0);
+var total_peak: std.atomic.Value(isize) = .init(0);
+var total_allocs: std.atomic.Value(u64) = .init(0);
+const flush_bytes: isize = 64 << 10;
+const flush_allocs: u32 = 1024;
+
+pub const Totals = struct { live: i64, peak: i64, allocs: i64 };
+
+/// The program's totals (`os.memory`), after adding the running thread's
+/// own count, so a program on one thread reads them exactly.
+pub fn totals() Totals {
+    if (heap()) |h| h.flush();
+    return .{
+        .live = @intCast(total_live.load(.monotonic)),
+        .peak = @intCast(total_peak.load(.monotonic)),
+        .allocs = @intCast(total_allocs.load(.monotonic)),
+    };
+}
+
 threadlocal var my_heap: ?*Heap = null;
 
 /// Whether each heap checks that the thread using it owns it: in safe
@@ -423,6 +477,7 @@ fn newHeap() ?*Heap {
 /// again.
 pub noinline fn threadExit() void {
     const h = my_heap orelse return;
+    h.flush();
     my_heap = null;
     while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
     h.next_free = spare_heaps.load(.monotonic);
@@ -440,9 +495,15 @@ const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .r
 
 fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
     const h = heap() orelse return null;
-    if (classOf(len, alignment)) |c| return h.alloc(c);
+    if (classOf(len, alignment)) |c| {
+        const p = h.alloc(c) orelse return null;
+        h.count(@intCast(classSize(c)), 1);
+        return p;
+    }
     if (alignment.toByteUnits() > std.heap.pageSize()) return null;
-    return allocLarge(h, len);
+    const p = allocLarge(h, len) orelse return null;
+    h.count(@intCast(largeSize(len)), 1);
+    return p;
 }
 
 fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) bool {
@@ -466,12 +527,17 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
     prefault(rc + old_size, likelyFilled((new_size - old_size) / 2));
+    if (heap()) |h| h.count(@intCast(new_size - old_size), 0);
     return @ptrFromInt(rc);
 }
 
 fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
     const h = heap() orelse return;
-    if (classOf(memory.len, alignment)) |c| return h.freeSmall(memory.ptr, c);
+    if (classOf(memory.len, alignment)) |c| {
+        h.count(-@as(isize, @intCast(classSize(c))), 0);
+        return h.freeSmall(memory.ptr, c);
+    }
+    h.count(-@as(isize, @intCast(largeSize(memory.len))), 0);
     freeLarge(h, memory.ptr, memory.len);
 }
 
