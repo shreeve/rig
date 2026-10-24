@@ -106,6 +106,7 @@ docs/internals/backlog.md.
 | 35 | the compiler treats a `fun` field directly in what a write view sees as able to hold any view (stricter than CORE §7); probe s7_fun_reach.rig, in #627's oracle-fun.md | #627 | #649 |
 | 36 | `print` of a `Map` or `Set` writes its internal fields (`Map(len: 1, es: [...], hs: [...], ...)`); proposed: entries in insertion order, `{"a": 1, "b": 2}` for a Map and `{1, 2}` for a Set, `{}` when empty, quoted as a List quotes its elements | #628 | owner chose that form (Rust's); fixed (branch `map-print`) |
 | 37 | a `pub` generic prints an unbounded `T` by passing it to a private generic that prints it (`pub sub show[T](x: ?T)` calling `helper(x)`); every instance without `Print` was still rejected at `helper`'s instance or printed as `print` does, but a generic printing a `[]T` or `List[T]` took `T = []U8` and printed bytes as text (`["Hi"]`) | lead | fixed (branch `print-forward`): the forwarding walk asks `Print` of a `T` checked by its bounds, and printing walks a `T` where `print` looks |
+| 38 | the same forwarding bypass for `==`, ordering, hashing, arithmetic, and copying: `pub fun eq[T]` calling a private `same(a, b)` that does `a == b` is accepted; harmless today (rejected at the callee's instance, under its name), so low priority | #664 | fix, through the one `checkStatedForwards` walk |
 
 Stage 4's associated types in braces (`^{Source[Item: Int]}`) wait for
 a program that needs them: a ROADMAP line.

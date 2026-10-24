@@ -139,3 +139,6 @@ track 2.
 - `coverage`: `tests` 22,767 → 22,796; `docs` and `matrix` unchanged.
 - 19 Trig functions still abstain on "a bare function value" (a local `fun` used bare, which
   `callableInfo` still kinds as a closure environment), the remaining `fun`-shaped reason.
+- A known abstention, accepted (row 29, #662): the oracle gives no verdict on an instance whose
+  generic body hands its iterator to another generic body, so those calls are not counted as
+  decided. An abstention is no difference, so test/oracle/differences does not list it.
