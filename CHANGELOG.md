@@ -27,7 +27,11 @@ changed the language since it:
   it. An object has no default value (`Table[^{Shape + Owned}?, n]`), a
   task over a call through one is local, an error's field holds none,
   and a Cell of one is Stage 5's. A call through a generic type at
-  arguments that hold an object, `Ph[^{Shape}].mk()`, is built too.
+  arguments that hold an object, `Ph[^{Shape}].mk()`, is built too. No
+  value that holds a task or a set of tasks is erased, and a generic
+  body prints an object only where its braces or API name `Print`. A
+  channel and an actor print as `<chan>` and `<actor>`, where printing
+  one failed in Zig.
 - **API objects lend and call through a table (APIs Stage 4, phase
   2):** a value lends `?{Shape}` and `!{Shape}` by the lend table's last
   row, through boxes, handles, frozen handles, and optionals, unwritten

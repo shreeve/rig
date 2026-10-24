@@ -15128,6 +15128,14 @@ const Checker = struct {
             } else try self.errAt(e, "`{s}` cannot be lent as a `{s}`: `{s}` does not provide `{s}`{s}", .{ self.sourceText(lent), shown_view, tname, api_name, fix });
             return null;
         };
+        // A task, or a set of tasks, is waited for where its type shows
+        // it (`task.isolate`, an error's field, a crossing): erased, no
+        // rule would see it.
+        if (sema.holdsTask(self.ctx, reached)) {
+            const why = if (taskField(self.ctx, sema.nominalDecl(self.ctx, reached))) |f| f else try std.fmt.allocPrint(self.ctx.arena.allocator(), "a `{s}` holds one", .{try self.tyName(reached)});
+            try self.errAt(e, "`{s}` is erased to `{s}`, which would hide a task from the rules that wait for one, and {s}: wait for the task before erasing", .{ try self.tyName(reached), shown_view, why });
+            return null;
+        }
         // The built-in APIs the braces name, checked on the value's type.
         var it = object.builtins.iterator();
         while (it.next()) |b| if (try sema.lacks(self.ctx, reached, b)) |_| {
@@ -19468,7 +19476,10 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
-                .printable => try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and {s} would {s} as text, like a `?String`", .{ inst, pname, aname, req.op, pname, if (std.mem.eql(u8, aname, "[]U8")) "a `[]U8`" else try ctx.arena.allocator().print("the `[]U8` a `{s}` holds", .{aname}), req.op }),
+                .printable => if (try sema.objectUnprinted(ctx, arg)) |held|
+                    try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and `{s}` cannot be {s}: its type is erased, and its braces and API name no `Print`", .{ inst, pname, aname, req.op, pname, try sema.formatType(ctx, held), if (std.mem.eql(u8, req.op, "write")) "written" else "printed" })
+                else
+                    try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and {s} would {s} as text, like a `?String`", .{ inst, pname, aname, req.op, pname, if (std.mem.eql(u8, aname, "[]U8")) "a `[]U8`" else try ctx.arena.allocator().print("the `[]U8` a `{s}` holds", .{aname}), req.op }),
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .error_set => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` names an error set, and `{s}` is not one", .{ inst, pname, aname, pname, aname }),
@@ -20061,6 +20072,20 @@ fn laterDefault(ctx: *SemContext, index: usize, name: []const u8, api: sema.ApiR
 
 /// The first field of the object `decl` whose type lacks `api`, as the
 /// end of an error says it: `; its field `cache` is a `*Cell[Int]``.
+/// The first field or payload of `decl` that holds a task (`sema.holdsTask`),
+/// as `its field `t` is a `Task[Int]``; null when none of its own does.
+fn taskField(ctx: *SemContext, decl: ?sema.NominalDecl) ?[]const u8 {
+    const d = decl orelse return null;
+    if (d.ctx != @as(*const SemContext, ctx)) return null;
+    for (d.symbol().fields orelse &.{}) |*f| {
+        for (sema.dataFields(f)) |df| {
+            if (!sema.holdsTask(ctx, df.ty)) continue;
+            return ctx.arena.allocator().print("its {s} `{s}` is a `{s}`", .{ if (f.is_variant) "payload" else "field", df.name, sema.formatType(ctx, df.ty) catch return null }) catch null;
+        }
+    }
+    return null;
+}
+
 fn fieldLacking(ctx: *SemContext, decl: ?sema.NominalDecl, api: sema.Api) Error!?[]const u8 {
     const d = decl orelse return null;
     if (d.ctx != @as(*const SemContext, ctx)) return null;
@@ -20520,7 +20545,8 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .equatable => sema.isEquatable(ctx, ty),
         .hashable => isText(ctx, ty) or (try sema.notHashable(ctx, ty, null)) == null,
         .whole_division => sema.isInteger(ctx, ty),
-        .printable => try sema.printable(ctx, ty),
+        // An API object prints only by the `Print` its braces or API name.
+        .printable => try sema.printable(ctx, ty) and try sema.objectUnprinted(ctx, ty) == null,
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .error_set => sema.isErrorValue(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,

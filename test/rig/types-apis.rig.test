@@ -5433,3 +5433,109 @@ fail "apis object box crosses no task", "`+ch` is given to a task: `*Chan[^{Shap
     !k.put(<b)
     a = *Actor(Keeper(s: ^Square(side: 1.0)))
     print(a.n())
+
+fail "apis object box hides no task", "`Job` is erased to `^{Shape}`, which would hide a task from the rules that wait for one, and its field `t` is a `Task[Float]`: wait for the task before erasing", "`Batch` is erased to `?{Shape}`, which would hide a task from the rules that wait for one, and its field `ts` is a `List[Task[Float]]`: wait for the task before erasing"
+  # `task.isolate(|| mk())` ends every task started in it, and rejects a
+  # value whose type shows one: an object would hide it.
+  use std.task
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Job: Shape
+    t: Task[Float]
+
+    fun area(?@) -> Float
+      1.0
+
+  obj Batch: Shape
+    ts: List[Task[Float]]
+
+    fun area(?@) -> Float
+      2.0
+
+  fun work() -> Float
+    2.0
+
+  fun mk() -> ^{Shape}
+    ^Job(t: work()&)
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  b = task.isolate(|| mk()) catch return
+  print(b.area(), area_of(Batch(ts: List())))
+
+test "apis object box of a value holding a channel or an actor", '''
+1.0 2.0
+<chan> <actor>
+'''
+  # Every table has a print entry, made for the hidden type whether or
+  # not the braces name `Print`: a channel and an actor print as a
+  # function does, by a word.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Counter
+    n: Int
+
+  obj Pipe: Shape
+    ch: *Chan[Int]
+
+    fun area(?@) -> Float
+      1.0
+
+  obj Act: Shape
+    a: *Actor[Counter]
+
+    fun area(?@) -> Float
+      2.0
+
+  ch = *Chan[Int](2)
+  b: ^{Shape} = ^Pipe(ch: +ch)
+  k0 = *Actor(Counter(n: 0))
+  c: ^{Shape} = ^Act(a: <k0)
+  print(b.area(), c.area())
+  k = *Actor(Counter(n: 1))
+  print(ch, k)
+
+fail "apis object printed through a generic body", "`show[?{Shape}]` cannot use `T = ?{Shape}`: the generic body prints a value that holds a `T`, and `?{Shape}` cannot be printed: its type is erased, and its braces and API name no `Print`", "`show_view[^{Shape}]` cannot use `T = ^{Shape}`: the generic body prints a value that holds a `T`, and `^{Shape}` cannot be printed: its type is erased, and its braces and API name no `Print`"
+  # H13: an object meets only the `Print` its braces or API name, in a
+  # generic body as where its type is written.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  sub show[T](x: T)
+    print(x)
+
+  sub show_view[T](x: ?T)
+    print(x)
+
+  sq = Square(side: 1.0)
+  v: ?{Shape} = ?sq
+  show(v)
+  b: ^{Shape} = ^Square(side: 2.0)
+  show_view(?b)
+
+test "apis object printed through a generic body by the braces", "Square(side: 1.0) Square(side: 2.0)"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  sub show2[T](x: ?T, y: ?T)
+    print(x, y)
+
+  b: ^{Shape + Print} = ^Square(side: 1.0)
+  c: ^{Shape + Print} = ^Square(side: 2.0)
+  show2(?b, ?c)

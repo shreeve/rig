@@ -3934,7 +3934,11 @@ written where the object is kept past its statement, and unwritten
 where it lasts only for a call, `area_of(sq)`; a value made there, a
 literal included, is held in its statement's slot. A bounded `T` lends
 one through its bound. The braces' `Print`, `Clone`, and `Owned` are
-checked on the value's type where it is erased.
+checked on the value's type where it is erased, in a generic body too,
+where `print(x)` of a `T` is an object's only when its braces or API
+name `Print`. No value that holds a task or a set of tasks is erased:
+the rules that wait for a task (`task.isolate`, an error's field, a
+crossing) see it only where its type shows it.
 
 ```rig
 api Shape
@@ -11600,6 +11604,7 @@ may hide either. `panic` is a keyword.
 | `Cell`, `Signal` | `Cell(value: 5)`, `Signal(value: 5)` |
 | weak handle | `~(alive)` or `~(gone)` |
 | owned closure | `<closure>` |
+| channel, actor | `<chan>`, `<actor>` |
 | function | `<fun>` |
 
 Text inside another value (an element, a field, a payload, an optional's

@@ -1142,7 +1142,11 @@ numeric code, prefer a bound.
   `Hash`. Bounds never widen from one object type to another, and a
   marker supertrait never makes an object form `Copy` or crossing:
   each form copies or moves by its own kind. `Print` and `Clone` are
-  each a table entry.
+  each a table entry. A generic body's `print(x)` of a `T` is held to
+  `Print` at an object instance too.
+- No value that holds a task or a set of tasks is erased: `task.isolate`,
+  an error's field, and a crossing see a task only where its type shows
+  it.
 - `{Shape}` is never a type argument, written or inferred: a generic
   `put[T](a: !T, b: !T)` called with two `!{Shape}`s is rejected, or
   it could swap a `Circle` into a `Square`. A `List[^{Shape}]` takes

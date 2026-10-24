@@ -6390,6 +6390,10 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
                 // A Cell many tasks change is read as its `get` reads it,
                 // and printed as any Cell is.
                 if (comptime synchronized(@FieldType(p.child, "value"))) {
+                    // A channel and an actor show nothing of what they
+                    // hold, as a function shows no code.
+                    if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_chan")) return w.writeAll("<chan>");
+                    if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_actor")) return w.writeAll("<actor>");
                     try w.writeAll("Cell(value: ");
                     try writeValue(w, value.value.get(), false);
                     return w.writeAll(")");

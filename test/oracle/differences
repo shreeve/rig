@@ -364,8 +364,3 @@ test/reject/ownership/origin_self_path_body.rig Reader.word prod-rejects ref-gap
 test/reject/ownership/origin_self_path_body_call.rig Reader.word prod-rejects ref-gap `from @text` returns `pick(?@text, ?@name)`
 test/reject/ownership/origin_self_path_body_bound.rig Two.next prod-rejects ref-gap `from @a` returns `(!@b).next()` through a bound
 doc/CORE/35dae348303b Reader.word prod-rejects ref-gap `from @text` returns a view of `@name`
-
-# A call through a box of an API object, `!b.watch(?t)` with the API's
-# `keeps t`, stores `t`'s loan in `b`, whose drop may read it (Core §4):
-# the oracle does not carry the stored loan to the box's drop.
-test/reject/ownership/apis_object_box_keeps_through_a_call.rig main prod-rejects ref-gap a dynamic call's `keeps` into a box, read by its drop

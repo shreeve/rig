@@ -350,3 +350,23 @@ fail "apis object box a drop that reads a view", "`t` is dropped before `shapes`
   t = String("log")
   !shapes.push(^Logger(out: ?t))
   print(shapes.len)
+
+fail "apis a call by the API's name keeps what the API keeps", "`t` is dropped before `n`, whose `drop` body could still read it through this view"
+  # `Shape.watch(!n, ?t)` passes on the loans the API's `keeps` shows,
+  # read from the API's declaration (the oracle's too).
+  api Shape
+    sub watch(!@, t: ?String) keeps t
+
+  obj Note: Shape
+    t: ?String
+
+    sub watch(!@, t: ?String) keeps t
+      @t = t
+
+    drop(!@)
+      print("drop", @t)
+
+  s = String("s")
+  n = Note(t: ?s)
+  t = String("t")
+  Shape.watch(!n, ?t)
