@@ -13,6 +13,23 @@ changed the language since it:
 
 ### Language and compiler
 
+- **API objects lend and call through a table (APIs Stage 4, phase
+  2):** a value lends `?{Shape}` and `!{Shape}` by the lend table's last
+  row, through boxes, handles, frozen handles, and optionals, unwritten
+  where it lasts only for a call (`area_of(sq)`), and `s.area()` or
+  `Shape.area(s)` calls the hidden type's method, an addition's, or a
+  default through the API's table, `__rig_table_Shape_of(T, W)`, which
+  Zig makes once per API and type. A call is checked by the API's
+  declaration, passes on only its `from` and `keeps`, and fails with
+  its set, a set's fields through the slot. An object carries every loan
+  of its value to its last use; through a `!{Shape}` nothing assigns,
+  swaps, or copies the value; an object is never cloned, compared, or
+  hashed, and prints only by the braces' or API's `Print`. An object of
+  a read view of plain data, or of a type parameter's value, views a
+  copy local to its block, and is rejected where it would leave it. A
+  call through an object costs what a call through a `?fun` does
+  (bench/apis). A box of an object, and a task over a call through one,
+  are still rejected as not built yet.
 - **API object types (APIs Stage 4, phase 1):** a type may name an API
   in braces behind a view or a box, `?{Shape}`, `!{Shape}`,
   `^{Shape}`, with `Owned`, `Print`, and `Clone` beside it, `^{Shape +

@@ -3145,7 +3145,7 @@ pub const TypeResolver = struct {
         // lowered yet (Stage 4, phase 1). It keeps its type, so what a
         // body does with the value is still checked.
         switch (home) {
-            .signature, .binding, .field => if (sema.mentionsObject(self.ctx, ty)) try sema.objectUnbuilt(self.ctx, self.ctx.startOf(node), ty),
+            .signature, .binding, .field => if (sema.holdsObjectBox(self.ctx, ty)) try sema.objectUnbuilt(self.ctx, self.ctx.startOf(node), ty),
             else => {},
         }
         if (sema.writeViewMisplaced(self.ctx, ty, home)) {

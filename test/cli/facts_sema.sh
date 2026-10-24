@@ -106,6 +106,37 @@ EOF2
 "$RIG" check --facts=sema object.rig >object.txt 2>err.txt || fail "rig check --facts=sema object.rig: $(cat err.txt)"
 expect_has "$(cat object.txt)" 'types leaf 7:15-7:20 "Shown" ?{Shape + Print}' "an API object's type"
 
+# A value erased to an API object, and a call through its table
+# (docs/design/apis.md, Stage 4).
+cat >erase.rig <<'EOF2'
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+fun area_of(s: ?{Shape}) -> Float
+  s.area()
+
+fun twice(p: ?Square) -> Float
+  s: ?{Shape} = p
+  2.0 * s.area()
+
+sub main()
+  sq = Square(side: 2.0)
+  print(area_of(sq), twice(?sq))
+EOF2
+"$RIG" check --facts=sema erase.rig >erase.txt 2>err.txt || fail "rig check --facts=sema erase.rig: $(cat err.txt)"
+out=$(cat erase.txt)
+expect_has "$out" 'dispatch call 11:3-11:11 "s.area()" dynamic Shape.area slot 0' "a call through an API object"
+expect_has "$out" 'erasures leaf 19:17-19:19 "sq" Square ?{Shape} __rig_impl_Shape_Square(Square)' "an erasure"
+expect_has "$out" 'erasures leaf 14:17-14:18 "p" Square ?{Shape} __rig_impl_Shape_Square(Square) copy' "an erasure of a view of plain data"
+"$RIG" check --facts=storage erase.rig >storage.txt 2>err.txt || fail "rig check --facts=storage erase.rig: $(cat err.txt)"
+expect_has "$(cat storage.txt)" 'erased_copy leaf 14:17-14:18 "p" copy block' "the copy an object views, a local of its block"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)

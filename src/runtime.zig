@@ -732,6 +732,74 @@ pub inline fn selfArg(comptime f: anytype, recv: anytype) @typeInfo(@TypeOf(f)).
     return ptr.*;
 }
 
+/// An API object held as a view (docs/design/apis.md, Stage 4): `?{Shape}`
+/// is `ApiView(__rig_table_Shape, .read)` and `!{Shape}` the `.write`
+/// one, the address of a value of the hidden type and the table of that
+/// type's methods for the API (`__rig_table_Shape_of(T, W)`, one per API
+/// and type). Two words, passed by value, as a callable view is (`FnRef`).
+/// A read view's address is a `*const`; a write view lends a read view
+/// (`read`), as `!T` lends `?T`.
+pub fn ApiView(comptime Entries: type, comptime form: ApiForm) type {
+    return struct {
+        ptr: if (form == .read) *const anyopaque else *anyopaque,
+        vt: *const Entries,
+
+        /// The read view a write view lends.
+        pub fn read(self: @This()) ApiView(Entries, .read) {
+            return .{ .ptr = self.ptr, .vt = self.vt };
+        }
+
+        /// The hidden value, printed through the table: the checker lets
+        /// only an object whose braces or API name `Print` be printed.
+        pub fn __rig_print(self: @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
+            return self.vt.__rig_print(self.ptr, w);
+        }
+    };
+}
+
+/// How an API object views its value: to read or to write.
+pub const ApiForm = enum { read, write };
+
+/// The address an API object's table entry takes: of a value it reads,
+/// or of one it writes.
+pub const ErasedRead = *const anyopaque;
+pub const ErasedWrite = *anyopaque;
+
+/// A table's entry that prints the value (`printErased`).
+pub const ErasedPrint = *const fn (ErasedRead, *std.Io.Writer) std.Io.Writer.Error!void;
+
+/// The value of type `T` at `ptr`, the address an API object holds, as a
+/// table entry for `T` reads or writes it.
+pub inline fn erasedSelf(comptime P: type, ptr: anytype) P {
+    return @ptrCast(@alignCast(ptr));
+}
+
+/// The table entry that prints the value of type `T` at `ptr`, as `print`
+/// writes it (`ApiView.__rig_print`).
+pub fn printErased(comptime T: type) ErasedPrint {
+    return &struct {
+        fn print(ptr: *const anyopaque, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            return writeValue(w, erasedSelf(*const T, ptr).*, false);
+        }
+    }.print;
+}
+
+/// The value a read view `?T` of plain data, or of a type parameter's
+/// value, views, copied into `slot`, a local of the block that erases it
+/// to an API object (`sema.Erasure.copy`): its address.
+pub inline fn erasedCopy(comptime T: type, slot: *T, value: T) *T {
+    slot.* = value;
+    return slot;
+}
+
+/// Whether a witness's method `f` takes the slot a failure's fields go
+/// in after its `n` parameters: a table's entry for a fallible method
+/// takes one, as a callable view does, and passes it on only to a method
+/// that takes it.
+pub inline fn takesSlot(comptime f: anytype, comptime n: usize) bool {
+    return @typeInfo(@TypeOf(f)).@"fn".param_types.len > n;
+}
+
 /// The item of iterator type `I`, a type with `next(!@) -> T?`: the `T`
 /// its `next` gives (docs/design/apis.md, Stage 3, `Iter`), which a body
 /// bounded by `Iter` names `I.Item`.
