@@ -1,0 +1,9 @@
+# Rig type names passed to a builtin are spelled as Zig types
+# (`@size(I64)` is `@sizeOf(i64)`).
+
+sub main()
+  n = @size(I64)
+  print(n)
+
+# expect:
+# 8

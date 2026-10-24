@@ -1,0 +1,11 @@
+struct S
+  t: Text
+
+  fun name(?self) -> String
+    ?self.t
+
+sub main()
+  a = S(t: Text("aa"))
+  b = S(t: Text("bb"))
+  n = (a if a.t.len > 1 else b).name()
+  print(n, S(t: Text("cc")).name())

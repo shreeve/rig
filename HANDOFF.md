@@ -245,12 +245,13 @@ Toward `v0.3.0` are a full run and the tag. Its migration guide is
 [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), and CHANGELOG's
 "Upgrading from v0.2.9" lists the 43 forms 0.2.9 accepted that 0.3.0
 rejects, which the tag's release notes take over. The scripts:
-`tools/migrate-0.3.py` (box, list, string, obj), `tools/state-bounds.py`,
-and, for programs written against `main` between the releases,
-`tools/migrate-builtin-map.py`, `tools/rename-interner.py`,
-`tools/rarely-body.py`, and `tools/rename-task-bounds.py`. Self, labels,
-built-in calls, and `const` have no script; the guide gives them by
-hand, and whether to restore theirs is the owner's question
+`tools/migrate-0.3.py` (box, list, string, obj, builtin, label, self,
+const), `tools/state-bounds.py`, and, for programs written against
+`main` between the releases, `tools/migrate-builtin-map.py`,
+`tools/rename-interner.py`, `tools/rarely-body.py`, and
+`tools/rename-task-bounds.py`. Over the 4,836 programs `v0.2.9`
+accepts, `main` accepts 1,094 as written and 3,495 after the scripts;
+the rest need a form of the guide's Step 2 or 4 by hand
 ([release-0.3.0.md](docs/history/records/2026-10/consolidation-2/release-0.3.0.md)).
 Everything after that is in
 [docs/ROADMAP.md](docs/ROADMAP.md); the decided engineering items, with

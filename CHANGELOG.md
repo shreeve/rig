@@ -29,14 +29,14 @@ Renamed, by `tools/migrate-0.3.py`:
 3. `Vec[T]` is `List[T]`; a type of a program's own named `List` is
    renamed `Chain`.
 4. `Text` is `String`, and 0.2's `String`, a read view, is `?String`.
-
-Renamed, by hand (no script):
-
 5. Self is `@`: a method declares `?@`, `!@`, or `<@` and its body says
    `@x`, `@m()`; `?self`, `self.x`, and a typed `self: ?P` are rejected.
 6. A label is `$outer:` and `break $outer`, not `:outer`.
 7. A built-in call is `$size(T)`, `$truncate(x)`, not `@size(T)`.
 8. A fixed binding is `x =! e`; `const` is rejected.
+
+Renamed, by hand (no script):
+
 9. `replace(!p, v)` is `swap(!p, v)`, and a Cell's `c.replace(v)` is
    `(!c).swap(v)`.
 10. A statement `-x` no longer drops `x`; `<x` does.
@@ -125,6 +125,17 @@ Other:
 43. A read view of text, `?String`, is not lent to write (`w = !s`);
     hold a `String` to change text in place.
 
+43. A write view re-pointed inside a `match` arm at the payload the arm
+    binds (`w = !p[0..1]` in `.has(p)` of `match !o`) is rejected: the
+    binding ends with the arm. Write through `p` inside the arm instead.
+
+One form changes meaning rather than failing: a binding with no type of
+a loop's value that is a write view at every `break` (`l = while true`
+then `break slot(!n)`) holds the write view, as an `if` does, so `l = 1`
+writes 1 into `n`. `v0.2.9` copied the value, so such a program compiles
+under both and now writes where it read. Give the binding its value's
+type, `l: Int = while ...`, to copy as before.
+
 Programs written against `main` since `v0.2.9` also meet forms that
 changed again before 0.3.0: `Moves` and `Shares` are `Sends` and
 `Syncs` (`tools/rename-task-bounds.py`), `std.hash` is gone
@@ -152,6 +163,13 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   scope's end is rejected. The reference checker now holds a task's
   loans until the task's drop waits for it, and keeps a write view
   handed where a `(!T)?` goes a view.
+
+- **A Map and a Set print their entries:** `print(m)` writes
+  `{"a": 1, "b": 2}` and `print(s)` writes `{1, 2}`, `{}` when empty,
+  the entries in the order their keys were first put in, each key and
+  value as an element of a List prints. They wrote their hidden fields,
+  `Map(len: 1, es: [...], hs: [...], table: ...)`. `String(m)` and
+  `!t.add(m)` write the same text.
 - **A release build of objects nested by value is linear:** the
   runtime's `==`, `.hash()`, and `+` reach a field that nests objects
   more than eight deep through a call of its own, so a chain of 400
@@ -1025,7 +1043,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `src/parser.zig` is generated at build time from `rig.grammar`
   with Nexus, which is co-developed with Rig; and `tools/migrate-0.3.py`
   migrates 0.2 programs, each rename an independent pass (box, list,
-  string, `obj`).
+  string, `obj`, builtin, label, self, `const`), in `.rig` files, test
+  files' cases, and Markdown's `rig` blocks, with `--dry-run` to print
+  the diff. Of the 4,836 programs `v0.2.9` accepts, `main` accepts
+  1,094 as written and 3,495 after the guide's scripts.
 - **Rig's own repository:** `tools/heavy`, `test/rig.rip`,
   `test/matrix.py`, `tools/equiv.py`, and `tools/zig-next.py` find their
   git directory through `tools/gitdir`, which takes only a repository
