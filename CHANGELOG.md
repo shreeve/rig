@@ -133,6 +133,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A Map and a Set print their entries:** `print(m)` writes
+  `{"a": 1, "b": 2}` and `print(s)` writes `{1, 2}`, `{}` when empty,
+  the entries in the order their keys were first put in, each key and
+  value as an element of a List prints. They wrote their hidden fields,
+  `Map(len: 1, es: [...], hs: [...], table: ...)`. `String(m)` and
+  `!t.add(m)` write the same text.
 - **A release build of objects nested by value is linear:** the
   runtime's `==`, `.hash()`, and `+` reach a field that nests objects
   more than eight deep through a call of its own, so a chain of 400

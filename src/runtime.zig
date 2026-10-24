@@ -6664,7 +6664,8 @@ const max_print_depth = 64;
 /// quoted and escaped inside other values (`writeQuoted`); a float in
 /// its shortest form (`writeFloat`), `none` for an absent optional,
 /// `Name(field: v)` for an object, `.variant` / `.variant(field: v)` for
-/// an enum, and `[a, b]` for arrays and Lists. A shared handle, a box, or
+/// an enum, `[a, b]` for arrays and Lists, and `{k: v}` and `{k}` for a
+/// Map and a Set (`writeMap`, `writeSet`). A shared handle, a box, or
 /// an API object prints its value as the value prints in its place, a
 /// function `<fun>`. `top` is the one flag that
 /// changes how a value is written: text at the top level is written as
@@ -6742,6 +6743,8 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         .@"struct" => {
             if (@hasDecl(T, "__rig_print")) return value.__rig_print(w);
+            if (comptime isBuiltin(T, "Map[")) return writeMap(w, value);
+            if (comptime isBuiltin(T, "Set[")) return writeSet(w, value);
             try w.print("{s}(", .{rigTypeName(T)});
             try writeFields(w, value);
             try w.writeAll(")");
@@ -6871,6 +6874,44 @@ fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
         try w.print("{s}: ", .{rigName(f)});
         try writeValue(w, @field(value, f), false);
     }
+}
+
+/// Whether `T` is the built-in type of std/__rig_builtin.rig whose
+/// recorded spelling (`__rig_name`) starts `head`, `"Map["` or `"Set["`.
+fn isBuiltin(comptime T: type, comptime head: []const u8) bool {
+    if (!@hasDecl(T, "__rig_name")) return false;
+    const name = T.__rig_name;
+    return std.mem.eql(u8, name.module, "std.__rig_builtin") and std.mem.eql(u8, name.name[0], head);
+}
+
+/// A Map as `{"a": 1, "b": 2}`: each entry it holds, in the order its
+/// key was first put in, its key and value each as an element of a List
+/// prints; `{}` when empty. A taken entry (its value `none`, its key
+/// kept until the entries are compacted) is not shown.
+fn writeMap(w: *std.Io.Writer, map: anytype) std.Io.Writer.Error!void {
+    try w.writeAll("{");
+    var n: usize = 0;
+    for (map.es.items()) |e| if (some(e.value)) |v| {
+        if (n > 0) try w.writeAll(", ");
+        try writeValue(w, e.key, false);
+        try w.writeAll(": ");
+        try writeValue(w, v, false);
+        n += 1;
+    };
+    try w.writeAll("}");
+}
+
+/// A Set as `{1, 2}`: each key it holds, in the order it was first
+/// added, as an element of a List prints; `{}` when empty.
+fn writeSet(w: *std.Io.Writer, set: anytype) std.Io.Writer.Error!void {
+    try w.writeAll("{");
+    var n: usize = 0;
+    for (set.ks.items()) |slot| if (some(slot)) |k| {
+        if (n > 0) try w.writeAll(", ");
+        try writeValue(w, k, false);
+        n += 1;
+    };
+    try w.writeAll("}");
 }
 
 pub fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {

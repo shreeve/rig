@@ -1399,6 +1399,176 @@ test "print handles", '''
   <f
   print(w, wf)
 
+test "print map and set", '''
+  {"a": 1, "b": 2} {1, 2}
+  {} {}
+  {"xs": [1, 2], "ys": []} [{1: "one"}, {}]
+  Inv(name: "i", counts: {"x": 3}, tags: {"t"})
+  {0: [1, 2], 1: [3]} {"k": {"n": {true}}}
+  {"a": none, "b": 4} true
+'''
+  # A Map prints as `{key: value, ...}` and a Set as `{key, ...}`, `{}`
+  # when empty, in the order the keys were first put in; each key and
+  # value prints as an element of a List does, text quoted (SPEC §17).
+
+  obj Inv
+    name: String
+    counts: Map[String, Int]
+    tags: Set[String]
+
+  m = Map[String, Int]()
+  !m.put(String("a"), 1)
+  !m.put(String("b"), 2)
+  s = Set[Int]()
+  _ = !s.add(1)
+  _ = !s.add(2)
+  print(m, s)
+  print(Map[Int, Int](), Set[String]())
+  lists = Map[String, List[Int]]()
+  !lists.put(String("xs"), List([1, 2]))
+  !lists.put(String("ys"), List())
+  one = Map[Int, String]()
+  !one.put(1, String("one"))
+  maps: List[Map[Int, String]] = List()
+  !maps.push(<one)
+  !maps.push(Map[Int, String]())
+  print(lists, maps)
+  counts = Map[String, Int]()
+  !counts.put(String("x"), 3)
+  tags = Set[String]()
+  _ = !tags.add(String("t"))
+  print(Inv(name: String("i"), counts: <counts, tags: <tags))
+  sets = Map[Int, List[Int]]()
+  !sets.put(0, List([1, 2]))
+  !sets.put(1, List([3]))
+  inner = Set[Bool]()
+  _ = !inner.add(true)
+  mid = Map[String, Set[Bool]]()
+  !mid.put(String("n"), <inner)
+  outer = Map[String, Map[String, Set[Bool]]]()
+  !outer.put(String("k"), <mid)
+  print(sets, outer)
+  opt = Map[String, Int?]()
+  !opt.put(String("a"), none)
+  !opt.put(String("b"), 4)
+  print(opt, opt.has("a"))
+
+test "print map after takes", '''
+  {2: 20, 3: 30}
+  {2: 20, 3: 30, 1: 11}
+  {"b", "c", "a"}
+  {1, 3, 5, 7, 9, 11, 13, 15, 17, 19} 10
+  {1: 1, 3: 9, 5: 25, 7: 49, 9: 81, 11: 121, 13: 169, 15: 225, 17: 289, 19: 361}
+  {3: 9, 9: 81, 15: 225}
+  {}
+'''
+  # An entry taken out is not printed, and the entries left keep their
+  # order, in a small Map and in one with a table, after the entries are
+  # compacted, after `retain`, and after `clear`. A key put back after it
+  # was taken goes last.
+
+  m = Map[Int, Int]()
+  !m.put(1, 10)
+  !m.put(2, 20)
+  !m.put(3, 30)
+  _ = !m.take(1)
+  print(m)
+  !m.put(1, 11)
+  print(m)
+  s = Set[String]()
+  _ = !s.add(String("a"))
+  _ = !s.add(String("b"))
+  _ = !s.add(String("c"))
+  _ = !s.take("a")
+  _ = !s.add(String("a"))
+  print(s)
+  big = Set[Int]()
+  sq = Map[Int, Int]()
+  for i in 0..20
+    _ = !big.add(i)
+    !sq.put(i, i * i)
+  for i in 0..20
+    if i % 2 == 0
+      _ = !big.take(i)
+      _ = !sq.take(i)
+  print(big, big.len)
+  print(sq)
+  !sq.retain(|k, v| k % 3 == 0)
+  print(sq)
+  !sq.clear()
+  print(sq)
+
+test "print map in text", '''
+  m={"a": [1]} s={:x, :y}
+  {"a": [1]}|{:x, :y}
+  true
+'''
+  # `String(...)` and `!t.add(...)` write a Map and a Set as `print` does.
+
+  m = Map[String, List[Int]]()
+  !m.put(String("a"), List([1]))
+  s = Set[Symbol]()
+  _ = !s.add(:x)
+  _ = !s.add(:y)
+  print(String("m=", m, " s=", s))
+  t = String()
+  !t.add(m, "|", s)
+  print(t)
+  print(String(Map[Int, Int]()) == "{}")
+
+test "print map of objects", '''
+  {P(x: 1, y: 2): User(name: "ada", age: 36), P(x: 0, y: 0): User(name: "bo", age: 5)}
+  {.red, .blue(n: 2)}
+'''
+  # Object keys and values print as objects do inside other values.
+
+  obj P
+    x: Int
+    y: Int
+
+  obj User
+    name: String
+    age: Int
+
+  enum Hue
+    red
+    blue(n: Int)
+
+  m = Map[P, User]()
+  !m.put(P(x: 1, y: 2), User(name: String("ada"), age: 36))
+  !m.put(P(x: 0, y: 0), User(name: String("bo"), age: 5))
+  print(m)
+  s = Set[Hue]()
+  _ = !s.add(Hue.red)
+  _ = !s.add(Hue.blue(n: 2))
+  print(s)
+
+test "print map through handles", '''
+  {"a": 1} {"a": 1} {"a": 1}
+  {7} {7}
+  {"a": 1}
+'''
+  # A Map or Set held by a box, a shared handle, a `*Frozen`, or viewed
+  # by a parameter prints as its value does.
+
+  sub show(m: ?Map[String, Int])
+    print(m)
+
+  fun build() -> Map[String, Int]
+    m = Map[String, Int]()
+    !m.put(String("a"), 1)
+    m
+
+  b = ^build()
+  h = *build()
+  f = *Frozen(build())
+  print(b, h, f)
+  s = Set[Int]()
+  _ = !s.add(7)
+  bs = ^(<s)
+  print(bs, ?bs)
+  show(?f)
+
 test "print nested text quoted", release: true, '''
   a"b\c é
   ["a\"b\\c\nd\te\rf\x01g\x7fh\xffi\u{85}j\u{202e}ké"]
