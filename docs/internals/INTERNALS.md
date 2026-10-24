@@ -2625,7 +2625,11 @@ known type would. `Requirement.no_task` does the same for
 task: erased to an API object, or given out of `task.isolate`
 (`Checker.requireNoTask`). Whether a type meets `Sends` or `Syncs` as a
 bound (`sema.lacks`) is the walk's answer too, `blockerOf`, an API
-object's included.
+object's included. An erasure in a generic body (`Checker.erasable`)
+records, for each type parameter the value holds that its bounds do
+not decide, a `Requirement.task` for each crossing bound the object
+names and a `Requirement.meets` for each other one, which `sema.lacks`
+decides at the instance as it does the known type's erasure.
 
 Zig compiles a method only where something refers to it, so these two
 requirements, made in the body of a method of a generic type, an

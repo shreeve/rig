@@ -189,7 +189,9 @@ and phase 3, boxes of objects, `^{Shape}`
 each in review in turn; objects of an API with an associated type
 (phase 5) wait for a program that needs them. Stage 5, shared and
 crossing objects, is in progress (phase 0, its Core text, done; phase 1,
-crossing bounds, built and in review); a
+crossing bounds, built and reviewed,
+[review-p1.md](docs/history/records/2026-10/apis-stage5/review-p1.md),
+awaiting its gates); a
 design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.

@@ -3079,6 +3079,11 @@ pub const Requirement = union(enum) {
     /// Goes to a task as this says (`taskBlocker`): the body gives a task
     /// a value that holds the parameter, or lends it one (`taskParams`).
     task: TaskReach,
+    /// Meets this built-in API (`lacks`): the body erases a value that
+    /// holds the parameter to an API object whose braces or API name it
+    /// (`Owned`, `Print`, `Clone`, or another its API builds on), which
+    /// the parameter's bounds do not decide.
+    meets: Api,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -3107,6 +3112,7 @@ pub const Requirement = union(enum) {
             .frozen => "a frozen value",
             .no_task => "a value that holds no task",
             .task => "a value that goes to a task",
+            .meets => "a value that meets an API object's bound",
         };
     }
 };

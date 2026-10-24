@@ -15320,6 +15320,26 @@ const Checker = struct {
             try self.errAt(e, "{s}", .{try self.crossingLack(reached, shown_view, how)});
             return null;
         }
+        // A type parameter the value holds whose bounds do not decide a
+        // bound is decided by each instance, as a known type is above:
+        // `^Wrap[U](...)` in a generic body hides each `U` it is made of.
+        if (self.ctx.typeInfo(reached).has_type_var) {
+            const a = self.ctx.arena.allocator();
+            const pos = self.startOf(e);
+            var bit = bounds.iterator();
+            while (bit.next()) |b| switch (b) {
+                .Sends, .Syncs => try self.requireTask(reached, if (b == .Sends) .moves else .shares, pos, try a.print("is erased to `{s}`", .{shown_view}), false),
+                else => {
+                    var held: std.ArrayList(SymbolId) = .empty;
+                    defer held.deinit(self.ctx.allocator);
+                    try sema.reachedTypeVars(self.ctx, reached, &held, self.ctx.allocator);
+                    for (held.items) |param| {
+                        if (sema.checkedByBounds(self.ctx.symbols.items[param])) continue;
+                        try self.require(param, .{ .meets = b }, pos, try a.print("erases a value that holds a `{s}` to `{s}`, whose braces or API name `{s}`", .{ self.ctx.symbols.items[param].name, shown_view, @tagName(b) }));
+                    }
+                },
+            };
+        }
         return witness;
     }
 
@@ -19675,7 +19695,14 @@ fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]cons
             "a `*` handle whose count is not atomic, so two cores could change it at once",
         .callable => "a closure or function lent for a call, whose captures its type does not show",
         .write_view => "a write view, which no two tasks may hold at once",
-        .api_object => "an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task",
+        // The bound it lacks for the form that reached it: one named
+        // alone says which the other is.
+        .api_object => |o| blk: {
+            const named = sema.objectBounds(ctx, o);
+            if (named.contains(.Sends)) break :blk "an API object whose braces and API name no `Syncs`, so no two tasks may read what it hides";
+            if (named.contains(.Syncs)) break :blk "an API object whose braces and API name no `Sends`, so what it hides may not go to another task";
+            break :blk "an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task";
+        },
         .parameterized_nominal => |pn| if (pn.sym == ctx.task_sym_id and shared)
             "a task, which only the one that holds it may wait for"
         else if (pn.sym == ctx.tasks_sym_id)
@@ -19700,7 +19727,9 @@ fn reportTaskReq(ctx: *SemContext, req: sema.GenericRequirement, at: u32, inst: 
         .task => |reach| {
             const blocker = (try sema.taskBlocker(ctx, arg, reach)).?;
             // A value a local task takes: the task the body makes crosses.
-            const crosses = !reach.local and (try sema.localBlocker(ctx, arg, reach.how)) == null;
+            // (An erasure hides the value in an object, which crosses by
+            // its bound wherever it goes.)
+            const crosses = !reach.local and (try sema.localBlocker(ctx, arg, reach.how)) == null and !std.mem.startsWith(u8, req.op, "is erased");
             const whose = if (std.mem.find(u8, req.op, "actor") != null) "the actor's task" else "the body's task";
             try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a value that holds a `{s}` {s} in the generic body, and `{s}` {s}{s}{s}{s}", .{ inst, pname, aname, pname, req.op, aname, try crossingReason(ctx, blocker, reach.how == .shares, if (blocker == arg) "is" else null), if (crosses) "; " else "", if (crosses) whose else "", if (crosses) " may run on another core in every instance, so it takes nothing that stays on one thread" else "" });
             try ctx.noteIn(req.module_id, req.pos, "a `{s}` {s} here", .{ pname, req.op });
@@ -19784,6 +19813,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 },
                 .frozen => try ctx.err(at, cannot ++ "freezes a value that holds a `{s}`, and {s}", .{ inst, pname, aname, pname, try sema.frozenReason(ctx, arg, (try sema.frozenBlocker(ctx, arg)).?) }),
                 .no_task, .task => try reportTaskReq(ctx, req, at, inst, pname, arg),
+                .meets => |api| try ctx.err(at, cannot ++ "{s}, and `{s}` is not `{s}`", .{ inst, pname, aname, req.op, aname, @tagName(api) }),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, (try sema.notHashable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
@@ -19801,6 +19831,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, given_params: 
                 .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
                 .frozen => try ctx.noteIn(req.module_id, req.pos, "frozen here", .{}),
                 .no_task, .task => {},
+                .meets => try ctx.noteIn(req.module_id, req.pos, "erased here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -20010,6 +20041,7 @@ fn apiOf(req: Requirement) ?sema.Api {
         .hashable => .Hash,
         .copies, .no_cleanup => .Copy,
         .printable => .Print,
+        .meets => |api| api,
         .float, .fits, .shift, .array_len, .lane_count, .slot_count, .sized, .not_error, .error_set, .not_function, .named, .frozen, .no_task, .task => null,
     };
 }
@@ -20896,6 +20928,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .frozen => (try sema.frozenBlocker(ctx, ty)) == null,
         .no_task => !sema.holdsTask(ctx, ty),
         .task => |reach| (try sema.taskBlocker(ctx, ty, reach)) == null,
+        .meets => |api| (try sema.lacks(ctx, ty, api)) == null,
     };
 }
 

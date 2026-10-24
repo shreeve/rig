@@ -36,7 +36,12 @@ changed the language since it:
   rule T1, an object given to a task without its bound. Of what this
   rejects, v0.2.9 accepted an owned closure that captures a task,
   `f: *fun() -> Int = *|<t| 7`; wait for the task first and capture its
-  value. `*{Shape}` and `~{Shape}` stay unbuilt.
+  value. A generic body's erasure of a value holding a type parameter
+  its bounds do not decide, `^Wrap[U](...)`, is checked at each instance
+  for every bound the object names: it had passed them all, so a box of
+  `Owned` could outlive what it viewed and a box of `Sends` could carry
+  a `*Int` to another core. `par.map` over read views of objects no
+  longer fails in Zig. `*{Shape}` and `~{Shape}` stay unbuilt.
 - **`rig check` and `rig lsp` on a file of a directory module:** the
   file is checked as its module, whose imports are beside the
   directory, so opening `src/ast/ast.rig` in an editor no longer reports

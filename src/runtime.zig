@@ -983,9 +983,16 @@ fn copiedByReadView(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
-        .@"struct" => isWideMask(T),
+        // A read view of an API object is a view, as `sema.copiedByReadView`
+        // says: its two words are lent as they are.
+        .@"struct" => isWideMask(T) or isReadApiView(T),
         else => false,
     };
+}
+
+/// Whether `T` is a read view of an API object, `?{A}` (`ApiView`).
+fn isReadApiView(comptime T: type) bool {
+    return @hasDecl(T, "__rig_api_object") and std.mem.eql(u8, T.__rig_api_object[0], "?");
 }
 
 /// A read view of what `ptr` points to.

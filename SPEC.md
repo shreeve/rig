@@ -4168,7 +4168,9 @@ an API object has no default value: write `^{Shape + Owned}?`
 names, in its braces or in its API (`api Job: Sends`): `Sends` and
 `Syncs` are facts of the hidden value, checked where its type is
 erased, a type parameter's by its bounds, and the error names the part
-that keeps it from crossing. After that, each form crosses by its row
+that keeps it from crossing. Every bound an object names is checked so,
+and a generic body's `^Wrap[U](...)`, whose `U` no bound decides, is
+checked at each instance. After that, each form crosses by its row
 of [§18's table](#18-tasks): a box goes to another task when its value
 sends and is read by several when it syncs; a write view goes when its
 value sends and is never read by two; a read view does both when its
@@ -12140,19 +12142,19 @@ thread.
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
 | any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`; a callable view `?fun`; an owned closure `*fun` or `~fun` | never | never |
-| an API object `?{A}` *(planned)* | when its braces or API name `Syncs` | when they name `Syncs` |
-| an API object `!{A}` *(planned)* | when they name `Sends` | never |
-| an API object `^{A}` *(planned)* | when they name `Sends` | when they name `Syncs` |
+| an API object `?{A}` | when its braces or API name `Syncs` | when they name `Syncs` |
+| an API object `!{A}` | when they name `Sends` | never |
+| an API object `^{A}` | when they name `Sends` | when they name `Syncs` |
 | a shared API object `*{A}`, or its weak `~{A}` *(planned)* | never | never |
 | a frozen value's shared API object, `*{A + Syncs}` *(planned)* | yes | yes |
 
 So a task may be handed to another task, which waits for it, and keeps
 its loans for that task's whole life. A `*T` or `~T` handle never
 crosses, by value, through a view, or in a field, an element, or an
-optional, since its count is not atomic. Today an API object goes to
-no task, a local one included; the rows marked planned are Stage 5's
-(docs/design/apis.md), where an object crosses only by a bound it
-names.
+optional, since its count is not atomic. An API object crosses only
+by a bound it names ([API objects](#api-objects)), and without it goes
+to no task, a local one included; the shared rows, marked planned, are
+the rest of Stage 5's (docs/design/apis.md).
 
 **Local tasks.** A task given or lent a value that does not cross (a
 `*T` or `~T` whose count is not atomic, a `Cell` of more than one word,
@@ -12190,9 +12192,8 @@ sub main()
 A local task still takes nothing that no two tasks may hold at once,
 even on one thread: a set of tasks, a task or a write view lent to
 read, a callable view `?fun`, which may lend what a closure captures to
-write, an owned closure, or an API object, whose hidden value may hold
-any of these (once objects cross, an API object without the bound the
-task needs: *planned*). Such a value anywhere in what a task is passed,
+write, an owned closure, or an API object without the bound the task
+needs, whose hidden value may hold any of these. Such a value anywhere in what a task is passed,
 in a field, an element, an optional, or what a handle leads to, rejects
 the task rather than making it local. A closure literal written in the
 task's call is lent to it, as `?f` is, and its captures live only until
