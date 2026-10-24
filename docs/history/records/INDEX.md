@@ -99,6 +99,8 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [build-plan.md](2026-10/apis-stage5/build-plan.md): what Stage 5 reuses from Stage 4, where each piece goes, the Core change first, four phases (crossing bounds, shared and weak objects, the proof, owned closures as objects) with their cases and exact messages, the oracle's and Lean's parts, risks, and sizes
 - [open-questions.md](2026-10/apis-stage5/open-questions.md): what the record does not settle, each with a default and a reason, approved by the owner with the panel's changes marked; 13 and 14 close holes of Stage 4's boxes
+- [phase1-notes.md](2026-10/apis-stage5/phase1-notes.md): Stage 5's phase 1 as built (crossing bounds in the braces and the API, `objectBounds`, canonical view braces, the erasure's checks, the object task, no owned closure holding a task, the oracle's rule T1), its decisions beyond the design, and its cases
+- [review-p1.md](2026-10/apis-stage5/review-p1.md): the adversarial review of phase 1: findings by severity with their fixes and cases (a generic body's erasure skipping each instance's bounds, `par.map` over object views reaching Zig, a held object's reason, SPEC §18's rows), the builder's four decisions checked, what was parked, what was probed without findings, and the Trig check
 - [core-draft.md](2026-10/apis-stage5/core-draft.md): the draft CORE text for the panel (§1's and §4's rows, clauses to sentences 8 and 9, a paragraph with each sentence's source, `rig pending` examples, SPEC §18's rows, and what to probe)
 
 ### 2026-10/apis-stage5/core-panel/

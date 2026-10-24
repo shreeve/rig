@@ -3218,10 +3218,7 @@ pub const TypeResolver = struct {
             }
             switch (try apiNamed(self.ctx, self.scope, leaf)) {
                 .builtin => |b| switch (b) {
-                    .Owned, .Print, .Clone => {
-                        if (builtins.contains(b)) try self.ctx.errAt(leaf, "`{s}` is named twice in `{s}`", .{ text, written });
-                        builtins.insert(b);
-                    },
+                    .Owned, .Print, .Clone => try self.namedOnce(leaf, &builtins, b, written),
                     .Copy => {
                         try self.ctx.errAt(leaf, "an API object never copies but as a view does: `?{{Shape}}` copies, `^{{Shape}}` moves; take `Copy` out of the braces", .{});
                         bad = true;
@@ -3234,9 +3231,21 @@ pub const TypeResolver = struct {
                         try self.ctx.errAt(leaf, "`{s}` is provided by the built-in numbers alone, and an API object's methods are an API's of a program's own; take `{s}` out of the braces", .{ text, text });
                         bad = true;
                     },
-                    .Sends, .Syncs => {
-                        try self.ctx.errAt(leaf, "an API object that crosses tasks, `{s}`, is not built yet (docs/design/apis.md, Stage 5)", .{written});
-                        bad = true;
+                    // A crossing bound, where the form can use it: one
+                    // spelling per meaning (docs/design/apis.md, Stage 5).
+                    .Sends, .Syncs => switch (sigil[0]) {
+                        '?' => if (b == .Sends) {
+                            try self.ctx.errAt(leaf, "a read view goes to another task when its value syncs: write `?{{{s}}}`", .{try self.bracesWith(node, .Sends, .Syncs)});
+                            bad = true;
+                        } else try self.namedOnce(leaf, &builtins, b, written),
+                        '!' => if (b == .Syncs) {
+                            try self.ctx.errAt(leaf, "a write view is never read by two tasks at once: write `!{{{s}}}` for one that goes to another task", .{try self.bracesWith(node, .Syncs, .Sends)});
+                            bad = true;
+                        } else try self.namedOnce(leaf, &builtins, b, written),
+                        '^' => try self.namedOnce(leaf, &builtins, b, written),
+                        // `*{...}` and `~{...}` are reported whole
+                        // (`sharedObject`).
+                        else => {},
                     },
                     .Iter => {
                         try self.ctx.errAt(leaf, "`Iter` gives an `Item`, so an object of it names that type: `{s}{{Iter[Item: Int]}}`", .{sigil});
@@ -3285,6 +3294,34 @@ pub const TypeResolver = struct {
             return t.invalid_id;
         };
         return self.ctx.intern(.{ .api_object = .{ .api = ref, .builtins = builtins } });
+    }
+
+    /// Built-in API `b` added to `builtins`, named by `leaf` in the braces
+    /// `written`; named twice is reported.
+    fn namedOnce(self: *TypeResolver, leaf: Sexp, builtins: *sema.Apis, b: sema.Api, written: []const u8) Error!void {
+        if (builtins.contains(b)) try self.ctx.errAt(leaf, "`{s}` is named twice in `{s}`", .{ diag.textOf(self.ctx.source, self.ctx.span(leaf)), written });
+        builtins.insert(b);
+    }
+
+    /// The names in the braces `node`, as written, with `drop` written
+    /// `add` (once), for a fix: `Shape + Sends` as `Shape + Syncs`.
+    fn bracesWith(self: *TypeResolver, node: Sexp, drop: sema.Api, add: sema.Api) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        var out: std.ArrayList(u8) = .empty;
+        const leaves = ir.ApiObject.apis(node);
+        const has_add = for (leaves) |leaf| {
+            if (std.mem.eql(u8, diag.textOf(self.ctx.source, self.ctx.span(leaf)), @tagName(add))) break true;
+        } else false;
+        for (leaves) |leaf| {
+            var text = diag.textOf(self.ctx.source, self.ctx.span(leaf));
+            if (std.mem.eql(u8, text, @tagName(drop))) {
+                if (has_add) continue;
+                text = @tagName(add);
+            }
+            if (out.items.len > 0) try out.appendSlice(a, " + ");
+            try out.appendSlice(a, text);
+        }
+        return out.items;
     }
 
     /// What a name in an object's braces names when it is no API: a

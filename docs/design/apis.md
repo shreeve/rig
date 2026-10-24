@@ -1218,9 +1218,16 @@ cannot assign through `w`, a `!{Shape}`: the value it views may be of another ty
 `Source` declares `type Item`, so an object of it names that type: `^{Source[Item: Int]}`
 ```
 
-## Stage 5: shared objects, and crossing tasks *(planned)*
+## Stage 5: shared objects, and crossing tasks *(in part)*
 
-*Designed and approved (2026-10-23), not built.* The owner: "Approve
+*Phase 1 is built:* crossing bounds in the braces and the API, checked
+where the type is erased, each form crossing by its row, and no owned
+closure holding a task
+([phase1-notes.md](../history/records/2026-10/apis-stage5/phase1-notes.md)).
+`*{Shape}` and `~{Shape}` (phase 2) and owned closures as objects
+(phase 4) are not built yet.
+
+*Designed and approved (2026-10-23).* The owner: "Approve
 the Stage 5 CORE text as written in core-stage5/6-final.md and #615's
 design defaults (with the reviewer's three fixes). Build Stage 5 in
 phases with adversarial reviews; land each after the suite and light

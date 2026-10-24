@@ -160,6 +160,29 @@ out=$(cat boxes.txt)
 expect_has "$out" 'erasures move 12:17-12:19 "<c" Square ^{Shape} __rig_impl_Shape_Square(Square)' "a box erased"
 expect_has "$out" 'erasures move 14:18-14:20 "<o" Square ^{Shape} __rig_impl_Shape_Square(Square) optional' "an optional box erased"
 
+# The braces' crossing bounds are part of the object's type on an
+# erasure line.
+cat >crossing.rig <<'EOF2'
+api Job
+  fun run(?@) -> Int
+
+obj Sum: Job
+  n: Int
+
+  fun run(?@) -> Int
+    @n
+
+fun work(j: ^{Job + Sends}) -> Int
+  j.run()
+
+sub main()
+  j: ^{Job + Sends} = ^Sum(n: 6)
+  t = work(<j)&
+  print(>t)
+EOF2
+"$RIG" check --facts=sema crossing.rig >crossing.txt 2>err.txt || fail "rig check --facts=sema crossing.rig: $(cat err.txt)"
+expect_has "$(cat crossing.txt)" 'erasures box 14:23-14:33 "^Sum(n: 6)" Sum ^{Job + Sends} __rig_impl_Job_Sum(Sum)' "a box erased with its crossing bound"
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)
