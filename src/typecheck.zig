@@ -15044,7 +15044,8 @@ const Checker = struct {
     fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         // A written `!x` where a read view goes only lends to read.
         if (self.readViewSlot(expected) and try self.writeLendRead(e, actual, .{ .read_view = expected })) return;
-        if (try self.lendView(e, actual, expected)) return;
+        const into = self.erasureTarget(actual, expected);
+        if (try self.lendView(e, actual, into)) return;
         if (try self.arrayAsSlice(e, actual, expected)) return;
         if (try self.stringAsStringView(e, actual, expected)) return;
         if (self.ctx.types.get(expected) == .function and sema.callableFnTy(self.ctx, actual) == expected) {
@@ -15054,9 +15055,9 @@ const Checker = struct {
             try self.recordAdapted(e, actual, expected);
             return;
         }
-        if (try self.eraseBox(e, actual, expected)) return;
-        if (try self.eraseShared(e, actual, expected)) return;
-        if (try self.handleThroughView(e, actual, expected)) return;
+        if (try self.eraseBox(e, actual, into)) return;
+        if (try self.eraseShared(e, actual, into)) return;
+        if (try self.handleThroughView(e, actual, into)) return;
         // Failing is written: an error value meets a `T!` only as the
         // operand of `return`.
         if (self.ctx.types.get(expected) == .fallible and sema.isErrorValue(self.ctx, actual)) {
@@ -15227,6 +15228,43 @@ const Checker = struct {
         return true;
     }
 
+    /// The type a value of `actual` is erased into where `expected` goes:
+    /// `expected`, or, for a value that is no `T!` (a result's last
+    /// expression, `return`'s operand, `f()!`), the value a `(^{A})!`,
+    /// `(*{A})!`, or `(?{A})!` holds, which the value meets as it is.
+    /// The one place every erasure (`lendView`, `eraseBox`,
+    /// `eraseShared`, `handleThroughView`) reads through a `!`; an
+    /// optional is each one's own row.
+    fn erasureTarget(self: *Checker, actual: TypeId, expected: TypeId) TypeId {
+        const types = &self.ctx.types;
+        const ok = switch (types.get(expected)) {
+            .fallible => |f| f.ok,
+            else => return expected,
+        };
+        if (types.get(actual) == .fallible or sema.isErrorValue(self.ctx, actual)) return expected;
+        return if (self.ctx.typeInfo(ok).object) ok else expected;
+    }
+
+    /// Where a box or a counted handle (`form`), or an optional one,
+    /// moves into one of an API object (`eraseBox`, `eraseShared`):
+    /// the object type it becomes (`want`), the object, whether both are
+    /// optional, and the box or handle itself. Null for any other pair.
+    const HeldInto = struct { want: TypeId, object: sema.ApiObject, optional: bool, value: TypeId };
+
+    fn heldInto(self: *Checker, actual: TypeId, expected: TypeId, form: sema.ObjectForm) ?HeldInto {
+        const types = &self.ctx.types;
+        if (self.isPoison(actual)) return null;
+        const want = switch (types.get(expected)) {
+            .optional => |inner| inner,
+            else => expected,
+        };
+        const h = sema.objectHeld(self.ctx, want) orelse return null;
+        if (h.form != form) return null;
+        const optional = types.get(actual) == .optional;
+        if (optional and want == expected) return null;
+        return .{ .want = want, .object = h.object, .optional = optional, .value = if (optional) types.get(actual).optional else actual };
+    }
+
     /// `e`, of type `actual`, erased to an API object by the rows of
     /// `lend` from `from` (docs/design/apis.md, Stage 4): the value they
     /// reach provides the object's API, by a witness, and meets the
@@ -15283,21 +15321,11 @@ const Checker = struct {
     /// keeps its box"). Only the value a box holds is erased, never a
     /// List's or another container's element. True when handled.
     fn eraseBox(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
-        const types = &self.ctx.types;
-        if (self.isPoison(actual)) return false;
-        const want = switch (types.get(expected)) {
-            .optional => |inner| inner,
-            else => expected,
-        };
-        const h = sema.objectHeld(self.ctx, want) orelse return false;
-        if (h.form != .box) return false;
-        const optional = types.get(actual) == .optional;
-        if (optional and want == expected) return false;
-        const boxed = if (optional) types.get(actual).optional else actual;
-        const reached = sema.boxedType(self.ctx, boxed) orelse return false;
-        const witness = (try self.erasable(e, e, actual, reached, want, h.object)) orelse return true;
-        try self.ctx.recordErasure(e, .{ .api = h.object.api, .from = reached, .view = want, .witness = witness, .form = .box, .optional = optional });
-        try self.recordLift(e, if (optional) expected else want, expected);
+        const into = self.heldInto(actual, expected, .box) orelse return false;
+        const reached = sema.boxedType(self.ctx, into.value) orelse return false;
+        const witness = (try self.erasable(e, e, actual, reached, into.want, into.object)) orelse return true;
+        try self.ctx.recordErasure(e, .{ .api = into.object.api, .from = reached, .view = into.want, .witness = witness, .form = .box, .optional = into.optional });
+        try self.recordLift(e, if (into.optional) expected else into.want, expected);
         return true;
     }
 
@@ -15312,16 +15340,9 @@ const Checker = struct {
     /// are messages, or change what they hold. True when handled.
     fn eraseShared(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
         const types = &self.ctx.types;
-        if (self.isPoison(actual)) return false;
-        const want = switch (types.get(expected)) {
-            .optional => |inner| inner,
-            else => expected,
-        };
-        const h = sema.objectHeld(self.ctx, want) orelse return false;
-        if (h.form != .shared) return false;
-        const optional = types.get(actual) == .optional;
-        if (optional and want == expected) return false;
-        const handle = if (optional) types.get(actual).optional else actual;
+        const into = self.heldInto(actual, expected, .shared) orelse return false;
+        const want = into.want;
+        const handle = into.value;
         const inner = switch (types.get(handle)) {
             .shared => |inner| inner,
             else => return false,
@@ -15346,7 +15367,7 @@ const Checker = struct {
         const frozen = sema.frozenValue(self.ctx, inner);
         if (frozen != null and !syncs) {
             // A frozen value holds no view, so `Owned` is no longer written.
-            var with = h.object;
+            var with = into.object;
             with.builtins.insert(.Syncs);
             with.builtins.remove(.Owned);
             const fixed = try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with);
@@ -15354,15 +15375,15 @@ const Checker = struct {
             return true;
         }
         if (frozen == null and syncs) {
-            const by_api = !h.object.builtins.contains(.Syncs);
-            const why = if (by_api) try std.fmt.allocPrint(self.ctx.arena.allocator(), " (`{s}` builds on `Syncs`)", .{try sema.apiName(self.ctx, h.object.api)}) else "";
+            const by_api = !into.object.builtins.contains(.Syncs);
+            const why = if (by_api) try std.fmt.allocPrint(self.ctx.arena.allocator(), " (`{s}` builds on `Syncs`)", .{try sema.apiName(self.ctx, into.object.api)}) else "";
             try self.errAt(e, "`{s}` is erased to `{s}`, which several tasks read{s}, but its count is not atomic: freeze the value, `*Frozen(...)`", .{ shown, shown_view, why });
             return true;
         }
         const reached = frozen orelse inner;
-        const witness = (try self.erasable(e, e, actual, reached, want, h.object)) orelse return true;
-        try self.ctx.recordErasure(e, .{ .api = h.object.api, .from = reached, .view = want, .witness = witness, .form = .shared, .holding = if (frozen != null) .frozen else .counted, .optional = optional });
-        try self.recordLift(e, if (optional) expected else want, expected);
+        const witness = (try self.erasable(e, e, actual, reached, want, into.object)) orelse return true;
+        try self.ctx.recordErasure(e, .{ .api = into.object.api, .from = reached, .view = want, .witness = witness, .form = .shared, .holding = if (frozen != null) .frozen else .counted, .optional = into.optional });
+        try self.recordLift(e, if (into.optional) expected else want, expected);
         return true;
     }
 

@@ -74,3 +74,46 @@ exactly 22,796): the two functions of the case on main (`sq`, `mk`)
 were decided because the program reached the ownership checker, which
 rejected it; it now stops in the type checker, before either checker
 decides it, as programs rejected in sema do. No verdict changed.
+
+## 1.3 The erasure
+
+### The map
+
+| Path | Place (main 55a21e1b1) | What it erases |
+|---|---|---|
+| `lendView` with `LendStep.erase` (the lend table, `sema.lendsAs`) and `Checker.erase` | typecheck.zig:15137, 15223 | a value lent as a `?{A}` or `!{A}`, through the table's rows (`.lift` into `T?`, `.optional`, `.unbox`, `.handle`) |
+| `eraseBox` | typecheck.zig:15270 | a `^T` (or `^T?`) moved into a `^{A}` (or `^{A}?`) |
+| `eraseShared` | typecheck.zig:15298 | a `*T` (or `*T?`) moved into a `*{A}` (or `*{A}?`), a frozen value's only into `*{A + Syncs}` |
+| `handleThroughView` | typecheck.zig:15360 | rejects a view of a handle lent as a view of an object's handle |
+| `erasable` | typecheck.zig:15388 | the checks every erasure makes on the hidden value (witness, task, bounds) |
+
+All four are tried from one place, `checkActual` (typecheck.zig:15029),
+against the type the context gives. Each read through an optional on
+its own (the lend table's `.lift`, and a copy of the same peel in
+`eraseBox`, `eraseShared`, and `handleThroughView`), and none read
+through a `!`.
+
+### The case
+
+A binding of the object's type and a function's result split: `s:
+^{Shape} = ^Square(...)` erases, but a function returning
+`(^{Shape})!` whose last expression is `^Square(...)` was "type
+mismatch: expected `^{Shape}!`, got `^Square`" (Stage 5 review 2,
+parked; track 2, row 5). So were `return ^Square(...)`, `make()!` of a
+`-> ^Square!`, a `*Square` or a frozen handle into `(*{Shape})!` or
+`(*{Shape + Syncs})!`, a `?Named` lent into `(?{Shape})! from s`, and a
+`^Square?` into `((^{Shape})?)!`. A `(^{Shape})?` result erased already.
+
+### What merged
+
+`Checker.erasureTarget` is the one place an erasure reads through a
+`!`: for a value that is no `T!` (nor an error value), the type the
+`T!` holds, when it holds an object; `checkActual` passes it to all
+four. `heldInto` is the one peel of an optional for a box and a
+counted handle, which `eraseBox` and `eraseShared` shared as copies.
+Cases: "apis object box a fallible result erases its last expression
+and return's operand" (a box, `return`, `f()!`, a view lent, a `^T?`),
+"apis object shared a fallible result erases its last expression" (a
+counted and a frozen handle), and "... keeps the erasure's rules" (a
+frozen handle into `(*{Shape})!` is refused as where a `*{Shape}` goes).
+Each ran under the sanitizer.
