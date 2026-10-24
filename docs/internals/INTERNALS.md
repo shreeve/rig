@@ -2206,22 +2206,31 @@ ever deeper is reported where it is declared, since the instances that
 would show it are made in other modules.
 A call through an API of a program's own (`t.look(?k)` on a bounded
 `T`, `c.look(?k)` on a type that provides it, `Keyed.look(?c, ?k)`)
-records an `ApiCall`: the type that provides the API, the API, the
-method, and the method's own compile-time arguments. One whose types
-are known is in `api_calls`, one over a body's parameters in
-`generic_api_calls`, which `expand` makes concrete with each instance
-of the body. `implInstance` gives the instance it reaches, the method
+records an `ApiCall` once (`api_call_set`): the type that provides
+the API, the API, the method, and the method's own compile-time
+arguments with the slots they fill, as `instantiateCall` binds them
+(`ownParamOf`, the one classifier of a function's own compile-time
+parameters). One whose types are known is in `api_calls`, one over a
+body's parameters in `generic_api_calls`, which `expand` makes concrete
+with each instance of the body. `implInstance` gives the instance it
+reaches, the method
 the conformance's witness names (`Conformance.members`, so
 `typecheck.checkDeclaredApis` runs first): the type's own method after
 the type's parameters; an addition's after the addition's, which are
 its own, since no type's instance checks them (`List[Float]` is an
 instance of `add List[T]`); or a default after the API's `Self`,
 binding nothing of its own, so that what it calls on `Self` reaches
-that type's method. It is recorded `through_api`: the call's instance
-of the API's method checks and reports the bounds and the arguments
-where they stand, which the implementation's are, so this one checks
-the requirements its body records, and the ownership checker its
-copies and views. Emit is unchanged: the witness passes the arguments.
+that type's method. It binds its own parameters at the slots the call
+recorded, and a witness that names no method, or slots that are not
+the implementation's parameters, is a compiler bug, which a
+self-checking build reports (`implLost`), never a check skipped. It is
+recorded `through_api`: the call's instance of the API's method checks
+and reports the bounds and the arguments where they stand, so this one
+checks the requirements its body records, and the ownership checker
+its copies and views. Not reporting the bounds on the implementation's
+instance is safe because an API and its implementation must declare
+the same compile-time parameters and bounds (Stage 3 conformance).
+Emit is unchanged: the witness passes the arguments.
 `checkGenericInstantiations` then checks every instance's type
 arguments where they stand (`misplacedArgs`: a value holding a Cell by
 value, or a write view, is no type argument, [Sema](#sema)), and every

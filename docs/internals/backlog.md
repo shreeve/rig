@@ -205,6 +205,16 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
   `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
   a capture and a field lend, like `!c`, lend what the handle holds.
+- Messages about instances a call through an API reaches, found by
+  #609's review. An addition's instance shows the addition's
+  parameters as its own: `Map.look[Int, Int, Float] cannot use K =
+  Float`, where `Map.look[Float]` is meant. The ever-deeper message
+  shows a generic parameter in a concrete trail ("through
+  `probe[Sq, Wrap[K]]`"), as the `fn_uses` path already does. And
+  `checkSelfNesting` skips API calls, so a public generic that nests
+  itself through an API is reported at the instance in the module that
+  uses it, not where it is declared, as INTERNALS says of the others
+  (still sound).
 
 Found while writing the Learn Rig journeys. Those marked *checked* were
 confirmed on `main` when they were written here; check the rest before
