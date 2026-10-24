@@ -87,6 +87,10 @@ pub const Kinds = struct {
             try self.memo.put(self.a, ty, info);
             return info;
         }
+        if (objectInfo(ctx, ty)) |info| {
+            try self.memo.put(self.a, ty, info);
+            return info;
+        }
         // A bounded type parameter in a generic body is what its bounds
         // say (docs/design/apis.md, Stage 2): `Copy` copies, and with
         // `Owned` views nothing; without `Copy` it is an owner that the
@@ -166,6 +170,24 @@ fn callableInfo(ctx: *const SemContext, ty: TypeId) ?Info {
     };
 }
 
+/// An API object (Core §4, "An API object hides its value's type, never
+/// its loans"), from its type: `?{A}` a read view and `!{A}` a write
+/// view, each carrying every loan of the value it hides, which may hold
+/// anything; `^{A}` an owner, whose drop may run the hidden type's `drop`
+/// body and read those loans, and which holds none with `Owned` in its
+/// braces.
+fn objectInfo(ctx: *const SemContext, ty: TypeId) ?Info {
+    const h = sema.objectHeld(ctx, ty) orelse return null;
+    return switch (h.form) {
+        .read => .{ .kind = .read_view, .holds_views = true, .holds_pointers = true, .drop_reads = false, .unsupported = null },
+        .write => .{ .kind = .write_view, .holds_views = true, .holds_pointers = true, .drop_reads = false, .unsupported = null },
+        .box => blk: {
+            const owned = h.object.builtins.contains(.Owned);
+            break :blk .{ .kind = .owning, .holds_views = !owned, .holds_pointers = !owned, .drop_reads = !owned, .unsupported = null };
+        },
+    };
+}
+
 /// A walk over what a type holds, through the fields of nominal types
 /// in whichever module declares them.
 const Scan = struct {
@@ -183,9 +205,11 @@ const Scan = struct {
         if (gop.found_existing) return;
         switch (ctx.types.get(ty)) {
             .invalid, .unknown => self.mark("a type with an error"),
-            // Decided with the phase of Stage 4 that lowers one; until
-            // then no program the compiler accepts holds one.
-            .api_object => self.mark("an API object"),
+            // An API object's hidden value may have a `drop` body; one a
+            // view reaches is only read.
+            .api_object => if (!self.read_only and !self.under_weak) {
+                self.drop_body = true;
+            },
             // A handle carries its contents' loans (Core s9), and
             // dropping a counted one may drop them.
             // An owned closure carries no loan (Core s9).
@@ -421,10 +445,11 @@ pub const Reach = struct {
         };
     }
 
-    /// Whether `n` may stand for anything.
+    /// Whether `n` may stand for anything: an API object hides a value of
+    /// any type that provides its API (Core §4).
     fn anything(n: Node) bool {
         return switch (n.ctx.types.get(n.ty)) {
-            .function, .callable, .invalid, .unknown => true,
+            .function, .callable, .api_object, .invalid, .unknown => true,
             .type_var => |sym| if (n.subst) |s| s.lookup(sym) == null else true,
             else => false,
         };

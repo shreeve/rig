@@ -102,10 +102,13 @@ pub const JumpDest = sema.JumpDest;
 pub const CallTarget = sema.CallTarget;
 pub const Dispatch = sema.Dispatch;
 pub const Witness = sema.Witness;
+pub const Erasure = sema.Erasure;
 pub const OwnerWitnesses = sema.OwnerWitnesses;
 pub const ArgWitness = sema.ArgWitness;
 pub const Conformance = sema.Conformance;
 pub const ApiRef = sema.ApiRef;
+pub const ApiObject = sema.ApiObject;
+pub const TableEntry = sema.TableEntry;
 
 pub const type_invalid = sema.type_invalid;
 pub const symbol_invalid = sema.symbol_invalid;
@@ -176,6 +179,16 @@ pub const Facts = struct {
     /// and no value of it is made (`sema.objectUnbuilt`).
     pub fn mentionsObject(f: Facts, ty: TypeId) bool {
         return sema.mentionsObject(f.c(), ty);
+    }
+    /// Whether `ty` is or holds a box of an API object, `^{Shape}`, which
+    /// is not lowered yet (`sema.holdsObjectBox`).
+    /// Whether `ty` is a bare API object, `{Shape}`, which only a type
+    /// alias names (`sema.apiObject`).
+    pub fn objectBare(f: Facts, ty: TypeId) bool {
+        return sema.apiObject(f.c(), ty) != null;
+    }
+    pub fn holdsObjectBox(f: Facts, ty: TypeId) bool {
+        return sema.holdsObjectBox(f.c(), ty);
     }
 
     /// Whether `f` and `g` are the facts of the same module.
@@ -446,6 +459,21 @@ pub const Facts = struct {
     /// The API `ref` names, as declared.
     pub fn apiSymbol(f: Facts, ref: ApiRef) ?Symbol {
         return sema.apiSymbol(f.c(), ref);
+    }
+    /// How `node` was erased to an API object (`sema.Erasure`); null for
+    /// any other node.
+    pub fn erasureOf(f: Facts, node: Sexp) ?Erasure {
+        return f.c().erasureOf(node);
+    }
+    /// The API object view `ty` is, `?{Shape}` or `!{Shape}`
+    /// (`sema.objectView`).
+    pub fn objectView(f: Facts, ty: TypeId) ?sema.ApiObject {
+        return if (sema.objectView(f.c(), ty)) |v| v.object else null;
+    }
+    /// The entries of the table of API `sym`, declared in this module
+    /// (`sema.TableEntry`).
+    pub fn objectTable(f: Facts, sym: SymbolId) []const sema.TableEntry {
+        return f.c().object_tables.get(sym) orelse &.{};
     }
     /// This module's id among the program's.
     pub fn moduleId(f: Facts) u32 {
@@ -762,6 +790,9 @@ pub const Facts = struct {
     /// (the recorded `dropsTemp` facts).
     pub fn stmtTemps(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
         return sema.stmtTemps(f.c(), a, stmt, out);
+    }
+    pub fn stmtErasedCopies(f: Facts, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+        return sema.stmtErasedCopies(f.c(), a, stmt, out);
     }
     pub fn firstStmtTemp(f: Facts, stmt: Sexp) ?Sexp {
         return sema.firstStmtTemp(f.c(), stmt);

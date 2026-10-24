@@ -3925,11 +3925,79 @@ passes and a table cannot, and one that names `Self` anywhere but
 self, which only the hidden type could give. Calling one of those
 says why, and that a bound calls it.
 
-The values are not built yet: a value, field, parameter, result, or
-instance whose type holds an API object, a value erased to one, and a
-call through one are each rejected, "is not built yet", until the
-phase of Stage 4 that lowers them. A type alias names an object's
-type, and `$name` spells it.
+A value lends an object by the lend table's last row (Core §4): `?x`
+of a value whose type provides the API lends a `?{Shape}`, and `!x` a
+`!{Shape}`, through a box, a handle, a frozen handle, and an optional
+first (`?b` of a `^Square`, `?h` of a `*Square`, `?o` of a `Square?`
+lends a `?{Shape}?`). Only the value reached is erased. The lend is
+written where the object is kept past its statement, and unwritten
+where it lasts only for a call, `area_of(sq)`; a value made there, a
+literal included, is held in its statement's slot. A bounded `T` lends
+one through its bound. The braces' `Print`, `Clone`, and `Owned` are
+checked on the value's type where it is erased.
+
+```rig
+api Shape
+  fun area(?@) -> Float
+  sub grow(!@, by: Float)
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+  sub grow(!@, by: Float)
+    @side += by
+
+obj Circle: Shape
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+  sub grow(!@, by: Float)
+    @r += by
+
+fun area_of(s: ?{Shape}) -> Float
+  s.area()
+
+sub grow_all(w: !{Shape})
+  !w.grow(1.0)
+
+sub main()
+  sq = Square(side: 2.0)
+  b = ^Circle(r: 1.0)
+  print(area_of(sq), area_of(?b))
+  grow_all(!sq)
+  shapes: List[?{Shape}] = List()
+  !shapes.push(?sq)
+  !shapes.push(?b)
+  for s in shapes
+    print(s.area())
+```
+
+```output
+4.0 3.0
+9.0
+3.0
+```
+
+A call through an object, `s.area()` or `Shape.area(s)`, is checked
+against the API's declaration, with `Self` hidden, and runs the hidden
+type's method through the object's table: its own, an addition's, or
+the API's default. A method's self sigil holds as at any call: a
+`?{Shape}` reaches only `?@` methods, and a method that consumes self
+needs a box. A fallible method fails with the API's set, its fields
+passed through the slot the call's `!` or `catch` lends. A call passes
+on only the loans the API's `from` and `keeps` show, never an
+implementation's.
+
+An object carries every loan the value it hides carries, to its last
+use, and only its methods reach the value: through a `!{Shape}`
+nothing assigns, swaps, copies, or moves it, an object is never
+cloned, compared, or hashed, and it prints only as its braces or API
+name `Print`.
 
 ```rig reject
 api Shape
@@ -3941,16 +4009,67 @@ obj Square: Shape
   fun area(?@) -> Float
     @side * @side
 
-fun area_of(s: ?{Shape}) -> Float
-  s.area()
+sub replace(w: !{Shape})
+  w = Square(side: 1.0)
 
 sub main()
-  print(area_of(Square(side: 2.0)))
+  print(1)
 ```
 
 ```error
-`?{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)
-`s.area()` calls through `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)
+cannot assign through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box
+```
+
+A read view of plain data, or of a type parameter's value, may be
+held as a copy with no address of its own, so the object views a copy,
+a local of the block that erases it: it is used there, and never
+returned or kept past the block.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+obj Point: Shape
+  x: Float
+
+  fun area(?@) -> Float
+    @x
+
+fun pick(p: ?Point) -> ?{Shape} from p
+  p
+
+sub main()
+  q = Point(x: 1.0)
+  print(pick(?q).area())
+```
+
+```error
+`?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; lend the owner where it lives, or take `p: ?{Shape}`
+```
+
+An object meets no bound by an API, `T = ?{Shape}` does not meet `[T:
+Shape]`, and a generic body's call on an unbounded `T` reaches no
+method of an object: its methods are called where its type is
+written. A task over a call through an object,
+and a box of one, `^{Shape}`, are not built yet: a value, field,
+parameter, result, or instance whose type holds a `^{Shape}`, and a
+value moved into one, are rejected, "is not built yet", until the phase
+of Stage 4 that lowers boxes.
+
+```rig reject
+api Shape
+  fun area(?@) -> Float
+
+fun area_of(b: ^{Shape}) -> Float
+  b.area()
+
+sub main()
+  print(1)
+```
+
+```error
+`^{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)
+`b.area()` calls through `^{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)
 ```
 
 ### Type aliases

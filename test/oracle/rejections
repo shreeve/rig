@@ -4837,3 +4837,13 @@ test/reject/probes/review258-p90_view_param_into_local_ok.rig put
 doc/CORE/f1979318878b main
 test/reject/table/table_push_while_a_slot_is_viewed.rig main
 test/reject/probes/audit-ownership-f08b_closure_returns_a_view_of_a_temporary,_called.rig main
+test/reject/ownership/apis_object_a_result_from_self_keeps_the_owner's_loan.rig main
+test/reject/ownership/apis_object_keeps_through_a_write_view.rig main
+test/reject/ownership/apis_object_of_a_temporary_past_its_statement.rig main
+test/reject/types/apis_object_a_view_of_plain_data_does_not_leave_its_block.rig pick
+test/reject/types/apis_object_a_view_of_plain_data_does_not_leave_its_block.rig keep
+test/reject/types/apis_object_a_view_of_plain_data_does_not_leave_its_block.rig all
+test/reject/types/apis_object_a_view_of_a_type_parameter's_value_does_not_leave_its_block.rig pick
+test/reject/types/apis_object_a_read_loan_lasts_while_the_object_is_used.rig main
+doc/SPEC/86d585e18b14 pick
+doc/CORE/89c4a4a2aec8 main

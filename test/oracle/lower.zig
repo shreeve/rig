@@ -381,6 +381,11 @@ const Lowerer = struct {
     cur: ?BlockId = null,
     vars: std.AutoHashMapUnmanaged(SymbolId, VarId) = .empty,
     regions: std.ArrayList(Region) = .empty,
+    /// The region of the scope the statement being lowered stands in,
+    /// below its own: where an API object's copy lives (`eval`).
+    stmt_scope: usize = 0,
+    /// The value being erased to an API object of a copy (`eval`).
+    erasing: Sexp = .nil,
     loops: std.ArrayList(Loop) = .empty,
     /// The label of the statement being lowered, from `(labeled ...)`.
     label: ?[]const u8 = null,
@@ -762,6 +767,9 @@ const Lowerer = struct {
 
     fn stmt(self: *Lowerer, s: Sexp) Error!void {
         try self.reachable();
+        const saved_scope = self.stmt_scope;
+        defer self.stmt_scope = saved_scope;
+        self.stmt_scope = self.regions.items.len -| 1;
         try self.pushRegion();
         try self.stmtIn(s);
         try self.popRegion(self.posOf(s));
@@ -2192,6 +2200,20 @@ const Lowerer = struct {
     /// a constant, nothing).
     fn eval(self: *Lowerer, e: Sexp, how: How, want: ?TypeId) Error!?VarId {
         const pos = self.posOf(e);
+        // An API object of a read view of plain data, or of a type
+        // parameter's value, views a copy, a local of the erasing block
+        // (Core §4): a new value made of what the view sees, carrying no
+        // loan on it, which the object lends.
+        if (self.ctx.erasureOf(e)) |er| if (er.copy and !sameErased(e, self.erasing)) {
+            const saved = self.erasing;
+            self.erasing = e;
+            defer self.erasing = saved;
+            const v = try self.eval(e, .read, null) orelse return abstain("an API object of a constant's copy");
+            const c = try self.newVar("the copy an API object views", er.from, true, pos);
+            try self.regions.items[@min(self.stmt_scope, self.regions.items.len - 1)].vars.append(self.a, c);
+            try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(v), .def = c, .unpoint = true });
+            return try self.lend(.{ .root = c, .path = &.{}, .ty = er.from }, .read, e, er.view);
+        };
         const k = e.kind() orelse return self.leafValue(e, how, want);
         // A compile-time call is a constant: the checker computed it.
         if (k == .ct_call) return null;
@@ -4125,13 +4147,10 @@ const Lowerer = struct {
     /// null for any other call.
     fn apiMethodOf(self: *Lowerer, call_node: Sexp) ?struct { ctx: *const sema.SemContext, field: sema.Field } {
         const d = self.ctx.dispatchOf(call_node) orelse return null;
-        const st = switch (d) {
-            .static => |st| st,
-            .direct => return null,
-        };
-        const home = sema.apiContext(self.ctx, st.api) orelse return null;
-        const api = sema.apiSymbol(self.ctx, st.api) orelse return null;
-        for (api.fields orelse &.{}) |f| if (f.is_method and std.mem.eql(u8, f.name, st.method)) return .{ .ctx = home, .field = f };
+        const am = d.apiMethod() orelse return null;
+        const home = sema.apiContext(self.ctx, am.api) orelse return null;
+        const api = sema.apiSymbol(self.ctx, am.api) orelse return null;
+        for (api.fields orelse &.{}) |f| if (f.is_method and std.mem.eql(u8, f.name, am.method)) return .{ .ctx = home, .field = f };
         return null;
     }
 
@@ -4150,3 +4169,12 @@ const Lowerer = struct {
         return null;
     }
 };
+
+/// Whether `a` and `b` are one node: a leaf at one place, or one list.
+fn sameErased(a: Sexp, b: Sexp) bool {
+    return switch (a) {
+        .src => |x| b == .src and b.src.pos == x.pos,
+        .list => |l| b == .list and b.list.ptr == l.ptr,
+        else => false,
+    };
+}

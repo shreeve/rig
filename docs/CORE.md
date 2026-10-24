@@ -71,7 +71,7 @@ side; Rig names everything from the side the sigil is on.
 | **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, objects whose parts are all plain | copies | built |
 | **owning** | `List[T]`, `^T` (`^{A}` too), `String`, `error`, objects holding an owner | moves; one owner; dropped once | built; `^{A}` planned |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
-| **view** | `?T`, `!T` (`?{A}`, `!{A}` too), `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built; `{A}` planned |
+| **view** | `?T`, `!T` (`?{A}`, `!{A}` too), `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** An object
 lives where it is declared, inside whatever holds it, and has no
@@ -1121,7 +1121,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | `*T` | the read views of `T` | nothing of the value (`!h` lends the handle itself) | built |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
-| a `T` that provides `A` | `?{A}` | `!{A}` | planned |
+| a `T` that provides `A` | `?{A}` | `!{A}` | built |
 
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
@@ -1263,7 +1263,8 @@ body. So the loans of a `?{A}` or `!{A}` end at its last use, and
 those of a `^{A}` at its drop (sentence 6). A call through one passes
 on only the loans the API's `from` and `keeps` show (sentence 7).
 Erasing a read view of plain data, or of a type parameter's value,
-views a local of the erasing block. *(planned)*
+views a local of the erasing block. *(built for `?{A}` and `!{A}`;
+`^{A}` planned)*
 
 **Only its methods reach the value:**
 
@@ -1275,7 +1276,8 @@ views a local of the erasing block. *(planned)*
   a `^{A}` has a `+`;
 - a `<@` method ends the box, which is dropped exactly once, even if
   the method fails;
-- `*{A}` and `~{A}` are Stage 5's. *(planned)*
+- `*{A}` and `~{A}` are Stage 5's. *(built but for `^{A}`'s `+` and
+  `<@`, planned)*
 
 ```rig pending
 api Shape
@@ -1304,7 +1306,7 @@ sub main()
 The API object `s` carries the read loan on `v`, so `v` may not change
 while `s` is used:
 
-```rig pending
+```rig reject
 api Shape
   fun area(?@) -> Float
 

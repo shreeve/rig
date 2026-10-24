@@ -1,0 +1,20 @@
+# The same calls through callable views, `?fun() -> Float`, of stack
+# closures over the values: an indirect call each.
+obj Square
+  side: Float
+
+obj Circle
+  r: Float
+
+called fun run(a: ?fun() -> Float, b: ?fun() -> Float, n: Int) -> Float
+  t = 0.0
+  for _ in 0..n
+    t += a() + b()
+  t
+
+sub main()
+  sq = Square(side: 1.5)
+  c = Circle(r: 0.5)
+  square_area = |?sq| sq.side * sq.side
+  circle_area = |?c| 3.0 * c.r * c.r
+  print(run(?square_area, ?circle_area, 300000000))

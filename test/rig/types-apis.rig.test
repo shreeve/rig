@@ -3788,7 +3788,9 @@ fail "apis object stray closing brace", "2:11: unexpected `}`; Rig has no braces
     x = [1] }
     print(x)
 
-fail "apis object not built: a parameter, a call, and a conversion", "`?{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`s.area()` calls through `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`sq` would become a `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+fail "apis object not built: a box's parameter, call, and conversion", "`^{Shape}` is an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`b.area()` calls through `^{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)", "`<sq` would become a `^{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)"
+  # A box of an object is built in a later phase.
+
   api Shape
     fun area(?@) -> Float
 
@@ -3798,11 +3800,11 @@ fail "apis object not built: a parameter, a call, and a conversion", "`?{Shape}`
     fun area(?@) -> Float
       @side * @side
 
-  fun area_of(s: ?{Shape}) -> Float
-    s.area()
+  fun area_of(b: ^{Shape}) -> Float
+    b.area()
 
-  sq = Square(side: 2.0)
-  print(area_of(sq))
+  sq = ^Square(side: 2.0)
+  print(area_of(<sq))
 
 fail "apis object not built: a local, a field, and a result", "10:9: `List[^{Shape}]` holds an API object, which is not built yet", "5:6: `^{Shape}?` holds an API object, which is not built yet", "7:15: `^{Shape}` is an API object, which is not built yet"
   api Shape
@@ -3988,14 +3990,514 @@ fail "apis object method of an API built on", "`Named.label` names `Self` outsid
 
   print(1)
 
-fail "apis object not built: a call by the API's name", "`Shape.area(s)` calls through `?{Shape}`, an API object, which is not built yet (docs/design/apis.md, Stage 4)"
-  # `Shape.area(s)` names the API, as through a bound; through an
-  # object it is a call through the object.
+# ---- Stage 4, phase 2: API objects lend and call through a table ----
+
+test "apis object lends a value, a box's, a handle's", "4.0 9.0 1.0 6.25"
+  # A value lends a `?{Shape}` by the lend table's last row, unwritten
+  # where the view lasts only for the call; a box and a handle lend
+  # their value's views first, and a frozen handle the value it froze.
 
   api Shape
     fun area(?@) -> Float
 
-  fun f(s: ?{Shape}) -> Float
-    Shape.area(s)
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  sq = Square(side: 2.0)
+  b = ^Square(side: 3.0)
+  h = *Square(side: 1.0)
+  f = *Frozen(Square(side: 2.5))
+  print(area_of(sq), area_of(?b), area_of(?h), area_of(?f))
+
+test "apis object of two types", "5.0"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  print(area_of(Square(side: 1.0)) + area_of(?Circle(r: 1.0)) + area_of(Square(side: 1.0)))
+
+test "apis object of an addition", "9.0 16.0"
+  # A type the program adds the API to lends one too: a value made
+  # here is held in its statement's slot.
+
+  api Shape
+    fun area(?@) -> Float
+
+  add Int: Shape
+    fun area(?@) -> Float
+      Float(@) * Float(@)
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  n = 4
+  print(area_of(3), area_of(n))
+
+test "apis object in a generic body", "8.0 18.0"
+  # A bounded `T` lends one through its own witness: an owner where it
+  # lives, and a read view of one through a copy in the block.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun twice_owned[T: Shape](x: T) -> Float
+    area_of(?x) * 2.0
+
+  fun twice_viewed[T: Shape](x: ?T) -> Float
+    area_of(x) * 2.0
+
+  print(twice_owned(Square(side: 2.0)), twice_viewed(?Square(side: 3.0)))
+
+test "apis object reaches defaults and additions", "44.0 33.0"
+  # A default and an addition's method are entries as a type's own are.
+
+  api Shape
+    fun area(?@) -> Float
+
+    fun tenfold(?@) -> Float
+      @area() * 10.0
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  add Int: Shape
+    fun area(?@) -> Float
+      Float(@)
+
+  fun both(s: ?{Shape}) -> Float
+    s.area() + s.tenfold()
+
+  print(both(Square(side: 2.0)), both(3))
+
+test "apis object lends to write", "4.0 5.0"
+  # `!{Shape}` writes through the table, and the owner sees it.
+
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  sub grow_all(w: !{Shape})
+    !w.grow(2.0)
+    !w.grow(by: 0.0)
+
+  sq = Square(side: 2.0)
+  grow_all(!sq)
+  c = Square(side: 3.0)
+  w: !{Shape} = !c
+  !w.grow(2.0)
+  print(sq.side, c.side)
+
+test "apis object a write view lends to read", "16.0"
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun grown(w: !{Shape}) -> Float
+    !w.grow(2.0)
+    area_of(w)
+
+  sq = Square(side: 2.0)
+  print(grown(!sq))
+
+test "apis object a List of views walked", "4.0"
+  # A `List[?{Shape}]` holds objects of several types, each lent with
+  # `?` written, since the List keeps it.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Circle: Shape
+    r: Float
+
+    fun area(?@) -> Float
+      3.0 * @r * @r
+
+  a = Square(side: 1.0)
+  c = Circle(r: 1.0)
+  shapes: List[?{Shape}] = List()
+  !shapes.push(?a)
+  !shapes.push(?c)
+  t = 0.0
+  for s in shapes
+    t += s.area()
+  print(t)
+
+test "apis object called by the API's name", "4.0 6.0"
+  # `Shape.area(s)` through an object is a call through its table; an
+  # API that builds on another reaches its methods by their API's name.
+
+  api Named
+    fun size(?@) -> Float
+
+  api Shape: Named
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    fun size(?@) -> Float
+      @side
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  fun show(s: !{Shape}) -> Float
+    Shape.grow(!s, by: 1.0)
+    Named.size(s) + Shape.area(s)
+
+  sq = Square(side: 1.0)
+  print(Shape.area(?sq) * 4.0, show(!sq))
+
+test "apis object of a read view of plain data, in its block", "8.0 2.0"
+  # A read view of plain data may be held as a copy, with no address of
+  # its own: the object views a copy, a local of the block that erases
+  # it, a large value as a small one.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Big: Shape
+    a: Float
+    b: Float
+    c: Float
+    d: Float
+    e: Float
+    f: Float
+    g: Float
+    h: Float
+
+    fun area(?@) -> Float
+      @a + @h
+
+  fun twice(p: ?Square) -> Float
+    s: ?{Shape} = p
+    s.area() * 2.0
+
+  fun sum(p: ?Big) -> Float
+    s: ?{Shape} = p
+    s.area()
+
+  print(twice(Square(side: 2.0)), sum(Big(a: 1.0, b: 0.0, c: 0.0, d: 0.0, e: 0.0, f: 0.0, g: 0.0, h: 1.0)))
+
+test "apis object of an optional", "4.0 0.0"
+  # An `X?` lends a `?{Shape}?`: the object of the value inside, or
+  # `none`.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: (?{Shape})?) -> Float
+    if s as x
+      x.area()
+    else
+      0.0
+
+  some: Square? = Square(side: 2.0)
+  none_sq: Square? = none
+  print(area_of(?some), area_of(?none_sq))
+
+fail "apis object of a type that does not provide its API", "`area_of(?l)` cannot lend `l` as a `?{Shape}`: `Label` does not provide `Shape`; declare `obj Label: Shape`"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Label
+    n: Int
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  l = Label(n: 1)
+  print(area_of(?l))
+
+fail "apis object of an unbounded type parameter", "`x` is a `T` with no bound, so it is no `?{Shape}`: write `[T: Shape]`"
+  api Shape
+    fun area(?@) -> Float
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun f[T](x: ?T) -> Float
+    area_of(x)
 
   print(1)
+
+fail "apis object writes through a read view", "cannot lend to write through a read view `?{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  sub f(s: ?{Shape})
+    !s.grow(2.0)
+
+  print(1)
+
+fail "apis object of another object", "`s` is a `?{Named}`, which lends no other API object: an object's API and braces are fixed where its value is erased"
+  # No conversion between object types: neither an upcast nor a marker
+  # dropped.
+
+  api Shape
+    fun area(?@) -> Float
+
+  api Named: Shape
+    fun name(?@) -> Int
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun f(s: ?{Named}) -> Float
+    area_of(s)
+
+  print(1)
+
+fail "apis object names a bound its value does not meet", "`k` is erased to `?{Shape + Clone}`, which names `Clone`, and `Key` is not `Clone`"
+  # Each built-in API the braces name is checked on the value's type,
+  # where it is still known.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Key unique: Shape
+    n: Int
+
+    fun area(?@) -> Float
+      1.0
+
+  fun show(s: ?{Shape + Clone}) -> Float
+    s.area()
+
+  k = Key(n: 1)
+  print(show(?k))
+
+fail "apis object no assignment through a write view", "cannot assign through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box", "8:3: cannot assign through `w`, a `!{Shape}`", "`swap` cannot exchange through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box", "`w` is a `!{Shape}`, whose value's type is erased, so `x = w` neither copies nor moves it: lend it on, `x = ?w` or `x = !w`"
+  # Only its methods reach the value a `!{Shape}` views: no assignment,
+  # swap, or copy, which would write or read a value of the wrong type.
+
+  api Shape
+    fun area(?@) -> Float
+
+  sub f(w: !{Shape}, v: !{Shape})
+    w = v
+    w += 1.0
+    swap(!w, !v)
+    x = w
+    print(x)
+
+  print(1)
+
+fail "apis object a clone of a view", "`+s` would make a value of no size of its own: only a `^{Shape}` has `+`"
+  api Shape
+    fun area(?@) -> Float
+
+  sub f(s: ?{Shape})
+    t = +s
+    print(t)
+
+  print(1)
+
+fail "apis object a view of plain data does not leave its block", "14:3: `?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; lend the owner where it lives, or take `p: ?{Shape}`", "17:13: `?{Shape}` of `p` views a copy held in this block", "22:16: `?{Shape}` of `p` views a copy held in this block"
+  # Returned, stored in a caller's List, and kept across a loop's
+  # passes: each would outlive the copy the object views.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Point: Shape
+    x: Float
+
+    fun area(?@) -> Float
+      @x
+
+  fun pick(p: ?Point) -> ?{Shape} from p
+    p
+
+  sub keep(p: ?Point, out: !List[?{Shape}]) keeps p
+    !out.push(p)
+
+  fun all(views: ?List[?Point]) -> Int
+    objs: List[?{Shape}] = List()
+    for p in views
+      !objs.push(?p)
+    objs.len
+
+  print(1)
+
+fail "apis object a view of a type parameter's value does not leave its block", "`?{Shape}` of `x` views a copy held in this block, since a `T` may be held as a copy, so it cannot leave the block; lend the owner where it lives, or take `x: ?{Shape}`"
+  api Shape
+    fun area(?@) -> Float
+
+  fun pick[T: Shape](x: ?T) -> ?{Shape} from x
+    return x
+
+  print(1)
+
+fail "apis object meets no bound by an API, at a view", "`total[?{Shape}]` cannot use `T = ?{Shape}`: `total` needs `T: Shape`, and an API object meets no bound by an API; take a `?{Shape}`", "`call_area[?{Shape}]` cannot use `T = ?{Shape}`: the generic body calls `area` on a `T`, and an API object's methods are called only where its type is written"
+  # An object's type is spelled in an expression through an alias.
+
+  api Shape
+    fun area(?@) -> Float
+
+  fun total[T: Shape](x: T) -> Float
+    x.area()
+
+  fun call_area[T](x: T) -> Float
+    x.area()
+
+  type S = ?{Shape}
+
+  fun f(s: ?{Shape}) -> Float
+    total[S](s) + call_area[S](s)
+
+  print(1)
+
+fail "apis object a read loan lasts while the object is used", "cannot lend `v` to write while a read loan is live"
+  # The object carries the loan of the element it views.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  v: List[Square] = List()
+  !v.push(Square(side: 1.0))
+  s: ?{Shape} = ?v[0]
+  !v.push(Square(side: 2.0))
+  print(s.area())
+
+fail "apis object printed, compared, and hashed", "`?{Shape}` cannot be printed: its type is erased; write `?{Shape + Print}`, or build `Shape` on `Print`", "two API objects may hide two types, which `==` cannot compare", "`.hash()` does not take a `{Shape}`: two API objects may hide two types"
+  api Shape
+    fun area(?@) -> Float
+
+  sub f(s: ?{Shape})
+    print(s)
+    print(s == s)
+    print(s.hash())
+
+  print(1)
+
+test "apis object printed by its braces and its API", '''
+  Square(side: 1.0) 1.0
+  Square(side: 2.0)
+'''
+  api Shape
+    fun area(?@) -> Float
+
+  api Named: Shape + Print
+    fun name(?@) -> Int
+
+  obj Square: Named
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    fun name(?@) -> Int
+      1
+
+  sub f(s: ?{Shape + Print}, n: ?{Named})
+    print(s, s.area())
+    print(n)
+
+  f(Square(side: 1.0), Square(side: 2.0))
+
+fail "apis object a call's arguments, by the API's declaration", "call to `grow` expects 1 argument, got 2", "`grow` has no parameter `amount`"
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  sub f(w: !{Shape})
+    !w.grow(1.0, 2.0)
+    !w.grow(amount: 1.0)
+
+  print(1)
+
+test "apis object a type with no fields", "1.5"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Unit: Shape
+    fun area(?@) -> Float
+      1.5
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  print(area_of(Unit()))

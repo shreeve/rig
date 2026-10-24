@@ -162,3 +162,89 @@ code "apis an associated type through its witness", "rig.Opt(W_S_Source.Item)", 
   print(first(!c) ?? -1)
   d = Count(n: 0)
   print(head(!d) ?? -1)
+
+# ---- API objects (Stage 4): a table per API, made per type where a
+# conversion names it ----
+
+code "apis object a call through its table", "return s.vt.area(s.ptr);"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  print(area_of(Square(side: 1.0)))
+
+code "apis object an erasure names its type's table", ".vt = __rig_table_Shape_of(Square, __rig_impl_Shape_Square)"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  sq = Square(side: 1.0)
+  print(area_of(sq))
+
+code "apis object the table", '''
+  pub const __rig_table_Shape = struct {
+      area: *const fn (rig.ErasedRead) f64,
+      grow: *const fn (rig.ErasedWrite, f64) void,
+'''
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  print(1)
+
+code "apis object an entry calls the witness's method", '''
+  fn area(__rig_ptr: rig.ErasedRead) f64 {
+      const p = rig.erasedSelf(*const T, __rig_ptr);
+      return W.area(rig.selfArg(W.area, p));
+  }
+'''
+  api Shape
+    fun area(?@) -> Float
+
+  print(1)
+
+code "apis object the slot after the arguments", "s.vt.size(s.ptr, 2, __out)"
+  # A set with fields: the slot the frame holds goes on to the entry.
+
+  error Bad
+    long(n: Int)
+
+  api Sized
+    fun size(?@, k: Int) -> Int!Bad
+
+  fun twice(s: ?{Sized}) -> Int!Bad
+    s.size(2)! * 2
+
+  print(1)
+
+code "apis object a receiver evaluated once", "const __rig_obj_"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun pick(a: ?{Shape}) -> ?{Shape} from a
+    a
+
+  sq = Square(side: 1.0)
+  print(pick(sq).area())

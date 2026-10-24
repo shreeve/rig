@@ -42,7 +42,7 @@ it.
 | 1 | method calls on a type parameter, checked per instance | none | *(built)* |
 | 2 | built-in bounds: `Eq`, `Hash`, `Ord`, `Copy`, `Sends`, ... | `[K: Hash]`, `obj X: Eq` | *(built)* |
 | 3 | APIs of a program's own, dispatched at compile time | `api`, `obj X: A`, `add X: A` | *(built)* |
-| 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(in part: the types and their rules)* |
+| 4 | API objects behind a view or a box | `?{Shape}`, `!{Shape}`, `^{Shape}` | *(in part: the types, the views, and calls through them)* |
 | 5 | shared API objects, and API objects crossing tasks | `*{Shape}`, `^{Job + Sends}` | *(planned)* |
 
 Two principles hold across every stage:
@@ -946,10 +946,16 @@ sub main()
 *Built:* the braces in a type, the rules on what they name, a bare
 `{Shape}` rejected as unsized (written or inferred), the bounds an
 object meets, and which methods a call through one reaches, with why
-for those it does not (SPEC, "API objects"). A value holding an object,
-an erasure, and a call through one are rejected as not built yet until
-the phase that lowers them
-([phase1-notes.md](../history/records/2026-10/apis-stage4/phase1-notes.md)).
+for those it does not
+([phase1-notes.md](../history/records/2026-10/apis-stage4/phase1-notes.md));
+the views, `?{Shape}` and `!{Shape}`: the erasure, lent by the lend
+table's last row and recorded once; calls through a table, typed and
+checked by the API's declaration and clauses; the copy of a plain read
+view, local to its block; and the oracle's second opinion on each
+(SPEC, "API objects";
+[phase2-notes.md](../history/records/2026-10/apis-stage4/phase2-notes.md)).
+A box, `^{Shape}`, and a task over a call through an object are
+rejected as not built yet until the phase that lowers them.
 
 An **API object** is a value of some type that provides an API, the
 type chosen when the program runs. It is written as the API in braces,

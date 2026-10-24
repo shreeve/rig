@@ -1,0 +1,27 @@
+# Calls through API objects, `?{Shape}`: an indirect call each, through
+# the table of the value's type (docs/design/apis.md, Stage 4).
+api Shape
+  fun area(?@) -> Float
+
+obj Square: Shape
+  side: Float
+
+  fun area(?@) -> Float
+    @side * @side
+
+obj Circle: Shape
+  r: Float
+
+  fun area(?@) -> Float
+    3.0 * @r * @r
+
+called fun run(a: ?{Shape}, b: ?{Shape}, n: Int) -> Float
+  t = 0.0
+  for _ in 0..n
+    t += a.area() + b.area()
+  t
+
+sub main()
+  sq = Square(side: 1.5)
+  c = Circle(r: 0.5)
+  print(run(sq, c, 300000000))

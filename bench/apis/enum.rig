@@ -1,0 +1,20 @@
+# The same calls as a `match` on an enum: a direct call and a branch each.
+enum Shape
+  square(side: Float)
+  circle(r: Float)
+
+called fun area(s: ?Shape) -> Float
+  match s
+    .square(side) => side * side
+    .circle(r) => 3.0 * r * r
+
+called fun run(a: ?Shape, b: ?Shape, n: Int) -> Float
+  t = 0.0
+  for _ in 0..n
+    t += area(a) + area(b)
+  t
+
+sub main()
+  sq = Shape.square(side: 1.5)
+  c = Shape.circle(r: 0.5)
+  print(run(?sq, ?c, 300000000))
