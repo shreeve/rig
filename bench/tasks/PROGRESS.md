@@ -70,3 +70,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-22 | #552: each worker on cache lines of its own (pup cores 8,9) | rig-fast | 64 ns | 86 ns | 309.6 ms | 22 ns | 130.50 us | 4.6 KiB |
 | 2026-10-23 | main before #581, interleaved (pup cores 8,9) | rig-fast | 61 ns | 86 ns | 310.8 ms | 23 ns | 130.79 us | 4.6 KiB |
 | 2026-10-23 | #581: a sleeping worker leaves the run-next notice set (pup cores 8,9) | rig-fast | 63 ns | 86 ns | 310.3 ms | 23 ns | 130.86 us | 4.6 KiB |
+| 2026-10-24 | main before #621, interleaved (pup cores 8,9) | rig-fast | 62 ns | 87 ns | 309.7 ms | 22 ns | 130.07 us | 4.6 KiB |
+| 2026-10-24 | #621: os.memory counts each allocation (pup cores 8,9) | rig-fast | 64 ns | 86 ns | 309.6 ms | 22 ns | 130.11 us | 4.6 KiB |
