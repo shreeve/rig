@@ -13,6 +13,12 @@ changed the language since it:
 
 ### Language and compiler
 
+- **`rig check` and `rig lsp` on a file of a directory module:** the
+  file is checked as its module, whose imports are beside the
+  directory, so opening `src/ast/ast.rig` in an editor no longer reports
+  its `use core` as a module it cannot read. A directory is a program's,
+  and each file its own root, when one of its files declares `sub main`
+  or `use`s a module found in it and not beside it (SPEC §1).
 - **Docs: shared and crossing API objects in the Core (APIs Stage 5,
   phase 0):** CORE §1, §4, and sentences 8 and 9 state, as planned, that
   `*{Shape}` counts a value of hidden type and `~{Shape}` is its weak

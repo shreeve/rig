@@ -76,7 +76,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 - **Facts for tools**: `rig check --facts=sema` prints sema's facts for the compiler's own debugging; tools need them (symbols, types, ownership operations, captures) in a versioned format.
 - **A formatter** that writes the canonical style, such as one blank line between top-level declarations.
 - **Machine-readable diagnostics**: `rig check --json`, with machine-applicable fixes. Many diagnostics already name the fix, such as "write `rd(?n)`"; the JSON gives each fix as an edit to apply. Later, `rig explain`.
-- **A language server**: `rig lsp` gives diagnostics, semantic tokens, the outline, and folding; next, types on hover and go to definition, completion, rename, and formatting, built on the facts table, and a file of a directory module checked as part of its module.
+- **A language server**: `rig lsp` gives diagnostics, semantic tokens, the outline, and folding; next, types on hover and go to definition, completion, rename, and formatting, built on the facts table.
 - **The language server in Rig**: someday, rewrite `rig lsp` in Rig itself, on Rig's std.json, reaching the compiler through `extern zig` (src/lib.zig), as a long-running, leak-free real-world Rig program.
 - **C-ABI-friendly `extern` types.**
 - **Drop plans from the ownership checker**: which bindings are consumed on every path, so the emitter can drop their alive flags and emit a plain `defer` or none.

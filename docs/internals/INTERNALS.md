@@ -889,6 +889,17 @@ private names. `rig run`, `rig check`, and an import of the module leave
 them out, and `rig check --tests` checks the root with them. The graph
 knows its root, so no imported module has test files.
 
+`rig check FILE` and the language server check a file of a directory
+module as its module (`ModuleGraph.rootOf`): a file is part of its
+directory's module unless one of the directory's files declares `sub
+main` or `use`s a module the directory holds and its parent does not,
+and a lone file only when a `use` names a module beside the directory
+and not in it. A file that does not parse is its own root, as its
+parse errors are all it reports. A module path's first name decides, so a file named as a
+sibling module (`tsoptions/diagnostics.rig` beside `use diagnostics`)
+says nothing. The language server's open document is the graph's
+`held` file, read in place of its file on disk.
+
 ### Methods outside the body
 
 A method may be declared outside its type's body, in the type's
