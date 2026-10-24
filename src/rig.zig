@@ -2680,8 +2680,13 @@ pub const Parser = struct {
                 else => lexer.err.message(),
             } },
             // A brace stands only in a type (`?{Shape}`), so one the
-            // parser did not expect is one outside a type.
-            .lbrace, .rbrace => return .{ .severity = .@"error", .pos = pos, .end = end, .message = self.format("unexpected `{c}`; {s}", .{ src[pos], Lexer.LexError.brace.message() }) },
+            // parser did not expect is one outside a type: in an
+            // expression's brackets or after a holding sigil, a type
+            // with no expression spelling; inside braces, after `{` or
+            // `+`, a name left out; anywhere else, a brace Rig does not
+            // have.
+            .lbrace => return .{ .severity = .@"error", .pos = pos, .end = end, .message = if (self.braceInExpression(tok)) "unexpected `{`; an API object's type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead" else self.format("unexpected `{{`; {s}", .{Lexer.LexError.brace.message()}) },
+            .rbrace => if (lexer.before_cat == .lbrace or lexer.before_cat == .plus) "unexpected `}`" else return .{ .severity = .@"error", .pos = pos, .end = end, .message = self.format("unexpected `}}`; {s}", .{Lexer.LexError.brace.message()}) },
             .eof, .outdent => blk: {
                 pos = lexer.prev_end;
                 end = pos;
@@ -2704,6 +2709,17 @@ pub const Parser = struct {
         const hint = self.printHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse tokenHint(tok) orelse self.waitHint(src, tok) orelse chainedComparison(src, tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
+    }
+
+    /// Whether `{`, which the parser did not expect, stands where an
+    /// expression spells a type: touching a holding sigil, `?{Shape}`,
+    /// or first in an expression's brackets, `List[{Shape}]`.
+    fn braceInExpression(self: *Parser, tok: Token) bool {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        if (tok.pos > 0 and std.mem.findScalar(u8, "?!^*~", src[tok.pos - 1]) != null) return true;
+        const in_brackets = lexer.nesting > 0 and src[lexer.brackets[lexer.nesting - 1]] == '[';
+        return in_brackets and (lexer.before_cat == .lbracket or lexer.before_cat == .comma);
     }
 
     /// A range with a side left out where only a slice may leave one

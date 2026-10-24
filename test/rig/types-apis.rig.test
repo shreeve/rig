@@ -3571,7 +3571,24 @@ fail "apis object bounds it does not meet", "`Copies[^{Shape}]` cannot use `T = 
 
   print($name(A), $name(B), $name(C), $name(D), $name(E), $name(F), $name(G))
 
-fail "apis object meets no bound by an API", "`Bag[^{Shape}]` cannot use `T = ^{Shape}`"
+fail "apis object bounds through a container", "`Prints[List[^{Shape}]]` cannot use `T = List[^{Shape}]`: `List[^{Shape}]` cannot be printed; it holds a `^{Shape}`", "`Prints[(?{Shape})?]` cannot use `T = (?{Shape})?`: `(?{Shape})?` cannot be printed; it holds a `?{Shape}`"
+  # A List, an optional, or an array prints as its objects do, and an
+  # object prints only by a `Print` its braces or API name.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Prints[T: Print]
+    n: Int
+
+  type A = Prints[List[^{Shape}]]
+  type B = Prints[(?{Shape})?]
+  type C = Prints[List[^{Shape + Print}]]
+  type D = Prints[[2]?{Shape + Print}]
+
+  print($name(A), $name(B), $name(C), $name(D))
+
+fail "apis object meets no bound by an API","`Bag[^{Shape}]` cannot use `T = ^{Shape}`"
   # A box is not its value: `^{Shape}` provides no `Shape`.
 
   api Shape
@@ -3829,6 +3846,98 @@ fail "apis object not built: a generic function's instance", "`^{Shape}?` holds 
   type B = ^{Shape}?
 
   print(name[B]())
+
+fail "apis object not built: a call through its type", "`Ph[?{Shape}]` holds an API object, which is not built yet", "`Ph[^{Shape}]` holds an API object, which is not built yet", "`E[?{Shape}]` holds an API object, which is not built yet"
+  # A type that holds an object, named for a call of its own or through
+  # an alias, makes no value of it, yet its methods would be lowered.
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Ph[T]
+    n: Int
+
+    fun mk() -> Int
+      7
+
+  enum E[T]
+    a
+    b(t: T)
+
+    fun k() -> Int
+      5
+
+  type S = ?{Shape}
+  type A = Ph[^{Shape}]
+  type F = E[S]
+
+  sub main()
+    print(Ph[S].mk())
+    print(A.mk())
+    print(F.k())
+
+fail "apis object not built: another module's type", "`geo.Ph[?{geo.Shape}]` holds an API object, which is not built yet"
+  use geo
+
+  sub main()
+    print(geo.A.mk())
+
+  file "geo.rig"
+    pub api Shape
+      fun area(?@) -> Float
+
+    pub obj Ph[T]
+      n: Int
+
+      pub fun mk() -> Int
+        7
+
+    pub type A = Ph[?{Shape}]
+
+fail "apis object never frozen", "a frozen value holds only data that never changes, and `^{Shape}` is an API object, whose type is erased, so whether it can be frozen is not known: freeze the value before erasing it", "a frozen value holds only data that never changes, and `List[^{Shape}]` holds an API object, whose type is erased, so whether it can be frozen is not known: freeze the value before erasing it"
+  # An object may hide a Cell: freezing is a fact of the hidden type.
+
+  api Shape
+    fun area(?@) -> Float
+
+  type F = *Frozen[^{Shape}]
+  type G = *Frozen[List[^{Shape}]]
+
+  print($name(F), $name(G))
+
+fail "apis object braces in an expression", "unexpected `{`; an API object's type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead"
+  # A type in an expression's brackets is spelled as an expression is,
+  # and braces have no such spelling.
+
+  api Shape
+    fun area(?@) -> Float
+
+  sub main()
+    l = List[^{Shape}]()
+    print(l.len)
+
+fail "apis object braces in a builtin's argument", "unexpected `{`; an API object's type has no expression spelling"
+  api Shape
+    fun area(?@) -> Float
+
+  sub main()
+    print($size(?{Shape}))
+
+fail "apis object empty braces", "unexpected `}`; expected a name"
+  api Shape
+    fun area(?@) -> Float
+
+  type A = ?{}
+
+  print(1)
+
+fail "apis object braces after a plus", "unexpected `}`; expected a name"
+  api Shape
+    fun area(?@) -> Float
+
+  type B = ?{Shape +}
+
+  print(1)
 
 fail "apis object method with compile-time parameters", "`Shape.scale` takes compile-time parameters, which a call through `?{Shape}` cannot pass: call it through a bound, `[T: Shape]`"
   # A method a table cannot hold is left out of what an object

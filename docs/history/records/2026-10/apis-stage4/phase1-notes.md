@@ -53,7 +53,9 @@ made yet.
    lower (North Star 1). So every value whose type holds an object is
    rejected: at a declared local, parameter, result, or field
    (`misplacedAt`), at a generic function's instance, at `$size` and
-   `$align`, at an erasure (`checkActual`), at a call, and, for a value
+   `$align`, at an erasure (`checkActual`), at a call, at a call or a
+   member through a type that holds one (`Ph[S].mk()`,
+   `Checker.objectTypeNamed`, from the review), and, for a value
    made with no type written (`Boxes()` of an alias), at its first
    expression (`SemContext.recordType`, which reports once unless a
    standing report already rejects the module, `objectRejected`).

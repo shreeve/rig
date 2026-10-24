@@ -3826,7 +3826,9 @@ stand only in a type. They name one API of a program's own, which may
 build on others, and beside it only the built-in APIs an object serves
 itself: `Owned`, `Print`, and `Clone`, joined with `+`, `^{Shape +
 Owned + Print}`. A type is spelled with its API first and the
-built-in APIs after it in one order.
+built-in APIs after it in one order. An expression has no spelling of
+one, so a type argument in an expression, `List[^{Shape}]()`, names it
+with a `type` alias.
 
 ```rig
 api Shape
@@ -3895,7 +3897,9 @@ An object meets only the built-in bounds its braces name, as the
 type it hides is erased: a `Print` its braces or its API name, a
 `Clone` and an `Owned` of a box whose braces name them, and a read
 view's `Copy`. It meets no bound by an API, since a box is not its
-value: `T = ^{Shape}` does not meet `[T: Shape]`.
+value: `T = ^{Shape}` does not meet `[T: Shape]`. A List, an
+optional, or an array of objects prints as its objects do, and no
+frozen value holds one, since the type it hides may hold a Cell.
 
 ```rig reject
 api Shape

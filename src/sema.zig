@@ -7343,6 +7343,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
         .Ord => return ordLack(ctx, ty, 0),
         .Print => {
             if (!try printable(ctx, ty)) return .{ .ty = ty };
+            if (objectUnprinted(ctx, ty)) |held| return .{ .ty = held };
             return heldLack(ctx, ty, api);
         },
         .Num => return if (isNumeric(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
@@ -7380,6 +7381,25 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
             };
         },
     }
+}
+
+/// An API object `ty` holds, by the walk `reachedTypeVars` makes, whose
+/// braces and API name no `Print`: `List[^{Shape}]` prints only as its
+/// objects do (`objectMeets`). Null when each prints.
+fn objectUnprinted(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    if (!mentionsObject(ctx, ty)) return null;
+    if (objectHeld(ctx, ty)) |h| return if (objectMeets(ctx, h.object, h.form, .Print)) null else ty;
+    if (apiObject(ctx, ty) != null) return ty;
+    return switch (ctx.types.get(ty)) {
+        .optional, .read_view, .write_view, .shared, .weak => |inner| objectUnprinted(ctx, inner),
+        .fallible => |inner| objectUnprinted(ctx, inner.ok),
+        .array => |arr| objectUnprinted(ctx, arr.elem),
+        .slice => |sl| objectUnprinted(ctx, sl.elem),
+        .parameterized_nominal => |pn| for (pn.args) |arg| {
+            if (objectUnprinted(ctx, arg)) |held| break held;
+        } else null,
+        else => null,
+    };
 }
 
 /// Whether an API object held as `form` meets built-in API `api`
@@ -9401,6 +9421,9 @@ fn frozenIn(ctx: *const SemContext, ty: TypeId, seen: *std.AutoHashMapUnmanaged(
     return switch (ctx.types.get(ty)) {
         .shared => |inner| if (frozenValue(ctx, inner) != null) null else here,
         .weak, .callable, .read_view, .write_view, .string_view, .slice => here,
+        // An API object's hidden type may hold a Cell or a handle, so
+        // whether it freezes is not known (docs/design/apis.md, Stage 4).
+        .api_object => here,
         // A generic parameter is decided in each instance: a declaration
         // freezing one requires it (`Requirement.frozen`), and a generic
         // type's fields stand for its arguments, decided above.
@@ -9458,6 +9481,10 @@ pub fn frozenMessage(ctx: *SemContext, ty: TypeId, blocker: TypeId) std.mem.Allo
 pub fn frozenReason(ctx: *SemContext, ty: TypeId, blocker: TypeId) std.mem.Allocator.Error![]const u8 {
     const a = ctx.arena.allocator();
     const shown = try formatType(ctx, ty);
+    if (apiObject(ctx, blocker) != null) {
+        const how = if (objectHeld(ctx, ty) != null) "is" else "holds";
+        return a.print("`{s}` {s} an API object, whose type is erased, so whether it can be frozen is not known: freeze the value before erasing it", .{ shown, how });
+    }
     if (blocker != ty) return a.print("`{s}` holds `{s}`", .{ shown, try formatType(ctx, blocker) });
     const what: []const u8 = switch (ctx.types.get(ty)) {
         .read_view, .write_view, .string_view, .slice => "is a view",

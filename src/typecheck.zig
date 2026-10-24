@@ -7464,6 +7464,7 @@ const Checker = struct {
         if (try self.moduleMember(obj, field, pos)) |ty| return ty;
         if (try self.numberType(obj)) |ty| return self.numberLimit(obj, ty, field, pos);
         if (try self.namedType(obj)) |nt| {
+            if (try self.objectTypeNamed(obj, nt, pos)) return self.t().invalid_id;
             const ty = try self.typeMember(nt, field, pos);
             if (nt.sym.flags.error_set and !self.isPoison(ty)) try self.ctx.recordErrorMember(e);
             return ty;
@@ -7768,6 +7769,19 @@ const Checker = struct {
         if (found.sym.kind == .generic_type) return try self.foreignGeneric(found);
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
+    }
+
+    /// `Ph[S].mk()` or `A.mk()`, a type named for a member of its own
+    /// at arguments that hold an API object: no value of it is made, yet
+    /// its members would be lowered at those arguments, and no type
+    /// holding an object is lowered yet (Stage 4, phase 1). Reported.
+    fn objectTypeNamed(self: *Checker, obj: Sexp, nt: NamedType, pos: u32) Error!bool {
+        const args = nt.args orelse return false;
+        for (args) |a| {
+            if (sema.mentionsObject(self.ctx, a)) break;
+        } else return false;
+        try sema.objectUnbuilt(self.ctx, self.startOf(obj), try self.instantiate(nt.id, args, pos));
+        return true;
     }
 
     /// The struct or enum an alias names, `ty` being the aliased type in
@@ -14225,6 +14239,7 @@ const Checker = struct {
     /// `Type.function(args)` or `Type.variant(payload)`, for a type of
     /// this module or an imported one.
     fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        if (try self.objectTypeNamed(obj, nt, pos)) return self.skipCall(args);
         const tname = try self.namedTypeName(nt);
         const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{tname});
         const generic = nt.sym.kind == .generic_type;
