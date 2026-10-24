@@ -119,7 +119,10 @@
 //!   against the state at every exit of its scope; an `errdefer` body at
 //!   every exit that fails (`!`, or returning an error). At an exit the
 //!   path goes on past (`e!`, `e?`, a result that may be an error), its
-//!   effects are undone after the check.
+//!   effects are undone after the check. A `defer` runs after the value
+//!   the exit leaves with is formed (a result, a `break` value, a
+//!   block's value), so that value's loans are in force while it is
+//!   checked (`ExitTo.result`); a returned write view has moved.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -1243,9 +1246,23 @@ pub const Checker = struct {
     /// Leave the innermost scope: run its defers, check that nothing that
     /// survives holds a loan on a var declared in it, then drop its vars.
     fn popScope(self: *Checker) Error!void {
+        return self.popScopeWith(&.{});
+    }
+
+    /// Leave the innermost scope with `v`, the value it gives: `v` may not
+    /// view a var declared in it, and what else `v` views is in use while
+    /// the scope's defers run (`ExitTo.result`). Gives what `v` keeps.
+    fn leaveScope(self: *Checker, v: Value) Error!Value {
+        const kept = try self.checkValueEscapesScope(v);
+        try self.popScopeWith(kept.loans);
+        return kept;
+    }
+
+    /// `popScope`, where the path leaves with a value carrying `result`.
+    fn popScopeWith(self: *Checker, result: []const Loan) Error!void {
         const idx = self.scopes.items.len - 1;
         if (self.reachable) {
-            _ = try self.exitTo(.{ .exit = .scope_end });
+            _ = try self.exitTo(.{ .exit = .scope_end, .result = result });
             try self.checkDropOrder(self.scopes.items[idx].start);
             try self.checkLostTasks(self.scopes.items[idx].start);
         }
@@ -1619,6 +1636,11 @@ pub const Checker = struct {
         /// Where the path goes on, for liveness: a source position, or
         /// after the current statement when null.
         resume_at: ?u32 = null,
+        /// The loans of the value the path leaves with: a result, a
+        /// `break` value, a block's value. It is formed before the
+        /// defers run and lives after them, so they run while it views
+        /// what it views (`runDefers`).
+        result: []const Loan = &.{},
     };
 
     /// The one way a path ends. It runs the defers its exit runs (their
@@ -1632,9 +1654,9 @@ pub const Checker = struct {
             const back: ?Point = if (e.goesOn()) try self.here() else null;
             const top = self.scopes.items.len - 1;
             switch (e) {
-                .scope_end => try self.runDefers(top, false),
-                .jump => |depth| try self.runDefersTo(depth, false),
-                .@"return", .propagate => |fails| try self.runDefersTo(0, fails),
+                .scope_end => try self.runDefers(top, false, x.result),
+                .jump => |depth| try self.runDefersTo(depth, false, x.result),
+                .@"return", .propagate => |fails| try self.runDefersTo(0, fails, x.result),
             }
             if (back) |p| try self.rewind(p);
         }
@@ -2099,8 +2121,8 @@ pub const Checker = struct {
         for (tparams.items()) |p| if (p != .src) try self.bindParam(p);
         try self.bindParams(params);
         try self.bindSelfPaths();
-        try self.walkBody(body, returns_value);
-        try self.popScope();
+        const result = try self.walkBody(body, returns_value);
+        try self.popScopeWith(result.loans);
         if (name != .nil) try self.checkOrigins(try std.fmt.allocPrint(self.arena(), "`{s}`", .{self.text(name)}), name, params);
         try self.rewind(outer);
         // Nothing allocated for a module-level function outlives it.
@@ -2108,9 +2130,11 @@ pub const Checker = struct {
     }
 
     /// Walk a function body in the current scope. When the function
-    /// returns a value, its last expression is the return value.
-    fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!void {
+    /// returns a value, its last expression is the return value, whose
+    /// loans it gives.
+    fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!Value {
         const stmts: []const Sexp = if (body.isKind(.block)) ir.Block.stmts(body) else (&body)[0..1];
+        var result: Value = .{};
         for (stmts, 0..) |stmt, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
@@ -2118,11 +2142,12 @@ pub const Checker = struct {
                 const saved_stmt = self.cur_stmt;
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
-                try self.walkReturnValue(stmt, null);
+                result = try self.walkReturnValue(stmt, null);
             } else {
                 try self.walkStmt(stmt);
             }
         }
+        return result;
     }
 
     /// Bind the run-time parameters `params` of the function or closure
@@ -2324,8 +2349,7 @@ pub const Checker = struct {
             }
             v = try self.walkTailStmt(s, t);
         }
-        v = try self.checkValueEscapesScope(v);
-        try self.popScope();
+        v = try self.leaveScope(v);
         return if (self.reachable) v else .{};
     }
 
@@ -2589,8 +2613,12 @@ pub const Checker = struct {
         if (v.decl != ctx.symbols.items[sym].decl_pos) return;
         if (!self.flowLive(id)) return;
         if (!v.payload_view) {
-            if ((sink == .ret or id >= t.vars) and !v.closure and !v.loop_view and !v.capture_resource and self.returnMoves(v)) {
-                _ = try self.moveVar(id, node.src.pos, .move);
+            if ((sink == .ret or id >= t.vars) and !v.closure and !v.capture_resource) {
+                if (self.leavesAsWriteView(v, node, if (sink == .ret) self.func.ret_ty else null)) {
+                    _ = try self.moveWriteView(id, node.src.pos);
+                } else if (!v.loop_view and self.returnMoves(v)) {
+                    _ = try self.moveVar(id, node.src.pos, .move);
+                }
             }
             return;
         }
@@ -5777,8 +5805,8 @@ pub const Checker = struct {
             }, .{ .loans = cv.loans });
         }
         try self.bindParams(params);
-        try self.walkBody(body, returns_value);
-        try self.popScope();
+        const result = try self.walkBody(body, returns_value);
+        try self.popScopeWith(result.loans);
         try self.checkOrigins("this closure", .nil, params);
         self.func = saved_func;
         self.loop = saved_loop;
@@ -5828,22 +5856,17 @@ pub const Checker = struct {
 
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
+        var result: Value = .{};
         // `return a, b`: each part leaves the function as `return x`
         // does, left to right.
         if (value.isKind(.results)) {
             const tys: []const TypeId = if (self.sema) |ctx| (if (self.func.ret_ty) |r| sema.resultsOf(ctx, r) orelse &.{} else &.{}) else &.{};
             for (ir.Results.values(value), 0..) |part, i| {
                 const ty: ?TypeId = if (i < tys.len) tys[i] else null;
-                try self.walkReturnValue(part, ty);
-                // A write view a part hands out as a write view leaves for
-                // good, as `<w` would: a later part may not use it again.
-                // One read as a value that copies is a copy.
-                if (part == .src and ty != null and self.refOfType(ty) == .write) if (self.find(self.text(part))) |id| {
-                    if (self.vars.items[id].ref == .write and self.flowLive(id)) try self.markInvalid(id, .moved, part.src.pos);
-                };
+                result = try self.valueUnion(result, try self.walkReturnValue(part, ty));
             }
-        } else if (value != .nil) try self.walkReturnValue(value, null);
-        _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) } });
+        } else if (value != .nil) result = try self.walkReturnValue(value, null);
+        _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) }, .result = result.loans });
         self.reachable = false;
     }
 
@@ -5852,7 +5875,8 @@ pub const Checker = struct {
     /// view parameters.
     /// `part`, for a part of `return a, b`, is the type of the result it
     /// gives, by which its loans are judged (Core sentence 7, per result).
-    fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!void {
+    /// Gives the loans the result keeps.
+    fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!Value {
         var value: Value = .{};
         if (expr == .src and self.erasesCopy(expr)) {
             // A read view erased to an API object of a copy, a local of
@@ -5864,6 +5888,8 @@ pub const Checker = struct {
                 const v = self.vars.items[id];
                 if (v.closure) {
                     value = try self.walkName(expr, false);
+                } else if (!v.capture_resource and self.leavesAsWriteView(v, expr, part orelse self.func.ret_ty)) {
+                    value = try self.moveWriteView(id, expr.src.pos);
                 } else if (!v.loop_view and !v.capture_resource) {
                     if (self.returnMoves(v)) {
                         value = try self.moveVar(id, expr.src.pos, .move);
@@ -5878,21 +5904,24 @@ pub const Checker = struct {
             value = try self.walk(expr);
         } else {
             _ = try self.walk(expr);
-            return;
+            return .{};
         }
         const ret = part orelse self.func.ret_ty;
         const may_view = if (part) |t| self.mayCarryLoan(t) else self.func.ret_may_view;
+        var kept: Value = .{};
         if (may_view and self.reachable) {
             // A result keeps only the loans its own type could hold.
-            const kept = if (part) |t| try self.carry(t, value) else value;
+            kept = if (part) |t| try self.carry(t, value) else value;
             try self.checkEscape(kept);
             self.recordResult(kept, expr);
         } else if (self.reachable and self.genericType(ret)) {
+            kept = value;
             self.recordResult(value, expr);
         }
         // A result that holds a value of a type parameter's type may carry,
         // in an instance, whatever reached one (`taintGeneric`).
         if (self.reachable and self.holdsGeneric(ret) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
+        return kept;
     }
 
     /// A bare name that leaves the function moves out: a match payload
@@ -5901,6 +5930,35 @@ pub const Checker = struct {
     fn returnMoves(self: *const Checker, v: Var) bool {
         if (v.payload_view) return true;
         return self.owningKind(v.ty) != null;
+    }
+
+    /// Whether `v`, named at `node` where its value leaves for good (a
+    /// result of type `sink`, or the value of the block that declares
+    /// it), hands out the write view it holds: then the view leaves, as
+    /// `<v` would (Core sentence 1). A result that copies the value the
+    /// view sees (`w: !Int` returned as an `Int`) only reads it. A match
+    /// payload leaves as `returnMoves` says.
+    fn leavesAsWriteView(self: *const Checker, v: Var, node: Sexp, sink: ?TypeId) bool {
+        if (v.closure or v.payload_view) return false;
+        if (v.ref != .write and !self.carriesWriteView(v.ty)) return false;
+        if (sink) |t| if (!self.carriesWriteView(t)) return false;
+        const ctx = self.sema orelse return true;
+        return !ctx.readsThrough(node);
+    }
+
+    /// Move out the write view var `id` holds, where it leaves
+    /// (`leavesAsWriteView`): no loan on it may be in force (a closure or
+    /// a task it was lent to), and nothing that runs after, a `defer`, a
+    /// task waited for at the scope's end, or a `drop` body, may use it.
+    /// What it views stays lent while the value it leaves in is formed
+    /// (`holdMoved`).
+    fn moveWriteView(self: *Checker, id: VarId, pos: u32) Error!Value {
+        if (!try self.checkLive(id, pos)) return .{};
+        const value = self.varValue(id);
+        if (try self.conflicts(id, whole_path, .{ .consume = "move" }, pos)) return .{};
+        try self.markInvalid(id, .moved, pos);
+        try self.holdMoved(value);
+        return value;
     }
 
     /// The origins of the function or method declared with name `name`:
@@ -6201,10 +6259,7 @@ pub const Checker = struct {
         // A failing part goes on to the `else`, or past the `if`.
         const failed = try self.exitTo(.{ .to = base, .resume_at = resumeAt(else_b, node) });
         var v1 = try self.walkTailPart(then_b, t);
-        while (self.scopes.items.len > depth) {
-            v1 = try self.checkValueEscapesScope(v1);
-            try self.popScope();
-        }
+        while (self.scopes.items.len > depth) v1 = try self.leaveScope(v1);
         const past = resumeAt(.nil, node);
         const s1 = try self.leave(base, past);
         try self.apply(failed);
@@ -6267,8 +6322,7 @@ pub const Checker = struct {
             _ = try self.addVar(.{ .name = self.text(name), .decl = name.src.pos, .ty = self.symType(name.src.pos) }, .{});
         }
         var v2 = try self.walkTailPart(handler, t);
-        v2 = try self.checkValueEscapesScope(v2);
-        try self.popScope();
+        v2 = try self.leaveScope(v2);
         const s = try self.leave(base, resumeAt(.nil, node));
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
@@ -6463,8 +6517,7 @@ pub const Checker = struct {
             // The body is a statement of its own (`sema.isArmBody`): its
             // temporaries end with it, in the arm's scope.
             var v = try self.walkTailStmt(body, tail_ctx);
-            v = try self.checkValueEscapesScope(v);
-            try self.popScope();
+            v = try self.leaveScope(v);
             value = try self.valueUnion(value, v);
             const s = try self.leave(base, past);
             acc = if (acc) |a| try self.join(a, s) else s;
@@ -6476,8 +6529,7 @@ pub const Checker = struct {
         if (self.flows.items[hold].loans.len > 0) try self.setFlow(hold, .{});
         // The value the match held ends with it.
         if (header == .held) {
-            value = try self.checkValueEscapesScope(value);
-            try self.popScope();
+            value = try self.leaveScope(value);
         }
         return value;
     }
@@ -6787,10 +6839,7 @@ pub const Checker = struct {
         try self.dropStmtTemps(drops);
         var v = try self.walkLoop(spec);
         // The value the loop held ends with it.
-        if (header == .held) {
-            v = try self.checkValueEscapesScope(v);
-            try self.popScope();
-        }
+        if (header == .held) v = try self.leaveScope(v);
         return v;
     }
 
@@ -7020,12 +7069,13 @@ pub const Checker = struct {
         } else pinned;
         const kept = try self.arena().dupe(AfterValue, self.after_value.items[left..]);
         self.after_value.shrinkRetainingCapacity(left);
-        t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
+        const left_with = try self.escapeVarsFrom(v, t.point.vars);
+        t.value = try self.valueUnion(t.value, left_with);
         // A `continue` to a step that runs in the condition's bindings'
         // scope goes to that point; any other goes back to the loop's
         // head, through a step that is the loop's continue expression.
         const to_step = if (dest.?.to == .step) t.step_point else null;
-        const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth } });
+        const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth }, .result = left_with.loans });
         switch (dest.?.to) {
             .exit => try t.breaks.append(self.arena(), s),
             .step, .head => try (if (to_step != null) &t.step_conts else &t.conts).append(self.arena(), s),
@@ -7127,8 +7177,12 @@ pub const Checker = struct {
     }
 
     /// Re-check the defers of scope `scope_idx` at an exit, with its
-    /// `errdefer`s when the exit `fails`.
-    fn runDefers(self: *Checker, scope_idx: usize, fails: bool) Error!void {
+    /// `errdefer`s when the exit `fails`. A `defer` runs after the value
+    /// the path leaves with is formed, and before it is used: the loans
+    /// that value carries (`result`) are in force while it runs, so it
+    /// may not touch what the value views. An `errdefer` runs only where
+    /// that value is an error, which views nothing.
+    fn runDefers(self: *Checker, scope_idx: usize, fails: bool, result: []const Loan) Error!void {
         // The body sees the names of its own scope, not those of scopes
         // opened after the defer.
         const saved = self.hidden;
@@ -7142,20 +7196,23 @@ pub const Checker = struct {
             const d = self.scopes.items[scope_idx].defers.items[i];
             if (d.err_only and !fails) continue;
             self.defer_floor = d.vars;
+            const held = self.temps.items.len;
+            if (!d.err_only) for (result) |l| if (!l.ext) try self.addTemp(l);
             try self.checkDeferBody(d.body, false);
+            self.temps.shrinkRetainingCapacity(@min(held, self.temps.items.len));
         }
     }
 
     /// Run the defers of the scopes an early exit leaves (every scope at
     /// index `scope_depth` or above, up to the enclosing function), and
     /// check the order their vars are dropped in.
-    fn runDefersTo(self: *Checker, scope_depth: usize, fails: bool) Error!void {
+    fn runDefersTo(self: *Checker, scope_depth: usize, fails: bool, result: []const Loan) Error!void {
         // An exit from inside a deferred body leaves only that body.
         if (self.in_defer) return;
         var si = self.scopes.items.len;
         while (si > scope_depth) {
             si -= 1;
-            if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si, fails);
+            if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si, fails, result);
             if (self.scopes.items[si].kind != .block) break;
         }
         if (si < self.scopes.items.len) try self.checkDropOrder(self.scopes.items[si].start);

@@ -1205,6 +1205,17 @@ const Lowerer = struct {
         return self.ctx.types.get(ty) == .write_view;
     }
 
+    /// Whether a value wanted as `ty` is a write view, alone or inside
+    /// an optional or a fallible: a write view handed there stays one.
+    fn wantsWriteView(self: *Lowerer, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .write_view => true,
+            .optional => |inner| self.wantsWriteView(inner),
+            .fallible => |f| self.wantsWriteView(f.ok),
+            else => false,
+        };
+    }
+
     fn compound(self: *Lowerer, target: Sexp, rhs: Sexp, pos: u32) Error!void {
         var v = try self.eval(rhs, .read, null);
         if (v) |rv| v = try self.readThrough(rv, pos);
@@ -2749,7 +2760,7 @@ const Lowerer = struct {
                 // a name, field, or element alike (Core s1, SPEC §7); a
                 // write slice read as a slice views the same
                 // elements, a lend on. A write view itself never copies.
-                const wants_view = if (want) |w| self.ctx.types.get(w) == .write_view else false;
+                const wants_view = if (want) |w| self.wantsWriteView(w) else false;
                 const t_ty = try self.innerOf(p.ty);
                 const ti = try self.kinds.of(t_ty);
                 const through: Place = .{ .root = p.root, .path = p.path, .ty = t_ty, .via = .write, .cut = p.cut };
@@ -3673,8 +3684,9 @@ const Lowerer = struct {
             else => try self.temp(rt, pos),
         };
         // What the result carries, or each of several results (Core s7,
-        // per result).
-        const whole = try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
+        // per result). A task keeps every loan its call was given, until
+        // it is waited for, which its drop does.
+        const whole: Carry = if (ir.Call.task(e) != .nil) .{ .no_result = &.{}, .result_loan = true } else try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
         const narrowed = whole.by_paths and recv_held != null;
         const part_carry = try self.a.alloc(core.Part, parts.len);
         if (narrowed and parts.len > 0) return abstain("several results through a path of self");

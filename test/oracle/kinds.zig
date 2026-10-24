@@ -409,6 +409,9 @@ const Scan = struct {
                     }
                     return;
                 }
+                // A task's drop waits for its call, which uses what the
+                // task was lent (Core s6), as a `drop` body would.
+                if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and !self.under_weak) self.drop_body = true;
                 for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
                 if (pn.sym != ctx.list_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
             },

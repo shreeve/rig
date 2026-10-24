@@ -73,6 +73,17 @@ Not rewritten: `!String` (a 0.2 write view of text, which 0.3.0 cannot
 write), a `Box[T](...)` that names its type argument, a bare or handle
 self (`self`, `self: *Self`), a label after `=>`, `defer`, or
 `errdefer`, and comments. Commit first; the rewrite is textual.
+
+One form changes meaning rather than failing, and is reported, never
+rewritten (the pass `loopview`): a binding with no type of a loop's
+value that is a write view at every `break` and `else` (`l = while
+true` then `break slot(!n)`). 0.2.9 copied the value; 0.3 holds the
+view, so assigning `l` writes through. A value counts as a write view
+where it is a lend of a path (`!x`, `!x.f`, `!x[i]`) or a call of a
+function declared returning `!T` by the program, by the files beside it
+when its directory is a module, or by a module it uses. The `MANUAL`
+line gives the two choices: `l: T = while ...` to copy as 0.2.9 did, or
+keep the view.
 """
 
 import os
@@ -755,6 +766,235 @@ def const_edits(src, path, report):
 
 
 # ---------------------------------------------------------------------------
+# Mode loopview: a report only
+# ---------------------------------------------------------------------------
+
+VIEW_FUN = re.compile(r"\bfun[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\[[^\]\n]*\])?[ \t]*\(")
+LOOP_BIND = re.compile(r"^([ \t]*)([A-Za-z_][A-Za-z0-9_]*)[ \t]*(=!?)[ \t]*(?:\$([A-Za-z_][A-Za-z0-9_]*):[ \t]*)?(while|for)\b")
+LOOP_HEAD = re.compile(r"^[ \t]*(?:[A-Za-z_][A-Za-z0-9_.]*[ \t]*(?::[^=\n]*)?=!?[ \t]*)?(?:\$([A-Za-z_][A-Za-z0-9_]*):[ \t]*)?(?:while|for)\b")
+BREAK = re.compile(r"(?<![A-Za-z0-9_$@])break\b(?:[ \t]+\$([A-Za-z_][A-Za-z0-9_]*))?")
+JUMP = re.compile(r"^(?:return|continue|break|panic|unreachable)\b")
+WRITE_PATH = re.compile(r"^![ \t]*(?:@|@?[A-Za-z_][A-Za-z0-9_]*)(?:\.?[A-Za-z_][A-Za-z0-9_]*|\[[^\]]*\])*$")
+CALL_HEAD = re.compile(r"^[<!?]?[ \t]*[@A-Za-z0-9_.]*?([A-Za-z_][A-Za-z0-9_]*)[ \t]*$")
+# Methods of std that hand over a write view: Map's `ensure`.
+STD_VIEW_FUNS = ("ensure", "ensure_with")
+VIEW_FUNS_PKG = [frozenset()]
+
+
+def code_only(src):
+    """src with its comments and strings blanked, lines kept."""
+    _, comment, string = spans(src)
+    out = list(src)
+    for a, b in comment + string:
+        for k in range(a, b):
+            if out[k] != "\n":
+                out[k] = " "
+    return "".join(out)
+
+
+def view_funs(src):
+    """The names of the functions src declares returning a write view
+    (`fun slot(a: !Int) -> !Int`)."""
+    clean = code_only(src)
+    names = set()
+    for m in VIEW_FUN.finditer(clean):
+        close = find_close(clean, m.end() - 1, "(", ")")
+        if close is not None and re.match(r"[ \t]*->[ \t]*!", clean[close + 1:]):
+            names.add(m.group(1))
+    return names
+
+
+FILE_VIEW_FUNS = {}
+MAIN_DECL = re.compile(r"(?m)^(?:pub[ \t]+)?(?:sub|fun)[ \t]+main\b")
+USE_DECL = re.compile(r"(?m)^[ \t]*use[ \t]+([A-Za-z_][A-Za-z0-9_.]*)")
+
+
+def file_view_funs(f):
+    """`view_funs` of the program at f, read once."""
+    if f not in FILE_VIEW_FUNS:
+        try:
+            FILE_VIEW_FUNS[f] = frozenset(view_funs(open(f, encoding="utf-8").read()))
+        except (UnicodeDecodeError, OSError):
+            FILE_VIEW_FUNS[f] = frozenset()
+    return FILE_VIEW_FUNS[f]
+
+
+def dir_programs(d):
+    try:
+        return [os.path.join(d, n) for n in sorted(os.listdir(d)) if n.endswith(".rig") and os.path.isfile(os.path.join(d, n))]
+    except OSError:
+        return []
+
+
+DIR_IS_PROGRAM = {}
+
+
+def dir_is_program(d):
+    """Whether a file of directory d declares `main`: then each file is a
+    program of its own, not a part of the directory's module."""
+    if d not in DIR_IS_PROGRAM:
+        DIR_IS_PROGRAM[d] = False
+        for f in dir_programs(d):
+            try:
+                if MAIN_DECL.search(open(f, encoding="utf-8").read()):
+                    DIR_IS_PROGRAM[d] = True
+                    break
+            except (UnicodeDecodeError, OSError):
+                pass
+    return DIR_IS_PROGRAM[d]
+
+
+def package_view_funs(path, src):
+    """The write-view functions declared beside `path` that its program
+    sees: every file of its directory, when the directory is a module
+    (none of its files declares `main`), and the modules it `use`s."""
+    d = os.path.dirname(os.path.abspath(path))
+    names = set()
+    if not dir_is_program(d):
+        for f in dir_programs(d):
+            names |= file_view_funs(f)
+    for m in USE_DECL.finditer(src):
+        base = os.path.join(d, *m.group(1).split("."))
+        for f in [base + ".rig"] + dir_programs(base):
+            if os.path.isfile(f):
+                names |= file_view_funs(f)
+    return frozenset(names)
+
+
+def unparen(v):
+    while v.startswith("(") and find_close(v, 0, "(", ")") == len(v) - 1:
+        v = v[1:-1].strip()
+    return v
+
+
+def loop_value(v, funs):
+    """What a loop's value `v` gives: "view" (a write view a lend or a
+    call hands over), "jump" (it leaves; any value fits), or None."""
+    v = unparen(v.strip())
+    if not v:
+        return None
+    if JUMP.match(v):
+        return "jump"
+    if WRITE_PATH.match(v):
+        return "view"
+    # A call, maybe at the end of a chain (`f(!x)`, `!p.m(1)`,
+    # `a.b(c).at(i)`): the name before the `(` that closes the value.
+    open_at = call_open(v)
+    if open_at is not None:
+        head = v[:open_at].rstrip()
+        if head.endswith("]"):
+            # Its type arguments, `slot[Int](!n)`.
+            head = head[:opener(head) or 0]
+        m = CALL_HEAD.match(top_level(head))
+        if m:
+            return "view" if m.group(1) in funs else None
+    return None
+
+
+def opener(v):
+    """Index of the bracket that the `)` or `]` ending v closes, or None."""
+    depth = 0
+    for k in range(len(v) - 1, -1, -1):
+        if v[k] in ")]":
+            depth += 1
+        elif v[k] in "([":
+            depth -= 1
+            if depth == 0:
+                return k if "([".index(v[k]) == ")]".index(v[-1]) else None
+        if depth == 0:
+            return None
+    return None
+
+
+def call_open(v):
+    """Index of the `(` that the `)` ending v closes, or None."""
+    return opener(v) if v.endswith(")") else None
+
+
+def break_value(rest):
+    """The value of a `break` from the text after it: up to a trailing
+    `if` or `unless` that makes the jump conditional."""
+    top = top_level(rest)
+    m = re.search(r"(?<![A-Za-z0-9_])(?:if|unless)(?![A-Za-z0-9_])", top)
+    return rest[:m.start()] if m else rest
+
+
+def rebinds(lines, i, ind, name):
+    """Whether line i, at indent ind, assigns `name` that a line before it
+    in its function already binds."""
+    bind = re.compile(r"^[ \t]*" + re.escape(name) + r"[ \t]*(?::[^=\n]*)?=(?!=)")
+    for k in range(i - 1, -1, -1):
+        l = lines[k]
+        if not l.strip():
+            continue
+        if bind.match(l) and indent_of(l) <= ind:
+            return True
+        if indent_of(l) < ind and METHOD_HEAD.match(l):
+            return re.search(r"[(,][ \t]*" + re.escape(name) + r"[ \t]*:", l) is not None
+    return False
+
+
+def loopview_edits(src, path, report):
+    """Changes nothing. Reports a binding with no type of a loop's value
+    that is a write view at every `break` (and `else`): 0.2.9 copied the
+    value, and 0.3 holds the view, so assigning the binding writes
+    through. A value counts as a write view where it is a lend of a path,
+    `!x`, `!x.f`, or `!x[i]`, or a call of a function declared returning
+    `!T` (`view_funs`, `package_view_funs`, and std's `ensure`)."""
+    clean = code_only(src)
+    lines = clean.split("\n")
+    funs = view_funs(src) | VIEW_FUNS_PKG[0] | set(STD_VIEW_FUNS)
+    for i, line in enumerate(lines):
+        m = LOOP_BIND.match(line)
+        if not m:
+            continue
+        ind, name, op, label, kw = len(m.group(1)), m.group(2), m.group(3), m.group(4), m.group(5)
+        if rebinds(lines, i, ind, name):
+            continue
+        values = []
+        # The loop's own breaks: those outside a nested loop, and those
+        # naming this loop's label from inside one.
+        nested = []
+        j = i + 1
+        first = line[m.end():]
+        for b in BREAK.finditer(first):
+            if b.group(1) is None or b.group(1) == label:
+                values.append(break_value(first[b.end():]))
+        while j < len(lines) and (not lines[j].strip() or indent_of(lines[j]) > ind):
+            l = lines[j]
+            j += 1
+            if not l.strip():
+                continue
+            li = indent_of(l)
+            while nested and li <= nested[-1]:
+                nested.pop()
+            h = LOOP_HEAD.match(l)
+            for b in BREAK.finditer(l):
+                own = b.group(1) == label if b.group(1) is not None else not nested and not h
+                if own:
+                    values.append(break_value(l[b.end():]))
+            if h:
+                nested.append(li)
+        # An `else` at the loop's margin gives the value when no break does.
+        if j < len(lines) and indent_of(lines[j]) == ind and re.match(r"[ \t]*else\b", lines[j]):
+            rest = lines[j].strip()[4:].strip()
+            if rest:
+                values.append(rest)
+            else:
+                last = ""
+                k = j + 1
+                while k < len(lines) and (not lines[k].strip() or indent_of(lines[k]) > ind):
+                    if lines[k].strip():
+                        last = lines[k]
+                    k += 1
+                values.append(last.strip())
+        kinds = [loop_value(v, funs) for v in values]
+        if "view" in kinds and all(kinds):
+            report.append("MANUAL %s:%d: `%s %s %s` holds the write view every `break` hands over, where 0.2.9 copied the value: write `%s: T %s %s`, T the value's type, to copy as 0.2.9 did, or keep the view, through which assigning `%s` writes" % (path, i + 1, name, op, kw, name, op, kw, name))
+    return []
+
+
+# ---------------------------------------------------------------------------
 # Walking the tree
 # ---------------------------------------------------------------------------
 
@@ -776,6 +1016,8 @@ def source_edits(mode, src, path, report):
         return self_edits(src, path, report)
     if mode == "const":
         return const_edits(src, path, report)
+    if mode == "loopview":
+        return loopview_edits(src, path, report)
     raise SystemExit("no such mode: " + mode)
 
 
@@ -1009,7 +1251,8 @@ def package_declares_list(path):
 # runs only on a 0.2 file. A rename that rewrites only a spelling 0.3
 # rejects (obj, builtin, label, self, const) is safe on any version and
 # applies to every file. `builtin` runs before `self`, which makes
-# `@name(` calls of self's methods. A later rename adds one line here.
+# `@name(` calls of self's methods. `loopview` rewrites nothing; it
+# reports what 0.3 reads another way. A later rename adds one line here.
 PASSES = (
     ("box", lambda is02: is02),
     ("list", lambda is02: is02),
@@ -1019,15 +1262,18 @@ PASSES = (
     ("label", lambda is02: True),
     ("self", lambda is02: True),
     ("const", lambda is02: True),
+    ("loopview", lambda is02: True),
 )
 
 
 def migrate(text, path, report, full=None, is02=True):
     LISTS_OWN[0] = bool(full) and package_declares_list(full)
+    VIEW_FUNS_PKG[0] = package_view_funs(full, text) if full else frozenset()
     for mode, applies in PASSES:
         if applies(is02):
             text = rewrite_source(mode, text, path, report)
     LISTS_OWN[0] = False
+    VIEW_FUNS_PKG[0] = frozenset()
     return text
 
 
