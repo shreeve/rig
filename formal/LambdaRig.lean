@@ -7,7 +7,9 @@ import LambdaRig.Facts
 import LambdaRig.Steps
 import LambdaRig.Sound
 import LambdaRig.Calls
+import LambdaRig.Erase
 import LambdaRig.Examples
 import LambdaRig.Wait
 import LambdaRig.Tasks
 import LambdaRig.TasksSound
+import LambdaRig.Crossing

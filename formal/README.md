@@ -39,10 +39,12 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Steps.lean` | One theorem per form: each step the checker accepts keeps `Rel` |
 | `LambdaRig/Sound.lean` | `sound`, the induction over programs, and `accepts_runs` |
 | `LambdaRig/Calls.lean` | Calls checked against an API's `from` and `keeps`, and why they are sound for any implementation within them |
+| `LambdaRig/Erase.lean` | API objects: erasing a type keeps its loans, and programs whose objects only calls reach |
 | `LambdaRig/Examples.lean` | Programs, whether the checker accepts each, and how each run ends |
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
 | `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
+| `LambdaRig/Crossing.lean` | API objects crossing tasks: erasing keeps what a crossing check reads |
 | `Models/Explore.lean` | An explicit-state model checker: every state a system of atomic steps reaches |
 | `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, steal, and the overflow |
 | `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, and the pinned queue's `idle` flag |
@@ -126,6 +128,39 @@ and returns `a` runs to the end, and one `from b`, outside the API's
 clauses, which `checkP` accepts all the same, stops at `deadTag`. A
 third calls an API `from a, b` with an implementation `from b`.
 
+**API objects** (Erase.lean). `?{A}`, `!{A}`, and `^{A}` hide their
+value's type, never its loans (CORE §4; docs/design/apis.md, Stage 4).
+An object's type, as the checker sees it, is its kind and its loans
+(`OTy`), and erasing a type keeps them (`erase_loans`). Three results:
+
+- **`allows_erase`**, for the checker: the rule for an access to an
+  owner reads only the loans of the names in scope (`allows_loans`), so
+  a name given any type that carries an object's loans is allowed
+  exactly the accesses its erased type was.
+- **`erase_live`**, for values: erasing evaluates as its operand (a read
+  view copies; a write view or a box moves into the object), and the
+  object's value holds, for each loan its type carries, a view of that
+  owner whose loan is live.
+- **`erased_runs`**, for programs: `EProg` is the programs of Calls.lean
+  with erasure, `r: ?{A} = x`, `r: !{A} = <x`, and `r: ^{A} = <x`.
+  `checkE` gives the object the type rebuilt from its kind and loans
+  alone, and lets only calls, checked against their API's clauses,
+  reach it: no expression names an object, so nothing reads, assigns
+  through, or moves it in place. If `checkE` accepts a program and every
+  implementation meets clauses within its API's, the program runs to the
+  end without a fault, by `accepts_runs`. The step is `checkE_elab`: the
+  type rebuilt from the loans is the type `check` gives the erasure run
+  (`operand_check`). On a program without erasure `checkE` is `checkP`
+  (`checkE_lift`), so the extension is conservative.
+
+`#guard_msgs` pins each one's axioms: Lean's three for `erased_runs` and
+`erase_live`, and `propext` and `Quot.sound` alone for `allows_erase`
+and `checkE_lift`. The examples call `area` through a `?{Shape}` and
+run; write the owner while the object is used later, which `checkE`
+rejects and which, run all the same, stops at `deadTag`; print an object
+in place, which it rejects; and move a box into a `^{Shape}`, which
+keeps it and drops it once.
+
 **`Examples.lean`**: eleven programs, each with whether `check` accepts
 it and how its run ends. Four are accepted and end well; seven are
 rejected, and each stops at the fault its rejection prevents.
@@ -204,6 +239,37 @@ state with two holders of one value, and `handed2_reach` the shape of
 the panel's `ret.rig`: task 1 makes task 2 and ends while 2 runs,
 holding 2's handle in its result; `main` waits for 1 and takes 2, then
 hands 2 to a new task 3.
+
+**`Crossing.lean`** proves Stage 5's crossing obligations
+(docs/design/apis.md): an API object crosses tasks only by a bound it
+names, `Sends` or `Syncs`, a fact of the hidden value checked where it
+is erased. `CVal` is a value as a crossing check sees it: the values
+that stay on one thread it holds, its task handles, its parts at any
+depth, and the API objects in it, each with the bound it names. An
+object's facts are its hidden value's (`holds_erase`, `tasks_erase`).
+`Spawn` is `f(args)&`: free when the arguments cross (`Crosses`, what
+`crossingBlocker` checks), local otherwise, and never with an object
+naming no bound among them. Of these:
+
+- `crosses_erase`: a value that may not cross before erasure may not
+  cross after, and one that may, may; `spawn_erase`: a spawn of an
+  object with a bound is the spawn of the value it hides, to the same
+  state;
+- `erase_sends`: an object whose bound was checked at erasure
+  (`EraseOk`) holds nothing that stays on one thread and no task, so a
+  free spawn may take it, and checking the bound there suffices;
+- `bare_no_spawn`: an object naming no bound goes to no task, a local
+  one included, at any depth;
+- `spawn_step`: a spawn of arguments a running task holds is a step of
+  the task machine, `spawnFree` or `spawnLocal`;
+- `erase_confined`: after a spawn of an erased value from a reached
+  state, the object names a bound, the state is reached, and `confined`
+  holds in it, as `pin_kept` does from it on.
+
+`sendsJob` reaches a state where `main` gives a `^{Job + Sends}` to a
+free task. `#guard_msgs` pins the axioms: Lean's three for
+`erase_confined`, `propext` and `Quot.sound` for `crosses_erase` and
+`erase_sends`.
 
 Not yet: `Tasks` sets, actors and channels (whose contents the crossing
 rule restricts), that dropping a handle cancels and waits (the model
@@ -315,6 +381,30 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
   inlining runs it, which is what binding each read-view parameter to
   its argument does; a callee checked once, in a scope of its own, needs
   functions in λRig (Next, 4).
+- **API objects beyond the slice (docs/design/apis.md, Stage 4).** A
+  λRig box holds only an Int, so a `^{A}` carries no loans, and that a
+  box of erased type keeps its loans to its drop is proved only of boxes
+  that carry none; a box of views, whose drop reads its loans, needs
+  objects in λRig (Next, 1). A view's type names its owner, not what the
+  owner holds, so erasing a view hides nothing `check` read, and
+  `OTy.ty` rebuilds the type erased; an object hiding a type the checker
+  reads also waits for objects. A call takes an object as a read view,
+  as Calls.lean's calls do, so calls through a `!{A}` or a `^{A}`, and a
+  `<@` method ending the box, are not modeled. A dynamic call is checked
+  as a static one is, against the API's clauses, since `checkCall` never
+  reads the implementation. The copy of an erased view of plain data, a
+  local of the erasing block, is not modeled.
+- **Crossing beyond the task machine (docs/design/apis.md, Stage 5).**
+  `CVal` abstracts a value to what a crossing check reads; it is not
+  λRig's `Val`, and that `sema.crossingBlocker` computes `Crosses` and
+  `EraseOk` is assumed, the compiler's part, held by the suite. The task
+  machine does not tell moving a value to another task from sharing it,
+  so `Sends` and `Syncs` are one fact here: the hidden value holds
+  nothing that stays on one thread. That a `*{A + Syncs}` holds only a
+  frozen value is that fact for its handle, since a `*T` whose count is
+  not atomic stays on one thread; atomic counts themselves, and a
+  `*{A}` carrying its value's loans to its last count, are not modeled,
+  since λRig has no counted handles (Next, 5).
 - **Bounds (docs/design/apis.md, Stage 2).** A body may copy a type
   parameter bounded `Copy`, so a proof that generic bodies keep the
   Core needs `Copy` to hold only of the kinds that copy: plain data and
