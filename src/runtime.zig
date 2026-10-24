@@ -1151,9 +1151,11 @@ pub inline fn takesSlot(comptime f: anytype, comptime n: usize) bool {
 
 /// The item of iterator type `I`, a type with `next(!@) -> T?`: the `T`
 /// its `next` gives (docs/design/apis.md, Stage 3, `Iter`), which a body
-/// bounded by `Iter` names `I.Item`.
+/// bounded by `Iter` names `I.Item`, as `sema.iterItem` reads it. The
+/// optional is Zig's `?T` or a struct one (`Opt`), so its payload is
+/// `Payload`'s, the one reading of either.
 pub fn IterItem(comptime I: type) type {
-    return @typeInfo(@typeInfo(@TypeOf(I.next)).@"fn".return_type.?).optional.child;
+    return Payload(@typeInfo(@TypeOf(I.next)).@"fn".return_type.?);
 }
 
 /// Whether type `T` gives `api` (`__rig_own_eq`, `__rig_own_hash`,

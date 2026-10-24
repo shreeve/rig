@@ -117,3 +117,34 @@ and return's operand" (a box, `return`, `f()!`, a view lent, a `^T?`),
 counted and a frozen handle), and "... keeps the erasure's rules" (a
 frozen handle into `(*{Shape})!` is refused as where a `*{Shape}` goes).
 Each ran under the sanitizer.
+
+## 1.6 An iterator's item
+
+### The map
+
+| Path | Place (main 55a21e1b1) | Fact |
+|---|---|---|
+| `sema.iterItem` | sema.zig:8368 | the one classifier of iterators: not one, one whose `next` has another shape, or one of `item`, the `T` of `next(!@) -> T?`; the loop, `lacks(Iter)`, and `I.Item` read it |
+| `sema.iterLack` | sema.zig:8400 | the `[I: Iter]` instance rule: `iterItem`, plus a view is no iterator and a `next` private to another module is not called; the loop says both too (probed: `for x in !w` of another module's private `next`, and of a view, are refused as `iter.count(!w)` is) |
+| `rig.IterItem(I)` | runtime.zig:1155 | what emit writes for `I.Item` in a generic body: the payload of `I.next`'s result, read as `@typeInfo(...).optional.child` |
+
+The runtime read the item a second time, by Zig's `?T` alone. A Rig
+`T?` is Zig's `?T` only when `T` has no niche: an object with a `Bool`
+or enum field, or one that names its none (`none id == 0`), holds its
+`T?` as a struct (`rig.Opt`, routed by `sema.optionalRouted`), whose
+payload `rig.Payload` reads.
+
+### The case
+
+`fun first[I: Iter](it: !I) -> I.Item?` over an iterator of `Flag`
+(a `Bool` field) or of `Id` (`none id == 0`): accepted on main, then
+"access of union field 'optional' while field 'struct' is active" in
+Zig at `rig.IterItem`. A `for` loop over the same iterator, and
+`iter.count`, which never names `I.Item`, ran.
+
+### What merged
+
+`rig.IterItem` reads the payload through `Payload`, the runtime's one
+reading of either optional, so it gives the `T` `sema.iterItem` gives
+for every `T?` emit writes. Case: "iter an item whose optional holds
+its none in the item" (std-iter), failing in Zig on main.

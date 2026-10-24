@@ -17,6 +17,50 @@ test "iter count", "4 0"
   e = Count(n: 0, hi: 0)
   print(iter.count(!c), iter.count(!e))
 
+test "iter an item whose optional holds its none in the item", "3 1 2 true"
+  # `I.Item` of an item whose `T?` is no Zig `?T` (a `Bool` field's
+  # niche, an object naming its none) is read as `sema.iterItem` reads it
+  # (`rig.IterItem` through `Payload`).
+  obj Flag
+    n: Int
+    on: Bool
+
+  obj Id
+    id: Int
+    none id == 0
+
+  obj Flags
+    n: Int
+
+    fun next(!@) -> Flag?
+      return none if @n == 0
+      @n -= 1
+      Flag(n: @n, on: true)
+
+  obj Ids
+    n: Int
+
+    fun next(!@) -> Id?
+      return none if @n == 0
+      @n -= 1
+      Id(id: @n + 1)
+
+  fun first[I: Iter](it: !I) -> I.Item?
+    (!it).next()
+
+  f = Flags(n: 3)
+  g = Flags(n: 2)
+  ids = Ids(n: 2)
+  n = 0
+  on = false
+  if first(!g) as x
+    n = x.n
+    on = x.on
+  id = 0
+  if first(!ids) as y
+    id = y.id
+  print(iter.count(!f), n, id, on)
+
 test "iter sum", "10 7.5 0"
   obj Count
     n: Int
