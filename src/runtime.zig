@@ -697,8 +697,9 @@ pub fn needsDrop(comptime T: type) bool {
 }
 
 /// How a read view `?T` is held: a copy of a scalar or a view (a
-/// number, `Bool`, a vector, a plain enum, an error, a slice or
-/// `?String`, a function, or an optional of one), a pointer to anything else, and
+/// number, `Bool`, a vector, a plain enum, an error of a set without
+/// fields, a slice or `?String`, a function, or an optional of one), a
+/// pointer to anything else (an `ErrorValue` among them), and
 /// for a `String` its bytes, the one text view, `?String`. The
 /// emitter decides this itself for a known `T` (`sema.lendByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on

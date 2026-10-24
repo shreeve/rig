@@ -264,6 +264,15 @@ changed the language since it:
   (`sema.isPlainEnum`), and the values `Int(x)`, ordering, and
   `$variants` read go through it.
 
+- **A generic `?T` of an error with fields:** `show(a)` for a
+  `sub show[T](x: ?T)` and `a` of an error set with a member with
+  fields, or `A?` of one, checked and then failed in Zig: sema lent it
+  as a copy, and the runtime's `ReadView`, which a generic body's
+  parameter is, held its `rig.ErrorValue` by address. Sema now lends
+  every error that is a `rig.ErrorValue` by address
+  (`sema.isErrorValueForm`, the one test emit asks too), the rule the
+  runtime applies.
+
 - **`.len` of a List behind a shared handle is an `Int`:** `0..f.len`,
   `n = f.len`, and `f.is_empty()` of a `*Frozen[List[T]]` or a
   `*List[T]` passed the check and then failed in Zig. One classifier

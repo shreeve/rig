@@ -997,12 +997,7 @@ pub const Emitter = struct {
     /// with a member with fields, or a union of one. (With no field in
     /// the program, an `ErrorValue` is its code.)
     fn isErrorValueTy(self: *Emitter, ty: TypeId) bool {
-        if (ty == self.facts.types.any_error_id or self.facts.isSetParam(ty)) return true;
-        // A view of one is a pointer to it, not one.
-        return switch (self.facts.types.get(ty)) {
-            .read_view, .write_view => false,
-            else => self.facts.setHasFields(ty),
-        };
+        return self.facts.isErrorValueForm(ty);
     }
 
     /// The struct of the fields of member `member` of error set `set`, as
