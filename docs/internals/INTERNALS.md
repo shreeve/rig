@@ -2565,6 +2565,8 @@ the latter with the innermost type that stops it, through one walk,
 - a read view crosses as what it views shares, a write view and a `Task`
   as what they hold moves; a set of tasks, a `Cell`, and a `Signal`
   never cross;
+- an API object never crosses, since its hidden value may hold what
+  goes to no task;
 - a type parameter with no bound is decided in each instance, and one
   with bounds as they say (`Sends`, `Syncs`, `boundBlocker`).
 
@@ -2580,6 +2582,25 @@ and makes no task local; both first read the part through
 `crossingTypeOf`, the one classifier of how a part goes: a closure
 literal written there is lent as a callable view, as `?f` of a closure
 is, so it goes to no task.
+
+A type parameter in a part goes as each instance's type does. Every
+site that hands a value to a task (a task's parts and result, an
+actor's value, arguments, and result, `par`'s elements, values, and
+captures) passes the value it let through to `Checker.requireTask`,
+which runs the same walk, `sema.taskParams`, with `local` set and
+collects each type parameter it reaches outside a declaration's fields,
+with how it goes there (`TaskReach`: as `how` says, and, as a channel's
+element, to any task). Each becomes a `Requirement.task`, checked at the
+instance by `sema.taskBlocker`, the walk again on the instance's type:
+an instance whose type holds what goes to no task, a local one included
+(an owned closure, an API object, a set of tasks), is rejected at the
+call that makes it, with a note at the task. A body is never rejected
+for it, and the instance meets exactly the check its known type would.
+`Requirement.no_task` does the same for `sema.holdsTask` where a value
+is hidden from the rules that wait for a task: erased to an API object,
+or given out of `task.isolate` (`Checker.requireNoTask`). Whether a type
+meets `Sends` or `Syncs` as a bound (`sema.lacks`) is the walk's answer
+too, `blockerOf`, an API object's included.
 
 What a function value is where a call runs it is one fact,
 `Checker.fnArg`: a closure written in the call (`literal`, whose

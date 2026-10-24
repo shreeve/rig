@@ -5543,3 +5543,161 @@ test "apis object printed through a generic body by the braces", "Square(side: 1
   b: ^{Shape + Print} = ^Square(side: 1.0)
   c: ^{Shape + Print} = ^Square(side: 2.0)
   show2(?b, ?c)
+
+fail "apis object reached in a field goes to no task", "`?h` is lent to a task to read: `?*Holder` holds `{Shape}`, an API object, whose hidden value may hold what goes to no task, a local one included", "`?v` is lent to a task to read: `?Holder` holds `{Shape}`", "`?o` is lent to a task to read: `?Holder?` holds `{Shape}`", "`par.map` calls the closure on several tasks at once, which all read what it captures, and `v` holds `{Shape}`", errors: 4
+  # An object in a field, behind a handle or an optional, or captured
+  # by `par`'s closure, goes to no task: the task is not made local.
+  use std.par
+
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Holder
+    s: ^{Shape}
+
+  fun val(h: ?Holder) -> Float
+    h.s.area()
+
+  fun maybe(h: ?Holder?) -> Int
+    1
+
+  h = *Holder(s: ^Square(side: 2.0))
+  v = Holder(s: ^Square(side: 2.0))
+  o: Holder? = Holder(s: ^Square(side: 2.0))
+  t = val(?h)&
+  u = val(?v)&
+  w = maybe(?o)&
+  xs = List([1, 2])
+  print(>t, >u, >w, par.map(?xs, |?v, x| v.s.area()))
+
+fail "apis object a generic instance gives no task", "`spawn[^{Shape}]` cannot use `T = ^{Shape}`: a value that holds a `T` is lent to a task to read in the generic body, and `^{Shape}` holds `{Shape}`, an API object", "`spawn[Holder]` cannot use `T = Holder`", errors: 2
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  obj Holder
+    s: ^{Shape}
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun spawn[T](x: ?T) -> Int
+    t = look(?x)&
+    >t
+
+  b: ^{Shape} = ^Square(side: 2.0)
+  h = Holder(s: ^Square(side: 2.0))
+  print(spawn(?b), spawn(?h))
+
+fail "apis bounded instance owned closure", "`local[Holder]` cannot use `T = Holder`: a value that holds a `T` is lent to a task to read in the generic body, and `Holder` holds `*fun() -> Float`, an owned closure", errors: 1
+  # A bounded `T` without `Syncs` makes the task local, which takes no
+  # owned closure, checked at each instance.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Holder: Shape
+    f: *fun() -> Float
+
+    fun area(?@) -> Float
+      (@f)()
+
+  fun local[T: Shape](x: ?T) -> Float
+    t = x.area()&
+    >t
+
+  h = Holder(f: *|| 2.0)
+  print(local(?h))
+
+test "apis plain fields go to local tasks", seeds: 20, "4.0 1 4.0"
+  # A handle of plain data pins its task; an instance of plain data
+  # goes to it.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  fun val(h: ?*Square) -> Float
+    h.area()
+
+  fun look[T](x: ?T) -> Int
+    1
+
+  fun local[T: Shape](x: ?T) -> Float
+    t = x.area()&
+    >t
+
+  h = *Square(side: 2.0)
+  t = val(?h)&
+  u = look(?h)&
+  print(>t, >u, local(?Square(side: 2.0)))
+
+fail "apis generic erasure hides no task", "`lent[Job]` cannot use `T = Job`: the generic body erases a value that holds a `T` to `?{Shape}`, which would hide a task from the rules that wait for one, and its field `t` is a `Task[Float]`", "`boxed[Job]` cannot use `T = Job`: the generic body erases a value that holds a `T` to `^{Shape}`", errors: 2
+  # A bounded `T` erased to an object is checked at each instance, as a
+  # known type is where it is erased.
+  api Shape
+    fun area(?@) -> Float
+
+  obj Job: Shape
+    t: Task[Float]
+
+    fun area(?@) -> Float
+      1.0
+
+  obj Sq: Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s
+
+  fun work() -> Float
+    2.0
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun boxed[T: Shape](x: T) -> ^{Shape}
+    ^<x
+
+  fun lent[T: Shape](x: ?T) -> Float
+    area_of(x)
+
+  print(lent(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())
+  j = Job(t: work()&)
+  print(lent(?j))
+  b = boxed(Job(t: work()&))
+
+test "apis generic erasure of plain values", "1.0 4.0"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Sq: Shape
+    s: Float
+
+    fun area(?@) -> Float
+      @s * @s
+
+  fun area_of(s: ?{Shape}) -> Float
+    s.area()
+
+  fun boxed[T: Shape](x: T) -> ^{Shape}
+    ^<x
+
+  fun lent[T: Shape](x: ?T) -> Float
+    area_of(x)
+
+  print(lent(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())

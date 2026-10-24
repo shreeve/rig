@@ -22,6 +22,24 @@ changed the language since it:
   table gains the objects' rows, marked planned. docs/design/apis.md's
   Stage 5 and its build plan follow the approved text. Nothing is built
   yet.
+- **A generic instance gives no task what goes to none:** a generic
+  body that gives or lends a task a `T`, or a value holding one (a
+  task's arguments, self, and result, an actor's value, arguments, and
+  result, `par`'s elements, values, and captures), is checked at each
+  instance, with the crossing walk that checks a known type: an instance
+  whose `T` holds an owned closure, an API object, or a set of tasks is
+  rejected at the call that makes it, with a note at the task. A bounded
+  `T` without `Syncs`, whose task is local, is checked so too. A generic
+  body that erases a `T` to an API object, or gives one out of
+  `task.isolate`, is checked at each instance for a task the `T` holds.
+  No generic body is rejected. v0.2.9 accepted the forms this rejects,
+  each of which let a value reach a task its known type could not:
+  `spawn(<cb)` of `fun spawn[T](x: T)` whose body runs `use(<x)&`, with
+  `cb: *fun() -> Int`; `par.map(xs, f)` over a `?List[T]` of owned
+  closures; `*Actor(Box[T](x: <x))` with `T` an owned closure; a
+  `fun go[T](f: fun() -> T)` whose task `call(f)&` gives back an owned
+  closure; `task.isolate(|<x| keep(<x))` with `T = Task[Int]`. Whether
+  an API object crosses (`Sends`, `Syncs`) is decided by the same walk.
 - **Boxes of API objects (APIs Stage 4, phase 3):** a `^T` moves into a
   `^{Shape}` and keeps its allocation, `<c` or a `^Square(...)` written
   where one goes, and a `^T?` into a `^{Shape}?`. A box lends its

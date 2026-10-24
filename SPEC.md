@@ -3938,7 +3938,9 @@ checked on the value's type where it is erased, in a generic body too,
 where `print(x)` of a `T` is an object's only when its braces or API
 name `Print`. No value that holds a task or a set of tasks is erased:
 the rules that wait for a task (`task.isolate`, an error's field, a
-crossing) see it only where its type shows it.
+crossing) see it only where its type shows it. A generic body that
+erases a `T` is checked at each instance: one whose `T` holds a task is
+rejected at the call that makes it.
 
 ```rig
 api Shape
@@ -12101,8 +12103,14 @@ even on one thread: a set of tasks, a task or a write view lent to
 read, a callable view `?fun`, which may lend what a closure captures to
 write, an owned closure, or an API object, whose hidden value may hold
 any of these (once objects cross, an API object without the bound the
-task needs, at any depth: *planned*). A closure literal written in the
-task's call is lent to it, as `?f` is, and its captures live only until the
+task needs, at any depth: *planned*). Such a value anywhere in what a
+task is passed, in a field, an element, an optional, or what a handle
+leads to, rejects the task rather than making it local. A generic body
+that gives a task a `T`, or a value holding one, is checked at each
+instance: an instance whose `T` holds such a value is rejected at the
+call that makes it, with a note at the task, as the same value of a
+known type is. A closure literal written in the task's call is lent to
+it, as `?f` is, and its captures live only until the
 statement ends, so it too is rejected: bind the work to a function the
 task calls. A function value is a named function's address and holds
 nothing, so it goes to any task, alone or in what a task is given or
@@ -12192,7 +12200,8 @@ so the call fails as `f` fails too; it always can fail.
   not show what it writes, or a value that holds a write view. A shared
   `*Cell` it changes, or an owned closure it calls, keeps the changes
   made before the panic.
-- A task started in `f` ends in it: `f` gives no value that holds one.
+- A task started in `f` ends in it: `f` gives no value that holds one,
+  in a generic body at no instance.
 - Inside another isolate, the nearest one stops a panic. With none, a
   panic ends the program as before.
 

@@ -3042,6 +3042,13 @@ pub const Requirement = union(enum) {
     /// Holds only data that never changes (`frozenBlocker`): the body
     /// freezes a value that holds the parameter, `*Frozen(x)`.
     frozen,
+    /// Holds no task or set of tasks (`holdsTask`): the body hides a value
+    /// that holds the parameter from the rules that wait for a task,
+    /// erasing it to an API object or giving it out of `task.isolate`.
+    no_task,
+    /// Goes to a task as this says (`taskBlocker`): the body gives a task
+    /// a value that holds the parameter, or lends it one (`taskParams`).
+    task: TaskReach,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -3068,6 +3075,8 @@ pub const Requirement = union(enum) {
             .named => "a type name",
             .printable => "printing",
             .frozen => "a frozen value",
+            .no_task => "a value that holds no task",
+            .task => "a value that goes to a task",
         };
     }
 };
@@ -7463,7 +7472,8 @@ pub const Lack = struct {
 /// lacks nothing here.
 pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?Lack {
     if (containsPoison(ctx, ty)) return null;
-    if (mentionsObject(ctx, ty)) {
+    // Whether an object crosses is the crossing walk's (`blockerOf`).
+    if (api != .Sends and api != .Syncs and mentionsObject(ctx, ty)) {
         if (apiObject(ctx, ty) != null) return .{ .ty = ty };
         if (objectHeld(ctx, ty)) |h| return if (objectMeets(ctx, h.object, h.form, api)) null else .{ .ty = ty };
     }
@@ -7638,7 +7648,9 @@ pub fn objectMeets(ctx: *const SemContext, o: ApiObject, form: ObjectForm, api: 
         .Print => named.contains(.Print),
         .Clone => form == .read or (form == .box and named.contains(.Clone)),
         .Owned => form == .box and o.builtins.contains(.Owned),
-        .Eq, .Hash, .Ord, .Num, .Integer, .Signed, .Sends, .Syncs, .Iter => false,
+        .Eq, .Hash, .Ord, .Num, .Integer, .Signed, .Iter => false,
+        // The crossing walk decides these (`lacks`, `blockerOf`).
+        .Sends, .Syncs => false,
     };
 }
 
@@ -9521,9 +9533,9 @@ pub fn crossingBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allo
 /// `crossingBlocker`, in the table of the module that declares the
 /// blocker.
 fn blockerOf(ctx: *const SemContext, ty: TypeId, how: Crossing) ?Blocker {
-    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
-    defer seen.deinit(ctx.allocator);
-    if (blockerIn(ctx, ty, how, false, &seen)) |b| return b;
+    var walk: Walk = .{};
+    defer walk.seen.deinit(ctx.allocator);
+    if (blockerIn(ctx, ty, how, false, &walk)) |b| return b;
     if (boundBlocker(ctx, ty, how)) |t| return .{ .ctx = ctx, .ty = t };
     return null;
 }
@@ -9551,13 +9563,47 @@ fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
 /// lend to write, an owned closure (`*fun`, `~fun`), and a channel's
 /// elements, which go to any task.
 pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocator.Error!?TypeId {
-    var seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty;
-    defer seen.deinit(ctx.allocator);
-    const b = blockerIn(ctx, ty, how, true, &seen) orelse return null;
+    return taskBlocker(ctx, ty, .{ .how = how, .local = true });
+}
+
+/// What in `ty` keeps it from going to a task as `reach` says: to a
+/// local one (`localBlocker`), or, out of a channel, to any task.
+pub fn taskBlocker(ctx: *SemContext, ty: TypeId, reach: TaskReach) std.mem.Allocator.Error!?TypeId {
+    var walk: Walk = .{};
+    defer walk.seen.deinit(ctx.allocator);
+    const b = blockerIn(ctx, ty, reach.how, reach.local, &walk) orelse return null;
     return try localized(ctx, b);
 }
 
+/// How a value goes to a task: as `how` says, and to a local one or,
+/// as a channel's element, to any (`blockerIn`'s `local`).
+pub const TaskReach = struct { how: Crossing, local: bool };
+
+/// A type parameter a value going to a task holds, and how it goes.
+pub const TaskParam = struct { param: SymbolId, reach: TaskReach };
+
+/// The type parameters a value of `ty`, going to a local task as `how`
+/// says, holds where `localBlocker` looks, added to `out`. Each
+/// instance's type for one must go as it does (`Requirement.task`): a
+/// generic body gives no task what goes to none, an owned closure in a
+/// `T`, as a body of known types gives none.
+pub fn taskParams(ctx: *const SemContext, ty: TypeId, how: Crossing, out: *std.ArrayList(TaskParam)) std.mem.Allocator.Error!void {
+    if (!ctx.typeInfo(ty).has_type_var) return;
+    var walk: Walk = .{ .reached = out };
+    defer walk.seen.deinit(ctx.allocator);
+    _ = blockerIn(ctx, ty, how, true, &walk);
+    if (walk.failed) return error.OutOfMemory;
+}
+
 const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
+
+/// A walk of `blockerIn`: the declared types it has looked into, and,
+/// when collected, the type parameters it reaches (`taskParams`).
+const Walk = struct {
+    seen: std.AutoHashMapUnmanaged(SymbolKey, void) = .empty,
+    reached: ?*std.ArrayList(TaskParam) = null,
+    failed: bool = false,
+};
 
 /// Whether a `*` or `~` handle's `inner` is an owned closure, `*fun` or
 /// `~fun`, which goes to no task.
@@ -9566,7 +9612,7 @@ fn ownedClosure(ctx: *const SemContext, inner: TypeId) bool {
 }
 
 /// `local`: what a local task may not take (`localBlocker`).
-fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
+fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, walk: *Walk) ?Blocker {
     const here: Blocker = .{ .ctx = ctx, .ty = ty };
     return switch (ctx.types.get(ty)) {
         // A Cell of one word's handle, and an actor's, strong or weak,
@@ -9574,8 +9620,8 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // time. A channel's elements go to any task. A local task reads
         // what another handle reaches on the same thread.
         // A frozen value's handle reads, from any task, what never changes.
-        .shared => |inner| if (atomicHandle(ctx, inner)) atomicReach(ctx, inner, seen) else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
-        .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, seen) else here,
+        .shared => |inner| if (atomicHandle(ctx, inner)) atomicReach(ctx, inner, walk) else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, walk) else here,
+        .weak => |inner| if (actorValue(ctx, inner) != null) null else if (local and !ownedClosure(ctx, inner)) blockerIn(ctx, inner, .shares, local, walk) else here,
         // A function value is a named function's address and holds
         // nothing (Core §7); a callable view may view a closure's
         // captures, which its type does not show.
@@ -9586,27 +9632,36 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
         // task, a local one included, until Stage 5 names crossing in
         // its braces.
         .api_object => here,
-        .read_view => |inner| blockerIn(ctx, inner, .shares, local, seen),
-        .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, seen),
-        .optional, .range => |inner| blockerIn(ctx, inner, how, local, seen),
-        .fallible => |inner| blockerIn(ctx, inner.ok, how, local, seen),
-        .array => |a| blockerIn(ctx, a.elem, how, local, seen),
-        .slice => |sl| blockerIn(ctx, sl.elem, how, local, seen),
+        // A type parameter goes as each instance's type does
+        // (`taskParams`).
+        .type_var => |param| blk: {
+            const out = walk.reached orelse break :blk null;
+            out.append(ctx.allocator, .{ .param = param, .reach = .{ .how = how, .local = local } }) catch {
+                walk.failed = true;
+            };
+            break :blk null;
+        },
+        .read_view => |inner| blockerIn(ctx, inner, .shares, local, walk),
+        .write_view => |inner| if (how == .shares) here else blockerIn(ctx, inner, .moves, local, walk),
+        .optional, .range => |inner| blockerIn(ctx, inner, how, local, walk),
+        .fallible => |inner| blockerIn(ctx, inner.ok, how, local, walk),
+        .array => |a| blockerIn(ctx, a.elem, how, local, walk),
+        .slice => |sl| blockerIn(ctx, sl.elem, how, local, walk),
         .results => |parts| for (parts) |part| {
-            if (blockerIn(ctx, part, how, local, seen)) |b| break b;
+            if (blockerIn(ctx, part, how, local, walk)) |b| break b;
         } else null,
         .parameterized_nominal => |pn| blk: {
             if (local and (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id)) break :blk null;
             if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or pn.sym == ctx.tasks_sym_id) break :blk here;
             if (pn.sym == ctx.task_sym_id and how == .shares) break :blk here;
-            for (pn.args) |a| if (blockerIn(ctx, a, how, local, seen)) |b| break :blk b;
+            for (pn.args) |a| if (blockerIn(ctx, a, how, local, walk)) |b| break :blk b;
             if (pn.sym == ctx.task_sym_id or isBuiltinGeneric(ctx, pn.sym) or pn.sym == ctx.simd_sym_id) break :blk null;
-            break :blk fieldsBlock(ctx, pn.sym, how, local, seen);
+            break :blk fieldsBlock(ctx, pn.sym, how, local, walk);
         },
-        .nominal => |sym| fieldsBlock(ctx, sym, how, local, seen),
+        .nominal => |sym| fieldsBlock(ctx, sym, how, local, walk),
         .imported_nominal => blk: {
             const decl = nominalDecl(ctx, ty) orelse break :blk here;
-            var found = fieldsBlock(decl.ctx, decl.sym, how, local, seen) orelse break :blk null;
+            var found = fieldsBlock(decl.ctx, decl.sym, how, local, walk) orelse break :blk null;
             if (found.module == null) found.module = decl.module_id;
             break :blk found;
         },
@@ -9618,9 +9673,9 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, see
 /// other tasks that may keep it from going there: a channel's elements,
 /// which move; a frozen value, which holds only what never changes
 /// (`frozenIn`); nothing of a Cell's or an actor's.
-fn atomicReach(ctx: *const SemContext, inner: TypeId, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
-    if (chanValue(ctx, inner)) |t| return blockerIn(ctx, t, .moves, false, seen);
-    if (frozenValue(ctx, inner)) |t| return frozenIn(ctx, t, seen);
+fn atomicReach(ctx: *const SemContext, inner: TypeId, walk: *Walk) ?Blocker {
+    if (chanValue(ctx, inner)) |t| return blockerIn(ctx, t, .moves, false, walk);
+    if (frozenValue(ctx, inner)) |t| return frozenIn(ctx, t, &walk.seen);
     return null;
 }
 
@@ -9761,11 +9816,15 @@ fn fieldsHoldTask(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHashMapU
 /// meeting `how` (`blockerIn`); a type already being looked into adds
 /// nothing. A generic parameter in a field stands for an argument, which
 /// its instance checks.
-fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, local: bool, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?Blocker {
-    const got = seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
+fn fieldsBlock(ctx: *const SemContext, sym: SymbolId, how: Crossing, local: bool, walk: *Walk) ?Blocker {
+    const got = walk.seen.getOrPut(ctx.allocator, .{ .ctx = ctx, .sym = sym }) catch return .{ .ctx = ctx, .ty = ctx.types.invalid_id };
     if (got.found_existing) return null;
+    // A field's parameters are the declaration's own, not the walk's.
+    const reached = walk.reached;
+    walk.reached = null;
+    defer walk.reached = reached;
     for (ctx.symbols.items[sym].fields orelse &.{}) |*f| {
-        for (dataFields(f)) |d| if (blockerIn(ctx, d.ty, how, local, seen)) |b| return b;
+        for (dataFields(f)) |d| if (blockerIn(ctx, d.ty, how, local, walk)) |b| return b;
     }
     return null;
 }
