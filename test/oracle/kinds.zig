@@ -354,7 +354,12 @@ const Scan = struct {
                 defer self.read_only = saved_ro;
                 try self.walk(ctx, inner, depth + 1, in_generic);
             },
-            .function, .callable => self.mark("a function or closure value"),
+            // A function value held in a type is a named function's
+            // address and holds nothing (Core §7, "A function value is
+            // an address"): no value holds a stack closure, which is only
+            // lent as a `?fun`.
+            .function => {},
+            .callable => self.mark("a function or closure value"),
             .type_var, .ct_param => if (!in_generic) self.mark("a generic parameter"),
             .ct_value => {},
             // A write view held in a container, an optional, or a field
@@ -426,8 +431,9 @@ const Scan = struct {
 /// "a view reached through another view carries that view's loans, not
 /// a loan on its holder"). The memory a view points into has a type: a
 /// `?T` or `!T` a `T`, a `[]T` or `![]T` its `T` elements, a `?String` a
-/// String's or a literal's bytes. A function, a lent callable, a type
-/// parameter, and a type not known may point anywhere.
+/// String's or a literal's bytes. A closure, a lent callable, a type
+/// parameter, and a type not known may point anywhere; a function value
+/// held in a value, which holds nothing (Core §7), points nowhere.
 pub const Reach = struct {
     a: std.mem.Allocator,
 
@@ -515,10 +521,16 @@ pub const Reach = struct {
 
     /// One type to walk: in its module, under a generic instance's
     /// bindings, and how it was reached.
-    const Node = struct { ctx: *const SemContext, ty: TypeId, subst: ?*const Subst = null, past_read: bool = false, past_view: bool = false, elem: bool = false };
+    /// `held`: a part of a value, never a binding of its own, so a
+    /// function type there is a function value, not a stack closure.
+    const Node = struct { ctx: *const SemContext, ty: TypeId, subst: ?*const Subst = null, past_read: bool = false, past_view: bool = false, elem: bool = false, held: bool = false };
 
     /// The parts a value of `n` holds by value.
     fn parts(self: *Reach, n: Node, out: *std.ArrayList(Node)) std.mem.Allocator.Error!void {
+        const start = out.items.len;
+        defer for (out.items[start..]) |*part| {
+            part.held = true;
+        };
         const ctx = n.ctx;
         switch (ctx.types.get(n.ty)) {
             .optional, .shared, .weak => |inner| try out.append(self.a, .{ .ctx = ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
@@ -564,17 +576,23 @@ pub const Reach = struct {
             .type_var => |sym| {
                 const s = m.subst orelse return m;
                 const b = s.lookup(sym) orelse return m;
-                m = .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = m.past_read, .past_view = m.past_view, .elem = m.elem };
+                m = .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = m.past_read, .past_view = m.past_view, .elem = m.elem, .held = m.held };
             },
             else => return m,
         };
     }
 
     /// Whether `n` may stand for anything: an API object hides a value of
-    /// any type that provides its API (Core §4).
+    /// any type that provides its API (Core §4), and a closure's
+    /// environment, or a callable view `?fun` of one, holds captures its
+    /// type does not show (Core §7). A function type held in a value is a
+    /// function value, a named function's address, which holds nothing
+    /// (Core §7, "A function value is an address"): no value holds a
+    /// stack closure.
     fn anything(n: Node) bool {
         return switch (n.ctx.types.get(n.ty)) {
-            .function, .callable, .api_object, .invalid, .unknown => true,
+            .function => !n.held,
+            .callable, .api_object, .invalid, .unknown => true,
             .type_var => |sym| if (n.subst) |s| s.lookup(sym) == null else true,
             else => false,
         };

@@ -1111,3 +1111,134 @@ test "field write view local", "4"
   print(p.a.n)
 
   # oracle: main accept
+
+test "a view through a read-view field of self outlives a write of self", "8 8 7 1"
+  # `?@program.files[i].ast` is reached through `program`, a read view
+  # self holds: it carries that view's loans, not a loan on `@` (Core
+  # s7), so `@` may be lent to write while it lives. The same through a
+  # write-view parameter, and a read through the read view beside a
+  # write loan on another field of the same parameter.
+  # oracle: Checker.look accept
+  # oracle: look_param accept
+  # oracle: emit_from accept
+
+  obj File
+    ast: List[Int]
+
+  obj Program
+    files: List[File]
+    jsx: Bool
+
+  obj Builder
+    out: List[Int]
+
+  obj Checker
+    program: ?Program
+    builder: Builder
+    n: Int
+
+    sub bump(!@)
+      @n += 1
+
+    fun look(!@, i: Int) -> Int
+      tree = ?@program.files[i].ast
+      (!@).bump()
+      tree[0] + @n - 1
+
+  fun look_param(c: !Checker, i: Int) -> Int
+    tree = ?c.program.files[i].ast
+    (!c).bump()
+    tree[0] + c.n - 2
+
+  sub emit(b: !Builder, on: Bool, n: Int)
+    !b.out.push(n) if on
+
+  sub emit_from(c: !Checker)
+    emit(!c.builder, c.program.jsx, c.program.files[0].ast[0])
+
+  a: List[Int] = List()
+  !a.push(8)
+  files: List[File] = List()
+  !files.push(File(ast: <a))
+  p = Program(files: <files, jsx: true)
+  c = Checker(program: ?p, builder: Builder(out: List()), n: 0)
+  x = (!c).look(0)
+  y = look_param(!c, 0)
+  emit_from(!c)
+  print(x, y, c.builder.out[0] - 1, c.builder.out.len)
+
+fail "a view through an owned field of self is a loan on self", "cannot lend `@` to write while a read loan on `@program.files` is live"
+  # The sibling shape: `program` is owned, so the view is a loan on `@`.
+  # oracle: Checker.look reject C4
+
+  obj File
+    ast: List[Int]
+
+  obj Program
+    files: List[File]
+
+  obj Checker
+    program: Program
+    n: Int
+
+    sub bump(!@)
+      @n += 1
+      !@program.files.clear()
+
+    fun look(!@, i: Int) -> Int
+      tree = ?@program.files[i].ast
+      (!@).bump()
+      tree[0] + @n
+
+  print(1)
+
+fail "a view through a held read view is a loan on what it views", "cannot lend `p.files` to write while a read loan on `p` is live"
+  # The view `?c.program.files[0].ast` carries the loan `c.program`
+  # holds, on `p`: `p` is not written while it lives.
+  # oracle: main reject C4
+
+  obj File
+    ast: List[Int]
+
+  obj Program
+    files: List[File]
+
+  obj Checker
+    program: ?Program
+    n: Int
+
+  a: List[Int] = List()
+  !a.push(7)
+  files: List[File] = List()
+  !files.push(File(ast: <a))
+  p = Program(files: <files)
+  c = Checker(program: ?p, n: 0)
+  tree = ?c.program.files[0].ast
+  !p.files.clear()
+  print(tree[0])
+
+fail "a read through a read-view field of self while self is lent to write", "use of `@program` while a write loan on `@` is live"
+  # Reading the read view self holds reads `@`: not while a write loan
+  # on all of `@` is live.
+  # oracle: Checker.look reject C4
+
+  obj File
+    ast: List[Int]
+
+  obj Program
+    files: List[File]
+
+  obj Checker
+    program: ?Program
+    n: Int
+
+    fun count(!@) -> !Int
+      !@n
+
+    fun look(!@) -> Int
+      k = (!@).count()
+      t = ?@program.files[0].ast
+      k += 1
+      t[0]
+
+  print(1)

@@ -83,8 +83,10 @@ const Place = struct {
     /// seen through a view: what it reaches carries that view's loans,
     /// not a loan on its holder (Core s7).
     carry: bool = false,
-    /// The path passed through a write view before it carried: reaching
-    /// the stored view still reads the write view's place.
+    /// The path passed through a write view before it reached a view
+    /// stored there (a slice, or a read view): reaching the stored view
+    /// still reads the write view's place, up to that view where `cut`
+    /// marks it.
     under_write: bool = false,
     /// The path passes through a counted handle: what it reaches is the
     /// box's, which a loan on the handle keeps alive (Core s8: handles
@@ -2330,7 +2332,7 @@ const Lowerer = struct {
                 // carries no loan on what `r` sees, and `+s` of a `?String` view
                 // makes a String that holds none.
                 const through = p.via != .own or self.isRef(p.ty) or sema.unwrapViews(self.ctx, p.ty) == self.ctx.types.string_view_id;
-                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.loanPath(), .deref = p.via == .write, .kind = .read } });
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.loanPath(), .deref = p.via == .write or p.under_write, .kind = .read } });
                 return t;
             },
             .@"if", .block, .match, .@"??", .@"catch" => {
@@ -2650,7 +2652,16 @@ const Lowerer = struct {
                 via = .read;
                 carry = true;
             },
-            .read_view => if (via == .own) {
+            // A view reached through a read view a value holds carries
+            // that view's loans, not a loan on its holder (Core s7), even
+            // where the holder is reached through a write view: reading
+            // the stored view still reads the write view's place, the
+            // path up to the stored view (`cut`).
+            .read_view => if (via != .read) {
+                if (via == .write) {
+                    under_write = true;
+                    if (cut == null) cut = base.path.len;
+                }
                 via = .read;
             },
             .write_view => if (via == .own) {
@@ -2757,7 +2768,7 @@ const Lowerer = struct {
     /// What reading a place accesses: nothing behind a read view; the
     /// write view's place, when the path passed through one.
     fn readAccess(p: Place) ?core.Access {
-        if (p.under_write) return .{ .root = p.root, .deref = true, .kind = .read };
+        if (p.under_write) return .{ .root = p.root, .path = if (p.cut) |n| p.path[0..n] else &.{}, .deref = true, .kind = .read };
         if (p.via == .read) return null;
         return .{ .root = p.root, .path = p.loanPath(), .deref = p.via == .write, .kind = .read };
     }
