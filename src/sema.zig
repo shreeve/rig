@@ -495,6 +495,68 @@ pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObjec
     return .{ .object = o, .form = form };
 }
 
+/// A value erased to an API object (docs/design/apis.md, Stage 4): the
+/// value reached by a lend's rows, of type `from`, which provides the
+/// object's API by `witness`, made a `view`, `?{A}` or `!{A}`. Recorded
+/// once, where the type checker makes it (`SemContext.recordErasure`);
+/// emit writes the object and the ownership checker roots its loan from
+/// it.
+pub const Erasure = struct {
+    /// The object's API, whose table the object holds.
+    api: ApiRef,
+    /// The erased value's type.
+    from: TypeId,
+    /// The object it becomes: `?{A}` or `!{A}`.
+    view: TypeId,
+    witness: Witness,
+    form: ObjectForm,
+    /// The value is a read view of plain data or of a type parameter's
+    /// value, which may be held as a copy with no address of its own: the
+    /// object views a copy, a hidden local of the erasing block
+    /// (`Storage` `erased_copy`), and cannot leave the block.
+    copy: bool = false,
+};
+
+/// An entry of an API's table (docs/design/apis.md, Stage 4): a method a
+/// call through an object reaches (`objectMethods`), in its slot, with
+/// how it takes self and its type in the API's module, whose parameters
+/// after self and result no type erased to the API changes.
+pub const TableEntry = struct {
+    name: []const u8,
+    slot: u32,
+    self_mode: MethodReceiver,
+    fn_ty: TypeId,
+};
+
+/// The API object a view `ty` is, `?{Shape}` or `!{Shape}`, and how it
+/// views it; null for any other type, a box of one included.
+pub fn objectView(ctx: *const SemContext, ty: TypeId) ?struct { object: ApiObject, form: ObjectForm } {
+    const h = objectHeld(ctx, ty) orelse return null;
+    if (h.form == .box) return null;
+    return .{ .object = h.object, .form = h.form };
+}
+
+/// Whether `ty` is an API object's view, `?{Shape}` or `!{Shape}`, whose
+/// value's type is erased: no assignment, swap, or copy writes or reads
+/// the value through it; only its methods reach it.
+pub fn isErasedView(ctx: *const SemContext, ty: TypeId) bool {
+    return objectView(ctx, ty) != null;
+}
+
+/// Whether `ty` is or holds a box of an API object anywhere, `^{Shape}`,
+/// which a later phase of Stage 4 lowers.
+pub fn holdsObjectBox(ctx: *const SemContext, ty: TypeId) bool {
+    return holdsObjectBoxAt(ctx, ty, 0);
+}
+
+fn holdsObjectBoxAt(ctx: *const SemContext, ty: TypeId, depth: u32) bool {
+    if (depth > max_alias_height or !ctx.typeInfo(ty).object) return false;
+    if (objectHeld(ctx, ty)) |h| return h.form == .box;
+    var it: TypeChildren = .{ .ty = ctx.types.get(ty) };
+    while (it.next()) |c| if (holdsObjectBoxAt(ctx, c, depth + 1)) return true;
+    return false;
+}
+
 /// Why a call through an API object cannot reach a method of its API
 /// (docs/design/apis.md, Stage 4): the call would pass what a table's
 /// entry, one function for every type erased to it, cannot.
@@ -1338,6 +1400,39 @@ pub const WitnessMember = struct {
 pub const Dispatch = union(enum) {
     direct,
     static: Static,
+    /// Through an API object's table (docs/design/apis.md, Stage 4):
+    /// `s.area()` of a `?{Shape}`, its entry `slot` of the table, which
+    /// calls the hidden type's method (`objectMethods`).
+    dynamic: Dynamic,
+
+    /// Whether the call reaches an API's method, through a witness or a
+    /// table, checked by the API's declaration and its clauses alone: the
+    /// one test every pass asks, so none skips a form.
+    pub fn viaApi(d: Dispatch) bool {
+        return d != .direct;
+    }
+
+    /// The API that declares the method a call through an API reaches,
+    /// and its name; null for a direct call.
+    pub fn apiMethod(d: Dispatch) ?struct { api: ApiRef, method: []const u8 } {
+        return switch (d) {
+            .direct => null,
+            .static => |s| .{ .api = s.api, .method = s.method },
+            .dynamic => |y| .{ .api = y.api, .method = y.method },
+        };
+    }
+
+    pub const Dynamic = struct {
+        /// The API that declares the method, and its name.
+        api: ApiRef,
+        method: []const u8,
+        /// Its entry in the object's table (`ObjectMethod.slot`).
+        slot: u32,
+        /// How the method takes self.
+        self_mode: MethodReceiver = .read,
+        /// The object is the call's first argument (`Shape.area(s)`).
+        receiver_arg: bool = false,
+    };
 
     pub const Static = struct {
         witness: Witness,
@@ -1744,6 +1839,9 @@ pub const Facts = struct {
     /// A call of a method under bounds -> the witnesses it passes for
     /// them (`OwnerWitnesses`).
     owner_witnesses: std.AutoHashMapUnmanaged(NodeKey, OwnerWitnesses) = .empty,
+    /// A value erased to an API object (`exprKey`) -> what was erased,
+    /// to which object, by which witness (`Erasure`).
+    erasures: std.AutoHashMapUnmanaged(u64, Erasure) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
@@ -1977,6 +2075,10 @@ pub const StorageKind = enum {
     as_copy,
     /// The value inside an optional a lend reaches (`__rig_lent`).
     lent,
+    /// The copy an API object of a read view of plain data, or of a type
+    /// parameter's value, views (`Erasure.copy`), a local of the erasing
+    /// block (`__rig_erased`).
+    erased_copy,
     /// The payload a branch of a value read where its leaves are takes,
     /// captured by address (`__rig_leaf`).
     leaf,
@@ -2051,6 +2153,9 @@ pub const StorageLife = enum {
     call,
     /// Until its assignment's store.
     assignment,
+    /// Until the block it is made in ends: each pass of a loop's body
+    /// makes it anew.
+    block,
 };
 
 /// A question about a node whose answer emit, the storage plan, and the
@@ -2804,6 +2909,12 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
                 try writeWitness(ctx, a, w, s.witness);
                 try w.print(" {s}.{s}", .{ try apiName(ctx, s.api), s.method });
             },
+            .dynamic => |d| try w.print(" dynamic {s}.{s} slot {d}", .{ try apiName(ctx, d.api), d.method, d.slot }),
+        },
+        Erasure => {
+            try w.print(" {s} {s} ", .{ try formatTypeIn(ctx, a, v.from), try formatTypeIn(ctx, a, v.view) });
+            try writeWitness(ctx, a, w, v.witness);
+            if (v.copy) try w.writeAll(" copy");
         },
         OwnerWitnesses => {
             if (v.receiver_arg) try w.writeAll(" receiver_arg");
@@ -3202,6 +3313,10 @@ pub const SemContext = struct {
     /// (`SymbolFlags.states_bounds`) -> the declaration as written, `pub
     /// fun sum[T]`, as the error that it states its bounds names it.
     stated: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
+    /// Each API this module declares -> its table's entries, the methods
+    /// a call through an object of it reaches (`TableEntry`), from which
+    /// emit writes `__rig_table_Shape` (`typecheck.checkApiDecl`).
+    object_tables: std.AutoHashMapUnmanaged(SymbolId, []const TableEntry) = .empty,
     /// Each generic type named in a signature with a type parameter of
     /// the declaration as its argument `index`: the parameter has the
     /// built-in bounds of the one it fills (`resolve.TypeResolver.implyBounds`).
@@ -3470,6 +3585,7 @@ pub const SemContext = struct {
         self.type_witnesses.deinit(self.allocator);
         self.owner_bounds.deinit(self.allocator);
         self.stated.deinit(self.allocator);
+        self.object_tables.deinit(self.allocator);
         self.implications.deinit(self.allocator);
         self.assoc_bound_decls.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
@@ -3913,7 +4029,7 @@ pub const SemContext = struct {
         try self.facts.types.put(self.allocator, recordExprKey(node) orelse return, ty);
         // No value holding an API object is lowered yet: a program that
         // makes one without declaring its type is rejected here.
-        if (mentionsObject(self, ty) and !objectRejected(self)) try objectUnbuilt(self, self.startOf(node), ty);
+        if (holdsObjectBox(self, ty) and !objectRejected(self)) try objectUnbuilt(self, self.startOf(node), ty);
         // An element read copies its value, or is reached where it is,
         // as its type says (`copiesElem`), decided with the type.
         if (node.isKind(.index)) {
@@ -4738,6 +4854,15 @@ pub const SemContext = struct {
 
     pub fn dispatchOf(self: *const SemContext, call: Sexp) ?Dispatch {
         return self.facts.dispatch.get(nodeKey(call) orelse return null);
+    }
+
+    /// `node`, erased to an API object (`Erasure`).
+    pub fn recordErasure(self: *SemContext, node: Sexp, e: Erasure) !void {
+        try self.facts.erasures.put(self.allocator, recordExprKey(node) orelse return, e);
+    }
+
+    pub fn erasureOf(self: *const SemContext, node: Sexp) ?Erasure {
+        return self.facts.erasures.get(exprKey(node) orelse return null);
     }
 
     pub fn recordOwnerWitnesses(self: *SemContext, call: Sexp, w: OwnerWitnesses) !void {
@@ -5938,7 +6063,9 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
         // An API object may hold anything its erased type held: a view,
         // text, a Cell, a unique value. No type holds a write view but
         // a write view itself.
-        .api_object => .{ .cell = true, .unique = true, .views = .{ .marked = true, .string_view = true, .string = true } },
+        // One whose braces name `Owned` holds no loan, which its erasure
+        // checks on the value's type.
+        .api_object => |o| if (o.builtins.contains(.Owned)) .{ .cell = true, .unique = true, .views = .{ .string = true } } else .{ .cell = true, .unique = true, .views = .{ .marked = true, .string_view = true, .string = true } },
         .optional => |inner| return reachOf(ctx, inner, mask, into),
         .fallible => |inner| return reachOf(ctx, inner.ok, mask, into),
         .array => |a| return reachOf(ctx, a.elem, mask, into),
@@ -7222,6 +7349,8 @@ pub const NotEquatable = struct {
         /// A type with its own `==` and no hash of its own, which hashing
         /// by its fields would not agree with (`notHashable`).
         own_eq,
+        /// An API object: two may hide two types (open question 4).
+        object,
     };
 };
 
@@ -7343,7 +7472,7 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
         .Ord => return ordLack(ctx, ty, 0),
         .Print => {
             if (!try printable(ctx, ty)) return .{ .ty = ty };
-            if (objectUnprinted(ctx, ty)) |held| return .{ .ty = held };
+            if (try objectUnprinted(ctx, ty)) |held| return .{ .ty = held };
             return heldLack(ctx, ty, api);
         },
         .Num => return if (isNumeric(ctx, unwrapViews(ctx, ty))) null else .{ .ty = ty },
@@ -7383,23 +7512,54 @@ pub fn lacks(ctx: *SemContext, ty: TypeId, api: Api) std.mem.Allocator.Error!?La
     }
 }
 
-/// An API object `ty` holds, by the walk `reachedTypeVars` makes, whose
-/// braces and API name no `Print`: `List[^{Shape}]` prints only as its
-/// objects do (`objectMeets`). Null when each prints.
-fn objectUnprinted(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    if (!mentionsObject(ctx, ty)) return null;
-    if (objectHeld(ctx, ty)) |h| return if (objectMeets(ctx, h.object, h.form, .Print)) null else ty;
-    if (apiObject(ctx, ty) != null) return ty;
-    return switch (ctx.types.get(ty)) {
-        .optional, .read_view, .write_view, .shared, .weak => |inner| objectUnprinted(ctx, inner),
-        .fallible => |inner| objectUnprinted(ctx, inner.ok),
-        .array => |arr| objectUnprinted(ctx, arr.elem),
-        .slice => |sl| objectUnprinted(ctx, sl.elem),
-        .parameterized_nominal => |pn| for (pn.args) |arg| {
-            if (objectUnprinted(ctx, arg)) |held| break held;
-        } else null,
-        else => null,
-    };
+/// An API object `ty` holds, through wrappers, type arguments, fields,
+/// and payloads (the walk `holdsByteSlice` makes), whose braces and API
+/// name no `Print`: `List[^{Shape}]`, and an `obj` with a `?{Shape}`
+/// field, print only as their objects do (`objectMeets`). The object's
+/// type, or `ty` when the object is another module's field's; null when
+/// each prints.
+pub fn objectUnprinted(ctx: *const SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
+    const a = ctx.allocator;
+    var todo: std.ArrayList(ByteSliceItem) = .empty;
+    defer todo.deinit(a);
+    var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+    defer seen.deinit(a);
+    try todo.append(a, .{ .ctx = ctx, .ty = ty });
+    while (todo.pop()) |item| {
+        const c = item.ctx;
+        const found = if (objectHeld(c, item.ty)) |h| !objectMeets(c, h.object, h.form, .Print) else apiObject(c, item.ty) != null;
+        if (found) return if (c == ctx) item.ty else ty;
+        if (objectHeld(c, item.ty) != null) continue;
+        switch (c.types.get(item.ty)) {
+            .optional, .read_view, .write_view, .shared, .weak => |inner| {
+                try todo.append(a, .{ .ctx = c, .ty = inner });
+                continue;
+            },
+            .fallible => |f| {
+                try todo.append(a, .{ .ctx = c, .ty = f.ok });
+                continue;
+            },
+            .array => |arr| {
+                try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                continue;
+            },
+            .slice => |sl| {
+                try todo.append(a, .{ .ctx = c, .ty = sl.elem });
+                continue;
+            },
+            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+            .nominal, .imported_nominal => {},
+            else => continue,
+        }
+        const decl = nominalDecl(c, item.ty) orelse continue;
+        if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+        // A type that prints itself prints no field it does not choose to.
+        if (ownApiMethod(decl.ctx.symbols.items[decl.sym], .Print) != null) continue;
+        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
+        }
+    }
+    return null;
 }
 
 /// Whether an API object held as `form` meets built-in API `api`
@@ -7547,6 +7707,12 @@ fn reportUnprovided(ctx: *SemContext, at: u32, of: InstanceRoot, pname: []const 
     const bare = if (std.mem.indexOfScalar(u8, inst, '[')) |i| inst[0..i] else inst;
     const aname = try formatType(ctx, arg);
     const iname = try apiName(ctx, api);
+    // A box is not its value, and an object's value has no type a bound
+    // could name (open question 9).
+    if (objectHeld(ctx, arg)) |h| {
+        const view = try objectSpelling(ctx, ctx.arena.allocator(), h.object);
+        return ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` needs `{s}: {s}`, and an API object meets no bound by an API; take a `?{s}`", .{ inst, pname, aname, bare, pname, iname, view });
+    }
     try ctx.err(at, "`{s}` cannot use `{s} = {s}`: `{s}` needs `{s}: {s}`, and `{s}` does not provide `{s}`{s}", .{ inst, pname, aname, bare, pname, iname, aname, iname, try unprovidedFix(ctx, arg, api) });
 }
 
@@ -8423,6 +8589,7 @@ const EquatableWalk = struct {
             .shared => |inner| if (frozenValue(ctx, inner)) |value| try self.push(i, value, "") else return if (ctx.types.get(inner) == .function) .closure else .handle,
             .weak => return .handle,
             .function => return .function,
+            .api_object => return .object,
             // A parameter of another module's generic type is always
             // bound by the instance that reaches it.
             .type_var => |sym| if (self.params) |out| if (!isProxy(ctx.symbols.items[sym]) and std.mem.findScalar(SymbolId, out.items, sym) == null) try out.append(ctx.allocator, sym),
@@ -9629,10 +9796,26 @@ pub fn stmtTemps(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: 
     if (ctx.dropsTemp(stmt)) try out.append(a, stmt);
 }
 
+/// The values statement `stmt` erases to API objects that view a copy
+/// (`Erasure.copy`), in its headers and arms too, but not in the blocks or
+/// closures it holds, whose statements are emitted on their own: emit
+/// declares the slot of each before the statement, a local of its block
+/// (`Emitter.emitErasedSlots`).
+pub fn stmtErasedCopies(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp, out: *std.ArrayList(Sexp)) std.mem.Allocator.Error!void {
+    if (ctx.facts.erasures.count() == 0) return;
+    if (stmt.isKind(.block) or stmt.isKind(.lambda)) return;
+    if (ctx.erasureOf(stmt)) |e| if (e.copy) try out.append(a, stmt);
+    if (stmt != .list) return;
+    for (stmt.items()) |c| try stmtErasedCopies(ctx, a, c, out);
+}
+
 /// Whether a view of type `ty` is held as a pointer: a write view (but
 /// a `![]T`, a slice), or a read view of a value that is not lent by
 /// value (`lendByValue`).
 pub fn viewHeldAsPointer(ctx: *const SemContext, ty: TypeId) bool {
+    // An API object is two words held by value, the address and the
+    // table, as a callable view is (`rig.ApiView`).
+    if (objectView(ctx, ty) != null) return false;
     return switch (ctx.types.get(ty)) {
         .write_view => writeSliceElem(ctx, ty) == null,
         .read_view => |inner| !lendByValue(ctx, inner),
@@ -9848,7 +10031,9 @@ const TargetWalk = struct {
             } else {
                 self.out.any = true;
             },
-            .function, .callable, .invalid, .unknown => self.out.any = true,
+            // An API object's value may be anything (docs/design/apis.md,
+            // Stage 4).
+            .function, .callable, .api_object, .invalid, .unknown => self.out.any = true,
             else => {
                 try self.out.add(self.a, viewAtom(ctx, node.ty) | if (node.elem) elem_view else 0);
                 // A `[]?String` also views the elements of a `[]Static`
@@ -9896,7 +10081,8 @@ const TargetWalk = struct {
             } else if (!self.written_only or self.written) {
                 self.out.any = true;
             },
-            .invalid, .unknown => if (!self.written_only or self.written) {
+            // An API object's value may hold a view of anything.
+            .api_object, .invalid, .unknown => if (!self.written_only or self.written) {
                 self.out.any = true;
             },
             else => {},
@@ -9985,8 +10171,9 @@ const ReachWalk = struct {
         const t = ctx.types.get(node.ty);
         const read: Path = .{ .read = true, .viewed = true };
         switch (t) {
-            // Anything at all, a view among them.
-            .function, .callable, .invalid, .unknown => return self.reached(path, true),
+            // Anything at all, a view among them; an API object's value
+            // may be anything too.
+            .function, .callable, .api_object, .invalid, .unknown => return self.reached(path, true),
             // A type parameter stands for anything; in a generic type's
             // field, for the instance's arguments, which are walked apart.
             .type_var => {
@@ -10697,6 +10884,12 @@ const ClonePath = struct { at: CloneSeen, up: ?*const ClonePath };
 /// types being checked: one reached again (a box of a recursive type)
 /// clones if the rest of it does.
 fn deepCloneable(ctx: *const SemContext, ty: TypeId, frame: ?*const CloneFrame, seen: ?*const ClonePath) bool {
+    // An API object clones as its braces or API say (`objectMeets`): a
+    // box through its table's `Clone`, never the hidden value itself.
+    if (ctx.typeInfo(ty).object) {
+        if (objectHeld(ctx, ty)) |h| return objectMeets(ctx, h.object, h.form, .Clone);
+        if (apiObject(ctx, ty) != null) return false;
+    }
     switch (ctx.types.get(ty)) {
         .type_var => |sym| {
             // A set parameter's value is an error, which clones.
@@ -11819,7 +12012,7 @@ pub const LendStep = enum(u8) {
     elems,
     /// A `String` lends its bytes, a `?String`.
     text,
-    /// A `![]T` is lent on to read, as a `[]T`.
+    /// A `![]T` is lent on to read, as a `[]T`, and a `!{A}` as a `?{A}`.
     read_only,
     /// An `X?` lends a `View?`: a view of the `X` inside, or `none`.
     optional,
@@ -11827,6 +12020,10 @@ pub const LendStep = enum(u8) {
     lift,
     /// A function, or an owned closure, lends a `?fun(...)`.
     callable,
+    /// The value reached, of a type that provides an API, lends a `?{A}`,
+    /// and to write a `!{A}`: the last row, after the others reach the
+    /// value (docs/design/apis.md, Stage 4; `SemContext.erasureOf`).
+    erase,
 };
 
 /// How a view is lent from a value of another type: the rows of the
@@ -11935,9 +12132,11 @@ pub fn lendsAs(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeI
 
 fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
     const types = &ctx.types;
-    // Any `T` lends `?T`, and `!T` to write; a write lend may be read.
+    // Any `T` lends `?T`, and `!T` to write; a write lend may be read. A
+    // write view of an API object lends its read view, one of another
+    // Zig type (`rig.ApiView`).
     switch (types.get(view)) {
-        .read_view => |t| if (t == from) return true,
+        .read_view => |t| if (t == from) return if (kind == .write and apiObject(ctx, t) != null) lend.push(.read_only) else true,
         .write_view => |t| if (t == from and kind == .write) return true,
         else => {},
     }
@@ -11970,6 +12169,17 @@ fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, 
         }
         return false;
     }
+    // The last row: the value reached lends an API object, which the
+    // type checker checks it provides (docs/design/apis.md, Stage 4). A
+    // handle and a box lend their value's views first, by their rows;
+    // only the value reached is erased.
+    if (objectView(ctx, view)) |ov| switch (types.get(from)) {
+        .shared => {},
+        else => if (boxedType(ctx, from) == null) {
+            if (ov.form == .write and kind != .write) return false;
+            return lend.push(.erase);
+        },
+    };
     switch (types.get(from)) {
         // An array lends `[]T`, and `![]T` to write.
         .array => |a| return lendElems(ctx, a.elem, kind, view, lend),

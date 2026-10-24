@@ -33,6 +33,12 @@ expression, `e?` passes `none` up and `e!` passes a failure up.
 copies a plain object and moves an owning one; the object itself is
 never on the heap or shared unless a sigil says so.
 
+**Braces in a type hide the value's type.** `?{Shape}` views a value of
+any type that provides `api Shape`, and `!{Shape}` writes one:
+`area_of(sq)` lends a `Square` where `s: ?{Shape}` is the parameter,
+and `s.area()` calls the hidden type's method through its table. The
+object keeps every loan the value had.
+
 **After a name, `[]` is compile time and `()` is run time.** Indexing is
 the one familiar exception: `max[Float](1, 2)` passes a type, `xs[i]`
 indexes a value. A function with only brackets runs at compile time:

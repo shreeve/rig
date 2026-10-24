@@ -1553,6 +1553,9 @@ const Planner = struct {
         _ = handsKind(ctx, e);
         if (ctx.lendOf(e)) |lend| {
             if (lendsInsideOptional(lend)) try p.record(e, .lent, .pointer, .expression);
+            // An API object of a value that may be held as a copy views a
+            // copy, a local of the erasing block (`sema.Erasure.copy`).
+            if (lend.has(.erase)) if (ctx.erasureOf(e)) |er| if (er.copy) try p.record(e, .erased_copy, .copy, .block);
             try p.leaves(if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e);
         }
         if (e != .list) return;

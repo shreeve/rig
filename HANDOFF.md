@@ -169,7 +169,9 @@ to 4 with them. Stage 4, API objects, is built in phases (phase 0, its Core text
 after the suite and Trig's light gate: phase 1, the types and their
 rules, is built
 ([phase1-notes.md](docs/history/records/2026-10/apis-stage4/phase1-notes.md)),
-and a value holding an object waits for phase 2. Stage 5 waits for a
+and phase 2, views of objects and calls through their tables
+([phase2-notes.md](docs/history/records/2026-10/apis-stage4/phase2-notes.md));
+a box of an object, `^{Shape}`, waits for phase 3. Stage 5 waits for a
 program that needs it; a design question is answered from the
 record, and what it does not settle goes to the owner as a decision with
 a default.

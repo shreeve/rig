@@ -343,6 +343,11 @@ const Var = struct {
     /// while the call runs (`sema.Storage` of life `call`): the receiver
     /// or argument it is lent (`holdForCall`).
     call_held: bool = false,
+    /// The copy an API object views (`sema.Erasure.copy`), a local of the
+    /// erasing block: the view it copies, as written, and the object's
+    /// type, for the error when a loan on it outlives the block.
+    erased_of: []const u8 = "",
+    erased_view: ?TypeId = null,
     /// The var with the same name this one hides, for name lookup.
     shadows: ?VarId = null,
     via: Via = .owned,
@@ -1237,6 +1242,7 @@ pub const Checker = struct {
 
     fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
         const root = self.vars.items[l.root];
+        if (root.erased_of.len > 0) return self.reportErasedCopy(l, root);
         if (root.arm_of.len > 0) return self.reportArmView(l);
         if (root.call_held) return self.reportCallHeld(l, holder);
         if (root.kind == .hidden and root.name.len > 0) return self.reportTempOutlived(l, holder);
@@ -1249,6 +1255,19 @@ pub const Checker = struct {
             }
         }
         try self.note(root.decl, "`{s}` goes out of scope while it is still lent", .{root.name});
+    }
+
+    /// An API object that views a copy, a local of the block that erased
+    /// it (`Var.erased_of`), kept past that block by `l`.
+    fn reportErasedCopy(self: *Checker, l: Loan, root: Var) Error!void {
+        const ctx = self.sema orelse return;
+        const view = try sema.formatTypeIn(ctx, self.arena(), root.erased_view orelse return);
+        const ty = root.ty orelse return;
+        const why = if (ctx.types.get(ty) == .type_var)
+            try std.fmt.allocPrint(self.arena(), "since a `{s}` may be held as a copy", .{try sema.formatTypeIn(ctx, self.arena(), ty)})
+        else
+            try std.fmt.allocPrint(self.arena(), "since `{s}` is plain data", .{try sema.formatTypeIn(ctx, self.arena(), ty)});
+        try self.err(l.pos, "`{s}` of `{s}` views a copy held in this block, {s}, so it cannot leave the block; lend the owner where it lives, or take `{s}: {s}`", .{ view, root.erased_of, why, root.erased_of, view });
     }
 
     /// Where loan `l` of a String outlives the String in a value of type
@@ -2252,6 +2271,30 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walk(self: *Checker, sexp: Sexp) Error!Value {
+        // An API object of a read view of plain data, or of a type
+        // parameter's value, views a copy, a local of the erasing block
+        // (`sema.Erasure.copy`): its loan is on that copy, which keeps
+        // what the view kept, never on what the view reached.
+        if (self.sema) |ctx| if (ctx.facts.erasures.count() > 0) if (ctx.erasureOf(sexp)) |e| if (e.copy) {
+            const v = try self.walkUnerased(sexp);
+            const pos = self.startOf(sexp);
+            const lent = if (sexp.isKind(.read)) ir.Read.operand(sexp) else sexp;
+            const id = try self.addVar(.{ .name = try std.fmt.allocPrint(self.arena(), "the copy of {s}", .{self.spanText(lent)}), .decl = pos, .ty = e.from, .kind = .hidden, .erased_of = self.spanText(lent), .erased_view = e.view }, .{ .loans = v.loans });
+            return .{ .loans = try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos }) };
+        };
+        return self.walkUnerased(sexp);
+    }
+
+    /// Whether `e` is erased to an API object that views a copy
+    /// (`sema.Erasure.copy`).
+    fn erasesCopy(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        if (ctx.facts.erasures.count() == 0) return false;
+        const er = ctx.erasureOf(e) orelse return false;
+        return er.copy;
+    }
+
+    fn walkUnerased(self: *Checker, sexp: Sexp) Error!Value {
         switch (sexp) {
             .src => return self.walkName(sexp, false),
             .list => {},
@@ -4825,7 +4868,7 @@ pub const Checker = struct {
         // the element type does (`storesNothing`).
         const saved_api = self.api_call;
         defer self.api_call = saved_api;
-        self.api_call = if (self.sema) |ctx| if (ctx.dispatchOf(node)) |d| d == .static else false else false;
+        self.api_call = if (self.sema) |ctx| if (ctx.dispatchOf(node)) |d| d.viaApi() else false else false;
         if ((stored.loans.len > 0 or stores_generic) and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
             // what changes through one is a Cell, which holds no loan). A
@@ -5398,6 +5441,10 @@ pub const Checker = struct {
             // viewed may be stored in a module-level binding.
             for (out.items) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
                 const name = self.vars.items[l.root].name;
+                if (self.vars.items[l.root].erased_of.len > 0) {
+                    try self.reportErasedCopy(l, self.vars.items[l.root]);
+                    return;
+                }
                 if (via) |w| {
                     try self.err(pos, "cannot store a view of `{s}` through `{s}`: `{s}` outlives it", .{ name, w, c.name });
                 } else try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: `{s}` outlives it", .{ name, c.name, c.name });
@@ -5691,7 +5738,11 @@ pub const Checker = struct {
     /// gives, by which its loans are judged (Core sentence 7, per result).
     fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!void {
         var value: Value = .{};
-        if (expr == .src) {
+        if (expr == .src and self.erasesCopy(expr)) {
+            // A read view erased to an API object of a copy, a local of
+            // this block (`walk`).
+            value = try self.walk(expr);
+        } else if (expr == .src) {
             try self.checkNoImplicitCopy(expr, .ret, true);
             if (self.find(self.text(expr))) |id| {
                 const v = self.vars.items[id];
@@ -5977,6 +6028,10 @@ pub const Checker = struct {
             const r = self.vars.items[l.root];
             if (r.arm_of.len > 0) {
                 try self.reportArmView(l);
+                continue;
+            }
+            if (r.erased_of.len > 0) {
+                try self.reportErasedCopy(l, r);
                 continue;
             }
             const seen = for (v.loans[0..i]) |p| {

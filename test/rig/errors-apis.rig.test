@@ -194,3 +194,155 @@ fail "apis a task over a bound's call", "`x.size` fails with `Bad`, and waiting 
     >t!
 
   print(1)
+
+# ---- through an API object (Stage 4) ----
+
+test "apis object a set passes on", "5 -1"
+  # `!` of the API's set into a frame whose union holds it, through a
+  # `?{Sized}`; the table's entry takes the slot, as a callable view does.
+
+  error Bad
+    empty
+
+  error Disk
+    full
+
+  error Load = Bad | Disk
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  obj Word: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      @s.len
+
+  fun total(a: ?{Sized}, b: ?{Sized}) -> Int!Load
+    a.size()! + b.size()!
+
+  x = Word(s: String("ab"))
+  y = Word(s: String("abc"))
+  z = Word(s: String(""))
+  print(total(x, y) catch -1, total(x, z) catch -1)
+
+test "apis object a set is matched", "-1 40 2"
+  error Bad
+    empty
+    long(n: Int)
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  obj Word: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      return Bad.long(n: @s.len) if @s.len > 3
+      @s.len
+
+  fun named(x: ?{Sized}) -> Int
+    x.size() catch |e|
+      match e
+        .empty => -1
+        .long(n) => n * 10
+
+  print(named(Word(s: String(""))), named(Word(s: String("abcd"))), named(Word(s: String("ab"))))
+
+test "apis object a set with text among its fields", '''
+  long abcdef
+  2
+'''
+  # The fields come through the slot the call lends: a String among them
+  # is moved once and dropped once.
+
+  error Bad
+    empty
+    long(text: String)
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  obj Name: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      return Bad.long(text: +@s) if @s.len > 3
+      @s.len
+
+  fun total(xs: ?List[?{Sized}]) -> Int!Bad
+    n = 0
+    for x in xs
+      n += x.size()!
+    n
+
+  a = Name(s: String("ab"))
+  b = Name(s: String("abcdef"))
+  long: List[?{Sized}] = List()
+  !long.push(?a)
+  !long.push(?b)
+  _ = total(?long) catch |e|
+    match e
+      .empty => print("empty")
+      .long(text) => print("long", text)
+    0
+  short: List[?{Sized}] = List()
+  !short.push(?a)
+  print(total(?short) catch -1)
+
+test "apis object any error", "3 -1"
+  error Bad
+    empty
+
+  api Sized
+    fun size(?@) -> Int!
+
+  obj Word: Sized
+    s: String
+
+    fun size(?@) -> Int!
+      return Bad.empty if @s.len == 0
+      @s.len
+
+  fun size_of(x: ?{Sized}) -> Int!
+    x.size()!
+
+  print(size_of(Word(s: String("abc"))) catch -1, size_of(Word(s: String(""))) catch -1)
+
+test "apis object a failing default", "4 -1"
+  error Bad
+    empty
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+    fun double(?@) -> Int!Bad
+      2 * @size()!
+
+  obj Word: Sized
+    s: String
+
+    fun size(?@) -> Int!Bad
+      return Bad.empty if @s.len == 0
+      @s.len
+
+  fun twice(x: ?{Sized}) -> Int!Bad
+    x.double()!
+
+  print(twice(Word(s: String("ab"))) catch -1, twice(Word(s: String(""))) catch -1)
+
+fail "apis object a task over a call through it", "a task over a call through an API object is not built yet (docs/design/apis.md, Stage 4)"
+  error Bad
+    empty
+
+  api Sized
+    fun size(?@) -> Int!Bad
+
+  fun later(x: ?{Sized}) -> Int!Bad
+    t = x.size()&
+    >t!
+
+  print(1)

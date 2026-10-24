@@ -93,3 +93,111 @@ test "apis a bounded owner moves through a witness", '''
 
   shut(File(title: String("a")))
   keep(File(title: String("b")), File(title: String("c")))
+
+# ---- through an API object (Stage 4) ----
+
+fail "apis object a result from self keeps the owner's loan", "cannot lend `sq` to write while a read loan is live"
+  # The object carries `sq`'s loan, and the result `from @` carries the
+  # object's, so `sq` stays lent while `l` lives.
+
+  api Shape
+    fun label(?@) -> ?String from @
+    sub grow(!@, by: Float)
+
+  obj Square: Shape
+    name: String
+    side: Float
+
+    fun label(?@) -> ?String from @
+      ?@name
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  fun label_of(s: ?{Shape}) -> ?String from s
+    s.label()
+
+  sq = Square(name: String("sq"), side: 1.0)
+  l = label_of(?sq)
+  !sq.grow(1.0)
+  print(l)
+
+fail "apis object keeps through a write view", "cannot drop `t` while it is lent"
+  # `keeps t` through a `!{Watcher}` stores the loan in the owner the
+  # object views.
+
+  api Watcher
+    sub watch(!@, t: ?String) keeps t
+
+  obj Log: Watcher
+    seen: List[?String]
+
+    sub watch(!@, t: ?String) keeps t
+      !@seen.push(t)
+
+  sub hook(w: !{Watcher}, t: ?String) keeps t
+    !w.watch(t)
+
+  log = Log(seen: List())
+  t = String("x")
+  hook(!log, ?t)
+  <t
+  print(log.seen.len)
+
+fail "apis object the API's keeps, not the implementation's", "`hook` stores a view of `t` in `w`, which its caller reaches, but its signature does not keep `t`; say so: `keeps t`", "cannot let this call store a view of `s` in `w`: `w` outlives it"
+  # `Count.watch` keeps nothing, but a call through `!{Watcher}` keeps
+  # what the API says it may: a view the caller passed in, said by the
+  # signature, and none of a local.
+
+  api Watcher
+    sub watch(!@, t: ?String) keeps t
+
+  obj Count: Watcher
+    n: Int
+
+    sub watch(!@, t: ?String)
+      @n += t.len
+
+  sub hook(w: !{Watcher}, t: ?String)
+    !w.watch(t)
+
+  sub local(w: !{Watcher})
+    s = String("x")
+    !w.watch(?s)
+
+  c = Count(n: 0)
+  local(!c)
+  print(c.n)
+
+fail "apis object of a temporary past its statement", "a view of the temporary `Square(side: 1.0)` outlives its statement, which drops it; bind the value to a name first"
+  api Shape
+    fun area(?@) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+  s: ?{Shape} = ?Square(side: 1.0)
+  print(s.area())
+
+test "apis object ends its loan at its last use", "2.0"
+  api Shape
+    fun area(?@) -> Float
+    sub grow(!@, by: Float)
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@) -> Float
+      @side * @side
+
+    sub grow(!@, by: Float)
+      @side += by
+
+  sq = Square(side: 1.0)
+  s: ?{Shape} = ?sq
+  a = s.area()
+  !sq.grow(a)
+  print(sq.side)

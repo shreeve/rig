@@ -1770,8 +1770,10 @@ pub const Lexer = struct {
         while (true) {
             const t = probe.next();
             switch (t.cat) {
-                .lparen, .lbracket => depth += 1,
-                .rparen, .rbracket => {
+                // An API object's braces, `?{Shape + Print}`, nest as
+                // brackets do.
+                .lparen, .lbracket, .lbrace => depth += 1,
+                .rparen, .rbracket, .rbrace => {
                     if (depth == 0) return null;
                     depth -= 1;
                 },
@@ -4900,6 +4902,7 @@ test "layout: indentation, joined lines, tabs" {
 
 test "closure bar lists: typed parameters, empty bars, owned star" {
     try expectCats("f = |+v, a: Int| a", &.{ .ident, .assign, .bar_capture, .plus, .ident, .comma, .ident, .colon, .ident, .bar_capture, .ident });
+    try expectCats("f = |s: ?{A + B}| s", &.{ .ident, .assign, .bar_capture, .ident, .colon, .question, .lbrace, .ident, .plus, .ident, .rbrace, .bar_capture, .ident });
     try expectCats("f = |?v, !w, a| a", &.{ .ident, .assign, .bar_capture, .question, .ident, .comma, .not_sym, .ident, .comma, .ident, .bar_capture, .ident });
     try expectCats("g = || 1", &.{ .ident, .assign, .bar_empty, .integer });
     try expectCats("h = *|a| a", &.{ .ident, .assign, .star, .bar_capture, .ident, .bar_capture, .ident });
