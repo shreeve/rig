@@ -1690,11 +1690,15 @@ const Planner = struct {
         }
         if (viewsOptionalValue(ctx, value)) {
             // A view of a temporary the header drops: the binding views
-            // a copy of the value inside.
-            const copy = ctx.copiesHeader(cond);
+            // a copy of the value inside. A generic view, a copy or an
+            // address per instance (`genericReadView`), is read through
+            // `rig.viewed`, and its value inside captured as a copy that
+            // owns nothing, as a `for` binds an element it reads.
+            const generic = if (typeOf(ctx, value)) |t| genericReadView(ctx, t) != null else false;
+            const copy = !generic and ctx.copiesHeader(cond);
             try p.subjectHeader(value);
             if (used) {
-                try p.record(cond, .as_value, if (copy) .copy else .pointer, .body);
+                try p.record(cond, .as_value, if (copy or generic) .copy else .pointer, .body);
                 if (copy) try p.record(cond, .as_copy, .copy, .body);
             }
             return;

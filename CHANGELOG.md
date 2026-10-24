@@ -292,6 +292,12 @@ changed the language since it:
   (`hasLenReached`) now says a length is read through handles and
   boxes alike.
 
+- **`if ?o as v` of a `?T?` in a generic body views the `T`:** under
+  any bound, `if ?o as v` and `while ?o as v` asked for `Copy`; the `T`
+  is now read where it stands, as a `for` reads an element of a
+  `?List[T]`, the optional stays lent while `v` lives, and only taking
+  `v` out needs a `T` that copies at each instance.
+
 - **Small fixes the Learn Rig journeys found:** a local a closure uses
   without capturing it is reported once for each closure, at its first
   use; `List(...)` of objects, and an array lent where a `?List[T]`

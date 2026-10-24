@@ -3264,6 +3264,9 @@ pub const PlainRequirement = struct {
     /// The value is an element its collection still owns, taken out
     /// (moved, dropped, reassigned) rather than copied.
     element: bool = false,
+    /// The value is one an `as` binds where it stands, inside an optional
+    /// a read view reaches, taken out rather than copied.
+    as_view: bool = false,
     /// Not a copy: the value is stored where no loan is tracked (a Cell,
     /// a Signal, an owned closure), so each instance's argument must
     /// hold no `?String`, which may view a String.
@@ -7908,8 +7911,9 @@ fn objectUnownedFields(ctx: *const SemContext, sym: SymbolId, seen: *std.AutoHas
 /// `Owned` for a box or a handle whose braces name it, checked where the
 /// type is erased, and for a `*{A + Syncs}`, which holds a frozen value.
 /// Nothing else: two objects may hide two types, which `==`, hashing,
-/// and `<` cannot compare, and an erased type crosses no task until
-/// Stage 5. A bare object meets nothing (`lacks`).
+/// and `<` cannot compare. `Sends` and `Syncs` are the crossing walk's,
+/// by the bounds the braces name (`lacks`, `blockerOf`). A bare object
+/// meets nothing (`lacks`).
 pub fn objectMeets(ctx: *const SemContext, o: ApiObject, form: ObjectForm, api: Api) bool {
     const named = objectBounds(ctx, o);
     return switch (api) {

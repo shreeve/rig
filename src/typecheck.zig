@@ -2727,6 +2727,10 @@ const Checker = struct {
             const writes = self.ctx.types.get(ty) == .write_view;
             if (try sema.makesWriteView(self.ctx, expr)) {
                 reach = .written;
+            } else if (!writes and sema.copies(self.ctx, inner) == .depends) {
+                // A type parameter's value, which may own, is viewed where
+                // it is in every instance, as an element `for` reads is.
+                reach = .read;
             } else if (try self.cannotCopy(inner, self.startOf(expr), "moves out of a view a value")) {
                 if (writes) {
                     // A held write view is lent on visibly, as `!o`; one a

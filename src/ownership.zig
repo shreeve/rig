@@ -309,6 +309,9 @@ const Var = struct {
     /// Element of a loop that does not consume its collection: a view of
     /// a slot the collection still owns.
     elem_view: bool = false,
+    /// A type parameter's value an `as` binds where it stands, inside an
+    /// optional a read view reaches (`bindNew`).
+    as_view: bool = false,
     /// A loop element: the var holding the collection it walks, whose
     /// loans are the views its elements may hold.
     elem_of: ?VarId = null,
@@ -934,6 +937,8 @@ pub const Checker = struct {
             } else try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, and `{s}` is unique", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
             if (r.element) {
                 try self.noteIn(r.module_id, r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
+            } else if (r.as_view) {
+                try self.noteIn(r.module_id, r.pos, "a `{s}` is taken here from inside an optional that still owns it, where `as` binds it", .{pname});
             } else try self.noteIn(r.module_id, r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
             return;
         }
@@ -3690,6 +3695,9 @@ pub const Checker = struct {
         if (v.elem_view and v.ref == .none) if (self.owningKind(v.ty)) |k| if (k == .generic) {
             try self.requirePlain(pos, v.ty.?, true);
         };
+        if (v.as_view) if (self.owningKind(v.ty)) |k| if (k == .generic) {
+            try self.addRequirement(pos, v.ty.?, .{ .param = 0, .pos = pos, .as_view = true });
+        };
         if (v.loop_view) {
             try self.err(pos, "cannot {s} loop view `{s}`; " ++ loop_view_rule, .{ op, v.name });
             return true;
@@ -4259,6 +4267,12 @@ pub const Checker = struct {
     fn bindNew(self: *Checker, node: Sexp, fixed: bool, closure: bool, value: Value) Error!void {
         const pos = node.src.pos;
         const ty = self.symType(pos);
+        // A read binding whose type is no view, a type parameter's value
+        // reached through a read view (`sema.decideBindingAccess`), is
+        // its bytes where they stand: it keeps what it was bound from
+        // lent, and is taken only as a copy, as a `for` element is.
+        const sym: ?SymbolId = if (self.sema) |ctx| ctx.symbolAt(pos) else null;
+        const in_place = !closure and !self.isView(ty) and self.lendTarget(.{ .name = "", .decl = pos, .sym = sym }) == .read_view;
         _ = try self.addVar(.{
             .name = self.text(node),
             .decl = pos,
@@ -4266,7 +4280,8 @@ pub const Checker = struct {
             .ref = self.refOfType(ty),
             .fixed = fixed or closure,
             .closure = closure,
-        }, .{ .loans = if (closure) value.loans else if (self.mayCarryLoan(ty)) (try self.carry(ty, value)).loans else self.taintedNone(ty, value) });
+            .as_view = in_place,
+        }, .{ .loans = if (closure or in_place) value.loans else if (self.mayCarryLoan(ty)) (try self.carry(ty, value)).loans else self.taintedNone(ty, value) });
     }
 
     /// Checks shared by reassignment and compound assignment.
