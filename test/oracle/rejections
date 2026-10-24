@@ -3793,6 +3793,7 @@ test/reject/types/module_level_binding_ownership.rig main
 test/reject/types/apis_bounded_copy.rig twice
 test/reject/types/apis_pub_states_its_bounds_cell.rig boxed
 test/reject/types/apis_pub_states_its_bounds_adds_to_its_bounds.rig total
+test/reject/types/apis_iter_an_item_that_views_its_iterator main
 text.arg_then_write.catch run
 text.arg_then_write.destructure run
 text.arg_then_write.destructure_branch run

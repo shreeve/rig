@@ -93,10 +93,14 @@ In the owner's order:
    Phase 4, associated types and `Iter` with std.iter, is built
    ([phase4-notes.md](docs/history/records/2026-10/apis-stage3/phase4-notes.md),
    [review-p34.md](docs/history/records/2026-10/apis-stage3/review-p34.md)).
-   An iterator goes through `[I: Iter]` when its items own what they
-   hold, or when its `next` names only fields declared as read views
-   (`from @map`), as Map's and Set's iterators do: a method's view names
-   the path of self it views, Core sentence 7
+   An item views its iterator only at an instance whose items may view
+   memory the iterator owns, so a body that holds no item past the next
+   `next` (`iter.count`) takes every iterator, and one that holds an
+   item is rejected only at such an instance (consolidation round 2,
+   row 29); items of a `next` that names only fields declared as read
+   views (`from @map`), as Map's and Set's iterators do, view no
+   iterator: a method's view names the path of self it views, Core
+   sentence 7
    ([records](docs/history/records/2026-10/from-field/approved.md)).
    Phase 5, the Lean lemma, is
    built (formal/LambdaRig/Calls.lean; formal/README.md, "Calls through

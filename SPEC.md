@@ -3777,15 +3777,21 @@ them at the type its argument gives it. `Iter` is built in: a type that
 declares `next(!@) -> T?`, the iterator a `for` loop walks, provides it
 with `Item` its `T`, and an API may build on it, `api Stream: Iter`.
 A bound by `Iter` takes the iterator itself, never a view of it, whose
-`next` the module may call. A generic body does not track a view a
-value of an associated type holds, so an instance whose associated type
-may view memory its base owns (`next(!@) -> (?String)? from @` over the
-iterator's own `String`) is rejected: the body could hold one across the
-call that changes that memory. Items that own what they hold, or view
-what the iterator only views, are taken: `text.split`'s, and those of a
-`next` whose `from` names only fields declared as read views
-(`next(!@) -> (?K)? from @map`, as a Map's and a Set's iterators
-declare).
+`next` the module may call. A value of an associated type that a call
+on its base gives (`a = (!s).take()` of an `S.Item`, an item of
+`next`) views that base only at an instance whose associated type may
+view memory the base owns (`next(!@) -> (?String)? from @` over the
+iterator's own `String`), and there it keeps the base lent as the same
+value would outside a generic body. A body that holds one past a change
+of its base (a call that writes it, a move, or a drop), directly or
+through the generic bodies it calls, is rejected at each such instance,
+at the call that makes it, with a note at the change. Items that own
+what they hold (an `Int`, a `String`), or view what the iterator only
+views, view no base: `text.split`'s, and those of a `next` whose `from`
+names only fields declared as read views (`next(!@) -> (?K)? from
+@map`, as a Map's and a Set's iterators declare). A body that holds no
+item past a change of its base, as `iter.count` does, takes every
+iterator.
 std.iter's `count` and `sum` take any iterator ([STD](docs/STD.md#stditer)).
 
 ```rig

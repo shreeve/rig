@@ -961,10 +961,10 @@ sub main()
 Functions over any iterator, a value of a type that declares
 `next(!@) -> T?` ([SPEC, APIs](../SPEC.md#apis): it provides `Iter`,
 and its `Item` is `T`). Each takes the iterator lent to write and
-advances it to its end. An iterator whose items may view memory it owns
-is walked with a loop instead ([SPEC, APIs](../SPEC.md#apis)); a Map's
-and a Set's view the Map or Set (`next(!@) -> (?K)? from @map`), so
-these take them.
+advances it to its end. `count` holds no item past the next `next`, so
+it takes any iterator, one whose items view memory it owns too
+([SPEC, APIs](../SPEC.md#apis)); `sum` takes items that are numbers,
+which view nothing.
 
 | Function | Result |
 |---|---|
