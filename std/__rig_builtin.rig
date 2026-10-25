@@ -62,15 +62,11 @@ obj Table
       i = 0
     -1
 
-  # Empty the table, as `n` free slots.
+  # Empty the table, as `n` free slots: each List made anew, its zeros
+  # written at once.
   sub reset(!@, n: Int)
-    !@tags.clear()
-    !@at.clear()
-    !@tags.reserve(n)
-    !@at.reserve(n)
-    for _ in 0..n
-      !@tags.push(0)
-      !@at.push(0)
+    @tags = List.filled(n, U8(0))
+    @at = List.filled(n, U32(0))
 
 # Whether a Map or Set of keys `K` keeps each key's hash: not for a key
 # of 8 bytes or fewer, which hashes in a few steps and compares in one.

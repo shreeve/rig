@@ -1035,6 +1035,10 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **Map and Set:** a key of 8 bytes or fewer keeps no stored hash, so
   such a Map takes 8 bytes an entry fewer; Trig's ts-pattern peaks at
   403 MB rather than 425.
+- **Map and Set growth:** a table that grows is made anew with its
+  free slots written at once, where it pushed them one at a time: Trig
+  checks ts-pattern and zod3 with 1.5% fewer instructions and 1.6% fewer
+  cycles.
 - **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
   to 1024) inside the List value itself and allocates only once it
   holds more, when they all move to the heap, so a short-lived List of
