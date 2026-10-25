@@ -27,6 +27,8 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Prefault by the heap that does the work | a heap faults in ahead while it has taken four times what the others have: Trig at one checker 2.1-2.9% faster, half the page faults; benches as before; Trig's teardown measured | [prefault-lead/](2026-10/prefault-lead/) |
+
+| Map quick items (2026-10-24) | a table that grows is made with its zeros at once: Trig 1.5% fewer instructions and cycles; a two-multiply hash for small multi-word keys probes as a random hash but saves only 0.5% of instructions, and 2× growth saves 5-6% of memory at 1.5-3.8% more cycles, so neither landed | [map-quick/](2026-10/map-quick/) |
 | Memory: List growth slack | exact presizing saves 4% on Linux, nothing on the Mac; not pursued | [memory/](2026-10/memory/) |
 | Audit of #532-#547 | no test or oracle weakened; one memory hole from #532 (a closure literal to an actor's task) and three check-then-fail bugs fixed; headline numbers corrected to measured ranges | [audit/](2026-10/audit/) |
 | R4's placement swing (#565) | twitter on pup 2.3% slower and citm 7% faster from one 32-byte shift of identical code; accepted once by the owner | [errors-r4/accepted.md](2026-10/errors-r4/accepted.md) |
