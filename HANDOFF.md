@@ -37,7 +37,9 @@ newest entry summarizes the latest rounds.
   the compiler, the runtime, or std also passes Trig's light gate
   (`tools/light`, AGENTS.md step 6) before it merges: a debug trig on
   Trig's six cli projects, four ways each, byte-identical to tsc, in
-  about a minute. Trig's full suites run on both mains on pup every four
+  about a minute; and loco's (`rig/tools/light` in a loc checkout):
+  loco built with that Rig, its output identical to the Rust loc's.
+  Trig's full suites run on both mains on pup every four
   hours or on demand (`tools/full-main`); the last result is in
   `/zfs/trig-pup/full/LATEST`. No case is marked `known: true`: no bug is open.
 

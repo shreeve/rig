@@ -182,8 +182,12 @@ until its rule is built. docs/internals/tests.md has the rest.
    `PUP_RIG=/zfs/trig-pup/rig-next/bin/rig tools/light` runs a debug
    trig on Trig's six cli projects four ways each (own config, Trig's,
    `--pretty`, `--checkers 4`), byte-identical to tsc, in about a
-   minute, and ends GREEN or RED. A change to tools, tests, or docs
-   alone needs no light gate, and its PR says so. A change to the
+   minute, and ends GREEN or RED. It also passes loco's light gate:
+   from a loc checkout (`~/Data/Code/loc`, pulled),
+   `rig/tools/light RIG=/path/to/bin/rig` builds loco with that Rig,
+   runs its tests, and compares its output with the Rust loc's on
+   several trees, ending GREEN or RED. A change to tools, tests, or
+   docs alone needs neither light gate, and its PR says so. A change to the
    runtime or scheduler is also checked on pup (below).
 7. **PR,** opened early as a draft whose body is a checklist of the
    steps, the gates among them; `gh pr ready` when done. Commit only
