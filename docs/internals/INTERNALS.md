@@ -213,6 +213,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/lib.zig` | the compiler as a library for `bin/rig-oracle`; `bin/rig` never imports it |
 | `src/main.zig` | the CLI |
 | `src/frames.zig` | the frame each function of a built executable reserves, read from its Mach-O or ELF symbols and prologues, for `rig build`'s warning of a frame larger than a page (`main.warnFrames`) |
+| `src/map_trace.zig` | `RIG_MAP_TRACE=1`: the built-in Map and Set, as emitted, made to record each operation ([The Map trace](#the-map-trace)) |
 | `src/bolt.zig` | `rig build --release --bolt`: lays the executable out again with LLVM's BOLT by where a workload runs it (Linux); deleting it and its flags removes the feature |
 | `src/lsp.zig` | `rig lsp`, the language server: JSON-RPC on stdin and stdout, positions, and the diagnostics `rig check` gives, read through the same `ModuleGraph` |
 | `src/editor.zig` | what an editor shows of one file: the parse errors, the tokens the lexer wrapper classifies with the tree's declared names and sigils, the outline, and the folds, from the tolerant parse (`parseTolerant`, rig.grammar's `@repair`) |
@@ -3270,7 +3271,15 @@ decides a binding's mode another way (a unit test checks the sources):
   path in it, puts a loan on the var and carries the loans the var holds
   for `.write`; carries only the loans it holds for `.read`, as a copy
   of the view does; and puts a loan on the var for any other var, one
-  that owns or copies its value, or a value no binding names.
+  that owns or copies its value, or a value no binding names. For
+  `.write`, the loan on a local, a pattern's binding, or a loop's
+  element (a payload's loan on a viewed subject too) is on the binding
+  only (`Loan.deref`, `throughBinding`): it keeps the binding unused
+  while the view lives, but the view may leave the binding's scope or
+  the function (`checkEscape`, `escapeVarsFrom` skip it), carrying the
+  loans the binding holds (Core sentence 7). The scope's defers run
+  with it in force (`withDerefs`); a var outside the scope that still
+  holds it is reported where the scope ends.
 - **Storage** binds a payload by address for `.write`
   (`payloadByAddress`).
 - **Emit** binds a `.read` binding of a write view, a match's payload
@@ -4929,6 +4938,55 @@ scheduler works, and what it costs, is in [scheduler.md](scheduler.md);
 why the model is what it is, in
 [docs/design/concurrency.md](../design/concurrency.md).
 
+### The Map trace
+
+`RIG_MAP_TRACE=1` at build time records each operation on a built-in
+Map or Set, so a program's real stream of them can be replayed against
+another design. `rig build` then declares `__rig_map_trace` in the root
+module, as `RIG_HEAP_PROFILE` declares its own, and `src/map_trace.zig`
+rewrites the Zig emitted for std/__rig_builtin.rig: each traced method
+of `Map` and `Set` becomes `__rig_untraced_NAME`, and a method of the
+old name and type calls it and records the call (`rig.mapTraceOp`),
+and each type gets a field `__rig_trace`, its id. A build without the
+flag never reaches that file, and the runtime's trace code is behind
+the declaration, so its Zig and its machine code are those of a build
+before the trace existed.
+
+The traced operations: `has`, `get`, and `edit` are lookups; `replace`
+(which `put` calls), `put_new`, the three `ensure`s, and a Set's `add`
+are puts; then `take`, `clear`, `rebuild` (a growth or a `reserve`
+that builds the table anew), and `retain`. A Map gets its id, from 1,
+with a `new` record, before its first traced operation; the id is
+stored in the Map, so it follows the Map as it moves. A Map only read
+so far, through a read-only pointer, is known by its address until its
+first write stores the id. A drop (`rig.dropElement`) of a Map with an
+id writes a `drop` record.
+
+The program writes the records to `$RIG_MAP_TRACE_FILE` (default
+`rig-map-trace.bin`) through a buffer of 1 MiB, flushed when full and
+by `finish`, and a line `id<TAB>K<TAB>V<TAB>Map` (V is `-` for a Set)
+for each new id to the file of that name and `.types`. One lock guards
+both, taken for each record. A record is 48 bytes, little-endian:
+
+| Bytes | Field |
+|---|---|
+| 0 | the op in bits 0-2 (0 get, 1 put, 2 remove, 3 clear, 4 new, 5 drop, 6 grow, 7 retain), and bits 0-4 of the thread in bits 3-7 |
+| 1 | the hit in bit 0 (a lookup or a take found its key; a put found it there), and bits 5-11 of the thread in bits 1-7 |
+| 2-3 | the key's width in bytes, 65535 for any wider |
+| 4-7 | the Map's id |
+| 8-11 | the size of `V` in bytes (0 for a Set, and in a `drop` record) |
+| 12-15 | the length after the operation |
+| 16-23 | the key's hash, as the Map hashes it; for a grow, the table's new slots |
+| 24-47 | the key's first 24 bytes, zero-padded |
+
+The thread is the operating-system thread that ran the operation,
+numbered from 0 in the order threads first record. A key's bytes are
+its text's for text; a number's, an enum's, or a Bool's own, as stored;
+and a struct's, an array's, or a slice's parts in order.
+`tools/map-trace.py` prints the operations per Map and per type, the
+hit rates, and histograms of key width and length;
+`test/cli/map_trace.sh` checks the records.
+
 ### Frame owners
 
 A frame owner is a place Zig writes a stack frame of its own for, and
@@ -5181,7 +5239,13 @@ never copy a type parameter. Every element of a List, an array, or a
 slice is a place: what `push`, `insert`, a store, or a literal puts in
 a container joins the loans the container carries, an element read out
 of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the
-container, and `swap` exchanges what its places hold. A
+container, and `swap` exchanges what its places hold. A field moved
+out of an object a local or parameter owns (`<p.f`, not optional) is a
+hole, tracked per path as a moved name is (Core §5): a use touching the
+hole, or anything that holds it, is C1, until an assignment of the
+hole or of a path above it fills it, on every path; `p = x` fills them
+all. No field moves through a view, a handle, a box, an element, or an
+optional's value, nor out of a type on its path with a `drop` body. A
 local holding a write view (no field or element holds one) is written
 through by a value and re-pointed by a new view, after which it holds
 the new view's loans only; a parameter is never re-pointed. A clone `+x` is a new owner carrying

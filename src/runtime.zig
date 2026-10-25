@@ -1279,7 +1279,10 @@ pub fn dropElement(comptime T: type, value: *T) void {
                 dropElement(@typeInfo(T).array.child, &items[i]);
             }
         },
-        .@"struct" => if (@hasDecl(T, "__rig_drop")) value.__rig_drop() else dropFields(value),
+        .@"struct" => {
+            if (comptime map_trace and @hasField(T, "__rig_trace")) mapTraceDrop(value);
+            if (@hasDecl(T, "__rig_drop")) value.__rig_drop() else dropFields(value);
+        },
         .@"union" => if (@hasDecl(T, "__rig_drop")) {
             value.__rig_drop();
         } else switch (value.*) {
@@ -1302,6 +1305,42 @@ pub fn dropFields(ptr: anytype) void {
     inline while (i > 0) {
         i -= 1;
         dropElement(s.field_types[i], &@field(ptr, s.field_names[i]));
+    }
+}
+
+/// Drop what the object `ptr` points to still holds, when fields may
+/// have moved out of it (Core §5): each of `paths` (`a`, `a.b`, below
+/// the object; `""` for the object itself) only while its flag in `held`
+/// is set, and every other field as `dropFields` does, last field first.
+/// No type on a path has a `drop` body, which would expect every field.
+pub fn dropParts(ptr: anytype, comptime paths: []const []const u8, held: []const bool) void {
+    dropPartsAt(@TypeOf(ptr.*), ptr, "", paths, held);
+}
+
+fn dropPartsAt(comptime T: type, ptr: *T, comptime here: []const u8, comptime paths: []const []const u8, held: []const bool) void {
+    const below = comptime blk: {
+        for (paths) |p| {
+            if (here.len == 0 and p.len > 0) break :blk true;
+            if (p.len > here.len and std.mem.startsWith(u8, p, here) and p[here.len] == '.') break :blk true;
+        }
+        break :blk false;
+    };
+    // A path moved out drops nothing while its flag is clear; held again
+    // (assigned after the move), it drops what it holds, the fields moved
+    // out below it each by its own flag.
+    inline for (paths, 0..) |p, i| {
+        if (comptime std.mem.eql(u8, p, here)) {
+            if (!held[i]) return;
+            if (!below) return dropElement(T, ptr);
+        }
+    }
+    if (!below) return dropElement(T, ptr);
+    const s = @typeInfo(T).@"struct";
+    comptime var i = s.field_names.len;
+    inline while (i > 0) {
+        i -= 1;
+        const name = s.field_names[i];
+        dropPartsAt(s.field_types[i], &@field(ptr, name), if (here.len == 0) name else here ++ "." ++ name, paths, held);
     }
 }
 
@@ -4728,6 +4767,10 @@ const heap_profile = @hasDecl(root, "__rig_heap_profile") and root.__rig_heap_pr
 /// `RIG_HEAP_PROFILE=sites` also counts each block under the calls that
 /// made it (`HeapProfile.siteOf`), a stack walk per allocation.
 const heap_sites = heap_profile and @hasDecl(root, "__rig_heap_sites") and root.__rig_heap_sites;
+/// Built with `RIG_MAP_TRACE=1`, the root module declares
+/// `__rig_map_trace`, and every operation on a built-in Map or Set writes
+/// a record of it (`mapTraceOp`).
+const map_trace = @hasDecl(root, "__rig_map_trace") and root.__rig_map_trace;
 
 // Tasks. A program that makes tasks (`f(x)&`) declares `__rig_tasks` in
 // its root module, and runs them on the scheduler (`sched.zig`): fibers
@@ -5129,6 +5172,265 @@ const HeapProfile = struct {
 
 var heap_profiler: HeapProfile = .{};
 var profile_lock: std.Io.Mutex = .init;
+
+// The trace of the built-in Map and Set (`RIG_MAP_TRACE=1` at build
+// time, docs/internals/INTERNALS.md, "The Map trace"). The root module
+// declares `__rig_map_trace`, the compiler gives each Map and Set a
+// field `__rig_trace`, the id the trace knows it by (0 before its
+// first write), and wraps each of their operations in a call to
+// `mapTraceOp`, which writes one record of 48 bytes, little-endian, to
+// `$RIG_MAP_TRACE_FILE` (default `rig-map-trace.bin`), and a line
+// naming each new id's types to the file of that name and `.types`. A
+// build without the switch has neither the field nor the calls, and
+// none of this code.
+
+/// What a Map trace record says happened: a lookup (`has`, `get`,
+/// `edit`), a write that may insert (`put`, `replace`, `put_new`, the
+/// `ensure`s, a Set's `add`), a `take`, a `clear`, a Map or Set the
+/// trace first sees, one dropped, its table built anew (`grow`, on a
+/// growth or a `reserve`), and a `retain`.
+pub const MapOp = enum(u3) { get, put, remove, clear, new, drop, grow, retain };
+
+/// The key a record names: its hash, its width in bytes, and its first
+/// 24 bytes.
+pub const MapTraceKey = struct {
+    hash: u64 = 0,
+    width: usize = 0,
+    head: [24]u8 = @splat(0),
+
+    fn add(self: *MapTraceKey, bytes: []const u8) void {
+        if (self.width < self.head.len) {
+            const n = @min(bytes.len, self.head.len - self.width);
+            @memcpy(self.head[self.width..][0..n], bytes[0..n]);
+        }
+        self.width +|= bytes.len;
+    }
+
+    /// The bytes of `x`, a key of type `T`: text its bytes, a number,
+    /// enum, or Bool its own, a struct, array, or slice its parts in
+    /// order, an optional its value (nothing when `none`), a view what
+    /// it views, and a tagged union its tag and then its payload.
+    fn bytesOf(self: *MapTraceKey, comptime T: type, x: T) void {
+        if (comptime isString(T)) return self.add(stringBytes(x));
+        if (comptime isOptStruct(T)) return if (some(x)) |v| self.bytesOf(Payload(T), v);
+        switch (@typeInfo(T)) {
+            .optional => |o| if (x) |v| self.bytesOf(o.child, v),
+            .pointer => |p| {
+                if (comptime isStringView(T)) return self.add(x);
+                if (comptime isCountedPointer(T)) return self.bytesOf(@FieldType(p.child, "value"), x.value);
+                if (p.size == .one) return self.bytesOf(p.child, x.*);
+                if (p.size == .slice) for (x) |e| self.bytesOf(p.child, e);
+            },
+            .array => |a| for (x) |e| self.bytesOf(a.child, e),
+            .@"struct" => |st| inline for (st.field_names, st.field_types) |name, F| self.bytesOf(F, @field(x, name)),
+            .@"union" => |u| if (u.tag_type) |Tag| switch (x) {
+                inline else => |v, tag| {
+                    self.bytesOf(Tag, tag);
+                    self.bytesOf(@TypeOf(v), v);
+                },
+            },
+            .@"enum" => self.add(std.mem.asBytes(&@intFromEnum(x))),
+            .int, .bool => self.add(std.mem.asBytes(&x)),
+            else => {},
+        }
+    }
+};
+
+/// The key of a Map or Set of keys `K` that an operation is given: `k`,
+/// a `K` or a read view of one, hashed as the Map hashes it.
+pub fn mapTraceKey(comptime K: type, k: anytype) MapTraceKey {
+    var key: MapTraceKey = .{};
+    if (comptime @TypeOf(k) == K) {
+        key.hash = hash(k);
+        key.bytesOf(K, k);
+    } else {
+        const v = viewed(K, k);
+        key.hash = hash(v);
+        key.bytesOf(@TypeOf(v), v);
+    }
+    return key;
+}
+
+/// Whether a lookup's result, a Bool or an optional, found its key.
+pub fn mapTraceFound(r: anytype) bool {
+    if (comptime @TypeOf(r) == bool) return r;
+    return some(r) != null;
+}
+
+/// The type of parameter `i` of `f`, and what `f` returns: the types a
+/// wrapper of a Map's operation takes and returns as it does.
+pub fn MapTraceParam(comptime f: anytype, comptime i: usize) type {
+    return @typeInfo(@TypeOf(f)).@"fn".param_types[i].?;
+}
+
+pub fn MapTraceResult(comptime f: anytype) type {
+    return @typeInfo(@TypeOf(f)).@"fn".return_type.?;
+}
+
+/// Give the Map or Set `self` points to, of keys `K` and values `V`
+/// (`void` for a Set), its id, before an operation on it: a Map gets
+/// its id, with a `new` record, before its first operation is done. One
+/// only read so far (`self` read-only) is known by its address until a
+/// write stores the id in it.
+pub fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
+    if (self.__rig_trace != 0) return;
+    map_tracer.lock();
+    defer map_tracer.unlock();
+    _ = map_tracer.idOf(K, V, self);
+}
+
+/// Record operation `op` on the Map or Set `self` points to, of keys `K`
+/// and values `V` (`void` for a Set), done: `key` its key, `hit` whether
+/// the key was there, `extra` the slots of a table built anew.
+pub fn mapTraceOp(comptime K: type, comptime V: type, self: anytype, op: MapOp, key: MapTraceKey, hit: bool, extra: u64) void {
+    map_tracer.lock();
+    defer map_tracer.unlock();
+    const id = map_tracer.idOf(K, V, self);
+    map_tracer.record(op, hit, key, id, if (V == void) 0 else @sizeOf(V), self.len, extra);
+}
+
+/// The record of a traced Map or Set that `value` points to as it is
+/// dropped (`dropElement`); nothing for one the trace never saw.
+fn mapTraceDrop(value: anytype) void {
+    map_tracer.lock();
+    defer map_tracer.unlock();
+    const id = if (value.__rig_trace != 0) value.__rig_trace else map_tracer.forget(@intFromPtr(value)) orelse return;
+    map_tracer.record(.drop, false, .{}, id, 0, value.len, 0);
+}
+
+const MapTracer = struct {
+    records: ?std.Io.File.Writer = null,
+    types: ?std.Io.File.Writer = null,
+    /// The ids of Maps only read so far, by address.
+    read_only: std.AutoHashMapUnmanaged(usize, u32) = .empty,
+    last_id: u32 = 0,
+    last_thread: u32 = 0,
+    failed: bool = false,
+
+    var records_buffer: [1 << 20]u8 = undefined;
+    var types_buffer: [1 << 16]u8 = undefined;
+    var name_buffer: [4096]u8 = undefined;
+    /// This thread's number, from 1 in the order threads first record.
+    threadlocal var thread: u32 = 0;
+
+    fn lock(_: *MapTracer) void {
+        if (concurrent) map_trace_lock.lockUncancelable(io());
+    }
+
+    fn unlock(_: *MapTracer) void {
+        if (concurrent) map_trace_lock.unlock(io());
+    }
+
+    /// Create the record file and its `.types` beside it, as the
+    /// program starts.
+    fn open(self: *MapTracer, environ: std.process.Environ) void {
+        const path = environ.getPosix("RIG_MAP_TRACE_FILE") orelse "rig-map-trace.bin";
+        const types_path = std.fmt.bufPrint(&name_buffer, "{s}.types", .{path}) catch return self.fail(path, error.NameTooLong);
+        const dir = std.Io.Dir.cwd();
+        const records = dir.createFile(io(), path, .{}) catch |err| return self.fail(path, err);
+        const types = dir.createFile(io(), types_path, .{}) catch |err| return self.fail(types_path, err);
+        self.records = records.writerStreaming(io(), &records_buffer);
+        self.types = types.writerStreaming(io(), &types_buffer);
+    }
+
+    fn fail(self: *MapTracer, path: []const u8, err: anyerror) void {
+        if (!self.failed) std.debug.print("rig: RIG_MAP_TRACE cannot write `{s}`: {s}\n", .{ path, @errorName(err) });
+        self.failed = true;
+        self.records = null;
+        self.types = null;
+    }
+
+    /// The id of the Map `self` points to, given at its first record,
+    /// with a `new` record and a line of `.types`.
+    fn idOf(self: *MapTracer, comptime K: type, comptime V: type, map: anytype) u32 {
+        if (map.__rig_trace != 0) return map.__rig_trace;
+        const writable = !@typeInfo(@TypeOf(map)).pointer.attrs.@"const";
+        const addr = @intFromPtr(map);
+        const id = (if (writable) self.forget(addr) else self.read_only.get(addr)) orelse blk: {
+            self.last_id += 1;
+            const id = self.last_id;
+            if (!writable) self.read_only.put(std.heap.smp_allocator, addr, id) catch oom();
+            if (self.types) |*w| w.interface.print("{d}\t{s}\t{s}\t{s}\n", .{ id, comptime traceName(K), if (V == void) "-" else comptime traceName(V), if (V == void) "Set" else "Map" }) catch |err| self.fail("the .types file", err);
+            self.record(.new, false, .{}, id, if (V == void) 0 else @sizeOf(V), map.len, 0);
+            break :blk id;
+        };
+        if (writable) map.__rig_trace = id;
+        return id;
+    }
+
+    /// The id a Map read at address `addr` was given, which it no longer
+    /// holds there.
+    fn forget(self: *MapTracer, addr: usize) ?u32 {
+        const kv = self.read_only.fetchRemove(addr) orelse return null;
+        return kv.value;
+    }
+
+    fn record(self: *MapTracer, op: MapOp, hit: bool, key: MapTraceKey, id: u32, value_bytes: usize, length: i64, extra: u64) void {
+        const w = if (self.records) |*w| w else return;
+        if (thread == 0) {
+            self.last_thread += 1;
+            thread = self.last_thread;
+        }
+        const t = thread - 1;
+        var rec: [48]u8 = undefined;
+        rec[0] = @as(u8, @intFromEnum(op)) | @as(u8, @truncate(t << 3));
+        rec[1] = @as(u8, @intFromBool(hit)) | @as(u8, @truncate((t >> 5) << 1));
+        std.mem.writeInt(u16, rec[2..4], std.math.cast(u16, key.width) orelse std.math.maxInt(u16), .little);
+        std.mem.writeInt(u32, rec[4..8], id, .little);
+        std.mem.writeInt(u32, rec[8..12], std.math.cast(u32, value_bytes) orelse std.math.maxInt(u32), .little);
+        std.mem.writeInt(u32, rec[12..16], std.math.cast(u32, length) orelse std.math.maxInt(u32), .little);
+        std.mem.writeInt(u64, rec[16..24], if (op == .grow) extra else key.hash, .little);
+        rec[24..48].* = key.head;
+        w.interface.writeAll(&rec) catch |err| self.fail("the trace", err);
+    }
+
+    /// Write out what is buffered and close both files, as the program
+    /// ends (`finish`).
+    fn close(self: *MapTracer) void {
+        if (self.records) |*w| {
+            w.interface.flush() catch |err| self.fail("the trace", err);
+            w.file.close(io());
+        }
+        if (self.types) |*w| {
+            w.interface.flush() catch |err| self.fail("the .types file", err);
+            w.file.close(io());
+        }
+        self.records = null;
+        self.types = null;
+        self.read_only.deinit(std.heap.smp_allocator);
+    }
+};
+
+/// `T` as the trace's `.types` names it: a type the compiler writes as
+/// Rig spells it, its module first, and any other by Zig's name.
+fn traceName(comptime T: type) []const u8 {
+    const plain = .{
+        .{ i64, "Int" },   .{ f64, "Float" }, .{ bool, "Bool" }, .{ String, "String" }, .{ []const u8, "?String" },
+        .{ i8, "I8" },     .{ i16, "I16" },   .{ i32, "I32" },   .{ i128, "I128" },     .{ u8, "U8" },
+        .{ u16, "U16" },   .{ u32, "U32" },   .{ u64, "U64" },   .{ u128, "U128" },     .{ f32, "F32" },
+        .{ void, "Void" },
+    };
+    inline for (plain) |p| if (p[0] == T) return p[1];
+    if (comptime isOptStruct(T)) return traceName(Payload(T)) ++ "?";
+    switch (@typeInfo(T)) {
+        .optional => |o| return traceName(o.child) ++ "?",
+        .@"struct", .@"union", .@"enum" => if (@hasDecl(T, "__rig_name")) {
+            const name = T.__rig_name;
+            var text: []const u8 = if (name.module.len == 0) "" else name.module ++ ".";
+            if (@TypeOf(name.name) == []const u8 or @typeInfo(@TypeOf(name.name)) == .pointer) return text ++ name.name;
+            inline for (name.name) |part| text = text ++ switch (@TypeOf(part)) {
+                type => traceName(part),
+                else => if (comptime isStringView(@TypeOf(part))) part else std.fmt.comptimePrint("{d}", .{part}),
+            };
+            return text;
+        },
+        else => {},
+    }
+    return @typeName(T);
+}
+
+var map_tracer: MapTracer = .{};
+var map_trace_lock: std.Io.Mutex = .init;
 
 /// Tracks every live allocation by address. Its own table lives in
 /// `smp_allocator`, outside the count.
@@ -5918,6 +6220,7 @@ pub fn start(init: std.process.Init.Minimal) void {
             if (std.Io.Dir.cwd().createFile(io(), path, .{})) |file| file.close(io()) else |_| {}
         }
     }
+    if (map_trace) map_tracer.open(init.environ);
     if (sanitize) {
         sanitizer.configure(init.environ);
         Sanitizer.installHandler();
@@ -5972,6 +6275,7 @@ pub fn exitStatus(n: Int) u8 {
 /// drops: flush `print` output, then exit non-zero if anything leaked, so
 /// a leaking program never passes.
 pub fn finish() void {
+    if (map_trace) map_tracer.close();
     if (makes_tasks) threaded.deinit();
     releaseProcess();
     lockOutput();

@@ -1,0 +1,22 @@
+fastest of N (N = 10); instructions Mi, cycles Mc, branches Mi, time ms; change against base
+
+tiny-invariant
+  variant        instr  d instr    cycles   d cyc  branches    d br    time  d time
+  base            1376    0.00%       450   0.00%       297   0.00%   119.5   0.00%
+  all             1099  -20.18%       391 -13.11%       195 -34.45%   105.0 -12.08%
+  index           1180  -14.26%       401 -10.91%       228 -23.37%   108.0  -9.58%
+  sum of singles instr -14.26%  cycles -10.91%  branches -23.37%  time -9.58%
+
+zod3
+  variant        instr  d instr    cycles   d cyc  branches    d br    time  d time
+  base            2300    0.00%       977   0.00%       472   0.00%   256.7   0.00%
+  all             1984  -13.73%       891  -8.86%       351 -25.60%   233.5  -9.07%
+  index           2097   -8.84%       902  -7.68%       394 -16.47%   234.0  -8.87%
+  sum of singles instr -8.84%  cycles -7.68%  branches -16.47%  time -8.87%
+
+ts-pattern
+  variant        instr  d instr    cycles   d cyc  branches    d br    time  d time
+  base           12751    0.00%      5220   0.00%      2568   0.00%  1353.4   0.00%
+  all            11267  -11.63%      4887  -6.37%      1999 -22.16%  1254.0  -7.35%
+  index          11784   -7.58%      5008  -4.05%      2198 -14.42%  1274.0  -5.87%
+  sum of singles instr -7.58%  cycles -4.05%  branches -14.42%  time -5.87%

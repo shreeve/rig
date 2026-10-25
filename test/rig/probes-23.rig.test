@@ -3373,14 +3373,14 @@ fail "review-move-done-p53 loops", "cannot move out of `x.n`: it copies, so `<` 
   # oracle: mk accept
   # oracle: l1 reject C3
   # oracle: l2 reject C3
-  # oracle: l3 reject C3
+  # oracle: l3 accept
   # oracle: l4 accept
   # oracle: l5 reject C3
   # oracle: l6 reject C3
-  # oracle: l7 reject C3
+  # oracle: l7 accept
   # oracle: main accept
 
-fail "review-move-done-p54 match subject", "cannot move out of `s.e`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.e, v)`"
+fail "review-move-done-p54 match subject", "cannot move out of `(a if c else b).e`: `a if c else b` reads a binding where it stands, which would still drop it", errors: 1
   enum E
     full(v: List[Int])
     empty
@@ -3418,9 +3418,9 @@ fail "review-move-done-p54 match subject", "cannot move out of `s.e`: `s` would 
   s1()
 
   # oracle: D.into accept
-  # oracle: s1 reject C3
+  # oracle: s1 accept
   # oracle: s2 reject C3
-  # oracle: s4 reject C3
+  # oracle: s4 accept
   # oracle: main accept
 
 fail "review-move-done-p65 bare branch made part", "`mk().v` owns a `List[Int]`, which can't be copied by `=`: write `+mk().v` to clone it or `?mk().v` to view it"

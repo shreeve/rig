@@ -809,7 +809,7 @@ fail "review-payload-loan-1-s08 vec payload for read", "cannot reassign `xs` whi
         print(x)
     .b => pass
 
-fail "review-payload-loan-1-v01 return write of payload", "`t` does not live long enough"
+test "review-payload-loan-1-v01 return write of payload", "hello!"
   enum E
     a(t: String)
     b
@@ -825,7 +825,7 @@ fail "review-payload-loan-1-v01 return write of payload", "`t` does not live lon
   !w.add("!")
   print(w)
 
-fail "review-payload-loan-1-v02 return read of payload", "`t` does not live long enough"
+test "review-payload-loan-1-v02 return read of payload", "hel"
   enum E
     a(t: String)
     b
@@ -840,7 +840,7 @@ fail "review-payload-loan-1-v02 return read of payload", "`t` does not live long
   e = E.a(String("hello"))
   print(head(!e))
 
-fail "review-payload-loan-1-v04 if as return", "cannot return a view of `t`, which this function was not lent"
+test "review-payload-loan-1-v04 if as return", "hel"
   fun head(o: !String?) -> ?String
     if !o as t
       return ?t[..3]
@@ -889,7 +889,7 @@ test "review-payload-loan-1-v06 write payload vec field view other field", "ello
       print(s, p.xs.len)
     .b => pass
 
-fail "review-payload-loan-1-v08 return whole view of payload", "`t` does not live long enough"
+test "review-payload-loan-1-v08 return whole view of payload", "hello"
   enum E
     a(t: String)
     b
@@ -1025,7 +1025,7 @@ test "review-payload-loan-1-w04 disjoint for", "ello 1"
     !p.xs.push(1)
     print(s, p.xs.len)
 
-fail "review-payload-loan-1-w05 ifas return write", "cannot return a view of `t`, which this function was not lent"
+test "review-payload-loan-1-w05 ifas return write", "hello!"
   fun get(o: !String?, d: !String) -> !String
     if !o as t
       return !t
@@ -1051,7 +1051,7 @@ test "review-payload-loan-1-w06 alt read match return", "hello"
   d = String("d")
   print(peek(!e, ?d))
 
-fail "review-payload-loan-1-w07 for return write", "cannot return a view of `t`, which this function was not lent"
+test "review-payload-loan-1-w07 for return write", "a!"
   fun first(v: !List[String], d: !String) -> !String
     for t in !v
       return !t
@@ -1503,7 +1503,7 @@ fail "review-payload-loan-3-o02 defer lend live", "cannot lend `t` to write whil
       .z => pass
   print("x")
 
-fail "review-payload-loan-3-o03 labeled break value binding", "`t` does not live long enough"
+fail "review-payload-loan-3-o03 labeled break value binding", "cannot reassign `e` while it is lent"
   enum E
     a(t: String)
     z

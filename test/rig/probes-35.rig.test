@@ -1437,7 +1437,11 @@ fail "review-take-p33", "`s.a` owns an `R`, which can't be copied into an argume
   old = swap(!s.a, s.a)
   print(old, s)
 
-fail "review-take-p34", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.b, v)`"
+test "review-take-p34", '''
+  R(n: 1)
+  drop 1
+  drop 2
+'''
   obj R
     n: Int
     drop(!@)

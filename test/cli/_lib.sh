@@ -47,7 +47,7 @@ rig() {
     local a v root="" dir
     for a in "$@"; do [[ $a == *.rig ]] && root=${a%.rig}; done
     dir=${root//\//_}
-    for v in RIG_LEAK_TRACE RIG_NO_PROOFS RIG_SANITIZE RIG_STRICT_OPTIONALS RIG_TABLE_FALLBACK RIG_VERIFY_PROOFS RIG_STD; do
+    for v in RIG_LEAK_TRACE RIG_MAP_TRACE RIG_NO_PROOFS RIG_SANITIZE RIG_STRICT_OPTIONALS RIG_TABLE_FALLBACK RIG_VERIFY_PROOFS RIG_STD; do
         [[ -n ${!v:-} ]] && dir+="+$v=${!v//\//_}"
     done
     RIG_OUT_DIR="$RIG_OUT_DIR/programs/$dir" "$RIG" "$@"

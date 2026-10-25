@@ -140,11 +140,10 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   for a `CacheKey` and a `U32`, where a plain one is 24, because a free
   slot holds no `K` or `V`, so both are optional fields. A `Slot?` the
   size of a `Slot` (its place in the order an object that names its
-  none) would need `if !@slots[j] as s` to hand a write view of
-  `s.value` back to `edit`'s caller (`from @`), which the checker
-  rejects ("cannot return a view of `s`, which this function was not
-  lent"), as it does a payload bound by `match !@slots[j]`, while the
-  read forms are accepted. A layout to try again starts from that.
+  none) needs `if !@slots[j] as s` to hand a write view of `s.value`
+  back to `edit`'s caller (`from @`), which the checker accepts (CORE
+  sentence 7), and a field moved out of its object alone (partial
+  moves). A layout to try again starts from that.
 - An unwrap of an optional that traps when it is `none`. The built-in Map's
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.

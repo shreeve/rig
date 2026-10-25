@@ -339,7 +339,9 @@ sub main()
 ```
 
 **3. Drop points.** An owner that is not moved is dropped where its
-scope ends. *(built)* A value no name holds is dropped where its
+scope ends. *(built)* A partly moved name drops only the fields it
+still holds ([§5](#5-containers-and-fields-hold-values)). *(built)*
+A value no name holds is dropped where its
 statement ends ([§3](#3-temporaries)). *(built)*
 
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
@@ -491,7 +493,12 @@ call returns unless the call keeps it: after `head(!v)`, in its own
 statement or through `r = head(!v)`, `v` may be read, but not written,
 while the result lives. A view reached through a
 read view that a value holds carries that view's loans, not a loan on
-the holder. What a call stores in what a write view lent to it sees
+the holder. A view reached through a write view that a binding holds
+(`!s.value`, `s: !Slot`) carries that view's loans, path for path, and
+a loan on the binding that ends with the binding's scope. So `if
+!@slots[j] as s` may `return !s.value` `from @`, but nothing in that
+scope, its defers included, may use `s` while the view lives.
+*(built)* What a call stores in what a write view lent to it sees
 carries, in the same way, the loans of the arguments whose types could
 hold it; for a lent parameter (a view, an optional of one, or
 self), a declared function narrows this to the parameters its
@@ -623,6 +630,55 @@ sub main()
 
 ```error
 cannot lend `v` to write while a read loan is live
+```
+
+`edit` hands out a view of a slot's value, lent through `s`, which views
+the slot; the view outlives `s` and keeps `@slots` lent:
+
+```rig
+obj Slot
+  key: Int
+  value: Int
+
+obj Table
+  slots: List[Slot?]
+
+  fun edit(!@, j: Int) -> (!Int)? from @
+    if !@slots[j] as s
+      return !s.value
+    none
+
+sub main()
+  t = Table(slots: List())
+  !t.slots.push(Slot(key: 1, value: 2))
+  if (!t).edit(0) as v
+    v += 40
+  if t.slots[0] as s
+    print(s.value)
+```
+
+```output
+42
+```
+
+```rig reject
+obj Slot
+  key: Int
+  value: Int
+
+obj Table
+  slots: List[Slot?]
+
+  fun edit(!@, j: Int) -> (!Int)? from @
+    if !@slots[j] as s
+      v = !s.value
+      @slots[j] = none
+      return v
+    none
+```
+
+```error
+cannot assign to `@slots[j]` while `@slots` is lent
 ```
 
 ```rig
@@ -1487,7 +1543,8 @@ object field may hold a `Cell`. Each field and element is a place:
 
 - `p.f` and `v[i]` read it (sentence 1);
 - `?p.f`, `!p.f`, `?v[i]`, and `!v[i]` lend it;
-- `<p.f` and `<v[i]` take an optional one, leaving `none`;
+- `<p.f` and `<v[i]` take an optional one, leaving `none`, and `<p.f`
+  moves any other field of an object a local owns;
 - assigning to it drops the old value.
 
 **A field is a place of its own.** A path is a name and the fields
@@ -1570,8 +1627,9 @@ A function type's parameters and result are not parts of a value of
 that type: `List[*sub(!Checker)]` holds no write view. *(built)*
 
 `<` always leaves its source done: a name is ended, an optional place
-is emptied to `none`, and any other place is rejected, a part of a
-value made there too, so a field or element that copies is copied with
+is emptied to `none`, a field of an owned object moves like a name
+(below), and any other place is rejected, a part of a value made there
+too, so a field or element that copies is copied with
 no `<` (`m = p.n`). `<`'s operand is a place or a made value:
 `<(a if c else b)` is written `<a if c else <b`. *(built)*
 
@@ -1589,6 +1647,68 @@ sub main()
 ```output
 7
 none
+```
+
+**A field of an owned object moves like a name.** A local or
+parameter that owns an object acts as one name per field, and so on
+down, unless a type on the way has a `drop` body. `<p.f` moves `p.f`
+as `<x` moves `x`, and a field that copies takes no `<`. `p.f = x`
+makes a local's field usable again. Where `p`'s scope ends, only the
+fields it still holds drop. Until every moved field is assigned again
+on every path, no use touches all of `p` except `p = x`. *(built)*
+
+```rig
+obj Entry
+  key: String
+  value: String
+
+fun value_of(e: Entry) -> String
+  <e.value
+
+sub main()
+  e = Entry(key: String("k"), value: String("v"))
+  v = <e.value
+  print(e.key, v)
+  e.value = String("w")
+  print(value_of(<e))
+```
+
+```output
+k v
+w
+```
+
+```rig reject
+obj Entry
+  key: String
+  value: String
+
+sub main()
+  e = Entry(key: String("k"), value: String("v"))
+  v = <e.value
+  f = <e
+  print(v, f.key)
+```
+
+```error
+`e` is partly moved: `e.value` was moved out; assign it first
+```
+
+```rig reject
+obj File
+  name: String
+
+  drop(!@)
+    print("close", @name)
+
+sub main()
+  f = File(name: String("a.txt"))
+  n = <f.name
+  print(n)
+```
+
+```error
+`File` has a `drop` body, which expects every field
 ```
 
 **A list of owners works as a list of plain data does.** `List[String]`, `List[List[Int]]`, and a `List` of objects that each own a string take their elements by move and drop each one once. `swap` and `sort_by` only move elements, so they work for any element; `sort` also needs `<`. *(built)*
@@ -1898,8 +2018,9 @@ sub main()
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may
 read and write what is live there; they never extend a loan past it.
-No failure leaves one: a fallible call in it is caught there, so the
-error a failing scope is leaving with is never replaced. *(built)*
+What their scope gives back is live while they run. No failure leaves
+one: a fallible call in it is caught there, so the error a failing
+scope is leaving with is never replaced. *(built)*
 
 ```rig
 sub main()

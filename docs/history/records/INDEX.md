@@ -23,9 +23,12 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Map and Set internal checks | a 1.3-1.9% ceiling on ts-pattern; the restructure that let proofs cover the probes gained nothing (0.2% slower), so it was not landed; the rest needs a typed entry index or `find` returning the entry (an ownership-checker limit) | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md), [map-set-patches/](2026-10/safety-checks/map-set-patches/) |
 | List length invariant (#538) | a List's length is below 2^62 by construction, so reading it makes no test: Trig 0.8-2.9% faster | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md) |
 | Table and Slot (#536) | indexes with no bounds test; about 3% on Trig's stores in a stand-in build (store indexes treated as proven; Trig has not migrated yet); two adversarial reviews | [table-slot/](2026-10/table-slot/) |
+| Proving away Rig's checks (2026-10-24) | the ceiling measured again after #538 and Trig's Table migration (7.4% on ts-pattern, index tests 5.9%); most of what is left is lookups by stored ids, which only index types remove; a ranked plan (`Span[n]` and more slot-typed stores first, then length arithmetic from `fits`), what LLVM folds by itself, and a build order | [perf-stage/checks.md](2026-10/perf-stage/checks.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Prefault by the heap that does the work | a heap faults in ahead while it has taken four times what the others have: Trig at one checker 2.1-2.9% faster, half the page faults; benches as before; Trig's teardown measured | [prefault-lead/](2026-10/prefault-lead/) |
+
+| Map quick items (2026-10-24) | a table that grows is made with its zeros at once: Trig 1.5% fewer instructions and cycles; a two-multiply hash for small multi-word keys probes as a random hash but saves only 0.5% of instructions, and 2× growth saves 5-6% of memory at 1.5-3.8% more cycles, so neither landed | [map-quick/](2026-10/map-quick/) |
 | Memory: List growth slack | exact presizing saves 4% on Linux, nothing on the Mac; not pursued | [memory/](2026-10/memory/) |
 | Audit of #532-#547 | no test or oracle weakened; one memory hole from #532 (a closure literal to an actor's task) and three check-then-fail bugs fixed; headline numbers corrected to measured ranges | [audit/](2026-10/audit/) |
 | R4's placement swing (#565) | twitter on pup 2.3% slower and citm 7% faster from one 32-byte shift of identical code; accepted once by the owner | [errors-r4/accepted.md](2026-10/errors-r4/accepted.md) |
@@ -53,12 +56,17 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | One classifier per fact for Stages 3 to 5 (consolidation round 2, track 1) | each item's paths mapped with places, whether they decide one fact, and the case two would split on: 1.1 a value hidden from the rules that wait for a task (an erasure, `task.isolate`, an owned closure's capture) checked by one function, so a generic owned closure over a task meets the task rule, not the loan rule; 1.3 every erasure reads through a result's `!` in one place, so `(^{Shape})!` erases its last expression; 1.6 the runtime reads an iterator's item as sema does, through `Payload` (it failed in Zig for an item whose optional is a struct); 1.2 accept and reject agree on every object and home probed, and why an object may hold a loan is one reason with its fix; 1.4 mapped, no split found | [consolidation-2/track1.md](2026-10/consolidation-2/track1.md) |
 | v0.3.0's newly rejected forms (consolidation round 2, track 7) | the 4,836 programs `v0.2.9` accepted, checked by `main` after every rename: 42 forms it now rejects, each confirmed against both compilers; the task-bound and `std.json` changes of the 0.3 line; the removed self, label, built-in, and `const` scripts an owner question | [consolidation-2/release-0.3.0.md](2026-10/consolidation-2/release-0.3.0.md) |
 | A smaller Map for many small ones (Trig NEEDS 58) | where a Map's 104 bytes and its blocks go on Trig; a table only past 16 entries tried and not landed (String lookups 6-9% slower on x86, Trig unchanged); the table behind a box tried and not landed (bench/hash's lookups 1-7% slower, Trig 2 MB smaller); the Map left as it is | [compact-map/](2026-10/compact-map/README.md) |
+| The Map/Set stage's survey and design (2026-10-24) | SwissTable, hashbrown, F14, Go 1.24, Boost, Python's compact dict, indexmap, and others against Rig's ordered Map; the table grows four times over, not twice (20-80% full); the top candidate keeps small plain entries in their table slots with Swiss control bytes and a List of slot numbers for the order, and the rest dense behind the same SIMD index; why it should not repeat the slots experiment; a small path with no hash; judged by a replay of Trig's map operations | [map-stage/](2026-10/map-stage/) |
 | A narrower set fitting a generic body (consolidation track 2) | tried and held for Stage 3: the slot convention and self passing broke `!@` methods; the `Int!!` fix and message landed | [consolidation/generic-sets-review.md](2026-10/consolidation/generic-sets-review.md) |
 | A method's view names the path of self it views (`from @field`) | CORE sentence 7: `-> ?String from @text` carries self's loans and a loan on that path alone; a field declared as a read view puts none on self, so Map's and Set's iterators say `from @map`/`from @set` and go through `[I: Iter]`; a panel of four, and the owner's approval | [from-field/](2026-10/from-field/) |
 | APIs Stage 4's refresh (2026-10-23) | Stage 4 of docs/design/apis.md for what Stage 3 built: an object's table calls its conformance's witness, a dynamic call is checked as a call through a bound (the API's clauses and set, the slot through the table), one API of a program's own per braces, an object of an associated-type API names the type, an object of a plain view's copy stays in its block; a Core change first, then phases for the type, views, boxes, the proof, and associated types; 21 questions with defaults, approved by the owner; phase 1's notes and its [review](2026-10/apis-stage4/review-p1.md); phase 2's notes and its [review](2026-10/apis-stage4/review-p2.md); phase 3's notes and its [review](2026-10/apis-stage4/review-p3.md) | [apis-stage4/](2026-10/apis-stage4/) |
 | CORE's "An API object hides its value's type, never its loans" (Stage 4, phase 0) | §1's and §4's rows and a paragraph with its list: the object may hold anything, so its loans end at its last use or, for a box, its drop; a copy decided by kind, local to its block; only `^{A}` has `+`; it meets only the bounds its braces or API name; no default, never a type argument; a panel of four (H1 to H13), and the owner's approval | [apis-stage4/core-panel/](2026-10/apis-stage4/core-panel/) |
 | APIs Stage 5's design (2026-10-23) | `*{A}`, a counted handle to an API object whose count operations live in its table, atomic as the hidden allocation is; `~{A}` its weak handle; `Sends` and `Syncs` in the braces as facts of the hidden value checked at erasure, each form crossing by its own row of SPEC §18; `*{A + Syncs}` only of a frozen value; owned closures as objects of one method if measured faster; two holes of Stage 4's boxes (an owned closure hidden from a local task, a task hidden from `task.isolate`); a build plan, 22 questions with defaults, and a draft CORE paragraph for the panel and the owner | [apis-stage5/](2026-10/apis-stage5/) |
 | CORE's "A shared API object counts a value of hidden type" (Stage 5, phase 0) | §1's handle row, §4's `*T` row, a clause each to sentences 8 and 9, Stage 4's list's last line, and a paragraph with a list of five: the holding follows from the braces (`*{A}` a `*T`'s, `*{A + Syncs}` a frozen value's, no `~`, no `Owned`), erasure only moves or counts a handle, `~{A}` carries its loans, an object crosses only by a bound it names and without it goes to no task, a local one included, and no object or owned closure holds a task; a panel of three (compiler, adversary, reviewer) and the owner's approval with the reviewer's three fixes | [apis-stage5/core-panel/](2026-10/apis-stage5/core-panel/) |
+| Why Trig scales worse than tsrs on every core (2026-10-24) | Rig does not oversubscribe: one worker per CPU, four run, idle ones sleep once; scheduler 0.03% of samples, no allocator contention, no false sharing. The gap (2.35× against 2.96× from one core to all) is Trig's work shape: unbalanced checkers in Go's partition (longest 1.41× the mean, about 25% of the all-core time), a serial 54 ms head (parse and bind), and a ~20 ms teardown at exit | [perf-stage/scaling.md](2026-10/perf-stage/scaling.md) |
+| CORE's "A view reached through a write view that a binding holds" (sentence 7) | `if !@slots[j] as s` may `return !s.value` `from @`: the view carries the binding's loans, path for path, and a loan on the binding that ends with its scope; nothing in that scope, its defers included, uses `s` while the view lives (§7 Defer: what a scope gives back is live while its defers run); a designer, an adversary (H1 to H6), a reviewer whose holes 1 and 2 shipped first as the defer hotfix (#663), and the owner's approval | [wview-return/](2026-10/wview-return/) |
+
+| CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
 
 ## Every record
 
@@ -188,6 +196,35 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [presize-ab-mac.txt](2026-10/memory/presize-ab-mac.txt)
 - [presize-ab-pup.txt](2026-10/memory/presize-ab-pup.txt)
 
+### 2026-10/perf-stage/
+
+- [checks.md](2026-10/perf-stage/checks.md): Proving away Rig's checks: a survey and plan (2026-10-24)
+
+### 2026-10/perf-stage/checks-data/
+
+- [build.sh](2026-10/perf-stage/checks-data/build.sh)
+- [ceiling-2.txt](2026-10/perf-stage/checks-data/ceiling-2.txt)
+- [ceiling.txt](2026-10/perf-stage/checks-data/ceiling.txt)
+- [families.txt](2026-10/perf-stage/checks-data/families.txt)
+- [family.py](2026-10/perf-stage/checks-data/family.py)
+- [mac-standin.tsv](2026-10/perf-stage/checks-data/mac-standin.tsv)
+- [mactime.py](2026-10/perf-stage/checks-data/mactime.py)
+- [shapes.zig](2026-10/perf-stage/checks-data/shapes.zig)
+- [sites.py](2026-10/perf-stage/checks-data/sites.py)
+- [span.zig](2026-10/perf-stage/checks-data/span.zig)
+- [stand.sh](2026-10/perf-stage/checks-data/stand.sh)
+- [summ.py](2026-10/perf-stage/checks-data/summ.py)
+- [timeit.py](2026-10/perf-stage/checks-data/timeit.py)
+
+### 2026-10/partial-moves/
+
+- [approved.md](2026-10/partial-moves/approved.md): the owner's approval, quoted
+- [5-final.md](2026-10/partial-moves/5-final.md): the CORE text, its desugaring, examples, and build
+- [3-draft.md](2026-10/partial-moves/3-draft.md): the combined draft, each rule with the hole it closes
+- [1-design.md](2026-10/partial-moves/1-design.md), [2-adversary.md](2026-10/partial-moves/2-adversary.md), [4-review.md](2026-10/partial-moves/4-review.md): the panel's reports
+- [4-census.txt](2026-10/partial-moves/4-census.txt): Trig's `swap(!x.f, empty)` sites by binding kind
+- [review.md](2026-10/partial-moves/review.md): the adversarial review of the build: a parent and a child both moved out, and fields Zig renames, fixed in the drops
+
 ### 2026-10/safety-checks/
 
 - [expert-B-proof-ranges.md](2026-10/safety-checks/expert-B-proof-ranges.md): Panel B: extending the proof pass (ranges, hoisting, slices, unwraps)
@@ -226,6 +263,14 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [review-1-holes.md](2026-10/table-slot/review-1-holes.md): Table/Slot: holes for the builder (adversarial review of A-typed-ids.md, option B)
 - [review-2-holes.md](2026-10/table-slot/review-2-holes.md): Table/Slot: second review, against 6fde90632 (table-slot)
 - [store-unchecked-ab.txt](2026-10/table-slot/store-unchecked-ab.txt)
+
+### 2026-10/wview-return/
+
+- [approved.md](2026-10/wview-return/approved.md): the owner's approval, quoted
+- [5-final.md](2026-10/wview-return/5-final.md): the CORE text, what it accepts and still rejects, and the build
+- [3-draft.md](2026-10/wview-return/3-draft.md): the combined draft, each rule with its reason
+- [1-design.md](2026-10/wview-return/1-design.md), [2-adversary.md](2026-10/wview-return/2-adversary.md), [4-review.md](2026-10/wview-return/4-review.md): the panel's reports
+- [review.md](2026-10/wview-return/review.md): the adversarial review of the build: no hole; the oracle's gaps at a `break` value and `from @a` recorded, a `for` over a local write view fixed
 
 ### revamp/
 

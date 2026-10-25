@@ -23,6 +23,6 @@
 # a generic body at an owner whose associated type may view what the
 # owner holds is decided by the body lowered again with that type's
 # values carrying their loans (`itemFinding`).
-tests 22930
-docs 1139
+tests 23073
+docs 1151
 matrix 71945

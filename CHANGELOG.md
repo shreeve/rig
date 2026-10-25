@@ -156,6 +156,33 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A view lent through a write-view binding may outlive it:**
+  `if !@slots[j] as s` / `return !s.value` in a method `-> (!Int)? from
+  @` is accepted, as are the same through `s = !@a`, a `for s in !@xs`
+  element, a call's result (`if (!@).find(j) as e`), and a `match !`
+  payload (CORE sentence 7). Such a view carries the binding's own
+  loans and a loan on the binding that ends with the binding's scope;
+  each was "cannot return a view of `s`, which this function was not
+  lent". What it views stays lent while it lives, and nothing in the
+  binding's scope, its defers included, uses the binding while it
+  does; a block's value through a binding of its own block keeps that
+  binding from its defers (CORE §7, Defer). A view of a local
+  (`s = !x`, then `!s.value`) is still the local's.
+
+
+- **A field of an owned object moves like a name (CORE §5):** `<p.f`
+  of a field that is neither optional nor copies, from an object a
+  local or parameter owns, moves the field and leaves `p` partly moved.
+  Its other fields stay usable, `p.f = x` makes a local's field usable
+  again, and only the fields still held drop, at the scope's end and at
+  every exit, each behind a drop flag of its own. Until every moved
+  field is assigned again on every path, no use touches all of `p`
+  except `p = x`. No field moves through a view, a handle, a box, an
+  element, or an optional's value, nor out of a type on its path with a
+  `drop` body. Owned bindings (`if <o as s`, `match <x`, `for x in <v`,
+  `<@`) are names too. Nothing accepted before is rejected; the
+  programs that moved a field out of an owned object, rejected before,
+  now run.
 - **A public generic states the `Print` of what its callees print:**
   `pub sub show[T](x: ?T)` passing `x` to a private generic that prints
   it is rejected, `` `pub sub show[T]` prints a `T`: write `[T:
@@ -1014,6 +1041,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   release) reports at exit what owned its memory at its peak: live bytes
   by the type each block holds, largest first; `RIG_HEAP_PROFILE=sites`
   adds the calls that held the most, each as a short stack.
+- **Map trace:** a program built with `RIG_MAP_TRACE=1` records every
+  operation on a built-in Map or Set, 48 bytes each, in
+  `$RIG_MAP_TRACE_FILE` (default `rig-map-trace.bin`), with each Map's
+  key and value types beside it; `tools/map-trace.py` summarizes a
+  trace. A build without the flag is unchanged.
 - **Map and Set:** a key of 8 bytes or fewer keeps no stored hash, so
   such a Map takes 8 bytes an entry fewer; Trig's ts-pattern peaks at
   403 MB rather than 425.
@@ -1027,6 +1059,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   3% faster (zod3 4 to 7%), for 4 to 6% more peak memory: ts-pattern
   peaks at 342 MB rather than 328, since memory faulted in ahead is
   resident before it is filled. At four checkers both are unchanged.
+
+- **Map and Set growth:** a table that grows is made anew with its
+  free slots written at once, where it pushed them one at a time: Trig
+  checks ts-pattern and zod3 with 1.5% fewer instructions and 1.6% fewer
+  cycles.
 - **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
   to 1024) inside the List value itself and allocates only once it
   holds more, when they all move to the heap, so a short-lived List of

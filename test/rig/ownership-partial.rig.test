@@ -1,0 +1,808 @@
+# ownership: tests whose names start `partial`: a field of an owned
+# object moves like a name (Core §5). One case for each hole the
+# adversarial review found (docs/history/records/2026-10/partial-moves/),
+# with the reference checker's verdicts.
+
+test "partial branches and exits", '''
+  2
+  bbb
+  bbb
+  6
+  -1
+  4 -1
+  aa 0
+  2
+'''
+  # 1. A field moved on one branch, before a `!`, inside a value a `!` leaves
+  # unfinished, or before a `break`: each moved path has its own drop flag,
+  # so every exit drops only what the local still holds.
+  # oracle: branch accept
+  # oracle: exits accept
+  # oracle: made accept
+  # oracle: breaks accept
+  obj P
+    a: String
+    b: String
+
+  obj Q
+    a: String
+    n: Int
+
+  error E
+    bad
+
+  fun f(n: Int) -> Int!E
+    return E.bad if n < 0
+    n
+
+  fun keep(s: String) -> Int
+    s.len
+
+  sub branch(c: Bool)
+    p = P(a: String("aa"), b: String("bbb"))
+    if c
+      print(keep(<p.a))
+    print(p.b)
+
+  fun exits(n: Int) -> Int!E
+    p = P(a: String("aa"), b: String("bbb"))
+    x = keep(<p.a)
+    y = f(n)!
+    x + y + p.b.len
+
+  fun made(n: Int) -> Int!E
+    p = P(a: String("aa"), b: String("b"))
+    q = Q(a: <p.a, n: f(n)!)
+    q.a.len + q.n + p.b.len
+
+  sub breaks()
+    for i in 0..3
+      p = P(a: String("aa"), b: String("bbb"))
+      if i == 1
+        print(keep(<p.a))
+        break
+      print(p.a, i)
+
+  sub main()
+    branch(true)
+    branch(false)
+    print(exits(1) catch -1)
+    print(exits(-1) catch -1)
+    print(made(1) catch -1, made(-1) catch -1)
+    breaks()
+
+fail "partial branches and exits reject", "16:9: use of `p.a` after move", "21:17: use of `p.a` after move", errors: 2
+  # 1. A field moved on some path is used only once assigned again: after a
+  # branch that may move it, and in a loop's next turn.
+  # oracle: branch_use reject C1
+  # oracle: loop_twice reject C1
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  sub branch_use(c: Bool)
+    p = P(a: String("aa"), b: String("bbb"))
+    if c
+      print(keep(<p.a))
+    print(p.a)
+
+  sub loop_twice()
+    p = P(a: String("aa"), b: String("bbb"))
+    for _ in 0..2
+      print(keep(<p.a))
+
+  sub main()
+    branch_use(true)
+    loop_twice()
+
+test "partial assigned again", '''
+  2
+  new bbb
+  new bbb
+  2 0
+  5 1
+  5 2
+  P(a: "again", b: "bbb")
+'''
+  # 2. `p.a = x` after a move that may have run drops the old value only if
+  # it is still held, then holds the new one.
+  # oracle: refill accept
+  # oracle: refill_each accept
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  sub refill(c: Bool)
+    p = P(a: String("aa"), b: String("bbb"))
+    if c
+      print(keep(<p.a))
+    p.a = String("new")
+    print(p.a, p.b)
+
+  sub refill_each()
+    p = P(a: String("aa"), b: String("bbb"))
+    for i in 0..3
+      print(keep(<p.a), i)
+      p.a = String("again")
+    print(p)
+
+  sub main()
+    refill(true)
+    refill(false)
+    refill_each()
+
+fail "partial assigned again reject", "16:9: `p` is partly moved: `p.a` was moved out; assign it first", errors: 1
+  # 2. Assigned again on one path only, the field is still moved out on the
+  # other, so a use of all of `p` is rejected.
+  # oracle: refill_one reject C1
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  sub refill_one(c: Bool)
+    p = P(a: String("aa"), b: String("bbb"))
+    print(keep(<p.a))
+    if c
+      p.a = String("new")
+    print(p)
+
+  sub main()
+    refill_one(true)
+
+test "partial whole assignment", '''
+  b a
+  2
+  P(a: "x", b: "y")
+  P(a: "x", b: "y")
+'''
+  # 3. `p = x` drops the old value field by field, only what it still holds;
+  # its value may take `p`'s own fields.
+  # oracle: swapped accept
+  # oracle: replaced accept
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  sub swapped()
+    p = P(a: String("a"), b: String("b"))
+    p = P(a: <p.b, b: <p.a)
+    print(p.a, p.b)
+
+  sub replaced(c: Bool)
+    p = P(a: String("aa"), b: String("bbb"))
+    if c
+      print(keep(<p.a))
+    p = P(a: String("x"), b: String("y"))
+    print(p)
+
+  sub main()
+    swapped()
+    replaced(true)
+    replaced(false)
+
+fail "partial whole uses reject", "40:9: `p` is partly moved: `p.a` was moved out; assign it first", "45:15: `p` is partly moved: `p.a` was moved out; assign it first", "50:4: `p` is partly moved: `p.a` was moved out; assign it first", "56:9: `p` is partly moved: `p.a` was moved out; assign it first", "61:14: `p` is partly moved: `p.a` was moved out; assign it first", "66:8: `p` is partly moved: `p.a` was moved out; assign it first", "72:10: `p` is partly moved: `p.a` was moved out; assign it first", "77:3: `p` is partly moved: `p.a` was moved out; assign it first", "82:13: use of `p.a` after move", "88:9: `p` is partly moved: `p.a` was moved out; assign it first", "93:15: `p` is partly moved: `p.a` was moved out; assign it first", "99:4: `p` is partly moved: `p.a` was moved out; assign it first", errors: 12
+  # 4. No use touches all of a partly moved name but `p = x`: printing,
+  # lending, a method, moving, cloning, returning, a last value, `swap` of
+  # the hole, a capture, deferred code, and a drop.
+  # oracle: P.size accept
+  # oracle: P.touch accept
+  # oracle: printed reject C1
+  # oracle: lent_read reject C1
+  # oracle: lent_write reject C1
+  # oracle: read_method reject C1
+  # oracle: moved_whole reject C1
+  # oracle: cloned reject C1
+  # oracle: returned reject C1
+  # oracle: last_value reject C1
+  # oracle: swapped_hole reject C1
+  # oracle: captured reject C1
+  # oracle: deferred reject C1
+  # oracle: dropped reject C1
+  obj P
+    a: String
+    b: String
+
+    fun size(?@) -> Int
+      @a.len + @b.len
+
+    sub touch(!@)
+      @b = String("t")
+
+  fun keep(s: String) -> Int
+    s.len
+
+  fun look(p: ?P) -> Int
+    p.a.len
+
+  fun own(p: P) -> Int
+    p.b.len
+
+  sub printed()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    print(p, x)
+
+  sub lent_read()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    print(look(?p), x)
+
+  sub lent_write()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    !p.touch()
+    print(x)
+
+  sub read_method()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    print(p.size(), x)
+
+  sub moved_whole()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    print(own(<p), x)
+
+  sub cloned()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    q = +p
+    print(q, x)
+
+  fun returned() -> P
+    p = P(a: String("a"), b: String("b"))
+    print(keep(<p.a))
+    return p
+
+  fun last_value() -> P
+    p = P(a: String("a"), b: String("b"))
+    print(keep(<p.a))
+    p
+
+  sub swapped_hole()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    y = swap(!p.a, String("c"))
+    print(x, y)
+
+  sub captured()
+    p = P(a: String("a"), b: String("b"))
+    x = <p.a
+    f = |?p| p.b.len
+    print(f(), x)
+
+  sub deferred()
+    p = P(a: String("a"), b: String("b"))
+    defer print(p)
+    print(keep(<p.a))
+
+  sub dropped()
+    p = P(a: String("a"), b: String("b"))
+    print(keep(<p.a))
+    <p
+
+  sub main()
+    printed()
+
+test "partial nested paths", '''
+  b In(b: "B", c: "C") d
+  b c d
+  Out(a: In(b: "B", c: "C"), d: "d")
+  b Out(a: In(b: "bb", c: "c"), d: "d")
+  b d c
+'''
+  # 5. `<p.a.b` leaves `p.a` and `p` partly moved; `p.a.c` and `p.d` stay
+  # usable, and `p.a = x` drops only what `p.a` still holds; moved again
+  # whole, `p.a` takes its new fields with it.
+  # oracle: nested accept
+  # oracle: nested_refill accept
+  # oracle: nested_left accept
+  # oracle: parent_and_child accept
+  obj In
+    b: String
+    c: String
+
+  obj Out
+    a: In
+    d: String
+
+  sub nested()
+    p = Out(a: In(b: String("b"), c: String("c")), d: String("d"))
+    x = <p.a.b
+    print(x, p.a.c, p.d)
+    p.a = In(b: String("B"), c: String("C"))
+    print(p)
+
+  sub nested_refill()
+    p = Out(a: In(b: String("b"), c: String("c")), d: String("d"))
+    x = <p.a.b
+    p.a.b = String("bb")
+    print(x, p)
+
+  sub nested_left()
+    p = Out(a: In(b: String("b"), c: String("c")), d: String("d"))
+    x = <p.a.b
+    y = <p.d
+    print(x, y, p.a.c)
+
+  sub parent_and_child()
+    p = Out(a: In(b: String("b"), c: String("c")), d: String("d"))
+    x = <p.a.b
+    p.a = In(b: String("B"), c: String("C"))
+    y = <p.a
+    print(x, y, p.d)
+
+  sub main()
+    parent_and_child()
+    nested()
+    nested_refill()
+    nested_left()
+
+fail "partial nested paths reject", "16:9: `p.a` is partly moved: `p.a.b` was moved out; assign it first", "21:3: cannot assign to `p.a.b`: `p.a` was moved out; assign `p.a` whole first", errors: 2
+  # 5. `p.a` is not used while `p.a.b` is moved out, and nothing is written
+  # below a hole.
+  # oracle: parent_read reject C1
+  # oracle: below_hole reject C1
+  obj In
+    b: String
+    c: String
+
+  obj Out
+    a: In
+    d: String
+
+  sub parent_read()
+    p = Out(a: In(b: String("b"), c: String("c")), d: String("d"))
+    x = <p.a.b
+    print(p.a, x)
+
+  sub below_hole()
+    p = Out(a: In(b: String("b"), c: String("c")), d: String("d"))
+    x = <p.a
+    p.a.b = String("x")
+    print(x)
+
+  sub main()
+    parent_read()
+
+test "partial drop body on the path", '''
+  f t
+  close f
+'''
+  # 6. A field whose own type has a `drop` body moves whole.
+  # oracle: File.drop accept
+  # oracle: whole_field accept
+  obj File
+    name: String
+
+    drop(!@)
+      print("close", @name)
+
+  obj Holder
+    f: File
+    t: String
+
+  sub whole_field()
+    h = Holder(f: File(name: String("f")), t: String("t"))
+    f = <h.f
+    print(f.name, h.t)
+
+  sub main()
+    whole_field()
+
+fail "partial drop body on the path reject", "18:8: cannot move out of `f.name`: `File` has a `drop` body, which expects every field; move `f` whole, or exchange the field: `old = swap(!f.name, v)`", "23:8: cannot move out of `h.f.name`: `File` has a `drop` body, which expects every field; move `h.f` whole, or exchange the field: `old = swap(!h.f.name, v)`", errors: 2
+  # 6. No field moves out of a type with a `drop` body, anywhere on its path:
+  # the body expects every field.
+  # oracle: File.drop accept
+  # oracle: take_name reject C3
+  # oracle: nested_name reject C3
+  obj File
+    name: String
+
+    drop(!@)
+      print("close", @name)
+
+  obj Holder
+    f: File
+    t: String
+
+  sub take_name()
+    f = File(name: String("f"))
+    n = <f.name
+    print(n)
+
+  sub nested_name()
+    h = Holder(f: File(name: String("f")), t: String("t"))
+    n = <h.f.name
+    print(n)
+
+  sub main()
+    take_name()
+
+test "partial whole move then assign", '''
+  1
+  x
+'''
+  # 7. A moved name is assigned whole again.
+  # oracle: remade accept
+  obj P
+    a: String
+    b: String
+
+  fun own(p: P) -> Int
+    p.a.len
+
+  sub remade()
+    p = P(a: String("a"), b: String("b"))
+    print(own(<p))
+    p = P(a: String("x"), b: String("y"))
+    print(p.a)
+
+  sub main()
+    remade()
+
+fail "partial whole move then field reject", "13:3: use of `p` after move", "14:9: use of `p` after move", errors: 2
+  # 7. A moved name takes no field: that would make a value with holes.
+  # oracle: refill_moved reject C1
+  obj P
+    a: String
+    b: String
+
+  fun own(p: P) -> Int
+    p.a.len
+
+  sub refill_moved()
+    p = P(a: String("a"), b: String("b"))
+    print(own(<p))
+    p.a = String("x")
+    print(p.a)
+
+  sub main()
+    refill_moved()
+
+test "partial owned bindings", '''
+  a b
+  a b
+  a b
+  a
+'''
+  # 8. Owned bindings are names: `if <o as p`, `match <e`, `for p in <v`,
+  # and `<@` each give fields up.
+  # oracle: P.into_a accept
+  # oracle: owned_as accept
+  # oracle: owned_match accept
+  # oracle: owned_for accept
+  # oracle: owned_self accept
+  obj P
+    a: String
+    b: String
+
+    fun into_a(<@) -> String
+      <@a
+
+  enum Shape
+    one(p: P)
+    empty
+
+  sub owned_as()
+    o: P? = P(a: String("a"), b: String("b"))
+    if <o as p
+      x = <p.a
+      print(x, p.b)
+
+  sub owned_match()
+    e = Shape.one(p: P(a: String("a"), b: String("b")))
+    match <e
+      .one(p) => print(<p.a, p.b)
+      .empty => print("none")
+
+  sub owned_for()
+    v: List[P] = List()
+    !v.push(P(a: String("a"), b: String("b")))
+    for p in <v
+      x = <p.a
+      print(x, p.b)
+
+  sub owned_self()
+    p = P(a: String("a"), b: String("b"))
+    print((<p).into_a())
+
+  sub main()
+    owned_as()
+    owned_match()
+    owned_for()
+    owned_self()
+
+fail "partial views handles elements reject", "15:6: cannot move out of `@a`: `@` is a view; exchange it instead: `old = swap(!@a, v)`", "22:4: cannot move out of `w.a`: `w` is a view; exchange it instead: `old = swap(!w.a, v)`", "25:4: cannot move out of `r.a`: `r` is a view; exchange it instead: `old = swap(!r.a, v)`", "29:8: cannot move out of `h.a`: it is reached through a shared handle and other handles may still use it; clone it with `+h.a`", "35:10: cannot move out of `p.a`: `p` is a view; exchange it instead: `old = swap(!p.a, v)`", "41:23: cannot move out of `p.a`: `p` is a view; exchange it instead: `old = swap(!p.a, v)`", "47:8: cannot move out of `v[0].a`: elements cannot be moved out of their container", errors: 7
+  # 8. Owning rules out views (`!@`, `!T`, `?T`, `if o as p`, a `match`
+  # payload), handles, and elements.
+  # oracle: P.grab reject C7
+  # oracle: through_write reject C7
+  # oracle: through_read reject C7
+  # oracle: handle reject C3
+  # oracle: as_binding reject C7
+  # oracle: payload reject C7
+  # oracle: element reject C3
+  obj P
+    a: String
+    b: String
+
+    fun grab(!@) -> String
+      <@a
+
+  enum Shape
+    one(p: P)
+    empty
+
+  fun through_write(w: !P) -> String
+    <w.a
+
+  fun through_read(r: ?P) -> String
+    <r.a
+
+  sub handle()
+    h = *P(a: String("a"), b: String("b"))
+    x = <h.a
+    print(x)
+
+  sub as_binding()
+    o: P? = P(a: String("a"), b: String("b"))
+    if o as p
+      x = <p.a
+      print(x)
+
+  sub payload()
+    e = Shape.one(p: P(a: String("a"), b: String("b")))
+    match e
+      .one(p) => print(<p.a)
+      .empty => print("none")
+
+  sub element()
+    v: List[P] = List()
+    !v.push(P(a: String("a"), b: String("b")))
+    x = <v[0].a
+    print(x)
+
+  sub main()
+    handle()
+
+fail "partial box reject", "9:8: cannot move out of `b.a`: a box frees what it holds as one; take the box's value with `<b.unbox()` first", errors: 1
+  # 9. A box frees what it holds as one; no field moves out of it.
+  # oracle: boxed reject C3
+  obj P
+    a: String
+    b: String
+
+  sub boxed()
+    b = ^P(a: String("a"), b: String("b"))
+    x = <b.a
+    print(x)
+
+  sub main()
+    boxed()
+
+test "partial closures and defers", '''
+  1
+  deferred b
+  3
+'''
+  # 10. Deferred code reads a field still held; a closure called once moves
+  # a field of what it moved in.
+  # oracle: deferred_other accept
+  # oracle: once_closure accept
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  fun run(f: once ?fun() -> Int) -> Int
+    f()
+
+  sub deferred_other()
+    p = P(a: String("a"), b: String("b"))
+    defer print("deferred", p.b)
+    print(keep(<p.a))
+
+  sub once_closure()
+    p = P(a: String("aa"), b: String("b"))
+    print(run(|<p| keep(<p.a) + p.b.len))
+
+  sub main()
+    deferred_other()
+    once_closure()
+
+fail "partial closures and defers reject", "16:18: cannot move a field out of captured `p`: the closure keeps what it captures for every call; write `+p` for a clone", "21:9: a `defer` body cannot move a field out of `p`; it runs when the scope exits", "26:15: use of `p.a` after move", errors: 3
+  # 10. A closure that may run again moves no field of what it captured,
+  # deferred code moves none, and deferred code reads no field moved out
+  # before it runs.
+  # oracle: stack_closure reject B3
+  # oracle: defer_moves reject B2
+  # oracle: defer_reads reject C1
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  sub stack_closure()
+    p = P(a: String("a"), b: String("b"))
+    f = |<p| keep(<p.a)
+    print(f())
+
+  sub defer_moves()
+    p = P(a: String("a"), b: String("b"))
+    defer print(keep(<p.a))
+    print(p.b)
+
+  sub defer_reads()
+    p = P(a: String("a"), b: String("b"))
+    defer print(p.a)
+    print(keep(<p.a))
+
+  sub main()
+    stack_closure()
+
+test "partial optional field takes", '''
+  o R(o: none, s: "s")
+  gone
+'''
+  # 11. An optional field keeps today's take, which leaves `none`: the
+  # object stays whole.
+  # oracle: taken accept
+  obj R
+    o: String?
+    s: String
+
+  sub taken()
+    p = R(o: String("o"), s: String("s"))
+    x = <p.o
+    print(x, p)
+    if p.o as y
+      print(y)
+    else
+      print("gone")
+
+  sub main()
+    taken()
+
+test "partial generic and task", seeds: 20, '''
+  a
+  1
+  2 b
+'''
+  # 12. A generic `T` field moves; a field moves into a task as into any
+  # call.
+  # oracle: first accept
+  # oracle: generic accept
+  obj Two[T]
+    x: T
+    y: T
+
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  fun first[T](p: Two[T]) -> T
+    <p.x
+
+  sub generic()
+    print(first(Two(x: String("a"), y: String("b"))))
+    print(first(Two(x: 1, y: 2)))
+
+  sub task()
+    p = P(a: String("aa"), b: String("b"))
+    t = keep(<p.a)&
+    print(>t, p.b)
+
+  sub main()
+    generic()
+    task()
+
+test "partial per path flow", '''
+  dbg m
+  Named(debug: "again", main: "m")
+  1
+  5
+  5
+  P(a: "again", b: "b")
+  a b
+  b
+'''
+  # 13. Moves are tracked per path to a fixpoint: a loop that moves a field
+  # and assigns it again, a parameter's other fields, used and returned,
+  # and fields Zig would rename (`debug`, `main`).
+  # oracle: value_of accept
+  # oracle: loop_refill accept
+  # oracle: param_rest accept
+  # oracle: renamed accept
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  fun value_of(p: P) -> String
+    <p.b
+
+  sub loop_refill(n: Int)
+    p = P(a: String("a"), b: String("b"))
+    i = 0
+    while i < n
+      print(keep(<p.a))
+      p.a = String("again")
+      i += 1
+    print(p)
+
+  sub param_rest(p: P)
+    x = <p.a
+    print(x, p.b)
+
+  obj Named
+    debug: String
+    main: String
+
+  sub renamed()
+    p = Named(debug: String("dbg"), main: String("m"))
+    x = <p.debug
+    print(x, p.main)
+    p.debug = String("again")
+    print(p)
+
+  sub main()
+    renamed()
+    loop_refill(3)
+    param_rest(P(a: String("a"), b: String("b")))
+    print(value_of(P(a: String("a"), b: String("b"))))
+
+fail "partial parameter assigned reject", "11:3: cannot assign to parameter `p`; parameters are immutable (bind a copy with `new p = p`, or take `p: !P` to write through to the caller)", errors: 1
+  # 13. A parameter's field is not assigned, moved out or not.
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  sub param_refill(p: P)
+    print(keep(<p.a))
+    p.a = String("x")
+
+  sub main()
+    param_refill(P(a: String("a"), b: String("b")))
+
+fail "partial parameter whole reject", "13:3: `p` is partly moved: `p.a` was moved out; assign it first", errors: 1
+  # 13. A parameter can't be assigned, so a partly moved one stays partly
+  # moved: it is not returned whole.
+  # oracle: param_whole reject C1
+  obj P
+    a: String
+    b: String
+
+  fun keep(s: String) -> Int
+    s.len
+
+  fun param_whole(p: P) -> P
+    print(keep(<p.a))
+    p
+
+  sub main()
+    print(param_whole(P(a: String("a"), b: String("b"))))

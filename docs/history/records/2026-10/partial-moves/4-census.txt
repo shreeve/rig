@@ -1,0 +1,137 @@
+# Trig swap(!x.f, empty) census, 2026-10-24 (~/Data/Code/trig/src). By binding kind of x:
+# alias(for/as/match/closure) 1
+# owned-local:<cleanup_in 4
+# owned-local:<host 1
+# owned-local:<opts 1
+# owned-local:<parsed 1
+# owned-local:<ref 4
+# owned-local:<result 1
+# owned-local:<state 3
+# owned-local:<value 1
+# owned-local:@case_sensitivity.path_key(meta.package_json_direc 1
+# owned-local:Binder(file: swap(!file, empty_file()), names: swa 3
+# owned-local:BreadthFirstSearchLevel(jobs: <level, jobs_of: ?jo 1
+# owned-local:Collected( 9
+# owned-local:ErrorLines() 2
+# owned-local:ExtendsResult(options: ParsedCompilerOptions()) 1
+# owned-local:ExternalModuleInfoCollector(source_file: source_fi 1
+# owned-local:JsonConversionNotifier(active: true, root_options: 1
+# owned-local:LiteralPartsMatch(source_texts: <source_texts, sou 1
+# owned-local:OptionsVerifier(config_index: config_index) 1
+# owned-local:Parser.new("", text, .JS, false) 1
+# owned-local:Parser.new(?source_file.file_name, ?source_file.te 1
+# owned-local:PendingExports() 1
+# owned-local:check_and_emit(?program, ?names, config_index) 1
+# owned-local:compiler.process_all_program_files(!host, ?options 1
+# owned-local:convert_json_option_of_enum_type(t, opt, s, value_ 1
+# owned-local:convert_json_option_of_enum_type(t, opt, trim_whit 1
+# owned-local:declarations.emit_declarations(!pool, true) 2
+# owned-local:get_file_names_from_config_specs(?config_file_spec 1
+# owned-local:modulespecifiers.get_module_specifiers_for_file_wi 1
+# owned-local:package_directory.split_at_last_component("node_mo 1
+# owned-local:parse_command_line_worker(t, compiler_options_did_ 2
+# owned-local:parse_config(t, json, !source_file, fs, base_direc 1
+# owned-local:parse_extended_config(t, extended_config_file_name 1
+# owned-local:parse_own_config_of_json_source_file(t, source_fil 2
+# owned-local:parse_test_files_and_symlinks[TestUnit](code, file 2
+# owned-local:parser.parse_source_file(file_name, input, parser. 1
+# owned-local:parser.parse_source_file_with_options(file_name, i 1
+# owned-local:source_options.clone() 14
+# owned-local:swap(!@builder.reuse_bounds[index], RecoveryBounda 1
+# owned-local:swap(!@st, <saved) 3
+# owned-local:swap(!notifier.own, OwnConfig(base_path: tspath.Ro 3
+# owned-local:transformers.Transforms() 1
+# owned-local:validate_json_option_value(opt, .Text(s: String(ar 1
+# owned-local:validate_json_option_value(opt, value.cloned(), va 1
+# unknown 4
+# view-local 14
+# view-param 9
+# Whole uses of x after the swap (owned/unknown only):
+removable alias(for/as/match/c ./parser/parser.rig:573 info.jsdocs | 
+removable owned-local:<cleanup ./checker/nodebuilder.rig:2256 cleanup.type_parameter_names | 
+removable owned-local:<cleanup ./checker/nodebuilder.rig:2257 cleanup.type_parameter_names_by_text | 
+removable owned-local:<cleanup ./checker/nodebuilder.rig:2258 cleanup.type_parameter_names_by_text_next_name_count | 
+removable owned-local:<cleanup ./checker/nodebuilder.rig:2259 cleanup.type_parameter_symbol_list | 
+removable owned-local:<host ./compiler/program.rig:1171 h.fs | 
+removable owned-local:<opts ./module/cache.rig:111 o.package_json_cache | 
+removable owned-local:<parsed ./execute/tsc.rig:104 command_line.raw | 
+removable owned-local:<ref ./compiler/filesparser.rig:131 r.file_name | 
+removable owned-local:<ref ./compiler/filesparser.rig:132 r.path | 
+removable owned-local:<ref ./compiler/filesparser.rig:136 r.package_id | 
+removable owned-local:<ref ./compiler/filesparser.rig:137 r.include_reason | 
+reassigned? owned-local:<result ./checker/nodebuilder.rig:1756 out.specifier | out
+removable owned-local:<state ./lexer/scanner.rig:773 state.token_value | 
+removable owned-local:<state ./lexer/scanner.rig:775 state.comment_directives | 
+removable owned-local:<state ./parser/parser.rig:444 state.scanner_state | 
+removable owned-local:<value ./compiler/filesparser.rig:307 v.resolution | 
+removable owned-local:@case_se ./compiler/program.rig:236 package_json_directory_key.value | 
+removable owned-local:Binder(f ./binder/binder.rig:181 b.file | 
+removable owned-local:Binder(f ./binder/binder.rig:182 b.binding | 
+removable owned-local:Binder(f ./binder/binder.rig:185 b.names | 
+removable owned-local:BreadthF ./core/bfs.rig:90 lvl.jobs | 
+removable owned-local:Collecte ./compiler/filesparser.rig:297 c.lib_files | 
+removable owned-local:Collecte ./compiler/filesparser.rig:314 c.files_by_path | 
+removable owned-local:Collecte ./compiler/filesparser.rig:315 c.resolved_modules | 
+removable owned-local:Collecte ./compiler/filesparser.rig:316 c.type_resolutions_in_file | 
+removable owned-local:Collecte ./compiler/filesparser.rig:317 c.source_file_meta_datas | 
+removable owned-local:Collecte ./compiler/filesparser.rig:318 c.redirect_targets_map | 
+removable owned-local:Collecte ./compiler/filesparser.rig:319 c.source_files_found_searching_node_modules | 
+removable owned-local:Collecte ./compiler/filesparser.rig:320 c.file_include_reasons | 
+removable owned-local:Collecte ./compiler/filesparser.rig:321 c.processing_diagnostics | 
+removable owned-local:ErrorLin ./tsbaseline/error_baseline.rig:211 w.output_lines | 
+removable owned-local:ErrorLin ./tsbaseline/error_baseline.rig:272 w.output_lines | 
+removable owned-local:ExtendsR ./tsoptions/tsconfigparsing.rig:911 result.options | 
+removable owned-local:External ./transformers/moduletransforms_externalmoduleinfo.rig:56 collector.output | 
+removable owned-local:JsonConv ./tsoptions/tsconfigparsing.rig:155 notifier.own | 
+removable owned-local:LiteralP ./checker/relater.rig:3839 m.matches | 
+removable owned-local:OptionsV ./compiler/program.rig:890 v.diagnostics | 
+removable owned-local:Parser.n ./parser/parser.rig:6563 p.ast | 
+removable owned-local:Parser.n ./parser/jsdoc.rig:36 p.ast | 
+removable owned-local:PendingE ./transformers/moduletransforms_commonjsmodule.rig:885 p.statements | 
+removable owned-local:check_an ./execute/emit.rig:54 checked.diagnostics | 
+WHOLE-AFTER owned-local:compiler ./harness/compile_files.rig:143 processed.files | TestProgram(files: swap(!processed.files, List()), processed
+removable owned-local:convert_ ./tsoptions/tsconfigparsing.rig:456 converted.value | 
+removable owned-local:convert_ ./tsoptions/commandlineparser.rig:209 converted.value | 
+removable owned-local:declarat ./execute/emit.rig:119 emitted.js_unsupported | 
+removable owned-local:declarat ./execute/emit.rig:124 emitted.outputs | 
+removable owned-local:get_file ./tsoptions/tsconfigparsing.rig:1168 file_names_result.files | 
+removable owned-local:modulesp ./checker/nodebuilder.rig:1816 found.specifiers | 
+removable owned-local:package_ ./module/resolver.rig:1930 split.through | 
+removable owned-local:parse_co ./tsoptions/commandlineparser.rig:45 parser.errors | 
+removable owned-local:parse_co ./tsoptions/commandlineparser.rig:46 parser.options | 
+removable owned-local:parse_co ./tsoptions/tsconfigparsing.rig:1168 parsed_config.type_acquisition | 
+removable owned-local:parse_ex ./tsoptions/tsconfigparsing.rig:790 cache_entry.extended_config | 
+reassigned? owned-local:parse_ow ./tsoptions/tsconfigparsing.rig:886 own_config.extended_config_paths | own_config
+reassigned? owned-local:parse_ow ./tsoptions/tsconfigparsing.rig:909 own_config.options | own_config
+removable owned-local:parse_te ./harness/test_case_parser.rig:206 parsed.units | 
+removable owned-local:parse_te ./harness/test_case_parser.rig:207 parsed.symlinks | 
+WHOLE-AFTER owned-local:parser.p ./transformers/transformer_test.rig:37 file.binding | !files.push(<file)
+WHOLE-AFTER owned-local:parser.p ./transformers/transformer_test.rig:55 file.binding | !files.push(<file)
+removable owned-local:source_o ./tsoptions/options_generated.rig:496 source.custom_conditions | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:576 source.ignore_deprecations | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:604 source.jsx_factory | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:608 source.jsx_fragment_factory | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:612 source.jsx_import_source | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:616 source.lib | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:624 source.locale | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:640 source.module_suffixes | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:724 source.paths | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:728 source.plugins | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:764 source.react_namespace | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:772 source.root_dirs | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:840 source.type_roots | 
+removable owned-local:source_o ./tsoptions/options_generated.rig:844 source.types | 
+removable owned-local:swap(!@b ./checker/nodebuilder.rig:6646 bound.old_tracked_symbols | 
+removable owned-local:swap(!@s ./module/resolver.rig:521 done.tracer | 
+removable owned-local:swap(!@s ./module/resolver.rig:577 done.tracer | 
+removable owned-local:swap(!@s ./module/resolver.rig:580 done.tracer | 
+removable owned-local:swap(!no ./tsoptions/tsconfigparsing.rig:156 own.compiler_options | 
+removable owned-local:swap(!no ./tsoptions/tsconfigparsing.rig:156 own.type_acquisition | 
+removable owned-local:swap(!no ./tsoptions/tsconfigparsing.rig:156 own.extended_config_paths | 
+removable owned-local:transfor ./declarations/emitter.rig:225 tx.resolver | 
+removable owned-local:validate ./tsoptions/commandlineparser.rig:183 validated.value | 
+removable owned-local:validate ./tsoptions/tsconfigparsing.rig:463 validated.value | 
+removable unknown ./declarations/emitter.rig:392 transformer.referenced_files | 
+removable unknown ./declarations/emitter.rig:392 transformer.type_references | 
+removable unknown ./declarations/emitter.rig:392 transformer.lib_references | 
+removable unknown ./harness/test_case_parser.rig:20 x.f | 

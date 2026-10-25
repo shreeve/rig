@@ -218,7 +218,7 @@ fail "optwrite-review-d11-or-local", "cannot store a view of `d` through `x`: `w
   set(!h)
   print(h.s)
 
-fail "optwrite-review-d15-call-result-view", "cannot return a view of `x`, which this function was not lent"
+fail "optwrite-review-d15-call-result-view", "cannot store a view of `d` through `inner(<w) ?? return`: `w` outlives it"
   obj In
     s: ?String
 
@@ -254,7 +254,7 @@ fail "optwrite-review-d18-byvalue-self", "cannot store a view of `@` through `w 
   <src.give(!h)
   print(h.s)
 
-fail "optwrite-review-e01-return-sub-plain-ok", "cannot return a view of `x`, which this function was not lent"
+test "optwrite-review-e01-return-sub-plain-ok", "new"
   obj In
     s: ?String
 
@@ -270,7 +270,7 @@ fail "optwrite-review-e01-return-sub-plain-ok", "cannot return a view of `x`, wh
   (inner(!h)).s = "new"
   print(h.inner.s)
 
-fail "optwrite-review-e02-return-sub-opt-ok", "cannot return a view of `x`, which this function was not lent"
+test "optwrite-review-e02-return-sub-opt-ok", "new"
   obj In
     s: ?String
 
@@ -286,7 +286,7 @@ fail "optwrite-review-e02-return-sub-opt-ok", "cannot return a view of `x`, whic
   (inner(!h) ?? return).s = "new"
   print(h.inner.s)
 
-fail "optwrite-review-e03-return-sub-ifas-ok", "cannot return a view of `x`, which this function was not lent"
+test "optwrite-review-e03-return-sub-ifas-ok", "new"
   obj In
     s: ?String
 
@@ -303,7 +303,7 @@ fail "optwrite-review-e03-return-sub-ifas-ok", "cannot return a view of `x`, whi
   (inner(!h) ?? return).s = "new"
   print(h.inner.s)
 
-fail "optwrite-review-e04-return-read-ok", "cannot return a view of `x`, which this function was not lent"
+test "optwrite-review-e04-return-read-ok", "caller"
   obj H
     n: String
 

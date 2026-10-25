@@ -50,6 +50,37 @@ fn ints(io: std.Io, n: i64) !void {
     out("int", "iterate", since(io, t), sum);
 }
 
+/// A key of two words, as map.rig's `Pair`.
+const Pair = struct { lo: u64, hi: u64 };
+
+fn pair(i: i64) Pair {
+    const u: u64 = @intCast(i);
+    return .{ .lo = ((u >> 10) << 32) | (u & 1023), .hi = 0xA5C4000000000000 };
+}
+
+fn pairs(io: std.Io, n: i64) !void {
+    var m: std.AutoHashMapUnmanaged(Pair, i64) = .empty;
+    defer m.deinit(gpa);
+    var t = now(io);
+    var i: i64 = 0;
+    while (i < n) : (i += 1) try m.put(gpa, pair(i), i);
+    out("pair", "insert", since(io, t), m.count());
+    var sum: i64 = 0;
+    t = now(io);
+    i = 0;
+    while (i < n) : (i += 1) if (m.get(pair(i))) |v| {
+        sum += v;
+    };
+    out("pair", "hit", since(io, t), sum);
+    var found: i64 = 0;
+    t = now(io);
+    i = n;
+    while (i < 2 * n) : (i += 1) if (m.contains(pair(i))) {
+        found += 1;
+    };
+    out("pair", "miss", since(io, t), found);
+}
+
 /// "key" and `i`, built as Rig's `String("key", i)` is (`rig.String.add`).
 fn key(i: usize) !std.ArrayList(u8) {
     var list: std.ArrayList(u8) = .empty;
@@ -159,6 +190,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const io = std.Io.Threaded.global_single_threaded.io();
     try ints(io, @intCast(n));
     try strings(io, n);
+    try pairs(io, @intCast(n));
     try small(io, @intCast(n), 4);
     try small(io, @intCast(n), 8);
     try intern(io, n);
