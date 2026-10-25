@@ -1,0 +1,127 @@
+== tasks main round 1 (load 3.18)
+        rig-fast          vs rig-fast
+spawn   64 ns/task        
+chain   93 ns/task        
+fanout  314.6 ms/run      
+yield   25 ns/yield       
+hog     140.58 us/step    
+memory  4.6 KiB/task      
+== tasks fix round 1 (load 3.37)
+        rig-fast          vs rig-fast
+spawn   66 ns/task        
+chain   92 ns/task        
+fanout  331.6 ms/run      
+yield   24 ns/yield       
+hog     140.18 us/step    
+memory  4.6 KiB/task      
+== actors main round 1 (load 3.31)
+         rig-fast    vs rig-fast
+solo     12 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors fix round 1 (load 3.31)
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== net main round 1 (load 3.31)
+         rig-fast      vs rig-fast
+pingpong 5.42 us/trip  
+echo     4.02 us/trip  
+connect  30.32 us/conn 
+== net fix round 1 (load 3.31)
+         rig-fast      vs rig-fast
+pingpong 5.52 us/trip  
+echo     4.04 us/trip  
+connect  30.23 us/conn 
+== http main round 1 (load 3.36)
+                 req/s       p50       p99 per idle conn
+rig-fast        187301     222 us    3444 us       8.6 KiB
+== http fix round 1 (load 3.84)
+                 req/s       p50       p99 per idle conn
+rig-fast        186747     208 us    3510 us       8.6 KiB
+== tasks main round 2 (load 4.12)
+        rig-fast          vs rig-fast
+spawn   66 ns/task        
+chain   92 ns/task        
+fanout  316.6 ms/run      
+yield   24 ns/yield       
+hog     138.79 us/step    
+memory  4.6 KiB/task      
+== tasks fix round 2 (load 4.10)
+        rig-fast          vs rig-fast
+spawn   66 ns/task        
+chain   91 ns/task        
+fanout  328.0 ms/run      
+yield   24 ns/yield       
+hog     140.88 us/step    
+memory  4.6 KiB/task      
+== actors main round 2 (load 4.08)
+         rig-fast    vs rig-fast
+solo     12 ns/call  
+contend  15 ns/call  
+spread   11 ns/call  
+== actors fix round 2 (load 4.08)
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== net main round 2 (load 4.08)
+         rig-fast      vs rig-fast
+pingpong 5.38 us/trip  
+echo     4.04 us/trip  
+connect  32.02 us/conn 
+== net fix round 2 (load 3.78)
+         rig-fast      vs rig-fast
+pingpong 5.38 us/trip  
+echo     4.05 us/trip  
+connect  31.43 us/conn 
+== http main round 2 (load 3.80)
+                 req/s       p50       p99 per idle conn
+rig-fast        186834     204 us    3528 us       8.6 KiB
+== http fix round 2 (load 4.21)
+                 req/s       p50       p99 per idle conn
+rig-fast        186386     215 us    3510 us       8.6 KiB
+== tasks main round 3 (load 4.37)
+        rig-fast          vs rig-fast
+spawn   68 ns/task        
+chain   94 ns/task        
+fanout  335.7 ms/run      
+yield   25 ns/yield       
+hog     142.73 us/step    
+memory  4.6 KiB/task      
+== tasks fix round 3 (load 4.31)
+        rig-fast          vs rig-fast
+spawn   65 ns/task        
+chain   93 ns/task        
+fanout  334.1 ms/run      
+yield   25 ns/yield       
+hog     142.41 us/step    
+memory  4.6 KiB/task      
+== actors main round 3 (load 4.26)
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors fix round 3 (load 4.26)
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== net main round 3 (load 4.26)
+         rig-fast      vs rig-fast
+pingpong 5.41 us/trip  
+echo     4.10 us/trip  
+connect  30.62 us/conn 
+== net fix round 3 (load 3.91)
+         rig-fast      vs rig-fast
+pingpong 5.33 us/trip  
+echo     4.05 us/trip  
+connect  30.58 us/conn 
+== http main round 3 (load 3.92)
+                 req/s       p50       p99 per idle conn
+rig-fast        188786     218 us    3530 us       8.6 KiB
+== http fix round 3 (load 4.16)
+                 req/s       p50       p99 per idle conn
+rig-fast        188856     206 us    3480 us       8.6 KiB
+DONE

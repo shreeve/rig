@@ -10,9 +10,9 @@
 //! for the next, up to `keep_large` bytes, so a list that grows and a
 //! buffer used again do not map and unmap memory each time. Segments are
 //! never returned to the system: memory freed stays for reuse. On Linux,
-//! the heap that does the program's work, one that has taken from the
-//! system most of what every heap has, faults in at once the memory it
-//! is about to fill (`prefault`).
+//! a heap that does much of the program's work, one that has taken from
+//! the system most of what every heap has or more than one segment's
+//! worth, faults in at once the memory it is about to fill (`prefault`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
@@ -54,6 +54,10 @@ var taken_all: std.atomic.Value(usize) = .init(0);
 /// this many times what every other heap has together (`leads`).
 const prefault_lead: usize = 4;
 
+/// A heap that has taken this much from the system, two segments' worth,
+/// faults in ahead whatever the others have taken (`faultsAhead`).
+const prefault_big: usize = 2 * segment_size;
+
 /// Of a large block's pages, how many bytes to fault in at once: a List
 /// that doubles into a block fills, on average, its old elements and
 /// half the room after them, so a new block faults in its first three
@@ -68,8 +72,8 @@ fn likelyFilled(len: usize) usize {
 const prefault_large: usize = 8 << 20;
 
 /// Faults in the `len` bytes at `p` in one call, on Linux, while `h`
-/// leads the heaps (`leads`), as writing them would, page by page, with
-/// one trap each: a stretch of a segment the heap is about to carve
+/// does much of the program's work (`faultsAhead`), as writing them
+/// would, page by page, with one trap each: a stretch of a segment the heap is about to carve
 /// blocks from, or the part of a large block a List growing into it is
 /// likely to fill (`likelyFilled`). It saves a trap per page, and the
 /// cycles a program stalls after each, and commits little a program
@@ -77,11 +81,23 @@ const prefault_large: usize = 8 << 20;
 /// the pages fault as they are touched.
 fn prefault(h: *const Heap, p: usize, len: usize) void {
     if (len == 0) return;
-    if (!leads(h)) return;
+    if (!faultsAhead(h)) return;
     if (builtin.os.tag == .linux) {
         const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
         std.posix.madvise(at, len, madv_populate_write) catch {};
     }
+}
+
+/// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has
+/// taken from the system `prefault_big` bytes or more, more than its
+/// first segment, as the heap of each of several parallel checkers does
+/// as it fills its segments densely. The workers of a server, or of a
+/// program of many small tasks, each keep to one segment, so they fault
+/// lazily: each would fault in its first stretch as it starts, and a
+/// server's buffers are written sparsely, so faulting in ahead slowed
+/// both.
+fn faultsAhead(h: *const Heap) bool {
+    return h.taken >= prefault_big or leads(h);
 }
 
 /// Whether `h` does the program's work: it has taken from the system at
@@ -89,11 +105,9 @@ fn prefault(h: *const Heap, p: usize, len: usize) void {
 /// program on one thread always leads, and so does one whose other
 /// threads take little, as a blocking-pool thread that reads a file
 /// does. In a program of several busy threads, as a server's workers or
-/// parallel checkers, none leads, and each faults lazily: each would
-/// fault in its first stretch as it starts, and a server's buffers are
-/// written sparsely, so faulting in ahead slowed both. A new heap's first
-/// segment counts before it asks, so it leads only a program whose other
-/// heaps have taken a quarter of it or less.
+/// parallel checkers, none leads. A new heap's first segment counts
+/// before it asks, so it leads only a program whose other heaps have
+/// taken a quarter of it or less.
 fn leads(h: *const Heap) bool {
     const others = taken_all.load(.monotonic) -| h.taken;
     return others * prefault_lead <= h.taken;
@@ -753,4 +767,29 @@ test "the heap that does the work faults in ahead, beside a thread that takes li
     try std.testing.expect(!led);
     try std.testing.expect(!led_first);
     try std.testing.expect(!leads(me));
+}
+
+test "heaps that have each taken more than a segment fault in ahead, though neither leads, and one of a segment that does not lead faults lazily" {
+    const a = allocator;
+    const me = heapForTest();
+    const mine = try a.alloc(u8, prefault_big);
+    defer a.free(mine);
+    try std.testing.expect(me.taken >= prefault_big);
+    // A second thread that takes as much: neither leads, both fault in ahead.
+    const Checker = struct {
+        fn run(n: usize, first: *const Heap, out: *[4]bool) void {
+            const got = allocator.alloc(u8, n) catch unreachable;
+            const h = heapForTest();
+            out.* = .{ leads(h), faultsAhead(h), leads(first), faultsAhead(first) };
+            allocator.free(got);
+            threadExit();
+        }
+    };
+    var out: [4]bool = undefined;
+    (try std.Thread.spawn(.{}, Checker.run, .{ me.taken, me, &out })).join();
+    try std.testing.expectEqual([4]bool{ false, true, false, true }, out);
+    // A heap of one segment, beside them, neither leads nor faults in ahead.
+    var small: Heap = .{ .taken = segment_size };
+    try std.testing.expect(!leads(&small));
+    try std.testing.expect(!faultsAhead(&small));
 }

@@ -1059,6 +1059,15 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   3% faster (zod3 4 to 7%), for 4 to 6% more peak memory: ts-pattern
   peaks at 342 MB rather than 328, since memory faulted in ahead is
   resident before it is filled. At four checkers both are unchanged.
+- **Release allocator:** on Linux, a heap that has taken from the
+  system two segments' worth (8 MB) faults in ahead too, beside others
+  as large: each of several parallel checkers does, while a server's or
+  a task program's workers, each within one segment, fault lazily.
+  Trig on pup at four checkers takes 51.4K page faults on ts-pattern
+  rather than 91.4K (zod3 20.0K rather than 30.8K), for 5 to 6% more
+  peak memory: ts-pattern peaks at 402 MB rather than 383, zod3 at 150
+  rather than 142. zod3 runs 4 to 6% faster; ts-pattern's time is
+  unchanged. The task, actor, net and http benches are unchanged.
 - **Release allocator:** a small block of up to 1 KiB, aligned to 8 or
   less, is taken and given back with no call: 23 instructions to
   allocate and 26 to free on x86-64, where each took about 50. Trig checks ts-pattern

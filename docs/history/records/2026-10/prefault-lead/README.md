@@ -92,3 +92,110 @@ call. All of it, from the first drop's `munmap` to the end, is about 30
 ms of a 1.54 to 1.61 s traced run, about 2%. The change moves none of
 it (main 9.1 to 9.9 ms from the last output to the end, the change 9.5
 to 10.3).
+
+# Faulting ahead by every large heap (2026-10-25)
+
+At four checkers none of Trig's heaps leads: four checker heaps fill
+their segments densely, and all faulted lazily, 91K page faults on
+ts-pattern. A heap now also faults in ahead once it has taken from the
+system two segments' worth, 8 MB (`prefault_big`, `faultsAhead` in
+`src/alloc.zig`), whatever the others have taken.
+
+## Where the line falls
+
+A probe build logged each heap's `taken` as it crossed each step
+(`heaps.sh`; the probe read `RIG_PF_MB` and `RIG_PF_LOG` from the
+environment and is not in the change). Trig at four checkers, 16 MB
+steps: ts-pattern's heaps reach 112, 66, 49 and 32 MB, zod3's 48, 17
+and 17 (a heap under 16 MB logs nothing). Every bench heap on pup, 4 MB
+steps, stays at its first segment: `bench/tasks` 15 heaps of 4 MB,
+`tasks many` 2, `bench/actors` 22, `bench/net` 22, and the http server
+66 heaps over a whole `bench-http` run, its idle connections among
+them. So two segments separates them: a checker's heap passes it early,
+and a server's or a task program's workers never reach it.
+
+The threshold swept on the probe trig at four checkers (`sweep.py`,
+fastest of 10, pup at load 6 to 7 from other sessions; 0 is main's
+rule):
+
+| project | MB | wall s | sys s | user s | page faults | RSS MB |
+|---|---:|---:|---:|---:|---:|---:|
+| ts-pattern | 0 | 0.499 | 0.158 | 1.227 | 91667 | 382 |
+| ts-pattern | 8 | 0.471 | 0.119 | 1.208 | 51437 | 402 |
+| ts-pattern | 12 | 0.463 | 0.134 | 1.203 | 53153 | 401 |
+| ts-pattern | 16 | 0.484 | 0.139 | 1.246 | 56502 | 400 |
+| ts-pattern | 32 | 0.491 | 0.143 | 1.264 | 67278 | 399 |
+| ts-pattern | 64 | 0.521 | 0.153 | 1.366 | 83506 | 392 |
+| zod3 | 0 | 0.162 | 0.049 | 0.314 | 30871 | 142 |
+| zod3 | 8 | 0.162 | 0.044 | 0.316 | 20069 | 150 |
+| zod3 | 12 | 0.164 | 0.055 | 0.312 | 22540 | 149 |
+| zod3 | 16 | 0.161 | 0.063 | 0.311 | 26768 | 147 |
+| zod3 | 32 | 0.165 | 0.055 | 0.316 | 28248 | 144 |
+| zod3 | 64 | 0.165 | 0.055 | 0.328 | 30893 | 142 |
+
+64 MB, the proposal's starting point, saves 9% of ts-pattern's faults
+and none of zod3's: each heap faults its first 64 MB lazily, and only
+two of ts-pattern's heaps pass it. 8 MB saves the most, for 5% more
+peak memory.
+
+## Trig on pup
+
+Trig main `8e2f21f` (src/ with tools/trig/main.rig), built by Rig main
+`c2639a40f` and by the change, `pfmeasure.py` as above (one checker on
+core 6, four unpinned), two sets: 10 rounds at load 2.1 to 2.6, and 20
+rounds at load 2.9 to 3.8, from other sessions' work.
+
+| project | checkers | build | wall s | sys s | user s | page faults | RSS MB |
+|---|---|---|---:|---:|---:|---:|---:|
+| ts-pattern | 1 | main | 1.244 / 1.248 | 0.090 / 0.082 | 1.150 / 1.130 | 44545 | 342 |
+| ts-pattern | 1 | change | 1.280 / 1.232 | 0.095 / 0.095 | 1.166 / 1.123 | 42764 | 342 |
+| ts-pattern | 4 | main | 0.522 / 0.515 | 0.141 / 0.153 | 1.371 / 1.357 | 91389 | 383 |
+| ts-pattern | 4 | change | 0.524 / 0.515 | 0.157 / 0.130 | 1.378 / 1.327 | 51406 | 402 |
+| zod3 | 1 | main | 0.251 / 0.243 | 0.024 / 0.023 | 0.216 / 0.214 | 11051 | 93 |
+| zod3 | 1 | change | 0.239 / 0.233 | 0.021 / 0.024 | 0.206 / 0.208 | 9255 | 93 |
+| zod3 | 4 | main | 0.170 / 0.162 | 0.056 / 0.054 | 0.336 / 0.333 | 30813 | 142 |
+| zod3 | 4 | change | 0.160 / 0.155 | 0.057 / 0.056 | 0.311 / 0.306 | 20019 | 150 |
+
+At four checkers ts-pattern takes 44% fewer page faults and zod3 35%
+fewer, for 5.0% and 5.6% more peak memory (402 MB rather than 383, 150
+rather than 142). zod3 runs 4 to 6% faster with 7 to 8% less user time;
+ts-pattern's wall is unchanged (0.4% slower, then equal) with 0.5 to 2%
+less user time, and its sys time moves within the spread (12% less in
+one set, 11% more in the other). At one checker ts-pattern is within
+the spread (2.9% slower, then 1.3% faster), with 4% fewer faults; zod3
+takes 16% fewer and runs 4 to 5% faster.
+
+strace (`-f -e trace=madvise`) counts `MADV_POPULATE_WRITE` by thread.
+ts-pattern at four checkers: main 100 calls, all on one thread; the
+change 371, on five threads (205, 63, 56, 41, 6). zod3 at four: main
+84 on one; the change 198 on four (129, 25, 23, 21). At one checker,
+ts-pattern 247 and 261, zod3 126 and 141, each on one thread.
+
+## The benches
+
+`bench/tasks`, `actors`, `net` and `http` (rig-fast) on cores 6 and 7,
+main and the change interleaved (`benches-large.sh`,
+`benches-large.log`, at load 3.2 to 4.4; five more rounds of `tasks` at
+load 3.9 to 5.4). Best of 3 (`tasks`, of 8):
+
+| bench | main | change |
+|---|---:|---:|
+| spawn | 63 ns/task | 63 ns/task |
+| chain | 92 ns/task | 91 ns/task |
+| fanout | 309.8 ms/run | 310.8 ms/run |
+| yield | 24 ns | 24 ns |
+| hog | 133.42 us/step | 134.09 us/step |
+| memory | 4.6 KiB/task | 4.6 KiB/task |
+| actors solo / contend / spread | 12 / 15 / 11 ns/call | 13 / 16 / 11 ns/call |
+| net pingpong / echo | 5.38 / 4.02 us/trip | 5.33 / 4.04 us/trip |
+| net connect | 30.32 us/conn | 30.23 us/conn |
+| http req/s | 188786 | 188856 |
+| http p50 / p99 | 204 / 3444 us | 206 / 3480 us |
+
+`pfcount.sh` counts `MADV_POPULATE_WRITE` in each, under strace: one in
+`tasks`, `actors` and `net`, eight in `tasks many`, and one in the http
+server under 64 connections for 2 s, the same for main and the change.
+No bench heap reaches two segments, so the change runs the benches'
+code as main does; actors' 1 ns steps are the timer's resolution.
+
+The unit tests passed on pup in Debug, ReleaseSafe and ReleaseFast.
