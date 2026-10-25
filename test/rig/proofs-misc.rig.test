@@ -230,7 +230,7 @@ test "else branch", "99", release: true
   print(pick("abc", 2))
 
 bomb "else branch mut", "index out of bounds", release: true
-  # A guard's false edge proves nothing.
+  # The false edge of `i < s.len` is `s.len <= i`, which bounds nothing.
 
   fun pick(s: ?String, at: Int) -> U8
     i = at
@@ -239,6 +239,56 @@ bomb "else branch mut", "index out of bounds", release: true
     else
       return s[i] # keeps: index upper
     0
+
+  print(pick("abc", 5))
+
+test "false edge of a guard that returns", "98 0", release: true
+  # `return 0 if i >= s.len` leaves where `i` is past the end, so what
+  # follows runs only where `i < s.len`.
+
+  fun pick(s: ?String, i: Int) -> U8
+    return 0 if i >= s.len
+    s[i] # proves: index upper
+
+  print(pick("abc", 1), pick("abc", 3))
+
+test "false edge of an or", "99 0 0", release: true
+  # An `or` fails only where each part fails: `0 <= i` and `i < s.len`.
+
+  fun pick(s: ?String, i: Int) -> U8
+    if i < 0 or s.len <= i
+      return 0
+    s[i] # proves: index lower upper
+
+  print(pick("abc", 2), pick("abc", -1), pick("abc", 3))
+
+test "false edge into an else", "98 0", release: true
+  # The `else` runs from the false edge of `i >= s.len`.
+
+  fun pick(s: ?String, i: Int) -> U8
+    if i >= s.len
+      return 0
+    else
+      return s[i] # proves: index upper
+
+  print(pick("abc", 1), pick("abc", 7))
+
+bomb "false edge of an and proves nothing", "index out of bounds", release: true
+  # `i >= 0 and i < 2` fails where either fails: nothing holds of both.
+
+  fun pick(s: ?String, i: Int) -> U8
+    return 0 if i >= 0 and i < 2
+    s[i] # keeps: index upper
+
+  print(pick("abc", 5))
+
+bomb "false edge with a then that falls through", "index out of bounds", release: true
+  # A `then` that does not leave joins its end to the false edge.
+
+  fun pick(s: ?String, i: Int) -> U8
+    if i >= s.len
+      print("past")
+    s[i] # keeps: index upper
 
   print(pick("abc", 5))
 

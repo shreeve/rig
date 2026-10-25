@@ -853,6 +853,39 @@ const Pass = struct {
         var lo = ir.get(e, .left);
         var hi = ir.get(e, .right);
         if (swap) std.mem.swap(Sexp, &lo, &hi);
+        try p.genBelow(lo, hi, strict, out);
+    }
+
+    /// G1 on a guard's false edge: what a comparison shows when it fails,
+    /// the comparison it negates on its true edge (`i >= b` fails as
+    /// `i < b`, `i < 0` as `0 <= i`). An `or` fails only when each of
+    /// its operands fails, so each one's false edge holds; any other
+    /// condition shows nothing.
+    fn genGuardFalse(p: *Pass, e: Sexp, out: *State) Error!void {
+        const kind = e.kind() orelse return;
+        if (kind == .@"or") {
+            try p.genGuardFalse(ir.get(e, .left), out);
+            return p.genGuardFalse(ir.get(e, .right), out);
+        }
+        // `a < b` fails as `b <= a`, `a <= b` as `b < a`, `a > b` as
+        // `a <= b`, and `a >= b` as `a < b`.
+        const strict, const swap = switch (kind) {
+            .@"<" => .{ false, true },
+            .@"<=" => .{ true, true },
+            .@">" => .{ false, false },
+            .@">=" => .{ true, false },
+            else => return,
+        };
+        var lo = ir.get(e, .left);
+        var hi = ir.get(e, .right);
+        if (swap) std.mem.swap(Sexp, &lo, &hi);
+        try p.genBelow(lo, hi, strict, out);
+    }
+
+    /// What `lo < hi` (`strict`) or `lo <= hi` shows of Int bindings:
+    /// `0 <= i` or `0 < i`, or `i + k` below a bound, which, as `s.len`,
+    /// was read, so G4 gives `fits(s)`.
+    fn genBelow(p: *Pass, lo: Sexp, hi: Sexp, strict: bool, out: *State) Error!void {
         // `0 <= i`, `0 < i`.
         if (p.intLiteral(lo)) |z| if (z == 0) if (p.intLocal(hi)) |i| return out.add(p.a, .{ .nonneg = i }, 0);
         const b = (try p.boundOf(hi)) orelse return;
@@ -1184,19 +1217,38 @@ const Pass = struct {
     }
 
     /// `if`: the guard parts, the `then` from the last one's true edge,
-    /// the `else` from the facts before less the condition's writes; after
-    /// it, the facts before less every write in it.
+    /// the `else` from the false edge (`falseEdge`); after it, the facts
+    /// before less every write in it. An `if` with no `else` whose `then`
+    /// always leaves (`return 0 if i >= s.len`) is left only by its false
+    /// edge, so what follows it starts there.
     fn walkIf(p: *Pass, node: Sexp, cond: Sexp, then: Sexp, else_b: Sexp, st: *State) Error!void {
         var t = try st.clone(p.a);
         try p.walkCond(cond, &t);
         try p.walkBranch(then, &t);
+        var e = try st.clone(p.a);
+        try p.falseEdge(cond, &e);
         if (else_b != .nil) {
-            var e = try st.clone(p.a);
-            applyKills(&e, &(try p.killsOf(cond)));
             try p.walkBranch(else_b, &e);
+        } else if (t.dead) {
+            st.* = e;
+            return;
         }
         applyKills(st, &(try p.killsOf(node)));
         st.dead = false;
+    }
+
+    /// The facts on condition `cond`'s false edge, from `st`, the facts
+    /// before it: less every write in it, with what the failed condition
+    /// shows (`genGuardFalse`), unless it writes what that names. A
+    /// condition of several parts, or one that binds (`as`), shows
+    /// nothing.
+    fn falseEdge(p: *Pass, cond: Sexp, st: *State) Error!void {
+        const k = try p.killsOf(cond);
+        applyKills(st, &k);
+        if (cond != .list or rig.isAsPart(cond) or cond.isKind(.@"and")) return;
+        var made: State = .{};
+        try p.genGuardFalse(cond, &made);
+        try p.addMade(st, &made, &k);
     }
 
     /// `while cond : step` (docs/internals/INTERNALS.md, "Loops"): each iteration
@@ -2003,6 +2055,48 @@ fn expectDump(source: []const u8, expected: []const u8) !void {
     const got = try dumpOf(source);
     defer std.testing.allocator.free(got);
     try std.testing.expectEqualStrings(expected, got);
+}
+
+test "G1: a guard's false edge" {
+    // A guard whose `then` leaves: what follows starts from its false
+    // edge, `i >= s.len` failed as `i < s.len`, and an `or` as each part.
+    try expectDump(
+        \\fun f(s: ?String, i: Int) -> U8
+        \\  return 0 if i >= s.len
+        \\  s[i]
+        \\
+    ,
+        \\3:3 index upper
+        \\
+    );
+    try expectDump(
+        \\fun f(s: ?String, i: Int) -> U8
+        \\  if i < 0 or s.len <= i
+        \\    return 0
+        \\  s[i]
+        \\
+    ,
+        \\4:3 index lower upper
+        \\
+    );
+    // An `else` from the false edge; an `and`, or a `then` that falls
+    // through, shows nothing after.
+    try expectDump(
+        \\fun f(s: ?String, i: Int) -> U8
+        \\  if i >= s.len
+        \\    print(1)
+        \\  else
+        \\    print(s[i])
+        \\  if i >= 0 and i < s.len
+        \\    return 0
+        \\  if i >= s.len
+        \\    print(2)
+        \\  s[i]
+        \\
+    ,
+        \\5:11 index upper
+        \\
+    );
 }
 
 test "G1: each guard shape, either way round, on its true edge" {
