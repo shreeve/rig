@@ -44,6 +44,8 @@ began; Rig's are added as the runtime grows.
 | 2026-10-24 | #624: the blocking pool keeps a few threads busy (pup cores 6,7) | rig-fast | 192676 | 203 us | 3485 us | 8.6 KiB |
 | 2026-10-25 | main before #677, interleaved (pup cores 6,7) | rig-fast | 186733 | 213 us | 3505 us | 8.6 KiB |
 | 2026-10-25 | #677: fewer yield checks (pup cores 6,7) | rig-fast | 186094 | 208 us | 3502 us | 8.6 KiB |
+| 2026-10-25 | main 99dcccf13 (before #677 and #683), interleaved (pup cores 6,7) | rig-fast | 196161 | 193 us | 3461 us | 8.6 KiB |
+| 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 195093 | 215 us | 3482 us | 8.6 KiB |
 
 The "buffers held only per request" rows (#402) ran on a build that
 pinned every task to the worker that made it, a slip of #401 that #405

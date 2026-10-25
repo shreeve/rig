@@ -1049,6 +1049,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **Map and Set:** a key of 8 bytes or fewer keeps no stored hash, so
   such a Map takes 8 bytes an entry fewer; Trig's ts-pattern peaks at
   403 MB rather than 425.
+- **The scheduler's spin lock waits by reading:** a thread waiting for
+  it reads until it looks free before trying to take it, so waiters do
+  not fight over its line, and the blocking pool reads the clock before
+  taking its lock rather than under it. A walk of a large tree with
+  loco spent 62% of a worker's time spinning there; in a copy so
+  patched its user time fell from 14.9 s to 1.4 s at the same wall time.
 - **Release allocator:** on Linux, the heap that does the program's
   work faults in ahead the memory it is about to fill: one that has
   taken from the system at least four times what every other heap has
