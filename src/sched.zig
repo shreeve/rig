@@ -1253,10 +1253,12 @@ const Pool = struct {
     const default_max = 64;
 
     fn submit(p: *Pool, c: *Call) void {
+        // The clock is read before the lock is taken, never under it.
+        const at = nowReal();
         p.lock.lock();
         if (p.max == 0) poolBounds(p);
         c.next = null;
-        c.at = nowReal();
+        c.at = at;
         if (p.tail) |t| t.next = c else p.head = c;
         p.tail = c;
         p.queued += 1;
@@ -1387,6 +1389,7 @@ fn monitor(p: *Pool) void {
     defer rt.fast_alloc.threadExit();
     while (true) {
         const seen = p.monitor_word.load(.seq_cst);
+        const now = nowReal();
         p.lock.lock();
         if (stopping.load(.acquire)) {
             p.monitoring = false;
@@ -1394,7 +1397,6 @@ fn monitor(p: *Pool) void {
             p.lock.unlock();
             return;
         }
-        const now = nowReal();
         const backlog = p.head != null and p.queued - p.reserved > p.finishing.load(.seq_cst);
         var start = false;
         if (backlog and p.threads < p.max and now - p.head.?.at >= Pool.grow_after and now - p.progress >= Pool.grow_after) {
@@ -1437,9 +1439,10 @@ fn poolMain(p: *Pool) void {
         if (p.take(waited)) |c| {
             p.lock.unlock();
             c.run(c);
+            const ended = nowReal();
             p.lock.lock();
             _ = p.finishing.fetchSub(1, .seq_cst);
-            p.progress = nowReal();
+            p.progress = ended;
             waited = false;
             continue;
         }
@@ -2262,8 +2265,16 @@ const Sleepers = struct {
 pub const SpinLock = struct {
     held: std.atomic.Value(bool) = .init(false),
 
+    /// Take the lock. A waiter reads until the lock looks free and only
+    /// then tries to take it, so waiters do not pass the line between
+    /// them while the holder works; it never yields its thread, since a
+    /// yield is a system call each time and the pool's lock is held only
+    /// between its threads' calls (on loco at one worker, a yield after
+    /// 100 reads raises kernel time by 43%).
     pub fn lock(l: *SpinLock) void {
-        while (l.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+        while (l.held.cmpxchgWeak(false, true, .acquire, .monotonic) != null) {
+            while (l.held.load(.monotonic)) std.atomic.spinLoopHint();
+        }
     }
 
     pub fn unlock(l: *SpinLock) void {
