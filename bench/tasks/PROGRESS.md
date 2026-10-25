@@ -76,3 +76,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-24 | #624: the blocking pool keeps a few threads busy (pup cores 6,7) | rig-fast | 64 ns | 90 ns | 311.0 ms | 24 ns | 134.76 us | 4.6 KiB |
 | 2026-10-25 | main before #677, interleaved (pup cores 6,7) | rig-fast | 66 ns | 92 ns | 331.0 ms | 24 ns | 140.85 us | 4.6 KiB |
 | 2026-10-25 | #677: fewer yield checks (pup cores 6,7) | rig-fast | 66 ns | 93 ns | 333.6 ms | 25 ns | 140.56 us | 4.6 KiB |
+| 2026-10-25 | main 99dcccf13 (before #677 and #683), interleaved (pup cores 6,7) | rig-fast | 63 ns | 89 ns | 309.8 ms | 25 ns | 135.02 us | 4.6 KiB |
+| 2026-10-25 | #683: the pool's spin lock waits by reading (pup cores 6,7) | rig-fast | 63 ns | 87 ns | 310.0 ms | 24 ns | 134.40 us | 4.6 KiB |

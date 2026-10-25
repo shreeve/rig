@@ -1,0 +1,20 @@
+use std.file
+use std.time
+
+fun reader(n: Int) -> Int!
+  total = 0
+  for _ in 0..n
+    s = file.read(String("/zfs/worktrees/rig/oversub/data.txt"))! ?? String()
+    total += s.len
+  total
+
+sub main()!
+  start = time.now()
+  tasks: List[Task[Int!]] = List()
+  for _ in 0..200
+    !tasks.push(reader(1000)&)
+  sum = 0
+  for t in <tasks
+    sum += (>t)!
+  print(sum)
+  print(start.elapsed() / 1000000)
