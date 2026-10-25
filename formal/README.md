@@ -405,6 +405,13 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
   not atomic stays on one thread; atomic counts themselves, and a
   `*{A}` carrying its value's loans to its last count, are not modeled,
   since λRig has no counted handles (Next, 5).
+- **Partial moves (CORE §5, "A field of an owned object moves like a
+  name").** λRig has no fields, so a field moved out of an owned
+  object, the per-path moved state, and the drop of only the fields
+  still held are not modeled; the oracle (`test/oracle/flow.zig`) tracks
+  them per path, and the sanitizer runs each case. The lemma waits for
+  objects with fields (Next, 1): a partly moved name used only where no
+  moved path overlaps the use, and dropped field by field.
 - **Bounds (docs/design/apis.md, Stage 2).** A body may copy a type
   parameter bounded `Copy`, so a proof that generic bodies keep the
   Core needs `Copy` to hold only of the kinds that copy: plain data and

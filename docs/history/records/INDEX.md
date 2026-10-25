@@ -63,6 +63,8 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Why Trig scales worse than tsrs on every core (2026-10-24) | Rig does not oversubscribe: one worker per CPU, four run, idle ones sleep once; scheduler 0.03% of samples, no allocator contention, no false sharing. The gap (2.35× against 2.96× from one core to all) is Trig's work shape: unbalanced checkers in Go's partition (longest 1.41× the mean, about 25% of the all-core time), a serial 54 ms head (parse and bind), and a ~20 ms teardown at exit | [perf-stage/scaling.md](2026-10/perf-stage/scaling.md) |
 | CORE's "A view reached through a write view that a binding holds" (sentence 7) | `if !@slots[j] as s` may `return !s.value` `from @`: the view carries the binding's loans, path for path, and a loan on the binding that ends with its scope; nothing in that scope, its defers included, uses `s` while the view lives (§7 Defer: what a scope gives back is live while its defers run); a designer, an adversary (H1 to H6), a reviewer whose holes 1 and 2 shipped first as the defer hotfix (#663), and the owner's approval | [wview-return/](2026-10/wview-return/) |
 
+| CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
+
 ## Every record
 
 ### 2026-10/allocator-g9/
@@ -210,6 +212,15 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [stand.sh](2026-10/perf-stage/checks-data/stand.sh)
 - [summ.py](2026-10/perf-stage/checks-data/summ.py)
 - [timeit.py](2026-10/perf-stage/checks-data/timeit.py)
+
+### 2026-10/partial-moves/
+
+- [approved.md](2026-10/partial-moves/approved.md): the owner's approval, quoted
+- [5-final.md](2026-10/partial-moves/5-final.md): the CORE text, its desugaring, examples, and build
+- [3-draft.md](2026-10/partial-moves/3-draft.md): the combined draft, each rule with the hole it closes
+- [1-design.md](2026-10/partial-moves/1-design.md), [2-adversary.md](2026-10/partial-moves/2-adversary.md), [4-review.md](2026-10/partial-moves/4-review.md): the panel's reports
+- [4-census.txt](2026-10/partial-moves/4-census.txt): Trig's `swap(!x.f, empty)` sites by binding kind
+- [review.md](2026-10/partial-moves/review.md): the adversarial review of the build: a parent and a child both moved out, and fields Zig renames, fixed in the drops
 
 ### 2026-10/safety-checks/
 

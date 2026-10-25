@@ -1832,7 +1832,12 @@ test "review-sc4-e1", '''
     n if n > 1 => print("b", n)
     _ => print("c")
 
-fail "review-sc4-f1", "cannot move out of `h.s`: `h` would still drop it (partial moves are not supported); move `h` whole, or exchange the field: `old = swap(!h.s, v)`"
+test "review-sc4-f1", '''
+  kept 1
+  drop 1
+  mid
+  drop 2
+'''
   obj B
     n: Int
 

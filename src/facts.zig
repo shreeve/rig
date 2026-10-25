@@ -602,6 +602,9 @@ pub const Facts = struct {
     pub fn consumes(f: Facts, sym: SymbolId) bool {
         return f.c().consumes(sym);
     }
+    pub fn fieldMoves(f: Facts, sym: SymbolId) []const []const u8 {
+        return f.c().fieldMoves(sym);
+    }
     pub fn storageOf(f: Facts, node: Sexp, kind: StorageKind) ?Storage {
         return f.c().storageOf(node, kind);
     }

@@ -6649,14 +6649,12 @@ use of `b` after move
 ```
 
 `<` always leaves its source done: a name is ended, an optional field
-or element is emptied to `none` ([Places](#places)), and `<` on any
-other place is rejected, as on a function or a module's constant, which
-lives for the whole program. So only whole bindings move. Moving a field
-that moves out of an object is rejected (the object would still drop
-it); clone a shared field with `+p.a`, move the object as a whole, take
-an optional field, or exchange the field with `swap`
-([Places](#places)). A field or element that copies would stay as it
-was, so `<p.n` is rejected too, and a plain read, `m = p.n`, copies it.
+or element is emptied to `none` ([Places](#places)), any other field
+of an object a local or parameter owns moves out as a name does
+(below), and `<` on any other place is rejected, as on a function or a
+module's constant, which lives for the whole program. A field or element
+that copies would stay as it was, so `<p.n` is rejected too, and a
+plain read, `m = p.n`, copies it.
 A part of a value made in the statement (`<mk().n`, `<mk().v`) is
 dropped with it, so nothing would see it ended or emptied: it is
 rejected too, and the value is bound to a name first. A branching value
@@ -6686,6 +6684,80 @@ fun first(o: Int?) -> Int?
 
 ```error
 `<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`
+```
+
+**Partial moves.** A local or parameter that owns an object acts as
+one name per field, and so on down: `<p.f` moves `p.f` as `<x` moves
+`x`, and `p` is partly moved. Its other fields stay usable, and `p.f =
+x` makes a local's field usable again; a parameter is never assigned,
+so it stays partly moved. Where `p`'s scope ends, or at any exit on the
+way (`!`, `break`, `return`), only the fields it still holds drop, last
+field first, and `p.f = x` and `p = x` drop only what is still held.
+Until every moved field is assigned again on every path, no use touches
+all of `p` except `p = x`: printing it, lending it, a method of it,
+moving or cloning it, returning it, `swap` of a moved field, a capture,
+deferred code, and `<p` are rejected. `<p.a.b` leaves `p.a` and `p`
+partly moved: `p.a.c` stays usable, and nothing is stored below the
+moved field.
+
+```rig
+obj Entry
+  key: String
+  value: String
+
+sub main()
+  e = Entry(key: String("k"), value: String("v"))
+  v = <e.value
+  print(e.key, v)
+  e.value = String("w")
+  print(e)
+```
+
+```output
+k v
+Entry(key: "k", value: "w")
+```
+
+```rig reject
+obj Entry
+  key: String
+  value: String
+
+sub main()
+  e = Entry(key: String("k"), value: String("v"))
+  v = <e.value
+  print(e, v)
+```
+
+```error
+`e` is partly moved: `e.value` was moved out; assign it first
+```
+
+No field moves out through a view, a handle (other handles may still
+use it), a box (`<b.unbox()` takes its value first), an element of a
+container, or an optional's value, and none out of a type on its path
+with a `drop` body, which expects every field: move the object whole,
+or exchange the field with `swap` ([Places](#places)). An optional
+field keeps its take, which leaves `none` and the object whole. Owned
+bindings are names: `if <o as s`, `match <x`, and `for x in <v` each
+give their fields up. Closures and deferred code move no field, as they
+move no name, and a `defer` body neither moves nor assigns one.
+
+```rig reject
+obj File
+  name: String
+
+  drop(!@)
+    print("close", @name)
+
+sub main()
+  f = File(name: String("a.txt"))
+  n = <f.name
+  print(n)
+```
+
+```error
+`File` has a `drop` body, which expects every field
 ```
 
 ### Clone

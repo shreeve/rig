@@ -3,7 +3,16 @@
 # adversarial review found (docs/history/records/2026-10/partial-moves/),
 # with the reference checker's verdicts.
 
-fail "partial branches and exits", "29:17: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "34:13: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "40:13: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "47:19: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 4
+test "partial branches and exits", '''
+  2
+  bbb
+  bbb
+  6
+  -1
+  4 -1
+  aa 0
+  2
+'''
   # 1. A field moved on one branch, before a `!`, inside a value a `!` leaves
   # unfinished, or before a `break`: each moved path has its own drop flag,
   # so every exit drops only what the local still holds.
@@ -62,7 +71,7 @@ fail "partial branches and exits", "29:17: cannot move out of `p.a`: `p` would s
     print(made(1) catch -1, made(-1) catch -1)
     breaks()
 
-fail "partial branches and exits reject", "15:17: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "21:17: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 2
+fail "partial branches and exits reject", "16:9: use of `p.a` after move", "21:17: use of `p.a` after move", errors: 2
   # 1. A field moved on some path is used only once assigned again: after a
   # branch that may move it, and in a loop's next turn.
   # oracle: branch_use reject C1
@@ -89,7 +98,15 @@ fail "partial branches and exits reject", "15:17: cannot move out of `p.a`: `p` 
     branch_use(true)
     loop_twice()
 
-fail "partial assigned again", "15:17: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "22:17: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 2
+test "partial assigned again", '''
+  2
+  new bbb
+  new bbb
+  2 0
+  5 1
+  5 2
+  P(a: "again", b: "bbb")
+'''
   # 2. `p.a = x` after a move that may have run drops the old value only if
   # it is still held, then holds the new one.
   # oracle: refill accept
@@ -120,7 +137,7 @@ fail "partial assigned again", "15:17: cannot move out of `p.a`: `p` would still
     refill(false)
     refill_each()
 
-fail "partial assigned again reject", "13:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 1
+fail "partial assigned again reject", "16:9: `p` is partly moved: `p.a` was moved out; assign it first", errors: 1
   # 2. Assigned again on one path only, the field is still moved out on the
   # other, so a use of all of `p` is rejected.
   # oracle: refill_one reject C1
@@ -141,7 +158,12 @@ fail "partial assigned again reject", "13:15: cannot move out of `p.a`: `p` woul
   sub main()
     refill_one(true)
 
-fail "partial whole assignment", "14:13: cannot move out of `p.b`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.b, v)`", "14:22: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "20:17: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 3
+test "partial whole assignment", '''
+  b a
+  2
+  P(a: "x", b: "y")
+  P(a: "x", b: "y")
+'''
   # 3. `p = x` drops the old value field by field, only what it still holds;
   # its value may take `p`'s own fields.
   # oracle: swapped accept
@@ -170,7 +192,7 @@ fail "partial whole assignment", "14:13: cannot move out of `p.b`: `p` would sti
     replaced(true)
     replaced(false)
 
-fail "partial whole uses reject", "39:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "44:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "49:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "55:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "60:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "65:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "71:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "76:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "81:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "87:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "94:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "98:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 12
+fail "partial whole uses reject", "40:9: `p` is partly moved: `p.a` was moved out; assign it first", "45:15: `p` is partly moved: `p.a` was moved out; assign it first", "50:4: `p` is partly moved: `p.a` was moved out; assign it first", "56:9: `p` is partly moved: `p.a` was moved out; assign it first", "61:14: `p` is partly moved: `p.a` was moved out; assign it first", "66:8: `p` is partly moved: `p.a` was moved out; assign it first", "72:10: `p` is partly moved: `p.a` was moved out; assign it first", "77:3: `p` is partly moved: `p.a` was moved out; assign it first", "82:13: use of `p.a` after move", "88:9: `p` is partly moved: `p.a` was moved out; assign it first", "93:15: `p` is partly moved: `p.a` was moved out; assign it first", "99:4: `p` is partly moved: `p.a` was moved out; assign it first", errors: 12
   # 4. No use touches all of a partly moved name but `p = x`: printing,
   # lending, a method, moving, cloning, returning, a last value, `swap` of
   # the hole, a capture, deferred code, and a drop.
@@ -274,12 +296,20 @@ fail "partial whole uses reject", "39:8: cannot move out of `p.a`: `p` would sti
   sub main()
     printed()
 
-fail "partial nested paths", "16:8: cannot move out of `p.a.b`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a.b, v)`", "23:8: cannot move out of `p.a.b`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a.b, v)`", "29:8: cannot move out of `p.a.b`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a.b, v)`", "30:8: cannot move out of `p.d`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.d, v)`", errors: 4
+test "partial nested paths", '''
+  b In(b: "B", c: "C") d
+  b c d
+  Out(a: In(b: "B", c: "C"), d: "d")
+  b Out(a: In(b: "bb", c: "c"), d: "d")
+  b d c
+'''
   # 5. `<p.a.b` leaves `p.a` and `p` partly moved; `p.a.c` and `p.d` stay
-  # usable, and `p.a = x` drops only what `p.a` still holds.
+  # usable, and `p.a = x` drops only what `p.a` still holds; moved again
+  # whole, `p.a` takes its new fields with it.
   # oracle: nested accept
   # oracle: nested_refill accept
   # oracle: nested_left accept
+  # oracle: parent_and_child accept
   obj In
     b: String
     c: String
@@ -307,12 +337,20 @@ fail "partial nested paths", "16:8: cannot move out of `p.a.b`: `p` would still 
     y = <p.d
     print(x, y, p.a.c)
 
+  sub parent_and_child()
+    p = Out(a: In(b: String("b"), c: String("c")), d: String("d"))
+    x = <p.a.b
+    p.a = In(b: String("B"), c: String("C"))
+    y = <p.a
+    print(x, y, p.d)
+
   sub main()
+    parent_and_child()
     nested()
     nested_refill()
     nested_left()
 
-fail "partial nested paths reject", "15:8: cannot move out of `p.a.b`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a.b, v)`", "20:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 2
+fail "partial nested paths reject", "16:9: `p.a` is partly moved: `p.a.b` was moved out; assign it first", "21:3: cannot assign to `p.a.b`: `p.a` was moved out; assign `p.a` whole first", errors: 2
   # 5. `p.a` is not used while `p.a.b` is moved out, and nothing is written
   # below a hole.
   # oracle: parent_read reject C1
@@ -339,7 +377,10 @@ fail "partial nested paths reject", "15:8: cannot move out of `p.a.b`: `p` would
   sub main()
     parent_read()
 
-fail "partial drop body on the path", "16:8: cannot move out of `h.f`: `h` would still drop it (partial moves are not supported); move `h` whole, or exchange the field: `old = swap(!h.f, v)`", errors: 1
+test "partial drop body on the path", '''
+  f t
+  close f
+'''
   # 6. A field whose own type has a `drop` body moves whole.
   # oracle: File.drop accept
   # oracle: whole_field accept
@@ -361,7 +402,7 @@ fail "partial drop body on the path", "16:8: cannot move out of `h.f`: `h` would
   sub main()
     whole_field()
 
-fail "partial drop body on the path reject", "18:8: cannot move out of `f.name`: `f` would still drop it (partial moves are not supported); move `f` whole, or exchange the field: `old = swap(!f.name, v)`", "23:8: cannot move out of `h.f.name`: `h` would still drop it (partial moves are not supported); move `h` whole, or exchange the field: `old = swap(!h.f.name, v)`", errors: 2
+fail "partial drop body on the path reject", "18:8: cannot move out of `f.name`: `File` has a `drop` body, which expects every field; move `f` whole, or exchange the field: `old = swap(!f.name, v)`", "23:8: cannot move out of `h.f.name`: `File` has a `drop` body, which expects every field; move `h.f` whole, or exchange the field: `old = swap(!h.f.name, v)`", errors: 2
   # 6. No field moves out of a type with a `drop` body, anywhere on its path:
   # the body expects every field.
   # oracle: File.drop accept
@@ -431,7 +472,12 @@ fail "partial whole move then field reject", "13:3: use of `p` after move", "14:
   sub main()
     refill_moved()
 
-fail "partial owned bindings", "13:6: cannot move out of `@a`: `@` would still drop it (partial moves are not supported); move `@` whole, or exchange the field: `old = swap(!@a, v)`", "22:10: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "28:23: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "35:10: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 4
+test "partial owned bindings", '''
+  a b
+  a b
+  a b
+  a
+'''
   # 8. Owned bindings are names: `if <o as p`, `match <e`, `for p in <v`,
   # and `<@` each give fields up.
   # oracle: P.into_a accept
@@ -532,7 +578,7 @@ fail "partial views handles elements reject", "15:6: cannot move out of `@a`: `@
   sub main()
     handle()
 
-fail "partial box reject", "9:8: cannot move out of `b.a`: `b` would still drop it (partial moves are not supported); move `b` whole, or exchange the field: `old = swap(!b.a, v)`", errors: 1
+fail "partial box reject", "9:8: cannot move out of `b.a`: a box frees what it holds as one; take the box's value with `<b.unbox()` first", errors: 1
   # 9. A box frees what it holds as one; no field moves out of it.
   # oracle: boxed reject C3
   obj P
@@ -547,7 +593,11 @@ fail "partial box reject", "9:8: cannot move out of `b.a`: `b` would still drop 
   sub main()
     boxed()
 
-fail "partial closures and defers", "18:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "22:24: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 2
+test "partial closures and defers", '''
+  1
+  deferred b
+  3
+'''
   # 10. Deferred code reads a field still held; a closure called once moves
   # a field of what it moved in.
   # oracle: deferred_other accept
@@ -575,7 +625,7 @@ fail "partial closures and defers", "18:15: cannot move out of `p.a`: `p` would 
     deferred_other()
     once_closure()
 
-fail "partial closures and defers reject", "16:18: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "21:21: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "27:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 3
+fail "partial closures and defers reject", "16:18: cannot move a field out of captured `p`: the closure keeps what it captures for every call; write `+p` for a clone", "21:9: a `defer` body cannot move a field out of `p`; it runs when the scope exits", "26:15: use of `p.a` after move", errors: 3
   # 10. A closure that may run again moves no field of what it captured,
   # deferred code moves none, and deferred code reads no field moved out
   # before it runs.
@@ -630,7 +680,11 @@ test "partial optional field takes", '''
   sub main()
     taken()
 
-fail "partial generic and task", "17:4: cannot move out of `p.x`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.x, v)`", "25:13: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 2
+test "partial generic and task", seeds: 20, '''
+  a
+  1
+  2 b
+'''
   # 12. A generic `T` field moves; a field moves into a task as into any
   # call.
   # oracle: first accept
@@ -662,13 +716,23 @@ fail "partial generic and task", "17:4: cannot move out of `p.x`: `p` would stil
     generic()
     task()
 
-fail "partial per path flow", "15:4: cannot move out of `p.b`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.b, v)`", "21:17: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", "27:8: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 3
+test "partial per path flow", '''
+  dbg m
+  Named(debug: "again", main: "m")
+  1
+  5
+  5
+  P(a: "again", b: "b")
+  a b
+  b
+'''
   # 13. Moves are tracked per path to a fixpoint: a loop that moves a field
-  # and assigns it again, and a parameter's other fields, used and
-  # returned.
+  # and assigns it again, a parameter's other fields, used and returned,
+  # and fields Zig would rename (`debug`, `main`).
   # oracle: value_of accept
   # oracle: loop_refill accept
   # oracle: param_rest accept
+  # oracle: renamed accept
   obj P
     a: String
     b: String
@@ -692,7 +756,19 @@ fail "partial per path flow", "15:4: cannot move out of `p.b`: `p` would still d
     x = <p.a
     print(x, p.b)
 
+  obj Named
+    debug: String
+    main: String
+
+  sub renamed()
+    p = Named(debug: String("dbg"), main: String("m"))
+    x = <p.debug
+    print(x, p.main)
+    p.debug = String("again")
+    print(p)
+
   sub main()
+    renamed()
     loop_refill(3)
     param_rest(P(a: String("a"), b: String("b")))
     print(value_of(P(a: String("a"), b: String("b"))))
@@ -713,7 +789,7 @@ fail "partial parameter assigned reject", "11:3: cannot assign to parameter `p`;
   sub main()
     param_refill(P(a: String("a"), b: String("b")))
 
-fail "partial parameter whole reject", "12:15: cannot move out of `p.a`: `p` would still drop it (partial moves are not supported); move `p` whole, or exchange the field: `old = swap(!p.a, v)`", errors: 1
+fail "partial parameter whole reject", "13:3: `p` is partly moved: `p.a` was moved out; assign it first", errors: 1
   # 13. A parameter can't be assigned, so a partly moved one stays partly
   # moved: it is not returned whole.
   # oracle: param_whole reject C1

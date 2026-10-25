@@ -132,11 +132,12 @@ fail "take rejections", "13:8: cannot take through a read view (`?T`)", "17:5: c
   print(z)
   rd(?s)
 
-fail "take rejections ownership", "16:10: cannot lend `s.top` to write while a read loan is live", "20:21: cannot lend `s.top` to write while a write loan is live", "24:7: cannot move out of `s.n`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.n, v)`", "27:7: use of `msg` after move"
+fail "take rejections ownership", "17:10: cannot lend `s.top` to write while a read loan is live", "21:21: cannot lend `s.top` to write while a write loan is live", "28:7: use of `msg` after move", "29:7: `s` is partly moved: `s.n` was moved out; assign it first", "30:8: `s` is partly moved: `s.n` was moved out; assign it first"
   # Taking an optional out of a field writes the field: not while another
   # view of the value is live, and not twice in one call. A field that
-  # is not optional still cannot be moved out; it is exchanged with
-  # `replace`. A local is moved as a whole, and cannot be used after.
+  # is not optional moves out as a name does, and leaves `s` partly
+  # moved, so `s` is not lent whole after. A local is moved as a whole,
+  # and cannot be used after.
 
   obj N
     v: Int
