@@ -339,7 +339,9 @@ sub main()
 ```
 
 **3. Drop points.** An owner that is not moved is dropped where its
-scope ends. *(built)* A value no name holds is dropped where its
+scope ends. *(built)* A partly moved name drops only the fields it
+still holds ([§5](#5-containers-and-fields-hold-values)). *(planned)*
+A value no name holds is dropped where its
 statement ends ([§3](#3-temporaries)). *(built)*
 
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
@@ -1589,6 +1591,35 @@ sub main()
 ```output
 7
 none
+```
+
+**A field of an owned object moves like a name.** A local or
+parameter that owns an object acts as one name per field, and so on
+down, unless a type on the way has a `drop` body. `<p.f` moves `p.f`
+as `<x` moves `x`, and a field that copies takes no `<`. `p.f = x`
+makes a local's field usable again. Where `p`'s scope ends, only the
+fields it still holds drop. Until every moved field is assigned again
+on every path, no use touches all of `p` except `p = x`. *(planned)*
+
+```rig pending
+obj Entry
+  key: String
+  value: String
+
+fun value_of(e: Entry) -> String
+  <e.value
+
+sub main()
+  e = Entry(key: String("k"), value: String("v"))
+  v = <e.value
+  print(e.key, v)
+  e.value = String("w")
+  print(value_of(<e))
+```
+
+```output
+k v
+w
 ```
 
 **A list of owners works as a list of plain data does.** `List[String]`, `List[List[Int]]`, and a `List` of objects that each own a string take their elements by move and drop each one once. `swap` and `sort_by` only move elements, so they work for any element; `sort` also needs `<`. *(built)*

@@ -14,12 +14,16 @@ pub const BlockId = u32;
 
 /// The checks, each named for the Core sentence it enforces (flow.zig).
 pub const Rule = enum {
-    /// s1, s2: a name is used only while it holds a value.
+    /// s1, s2, §5: a name is used only while it holds a value, and a
+    /// field moved out of it only once assigned again; no use touches
+    /// all of a partly moved name but assigning it.
     C1,
     /// s1: a bare name of an owner, handle, or write view never copies.
     C2,
     /// s2, §5: `<` leaves its source done: a whole binding moves,
-    /// `<p.f` takes an optional, and no other place is moved out of.
+    /// `<p.f` takes an optional, a field of an object a local or
+    /// parameter owns moves like a name, and no other place is moved
+    /// out of.
     C3,
     /// s5, s6: no access conflicts with a live loan.
     C4,
@@ -89,6 +93,14 @@ pub const Mode = enum { read, write, reserved };
 /// places of one var conflict unless their paths part at a field (Core
 /// s5): an element overlaps every element.
 pub const Step = union(enum) { field: []const u8, elem };
+
+/// A field moved out of an object a local or parameter owns (Core §5:
+/// "a field of an owned object moves like a name"): the path stays
+/// empty, as a moved name does, until it is assigned again.
+pub const Hole = struct {
+    root: VarId,
+    path: []const Step,
+};
 
 /// The record of one lend. A loan on a write view's referent (`!w` or
 /// `?w` with `w: !T`, a lend on) is `deref`: it limits `w`'s uses, but
@@ -204,6 +216,9 @@ pub const Op = struct {
     /// by what its target holds, and the caller's loan on a write-view
     /// parameter that path reaches by its `held` twin.
     untake: bool = false,
+    /// A take of a field that leaves it moved out (`Func.holes`), not
+    /// `none`: an object's field that is not optional.
+    hole: ?u32 = null,
     /// What the op makes holds no value that carries a loan (Core s9:
     /// an owned closure's captures); a flowing loan is C8.
     no_loans: bool = false,
@@ -237,6 +252,8 @@ pub const Func = struct {
     blocks: std.ArrayList(Block) = .empty,
     /// Vars that hold a value on entry: the parameters.
     params: std.ArrayList(VarId) = .empty,
+    /// The fields moved out of owned objects (`Op.hole`), one each.
+    holes: std.ArrayList(Hole) = .empty,
     /// The first finding the lowering made (C2, C3, C7).
     early: ?Finding = null,
     /// What a `from` clause says the result views (Core s7), a bit per
@@ -287,6 +304,7 @@ pub fn dump(func: *const Func, w: *std.Io.Writer) !void {
             if (op.weak) |d| try w.print(" weak={s}", .{vn(func, d, &nb)});
             if (op.kill) |d| try w.print(" kill={s}", .{vn(func, d, &nb)});
             if (op.loan) |l| try w.print(" new=L{d}", .{l});
+            if (op.hole) |h| try w.print(" hole=H{d}", .{h});
             for (op.reads) |v| try w.print(" r:{s}", .{vn(func, v, &nb)});
             for (op.moves) |v| try w.print(" m:{s}", .{vn(func, v, &nb)});
             for (op.uses) |v| try w.print(" u:{s}", .{vn(func, v, &nb)});

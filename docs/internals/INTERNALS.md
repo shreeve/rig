@@ -5180,7 +5180,13 @@ never copy a type parameter. Every element of a List, an array, or a
 slice is a place: what `push`, `insert`, a store, or a literal puts in
 a container joins the loans the container carries, an element read out
 of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the
-container, and `swap` exchanges what its places hold. A
+container, and `swap` exchanges what its places hold. A field moved
+out of an object a local or parameter owns (`<p.f`, not optional) is a
+hole, tracked per path as a moved name is (Core §5): a use touching the
+hole, or anything that holds it, is C1, until an assignment of the
+hole or of a path above it fills it, on every path; `p = x` fills them
+all. No field moves through a view, a handle, a box, an element, or an
+optional's value, nor out of a type on its path with a `drop` body. A
 local holding a write view (no field or element holds one) is written
 through by a value and re-pointed by a new view, after which it holds
 the new view's loans only; a parameter is never re-pointed. A clone `+x` is a new owner carrying

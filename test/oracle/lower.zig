@@ -100,8 +100,14 @@ const Place = struct {
     /// into an optional's value, which exists only while present. Loans
     /// and accesses are on the path up to there (`loanPath`).
     cut: ?usize = null,
+    /// What holds the first field on the path that could not move out
+    /// alone (Core §5: a field of an object moves like a name, unless a
+    /// type on the way has a `drop` body), and that holder's type.
+    holder: Holder = .object,
+    holder_ty: TypeId = 0,
 
     const Via = enum { own, read, write };
+    const Holder = enum { object, box, drop_body, other };
 
     /// The path a loan on the place, or an access of it, is on.
     fn loanPath(p: Place) []const Step {
@@ -2684,6 +2690,12 @@ const Lowerer = struct {
         var handle = base.handle;
         var handle_at = base.handle_at;
         var cut = base.cut;
+        var holder = base.holder;
+        var holder_ty = base.holder_ty;
+        if (holder == .object and k == .member) {
+            holder = self.holderOf(base.ty);
+            holder_ty = base.ty;
+        }
         if (cut == null) switch (self.ctx.types.get(sema.unwrapViews(self.ctx, base.ty))) {
             .shared, .weak, .optional => cut = base.path.len,
             else => {},
@@ -2725,7 +2737,35 @@ const Lowerer = struct {
             },
             else => {},
         }
-        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle, .handle_at = handle_at, .cut = cut };
+        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle, .handle_at = handle_at, .cut = cut, .holder = holder, .holder_ty = holder_ty };
+    }
+
+    /// Whether a field moves out of a value of type `ty` alone (Core §5):
+    /// a box frees what it holds as one, a type with a `drop` body
+    /// expects every field, and only an object's fields are names.
+    fn holderOf(self: *Lowerer, ty: TypeId) Place.Holder {
+        if (sema.boxedType(self.ctx, ty) != null) return .box;
+        switch (self.ctx.types.get(ty)) {
+            .nominal, .imported_nominal => {},
+            .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(self.ctx, pn.sym)) return .other,
+            else => return .other,
+        }
+        const decl = sema.nominalDecl(self.ctx, ty) orelse return .other;
+        var ctx = decl.ctx;
+        var sym = decl.symbol();
+        // An imported generic type's fields are its home module's.
+        if (sema.isProxy(sym)) {
+            if (sym.from.module_id == 0) return .other;
+            const foreign = ctx.foreign_semas.get(sym.from.module_id) orelse return .other;
+            ctx = foreign;
+            sym = foreign.symbols.items[sym.from.sym];
+        }
+        if (sym.kind != .nominal_type and sym.kind != .generic_type) return .other;
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_drop_method) return .drop_body;
+            if (f.is_variant) return .other;
+        }
+        return .object;
     }
 
     /// A var as a place; an alias is the payload it sees.
@@ -3119,9 +3159,9 @@ const Lowerer = struct {
     }
 
     /// `<` always leaves its source done (Core s2, §5): `<x` moves a
-    /// whole binding, and `<p.f` takes an optional field, leaving `none`.
-    /// Any other place is rejected: a part that copies would stay as it
-    /// was, and one that moves stays its owner's. A module's constant
+    /// whole binding, `<p.f` takes an optional field, leaving `none`, and
+    /// moves any other field of an object a local owns (`moveField`). A
+    /// part that copies would stay as it was. A module's constant
     /// lives for the whole program; a part of a value made here is done
     /// with its statement.
     fn move(self: *Lowerer, e: Sexp, how: How) Error!?VarId {
@@ -3154,7 +3194,49 @@ const Lowerer = struct {
             return t;
         }
         if (info.kind.copies()) return self.found(.C3, pos, "a part that copies is neither ended nor emptied; `<` would leave it as it was", .{});
-        return self.found(.C3, pos, "only a whole binding moves; a field that is not optional cannot be taken", .{});
+        return try self.moveField(p, pos);
+    }
+
+    /// `<p.f` of a part that is neither optional nor copies (Core §5): a
+    /// field of an object a local or parameter owns moves like a name,
+    /// leaving a hole (`core.Hole`) until it is assigned again. Owning
+    /// rules out views, handles, boxes, elements, and an optional's
+    /// value; a type on the way with a `drop` body expects every field;
+    /// a part of a value made here is dropped with it; and deferred code
+    /// and closures move no field, as they move no name.
+    fn moveField(self: *Lowerer, p: Place, pos: u32) Error!?VarId {
+        if (p.via != .own) return self.found(.C7, pos, "nothing moves out through a view; exchange the field with `swap`", .{});
+        if (self.f.vars.items[p.root].hidden) return self.found(.C3, pos, "a part of a value made here is dropped with it; nothing would see it emptied", .{});
+        for (p.path) |step| if (step == .elem) return self.found(.C3, pos, "a field of an element does not move out; its container still drops it", .{});
+        if (p.handle or p.handle_at != null) return self.found(.C3, pos, "a field reached through a handle does not move out; other handles may still use it", .{});
+        if (p.cut != null) return self.found(.C3, pos, "a field of an optional's value does not move out; take the optional with `<`", .{});
+        switch (p.holder) {
+            .object => {},
+            .box => return self.found(.C3, pos, "a box frees what it holds as one; a field does not move out of it", .{}),
+            .drop_body => return self.found(.C3, pos, "`{s}` has a `drop` body, which expects every field", .{try sema.formatTypeIn(self.ctx, self.a, p.holder_ty)}),
+            .other => return self.found(.C3, pos, "only a field of an object moves out", .{}),
+        }
+        try self.keptByDefer(p.root, pos);
+        try self.keptByClosure(p.root, pos);
+        if (self.isFinding(p.root)) return abstain("an index that moves its place's root");
+        if (self.loop_elems.contains(p.root)) return abstain("a field of a loop element");
+        const hole = try self.holeOf(p.root, p.path);
+        const t = try self.temp(p.ty, pos);
+        try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .kind = .write }, .untake = true, .hole = hole });
+        return t;
+    }
+
+    /// The hole of field `path` of `root`, one for each.
+    fn holeOf(self: *Lowerer, root: VarId, path: []const Step) Error!u32 {
+        for (self.f.holes.items, 0..) |h, i| {
+            if (h.root != root or h.path.len != path.len) continue;
+            const same = for (h.path, path) |x, y| {
+                if (!std.mem.eql(u8, x.field, y.field)) break false;
+            } else true;
+            if (same) return @intCast(i);
+        }
+        try self.f.holes.append(self.a, .{ .root = root, .path = path });
+        return @intCast(self.f.holes.items.len - 1);
     }
 
     /// A function named as a value: `one`, `geo.mk`, `Point.origin`.
