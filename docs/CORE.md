@@ -344,6 +344,10 @@ still holds ([§5](#5-containers-and-fields-hold-values)). *(built)*
 A value no name holds is dropped where its
 statement ends ([§3](#3-temporaries)). *(built)*
 
+`os.exit(code)` ([std.os](STD.md#stdos)) ends the process at once:
+no later drop point or `defer` is reached, and what is still owned goes
+back to the operating system with the process. *(built)*
+
 **4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
 view the context expects** ([§4](#4-one-lend-table)). `?` promises that
 nothing changes. A read lend may

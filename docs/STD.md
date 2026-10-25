@@ -31,7 +31,7 @@ never read as the library's.
 |---|---|
 | [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.bigint`](#stdbigint) | integers of any size: parsing, printing, arithmetic, shifts, powers, and the nearest Float |
-| [`std.os`](#stdos) | the program's arguments and environment |
+| [`std.os`](#stdos) | the program's arguments and environment, and ending it now |
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | copying bytes between files and sockets: `copy` |
 | [`std.time`](#stdtime) | clocks and sleeping |
@@ -236,8 +236,8 @@ operator `<` orders values of one type that provides `Ord`, and `bigint.BigInt` 
 
 ## std.os
 
-The arguments and environment the program started with, and what its
-allocations come to. Their text
+The arguments and environment the program started with, what its
+allocations come to, and ending it now. Their text
 lives as long as the program, as a literal's does, and views no `String`,
 so both are a `Static` ([SPEC §2](../SPEC.md#static)). They hold the
 bytes the operating system gave, which are not checked to be UTF-8.
@@ -250,6 +250,7 @@ stored anywhere, in a `Cell` too, whatever `name` is.
 | `env(name: ?String) -> Static?` | the value of the environment variable `name`, or `none` when it is not set |
 | `cwd() -> String!` | the working directory, as an absolute path, its links resolved; fails with a `file.FileError` ([std.file](#stdfile)) when it was removed or cannot be read |
 | `memory() -> Memory` | what the program's allocations come to now: `live`, the bytes of its live allocations; `peak`, the most `live` has been; and `allocs`, how many it has made |
+| `exit(code: Int)` | ends the program now, with exit status `code` |
 
 `rig run file.rig -- a b` passes `a` and `b` to the program, and a
 built executable takes its arguments as usual. The first argument is
@@ -285,6 +286,28 @@ sub main()
 
 ```output
 nowhere
+```
+
+`exit(code)` ends the program now, from `main` or from any task, with
+exit status `code`, from 0 to 255 (another value panics). Drops and
+`defer`s don't run; output written through std's `print` and `warn` is
+flushed. The program's other tasks end with it, wherever they are, and
+a debug build runs no leak check, since the memory goes with the
+process. To end with every drop and `defer` run, return from `main`:
+`fun main() -> Int` gives the status.
+
+```rig
+use std.os
+
+sub main()
+  defer print("not printed")
+  print("done early")
+  os.exit(0)
+  print("not reached")
+```
+
+```output
+done early
 ```
 
 `memory()` reads the totals the allocator keeps as it goes, for a

@@ -1,0 +1,82 @@
+# runtime: `os.exit` ends the program now (SPEC §1, CORE sentence 3).
+# test/cli/exit_now.sh checks what reaches a pipe and that a debug build
+# reports no leak.
+
+test "exit ends the program now", "before", exit: 3, stderr: "to stderr"
+  # Output is flushed; no drop or `defer` runs.
+  use std.os
+
+  obj Noisy
+    name: ?String
+
+    drop(!@)
+      print("drop", @name)
+
+  sub main()
+    defer print("defer ran")
+    n = Noisy(name: "a")
+    v: List[Int] = List()
+    !v.push(1)
+    print("before")
+    warn("to stderr")
+    os.exit(3)
+    print("after")
+
+test "exit ends the program now released", "before", exit: 3, release: true
+  use std.os
+
+  obj Noisy
+    name: ?String
+
+    drop(!@)
+      print("drop", @name)
+
+  sub main()
+    defer print("defer ran")
+    n = Noisy(name: "a")
+    print("before")
+    os.exit(3)
+
+test "exit from a task", "worker 7", exit: 7, seeds: 20
+  # The task's own defer, main's, and main's drops do not run, and main's
+  # wait for the task never ends.
+  use std.os
+
+  obj Noisy
+    name: ?String
+
+    drop(!@)
+      print("drop", @name)
+
+  sub worker(k: Int)
+    defer print("worker defer")
+    print("worker", k)
+    os.exit(k)
+
+  sub main()
+    defer print("main defer")
+    n = Noisy(name: "a")
+    t = worker(7)&
+    >t
+    print("not reached")
+
+test "exit while other tasks run", "exiting", exit: 0, seeds: 20
+  # The other tasks end with the process, wherever they are.
+  use std.os
+
+  sub spin()
+    n = 0
+    while n >= 0
+      n = (n + 1) % 1000
+
+  sub main()
+    a = spin()&
+    b = spin()&
+    print("exiting")
+    os.exit(0)
+
+bomb "exit status out of range", "exit status 256 is not in 0..255"
+  use std.os
+
+  sub main()
+    os.exit(256)

@@ -1,7 +1,7 @@
 //! `std.os`: the process's arguments and environment, which the runtime
 //! stores when the program starts (`rig.start`). Both live as long as
-//! the process, so they cross into Rig as `Static`s. And what the
-//! program's allocations come to (`rig.memoryTotals`).
+//! the process, so they cross into Rig as `Static`s. What the program's
+//! allocations come to (`rig.memoryTotals`), and its end (`rig.exitNow`).
 
 const std = @import("std");
 const rig = @import("../runtime.zig");
@@ -25,4 +25,8 @@ pub fn memory_peak() i64 {
 
 pub fn memory_allocs() i64 {
     return rig.memoryTotals().allocs;
+}
+
+pub fn exit(code: i64) void {
+    rig.exitNow(code);
 }
