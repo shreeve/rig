@@ -104,7 +104,6 @@ fn probeBig() usize {
     if (builtin.os.tag != .linux) return prefault_big;
     const v = probe_big.load(.monotonic);
     if (v != 0) return v;
-    @branchHint(.cold);
     var r: usize = prefault_big;
     const fd = std.os.linux.open("/proc/self/environ", .{}, 0);
     if (@as(isize, @bitCast(fd)) >= 0) {
