@@ -338,18 +338,40 @@ fn copyWrite(to: anytype, bytes: []const u8) anyerror!void {
 /// String of what it read, empty at the end of the file. The call works
 /// on a duplicate of `fd` (`lend`), so a task that stops waiting and
 /// closes its file leaves the call a descriptor of its own.
+/// A `file.File` known to be a regular file reads inline when its
+/// worker has nothing else to run (`rig.tryInline`), on `fd` itself.
 pub fn fileRead(fd: i64, want: usize) (rig.Stop || FileError)!rig.String {
-    const token = try lend(fd);
+    if (fd & regular_file != 0) if (rig.tryInline(readNow, .{ descriptor(fd), want })) |r| return try r;
+    const token = try lend(descriptor(fd));
     defer takeBack(token);
     return try (try rig.blockingStop(readLent, .{ token, want }));
 }
 
-/// Write all of `bytes` to the file `fd` on the blocking pool, as
-/// `fileRead` reads.
+/// Write all of `bytes` to the file `fd` on the blocking pool, or inline,
+/// as `fileRead` reads.
 pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
-    const token = try lend(fd);
+    if (fd & regular_file != 0) if (rig.tryInline(writeNow, .{ descriptor(fd), bytes })) |r| return try r;
+    const token = try lend(descriptor(fd));
     defer takeBack(token);
     return try (try rig.blockingStop(writeLent, .{ token, bytes }));
+}
+
+/// The bit of a `file.File`'s `fd` that says it is a regular file, whose
+/// reads and writes are bounded: set by `std/file.zig` as it opens one
+/// and its stat says so. A descriptor is below it.
+pub const regular_file: i64 = 1 << 40;
+
+/// The descriptor of a `file.File`'s `fd`.
+pub fn descriptor(fd: i64) i32 {
+    return @intCast(fd & (regular_file - 1));
+}
+
+fn readNow(fd: i32, want: usize) ?((rig.Stop || FileError)!rig.String) {
+    return readFd(fd, want);
+}
+
+fn writeNow(fd: i32, bytes: []const u8) ?((rig.Stop || FileError)!void) {
+    return writeFd(fd, bytes);
 }
 
 /// The descriptors lent to calls on the blocking pool, each a duplicate
@@ -401,6 +423,10 @@ fn takeBack(token: u64) void {
 fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";
     defer _ = sys.close(fd);
+    return readFd(fd, want);
+}
+
+fn readFd(fd: i32, want: usize) (rig.Stop || FileError)!rig.String {
     // A read of up to `small_read` goes through the stack, so the String
     // holds only what came, and nothing at the end of the file.
     if (want <= small_read) {
@@ -436,12 +462,16 @@ fn readLent(token: u64, want: usize) (rig.Stop || FileError)!rig.String {
     }
 }
 
-/// The largest read `readLent` makes through the stack: 64 KiB.
+/// The largest read `readFd` makes through the stack: 64 KiB.
 const small_read = 64 << 10;
 
 fn writeLent(token: u64, bytes: []const u8) (rig.Stop || FileError)!void {
     const fd = claim(token) orelse return error.@"std.file.FileError.failed";
     defer _ = sys.close(fd);
+    return writeFd(fd, bytes);
+}
+
+fn writeFd(fd: i32, bytes: []const u8) (rig.Stop || FileError)!void {
     var at: usize = 0;
     while (at < bytes.len) {
         const rc = sys.write(fd, bytes[at..].ptr, bytes.len - at);

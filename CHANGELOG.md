@@ -1055,6 +1055,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   taking its lock rather than under it. A walk of a large tree with
   loco spent 62% of a worker's time spinning there; in a copy so
   patched its user time fell from 14.9 s to 1.4 s at the same wall time.
+- **Bounded file calls run inline when idle:** a stat, a directory's
+  listing, and a read or open of a regular file run on the calling
+  worker when it has nothing else to run, rather than waking a pool
+  thread and being woken back; a pipe, FIFO or device still goes to the
+  pool, and is never opened inline. Trig's front end on ts-pattern
+  (`--singleThreaded --noCheck`) makes 27 futex calls on pup rather than
+  632, and is 5% faster there (39.5 ms against 41.6) and 4% on the Mac
+  (31.6 against 33.0); its one-checker run makes 32 rather than 702 at
+  the same time. loco's calls nearly always find other tasks queued, so
+  they stay on the pool and its times are unchanged, as are bench/tasks,
+  actors, net, http and std.json. `RIG_INLINE_FILE_CALLS=0` sends every
+  call to the pool.
 - **Release allocator:** on Linux, the heap that does the program's
   work faults in ahead the memory it is about to fill: one that has
   taken from the system at least four times what every other heap has

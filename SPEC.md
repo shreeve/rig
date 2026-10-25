@@ -12498,7 +12498,10 @@ A call that blocks its thread, as reading a file does, runs on a pool
 of threads while its task waits: one fewer than the machine has
 performance cores, at least 2, more only while a call has waited a millisecond for
 one, up to 64. `RIG_BLOCKING_THREADS` sets how many at most, and a
-thread idle 10 seconds ends. With
+thread idle 10 seconds ends. A call whose time is bounded (a stat, a
+directory's listing, a read of a regular file) runs on the task's own
+worker instead when that worker has nothing else to run;
+`RIG_INLINE_FILE_CALLS=0` sends it to the pool too. With
 `RIG_SCHED_STATS=1` set, the program prints what each worker did as it
 ends.
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in

@@ -81,6 +81,30 @@ pub fn blockingStop(comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f
     if (task().deadline) |d| if (sched.nowNs() >= d) return error.@"std.task.Stop.timeout";
     return @call(.auto, f, args);
 }
+
+/// `here(args...)`, a call whose time is bounded (a stat, a read of a
+/// regular file), run inline on the calling worker when it has nothing
+/// else to run, after a look at the cancel and the deadline
+/// (`sched.tryInline`); null when it did not run, or `here` gave null
+/// for what may block for good (a pipe), and the caller makes the call
+/// on the blocking pool. A cancel during an inline call takes effect
+/// once it returns. Without the scheduler, null.
+pub fn tryInline(comptime here: anytype, args: anytype) ?(Stop!@typeInfo(@typeInfo(@TypeOf(here)).@"fn".return_type.?).optional.child) {
+    if (!scheduled) return null;
+    const r = sched.tryInline(here, args) orelse return null;
+    return switch (r) {
+        .done => |v| v,
+        .canceled => error.@"std.task.Stop.canceled",
+        .timeout => error.@"std.task.Stop.timeout",
+    };
+}
+
+/// `here(args...)` inline when it may (`tryInline`), else `f(args...)` as
+/// `blockingStop` makes it.
+pub fn blockingBounded(comptime here: anytype, comptime f: anytype, args: anytype) Stop!@typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (tryInline(here, args)) |r| return r;
+    return blockingStop(f, args);
+}
 pub const Stop = tasks.Stop;
 
 // Errors with data. A program in which a member with fields reaches

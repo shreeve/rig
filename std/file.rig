@@ -1,7 +1,8 @@
 # std.file: files, and what is at a path. A path is relative to the
 # working directory, or absolute. Each call that reaches the file system
-# runs on the blocking pool, so it blocks only the task that makes it,
-# and is a fallible waiting point: in a canceled task it fails with
+# runs on the blocking pool, so it blocks only the task that makes it
+# (or inline, when its time is bounded and its worker has nothing else
+# to run), and is a fallible waiting point: in a canceled task it fails with
 # `task.Stop.canceled` (std.task), and past a deadline (`time.within`)
 # with `task.Stop.timeout`. A call that looks for something gives `none`
 # only when nothing is there (nothing by its name, or a file where a

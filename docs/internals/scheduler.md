@@ -29,7 +29,10 @@ a program that makes none starts no workers.
   argument it could write through (`[]u8`, `*T`) does not compile, since
   the waiter may leave while it still writes, so it reads into memory it
   owns and returns it. `rig.blocking`'s waiter waits for the call, which
-  takes its arguments as they are, a buffer to read into among them. Sockets are registered
+  takes its arguments as they are, a buffer to read into among them.
+  A call whose time is bounded (a stat, a directory's listing, a read
+  of a regular file) runs inline instead when its worker has nothing
+  else to run (`rig.tryInline`, increment 15). Sockets are registered
   with the workers' pollers and wait there (`net.zig`, increment 8).
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
@@ -365,7 +368,13 @@ every time; the suite runs each concurrency case again under seeds 1 to
 
     the fibers it ran (by handoff too), of them pinned ones, the fibers
     it stole, and the times it slept, so a test can check where work ran
-    without timing it (`test/cli/sched_stats.sh`). A safe or debug build
+    without timing it (`test/cli/sched_stats.sh`); then a line of the
+    blocking calls made inline and on the pool:
+
+    ```
+    rig: blocking calls: inline 641, pool 2
+    ```
+ A safe or debug build
     panics when a pinned fiber resumes on a worker other than its home
     (`sched.checkHome`), a load and a branch per switch.
 
@@ -375,6 +384,41 @@ every time; the suite runs each concurrency case again under seeds 1 to
     mailbox. A wait on channels alone that nothing can end is reported
     in deterministic runs only (above, "Deadlock"): elsewhere an
     interrupt may still end it.
+
+15. **Bounded calls inline when idle**: a call on the pool costs a wake
+    of a pool thread and the thread's wake of the fiber back, two
+    futex calls or more, which buy nothing when the calling worker has
+    nothing else to run, as a program loading files one at a time does.
+    So a call whose time is bounded runs inline, on the calling worker
+    (`sched.tryInline`), when its "run next" slot, ring and pinned queue
+    are empty, and so is the global queue; otherwise it goes to the
+    pool. `std/file.zig` marks the bounded calls: `stat`, `exists`,
+    `realpath`, `read_dir` (whose open passes `O_DIRECTORY`, which
+    refuses anything but a directory before opening it), and `read` and
+    `open` of a regular file. Those two stat the path first and open it
+    only when it is a regular file, without waiting (`O_NONBLOCK`) and
+    never as a controlling terminal (`O_NOCTTY`), then confirm by the
+    descriptor's own stat, as the path may change between: a pipe, a
+    FIFO, a device, a terminal or a socket goes to the pool, and is never
+    opened inline. A `File` known to be a regular file (its `fd` carries
+    `net.regular_file`, set as it opens) reads and writes inline too;
+    any other goes to the pool. A cancel or a deadline already come
+    stop a call before it starts inline; one that comes while it runs
+    takes effect once it returns. While the call runs, its worker's
+    pinned fibers and its poller's events wait for it. Each worker
+    stamps when its inline call began, and the pool's monitor, which
+    looks every millisecond while calls run inline and sleeps once a
+    look finds none run since the last, rescues a worker whose call has
+    run 1 ms (a slow network mount): it wakes a sleeping worker
+    (`notifyNew`), which steals what came to the stuck worker's ring and
+    "run next" slot and, on its way back to sleep, services every
+    poller and timer, the stuck worker's among them; so of its work only
+    its pinned fibers wait out the call (the unit test "a slow inline
+    call has its worker's ring taken by another worker, and its pinned
+    fibers wait for it alone"). A deterministic run keeps running every
+    blocking call in place, as before, so a seed replays exactly.
+    `RIG_INLINE_FILE_CALLS=0`, read once, sends every call to the pool
+    (`test/cli/std_file_inline.sh`).
 
 Each increment is held to the gate in `bench/tasks/README.md`
 (`bench-tasks --gate`), which fails a benchmark more than 1.5 times

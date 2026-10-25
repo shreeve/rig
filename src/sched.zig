@@ -129,6 +129,14 @@ const Worker = struct {
     slept: std.atomic.Value(u64) = .init(0),
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
+    /// When the call it runs inline began (`blockingBounded`), on the
+    /// real clock, or 0 while it runs none; the pool's monitor watches it
+    /// (`watchInline`). The start of the call the monitor last rescued
+    /// it from, which only the monitor writes; and how many calls it ran
+    /// inline, which `RIG_SCHED_STATS=1` prints.
+    inline_since: std.atomic.Value(i64) = .init(0),
+    inline_rescued: i64 = 0,
+    ran_inline: u64 = 0,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
@@ -1249,6 +1257,15 @@ const Pool = struct {
     /// the pool grows past `soft` only once no thread has ended one for
     /// `grow_after`, so its threads are blocked, not merely behind.
     progress: i96 = 0,
+    /// Calls queued, which `RIG_SCHED_STATS=1` prints, and calls its
+    /// threads run now, which bound the calls run inline (`takeSlot`).
+    calls: u64 = 0,
+    running: std.atomic.Value(u32) = .init(0),
+    /// Whether the monitor looks at the workers' inline calls every
+    /// `grow_after` (`watchInline`); and whether a call ran inline since
+    /// it last looked, so it goes on looking.
+    inline_watch: std.atomic.Value(bool) = .init(false),
+    inline_seen: std.atomic.Value(bool) = .init(false),
 
     const default_max = 64;
 
@@ -1262,6 +1279,7 @@ const Pool = struct {
         if (p.tail) |t| t.next = c else p.head = c;
         p.tail = c;
         p.queued += 1;
+        p.calls += 1;
         // What the call needs: an idle thread woken; a thread started; the
         // monitor started, or woken unless it already looks; or nothing,
         // when a thread on its way back takes it, or every thread is busy
@@ -1346,6 +1364,10 @@ const Pool = struct {
     /// How long the oldest queued call waits before the pool grows past
     /// `soft`, and how often the monitor looks.
     const grow_after: i96 = std.time.ns_per_ms;
+
+    /// How long a call runs inline before the monitor rescues its worker
+    /// (`watchInline`).
+    const rescue_after: i96 = std.time.ns_per_ms;
 };
 
 /// How long a pool thread waits for a call before it ends.
@@ -1383,17 +1405,20 @@ fn performanceCores() u32 {
 /// Grow the pool past `soft` while its threads are blocked: once its
 /// oldest queued call has waited `Pool.grow_after`, and no thread has
 /// ended a call for as long (`progress`), start one thread, up to `max`,
-/// and look again `grow_after` later; sleep while no call waits. It ends
-/// as `main` ends (`stop`).
+/// and look again `grow_after` later; sleep while no call waits. While
+/// calls run inline, it also rescues a worker stuck in one
+/// (`watchInline`). It ends as `main` ends (`stop`).
 fn monitor(p: *Pool) void {
     defer rt.fast_alloc.threadExit();
     while (true) {
         const seen = p.monitor_word.load(.seq_cst);
         const now = nowReal();
+        const watching = p.inline_watch.load(.seq_cst) and watchInline(p, now);
         p.lock.lock();
         if (stopping.load(.acquire)) {
             p.monitoring = false;
             p.ticking = false;
+            p.inline_watch.store(false, .seq_cst);
             p.lock.unlock();
             return;
         }
@@ -1404,15 +1429,16 @@ fn monitor(p: *Pool) void {
             p.progress = now;
             start = true;
         }
-        p.ticking = backlog;
+        p.ticking = backlog or watching;
         p.lock.unlock();
         if (start) {
             const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
             th.detach();
         }
-        // While a call waits, look again in `grow_after`; else sleep until
-        // a call waits past `soft` (or `retire_after`, to look anyway).
-        const wait_for = if (backlog) Pool.grow_after else retire_after;
+        // While a call waits, or calls run inline, look again in
+        // `grow_after`; else sleep until a call waits past `soft`, or one
+        // runs inline (or `retire_after`, to look anyway).
+        const wait_for = if (backlog or watching) Pool.grow_after else retire_after;
         rt.io().futexWaitTimeout(u32, &p.monitor_word.raw, seen, .{ .duration = .{ .raw = .{ .nanoseconds = wait_for }, .clock = .awake } }) catch {};
     }
 }
@@ -1438,7 +1464,9 @@ fn poolMain(p: *Pool) void {
     while (true) {
         if (p.take(waited)) |c| {
             p.lock.unlock();
+            _ = p.running.fetchAdd(1, .monotonic);
             c.run(c);
+            _ = p.running.fetchSub(1, .monotonic);
             const ended = nowReal();
             p.lock.lock();
             _ = p.finishing.fetchSub(1, .seq_cst);
@@ -1511,6 +1539,150 @@ pub fn PoolResult(comptime R: type) type {
 pub fn blockingStop(comptime f: anytype, args: anytype) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
     if (deterministic or current() == null) return .{ .done = @call(.auto, f, args) };
     return poolCall(f, args, true);
+}
+
+/// `here(args...)`, a call whose time is bounded (a stat, a directory's
+/// listing, a read of a regular file), run inline, on the calling
+/// worker, when it has nothing else to run: its "run next" slot, ring
+/// and pinned queue are empty, and so is the global queue. That skips
+/// the blocking pool's wake of a thread and the thread's wake back.
+/// Null when it did not run, so the caller sends its call to the pool
+/// (`blockingStop`): the worker has other work, `RIG_INLINE_FILE_CALLS`
+/// is `0`, the caller runs outside every fiber or in a deterministic run
+/// (where `blockingStop` runs it in place), or `here` gave null, as it
+/// does once it finds a pipe or a device, whose read may wait for good,
+/// having opened none. A cancel or a deadline already come stop the call
+/// before it starts, as a waiting point; one that comes while it runs
+/// takes effect once it returns. While it runs, the worker's pinned
+/// fibers and its poller's events wait for it; a call that runs past
+/// `Pool.rescue_after` (a slow network mount) has a sleeping worker
+/// woken to take the worker's other work (`watchInline`).
+pub fn tryInline(comptime here: anytype, args: anytype) ?PoolResult(InlineResult(here)) {
+    const R = InlineResult(here);
+    if (deterministic) return null;
+    const w = inlineWorker() orelse return null;
+    if (!takeSlot()) return null;
+    defer _ = inline_running.fetchSub(1, .monotonic);
+    if (stopReason(w.current.?)) |why| return stopped(R, why);
+    beginInline(w);
+    const got: ?R = @call(.auto, here, args);
+    w.inline_since.store(0, .release);
+    const r = got orelse return null;
+    w.ran_inline += 1;
+    return .{ .done = r };
+}
+
+/// What a call `tryInline` runs gives: its function's result, less the
+/// null that sends it to the pool.
+fn InlineResult(comptime here: anytype) type {
+    return @typeInfo(@typeInfo(@TypeOf(here)).@"fn".return_type.?).optional.child;
+}
+
+/// The running fiber's worker, when a bounded call may run inline on it:
+/// it has nothing else to run, and `RIG_INLINE_FILE_CALLS` is not `0`.
+fn inlineWorker() ?*Worker {
+    if (!inlineOn()) return null;
+    const w = me() orelse return null;
+    if (w.current == null or hasOwnWork(w)) return null;
+    return w;
+}
+
+/// Whether bounded calls may run inline: unless `RIG_INLINE_FILE_CALLS`
+/// is `0`, read once, as `RIG_BLOCKING_THREADS` is, with the pool's
+/// bounds (`inline_cap`).
+fn inlineOn() bool {
+    var mode = inline_mode.load(.monotonic);
+    if (mode == .unread) {
+        mode = .on;
+        if (rt.process) |proc| if (proc.environ.getPosix("RIG_INLINE_FILE_CALLS")) |v| {
+            if (std.mem.eql(u8, v, "0")) mode = .off;
+        };
+        pool.lock.lock();
+        if (pool.max == 0) poolBounds(&pool);
+        inline_cap.store(pool.soft, .monotonic);
+        pool.lock.unlock();
+        inline_mode.store(mode, .seq_cst);
+    }
+    return mode == .on;
+}
+
+var inline_mode: std.atomic.Value(enum(u8) { unread, on, off }) = .init(.unread);
+
+/// A place among the calls that run at once, for one inline: no more
+/// run, inline and on the pool's threads together, than the pool starts
+/// threads for (`Pool.soft`), since more at once crowd the file system.
+/// Every worker with nothing else to run reading files inline made a walk
+/// of a large tree by loco on all cores 21% slower, its system time 4.0 s
+/// against 7.4.
+fn takeSlot() bool {
+    const n = inline_running.fetchAdd(1, .monotonic);
+    if (n + pool.running.load(.monotonic) < inline_cap.load(.monotonic)) return true;
+    _ = inline_running.fetchSub(1, .monotonic);
+    return false;
+}
+
+/// Calls running inline, and the most that may (`takeSlot`).
+var inline_running: std.atomic.Value(u32) = .init(0);
+var inline_cap: std.atomic.Value(u32) = .init(0);
+
+/// `w` begins a call inline: stamp it, and have the pool's monitor watch
+/// unless it does. The stamp, then a look at whether the monitor watches,
+/// against the monitor's end of its watch, then its look at the stamps
+/// (`watchInline`), all sequentially consistent: either this sees the
+/// watch ended and starts it again, or the monitor sees the stamp.
+fn beginInline(w: *Worker) void {
+    const p = &pool;
+    w.inline_since.store(@intCast(nowReal()), .seq_cst);
+    if (!p.inline_seen.load(.monotonic)) p.inline_seen.store(true, .monotonic);
+    if (p.inline_watch.load(.seq_cst)) return;
+    // The first inline call since the monitor last looked at none:
+    // start the monitor, or wake it.
+    p.lock.lock();
+    if (p.inline_watch.load(.seq_cst) or stopping.load(.acquire)) return p.lock.unlock();
+    p.inline_watch.store(true, .seq_cst);
+    const start = !p.monitoring;
+    p.monitoring = true;
+    const ticks = p.ticking;
+    p.lock.unlock();
+    if (start) {
+        const th = std.Thread.spawn(.{}, monitor, .{p}) catch rt.oom();
+        th.detach();
+    } else if (!ticks) {
+        _ = p.monitor_word.fetchAdd(1, .seq_cst);
+        rt.io().futexWake(u32, &p.monitor_word.raw, 1);
+    }
+}
+
+/// The monitor's look at the workers' inline calls, at `now`: a worker
+/// whose call has run `Pool.rescue_after` is rescued once. Its "run
+/// next" slot and ring held nothing as the call began, but a sleeping
+/// worker woken (`notifyNew`) searches, stealing what came since, and on
+/// its way back to sleep services every poller and timer, this worker's
+/// among them (`serviceAll`); so of its work, only its pinned fibers
+/// wait for the call. Give whether to go on watching: a call runs, or
+/// one began since the last look. The watch ends with a last look at the
+/// stamps (`beginInline`).
+fn watchInline(p: *Pool, now: i96) bool {
+    if (p.inline_seen.swap(false, .seq_cst) | rescueInline(now)) return true;
+    p.inline_watch.store(false, .seq_cst);
+    if (!rescueInline(now)) return false;
+    p.inline_watch.store(true, .seq_cst);
+    return true;
+}
+
+/// Rescue each worker whose inline call has run `Pool.rescue_after`, once
+/// a call; give whether any worker runs one.
+fn rescueInline(now: i96) bool {
+    var any = false;
+    for (workers) |*v| {
+        const since = v.inline_since.load(.seq_cst);
+        if (since == 0) continue;
+        any = true;
+        if (now - since < Pool.rescue_after or v.inline_rescued == since) continue;
+        v.inline_rescued = since;
+        notifyNew();
+    }
+    return any;
 }
 
 fn poolCall(comptime f: anytype, args: anytype, comptime stoppable: bool) PoolResult(@typeInfo(@TypeOf(f)).@"fn".return_type.?) {
@@ -1747,10 +1919,14 @@ fn printStats() void {
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
     var buf: [256]u8 = undefined;
+    var ran_inline: u64 = 0;
     for (workers, 0..) |*w, i| {
+        ran_inline += w.ran_inline;
         const line = std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw }) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
+    const line = std.fmt.bufPrint(&buf, "rig: blocking calls: inline {d}, pool {d}\n", .{ ran_inline, pool.calls }) catch return;
+    _ = std.posix.system.write(2, line.ptr, line.len);
 }
 
 /// Test only: run `run` as `main`, on a stack of its own, with `n`
@@ -4372,4 +4548,179 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
     // A heap kept across a move is caught each time it is used.
     try std.testing.expect(Run.stale_used.load(.monotonic) > 0);
     try std.testing.expectEqual(Run.stale_used.load(.monotonic), Run.lost.load(.monotonic) - Run.hop_lost);
+}
+
+/// Test only: a bounded call that notes the worker it runs on, if any.
+fn testWhere(note: *?*Worker) ?u8 {
+    note.* = me();
+    return 7;
+}
+
+test "a bounded call runs inline on a worker with nothing else to run, on the pool from a busy one" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var idle_on: ?*Worker = null;
+        var idle_ran: ?PoolResult(u8) = null;
+        var busy_ran: ?PoolResult(u8) = null;
+        var busy_on: ?*Worker = null;
+        var pooled: ?*Worker = undefined;
+        var home: ?*Worker = null;
+        const Unit = struct {};
+        fn leaf(_: *Unit) u8 {
+            return 1;
+        }
+        fn onPool(note: *?*Worker) u8 {
+            note.* = me();
+            return 9;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            home = me();
+            idle_ran = tryInline(testWhere, .{&idle_on});
+            // A task just made waits in this worker's "run next" slot:
+            // the call does not run here, and goes to the pool.
+            const j = spawn(u8, Unit, leaf, .{}, .{}, false).job;
+            busy_ran = tryInline(testWhere, .{&busy_on});
+            if (busy_ran == null) {
+                pooled = me();
+                _ = blocking(onPool, .{&pooled});
+            }
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.idle_ran.? == .done);
+    try std.testing.expectEqual(@as(u8, 7), Run.idle_ran.?.done);
+    try std.testing.expect(Run.idle_on != null and Run.idle_on == Run.home);
+    try std.testing.expect(Run.busy_ran == null);
+    try std.testing.expect(Run.busy_on == null);
+    // The pool's thread is no worker.
+    try std.testing.expect(Run.pooled == null);
+}
+
+test "a canceled task's inline call, or one past its deadline, never starts" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var canceled: ?PoolResult(u8) = null;
+        var timed: ?PoolResult(u8) = null;
+        var on: ?*Worker = null;
+        var ctl: TestControl = .{};
+        fn first(_: *anyopaque) callconv(.c) void {
+            const f = current().?;
+            f.state.control = &ctl;
+            ctl.fiber = f;
+            ctl.canceled.store(true, .seq_cst);
+            canceled = tryInline(testWhere, .{&on});
+            ctl.canceled.store(false, .seq_cst);
+            f.state.control = null;
+            f.state.deadline = nowNs() - 1;
+            timed = tryInline(testWhere, .{&on});
+            f.state.deadline = null;
+        }
+    };
+    workers_override = 1;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.canceled.? == .canceled);
+    try std.testing.expect(Run.timed.? == .timeout);
+    try std.testing.expect(Run.on == null);
+}
+
+test "RIG_INLINE_FILE_CALLS=0 sends every bounded call to the pool" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var ran: ?PoolResult(u8) = undefined;
+        var on: ?*Worker = null;
+        fn first(_: *anyopaque) callconv(.c) void {
+            ran = tryInline(testWhere, .{&on});
+        }
+    };
+    inline_mode.store(.off, .monotonic);
+    defer inline_mode.store(.unread, .monotonic);
+    workers_override = 1;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.ran == null);
+    try std.testing.expect(Run.on == null);
+}
+
+test "a slow inline call has its worker's ring taken by another worker, and its pinned fibers wait for it alone" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var stolen = std.atomic.Value(bool).init(false);
+        var stolen_by: ?*Worker = null;
+        var home: ?*Worker = null;
+        var stolen_after: i96 = 0;
+        var call_start: i96 = 0;
+        var call_end: i96 = 0;
+        var pinned_ran: i96 = 0;
+        var pinned_due: i96 = 0;
+        var g: Fiber = .{ .run = runG };
+        const Unit = struct {};
+        fn runG(_: *Fiber) void {
+            stolen_by = me();
+            stolen.store(true, .seq_cst);
+        }
+        /// A call that lands work on its worker's ring, as nothing does
+        /// while a call runs inline, and waits up to 2 s for another
+        /// worker to take it.
+        fn slowSteal() ?bool {
+            home = me();
+            home.?.ring.push(&g);
+            const ok = testSpinUntil(&stolen, false);
+            stolen_after = nowReal() - call_start;
+            return ok;
+        }
+        /// A call that runs 60 ms.
+        fn slowSpin() ?bool {
+            const until = nowReal() + 60 * std.time.ns_per_ms;
+            while (nowReal() < until) std.atomic.spinLoopHint();
+            return true;
+        }
+        /// A local task, pinned to `main`'s worker: it naps 5 ms, and
+        /// notes when it runs again.
+        fn local(_: *Unit) u8 {
+            pinned_due = nowReal() + 5 * std.time.ns_per_ms;
+            testNap(5 * std.time.ns_per_ms);
+            pinned_ran = nowReal();
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            // Let the other worker go to sleep.
+            testNap(20 * std.time.ns_per_ms);
+            call_start = nowReal();
+            _ = tryInline(slowSteal, .{});
+            while (!g.finished) yield();
+            // A pinned task napping as `main`'s worker runs a 60 ms call.
+            const j = spawn(u8, Unit, local, .{}, .{}, true).job;
+            yield();
+            _ = tryInline(slowSpin, .{});
+            call_end = nowReal();
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override = 2;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.stolen.load(.seq_cst));
+    try std.testing.expect(Run.stolen_by != null and Run.stolen_by != Run.home);
+    // Rescued after `Pool.rescue_after`, well before the call gave up.
+    try std.testing.expect(Run.stolen_after >= Pool.rescue_after);
+    try std.testing.expect(Run.stolen_after < 500 * std.time.ns_per_ms);
+    // The pinned task, due 5 ms into the call, ran once it returned.
+    try std.testing.expect(Run.pinned_ran >= Run.call_end);
+    try std.testing.expect(Run.pinned_ran - Run.pinned_due < 60 * std.time.ns_per_ms + 50 * std.time.ns_per_ms);
 }

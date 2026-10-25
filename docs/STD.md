@@ -369,7 +369,12 @@ task and with `task.Stop.timeout` past the task's deadline
 deadline ends the wait for a call that blocks (a read of a pipe no one
 writes). The call itself runs on to its end on the pool, and what it
 gives is dropped: a write may still happen, and a file it opened is
-closed.
+closed. A call whose time is bounded (`stat`, `exists`, `realpath`,
+`read_dir`, and `read`, `open` and a `File`'s reads and writes of a
+regular file) runs inline on the task's worker instead when that
+worker has nothing else to run, which saves waking a pool thread; a
+cancel or a deadline that comes while it runs takes effect once it
+returns. `RIG_INLINE_FILE_CALLS=0` sends every call to the pool.
 
 A `File` reads and writes from where its last read or write ended, with
 the methods a `net.Stream` has, and closes when it is dropped:

@@ -2,7 +2,10 @@
 //! allocator owns, so the leak checker and the sanitizer see it, writing
 //! one, open files, and what is at a path. Every call that reaches the
 //! file system runs on the blocking pool (`pool`), so only the task
-//! making it waits, and is a fallible waiting point.
+//! making it waits, and is a fallible waiting point; one whose time is
+//! bounded (a stat, a directory's listing, a read of a regular file)
+//! runs inline instead when its worker has nothing else to run
+//! (`bounded`).
 
 const std = @import("std");
 const rig = @import("../runtime.zig");
@@ -34,10 +37,35 @@ fn pool(comptime T: type, comptime f: anytype, args: anytype) Error!T {
     return try (try rig.blockingStop(f, args));
 }
 
+/// `f(args...)` as `pool` runs it, or `here(args...)` inline when the
+/// worker has nothing else to run (`rig.blockingBounded`): `here` gives
+/// null, having opened nothing, for what may block for good (a pipe, a
+/// device), and `f` runs on the pool. A cancel during an inline call
+/// takes effect once it returns.
+fn bounded(comptime T: type, comptime here: anytype, comptime f: anytype, args: anytype) Error!T {
+    return try (try rig.blockingBounded(here, f, args));
+}
+
+/// `f`, a call of one path whose time is bounded, as `bounded` takes it.
+fn always(comptime f: anytype) fn ([]const u8) ?@typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    return struct {
+        fn call(path: []const u8) ?@typeInfo(@TypeOf(f)).@"fn".return_type.? {
+            return f(path);
+        }
+    }.call;
+}
+
 /// A descriptor a pool call opened or was given, closed when dropped, as
-/// a call whose task stopped waiting drops its result.
+/// a call whose task stopped waiting drops its result; `regular` when it
+/// is a regular file's (`rig.net.regular_file`).
 const Fd = struct {
     fd: i32,
+    regular: bool = false,
+
+    /// The `fd` of a `File`.
+    fn file(self: Fd) i64 {
+        return if (self.regular) self.fd | rig.net.regular_file else self.fd;
+    }
 
     pub fn __rig_drop(self: *Fd) void {
         _ = sys.close(self.fd);
@@ -91,7 +119,7 @@ fn absent(err: anyerror) FileError!void {
 /// reports no size (a pipe, a device, a Linux `/proc` file) is read to
 /// its end and the buffer trimmed.
 pub fn read(path: []const u8) Error!?rig.String {
-    return pool(?rig.String, readHere, .{path});
+    return bounded(?rig.String, readInline, readHere, .{path});
 }
 
 fn readHere(path: []const u8) FileError!?rig.String {
@@ -105,6 +133,66 @@ fn readHere(path: []const u8) FileError!?rig.String {
     defer file.close(io);
     const st = file.stat(io) catch |err| return failure(err);
     if (st.kind == .directory) return error.@"std.file.FileError.is_directory";
+    return readOpen(file, st);
+}
+
+/// `readHere` inline: a regular file, or nothing at the path; anything
+/// else goes to the pool.
+fn readInline(path: []const u8) ?(FileError!?rig.String) {
+    var st: std.Io.File.Stat = undefined;
+    switch (openRegular(path, &st)) {
+        .absent => return @as(FileError!?rig.String, null),
+        .other => return null,
+        .fd => |fd| {
+            const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
+            defer file.close(rig.io());
+            return @as(FileError!?rig.String, readOpen(file, st));
+        },
+    }
+}
+
+/// What `openRegular` found at a path.
+const Found = union(enum) {
+    /// Nothing, or a file on the way to it.
+    absent,
+    /// The regular file there, open to read.
+    fd: i32,
+    /// Anything else, or a failure, which the pool's call reports.
+    other,
+};
+
+/// Open the regular file at `path` to read, for a call inline, only once
+/// a stat says it is one, and confirm it by the descriptor's own stat
+/// (`st`), as what is at the path may change between. It opens without
+/// waiting (`NONBLOCK`) and never as a controlling terminal (`NOCTTY`),
+/// so a pipe or a device put there meanwhile is never waited on: it is
+/// closed, and goes to the pool. `NONBLOCK` changes nothing for a
+/// regular file.
+fn openRegular(path: []const u8, st: *std.Io.File.Stat) Found {
+    const io = rig.io();
+    const at = std.Io.Dir.cwd().statFile(io, path, .{}) catch |err| {
+        absent(err) catch return .other;
+        return .absent;
+    };
+    if (at.kind != .file) return .other;
+    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
+    const z = terminated(path, &buf) catch return .other;
+    const fd = openAt(z, .{ .ACCMODE = .RDONLY, .NONBLOCK = true, .NOCTTY = true, .CLOEXEC = true }) catch return .other;
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
+    st.* = file.stat(io) catch {
+        _ = sys.close(fd);
+        return .other;
+    };
+    if (st.kind != .file) {
+        _ = sys.close(fd);
+        return .other;
+    }
+    return .{ .fd = fd };
+}
+
+/// The open file `file`, whose stat is `st`, read as `read` reads it.
+fn readOpen(file: std.Io.File, st: std.Io.File.Stat) FileError!?rig.String {
+    const io = rig.io();
     const size = std.math.cast(usize, st.size) orelse rig.oom();
     const sized = st.kind == .file and size > 0;
     const gpa = rig.defaultAllocator();
@@ -176,7 +264,7 @@ fn mkdirHere(path: []const u8, parents: bool) FileError!void {
 /// Whether anything is at `path`, links followed: a link that names
 /// nothing is not. Any failure but "nothing there" is an error.
 pub fn exists_at(path: []const u8) Error!bool {
-    return pool(bool, existsHere, .{path});
+    return bounded(bool, always(existsHere), existsHere, .{path});
 }
 
 fn existsHere(path: []const u8) FileError!bool {
@@ -219,7 +307,7 @@ fn removeHere(path: []const u8) FileError!bool {
 /// The absolute path `path` names, links resolved, or null when nothing
 /// is there.
 pub fn realpath(path: []const u8) Error!?rig.String {
-    return pool(?rig.String, realpathHere, .{path});
+    return bounded(?rig.String, always(realpathHere), realpathHere, .{path});
 }
 
 fn realpathHere(path: []const u8) FileError!?rig.String {
@@ -238,7 +326,7 @@ fn realpathHere(path: []const u8) FileError!?rig.String {
 /// `stat`'s answer onto `info` (std/file.rig), or false when nothing is
 /// at `path`.
 pub fn stat_into(path: []const u8, info: *rig.List(i64)) Error!bool {
-    const got = (try pool(?[4]i64, statHere, .{path})) orelse return false;
+    const got = (try bounded(?[4]i64, always(statHere), statHere, .{path})) orelse return false;
     for (got) |n| info.push(n);
     return true;
 }
@@ -281,7 +369,7 @@ fn kindCode(kind: std.Io.File.Kind) i64 {
 /// and each one's kind, plus 4 for a link, onto `codes`; false when
 /// nothing is at `path`.
 pub fn dir_entries(path: []const u8, names: *rig.List(rig.String), codes: *rig.List(i64)) Error!bool {
-    var got = (try pool(?Entries, entriesHere, .{path})) orelse return false;
+    var got = (try bounded(?Entries, always(entriesHere), entriesHere, .{path})) orelse return false;
     std.mem.swap(rig.List(rig.String), names, &got.names);
     std.mem.swap(rig.List(i64), codes, &got.codes);
     rig.dropElement(Entries, &got);
@@ -295,6 +383,8 @@ const Entries = struct {
     codes: rig.List(i64) = .empty,
 };
 
+/// Bounded, as it opens only a directory (`openDir` passes `DIRECTORY`,
+/// which refuses anything else before opening it).
 fn entriesHere(path: []const u8) FileError!?Entries {
     const io = rig.io();
     var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch |err| {
@@ -348,8 +438,8 @@ fn entriesHere(path: []const u8) FileError!?Entries {
 /// A descriptor of the file at `path` open to read, or null when nothing
 /// is there.
 pub fn open_fd(path: []const u8) Error!?i64 {
-    const got = (try pool(?Fd, openHere, .{path})) orelse return null;
-    return got.fd;
+    const got = (try bounded(?Fd, openInline, openHere, .{path})) orelse return null;
+    return got.file();
 }
 
 fn openHere(path: []const u8) FileError!?Fd {
@@ -358,17 +448,36 @@ fn openHere(path: []const u8) FileError!?Fd {
         try absent(err);
         return null;
     };
-    return .{ .fd = fd };
+    return .{ .fd = fd, .regular = isRegular(fd) };
+}
+
+/// `openHere` inline: a regular file, or nothing at the path; anything
+/// else goes to the pool.
+fn openInline(path: []const u8) ?(FileError!?Fd) {
+    var st: std.Io.File.Stat = undefined;
+    return switch (openRegular(path, &st)) {
+        .absent => @as(FileError!?Fd, null),
+        .other => null,
+        .fd => |fd| @as(FileError!?Fd, Fd{ .fd = fd, .regular = true }),
+    };
+}
+
+/// Whether `fd` is a regular file's, whose reads and writes are bounded.
+fn isRegular(fd: i32) bool {
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
+    const st = file.stat(rig.io()) catch return false;
+    return st.kind == .file;
 }
 
 /// A descriptor of the file at `path`, created or emptied, open to
 /// write, each missing directory on the way to it made when `parents`.
 pub fn create_fd(path: []const u8, parents: bool) Error!i64 {
-    return (try pool(Fd, createHere, .{ path, parents })).fd;
+    return (try pool(Fd, createHere, .{ path, parents })).file();
 }
 
 fn createHere(path: []const u8, parents: bool) FileError!Fd {
-    return .{ .fd = try openMaking(path, .truncate, parents) };
+    const fd = try openMaking(path, .truncate, parents);
+    return .{ .fd = fd, .regular = isRegular(fd) };
 }
 
 /// Open `path` to write, creating it when it is not there, and each
@@ -437,7 +546,7 @@ fn writeAll(fd: i32, bytes: []const u8) FileError!void {
 }
 
 pub fn close(fd: i64) void {
-    _ = sys.close(@intCast(fd));
+    _ = sys.close(rig.net.descriptor(fd));
 }
 
 /// A fresh String of `bytes`.
