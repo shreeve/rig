@@ -99,10 +99,14 @@
 //!   argument (which lends it on for the call).
 //! * `<` always leaves its source done (`MoveSource`): `<x` ends a
 //!   binding, and `<p.f` or `<v[i]` of an optional empties it to `none`.
-//!   Any other field or element (`<p.a`, `<v[0]`) is rejected: one that
-//!   copies would stay as it was, and of one that moves a viewed or
-//!   shared parent still owns it, or an owned parent would drop it
-//!   again. A module's constant lives for the whole program.
+//!   `<p.a` of any other field of an object a local or parameter owns
+//!   moves it as a name (Core §5): the var stays live, partly moved
+//!   (`Flow.parts`), and a use overlapping a moved path is rejected until
+//!   the path is assigned again; `p = x` assigns them all. Any other
+//!   field or element is rejected: one that copies would stay as it was,
+//!   and of one that moves a viewed or shared parent, a box, a container,
+//!   or a type with a `drop` body still owns it. A module's constant
+//!   lives for the whole program.
 //! * View parameters cannot be dropped or move-captured. Functions may
 //!   read module-level constants but not move them.
 //! * A match payload binding of `match x` or `match ?x` views the
@@ -283,6 +287,10 @@ const Loan = struct {
 
 const Status = enum(u2) { live, moved, dropped };
 
+/// A field moved out of a var that owns an object (Core §5, "A field of
+/// an owned object moves like a name"): its path, and where it moved.
+const Part = struct { path: PathId, at: u32 };
+
 /// The flow-sensitive part of a var: joined at merges, compared for the
 /// loop fixpoint.
 const Flow = struct {
@@ -291,6 +299,9 @@ const Flow = struct {
     at: u32 = 0,
     /// Loans held by the var's current value. Arena-owned, immutable.
     loans: []const Loan = &.{},
+    /// The fields moved out of a live var, until each is assigned again:
+    /// the var is partly moved. Arena-owned, immutable.
+    parts: []const Part = &.{},
 };
 
 const VarKind = enum { local, param, capture, pattern, loop_elem, hidden };
@@ -1757,7 +1768,21 @@ pub const Checker = struct {
             .status = status,
             .at = if (fa.status == status) fa.at else fb.at,
             .loans = try self.unionLoans(fa.loans, fb.loans),
+            .parts = try self.unionParts(fa.parts, fb.parts),
         };
+    }
+
+    /// The fields moved out on either path: moved out after the join.
+    fn unionParts(self: *Checker, a: []const Part, b: []const Part) Error![]const Part {
+        if (b.len == 0) return a;
+        if (a.len == 0) return b;
+        var out: std.ArrayList(Part) = .empty;
+        try out.appendSlice(self.arena(), a);
+        for (b) |pb| {
+            if (!hasPart(a, pb.path)) try out.append(self.arena(), pb);
+        }
+        if (out.items.len == a.len) return a;
+        return out.items;
     }
 
     /// Whether two states relative to the current point are the same.
@@ -2720,9 +2745,9 @@ pub const Checker = struct {
     /// lent to write. The place's path is decided only where some write
     /// loan on `id` is live.
     fn checkReadable(self: *Checker, id: VarId, place: ?Sexp, pos: u32) Error!void {
-        if (!try self.checkLive(id, pos)) return;
-        if (self.findLoan(id, whole_path, .write, null) == null) return;
         const path = if (place) |e| (if (self.resolvePlace(e)) |p| (if (p.root == id) p.path else whole_path) else whole_path) else whole_path;
+        if (!try self.checkLivePath(id, path, pos)) return;
+        if (self.findLoan(id, whole_path, .write, null) == null) return;
         if (self.findLoan(id, path, .write, null)) |l| {
             try self.err(pos, "use of `{s}` while a write loan{s} is live", .{ try self.pathText(id, path), try self.loanOnText(l, path) });
             try self.noteLoan(l);
@@ -2732,7 +2757,7 @@ pub const Checker = struct {
     /// Report a capture of a moved or dropped var. Returns whether it is
     /// live.
     fn checkCapturable(self: *Checker, id: VarId, pos: u32) Error!bool {
-        if (self.flowLive(id)) return true;
+        if (self.flowLive(id)) return self.checkParts(id, whole_path, pos);
         const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
         try self.err(pos, "cannot capture `{s}` after {s}", .{ self.vars.items[id].name, what });
         try self.noteInvalidated(id, pos);
@@ -2740,9 +2765,17 @@ pub const Checker = struct {
     }
 
     /// Report a use of a moved or dropped var. Returns whether it is live.
+    /// A use of all of it, which a field moved out leaves unusable.
     fn checkLive(self: *Checker, id: VarId, pos: u32) Error!bool {
+        return self.checkLivePath(id, whole_path, pos);
+    }
+
+    /// Report a use of place `path` of var `id` that is moved or dropped,
+    /// or that overlaps a field moved out of it (`Flow.parts`): a use
+    /// touches the path it names (Core §5). Returns whether it is usable.
+    fn checkLivePath(self: *Checker, id: VarId, path: PathId, pos: u32) Error!bool {
         if (self.defer_floor) |floor| try self.checkDeferredReach(id, floor, pos);
-        if (self.flowLive(id)) return true;
+        if (self.flowLive(id)) return self.checkParts(id, path, pos);
         const v = self.vars.items[id];
         if (v.once) {
             try self.err(pos, "`{s}` is called at most once (`once`), and it is used up already", .{v.name});
@@ -2756,6 +2789,24 @@ pub const Checker = struct {
         try self.err(pos, "use of `{s}` after {s}", .{ v.name, what });
         try self.noteInvalidated(id, pos);
         return false;
+    }
+
+    /// Report a use of place `path` of `id` that overlaps a field moved
+    /// out of it: the field itself, or anything below it, is used after
+    /// its move; anything that holds it, `id` itself among them, waits
+    /// until the field is assigned again (Core §5: "no use touches all
+    /// of `p` except `p = x`"). Returns whether the use is fine.
+    fn checkParts(self: *Checker, id: VarId, path: PathId, pos: u32) Error!bool {
+        for (self.flows.items[id].parts) |part| {
+            if (!self.paths.overlap(part.path, path)) continue;
+            const moved = try self.pathText(id, part.path);
+            if (self.paths.within(path, part.path)) {
+                try self.err(pos, "use of `{s}` after move", .{try self.pathText(id, path)});
+            } else try self.err(pos, "`{s}` is partly moved: `{s}` was moved out; assign it first", .{ try self.pathText(id, path), moved });
+            try self.note(part.at, "`{s}` was moved here", .{moved});
+            return false;
+        }
+        return true;
     }
 
     /// Deferred code reading `id` reads what it views, directly or
@@ -3253,7 +3304,7 @@ pub const Checker = struct {
     /// Lend place `path` of var `id` at `pos`: null when `id` is moved or
     /// the lend conflicts, both reported.
     fn lendVar(self: *Checker, id: VarId, path: PathId, kind: LoanKind, pos: u32) Error!?Value {
-        if (!try self.checkLive(id, pos)) return null;
+        if (!try self.checkLivePath(id, path, pos)) return null;
         if (try self.conflicts(id, path, if (kind == .write) .write else .read, pos)) return null;
         const loan: Loan = .{ .root = id, .path = path, .kind = kind, .pos = pos };
         try self.addTemp(loan);
@@ -3635,7 +3686,7 @@ pub const Checker = struct {
         try self.walkFoundIndices(inner);
         const id = place.root;
         const pos = self.startOf(inner);
-        if (!try self.checkLive(id, pos)) return .{};
+        if (!try self.checkLivePath(id, place.path, pos)) return .{};
         if (try self.conflicts(id, place.path, .write, pos)) return .{};
         if (!self.mayCarryLoan(self.exprType(inner))) {
             self.taintGeneric(self.exprType(inner), self.varValue(id));
@@ -3810,10 +3861,110 @@ pub const Checker = struct {
             try self.err(pos, "cannot move out of `{s}`: it is reached through a shared handle and other handles may still use it; clone it with `+{s}`", .{ path, path });
         } else if (place.indexed) {
             try self.err(pos, "cannot move out of `{s}`: elements cannot be moved out of their container", .{path});
-        } else {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` would still drop it (partial moves are not supported); move `{s}` whole, or exchange the field: `old = swap(!{s}, v)`", .{ path, root, root, path });
-        }
+        } else return self.moveField(inner, place);
         return .{};
+    }
+
+    /// `<p.f` of a field of an object a local or parameter owns, which
+    /// copies not and is not optional (Core §5, "A field of an owned
+    /// object moves like a name"): `p.f` moves as a name does, and `p` is
+    /// partly moved (`Flow.parts`) until the field is assigned again.
+    /// Owning rules out views, handles, boxes, and elements, which
+    /// `movePart` reported; a type on the path with a `drop` body
+    /// expects every field; closures and deferred code move no field, as
+    /// they move no name. Emit gives the field a drop flag
+    /// (`SemContext.field_moves`).
+    fn moveField(self: *Checker, inner: Sexp, place: Place) Error!Value {
+        const id = place.root;
+        const v = self.vars.items[id];
+        const path = try self.placeText(inner);
+        const root = v.name;
+        const pos = self.startOf(inner);
+        if (v.payload_view) return self.movePayload(id, pos, "move");
+        if (v.kind == .hidden or v.call_held) {
+            try self.err(pos, "cannot move out of `{s}`: it is part of a value its statement holds and drops; bind that value to a name first", .{path});
+            return .{};
+        }
+        if (v.loop_view or v.elem_view or v.as_view or v.ref != .none) {
+            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; exchange it instead: `old = swap(!{s}, v)`", .{ path, root, path });
+            return .{};
+        }
+        if (try self.rejectConsumedView(id, pos, "move a field out of")) return .{};
+        if (try self.rejectGlobal(id, pos, "move a field out of")) return .{};
+        // Every step is a field of an object the step before holds by
+        // value: no box, and no type with a `drop` body.
+        var e = inner;
+        while (e.isKind(.member)) {
+            const object = ir.Member.object(e);
+            const ty = self.exprType(object) orelse return .{};
+            const ctx = self.sema orelse return .{};
+            if (sema.boxedType(ctx, ty) != null) {
+                try self.err(pos, "cannot move out of `{s}`: a box frees what it holds as one; take the box's value with `<{s}.unbox()` first", .{ path, self.spanText(object) });
+                return .{};
+            }
+            if (self.dropBodyType(ty)) {
+                try self.err(pos, "cannot move out of `{s}`: `{s}` has a `drop` body, which expects every field; move `{s}` whole, or exchange the field: `old = swap(!{s}, v)`", .{ path, try sema.formatTypeIn(ctx, self.arena(), ty), self.spanText(object), path });
+                return .{};
+            }
+            e = object;
+        }
+        if (place.path_ended or place.path == whole_path) {
+            try self.err(pos, "cannot move out of `{s}`: only a field reached through fields `{s}` owns moves out; exchange it instead: `old = swap(!{s}, v)`", .{ path, root, path });
+            return .{};
+        }
+        if (!try self.checkLivePath(id, place.path, pos)) return .{};
+        if (try self.conflicts(id, place.path, .{ .consume = "move" }, pos)) return .{};
+        // Emit arms a drop flag only for a field the field-moves fact
+        // records, so no other may move.
+        if (self.sema) |ctx| if (ctx.symbolAt(v.decl)) |sym| {
+            const fields = try self.fieldPath(inner);
+            const recorded = for (ctx.fieldMoves(sym)) |f| {
+                if (std.mem.eql(u8, f, fields)) break true;
+            } else false;
+            if (!recorded) {
+                try self.err(pos, "internal error: `{s}` moves here, but the field-moves fact does not record it", .{path});
+                return .{};
+            }
+        };
+        const value = self.varValue(id);
+        var f = self.flows.items[id];
+        var parts: std.ArrayList(Part) = .empty;
+        try parts.appendSlice(self.arena(), f.parts);
+        try parts.append(self.arena(), .{ .path = place.path, .at = pos });
+        f.parts = parts.items;
+        try self.setFlow(id, f);
+        try self.holdMoved(value);
+        if (!self.mayCarryLoan(self.exprType(inner))) {
+            self.taintGeneric(self.exprType(inner), value);
+            return .{};
+        }
+        return self.carry(self.exprType(inner), value);
+    }
+
+    /// The fields of a field path below its root, `a.b` for `p.a.b`, as
+    /// `SemContext.field_moves` records them.
+    fn fieldPath(self: *Checker, e: Sexp) Error![]const u8 {
+        var fields: std.ArrayList([]const u8) = .empty;
+        var p = e;
+        while (p.isKind(.member)) : (p = ir.Member.object(p)) try fields.append(self.arena(), self.text(ir.Member.name(p)));
+        std.mem.reverse([]const u8, fields.items);
+        return std.mem.join(self.arena(), ".", fields.items);
+    }
+
+    /// Whether `ty` is an object or enum with a `drop` body of its own.
+    fn dropBodyType(self: *const Checker, ty: TypeId) bool {
+        const ctx = self.sema orelse return false;
+        const decl = sema.nominalDecl(ctx, ty) orelse return false;
+        var dctx = decl.ctx;
+        var sym = decl.symbol();
+        if (sema.isProxy(sym)) {
+            if (sym.from.module_id == 0) return false;
+            const foreign = dctx.foreign_semas.get(sym.from.module_id) orelse return false;
+            dctx = foreign;
+            sym = foreign.symbols.items[sym.from.sym];
+        }
+        for (sym.fields orelse &.{}) |fld| if (fld.is_drop_method) return true;
+        return false;
     }
 
     fn markInvalid(self: *Checker, id: VarId, status: Status, pos: u32) Error!void {
@@ -3965,6 +4116,7 @@ pub const Checker = struct {
             try self.noteInvalidated(id, pos);
             return;
         }
+        if (!try self.checkParts(id, whole_path, pos)) return;
         if (v.payload_view) {
             _ = try self.movePayload(id, pos, "drop");
             if (!self.flowLive(id)) try self.markInvalid(id, .dropped, pos);
@@ -4571,7 +4723,7 @@ pub const Checker = struct {
         };
         const id = place.root;
         const pos = self.startOf(target);
-        if (!try self.checkLive(id, pos)) return;
+        if (!try self.fillParts(id, place, pos)) return;
         const v = self.vars.items[id];
         if (self.findLoan(id, place.path, .any, null)) |l| {
             try self.err(pos, "cannot assign to `{s}` while `{s}` is lent", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
@@ -4609,6 +4761,38 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// `p.f = x` of a live `p` (Core §5): a field moved out at `p.f`, or
+    /// below it, is usable again, and drops nothing until then (emit
+    /// drops the old value behind its flag). A store below a field moved
+    /// out, or into a moved var, is reported. Returns whether the store
+    /// goes on.
+    fn fillParts(self: *Checker, id: VarId, place: Place, pos: u32) Error!bool {
+        if (self.defer_floor) |floor| try self.checkDeferredReach(id, floor, pos);
+        if (!self.flowLive(id)) return self.checkLive(id, pos);
+        const f = self.flows.items[id];
+        if (f.parts.len == 0) return true;
+        var kept: std.ArrayList(Part) = .empty;
+        for (f.parts) |part| {
+            if (place.path != whole_path and !place.path_ended and self.paths.within(part.path, place.path)) continue;
+            if (self.paths.overlap(part.path, place.path)) {
+                const moved = try self.pathText(id, part.path);
+                try self.err(pos, "cannot assign to `{s}`: `{s}` was moved out; assign `{s}` whole first", .{ try self.pathText(id, place.path), moved, moved });
+                try self.note(part.at, "`{s}` was moved here", .{moved});
+                return false;
+            }
+            try kept.append(self.arena(), part);
+        }
+        if (kept.items.len == f.parts.len) return true;
+        if (self.in_defer) {
+            try self.err(pos, "a `defer` body cannot assign `{s}`, a field moved out of `{s}`; it runs when the scope exits", .{ try self.pathText(id, place.path), self.vars.items[id].name });
+            return false;
+        }
+        var nf = f;
+        nf.parts = kept.items;
+        try self.setFlow(id, nf);
+        return true;
     }
 
     /// `stored` is stored through the write lend `lent`, whatever the
@@ -7214,6 +7398,10 @@ pub const Checker = struct {
                 try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
                 break;
             }
+            if (!partSetEql(e.flow.parts, self.flows.items[e.id].parts)) {
+                try self.errAt(body, "a `defer` body cannot move a field out of `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
+                break;
+            }
         }
     }
 
@@ -7721,7 +7909,18 @@ fn containsLoan(set: []const Loan, l: Loan) bool {
 /// Two flows agree for the analysis (the position of a move is only
 /// for messages).
 fn flowEql(a: Flow, b: Flow) bool {
-    return a.status == b.status and loanSetEql(a.loans, b.loans);
+    return a.status == b.status and loanSetEql(a.loans, b.loans) and partSetEql(a.parts, b.parts);
+}
+
+fn hasPart(parts: []const Part, path: PathId) bool {
+    for (parts) |p| if (p.path == path) return true;
+    return false;
+}
+
+fn partSetEql(a: []const Part, b: []const Part) bool {
+    if (a.len != b.len) return false;
+    for (a) |p| if (!hasPart(b, p.path)) return false;
+    return true;
 }
 
 fn loanSetEql(a: []const Loan, b: []const Loan) bool {

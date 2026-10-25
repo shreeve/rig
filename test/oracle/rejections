@@ -4861,6 +4861,10 @@ test/reject/ownership/apis_object_box_keeps_a_loan_to_its_drop.rig main
 test/reject/ownership/apis_object_box_made_from_a_view_keeps_it.rig main
 test/reject/ownership/apis_object_box_a_drop_that_reads_a_view.rig main
 doc/SPEC/875d6749ac79 main
+doc/CORE/7e4508021a4e main
+doc/CORE/c2f3cd1128fd main
+doc/SPEC/134cff7eedf6 main
+doc/SPEC/7e4508021a4e main
 test/reject/ownership/apis_object_the_API's_keeps,_not_the_implementation's.rig hook
 test/reject/ownership/apis_object_the_API's_keeps,_not_the_implementation's.rig local
 test/reject/ownership/apis_object_box_keeps_through_a_call.rig main

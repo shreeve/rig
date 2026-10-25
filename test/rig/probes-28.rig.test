@@ -1605,9 +1605,9 @@ fail "review-seam2-c07 move whole while lent", "cannot move `s` while a write lo
   s = mk(1)
   both(!s.n, <s)
 
-fail "review-seam2-c13 move part named plain", "cannot move out of `s.items`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.items, v)`"
+test "review-seam2-c13 move part named plain", "[1]"
   # Review probe c13_move_part_named_plain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
-  # oracle: main reject C3
+  # oracle: main accept
   obj S
     n: Int
     items: List[Int]

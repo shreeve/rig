@@ -8677,10 +8677,15 @@ fail "owned closure stores env view", "8:26: cannot store a view of `t` in `k.s`
   set(!h)
   print(h.s)
 
-fail "partial move field", "cannot move out of `p.a`: `p` would still drop it"
-  # Moving a resource field out of an owned local struct is rejected: the
-  # struct's drop glue would still drop the field at scope exit. Move the
-  # struct whole, or clone a shared field with `+p.a`.
+test "partial move field", '''
+  1
+  101
+  after
+  102
+'''
+  # A field moved out of an owned local moves as a name does (Core §5):
+  # the handle goes to `eat`, and at scope exit the local drops only the
+  # field it still holds.
 
   obj Wrap
     payload: Int

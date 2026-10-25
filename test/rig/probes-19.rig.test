@@ -511,7 +511,10 @@ test "review-box-p24", '''
   x = mk().n
   print(x)
 
-fail "review-box-p25", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.b, v)`"
+test "review-box-p25", '''
+  drop 1
+  1
+'''
   obj R
     n: Int
 
