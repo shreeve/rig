@@ -3270,7 +3270,15 @@ decides a binding's mode another way (a unit test checks the sources):
   path in it, puts a loan on the var and carries the loans the var holds
   for `.write`; carries only the loans it holds for `.read`, as a copy
   of the view does; and puts a loan on the var for any other var, one
-  that owns or copies its value, or a value no binding names.
+  that owns or copies its value, or a value no binding names. For
+  `.write`, the loan on a local, a pattern's binding, or a loop's
+  element (a payload's loan on a viewed subject too) is on the binding
+  only (`Loan.deref`, `throughBinding`): it keeps the binding unused
+  while the view lives, but the view may leave the binding's scope or
+  the function (`checkEscape`, `escapeVarsFrom` skip it), carrying the
+  loans the binding holds (Core sentence 7). The scope's defers run
+  with it in force (`withDerefs`); a var outside the scope that still
+  holds it is reported where the scope ends.
 - **Storage** binds a payload by address for `.write`
   (`payloadByAddress`).
 - **Emit** binds a `.read` binding of a write view, a match's payload

@@ -156,6 +156,19 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A view lent through a write-view binding may outlive it:**
+  `if !@slots[j] as s` / `return !s.value` in a method `-> (!Int)? from
+  @` is accepted, as are the same through `s = !@a`, a `for s in !@xs`
+  element, a call's result (`if (!@).find(j) as e`), and a `match !`
+  payload (CORE sentence 7). Such a view carries the binding's own
+  loans and a loan on the binding that ends with the binding's scope;
+  each was "cannot return a view of `s`, which this function was not
+  lent". What it views stays lent while it lives, and nothing in the
+  binding's scope, its defers included, uses the binding while it
+  does; a block's value through a binding of its own block keeps that
+  binding from its defers (CORE §7, Defer). A view of a local
+  (`s = !x`, then `!s.value`) is still the local's.
+
 - **A public generic states the `Print` of what its callees print:**
   `pub sub show[T](x: ?T)` passing `x` to a private generic that prints
   it is rejected, `` `pub sub show[T]` prints a `T`: write `[T:

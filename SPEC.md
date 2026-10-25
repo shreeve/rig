@@ -9990,7 +9990,9 @@ To use the value where it is, lend the optional: `if ?m as x` binds
 `x` as a read view of the value (`?T`), and `if !m as x` as a write
 view (`!T`), through which `x.f = v` changes the value in place and
 `x = v` replaces it. `m` stays lent for the block, as for any
-lend. A `?T?` parameter, or another read view of an optional,
+lend. A view lent through `x` (`!x.f`) may outlive the block: it
+keeps `m` lent while it lives, and `x` is not used while it does
+(*Core 7*). A `?T?` parameter, or another read view of an optional,
 lends its value the same way with `if p as x`; a held write view is
 lent on as `!p`, and a write view a call returns is bound as one.
 Plain data read through a `?T?` is copied. In a generic body a `T`,

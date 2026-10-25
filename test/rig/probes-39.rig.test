@@ -1027,7 +1027,11 @@ test "syntax-review-complete-g2", '''
     w.v = 9
   print(m.es[0].v)
 
-fail "syntax-review-complete-g3", "cannot return a view of `e`, which this function was not lent"
+test "syntax-review-complete-g3", '''
+  1
+  1
+  drop 7
+'''
   obj Val
     n: Int
     drop(!@)
