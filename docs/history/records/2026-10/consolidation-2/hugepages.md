@@ -15,6 +15,16 @@ ts-pattern, but raised peak RSS by 49% with all cores (377 to 562 MB),
 and zod3's by 144% (136 to 332 MB). Neither clears the bar in AGENTS.md
 (a real gain on Trig, never slower elsewhere). The code stays as it is.
 
+**Faults with all cores.** Huge pages cut page faults with all cores, and
+the time did not fall with them. On ts-pattern, faults fell from 94.5K
+on main to 82.1K with `past` (13% fewer) and 70.4K with `whole` (25%
+fewer); on top of prefault, from 89.5K to 77.1K (`both`) and 65.4K
+(`bothw`). Wall time stayed at prefault's 0.535 s (0.538 s for `both`)
+or rose (0.559 s for `bothw`). On zod3, `past` saved no faults (32.9K),
+and `bothw` cut them from 28.5K to 23.3K while running 21% slower (0.172
+to 0.208 s). Huge pages do not close Trig's all-core fault gap to tsrs
+(91K against 19.6K on ts-pattern).
+
 ## What was tried
 
 Two rules, both on Linux only:
