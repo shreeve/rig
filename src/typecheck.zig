@@ -13953,6 +13953,7 @@ const Checker = struct {
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
+        if (kind == .map and sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, shown, value, "x");
         if (kind == .map and f.isKind(.lambda)) {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{each_param}), .returns = gives, .is_sub = false } });
@@ -13993,6 +13994,16 @@ const Checker = struct {
         if (self.current_call) |c| try self.ctx.recordParCall(c, kind);
         self.ctx.makes_tasks = true;
         return result;
+    }
+
+    /// Reports `f`, the function `par.map` or `par.workers` (`shown`)
+    /// calls, whose value `value` holds a write view, which nothing the
+    /// call gives back may hold: it would reach what a task was lent to
+    /// write after the task, beside the owner's own view. `copied` is
+    /// how the closure's parameter is spelled in the hint.
+    fn givesWriteView(self: *Checker, args: []const Sexp, f: Sexp, shown: []const u8, value: TypeId, copied: []const u8) Error!TypeId {
+        const how = if (self.ctx.types.get(value) == .write_view) "is" else "holds";
+        return try self.badCall(args, f, "`{s}` gives back each call's value, and `{s}` {s} a write view, which no value it gives back may hold: give a copy, `+{s}`, or a value made from it", .{ shown, try self.tyName(value), how, copied });
     }
 
     /// `par.workers(!states, ?items, f)` of `std.par`: one task for each
@@ -14040,6 +14051,9 @@ const Checker = struct {
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
         const none = value == self.t().void_id;
+        // A write view given back would reach a task's state, or what it
+        // holds, after the task, beside the state's own.
+        if (sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, shown, value, "s");
         if (f.isKind(.lambda)) {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ state_param, item_param }), .returns = gives, .is_sub = none } });
@@ -14048,7 +14062,10 @@ const Checker = struct {
         const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = ok, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else ok;
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ states_param, items_param, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = none };
         try self.noteCallee(call);
-        try self.checkArgs(args, call, .{ .names = &.{ "states", "items", "f" } }, shown, pos, .{ .declared = call.params });
+        // The call stores nothing in the states but what the closure
+        // stores there, a view of what it captures: never an item, which
+        // no state may keep past its call.
+        try self.checkArgs(args, call, .{ .names = &.{ "states", "items", "f" } }, shown, pos, .{ .declared = call.params, .origins = .{ .stores = sema.paramBit(2) } });
         // Every task reads what `f` captures and the items; each state
         // goes to one task, and each value comes from one.
         if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
@@ -14409,9 +14426,11 @@ const Checker = struct {
                 const got = self.ctx.types.get(ty).function;
                 if (got.params.len == params.len) {
                     // Each parameter takes what the runtime passes: the
-                    // view itself, or the value of a scalar's read view.
+                    // view itself, or the value of a scalar's read view;
+                    // a write view is passed as itself.
                     const fits = for (got.params, params) |have, given| {
-                        if (have != given and have != readValue(self.ctx, given)) break false;
+                        if (have == given) continue;
+                        if (self.ctx.types.get(given) != .read_view or have != readValue(self.ctx, given)) break false;
                     } else true;
                     if (fits) return ty;
                     if (kind == .workers) {

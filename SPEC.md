@@ -12933,7 +12933,8 @@ that puts the heaviest first balances an uneven load.
 `f` is as for `par.map`, and takes the state and the item. Each state
 goes to one task to write, so it must be sendable, as `par.each`'s
 elements; the items must sync, as `par.map`'s; the values must be
-sendable.
+sendable, and none is or holds a write view, which would reach a
+task's state after the task: `+s` gives a copy.
 
 ```rig
 use std.par

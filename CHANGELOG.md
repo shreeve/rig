@@ -158,9 +158,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 - **A function's name given to `par.map` or `par.each` is checked
   against what they pass:** each element's view, or the value of a
-  scalar's. `par.map(?xs, f)` with `xs: List[Int]` and `fun f(s:
-  ?String)` was accepted and failed in Zig; it is "`par.map` calls `f`
-  with each element as `?Int`, and `f` takes `?String`".
+  scalar's read view; a write view as itself. `par.map(?xs, f)` with
+  `xs: List[Int]` and `fun f(s: ?String)`, and `par.each(!xs, show)`
+  with `sub show(x: Int)`, were accepted and failed in Zig; the first is
+  "`par.map` calls `f` with each element as `?Int`, and `f` takes
+  `?String`".
 - **A view lent through a write-view binding may outlive it:**
   `if !@slots[j] as s` / `return !s.value` in a method `-> (!Int)? from
   @` is accepted, as are the same through `s = !@a`, a `for s in !@xs`

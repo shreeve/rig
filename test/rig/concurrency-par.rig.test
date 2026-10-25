@@ -560,3 +560,69 @@ fail "par workers function takes the state", "`par.workers` calls `step` with a 
 
   states = List([Count()])
   print(par.workers(!states, ?[1, 2], step))
+
+fail "par workers gives the state back", "`par.workers` gives back each call's value, and `!Acc` is a write view, which no value it gives back may hold: give a copy, `+s`, or a value made from it", errors: 1
+  # A task's state stays the task's: a write view of it given back
+  # would let the caller hold several at once.
+  use std.par
+
+  obj Acc
+    seen: List[Int]
+
+  states: List[Acc] = List()
+  !states.push(Acc(seen: List[Int]()))
+  items = List([1, 2, 3, 4])
+  ys = par.workers(!states, ?items, |s, x| s)
+
+test "par workers gives copies", seeds: 20, "4 [1] true"
+  use std.par
+
+  obj Acc
+    seen: List[Int]
+
+  states: List[Acc] = List()
+  !states.push(Acc(seen: List[Int]()))
+  items = List([1, 2, 3, 4])
+  ys = par.workers(!states, ?items, |s, x|
+    !s.seen.push(x)
+    +s
+  )
+  print(ys.len, ys[0].seen, states[0].seen.len == 4)
+
+fail "par workers function takes a scalar's write view", "`par.workers` calls `step` with a task's state as `!Int` and each item as `?Int`, and `step` takes `Int` and `Int`", errors: 1
+  use std.par
+
+  fun step(s: Int, x: Int) -> Int
+    s + x
+
+  ints = List([0, 0])
+  print(par.workers(!ints, ?[1, 2, 3], step))
+
+fail "par each function takes the write view", "`par.each` calls `show` with each element as `!Int`, and `show` takes `Int`", errors: 1
+  use std.par
+
+  sub show(x: Int)
+    print(x)
+
+  xs = List([1, 2, 3])
+  par.each(!xs, show)
+
+test "par workers in a function of views", seeds: 20, "[2, 3, 4] 3"
+  # The call stores no item in a state, so a function lent the states
+  # and the items keeps neither.
+  use std.par
+
+  obj Acc
+    n: Int = 0
+
+  fun run(states: ![]Acc, xs: ?List[Int]) -> List[Int]
+    par.workers(!states, ?xs, |s, x|
+      s.n += 1
+      x + 1
+    )
+
+  states = List([Acc(), Acc()])
+  xs = List([1, 2, 3])
+  ys = run(!states[..], ?xs)
+  !xs.push(4)
+  print(ys, states[0].n + states[1].n)
