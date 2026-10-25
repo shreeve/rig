@@ -20,7 +20,8 @@ usage: bench/hash/bench-hash [options]
 Each program puts a million keys into an empty map (insert), looks each
 up (hit), looks up a million keys it does not hold (miss), and walks
 the map (iterate), for Int keys (scattered by a multiply) and String
-keys ("key" and a number). The Rig program also writes a value under
+keys ("key" and a number), and, with no walk, for keys of two words
+(two type ids in one word and a tag in the other). The Rig program also writes a value under
 N keys whether or not each is new, three ways (`ensure`, `ensure_with`,
 `edit` then `put`), on misses and on hits; Zig has no such rows. It
 prints `KEYS OP NS CHECK` per operation; the checksums must agree. The report compares each variant with the
