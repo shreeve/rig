@@ -54,6 +54,10 @@ var taken_all: std.atomic.Value(usize) = .init(0);
 /// this many times what every other heap has together (`leads`).
 const prefault_lead: usize = 4;
 
+/// A heap that has taken this much from the system faults in ahead
+/// whatever the others have taken (`faultsAhead`).
+const prefault_big: usize = 64 << 20;
+
 /// Of a large block's pages, how many bytes to fault in at once: a List
 /// that doubles into a block fills, on average, its old elements and
 /// half the room after them, so a new block faults in its first three
@@ -68,7 +72,8 @@ fn likelyFilled(len: usize) usize {
 const prefault_large: usize = 8 << 20;
 
 /// Faults in the `len` bytes at `p` in one call, on Linux, while `h`
-/// leads the heaps (`leads`), as writing them would, page by page, with
+/// does a large share of the program's work (`faultsAhead`), as writing
+/// them would, page by page, with
 /// one trap each: a stretch of a segment the heap is about to carve
 /// blocks from, or the part of a large block a List growing into it is
 /// likely to fill (`likelyFilled`). It saves a trap per page, and the
@@ -77,11 +82,20 @@ const prefault_large: usize = 8 << 20;
 /// the pages fault as they are touched.
 fn prefault(h: *const Heap, p: usize, len: usize) void {
     if (len == 0) return;
-    if (!leads(h)) return;
+    if (!faultsAhead(h)) return;
     if (builtin.os.tag == .linux) {
         const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
         std.posix.madvise(at, len, madv_populate_write) catch {};
     }
+}
+
+/// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has
+/// taken from the system `prefault_big` bytes or more, as each of
+/// several parallel checkers' heaps does, each written densely, so
+/// faulting in ahead saves each its traps. A server's workers and a
+/// program's many tasks keep heaps far smaller, and fault lazily.
+fn faultsAhead(h: *const Heap) bool {
+    return h.taken >= prefault_big or leads(h);
 }
 
 /// Whether `h` does the program's work: it has taken from the system at
