@@ -195,10 +195,18 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 ### 2026-10/perf-stage/checks-data/
 
 - [build.sh](2026-10/perf-stage/checks-data/build.sh)
+- [ceiling-2.txt](2026-10/perf-stage/checks-data/ceiling-2.txt)
+- [ceiling.txt](2026-10/perf-stage/checks-data/ceiling.txt)
+- [families.txt](2026-10/perf-stage/checks-data/families.txt)
+- [family.py](2026-10/perf-stage/checks-data/family.py)
+- [mac-standin.tsv](2026-10/perf-stage/checks-data/mac-standin.tsv)
+- [mactime.py](2026-10/perf-stage/checks-data/mactime.py)
 - [shapes.zig](2026-10/perf-stage/checks-data/shapes.zig)
 - [sites.py](2026-10/perf-stage/checks-data/sites.py)
 - [span.zig](2026-10/perf-stage/checks-data/span.zig)
 - [stand.sh](2026-10/perf-stage/checks-data/stand.sh)
+- [summ.py](2026-10/perf-stage/checks-data/summ.py)
+- [timeit.py](2026-10/perf-stage/checks-data/timeit.py)
 
 ### 2026-10/safety-checks/
 
