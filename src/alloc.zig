@@ -95,7 +95,50 @@ fn prefault(h: *const Heap, p: usize, len: usize) void {
 /// faulting in ahead saves each its traps. A server's workers and a
 /// program's many tasks keep heaps far smaller, and fault lazily.
 fn faultsAhead(h: *const Heap) bool {
-    return h.taken >= prefault_big or leads(h);
+    return h.taken >= probeBig() or leads(h);
+}
+
+var probe_big: std.atomic.Value(usize) = .init(0);
+var probe_log: bool = false;
+fn probeBig() usize {
+    if (builtin.os.tag != .linux) return prefault_big;
+    const v = probe_big.load(.monotonic);
+    if (v != 0) return v;
+    @branchHint(.cold);
+    var r: usize = prefault_big;
+    const fd = std.os.linux.open("/proc/self/environ", .{}, 0);
+    if (@as(isize, @bitCast(fd)) >= 0) {
+        var buf: [65536]u8 = undefined;
+        var n: usize = 0;
+        while (n < buf.len) {
+            const k = std.os.linux.read(@intCast(fd), buf[n..].ptr, buf.len - n);
+            if (@as(isize, @bitCast(k)) <= 0) break;
+            n += k;
+        }
+        _ = std.os.linux.close(@intCast(fd));
+        var it = std.mem.splitScalar(u8, buf[0..n], 0);
+        while (it.next()) |e| {
+            if (std.mem.startsWith(u8, e, "RIG_PF_MB=")) {
+                const mb = std.fmt.parseInt(usize, e[10..], 10) catch 64;
+                r = if (mb == 0) std.math.maxInt(usize) else mb << 20;
+            }
+            if (std.mem.startsWith(u8, e, "RIG_PF_LOG=")) probe_log = true;
+        }
+    }
+    probe_big.store(r, .monotonic);
+    return r;
+}
+
+fn probeTook(h: *const Heap, before: usize) void {
+    _ = probeBig();
+    if (!probe_log) return;
+    const step: usize = 16 << 20;
+    if (before / step == h.taken / step) return;
+    var buf: [160]u8 = undefined;
+    const tid = std.os.linux.gettid();
+    const all = taken_all.load(.monotonic);
+    const line = std.fmt.bufPrint(&buf, "pf tid={d} heap={x} taken={d}MB others={d}MB ahead={}\n", .{ tid, @intFromPtr(h), h.taken >> 20, (all -| h.taken) >> 20, faultsAhead(h) }) catch return;
+    _ = std.os.linux.write(2, line.ptr, line.len);
 }
 
 /// Whether `h` does the program's work: it has taken from the system at
@@ -221,8 +264,10 @@ pub const Heap = struct {
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
+        const before = h.taken;
         h.taken += n;
         _ = taken_all.fetchAdd(n, .monotonic);
+        if (builtin.os.tag == .linux) probeTook(h, before);
     }
 
     fn alloc(h: *Heap, c: usize) ?[*]u8 {
