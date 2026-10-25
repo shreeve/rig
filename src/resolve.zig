@@ -228,7 +228,7 @@ const SymbolResolver = struct {
         // built-in one, which a type's own `order`, `print`, and
         // `hash_into` take (docs/design/apis.md).
         // So do its own `Table` and `Slot`.
-        if (dup) |prev| if (prev == self.ctx.order_sym_id or prev == self.ctx.printer_sym_id or prev == self.ctx.hasher_sym_id or prev == self.ctx.table_sym_id or prev == self.ctx.slot_sym_id) {
+        if (dup) |prev| if (prev == self.ctx.order_sym_id or prev == self.ctx.printer_sym_id or prev == self.ctx.hasher_sym_id or prev == self.ctx.table_sym_id or prev == self.ctx.slot_sym_id or prev == self.ctx.span_sym_id) {
             dup = null;
         };
         // `String`, `Static`, and `Symbol` are built-in types, like `List`,
@@ -4522,6 +4522,7 @@ pub const TypeResolver = struct {
     fn instanceOf(self: *TypeResolver, sym_id: SymbolId, args_in: []const TypeId, pos: u32) Error!TypeId {
         if (sym_id == self.ctx.simd_sym_id) return simdInstance(self.ctx, args_in, pos);
         if (sym_id == self.ctx.slot_sym_id) return slotInstance(self.ctx, args_in, pos);
+        if (sym_id == self.ctx.span_sym_id) return spanInstance(self.ctx, args_in, pos);
         const sym = self.ctx.symbols.items[sym_id];
         const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args_in } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
@@ -4620,6 +4621,22 @@ pub fn slotInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!Type
         else => return ctx.types.invalid_id,
     }
     return ctx.intern(.{ .slot = args[0] });
+}
+
+/// `Span[n]`, spelled at `pos`: a run of slots of a table of `n`, a type
+/// of its own kind (`Type.span`), whose count is checked as a slot's.
+/// Poison after a diagnostic.
+pub fn spanInstance(ctx: *SemContext, args: []const TypeId, pos: u32) Error!TypeId {
+    if (args.len != 1 or sema.containsPoison(ctx, args[0])) return ctx.types.invalid_id;
+    switch (ctx.types.get(args[0])) {
+        .ct_value => |v| if (v.int < 1 or v.int > sema.max_slot_count) {
+            try ctx.err(pos, "a `Span` names a run of `n` slots; `n` is at least 1 and at most {d}; got {d}", .{ sema.max_slot_count, v.int });
+            return ctx.types.invalid_id;
+        },
+        .ct_param => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .slot_count, .pos = pos, .op = "a span's count" }),
+        else => return ctx.types.invalid_id,
+    }
+    return ctx.intern(.{ .span = args[0] });
 }
 
 /// Element-type rules of the built-in generics. An instance over generic
@@ -5052,8 +5069,11 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // written (`tableElementError`); `!t.push(x)` writes slot `len` and
     // gives it as a `Slot[n]`. Typing knows `len`, `t[s]`, and `for`, as
     // a List's. Slot[n: Int]: a number below `n`, a type of its own kind
-    // (`slotInstance`), whose `of` typing knows. Neither name is reserved:
-    // a module's own `Table` or `Slot` hides the built-in one.
+    // (`slotInstance`), whose `of` typing knows. `!t.append(xs)` writes
+    // the slots from `len` and gives them as a Span[n: Int], a run of
+    // slots, also a type of its own kind (`spanInstance`), whose `len`
+    // and `sub` typing knows. No name is reserved: a module's own
+    // `Table`, `Slot`, or `Span` hides the built-in one.
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Table", &.{ "T", "n" });
         ctx.table_sym_id = g.sym;
@@ -5064,14 +5084,22 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const self_ty = try ctx.intern(.{ .parameterized_nominal = .{ .sym = g.sym, .args = try ctx.dupeIds(&.{ g.params[0], n_ty }) } });
         const write_self = try ctx.intern(.{ .write_view = self_ty });
         const slot = try ctx.intern(.{ .slot = n_ty });
+        const span = try ctx.intern(.{ .span = n_ty });
+        const elems = try ctx.intern(.{ .slice = .{ .elem = g.params[0] } });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, g.params[0] }, slot, null),
+            try method(ctx, "append", .write, &.{ write_self, elems }, span, null),
         });
         const s = try addGeneric(ctx, module_scope, module_scope, "Slot", &.{"n"});
         ctx.slot_sym_id = s.sym;
         const sn = ctx.symbols.items[s.sym].type_params.?[0];
         ctx.symbols.items[sn].kind = .param;
         ctx.symbols.items[sn].ty = ctx.types.int_id;
+        const r = try addGeneric(ctx, module_scope, module_scope, "Span", &.{"n"});
+        ctx.span_sym_id = r.sym;
+        const rn = ctx.symbols.items[r.sym].type_params.?[0];
+        ctx.symbols.items[rn].kind = .param;
+        ctx.symbols.items[rn].ty = ctx.types.int_id;
     }
 
     // Signal[T]: a value that copies, plus subscriber closures notified on `set`.

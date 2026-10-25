@@ -290,7 +290,7 @@ not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
 The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 `Endian` are reserved names. The built-in types `Map`, `Set`, `Table`,
-`Slot`, `Order`, `Hasher`, and `Printer`, and the built-in functions `print`, `warn`, and
+`Slot`, `Span`, `Order`, `Hasher`, and `Printer`, and the built-in functions `print`, `warn`, and
 `swap`, are names a declaration may hide.
 
 ## 4. Literals
@@ -611,7 +611,7 @@ operator does, and which types it takes, is in
 | callable view | `?fun(Int) -> Int`, `?sub(Int)` | a parameter's, a local's, or a result's type |
 | API object | `?{Shape}`, `!{Shape}`, `^{Shape + Owned + Print}`, `*{Shape}`, `~{Shape}`, `*{Shape + Syncs}` | a value of some type that provides `Shape`, behind a view, a box, a counted handle, or a weak one ([SPEC](SPEC.md#api-objects)) |
 | vector | `Simd[U8, 16]`, `Simd[Bool, 64]`, `Simd[F32, n]` | lanes operated on together ([SPEC §2](SPEC.md#vectors)) |
-| table, slot | `Table[Type, 1024]`, `Slot[1024]` | `n` slots from the start, and a number below `n` that names one ([SPEC §10](SPEC.md#table)) |
+| table, slot, span | `Table[Type, 1024]`, `Slot[1024]`, `Span[1024]` | `n` slots from the start, a number below `n` that names one, and a run of them ([SPEC §10](SPEC.md#table)) |
 
 The primitive types are `Int` (the same as `I64`), `I8` `I16` `I32`
 `I128`, `U8` `U16` `U32` `U64` `U128`, `Float` (the same as `F64`),

@@ -509,3 +509,196 @@ fail "table no literal is a slot of no slots", "1:13: a `Slot` names one of `n` 
     s == 0
 
   print(true)
+
+# Spans: `Span[n]`, a run of slots a table's `append` makes, viewed as a
+# slice with no test (SPEC §10, "Table").
+
+test "span append gives runs of slots", '''
+  0..3 3..5 3
+  [1, 2, 3] [4, 5]
+  5
+'''
+  t: Table[Int, 16] = Table()
+  xs = List([1, 2, 3])
+  a = (!t).append(?xs)
+  b = (!t).append([4, 5])
+  print(a, b, a.len)
+  print(?t[a], ?t[b])
+  print(t.len)
+
+test "span index and loop", '''
+  20
+  10 20 30
+  60
+'''
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([10, 20, 30])
+  print((?t[sp])[1])
+  v = ?t[sp]
+  print(v[0], v[1], v[2])
+  n = 0
+  for x in ?t[sp]
+    n += x
+  print(n)
+
+test "span write through", '''
+  [9, 4, 6]
+  [9, 4, 6, 7]
+'''
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2, 3])
+  _ = (!t).push(7)
+  for x in !t[sp]
+    x *= 2
+  (!t[sp])[0] = 9
+  print(?t[sp])
+  print(t)
+
+test "span sub", '''
+  1..3 [2, 3] 2
+  2..2 []
+'''
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2, 3, 4])
+  mid = sp.sub(1, 3)
+  print(mid, ?t[mid], mid.len)
+  e = mid.sub(1, 1)
+  print(e, ?t[e])
+
+test "span empty and compared", '''
+  0..0 0 true
+  false true
+'''
+  t: Table[Int, 8] = Table()
+  e: Span[8] = Span()
+  nil = Span[8]()
+  print(e, (?t[e]).len, e == nil)
+  sp = (!t).append([1])
+  print(sp == nil, sp != nil)
+
+test "span of another table of the same n", '''
+  [0, 0, 0]
+  [5, 6, 7]
+'''
+  a: Table[Int, 64] = Table()
+  b: Table[Int, 64] = Table()
+  sp = (!a).append([5, 6, 7])
+  print(?b[sp])
+  print(?a[sp])
+
+test "span records in a table of zeros", '''
+  [2, 3] 1..3
+  0..0
+'''
+  # A record whose spans default to `Span()` is all zeros, so a table of
+  # it is reserved, and a slot never written holds the empty span.
+  type Run = Span[1024]
+
+  obj Sig
+    params: Run = Run()
+    flags: U32 = 0
+
+  items: Table[Int, 1024] = Table()
+  sigs: Table[Sig, 16777216] = Table()
+  _ = (!items).push(1)
+  s = (!sigs).push(Sig(params: (!items).append([2, 3])))
+  print(?items[sigs[s].params], sigs[s].params)
+  if Slot[16777216].of(99) as far
+    print(sigs[far].params)
+
+test "span keys a Map", "2 1"
+  t: Table[Int, 32] = Table()
+  a = (!t).append([1])
+  b = (!t).append([2, 2])
+  seen: Map[Span[32], Int] = Map()
+  !seen.put(a, 1)
+  !seen.put(b, 2)
+  print(seen.get(b) ?? 0, seen.get(a) ?? 0)
+
+test "span passes as a slice argument", "6 6"
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2, 3])
+  print(total(t[sp]), total(?t[sp]))
+
+test "span a generic count is inferred", "5"
+  fun sum[n: Int](t: ?Table[Int, n], sp: Span[n]) -> Int
+    s = 0
+    for x in ?t[sp]
+      s += x
+    s
+
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([2, 3])
+  print(sum(?t, sp))
+
+test "span of a table made up front", "[1.5, 2.5] 0..2"
+  # A Float may be `-0.0`, so a table of them makes every slot.
+  t: Table[Float, 8] = Table()
+  sp = (!t).append([1.5, 2.5])
+  print(?t[sp], sp)
+
+bomb "span sub out of range", "span bounds 2..5 out of range for a span of 3 slots"
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2, 3])
+  b = 5
+  print(sp.sub(2, b))
+
+bomb "span append into a full table", "a table of 4 slots is full"
+  t: Table[Int, 4] = Table()
+  _ = (!t).push(1)
+  _ = (!t).append([2, 3, 4, 5])
+
+code "span a view has no test", "t.view(sp)", "t.viewMut(sp)"
+  t: Table[Int, 64] = Table()
+  sp = (!t).append([1, 2])
+  (!t[sp])[0] = 3
+  print((?t[sp])[0])
+
+fail "span of another count is refused", "4:10: type mismatch: expected `Span[8]`, got `Span[16]`; a span is a run of slots of a table of its own `n`"
+  t: Table[Int, 8] = Table()
+  u: Table[Int, 16] = Table()
+  sp = (!u).append([1])
+  print(?t[sp])
+
+fail "span a view is lent", "3:7: a span of a table views it; write `?t[sp]`"
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2])
+  print(t[sp][0])
+
+fail "span append while a span is viewed", "cannot lend `t` to write while a read loan is live"
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2])
+  v = ?t[sp]
+  _ = (!t).append([3])
+  print(v)
+
+fail "span a slot written while a span is viewed", "cannot assign to `t[s]` while `t` is lent"
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2])
+  s: Slot[8] = 0
+  v = ?t[sp]
+  t[s] = 4
+  print(v)
+
+fail "span not made from numbers", "a `Span[8]` is made by a table's `append`, by `sub`, or empty by `Span[8]()`, which takes no arguments"
+  sp = Span[8](0, 3)
+  print(sp)
+
+fail "span its start is not a field", "a `Span[8]` has no field `start`"
+  sp = Span[8]()
+  print(sp.start)
+
+fail "span append copies its elements", "`append` copies each element into a slot, and a `String` is not copied"
+  t: Table[String, 8] = Table()
+  xs = List([String("a")])
+  _ = (!t).append(?xs)
+
+fail "span has no order", "Span[8]"
+  a = Span[8]()
+  print(a < a)

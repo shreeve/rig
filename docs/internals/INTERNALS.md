@@ -206,7 +206,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/sched.zig` | the scheduler: fibers, workers, rings and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
 | `src/tasks.zig` | the task runtime: `Task`, `Tasks`, cancellation and deadlines, `par`, `task.isolate`, actors, `Chan` and `select`, over the scheduler |
 | `src/net.zig` | sockets and the HTTP server for `std.net` and `std.http`, registered with the workers' pollers |
-| `src/table.zig` | `Table[T, n]` and `Slot[n]`: how a table holds its slots (reserved, made, or committed), written beside the runtime as `rig/table.zig` ([Tables](#tables)) |
+| `src/table.zig` | `Table[T, n]`, `Slot[n]`, and `Span[n]`: how a table holds its slots (reserved, made, or committed), written beside the runtime as `rig/table.zig` ([Tables](#tables)) |
 | `src/alloc.zig` | the allocator of release builds, a heap per thread, written beside the runtime as `rig/alloc.zig` (`defaultAllocator`, [The runtime](#the-runtime)) |
 | `src/nametable.zig` | the table of names a plain enum's `E.from_text` reads, built by the compiler and emitted as constant data |
 | `src/timing.zig` | the pass times `rig check --time` reports |
@@ -2633,6 +2633,29 @@ table held as it is written never grows for a read. It is not cloned
 (`Checker.checkDefaultValue`): a Zig field default is a constant, and a
 table is made as the program runs.
 
+A span, `Span[n]`, is a type of its own kind too, `Type.span` over the
+count, made by `resolve.spanInstance` with the slot's count rule; like a
+slot it is `plain`, copied, copied by a read view, equatable, and
+hashable, but not ordered. Its one field is `len`, its one method
+`sub(a, b)` (`Checker.spanCall`, an `ElemCall` `.span_sub`), and only
+`Span[n]()` (`Checker.spanMade`), `append` (a member of the table,
+`append(!@, []T) -> Span[n]`, whose `T` must copy), and `sub` make one.
+`t[sp]` is a slice: where the type checker meets an index whose object
+is a table and whose index is a span (`Checker.spanSlice`), it records
+the node (`recordSpanView`), and every pass that tells a slice from an
+element asks `sema.isSliceIndex`, which is `xs[a..b]` or a recorded
+span, never the syntax alone. Where that is asked before the node is
+checked (a lend, `?t[sp]`, and a loop's source), `Checker.spansTable`
+types the table and the span quietly first. The slice is then typed,
+lent, and walked exactly as `?xs[a..b]` of a List is: `sliceLend`
+gives a table `.elems`, so the ownership checker lends the table, and
+the oracle takes it for a slice too. Emit writes `t.view(sp)` or
+`t.viewMut(sp)` (`emitSpanView`), each `slots[start..][0..count]` with
+no compare; a span's `start + count <= n` is asserted in a debug build
+as a slot's bound is, and `RIG_NO_PROOFS` emits `viewTested`. A record
+whose span fields default to `Span()` is still zeros (`zeroDefault`
+takes a call that names a span type, `namesSpanType`).
+
 ### What crosses to a task
 
 Whether a value may go to a task on another core is one fact per type,
@@ -4886,7 +4909,7 @@ reviewed.
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `$name(T)` of a type that holds a type parameter. Emit writes such a `$name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which the case `type names` of `test/rig/types-misc-2.rig.test` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
-| `Table(T, n)`, `SlotOf(n)`, `slotOf` (`table.zig`) | `Table[T, n]` and `Slot[n]` ([Tables](#tables)): `init` reserves the slots (`MAP_NORESERVE`, `MADV_NOHUGEPAGE` on Linux, its own mapping, never one of `alloc.zig`'s blocks) or makes them, by `fillsWithZeros`, the mirror of `sema.tableFill`; `at`, `slot`, and `constSlot` take a slot with no test (asserted in a debug build, as a proven test is), and `atInt`, `slotInt`, `constSlotInt` test an integer against `n`; `push` panics when all `n` are pushed; dropping a made table drops all `n` slots. Where the system gives no lazily zeroed pages, or under `RIG_TABLE_FALLBACK`, a reserved table is committed as it is written, and a read past what is held reads a zero `T` |
+| `Table(T, n)`, `SlotOf(n)`, `slotOf` (`table.zig`) | `Table[T, n]` and `Slot[n]` ([Tables](#tables)): `init` reserves the slots (`MAP_NORESERVE`, `MADV_NOHUGEPAGE` on Linux, its own mapping, never one of `alloc.zig`'s blocks) or makes them, by `fillsWithZeros`, the mirror of `sema.tableFill`; `at`, `slot`, and `constSlot` take a slot with no test (asserted in a debug build, as a proven test is), and `atInt`, `slotInt`, `constSlotInt` test an integer against `n`; `push` panics when all `n` are pushed; `append` writes a run of slots and gives it as a `SpanOf(n)`, a start and a count, and `view`, `viewMut` take a span's slots as a slice with no test; dropping a made table drops all `n` slots. Where the system gives no lazily zeroed pages, or under `RIG_TABLE_FALLBACK`, a reserved table is committed as it is written, and a read past what is held reads a zero `T`; a read view of a span past it panics, since a read never grows the table |
 | `InlineList(T, n)` | `List[T, inline: n]`: the same List (`ListOf(T, n)`, of which `List(T)` is `ListOf(T, 0)`), whose first `n` elements live in its own `inline_buf`, with `buf` empty, until a push past them moves them all to the heap. Every member reaches the elements through `mem` (`memConst` through a `*const`), so a List with no inline room compiles as it did; `items` through a `*const` gives `[]const T` for an inline List, since its elements are then in the value. The checker keeps `inline_len` in the instance type (`sema.ParamNominal`), a type of its own, and keeps the instance a call names as the type of the List it makes (`typecheck.inlineResult`) |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` take the pieces `print` does (below), with no separators: each run of text is appended once, by the one writer of its length, a `?String` or a String as its bytes, and each other value by the one writer of its type, `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |

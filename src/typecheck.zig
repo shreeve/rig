@@ -928,6 +928,9 @@ const Checker = struct {
         if (callee == .src) if (self.lookupQuiet(callee)) |id| {
             if (id == self.ctx.list_sym_id) return args.len == 0;
             if (id == self.ctx.cell_sym_id) return args.len == 1 and isDefaultLiteral(self.ctx.source, args[0]);
+            // `Span[n]()`, `Span()`, or an alias's: the empty run at 0.
+            const sym = self.ctx.symbols.items[id];
+            if (id == self.ctx.span_sym_id or (sym.kind == .type_alias and self.ctx.types.get(sym.ty) == .span)) return args.len == 0;
         };
         return args.len == 0 and try self.emptyConstructor(ir.Call.callee(e));
     }
@@ -2143,7 +2146,7 @@ const Checker = struct {
             const index = step.isKind(.index);
             p = ir.get(step, .object);
             if (index) place.fields_only = false else place.module_member = step;
-            if (index and rig.isRangeIndex(step)) place.sliced = true;
+            if (index and sema.isSliceIndex(self.ctx, step)) place.sliced = true;
             const ty = self.ctx.typeOf(p) orelse continue;
             const inner = sema.unwrapViews(self.ctx, ty);
             const obj = self.ctx.types.get(inner);
@@ -2164,7 +2167,7 @@ const Checker = struct {
             } else if (self.ctx.isEnumText(step)) {
                 place.block(if (inner == self.t().symbol_id) .symbol_text else .text, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
-            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or sema.tableElem(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
+            } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or obj == .span or listElementType(self.ctx, inner) != null or sema.tableElem(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null or sema.isTaskSet(self.ctx, inner))) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             }
@@ -3034,7 +3037,7 @@ const Checker = struct {
                 self.outer_write = source;
                 self.outer_write_is_loop = true;
             }
-            var source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
+            var source_ty = if ((mode == .read or mode == .write) and (rig.isRangeIndex(source) or try self.spansTable(source)))
                 try self.lendSlice(source, if (mode == .read) .read else .write)
             else
                 try self.synthExpr(source);
@@ -3111,7 +3114,7 @@ const Checker = struct {
                 const walks_temp = if (eff != .move and !self.isPoison(elem_ty)) self.tempBase(source) else null;
                 if (walks_temp) |temp| {
                     try self.errAt(temp, "the loop would walk the temporary `{s}` after its header drops it; bind it to a name first", .{self.sourceText(temp)});
-                } else if (eff != .move and !rig.isRangeIndex(source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
+                } else if (eff != .move and !sema.isSliceIndex(self.ctx, source) and !self.isPoison(source_ty)) try self.rejectHeaderCopy(node, source, elem_ty);
                 // `for x in ?e` and `for x in !e` lend `e`: one made here would
                 // end with the header. A call's result is taken: `for x in e`.
                 if ((mode == .read or mode == .write) and !(unbound and list) and !source_hands.hasStorage() and !self.isPoison(source_ty) and !self.isPoison(elem_ty) and sema.moves(self.ctx, sema.unwrapViews(self.ctx, source_ty)) == .yes) {
@@ -3506,7 +3509,7 @@ const Checker = struct {
             .slice, .string_view, .static => {
                 if (mode == .write) {
                     if (sema.writeSliceElem(self.ctx, source_ty)) |elem| {
-                        if (!rig.isRangeIndex(inner_source)) _ = try self.requireAccess(self.placeOf(inner_source), .write_iterate, source);
+                        if (!sema.isSliceIndex(self.ctx, inner_source)) _ = try self.requireAccess(self.placeOf(inner_source), .write_iterate, source);
                         return self.loopElement(.write, elem);
                     }
                     try self.err(pos, "cannot write-iterate a `{s}`; its elements are read-only", .{try self.tyName(source_ty)});
@@ -4466,7 +4469,7 @@ const Checker = struct {
                 // A value made here, an enum, an error, an integer, or a
                 // Bool, is the match's whole.
                 if (self.hands(subject).kind == .made) if (self.ctx.typeOf(subject)) |ty| switch (self.ctx.types.get(ty)) {
-                    .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool, .symbol, .slot => break :blk .read_own,
+                    .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool, .symbol, .slot, .span => break :blk .read_own,
                     else => {},
                 };
                 // Anything else is read.
@@ -6415,7 +6418,7 @@ const Checker = struct {
         const saved_in_place = self.in_place;
         defer self.in_place = saved_in_place;
         self.in_place = operand;
-        if (rig.isRangeIndex(operand)) {
+        if (rig.isRangeIndex(operand) or try self.spansTable(operand)) {
             return self.lendSlice(operand, kind);
         }
         const saved_outer = self.outer_write;
@@ -6812,12 +6815,17 @@ const Checker = struct {
         const range = ir.Index.index(slice);
         // A temporary sliced is held in its statement's slot (below).
         const obj_ty = if (!self.hands(object).hasStorage()) try self.synthExpr(object) else try self.synthOperand(object);
-        try self.checkSliceRange(range);
-        if (self.isPoison(obj_ty)) return obj_ty;
+        // `!t[sp]`: a span of a table, whose bounds hold by its type.
+        const span = !rig.isRangeIndex(slice);
+        if (!span) try self.checkSliceRange(range);
+        if (self.isPoison(obj_ty)) {
+            if (span) _ = try self.synthQuiet(range);
+            return obj_ty;
+        }
         if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(slice, lend);
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
-        const elem: TypeId = switch (self.ctx.types.get(peeled)) {
+        const elem: TypeId = if (span) (try self.spanSliceElem(slice, obj_ty)) orelse return self.t().invalid_id else switch (self.ctx.types.get(peeled)) {
             .string_view, .static => {
                 try self.errAt(object, "cannot lend a slice of a `?String` to write; a `?String` is read-only", .{});
                 return self.t().invalid_id;
@@ -6839,7 +6847,7 @@ const Checker = struct {
             },
             else => (try self.listSliceElem(object, obj_ty, peeled)) orelse return self.t().invalid_id,
         };
-        try self.checkSliceBounds(range, len);
+        if (!span) try self.checkSliceBounds(range, len);
         // The binding it reaches may be one no view can write (a
         // parameter, a fixed or loop binding): reported, nothing lent.
         const place = self.placeOf(slice);
@@ -7619,6 +7627,12 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .array, .slice, .string_view, .static, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
+            // A span's `len`, the slots it runs over: its one field.
+            .span => {
+                if (std.mem.eql(u8, field, "len")) return self.t().int_id;
+                try self.err(pos, "a `{s}` has no field `{s}`; its count of slots is `len`, and `sub(a, b)` gives a part of it", .{ try self.tyName(peeled), field });
+                return self.t().invalid_id;
+            },
             .parameterized_nominal => if ((listElementType(self.ctx, peeled) != null or sema.tableElem(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null or sema.isTaskSet(self.ctx, peeled)) and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
@@ -7660,7 +7674,7 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and op != .hash and op != .order) {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and op != .hash and op != .order and op != .span_sub) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
@@ -7668,7 +7682,7 @@ const Checker = struct {
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
                     .sum => "xs.sum()",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .span_sub => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -8510,7 +8524,7 @@ const Checker = struct {
         }
         // A slot of a table: with a `Slot[n]` of its own `n`, a place with
         // no test; with an integer, tested against `n`.
-        if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty))) |elem| return self.tableIndex(index, sema.unwrapReadAccess(self.ctx, obj_ty), elem);
+        if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty))) |elem| return self.tableIndex(e, obj_ty, sema.unwrapReadAccess(self.ctx, obj_ty), elem);
         const idx_ty = try self.synthValue(index);
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
@@ -8565,18 +8579,73 @@ const Checker = struct {
     /// Slot `index` of a table of type `table` (Core §10, "Tables"): a
     /// place of type `elem`, as a List's element is. A `Slot[n]` of the
     /// table's own `n` needs no test; an integer is tested `0 <= i < n`;
-    /// a slot of another count is a type error.
-    fn tableIndex(self: *Checker, index: Sexp, table: TypeId, elem: TypeId) Error!TypeId {
+    /// a slot of another count is a type error. A `Span[n]` makes `e` a
+    /// slice (`spanSlice`), here one not lent: only an argument lends it.
+    fn tableIndex(self: *Checker, e: Sexp, obj_ty: TypeId, table: TypeId, elem: TypeId) Error!TypeId {
+        const index = ir.Index.index(e);
         const want = (try sema.tableSlot(self.ctx, table)).?;
         const idx_ty = sema.unwrapViews(self.ctx, try self.synthValue(index));
         if (self.isPoison(idx_ty)) return elem;
+        if (self.ctx.types.get(idx_ty) == .span) {
+            if (!try self.spanSlice(e, table, idx_ty)) return self.t().invalid_id;
+            const object = ir.Index.object(e);
+            if (!sameExpr(e, self.view_arg)) {
+                try self.errAt(e, "a span of a table views it; write `?{s}`", .{try self.plainText(e)});
+                return self.t().invalid_id;
+            }
+            if (!self.hands(object).hasStorage()) {
+                try self.errAt(object, slice_of_temporary, .{});
+                return self.t().invalid_id;
+            }
+            if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(e, lend);
+            return self.ctx.intern(.{ .slice = .{ .elem = elem } });
+        }
         if (self.ctx.types.get(idx_ty) == .slot) {
             if (idx_ty != want) try self.errAt(index, "type mismatch: expected `{s}`, got `{s}`; a slot indexes a table of its own `n` (convert with `{s}.of(Int(s))`)", .{ try self.tyName(want), try self.tyName(idx_ty), try self.tyName(want) });
             return elem;
         }
         if (!sema.isInteger(self.ctx, idx_ty)) {
-            try self.errAt(index, "a table's index is a `{s}`, or an integer it tests; got `{s}`", .{ try self.tyName(want), try self.tyName(idx_ty) });
+            try self.errAt(index, "a table's index is a `{s}`, an integer it tests, or a `{s}`, a run of its slots; got `{s}`", .{ try self.tyName(want), try self.tyName((try sema.tableSpan(self.ctx, table)).?), try self.tyName(idx_ty) });
         } else if (idx_ty == self.t().int_literal_id) try self.defaultIntLiteral(index);
+        return elem;
+    }
+
+    /// `t[sp]`, index node `e` of table type `table` by a span of type
+    /// `idx_ty`: a slice of the table's slots, recorded once
+    /// (`SemContext.recordSpanView`), so every later pass takes it for the
+    /// slice it is (`sema.isSliceIndex`). A span of another count is a
+    /// type error, reported; false then.
+    fn spanSlice(self: *Checker, e: Sexp, table: TypeId, idx_ty: TypeId) Error!bool {
+        const want = (try sema.tableSpan(self.ctx, table)).?;
+        if (idx_ty != want) {
+            try self.errAt(ir.Index.index(e), "type mismatch: expected `{s}`, got `{s}`; a span is a run of slots of a table of its own `n`", .{ try self.tyName(want), try self.tyName(idx_ty) });
+            return false;
+        }
+        try self.ctx.recordSpanView(e);
+        return true;
+    }
+
+    /// Whether `e`, not yet checked, is a span of a table, `t[sp]`: a
+    /// slice, lent and walked as `xs[a..b]` is. Asked where a slice is
+    /// told from an element before either is checked, so the table and the
+    /// span are typed quietly here; `spanSlice` records the answer.
+    fn spansTable(self: *Checker, e: Sexp) Error!bool {
+        if (!e.isKind(.index) or rig.isRangeIndex(e)) return false;
+        if (self.ctx.isSpanView(e)) return true;
+        const obj_ty = try self.synthQuiet(ir.Index.object(e));
+        if (self.isPoison(obj_ty) or sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty)) == null) return false;
+        const idx_ty = try self.synthQuiet(ir.Index.index(e));
+        return !self.isPoison(idx_ty) and self.ctx.types.get(sema.unwrapViews(self.ctx, idx_ty)) == .span;
+    }
+
+    /// The element of a span view `e` of table value `obj_ty`, checking
+    /// its span (`spanSlice`); null after a diagnostic.
+    fn spanSliceElem(self: *Checker, e: Sexp, obj_ty: TypeId) Error!?TypeId {
+        const table = sema.unwrapReadAccess(self.ctx, sema.unwrapViews(self.ctx, obj_ty));
+        const elem = sema.tableElem(self.ctx, table) orelse return null;
+        const idx_ty = sema.unwrapViews(self.ctx, try self.synthValue(ir.Index.index(e)));
+        if (self.isPoison(idx_ty)) return null;
+        if (!try self.spanSlice(e, table, idx_ty)) return null;
         return elem;
     }
 
@@ -8610,10 +8679,24 @@ const Checker = struct {
             break :blk ty;
         };
         const lent = written or (arg and !self.isPoison(obj_ty) and self.sliceLendsObject(obj_ty));
-        try self.checkSliceRange(range);
-        if (self.isPoison(obj_ty)) return obj_ty;
+        // `t[sp]`: a span of a table, whose bounds hold by its type.
+        const span = !rig.isRangeIndex(e);
+        if (!span) try self.checkSliceRange(range);
+        if (self.isPoison(obj_ty)) {
+            if (span) _ = try self.synthQuiet(range);
+            return obj_ty;
+        }
         // What the slice lends, which the ownership checker reads.
         if (sema.sliceLend(self.ctx, obj_ty)) |lend| try self.ctx.recordSliceLend(e, lend);
+        if (span) {
+            const elem = (try self.spanSliceElem(e, obj_ty)) orelse return self.t().invalid_id;
+            if (!lent) {
+                try self.errAt(e, "a span of a table views it; write `?{s}`", .{try self.plainText(e)});
+                return self.t().invalid_id;
+            }
+            if (!self.placeOf(object).named()) try self.lendTempIn(object, e);
+            return self.ctx.intern(.{ .slice = .{ .elem = elem } });
+        }
         // A boxed String is sliced through its box.
         const peeled = stringOrBoxed(self.ctx, sema.unwrapViews(self.ctx, obj_ty));
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -8681,7 +8764,7 @@ const Checker = struct {
     /// Whether `e` is a slice written with no lend that an argument
     /// lends, as `?e` would (`synthSlice`).
     fn slicedArg(self: *Checker, e: Sexp) bool {
-        if (!rig.isRangeIndex(e) or !sameExpr(e, self.view_arg)) return false;
+        if (!sema.isSliceIndex(self.ctx, e) or !sameExpr(e, self.view_arg)) return false;
         const ty = self.ctx.typeOf(ir.Index.object(e)) orelse return false;
         return !self.isPoison(ty) and self.sliceLendsObject(ty);
     }
@@ -9214,6 +9297,8 @@ const Checker = struct {
                 self.simdConvert(try self.typeInstance(callee, nt), args, self.startOf(callee))
             else if (nt.id == self.ctx.slot_sym_id)
                 self.slotMade(callee, try self.typeInstance(callee, nt), args)
+            else if (nt.id == self.ctx.span_sym_id)
+                self.spanMade(try self.typeInstance(callee, nt), args)
             else
                 self.constructInstance(node, callee, nt, args),
             .function => {
@@ -9265,6 +9350,7 @@ const Checker = struct {
                     }
                     if (sym_id == self.ctx.simd_sym_id) return self.badCall(args, callee, "a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", .{});
                     if (sym_id == self.ctx.slot_sym_id) return self.badCall(args, callee, "a `Slot[n]` is made by `push`, by `Slot[n].of(i)`, or by a literal below `n`", .{});
+                    if (sym_id == self.ctx.span_sym_id) return self.badCall(args, callee, "`Span()` needs its type: give it where the value goes (`sp: Span[n] = Span()`), or name it, `Span[n]()`", .{});
                     if (sym_id == self.ctx.table_sym_id) return self.badCall(args, callee, "`Table()` needs its type: give it where the value goes (`t: Table[T, n] = Table()`), or name it, `Table[T, n]()`", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     if (sym_id == self.ctx.actor_sym_id) return self.actorMake(node, callee, args);
@@ -9291,6 +9377,7 @@ const Checker = struct {
     fn aliasCall(self: *Checker, call: Sexp, callee: Sexp, name: []const u8, ty: TypeId, args: []const Sexp, pos: u32) Error!TypeId {
         if (self.isPoison(ty)) return self.skipCall(args);
         if (self.ctx.types.get(ty) == .slot) return self.slotMade(callee, ty, args);
+        if (self.ctx.types.get(ty) == .span) return self.spanMade(ty, args);
         if (sema.isNumeric(self.ctx, ty)) return self.checkConversion(ty, name, args, pos);
         if (self.ctx.types.get(ty) == .simd) {
             if (callee == .src) if (self.lookupQuiet(callee)) |id| try self.ctx.recordName(callee, id);
@@ -10360,6 +10447,33 @@ const Checker = struct {
         const shown = try self.tyName(st);
         const n = if (self.ctx.types.get(st) == .slot) (if (sema.slotCount(self.ctx, self.ctx.types.get(st).slot)) |c| try self.ctx.arena.allocator().print("{d}", .{c}) else "`n`") else "`n`";
         return self.badCall(args, callee, "a `{s}` is made by `push`, by `{s}.of(i)`, or by a literal below {s}", .{ shown, shown, n });
+    }
+
+    /// `Span[n]()`: the empty run at 0. A span is made only so, by a
+    /// table's `append`, and by `sub`, so its run is within `n`; any
+    /// argument is reported.
+    fn spanMade(self: *Checker, st: TypeId, args: []const Sexp) Error!TypeId {
+        if (self.isPoison(st) or args.len == 0) return st;
+        _ = try self.badCall(args, args[0], "a `{s}` is made by a table's `append`, by `sub`, or empty by `{s}()`, which takes no arguments", .{ try self.tyName(st), try self.tyName(st) });
+        return st;
+    }
+
+    /// `sp.sub(a, b)`: the slots `a` up to, not including, `b` of span
+    /// `sp`, a span of the same `n`, which tests `0 <= a <= b <= sp.len`
+    /// when it runs. It reads `sp`. A span has no other method. Null when
+    /// the receiver is not a span.
+    fn spanCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const value = sema.unwrapViews(self.ctx, obj_ty);
+        if (self.ctx.types.get(value) != .span) return null;
+        if (!std.mem.eql(u8, method, "sub")) return try self.badCall(args, pos, "a `{s}` has no method `{s}`; `sub(a, b)` gives its slots `a` up to `b`, and `len` counts them", .{ try self.tyName(value), method });
+        if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume `self`");
+        _ = try self.readThrough(obj, obj_ty, value);
+        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return try self.badCall(args, pos, "`sub` takes two arguments, the first slot and the one past the last, `sub(a, b)`; got {d}", .{args.len});
+        const int = self.t().int_id;
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{ int, int }), .returns = value, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .span_sub, .elem = value, .num = value });
+        for (args) |a| try self.checkExpr(a, int);
+        return value;
     }
 
     /// `Slot[n].of(i)`: the slot `i` names, `Slot[n]?`, `none` unless
@@ -11918,6 +12032,11 @@ const Checker = struct {
                 defer inf.exact -= 1;
                 try self.bindArg(inf, p, at.slot, arg, depth + 1);
             } else self.noteMismatch(inf, pattern, actual, arg),
+            .span => |p| if (at == .span) {
+                inf.exact += 1;
+                defer inf.exact -= 1;
+                try self.bindArg(inf, p, at.span, arg, depth + 1);
+            } else self.noteMismatch(inf, pattern, actual, arg),
             .parameterized_nominal => |pn| if (self.sameGeneric(at, pn.sym)) |held| {
                 inf.exact += 1;
                 defer inf.exact -= 1;
@@ -12525,6 +12644,11 @@ const Checker = struct {
         }
         if (try self.stringCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .write, ty);
         if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
+        if (ct == null) if (try self.spanCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
+        // `!t.append(xs)` copies each element of `xs` into a slot.
+        if (std.mem.eql(u8, method, "append")) if (sema.tableElem(self.ctx, sema.unwrapAccess(self.ctx, obj_ty))) |elem| if (try self.cannotCopy(elem, pos, "copies each element of `xs` into a slot")) {
+            return self.badCall(args, pos, "`append` copies each element into a slot, and a `{s}` is not copied: push each one, `!t.push(<x)`", .{try self.tyName(elem)});
+        };
         if (try self.simdCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.hash()`, unless the type declares a `hash` of its own.
@@ -13558,7 +13682,7 @@ const Checker = struct {
     /// has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
-        if (op.isBits() or op.isSimd() or op.isTypeFn() or op == .hash or op == .order) return null;
+        if (op.isBits() or op.isSimd() or op.isTypeFn() or op == .hash or op == .order or op == .span_sub) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -13590,14 +13714,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .span_sub => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .span_sub => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -13612,7 +13736,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .span_sub => unreachable,
         }
         return self.t().void_id;
     }
@@ -14701,6 +14825,7 @@ const Checker = struct {
     fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
         if (sym_id == self.ctx.simd_sym_id) return resolve.simdInstance(self.ctx, args, pos);
         if (sym_id == self.ctx.slot_sym_id) return resolve.slotInstance(self.ctx, args, pos);
+        if (sym_id == self.ctx.span_sym_id) return resolve.spanInstance(self.ctx, args, pos);
         if (try resolve.builtinElementError(self.ctx, sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
         const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
         if (!sema.containsTypeVar(self.ctx, ty)) {
@@ -16037,6 +16162,11 @@ const Checker = struct {
                 }
                 // `Wrap(...)` where a `Wrap[Int]` is expected.
                 const tt = self.ctx.types.get(target);
+                // `Span()` where a `Span[n]` is expected: the empty run.
+                if (callee == .src and tt == .span) if (self.lookupQuiet(callee)) |id| if (id == self.ctx.span_sym_id) {
+                    _ = try self.useName(callee);
+                    return try self.spanMade(target, ir.Call.args(e));
+                };
                 if (callee != .src or tt != .parameterized_nominal) return null;
                 const id = self.lookupQuiet(callee) orelse return null;
                 if (id != tt.parameterized_nominal.sym) return null;
@@ -16339,7 +16469,7 @@ const Checker = struct {
             if (!self.namesField(obj, e)) return;
         }
         var fix: LendBaseFix = .{ .c = self, .root = root };
-        if (lendsSlice(lend)) {
+        if (lendsSlice(self.ctx, lend)) {
             const ty = self.ctx.typeOf(obj) orelse return;
             if (self.writtenWriteLend(obj, ty) == null) return;
             if ((try fix.useOf(e, obj)).writes) return;
@@ -16505,7 +16635,7 @@ const Checker = struct {
             if (n != .list or n.isKind(.lambda)) return;
             if (n.isKind(.member) or n.isKind(.index)) {
                 const obj = ir.get(n, .object);
-                if (f.c.lendOf(obj)) |lend| if (!lendsSlice(lend) and !f.c.methods.contains(nodeId(n)) and !(isCallee(f.root, n) and (f.c.isReceiverSigil(obj) or !f.c.namesField(obj, n)))) {
+                if (f.c.lendOf(obj)) |lend| if (!lendsSlice(f.c.ctx, lend) and !f.c.methods.contains(nodeId(n)) and !(isCallee(f.root, n) and (f.c.isReceiverSigil(obj) or !f.c.namesField(obj, n)))) {
                     _ = try f.add(n, obj);
                 };
             }
@@ -16642,7 +16772,7 @@ const Checker = struct {
             if (c.isPoison(top_ty)) return null;
             const copies = sema.copies(c.ctx, top_ty) == .yes;
             const want_ty = c.expected.get(nodeId(at));
-            if (top.isKind(.index) and ir.Index.index(top).isKind(.@"..")) {
+            if (sema.isSliceIndex(c.ctx, top)) {
                 if (want_ty) |w| if (c.ctx.types.get(w) == .write_view or sema.writeSliceElem(c.ctx, w) != null) return "!";
                 return "?";
             }
@@ -16727,7 +16857,7 @@ const Checker = struct {
                 var n = x.top;
                 var slice: ?Sexp = null;
                 while (n.isKind(.member) or n.isKind(.index)) : (n = ir.get(n, .object)) {
-                    if (n.isKind(.index) and ir.Index.index(n).isKind(.@"..")) slice = n;
+                    if (sema.isSliceIndex(f.c.ctx, n)) slice = n;
                     if (sameExpr(ir.get(n, .object), obj)) break;
                 }
                 // Only a place is sliced: a value that branches is not.
@@ -18977,9 +19107,8 @@ fn nodeId(e: Sexp) parser.NodeId {
 }
 
 /// Whether `lend` lends a slice, the view it makes (`?t[..]`).
-fn lendsSlice(lend: Sexp) bool {
-    const lent = lentPlace(lend);
-    return lent.isKind(.index) and ir.Index.index(lent).isKind(.@"..");
+fn lendsSlice(ctx: *const SemContext, lend: Sexp) bool {
+    return sema.isSliceIndex(ctx, lentPlace(lend));
 }
 
 /// Whether a postfix written after `e` binds to all of it: a name, a
@@ -20798,8 +20927,9 @@ fn sameProvider(ctx: *SemContext, x: TypeId, y: TypeId) Error!bool {
 fn genericSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     return switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| pn.sym,
-        // Every `Slot[n]` is one type constructor's.
+        // Every `Slot[n]` is one type constructor's, as is every `Span[n]`.
         .slot => ctx.slot_sym_id,
+        .span => ctx.span_sym_id,
         else => null,
     };
 }

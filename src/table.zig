@@ -1,7 +1,9 @@
-//! `Table[T, n]` and `Slot[n]` (SPEC §10, "Table"; docs/CORE.md §10,
-//! "Tables"): a table holds `n` slots from the moment it is made, each
-//! `T()` until written, and a `Slot[n]` is a number below `n`, so any
-//! slot names a slot of any table of `n` and is read with no test.
+//! `Table[T, n]`, `Slot[n]`, and `Span[n]` (SPEC §10, "Table";
+//! docs/CORE.md §10, "Tables"): a table holds `n` slots from the moment it
+//! is made, each `T()` until written, and a `Slot[n]` is a number below
+//! `n`, so any slot names a slot of any table of `n` and is read with no
+//! test. A `Span[n]` is a run of them, `start + count <= n`, so any span
+//! is a slice of any table of `n`, taken with no test.
 //!
 //! How the slots are held is the element's (`sema.tableFill`, mirrored
 //! here by `fillsWithZeros`, as `needsDrop` mirrors `typeHasDropGlue`):
@@ -45,6 +47,54 @@ pub fn Slot(comptime n: u64) type {
 pub fn slotOf(comptime n: u64, i: anytype) rt.Opt(Slot(n)) {
     const v = std.math.cast(u64, i) orelse return rt.pack(rt.Opt(Slot(n)), null);
     return rt.pack(rt.Opt(Slot(n)), if (v < n) @as(Slot(n), @intCast(v)) else null);
+}
+
+/// The Zig type of `Span[n]`: a run of slots, `start + count <= n`, which
+/// only `Table.append`, `sub`, and `Span[n]()` (the empty run at 0)
+/// make. Its start and count are each the fewest of 8, 16, 32, and 64
+/// bits that hold `n` (`sema.spanWordBytes`), each read with a plain
+/// load.
+pub fn Span(comptime n: u64) type {
+    const W = if (n <= std.math.maxInt(u8)) u8 else if (n <= std.math.maxInt(u16)) u16 else if (n <= std.math.maxInt(u32)) u32 else u64;
+    return extern struct {
+        start: W = 0,
+        count: W = 0,
+
+        const Self = @This();
+        pub const __rig_span = {};
+        /// `Span[n]()` is all zero bytes, so a table of records that hold
+        /// spans is reserved (`fillsWithZeros`).
+        pub const __rig_zeros = true;
+
+        /// `sp.len`: the number of slots in the run.
+        pub inline fn len(self: Self) i64 {
+            return @intCast(self.count);
+        }
+
+        /// `sp.sub(a, b)`: the slots `a` up to, not including, `b` of the
+        /// run; panics unless `0 <= a <= b <= sp.len`. Its end is at most
+        /// the run's, so `start + count <= n` holds.
+        pub fn sub(self: Self, a: i64, b: i64) Self {
+            if (a < 0 or a > b or b > self.count) subPanic(a, b, self.count);
+            return .{ .start = self.start + @as(W, @intCast(a)), .count = @intCast(b - a) };
+        }
+
+        /// Prints as the range of slots it runs over, `start..end`.
+        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.print("{d}..{d}", .{ self.start, @as(u64, self.start) + self.count });
+        }
+    };
+}
+
+fn subPanic(a: i64, b: i64, count: u64) noreturn {
+    @branchHint(.cold);
+    var buf: [128]u8 = undefined;
+    @panic(std.fmt.bufPrint(&buf, "span bounds {d}..{d} out of range for a span of {d} slot{s}", .{ a, b, count, if (count == 1) "" else "s" }) catch "span bounds out of range");
+}
+
+fn spanPastPanic() noreturn {
+    @branchHint(.cold);
+    @panic("a span past the slots this table has written: on a target that holds a table's slots as they are written, a span of another table is read only where this one wrote");
 }
 
 /// Whether the target gives a private anonymous mapping's pages as zeros
@@ -133,6 +183,8 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         pub const __rig_table = {};
         /// `Slot[n]`.
         pub const Index = Slot(n);
+        /// `Span[n]`.
+        pub const Run = Span(n);
 
         const leak_checked = builtin.optimize == .debug;
 
@@ -168,6 +220,69 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             p.* = value;
             self.len += 1;
             return s;
+        }
+
+        /// `!t.append(xs)`: writes `xs` into the slots from `len` and gives
+        /// them as a span; panics, writing nothing, when they do not fit
+        /// below `n`. Each slot is dropped first, as `push` drops it.
+        pub fn append(self: *Self, xs: []const T) Run {
+            const start = self.len;
+            if (xs.len > n - start) fullPanic(n);
+            const end = start + xs.len;
+            if (xs.len > 0) {
+                if (comptime how == .committed) if (end > self.cap) self.grow(@intCast(end - 1));
+                const to = self.slots[@intCast(start)..@intCast(end)];
+                if (comptime rt.needsDrop(T)) {
+                    for (to, xs) |*p, x| {
+                        rt.dropElement(T, p);
+                        p.* = x;
+                    }
+                } else @memcpy(to, xs);
+            }
+            self.len = end;
+            return .{ .start = @intCast(start), .count = @intCast(xs.len) };
+        }
+
+        /// A span's first slot and its count: in range by its type, which a
+        /// debug build asserts, as a proven test is (`verify_proofs`).
+        inline fn runOf(sp: Run) struct { usize, usize } {
+            if (rt.verify_proofs and @as(u128, sp.start) + sp.count > n) rt.proofPanic();
+            return .{ @intCast(sp.start), @intCast(sp.count) };
+        }
+
+        /// `?t[sp]`: the span's slots, read-only, with no test. A committed
+        /// table holds the slots it has written, which every span it made
+        /// is within; a span of another table past them panics, since a
+        /// read never grows the table.
+        pub inline fn view(self: *const Self, sp: Run) []const T {
+            const s, const c = runOf(sp);
+            if (comptime how == .committed) if (s + c > self.cap) {
+                if (c == 0) return &.{};
+                spanPastPanic();
+            };
+            return self.slots[s..][0..c];
+        }
+
+        /// `!t[sp]`: the span's slots, to write, with no test. A committed
+        /// table is grown to hold them.
+        pub inline fn viewMut(self: *Self, sp: Run) []T {
+            const s, const c = runOf(sp);
+            if (comptime how == .committed) if (s + c > self.cap) {
+                if (c == 0) return &.{};
+                self.grow(s + c - 1);
+            };
+            return self.slots[s..][0..c];
+        }
+
+        /// `t[sp]` under `RIG_NO_PROOFS`: the span tested against `n`, as
+        /// every test is written there.
+        pub inline fn viewTested(self: *const Self, sp: Run) []const T {
+            if (@as(u128, sp.start) + sp.count > n) rt.proofPanic();
+            return self.view(sp);
+        }
+        pub inline fn viewMutTested(self: *Self, sp: Run) []T {
+            if (@as(u128, sp.start) + sp.count > n) rt.proofPanic();
+            return self.viewMut(sp);
         }
 
         /// A slot's offset: below `n` by its type, which a debug build

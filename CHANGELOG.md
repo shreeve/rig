@@ -156,6 +156,18 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Spans:** `Span[n]` is a run of slots of a `Table[T, n]`, a start and
+  a count that only `(!t).append(xs)`, `sp.sub(a, b)`, and `Span[n]()`
+  make, so `start + count <= n` holds by its type: `?t[sp]` and `!t[sp]`
+  are slices of the table's slots, taken with no test and lent as any
+  slice is, whichever table of `n` made the span. A span is plain data
+  that compares, hashes, keys a Map, and defaults to `Span()` in a field
+  of a record a table reserves. Trig's store lists moved onto spans, in a
+  scratch build, check ts-pattern and zod3 in the same time on pup
+  (0.7% slower and 0.6% faster, fastest of 20, 0.25% more
+  instructions): each read goes through an accessor that tests its index
+  against the span's count, which only a loop over the span's slice
+  folds (docs/STD.md, "Table, Slot, and Span").
 - **A view lent through a write-view binding may outlive it:**
   `if !@slots[j] as s` / `return !s.value` in a method `-> (!Int)? from
   @` is accepted, as are the same through `s = !@a`, a `for s in !@xs`
@@ -1102,7 +1114,7 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   owner is. A measuring build of Trig whose store indexes were treated
   as proven, a stand-in for tables, ran ts-pattern about 3% faster
   (fastest of 10, 2.8% fewer cycles); Trig's stores move to tables in a
-  change of its own (docs/STD.md, "Table and Slot"). A generic call
+  change of its own (docs/STD.md, "Table, Slot, and Span"). A generic call
   infers `n` from a `Slot[n]` argument, as from a `Table[T, n]`.
 - **Compile-time functions:** a `fun` with only a bracket parameter
   list, `fun cap[n: Int] -> Int`, runs in the checker, and its call

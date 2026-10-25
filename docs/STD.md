@@ -1358,12 +1358,12 @@ sub main()
 `resize` copies its value into every element it adds, and a `List[Int]` owns a resource, so it cannot be copied
 ```
 
-## Table and Slot
+## Table, Slot, and Span
 
-`Table[T, n]` and `Slot[n]` are built in ([SPEC §10](../SPEC.md#table)):
+`Table[T, n]`, `Slot[n]`, and `Span[n]` are built in ([SPEC §10](../SPEC.md#table)):
 a table of `n` slots from the start, each `T()` until written, and a
 number below `n` that names one, which indexes any table of `n` with
-no test. A store of records that only grows, with ids into it, is a
+no test, and a run of them, which is a slice of any table of `n`. A store of records that only grows, with ids into it, is a
 table and its slots: `push` gives each record's id, and an id read
 from data enters with `Slot[n].of(i)`, its one test.
 
@@ -1395,6 +1395,43 @@ sub main()
 
 ```output
 1 3 0
+```
+
+A list of ids each record holds, such as a signature's parameters, is
+a span of a table of them: `append` writes the ids at once and gives
+their run, a `Span[n]` the record keeps, and `?t[sp]` is that run as a
+slice with no test, which a loop walks and indexes as it would any
+slice's elements.
+
+```rig
+IDS = 1 << 20
+LISTS = 1 << 22
+
+type TypeId = Slot[IDS]
+type TypeList = Span[LISTS]
+
+obj Store
+  lists: Table[TypeId, LISTS]
+
+  fun new() -> Store
+    Store(lists: Table())
+
+  fun list(!@, items: []TypeId) -> TypeList
+    (!@lists).append(items)
+
+  fun at(?@, list: TypeList, k: Int) -> TypeId
+    (?@lists[list])[k]
+
+sub main()
+  st = Store.new()
+  a: TypeId = 3
+  b: TypeId = 5
+  args = (!st).list([a, b, a])
+  print(args.len, st.at(args, 1), ?st.lists[args.sub(1, 3)])
+```
+
+```output
+3 5 [5, 3]
 ```
 
 A count that only goes up needs no type of its own: `+%=` wraps

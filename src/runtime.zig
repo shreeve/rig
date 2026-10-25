@@ -379,11 +379,12 @@ pub const sched = @import("sched.zig");
 // Sockets and the HTTP server (`net.zig`).
 pub const net = @import("net.zig");
 
-// Tables (`table.zig`): `Table[T, n]` and `Slot[n]`.
+// Tables (`table.zig`): `Table[T, n]`, `Slot[n]`, and `Span[n]`.
 const table_zig = @import("table.zig");
 pub const Table = table_zig.Table;
 pub const SlotOf = table_zig.Slot;
 pub const slotOf = table_zig.slotOf;
+pub const SpanOf = table_zig.Span;
 pub const httpServe = net.serve;
 
 test {
@@ -1190,8 +1191,9 @@ fn copiedByReadView(comptime T: type) bool {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
         // A read view of an API object is a view, as `sema.copiedByReadView`
-        // says: its two words are lent as they are.
-        .@"struct" => isWideMask(T) or isReadApiView(T),
+        // says: its two words are lent as they are. A span is plain data,
+        // copied as a slot is.
+        .@"struct" => isWideMask(T) or isReadApiView(T) or @hasDecl(T, "__rig_span"),
         else => false,
     };
 }

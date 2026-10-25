@@ -60,6 +60,9 @@ newest entry summarizes the latest rounds.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
+- **Spans** (checks.md 9a, owner-approved): `Span[n]` is built; Trig's
+  `*_lists` and their `TypeList`-like spans move onto it in Trig's own
+  change (a scratch move measured in the PR).
 - **A view lent through a write-view binding** (CORE sentence 7, §7
   Defer) is built: `if !@slots[j] as s` / `return !s.value` `from @`,
   and the same through a local, a `for` element, a call's result, and a

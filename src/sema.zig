@@ -399,6 +399,12 @@ pub const Type = union(enum) {
     /// literal below `n` make one; it is plain data, compared, ordered,
     /// hashed, and printed as its number (`slotLen`).
     slot: TypeId,
+    /// `Span[n]`: a run of slots, `start` and `count` with `start + count
+    /// <= n`, of any `Table[T, n]`. `n` is as `slot`'s. Only a table's
+    /// `append`, a span's `sub`, and `Span[n]()` (the empty run at 0)
+    /// make one, so `?t[sp]` views its slots with no test; it is plain
+    /// data, compared and hashed by its start and count.
+    span: TypeId,
     /// `a..b`: a half-open range of the element integer type. Only valid
     /// as a `for` source.
     range: TypeId,
@@ -1891,6 +1897,10 @@ pub const Facts = struct {
     /// held as it is written never grows for a read
     /// (`SemContext.recordTableWrite`).
     table_writes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `t[sp]` index nodes: a table indexed by a `Span[n]`, a slice of
+    /// its slots as `xs[a..b]` is of a List's, with no test
+    /// (`SemContext.recordSpanView`, `isSliceIndex`).
+    span_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
@@ -2439,13 +2449,16 @@ pub const ElemOp = enum {
     /// `xs.sum()`, `xs.sum(start: n)`: the elements of a slice, an array,
     /// or a List of numbers added in order to `start`, `0` by default.
     sum,
+    /// `sp.sub(a, b)`: a part of a span (`Checker.spanCall`); `num` is
+    /// the span's type. Never a method name looked up as an element op.
+    span_sub,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .span_sub => false,
         };
     }
 
@@ -2464,7 +2477,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .sum => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash, .order, .sum, .span_sub => false,
         };
     }
 };
@@ -3412,10 +3425,12 @@ pub const SemContext = struct {
     /// `__rig_memory`, so its allocator counts what it hands out.
     reads_memory: bool = false,
     simd_sym_id: SymbolId = symbol_invalid,
-    /// `Table[T, n]` and `Slot[n]`: a table of `n` slots, and a number
-    /// that names one (`Type.slot`).
+    /// `Table[T, n]`, `Slot[n]`, and `Span[n]`: a table of `n` slots, a
+    /// number that names one (`Type.slot`), and a run of them
+    /// (`Type.span`).
     table_sym_id: SymbolId = symbol_invalid,
     slot_sym_id: SymbolId = symbol_invalid,
+    span_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
     order_sym_id: SymbolId = symbol_invalid,
@@ -4410,6 +4425,17 @@ pub const SemContext = struct {
     /// Whether `t[s]`, a table's slot, is written (`table_writes`).
     pub fn isTableWrite(self: *const SemContext, node: Sexp) bool {
         return self.facts.table_writes.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `t[sp]`, index node `node`, is a span of a table: a slice of its
+    /// slots (`span_views`).
+    pub fn recordSpanView(self: *SemContext, node: Sexp) !void {
+        try self.facts.span_views.put(self.allocator, recordKey(node), {});
+    }
+
+    /// Whether index node `node` is a span of a table (`span_views`).
+    pub fn isSpanView(self: *const SemContext, node: Sexp) bool {
+        return self.facts.span_views.contains(nodeKey(node) orelse return false);
     }
 
     /// The program calls `E.from_text` on plain enum `decl`, so its
@@ -6402,7 +6428,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector, .any_error = info.any_error };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string_view, .static, .symbol, .ct_value, .ct_param, .slot => .{ .plain = true },
+        .bool, .int, .float, .string_view, .static, .symbol, .ct_value, .ct_param, .slot, .span => .{ .plain = true },
         .string => .{ .glue = true },
         // An error of any set is owning in every program, whatever the
         // program's sets hold (Core §2, "A failure moves its error").
@@ -6879,7 +6905,7 @@ pub const TypeChildren = struct {
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .simd => |v| if (i == 0) v.elem else if (i == 1) v.len else null,
-            .slot => |n| if (i == 0) n else null,
+            .slot, .span => |n| if (i == 0) n else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             .results => |parts| if (i < parts.len) parts[i] else null,
@@ -7056,6 +7082,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .bool => 1,
         .symbol => 4,
         .slot => |n| if (slotCount(ctx, n)) |c| slotBytes(c) else null,
+        .span => |n| if (slotCount(ctx, n)) |c| 2 * spanWordBytes(c) else null,
         .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
         .string_view, .static, .slice => 16,
@@ -8876,7 +8903,7 @@ pub fn matchAssoc(ctx: *const SemContext, pattern: TypeId, actual: TypeId, targe
     // `?String` is the one text view, the type `?Item` takes at `String`.
     if (p == .read_view and x == .string_view) return matchAssoc(ctx, p.read_view, ctx.types.string_id, target, depth + 1);
     switch (p) {
-        inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot => |inner, tag| {
+        inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot, .span => |inner, tag| {
             if (std.meta.activeTag(x) != tag) return null;
             return matchAssoc(ctx, inner, @field(x, @tagName(tag)), target, depth + 1);
         },
@@ -9260,7 +9287,7 @@ const EquatableWalk = struct {
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {
-        .bool, .int, .float, .string_view, .static, .symbol, .int_literal, .float_literal, .slot => true,
+        .bool, .int, .float, .string_view, .static, .symbol, .int_literal, .float_literal, .slot, .span => true,
         else => false,
     };
 }
@@ -9583,12 +9610,12 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     switch (ty) {
         .type_var => |sym| return subst.lookup(sym) orelse (try assocSubst(ctx, sym, subst)) orelse ty_id,
         .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
-        inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot => |inner, tag| {
+        inline .read_view, .write_view, .shared, .weak, .optional, .range, .callable, .slot, .span => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
             // A count with no slots is reported where the instance is made
-            // (`Requirement.slot_count`); the slot type is poison.
-            if (tag == .slot and ctx.types.get(new_inner) == .ct_value and slotCount(ctx, new_inner) == null) return ctx.types.invalid_id;
+            // (`Requirement.slot_count`); the slot or span type is poison.
+            if ((tag == .slot or tag == .span) and ctx.types.get(new_inner) == .ct_value and slotCount(ctx, new_inner) == null) return ctx.types.invalid_id;
             return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
         },
         .fallible => |f| {
@@ -9714,7 +9741,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 /// type each of these is.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .slice, .function, .callable, .simd, .slot, .read_view => true,
+        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .slice, .function, .callable, .simd, .slot, .span, .read_view => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or (isErrorSet(ctx, ty) and !isErrorValueForm(ctx, ty)),
@@ -11750,7 +11777,7 @@ pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     if (!ctx.typeInfo(ty).has_type_var) return null;
     return switch (ctx.types.get(ty)) {
         .type_var => |sym| if (ctx.symbols.items[sym].flags.set_param) sym else null,
-        .optional, .read_view, .write_view, .shared, .weak, .callable, .range, .slot => |inner| setParamAsValue(ctx, inner),
+        .optional, .read_view, .write_view, .shared, .weak, .callable, .range, .slot, .span => |inner| setParamAsValue(ctx, inner),
         .fallible => |f| setParamAsValue(ctx, f.ok),
         .array => |arr| setParamAsValue(ctx, arr.elem),
         .slice => |sl| setParamAsValue(ctx, sl.elem),
@@ -11820,7 +11847,7 @@ pub fn importType(
         .invalid, .unknown, .void, .bool, .string_view, .string, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         // An API is named by its home module and symbol in every module.
         .api_object => return local_ctx.intern(ty),
-        inline .optional, .read_view, .write_view, .shared, .weak, .range, .callable, .slot => |inner, tag| {
+        inline .optional, .read_view, .write_view, .shared, .weak, .range, .callable, .slot, .span => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
@@ -12468,6 +12495,7 @@ const TypePrinter = struct {
             .array => |arr| try a.print("[{s}]{s}", .{ try p.id(arr.len), try p.id(arr.elem) }),
             .simd => |v| try a.print("Simd[{s}, {s}]", .{ try p.id(v.elem), try p.id(v.len) }),
             .slot => |n| try a.print("Slot[{s}]", .{try p.id(n)}),
+            .span => |n| try a.print("Span[{s}]", .{try p.id(n)}),
             .range => |e| try a.print("range of {s}", .{try p.id(e)}),
             .function => |f| if (f.is_sub)
                 try a.print("sub({s}){s}", .{ try p.list(f.params), if (f.returns == ctx.types.void_id) "" else "!" })
@@ -12864,7 +12892,8 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
             _ = lend.push(.elems);
             return lend;
         },
-        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) {
+        // A table is sliced only by a span (`t[sp]`).
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.table_sym_id) {
             _ = lend.push(.elems);
             return lend;
         },
@@ -13051,6 +13080,22 @@ pub fn tableSlot(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
     };
 }
 
+/// The `Span[n]` of runs of a `Table[T, n]`'s slots; null for any other
+/// type.
+pub fn tableSpan(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (pn.sym == ctx.table_sym_id and pn.args.len == 2) try ctx.intern(.{ .span = pn.args[1] }) else null,
+        else => null,
+    };
+}
+
+/// Whether index node `e` is a slice: `xs[a..b]`, or `t[sp]`, a span of a
+/// table (`SemContext.isSpanView`). Every pass after the type checker
+/// asks this, never the syntax alone.
+pub fn isSliceIndex(ctx: *const SemContext, e: Sexp) bool {
+    return rig.isRangeIndex(e) or (e.isKind(.index) and ctx.isSpanView(e));
+}
+
 /// `n` of a `Table[T, n]` or a `Slot[n]` (`n_ty` the type of its count,
 /// `Type.slot`'s operand), when it is a known count; null for a
 /// compile-time parameter.
@@ -13072,6 +13117,15 @@ pub fn slotBytes(n: u64) u64 {
     if (top <= std.math.maxInt(u8)) return 1;
     if (top <= std.math.maxInt(u16)) return 2;
     if (top <= std.math.maxInt(u32)) return 4;
+    return 8;
+}
+
+/// The bytes each of a `Span[n]`'s start and count takes: the fewest of
+/// 1, 2, 4, and 8 that hold `n` itself, since a run may end at `n`.
+pub fn spanWordBytes(n: u64) u64 {
+    if (n <= std.math.maxInt(u8)) return 1;
+    if (n <= std.math.maxInt(u16)) return 2;
+    if (n <= std.math.maxInt(u32)) return 4;
     return 8;
 }
 
@@ -13108,7 +13162,7 @@ pub fn tableFill(ctx: *const SemContext, elem: TypeId) TableFill {
 fn fillOf(ctx: *const SemContext, ty: TypeId, depth: u32) TableFill {
     if (depth > 64) return .none;
     switch (ctx.types.get(ty)) {
-        .int, .bool, .slot => return .zeros,
+        .int, .bool, .slot, .span => return .zeros,
         // A float's default may be `-0.0`, and an optional's none is not
         // zero bytes: each slot is made.
         .float, .string, .optional => return .made,
@@ -13160,6 +13214,8 @@ fn zeroDefault(decl_ctx: *const SemContext, d: Sexp, fty: TypeId, depth: u32) bo
     switch (decl_ctx.types.get(fty)) {
         .int, .slot => return d == .src and zeroLiteralText(identAt(src, d) orelse return false),
         .bool => return d == .src and std.mem.eql(u8, identAt(src, d) orelse return false, "false"),
+        // `Span[n]()`, or an alias's call: the empty run at 0.
+        .span => return d.isKind(.call) and ir.Call.args(d).len == 0 and namesSpanType(decl_ctx, ir.Call.callee(d)),
         .array => |a| return d.isKind(.array_fill) and zeroDefault(decl_ctx, ir.ArrayFill.value(d), a.elem, depth + 1),
         .nominal, .imported_nominal, .parameterized_nominal => {
             if (isPlainEnum(decl_ctx, fty)) {
@@ -13175,6 +13231,18 @@ fn zeroDefault(decl_ctx: *const SemContext, d: Sexp, fty: TypeId, depth: u32) bo
         },
         else => return false,
     }
+}
+
+/// Whether `callee`, written in `ctx`'s module, names a span type:
+/// `Span`, `Span[n]`, or an alias of one, which a call with no arguments
+/// makes the empty run at 0 (`zeroDefault`).
+fn namesSpanType(ctx: *const SemContext, callee: Sexp) bool {
+    const leaf = if (rig.isBracketList(callee)) ir.get(callee, .object) else callee;
+    const name = identAt(ctx.source, leaf) orelse return false;
+    const id = ctx.lookupInScopeOnly(module_scope, name) orelse return false;
+    if (id == ctx.span_sym_id) return true;
+    const sym = ctx.symbols.items[id];
+    return sym.kind == .type_alias and ctx.types.get(sym.ty) == .span;
 }
 
 /// An integer literal whose value is zero: `0`, `0x0`, `0_000`.

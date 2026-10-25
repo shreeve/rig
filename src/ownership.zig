@@ -3256,7 +3256,7 @@ pub const Checker = struct {
     }
 
     fn walkLend(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
-        if (rig.isRangeIndex(inner)) return self.walkElems(inner, ir.Index.object(inner), kind);
+        if (self.isSlice(inner)) return self.walkElems(inner, ir.Index.object(inner), kind);
         if (kind == .read and self.throughReadView(inner)) return self.walkThroughView(inner);
         const place = self.resolvePlace(inner) orelse {
             const start = self.vars.items.len;
@@ -3322,7 +3322,7 @@ pub const Checker = struct {
     /// cannot outlive it.
     fn walkElems(self: *Checker, slice: Sexp, object: Sexp, kind: LoanKind) Error!Value {
         // The place's own indexes, and a slice's bounds.
-        const indices = if (rig.isRangeIndex(slice)) slice else object;
+        const indices = if (self.isSlice(slice)) slice else object;
         // A slice the type checker rejected views nothing.
         if (self.rejected(slice)) {
             _ = try self.walk(object);
@@ -3340,7 +3340,7 @@ pub const Checker = struct {
         // is viewed as that view views it.
         if (self.throughReadView(object)) {
             const v = try self.walkThroughView(object);
-            if (rig.isRangeIndex(slice)) _ = try self.walk(ir.Index.index(slice));
+            if (self.isSlice(slice)) _ = try self.walk(ir.Index.index(slice));
             return v;
         }
         // A path from no var (a temporary's part, `?mk().v[..]`) keeps
@@ -3350,7 +3350,7 @@ pub const Checker = struct {
             const start = self.vars.items.len;
             var v = try self.walkViewedPath(object);
             if (kind == .write) v = try self.lendTempToWrite(v, start);
-            if (rig.isRangeIndex(slice)) _ = try self.walk(ir.Index.index(slice));
+            if (self.isSlice(slice)) _ = try self.walk(ir.Index.index(slice));
             return v;
         };
         try self.walkIndicesHeld(indices, place.root, place.path);
@@ -3363,7 +3363,7 @@ pub const Checker = struct {
 
     /// A slice walked as a plain value, or a whole-array view's operand.
     fn walkOperand(self: *Checker, slice: Sexp, object: Sexp) Error!Value {
-        return self.walk(if (rig.isRangeIndex(slice)) slice else object);
+        return self.walk(if (self.isSlice(slice)) slice else object);
     }
 
     /// Whether place `e` reaches its value through a read view: a step
@@ -5502,7 +5502,7 @@ pub const Checker = struct {
     /// Whether `e` is a field or element of a value that is no place.
     fn isPartOfNoPlace(self: *Checker, e: Sexp) bool {
         if (!e.isKind(.member) and !e.isKind(.index)) return false;
-        return self.resolvePlace(e) == null and !rig.isRangeIndex(e);
+        return self.resolvePlace(e) == null and !self.isSlice(e);
     }
 
     fn holdBranchLeaf(self: *Checker, leaf: Sexp, reader: Reader) Error!void {
@@ -5634,7 +5634,7 @@ pub const Checker = struct {
         if (!a.isKind(.write) or !b.isKind(.write)) return null;
         const ea = ir.Write.operand(a);
         const eb = ir.Write.operand(b);
-        if (!ea.isKind(.index) or !eb.isKind(.index) or rig.isRangeIndex(ea) or rig.isRangeIndex(eb)) return null;
+        if (!ea.isKind(.index) or !eb.isKind(.index) or self.isSlice(ea) or self.isSlice(eb)) return null;
         const base = self.spanText(ir.Index.object(ea));
         if (base.len == 0 or !std.mem.eql(u8, base, self.spanText(ir.Index.object(eb)))) return null;
         return .{ .base = base, .i = self.spanText(ir.Index.index(ea)), .j = self.spanText(ir.Index.index(eb)) };
@@ -7620,6 +7620,13 @@ pub const Checker = struct {
         const ctx = self.sema orelse return false;
         const t = ctx.types.get(ty);
         return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.list_sym_id;
+    }
+
+    /// Whether index node `e` is a slice, `xs[a..b]` or a span of a table
+    /// `t[sp]`, as the type checker recorded it (`sema.isSliceIndex`).
+    fn isSlice(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return rig.isRangeIndex(e);
+        return sema.isSliceIndex(ctx, e);
     }
 
     /// A `List[T]` or a `Table[T, n]`: elements held behind it, in memory

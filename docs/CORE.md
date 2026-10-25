@@ -1784,6 +1784,26 @@ sub main()
 cannot lend `t` to write while a read loan is live
 ```
 
+A `Span[n]` is plain data, as a slot is: a start and a count that only
+`append`, `sub`, and `Span[n]()` make, so its run is below `n`. `?t[sp]`
+and `!t[sp]` are the slices `?t[a..b]` and `!t[a..b]` of the array the
+table owns, whose bounds its type gives, and they lend the table as any
+slice lends what it slices. `!t.append(xs)` is a `push` of each element.
+No rule here changes for it. *(built)*
+
+```rig reject
+sub main()
+  t: Table[Int, 8] = Table()
+  sp = (!t).append([1, 2])
+  v = ?t[sp]
+  _ = (!t).append([3])
+  print(v)
+```
+
+```error
+cannot lend `t` to write while a read loan is live
+```
+
 **A container written in Rig follows its signatures.** `Map[K,
 V]` and `Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns

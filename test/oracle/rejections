@@ -4844,6 +4844,9 @@ test/reject/probes/review258-p30_gbody_int.rig setit
 test/reject/probes/review258-p90_view_param_into_local_ok.rig put
 doc/CORE/f1979318878b main
 test/reject/table/table_push_while_a_slot_is_viewed.rig main
+doc/CORE/f8e4b07c406a main
+test/reject/table/span_append_while_a_span_is_viewed.rig main
+test/reject/table/span_a_slot_written_while_a_span_is_viewed.rig main
 test/reject/probes/audit-ownership-f08b_closure_returns_a_view_of_a_temporary,_called.rig main
 test/reject/probes/rev255-m01 main
 test/reject/ownership/apis_object_a_result_from_self_keeps_the_owner's_loan.rig main

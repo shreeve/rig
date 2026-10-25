@@ -89,3 +89,38 @@ zig=$(rig emit noproofs.rig 2>/dev/null)
 expect_has "$zig" "t.at(s)" "a slot's index"
 zig=$(RIG_NO_PROOFS=1 rig emit noproofs.rig 2>/dev/null)
 expect_has "$zig" "t.atInt(s)" "a slot's index under RIG_NO_PROOFS"
+
+# Spans: the same in a reserved and a committed table, and a span past
+# what a committed table has written is read only where it wrote.
+cat >spans.rig <<'EOF2'
+sub main()
+  t: Table[Int, 100000] = Table()
+  u: Table[Int, 100000] = Table()
+  _ = (!t).push(1)
+  a = (!t).append([2, 3, 4])
+  for x in !t[a]
+    x += 10
+  e: Span[100000] = Span()
+  print(?t[a], a.sub(1, 2), (?u[e]).len, (?u[a.sub(0, 0)]).len)
+EOF2
+want='[12, 13, 14] 2..3 0 0'
+got=$(rig run spans.rig 2>&1) || fail "spans: $got"
+expect_eq "$got" "$want" "spans of a reserved table"
+got=$(RIG_TABLE_FALLBACK=1 rig run spans.rig 2>&1) || fail "spans, committed: $got"
+expect_eq "$got" "$want" "spans of a committed table"
+
+cat >past.rig <<'EOF2'
+sub main()
+  t: Table[Int, 100000] = Table()
+  u: Table[Int, 100000] = Table()
+  a = (!t).append([2, 3, 4])
+  print(?u[a])
+EOF2
+got=$(rig run past.rig 2>&1) || fail "past: $got"
+expect_eq "$got" "[0, 0, 0]" "a span of another reserved table"
+if got=$(RIG_TABLE_FALLBACK=1 rig run past.rig 2>&1); then fail "past, committed, ran: $got"; fi
+expect_has "$got" "a span past the slots this table has written" "a span of another committed table"
+zig=$(rig emit spans.rig 2>/dev/null)
+expect_has "$zig" "t.viewMut(a)" "a span's view"
+zig=$(RIG_NO_PROOFS=1 rig emit spans.rig 2>/dev/null)
+expect_has "$zig" "t.viewMutTested(a)" "a span's view under RIG_NO_PROOFS"

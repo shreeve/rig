@@ -535,7 +535,7 @@ pub fn headerSubject(header: Sexp) Sexp {
 
 fn reachesPlace(ctx: *const SemContext, e: Sexp) bool {
     // A slice is a view already, yielded as it is.
-    if (rig.isRangeIndex(e)) return false;
+    if (sema.isSliceIndex(ctx, e)) return false;
     switch (sema.handsOver(ctx, e).kind) {
         .place => return startsOutsideHeader(ctx, e),
         // A read lend of a scalar or a view is a copy.
@@ -790,7 +790,7 @@ fn decidePrintsByAddress(ctx: *const SemContext, a: Sexp) bool {
         } else false,
         .list => switch (a.kind() orelse return false) {
             .member => true,
-            .index => !ir.Index.index(a).isKind(.@".."),
+            .index => !sema.isSliceIndex(ctx, a),
             else => false,
         },
         else => false,

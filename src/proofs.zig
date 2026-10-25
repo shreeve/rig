@@ -1446,7 +1446,7 @@ fn storesElement(set: Sexp, sym: SymbolId, ctx: *const SemContext) bool {
     var element = false;
     while (true) {
         if (t.isKind(.index)) {
-            if (ir.Index.index(t).isKind(.@"..")) return false;
+            if (sema.isSliceIndex(ctx, t)) return false;
             element = true;
             t = ir.Index.object(t);
         } else if (t.isKind(.member)) {

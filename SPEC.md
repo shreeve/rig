@@ -8420,9 +8420,10 @@ their members give (`Item`, `Items`, `Keys`, `Values`, `Members`)
 names are not reserved: a module that declares a type of its own of one
 of these names hides the built-in one.
 
-`Table[T, n]` and `Slot[n]` ([Table](#table)) are built into the
-compiler, as a List is, but their names are not reserved either: a
-module's own `Table` or `Slot` hides the built-in one.
+`Table[T, n]`, `Slot[n]`, and `Span[n]` ([Table](#table)) are built
+into the compiler, as a List is, but their names are not reserved
+either: a module's own `Table`, `Slot`, or `Span` hides the built-in
+one.
 
 ### Cell
 
@@ -8956,9 +8957,72 @@ sub main()
 type mismatch: expected `Slot[8]`, got `Int`
 ```
 
-A table grows only by `push` and never shrinks: it has no `pop`,
-`clear`, or `keep`, and no clone (`+t`). An id read from data enters
-with `of`, its one test.
+A table grows only by `push` and `append` and never shrinks: it has
+no `pop`, `clear`, or `keep`, and no clone (`+t`). An id read from data
+enters with `of`, its one test.
+
+**Spans.** A `Span[n]` is a run of slots of a table of `n`: a start and
+a count, with `start + count <= n`. Only a table's `append`, a span's
+`sub`, and `Span[n]()`, the empty run at 0, make one, so a span is in
+range of every `Table[_, n]`, as a slot is: `?t[sp]` is a slice of its
+slots, a `[]T`, taken with no test, and `!t[sp]` a `![]T`. The slice is
+lent as a slice of a List is (`?xs[a..b]`): the table is lent while it
+lives. A span is plain data: it copies, compares with `==`, hashes,
+keys a `Map`, is a field's default as `Span()`, and prints as the
+range of slots it runs over. It has no order and no arithmetic, and
+nothing converts another value to it. Its start and count are each the
+smallest of `U8`, `U16`, `U32`, and `U64` that holds `n`.
+
+| Member | Meaning |
+|---|---|
+| `(!t).append(xs)` | write the elements of `xs`, a `[]T`, into the slots from `len`, add their count to `len`, and give those slots as a `Span[n]`; panics, writing nothing, with "a table of `n` slots is full" when they do not fit below `n`. `T` is copied, so it is plain data |
+| `?t[sp]`, `!t[sp]` | the span's slots, a `[]T` or a `![]T`, with no test; an argument `t[sp]` is lent as `?t[sp]` |
+| `sp.len` | the number of slots in the run |
+| `sp.sub(a, b)` | the slots `a` up to, not including, `b` of the run, a `Span[n]`; panics unless `0 <= a <= b <= sp.len` |
+| `Span[n]()`, `Span()` | the empty run at 0 (typed by context or by brackets) |
+
+```rig
+obj Sig
+  params: Span[1024] = Span()
+  flags: U32 = 0
+
+sub main()
+  types: Table[Int, 1024] = Table()
+  sigs: Table[Sig, 64] = Table()
+  _ = (!types).push(0)
+  s = (!sigs).push(Sig(params: (!types).append([7, 8, 9])))
+  ps = sigs[s].params
+  print(ps, ps.len, ?types[ps])
+  for x in !types[ps.sub(1, 3)]
+    x *= 10
+  total = 0
+  for x in ?types[ps]
+    total += x
+  print(total, ps.sub(1, 1) == Span[1024]())
+```
+
+```output
+1..4 3 [7, 8, 9]
+177 false
+```
+
+A span of one `n` is a slice only of a table of the same `n`. On a
+target whose system gives no lazily zeroed pages, a span of another
+table past the slots this one has written panics where it is viewed,
+since a read never grows a table there; a span a table made is always
+within the slots it wrote.
+
+```rig reject
+sub main()
+  t: Table[Int, 8] = Table()
+  u: Table[Int, 16] = Table()
+  sp = (!u).append([1])
+  print(?t[sp])
+```
+
+```error
+type mismatch: expected `Span[8]`, got `Span[16]`; a span is a run of slots of a table of its own `n`
+```
 
 ### Boxes, `^T`
 

@@ -572,6 +572,15 @@ pub const Facts = struct {
     pub fn isTableWrite(f: Facts, node: Sexp) bool {
         return f.c().isTableWrite(node);
     }
+    /// Whether index node `node` is a span of a table, `t[sp]`: a slice of
+    /// its slots (`sema.isSliceIndex`).
+    pub fn isSpanView(f: Facts, node: Sexp) bool {
+        return f.c().isSpanView(node);
+    }
+    /// Whether index node `node` is a slice: `xs[a..b]` or `t[sp]`.
+    pub fn isSliceIndex(f: Facts, node: Sexp) bool {
+        return sema.isSliceIndex(f.c(), node);
+    }
     pub fn isEnumText(f: Facts, node: Sexp) bool {
         return f.c().isEnumText(node);
     }

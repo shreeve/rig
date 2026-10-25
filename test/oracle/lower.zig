@@ -2676,7 +2676,12 @@ const Lowerer = struct {
                 slice = true;
                 _ = try self.valueOpt(ir.get(idx, .left), .read);
                 _ = try self.valueOpt(ir.get(idx, .right), .read);
-            } else _ = try self.eval(idx, .read, null);
+            } else {
+                // A span of a table, `t[sp]`, is a slice of its slots
+                // (Core §5, "Tables").
+                slice = self.ctx.isSpanView(e);
+                _ = try self.eval(idx, .read, null);
+            }
             _ = self.finding.pop();
             step = .elem;
         } else step = .{ .field = leafText(ir.Member.name(e), self.src) };
@@ -3563,7 +3568,7 @@ const Lowerer = struct {
                         shapes = &.{.view};
                         stored = &.{true};
                     },
-                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum => all_read = true,
+                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .sum, .span_sub => all_read = true,
                 } else all_read = true;
                 // `get`, `pop`, and `remove` hand back an element of a List:
                 // a value it held, which carries the loans the List's

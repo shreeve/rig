@@ -4054,7 +4054,7 @@ pub const Emitter = struct {
         const header = self.facts.headerOf(sexp);
         // A source with temporaries that reaches no place is walked as a
         // copy, which the checker records (`copiesHeader`).
-        if (mode != .move and header != .taken and !rig.isRangeIndex(source)) _ = try self.copiesSubject(sexp, source);
+        if (mode != .move and header != .taken and !self.facts.isSliceIndex(source)) _ = try self.copiesSubject(sexp, source);
         // An array the loop takes is held in a `var`, and each element is
         // reached through a pointer into it, as the body's own.
         const owned = header == .taken;
@@ -6912,6 +6912,7 @@ pub const Emitter = struct {
         self.place_chain = as_place;
 
         if (index.isKind(.@"..")) return self.emitSlice(sexp, base, base_ty, index);
+        if (self.facts.isSpanView(sexp)) return self.emitSpanView(sexp, base);
         // A lane of a vector is a value, read with its index checked
         // (Zig indexes a vector only at a constant).
         if (base_ty != null and self.facts.types.get(self.peelViews(base_ty.?)) == .simd) {
@@ -7175,6 +7176,21 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// `?t[sp]` → `t.view(sp)`, `!t[sp]` → `t.viewMut(sp)`: the span's
+    /// slots as a slice, with no test, since its run is within `n` by its
+    /// type; under `RIG_NO_PROOFS`, tested (`viewTested`).
+    fn emitSpanView(self: *Emitter, slice: Sexp, base: Sexp) Error!void {
+        self.place_chain = false;
+        const writes = self.isWriteSliceExpr(slice);
+        const saved_rt = self.rt_names;
+        self.rt_names = false;
+        try self.emitBaseExpr(base);
+        self.rt_names = saved_rt;
+        try self.w.print(".{s}{s}(", .{ if (writes) "viewMut" else "view", if (self.no_proofs) "Tested" else "" });
+        try self.emitBare(ir.Index.index(slice));
+        try self.w.writeAll(")");
+    }
+
     /// `(member obj name)`. A shared handle auto-dereferences through
     /// `.value`; `.len` of an array, slice, string, or List is an `Int`.
     fn emitMember(self: *Emitter, sexp: Sexp) Error!void {
@@ -7214,6 +7230,11 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, obj_ty);
             return self.w.print(".{f})", .{ident(field)});
         };
+        // A span's count of slots.
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.facts.types.get(self.peelViews(obj_ty.?)) == .span) {
+            try self.emitMemberBase(obj, obj_ty);
+            return self.w.writeAll(".len()");
+        }
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.isCellListTy(obj_ty.?)) {
             try self.emitCellPtr(obj);
             return self.w.writeAll(".listLen()");
@@ -8155,6 +8176,15 @@ pub const Emitter = struct {
                 const given = self.facts.ctArgsOf(call);
                 if (given.len == 2) try self.emitBare(given[1]) else try self.w.writeAll("rig.Endian.little");
                 if (proven) |p| try self.w.print(", .{s}", .{p});
+            },
+            // `sp.sub(a, b)`: the runtime tests `0 <= a <= b <= sp.len`.
+            .span_sub => {
+                try self.emitBare(ir.Member.object(callee));
+                try self.w.writeAll(".sub(");
+                try self.emitBare(args[0]);
+                try self.w.writeAll(", ");
+                try self.emitBare(args[1]);
+                return self.w.writeAll(")");
             },
             // `rig.rt(@as(V, @splat(x)))`.
             .splat => {
@@ -10280,6 +10310,12 @@ pub const Emitter = struct {
             // `Slot[n]`: the runtime's smallest unsigned that holds `n - 1`.
             .slot => |n| {
                 try self.w.writeAll("rig.SlotOf(");
+                try self.emitTypeTy(n);
+                try self.w.writeAll(")");
+            },
+            // `Span[n]`: the runtime's start and count.
+            .span => |n| {
+                try self.w.writeAll("rig.SpanOf(");
                 try self.emitTypeTy(n);
                 try self.w.writeAll(")");
             },
