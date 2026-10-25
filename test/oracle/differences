@@ -41,12 +41,6 @@ test/reject/probes/review-syntax-b-2-v06_if_bang_as_escape_written.rig f prod-re
 test/reject/probes/review-syntax-b-2-v09_match_bang_escape_ok.rig main prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
 test/reject/probes/review-syntax-b-2-v11_if_bang_as_owned_escape.rig main prod-rejects prod-strict `s = keep(r[1..])` of an `if !o as r` binding is used past the `if`
 test/reject/probes/review-syntax-b-2-v12_match_bang_param_escape.rig f prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
-test/reject/probes/review-payload-loan-1-v01_return_write_of_payload.rig get prod-rejects prod-strict `!t` of a `match !e` binding returned as `!String`
-test/reject/probes/review-payload-loan-1-v02_return_read_of_payload.rig head prod-rejects prod-strict `?t[..3]` of a `match !e` binding returned
-test/reject/probes/review-payload-loan-1-v04_if_as_return.rig head prod-rejects prod-strict `?t[..3]` of an `if !o as t` binding returned
-test/reject/probes/review-payload-loan-1-v08_return_whole_view_of_payload.rig peek prod-rejects prod-strict `?t` of a `match !e` binding returned
-test/reject/probes/review-payload-loan-1-w05_ifas_return_write.rig get prod-rejects prod-strict `!t` of an `if !o as t` binding returned
-test/reject/probes/review-payload-loan-1-w07_for_return_write.rig first prod-rejects prod-strict `!t` of a `for t in !v` binding returned
 test/reject/probes/review-payload-loan-3-f02_write_binding_break_out.rig main prod-rejects prod-strict a bare `break t` of a `match !e` binding, which must be written `<t`
 test/reject/probes/review-payload-loan-3-f02b_write_binding_break_move.rig main prod-rejects prod-strict `break <t` of a `match !e` binding moves out of the view of `e`
 test/reject/probes/review-payload-loan-3-f04_for_write_moved_out.rig main prod-rejects prod-strict a bare `break t` of a `for t in !v` binding, which must be written `<t`
@@ -81,6 +75,13 @@ test/reject/probes/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejec
 test/reject/probes/review-take-p53.rig main prod-rejects prod-strict deferred `<s.a` after `print(r)`, the last use of `r = ?s`
 test/reject/probes/review-take-p54.rig main prod-rejects prod-strict deferred `<s.a` runs after the deferred `print(w)`, the last use of `w = !s`
 
+# A loop body's defers run as `break` leaves it, after its value is
+# formed, and what that value views is live while they run (Core §7,
+# Defer). The oracle does not keep the `break` value's loans in force
+# there, nor after the loop while the value lives.
+test/reject/ownership/defer_runs_after_its_block's_value.rig Tab.broke prod-rejects ref-gap `defer !@xs.clear()` in a loop body whose `break !@xs[0]` value is returned
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.broke prod-rejects ref-gap `defer s = Slot(...)` in a loop body whose `break !s.items[0]` value is returned
+
 # A `for k in ?v` element over a List of handles is a read view of the
 # slot (Core §4); storing it in a binding declared before the loop keeps
 # the loan on `v`, which `v` outlives (Core s6).
@@ -114,7 +115,6 @@ test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` 
 # A view reached through a slice or a write view carries that view's
 # loans, not a loan on what holds it (Core s7).
 test/reject/probes/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an element of `vs`, which outlives the loop's `s`
-test/reject/probes/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !@es` element views what `@` was lent
 
 # A place holding a write view, re-pointed or exchanged, holds the new
 # view's loans (Core §6): `swap` exchanges two fields' views, and a
@@ -342,11 +342,6 @@ test/reject/probes/optwrite-review-j02-slice-obj.rig set prod-rejects ref-gap st
 # to, what the caller owns is rejected, though it views only what the
 # caller lent (Core sentence 7).
 test/reject/probes/optwrite-review-a01-cross-param-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/reject/probes/optwrite-review-d15-call-result-view.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/reject/probes/optwrite-review-e01-return-sub-plain-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/reject/probes/optwrite-review-e02-return-sub-opt-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/reject/probes/optwrite-review-e03-return-sub-ifas-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/reject/probes/optwrite-review-e04-return-read-ok.rig name prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 
 # A `for x in !l` binding writes into the List's element, which outlives
 # the loop body: a view of a local of the body stored through it ends
@@ -363,6 +358,7 @@ test/reject/probes/review258-p139b_loop_binding_local.rig main prod-rejects ref-
 test/reject/ownership/origin_self_path_body.rig Reader.word prod-rejects ref-gap `from @text` returns a view of `@name`
 test/reject/ownership/origin_self_path_body_call.rig Reader.word prod-rejects ref-gap `from @text` returns `pick(?@text, ?@name)`
 test/reject/ownership/origin_self_path_body_bound.rig Two.next prod-rejects ref-gap `from @a` returns `(!@b).next()` through a bound
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.other prod-rejects ref-gap `from @o` returns `!s.items[0]` of an `if !@p as s` binding
 doc/CORE/35dae348303b Reader.word prod-rejects ref-gap `from @text` returns a view of `@name`
 
 # A binding of a loop's value that is a write view at every `break` holds

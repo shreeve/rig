@@ -268,9 +268,16 @@ const Loan = struct {
     /// A write receiver's lend, a read loan until its call starts (Core
     /// §6), for diagnostics.
     reserved: bool = false,
+    /// A loan on a binding that holds a write view, made by a lend
+    /// through it (`!s.value` with `s: !Slot`; `throughBinding`): it
+    /// keeps the binding unused while the view lives, and ends with the
+    /// binding's scope, since the binding's own loans cover what the
+    /// view sees (Core sentence 7). So it is never reported as leaving
+    /// its scope or the function.
+    deref: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
-        return a.root == b.root and a.path == b.path and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
+        return a.root == b.root and a.path == b.path and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame and a.deref == b.deref;
     }
 };
 
@@ -1254,8 +1261,20 @@ pub const Checker = struct {
     /// the scope's defers run (`ExitTo.result`). Gives what `v` keeps.
     fn leaveScope(self: *Checker, v: Value) Error!Value {
         const kept = try self.checkValueEscapesScope(v);
-        try self.popScopeWith(kept.loans);
+        try self.popScopeWith(try self.withDerefs(kept, v));
         return kept;
+    }
+
+    /// The loans `kept`, what value `v` keeps past a scope, and `v`'s
+    /// loans on the scope's write-view bindings (`Loan.deref`): the
+    /// scope's defers run while the value lives, so they may not use a
+    /// binding it is lent through.
+    fn withDerefs(self: *Checker, kept: Value, v: Value) Error![]const Loan {
+        var out = kept.loans;
+        for (v.loans) |l| if (l.deref) {
+            out = try self.unionLoans(out, try self.oneLoan(l));
+        };
+        return out;
     }
 
     /// `popScope`, where the path leaves with a value carrying `result`.
@@ -2376,7 +2395,7 @@ pub const Checker = struct {
     /// Value `v` leaving the scopes of the vars `>= start`: report its
     /// loans on them and drop those.
     fn escapeVarsFrom(self: *Checker, v: Value, start: u32) Error!Value {
-        for (v.loans) |l| if (l.root >= start) try self.reportShortLived(l, null);
+        for (v.loans) |l| if (l.root >= start and !l.deref) try self.reportShortLived(l, null);
         return .{ .loans = try self.filterLoansBelow(v.loans, start) };
     }
 
@@ -3344,11 +3363,30 @@ pub const Checker = struct {
     fn lendOn(self: *Checker, id: VarId, loan: Loan) Error!Value {
         const held = self.flows.items[id].loans;
         const v: Value = switch (self.lendTarget(self.vars.items[id])) {
-            .write_view => .{ .loans = try self.unionLoans(try self.oneLoan(loan), held) },
+            .write_view => .{ .loans = try self.unionLoans(try self.oneLoan(self.throughBinding(id, loan)), held) },
             .read_view => .{ .loans = held },
             .owner => .{ .loans = try self.oneLoan(loan) },
         };
         return if (self.isSelfVar(id)) self.tagSelf(v, id, loan.path) else v;
+    }
+
+    /// `loan`, on var `id`, marked a loan on the binding only
+    /// (`Loan.deref`) when it is lent through the write view `id` holds:
+    /// a local's, a pattern's, or a loop element's, whose own loans are
+    /// what it views (a header's lend, a `for` source, a payload's
+    /// subject). A parameter's or a capture's view is the caller's or
+    /// the closure's, and a hidden var (a value a call holds, a read
+    /// match's arm, an API object's copy) and a frame loan are storage
+    /// of this function, which no view of it may outlive. Self is a
+    /// parameter, so no such loan is on it (`checkSelfPaths`).
+    fn throughBinding(self: *const Checker, id: VarId, loan: Loan) Loan {
+        const v = self.vars.items[id];
+        var out = loan;
+        out.deref = !loan.frame and self.lendTarget(v) == .write_view and switch (v.kind) {
+            .local, .pattern, .loop_elem => true,
+            .param, .capture, .hidden => false,
+        };
+        return out;
     }
 
     /// Whether var `id` is the self of a method whose `from` names
@@ -6197,7 +6235,7 @@ pub const Checker = struct {
 
     fn checkEscape(self: *Checker, v: Value) Error!void {
         for (v.loans, 0..) |l, i| {
-            if (!self.isLocalLoan(l)) continue;
+            if (l.deref or !self.isLocalLoan(l)) continue;
             if (self.func.in_closure and l.root < self.func.closure_base) continue;
             const r = self.vars.items[l.root];
             if (r.arm_of.len > 0) {
@@ -6680,7 +6718,8 @@ pub const Checker = struct {
                 // viewed (lent to write when the view holds a write
                 // view, which must not be reached twice), and a viewed
                 // root lends what it holds.
-                loans = try self.oneLoan(.{ .root = r, .path = info.place, .kind = if (self.carriesWriteView(ty)) .write else .read, .pos = pos });
+                const on: Loan = .{ .root = r, .path = info.place, .kind = if (self.carriesWriteView(ty)) .write else .read, .pos = pos };
+                loans = try self.oneLoan(if (info.via == .viewed) self.throughBinding(r, on) else on);
                 if (info.via == .viewed) loans = try self.unionLoans(loans, self.flows.items[r].loans);
             } else {
                 loans = scrut_value.loans;
@@ -6987,8 +7026,10 @@ pub const Checker = struct {
     fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
         var elem_loans: []const Loan = &.{};
         if (spec.source_root) |root| if (self.flowLive(root)) {
-            // The source stays lent for the whole loop.
-            elem_loans = try self.oneLoan(.{ .root = root, .path = spec.source_path, .kind = spec.source_loan, .pos = spec.source_pos });
+            // The source stays lent for the whole loop; a write view a
+            // binding holds lends what it views on (`throughBinding`).
+            const on: Loan = .{ .root = root, .path = spec.source_path, .kind = spec.source_loan, .pos = spec.source_pos };
+            elem_loans = if (self.throughBinding(root, on).deref) (try self.lendOn(root, on)).loans else try self.oneLoan(on);
             _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = elem_loans });
         };
         if (spec.elem1 == .src) {
@@ -7075,7 +7116,7 @@ pub const Checker = struct {
         // scope goes to that point; any other goes back to the loop's
         // head, through a step that is the loop's continue expression.
         const to_step = if (dest.?.to == .step) t.step_point else null;
-        const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth }, .result = left_with.loans });
+        const s = try self.exitTo(.{ .to = to_step orelse t.point, .exit = .{ .jump = if (to_step != null) t.step_depth else t.scope_depth }, .result = try self.withDerefs(left_with, v) });
         switch (dest.?.to) {
             .exit => try t.breaks.append(self.arena(), s),
             .step, .head => try (if (to_step != null) &t.step_conts else &t.conts).append(self.arena(), s),

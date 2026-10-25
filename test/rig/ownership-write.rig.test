@@ -2610,3 +2610,255 @@ fail "write view returned while a task holds it", "16:14: cannot move `s` while 
 
   t = Tab(xs: List(), o: none)
   print(t.xs.len)
+
+test "write view lent through a binding is returned", '''
+  43
+  9
+  2 33 41
+  6
+  61
+'''
+  # A view reached through a write view that a binding holds carries
+  # that view's loans and a loan on the binding, which ends with the
+  # binding's scope (Core sentence 7): it may be returned `from @`. The
+  # binding is an `if !… as`'s, a local's (`s = !@a`), a `for` element's,
+  # a call result's, or a `match !` payload's; `ensure` is Polonius
+  # problem case #3, a conditional return that leaves self free on the
+  # path that does not return.
+  obj Slot
+    key: Int
+    value: Int
+
+  enum E
+    full(s: Slot)
+    empty
+
+  obj Entry
+    key: Int
+    value: Int?
+
+  obj Tab
+    slots: List[Slot?]
+    a: Slot
+    xs: List[Slot]
+    es: List[Entry]
+    e: E
+    ms: List[E]
+
+    fun edit(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        return !s.value
+      none
+
+    fun first(!@) -> !Int from @
+      s = !@a
+      !s.value
+
+    fun keyed(!@, k: Int) -> (!Int)? from @
+      for s in !@xs
+        return !s.value if s.key == k
+      none
+
+    fun walked(!@, k: Int) -> (!Int)? from @
+      lv = !@xs
+      for s in !lv
+        return !s.value if s.key == k
+      none
+
+    fun at(!@, j: Int) -> !Slot from @
+      !@xs[j]
+
+    fun val(!@, j: Int) -> !Int from @
+      s = (!@).at(j)
+      !s.value
+
+    fun find(!@, j: Int) -> (!Entry)? from @
+      return !@es[j] if j < @es.len
+      none
+
+    fun entry(!@, j: Int) -> (!Int)? from @
+      if (!@).find(j) as e
+        if !e.value as v
+          return v
+      none
+
+    fun ensure(!@, j: Int) -> !Int from @
+      while true
+        if !@slots[j] as s
+          return !s.value
+        @slots[j] = Slot(key: j, value: 7)
+
+    fun full(!@) -> (!Int)? from @
+      match !@e
+        .full(s) => return !s.value
+        .empty => pass
+      none
+
+    fun fulls(!@) -> (!Int)? from @
+      for x in !@ms
+        match !x
+          .full(s) => return !s.value
+          .empty => pass
+      none
+
+    fun slot(!@, j: Int) -> (!Int)? from @slots
+      if !@slots[j] as s
+        return !s.value
+      none
+
+    fun tail(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        !s.value
+      else
+        none
+
+  t = Tab(slots: List(), a: Slot(key: 0, value: 1), xs: List(), es: List(), e: E.full(s: Slot(key: 5, value: 5)), ms: List())
+  !t.slots.push(Slot(key: 1, value: 2))
+  !t.slots.push(none)
+  !t.xs.push(Slot(key: 3, value: 30))
+  !t.es.push(Entry(key: 4, value: 40))
+  !t.ms.push(E.empty)
+  !t.ms.push(E.full(s: Slot(key: 6, value: 60)))
+  if (!t).edit(0) as v
+    v += 40
+  w = (!t).first()
+  w += 1
+  if (!t).keyed(3) as v
+    v += 1
+  if (!t).walked(3) as v
+    v += 1
+  x = (!t).val(0)
+  x += 1
+  if (!t).entry(0) as v
+    v += 1
+  y = (!t).ensure(1)
+  y += 1
+  if (!t).full() as v
+    v += 1
+  if (!t).fulls() as v
+    v += 1
+  if (!t).slot(0) as v
+    v += 1
+  if (!t).tail(1) as v
+    v += 1
+  if t.slots[0] as s
+    print(s.value)
+  if t.slots[1] as s
+    print(s.value)
+  print(t.a.value, t.xs[0].value, t.es[0].value ?? 0)
+  match t.e
+    .full(s) => print(s.value)
+    .empty => pass
+  match t.ms[1]
+    .full(s) => print(s.value)
+    .empty => pass
+
+fail "write view lent through a binding stays lent", "24:7: cannot assign to `@slots[j]` while `@slots` is lent", "31:7: cannot reassign `s` while `s.items` is lent", "37:14: `other` returns a view of `@p`, but its signature says it views only `@o`", "42:13: cannot reassign `s` while `s.items` is lent", "50:15: cannot lend `s.items` to write while a write loan on `s` is live", "56:15: cannot lend `s.items` to write while a write loan on `s` is live", "61:13: cannot reassign `s` while `s.items` is lent", "68:13: cannot reassign `s` while `s.items` is lent", "79:12: `s` does not live long enough", "84:11: cannot reassign `s` while `s.items` is lent", "90:13: cannot reassign `s` while `s.items` is lent", "98:8: cannot return a view of `x`, which this function was not lent", "103:9: cannot return a view of `xs`, which this function was not lent", errors: 13
+  # What a returned view sees stays lent while it lives, and the binding
+  # it was lent through is not used while it lives, by a defer, a
+  # closure a defer calls, or a task, at a `return`, a block's value, or
+  # a `break`. A view lent through a binding of a local (`s = !x`, a
+  # `for` over `lv = !xs`) is the local's, a `from @o` method returns no
+  # view of `@p`, and a view lent in one pass of a loop does not outlive
+  # that pass's binding.
+  obj Slot
+    key: Int
+    items: List[Int]
+
+  sub bump(s: !Slot)
+    s.key += 1
+
+  obj Tab
+    slots: List[Slot?]
+    xs: List[Slot]
+    o: Slot?
+    p: Slot?
+
+    fun reset(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        v = !s.items[0]
+        @slots[j] = none
+        return v
+      none
+
+    fun swap(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        v = !s.items[0]
+        s = Slot(key: 0, items: List())
+        return v
+      none
+
+    fun other(!@) -> (!Int)? from @o
+      if !@p as s
+        return !s.items[0]
+      none
+
+    fun deferred(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        defer s = Slot(key: 0, items: List())
+        return !s.items[0]
+      none
+
+    fun called(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        g = |!s| s.items = List()
+        defer g()
+        return !s.items[0]
+      none
+
+    fun waited(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        t = bump(!s)&
+        return !s.items[0]
+      none
+
+    fun tail(!@, j: Int) -> (!Int)? from @
+      if !@slots[j] as s
+        defer s = Slot(key: 0, items: List())
+        !s.items[0]
+      else
+        none
+
+    fun broke(!@) -> !Int from @
+      r = for s in !@xs
+        defer s = Slot(key: 0, items: List())
+        break !s.items[0]
+      else
+        !@xs[0].items[0]
+      r
+
+    fun earlier(!@, j: Int) -> (!Int)? from @
+      w: (!Int)? = none
+      for s in !@xs
+        if s.key == j
+          return w
+        w = !s.items[0]
+      none
+
+    fun last(!@) -> !Int from @
+      s = !@xs[0]
+      defer s = Slot(key: 0, items: List())
+      !s.items[0]
+
+    fun inner(!@) -> !Int from @
+      r = if @xs.len > 0
+        s = !@xs[0]
+        defer s = Slot(key: 0, items: List())
+        !s.items[0]
+      else
+        !@xs[1].items[0]
+      r
+
+  fun local(n: Int) -> !Int
+    x = Slot(key: n, items: List())
+    s = !x
+    !s.items[0]
+
+  fun walked() -> (!Int)?
+    xs: List[Slot] = List()
+    lv = !xs
+    for s in !lv
+      return !s.items[0]
+    none
+
+  pass

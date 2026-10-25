@@ -58,6 +58,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | CORE's "An API object hides its value's type, never its loans" (Stage 4, phase 0) | §1's and §4's rows and a paragraph with its list: the object may hold anything, so its loans end at its last use or, for a box, its drop; a copy decided by kind, local to its block; only `^{A}` has `+`; it meets only the bounds its braces or API name; no default, never a type argument; a panel of four (H1 to H13), and the owner's approval | [apis-stage4/core-panel/](2026-10/apis-stage4/core-panel/) |
 | APIs Stage 5's design (2026-10-23) | `*{A}`, a counted handle to an API object whose count operations live in its table, atomic as the hidden allocation is; `~{A}` its weak handle; `Sends` and `Syncs` in the braces as facts of the hidden value checked at erasure, each form crossing by its own row of SPEC §18; `*{A + Syncs}` only of a frozen value; owned closures as objects of one method if measured faster; two holes of Stage 4's boxes (an owned closure hidden from a local task, a task hidden from `task.isolate`); a build plan, 22 questions with defaults, and a draft CORE paragraph for the panel and the owner | [apis-stage5/](2026-10/apis-stage5/) |
 | CORE's "A shared API object counts a value of hidden type" (Stage 5, phase 0) | §1's handle row, §4's `*T` row, a clause each to sentences 8 and 9, Stage 4's list's last line, and a paragraph with a list of five: the holding follows from the braces (`*{A}` a `*T`'s, `*{A + Syncs}` a frozen value's, no `~`, no `Owned`), erasure only moves or counts a handle, `~{A}` carries its loans, an object crosses only by a bound it names and without it goes to no task, a local one included, and no object or owned closure holds a task; a panel of three (compiler, adversary, reviewer) and the owner's approval with the reviewer's three fixes | [apis-stage5/core-panel/](2026-10/apis-stage5/core-panel/) |
+| CORE's "A view reached through a write view that a binding holds" (sentence 7) | `if !@slots[j] as s` may `return !s.value` `from @`: the view carries the binding's loans, path for path, and a loan on the binding that ends with its scope; nothing in that scope, its defers included, uses `s` while the view lives (§7 Defer: what a scope gives back is live while its defers run); a designer, an adversary (H1 to H6), a reviewer whose holes 1 and 2 shipped first as the defer hotfix (#663), and the owner's approval | [wview-return/](2026-10/wview-return/) |
 
 ## Every record
 
@@ -225,6 +226,14 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 - [review-1-holes.md](2026-10/table-slot/review-1-holes.md): Table/Slot: holes for the builder (adversarial review of A-typed-ids.md, option B)
 - [review-2-holes.md](2026-10/table-slot/review-2-holes.md): Table/Slot: second review, against 6fde90632 (table-slot)
 - [store-unchecked-ab.txt](2026-10/table-slot/store-unchecked-ab.txt)
+
+### 2026-10/wview-return/
+
+- [approved.md](2026-10/wview-return/approved.md): the owner's approval, quoted
+- [5-final.md](2026-10/wview-return/5-final.md): the CORE text, what it accepts and still rejects, and the build
+- [3-draft.md](2026-10/wview-return/3-draft.md): the combined draft, each rule with its reason
+- [1-design.md](2026-10/wview-return/1-design.md), [2-adversary.md](2026-10/wview-return/2-adversary.md), [4-review.md](2026-10/wview-return/4-review.md): the panel's reports
+- [review.md](2026-10/wview-return/review.md): the adversarial review of the build: no hole; the oracle's gaps at a `break` value and `from @a` recorded, a `for` over a local write view fixed
 
 ### revamp/
 

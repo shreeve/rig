@@ -53,6 +53,15 @@ newest entry summarizes the latest rounds.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
+- **A view lent through a write-view binding** (CORE sentence 7, §7
+  Defer) is built: `if !@slots[j] as s` / `return !s.value` `from @`,
+  and the same through a local, a `for` element, a call's result, and a
+  `match !` payload
+  ([records](docs/history/records/2026-10/wview-return/)). What it
+  unlocks is not built yet: Map's and Set's `find` handing back the
+  entry (`(!Entry[K, V])? from @`), with `edit` and `ensure` on top,
+  which removes the index re-tests behind the 1.3-1.9% ceiling on
+  ts-pattern; it changes std's Map, so it is timed on Trig on its own.
 
 Errors with data, from the approved spec
 (docs/history/records/revamp/r3/errors-panel/), is on `main`:
@@ -165,15 +174,14 @@ memory. Trig's needs from Rig, in the owner's order:
 3. **Build speed.** `rig build` reuses no cached work (ROADMAP, "Cached
    `rig build`"), and a Trig release build takes about 9 minutes and
    about 9 GB on pup.
-4. **Two limits of the ownership checker** that make std code clumsy,
-   each a Core question for the owner first: a write view bound by
-   `if !@slots[j] as s` cannot be returned `from @`, though the read
-   form can; and an object's field cannot be moved out of it alone (no
-   partial moves). Together they keep a Map slot at 40 bytes rather
-   than 24 (backlog, "The Map's entries in its table slots"). The same
-   first limit keeps `find` from handing back the entry, which is what
-   the rest of Map's and Set's checks wait on: a 1.3-1.9% ceiling on
-   ts-pattern; proving their probe indexes alone gained nothing
+4. **A limit of the ownership checker** that makes std code clumsy: an
+   object's field cannot be moved out of it alone (no partial moves).
+   It keeps a Map slot at 40 bytes rather than 24 (backlog, "The Map's
+   entries in its table slots"). Returning a write view bound by `if
+   !@slots[j] as s` `from @` is built (In flight), so `find` may hand
+   back the entry, which is what the rest of Map's and Set's checks
+   wait on: a 1.3-1.9% ceiling on ts-pattern; proving their probe
+   indexes alone gained nothing
    (docs/history/records/2026-10/safety-checks/len-and-map-notes.md).
 
 Measured and set aside: lazy member tables (symbols are about a tenth
