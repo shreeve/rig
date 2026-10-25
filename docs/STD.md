@@ -44,6 +44,7 @@ never read as the library's.
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
 | [`std.iter`](#stditer) | counting and summing what any iterator gives |
+| [`std.hash`](#stdhash) | an unordered Map and Set, laid out as SwissTable: `hash.Map`, `hash.Set` |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -1057,6 +1058,89 @@ sub main()
 `Upto` declares `next`, so it provides `Iter` with `Item` an `Int`,
 which provides `Num`. `iter.sum` of an iterator of text is rejected:
 `?String` is no number.
+
+## std.hash
+
+`hash.Map[K, V]` and `hash.Set[K]` are hash tables whose entries are
+in no order, laid out as Rust's hashbrown (SwissTable) is, beside the
+built-in ordered [Map and Set](#map-and-set). `use std.hash` names the
+module `hash` and nothing else: a plain `Map` or `Set` is still the
+built-in one, and the unordered one is always written `hash.Map`. They
+have the built-in ones' members, signatures, and ownership (the table
+in [Map and Set](#map-and-set)), less `at`, which reads the order, so
+switching a Map is writing `hash.Map` for `Map`. Their parameters are
+bounded `K: Hash + Print` and `V: Print`, since they print themselves:
+every type a Map can hold provides `Print`, so the bound shows only in
+a generic that names a `hash.Map` of its own type parameters, which
+states `Print` beside `Hash`.
+
+The order of `items`, `keys`, `values`, `update`, `retain`, a Set's
+`items`, and printing is the table's: unspecified, and changed by any
+put or take that grows or rebuilds the table. `print` writes a
+`hash.Map` as a Map is written, `{"a": 1}`, and a `hash.Set` as `{1}`,
+`{}` when empty; `String(m)` writes the same text, and `+m` is a clone.
+
+```rig
+use std.hash
+use std.sort
+
+sub main()
+  ages = hash.Map[String, Int]()
+  !ages.put(String("ada"), 36)
+  !ages.put(String("bo"), 5)
+  !ages.put(String("ada"), 37)
+  if (!ages).edit("bo") as a
+    a += 1
+  print(ages.len, ages.get("ada"), ages.get("bo"), ages.get("cy"))
+  print((!ages).take("bo"), ages, String("ages: ", ages))
+  counts = hash.Map[?String, Int]()
+  for w in ["to", "be", "or", "to", "be", "to"]
+    (!counts).ensure(w, 0) += 1
+  seen: List[String] = List()
+  for e in ?counts.items()
+    !seen.push(String(e.key, " ", e.value))
+  sort.sort(!seen)
+  print(seen)
+  ids = hash.Set[Int].new(capacity: 100)
+  for i in 0..100
+    _ = (!ids).add(i * i % 7)
+  print(ids.len, ids.has(4), ids.has(3), Map[String, Int]())
+```
+
+```output
+2 37 6 none
+6 {"ada": 37} ages: {"ada": 37}
+["be 2", "or 1", "to 3"]
+4 true false {}
+```
+
+A table holds `n` slots, a power of two, as two Lists: one control
+byte a slot, and the slots, each a `Bucket` of the key and its value
+held in place, or `none`. A control byte is free (`0xFF`), a tombstone
+(`0x80`), or, for a full slot, the top seven bits of its key's hash. A
+lookup hashes the key once, with `.hash()`; the hash's low bits pick a
+home slot, and the 16 control bytes from there are read as one
+`Simd[U8, 16]` and compared with the tag at once, so only a slot whose
+byte matches has its key compared. A probe stops at a group that holds
+a free byte, and otherwise steps to the group 16, 32, 48, ... slots on
+(triangular probing, which visits every group). The bytes after the
+last slot repeat the first 16, so a group read at any slot needs no
+wrap. A table is at most 7/8 full, counting tombstones; a smaller one,
+below 16 slots, all but one slot. Taking a key frees its slot when no
+probe could have passed it, and leaves a tombstone otherwise; when a
+put finds the table full, the table is rebuilt at its size if that
+leaves it at most half full, its tombstones dropped, and otherwise
+built anew at twice the size or more, each key placed again from its
+hash. Nothing is
+allocated until the first put; `clear` drops every entry and keeps the
+table.
+
+A slot is a `Bucket[K, V]?`, so where neither the key nor the value has
+a spare value for `none` (an address a String or List never holds), the
+slot holds a flag beside them: 24 bytes for an `Int` key and value,
+where hashbrown's is 16. A String key or value gives the optional its
+`none`, so a `hash.Map[String, Int]` slot is the 40 bytes of the
+String and the Int.
 
 ## Map and Set
 

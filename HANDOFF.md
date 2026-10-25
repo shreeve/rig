@@ -72,6 +72,12 @@ newest entry summarizes the latest rounds.
   paragraph: inside `if $plain(K)` a generic body may copy a `K`, which
   the packed Map needs to fill its free slots. Sema decides plain once
   per instance and emit passes it as a compile-time Bool.
+- **std.hash** (`hash.Map`, `hash.Set`, unordered, hashbrown's layout):
+  built, beside the ordered Map. On Trig's hot caches it moves
+  ts-pattern within noise and zod3 1-2.5% slower with 10% more memory
+  ([records](docs/history/records/2026-10/std-hash/)); Trig decides
+  whether to adopt it. Its growth writes every free slot (no
+  `List.filled(n, none)` for an owning type) and rehashes every key.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.

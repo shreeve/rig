@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Time the built-in Map against Zig's std.HashMap.
+"""Time the built-in Map and std.hash's Map against Zig's std.HashMap
+and Rust's HashMap (hashbrown).
 
 usage: bench/hash/bench-hash [options]
    or, to time on a quiet machine:
@@ -9,15 +10,23 @@ usage: bench/hash/bench-hash [options]
   --variants a,b  what to build and time (default: rig-safe,zig-safe):
                     rig-safe   bench/hash/map.rig, rig build --release (Zig's safe mode)
                     rig-fast   the same, rig build --release=fast
+                    hash-safe  map.rig with its Map aliases made `hash.Map` (std.hash)
+                    hash-fast  the same, rig build --release=fast
                     zig-safe   bench/hash/map.zig, -OReleaseSafe
                     zig-fast   the same, -OReleaseFast
+                    rust       bench/hash/map.rs, rustc -C opt-level=3: hashbrown,
+                               with FxHasher; the sized rows only
   --reps N        runs per variant, interleaved across variants; the
                   fastest of each operation counts (default 9)
   --out DIR       keep the builds in DIR and reuse them; with
   --build-only    build and stop, and later
   --time-only     time what DIR holds
 
-Each program puts a million keys into an empty map (insert), looks each
+Each program first times Int keys at sizes 16, 1,000, 100,000, and
+4,000,000 (`int16` ...): insert puts the keys into empty maps (a million
+keys a batch, so 62,500 maps of 16), remove takes them back out, hit and
+miss look keys up in one map of that size, and iterate walks it, each
+row 4,000,000 operations and reported per operation. Then each puts a million keys into an empty map (insert), looks each
 up (hit), looks up a million keys it does not hold (miss), and walks
 the map (iterate), for Int keys (scattered by a multiply) and String
 keys ("key" and a number), and, with no walk, for keys of two words
@@ -27,12 +36,13 @@ N keys whether or not each is new, three ways (`ensure`, `ensure_with`,
 prints `KEYS OP NS CHECK` per operation; the checksums must agree. The report compares each variant with the
 first Zig one, as "N% faster" or "N% slower".
 """
-import argparse, os, shutil, subprocess, sys, tempfile
+import argparse, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 ZIG = os.environ.get("ZIG", "zig")
+RUSTC = os.environ.get("RUSTC", "rustc")
 N = 1_000_000
 
 
@@ -41,10 +51,20 @@ def build(v, out):
     if os.path.exists(exe):
         return exe
     tmp = exe + ".new"
-    if v.startswith("rig-"):
+    if v.startswith("rig-") or v.startswith("hash-"):
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
-        flag = "--release" if v == "rig-safe" else "--release=fast"
-        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "map.rig")], check=True, env=env)
+        flag = "--release" if v.endswith("-safe") else "--release=fast"
+        src = os.path.join(HERE, "map.rig")
+        if v.startswith("hash-"):
+            # The same program with each `type X = Map[...]` alias made
+            # `hash.Map[...]`, so every row but interning times std.hash.
+            text = re.sub(r"^type (\w+) = Map\[", r"type \1 = hash.Map[", open(src).read(), flags=re.M)
+            src = os.path.join(out, "map-hash.rig")
+            with open(src, "w") as f:
+                f.write(text)
+        subprocess.run([RIG, "build", flag, "-o", tmp, src], check=True, env=env)
+    elif v == "rust":
+        subprocess.run([RUSTC, "-C", "opt-level=3", "-o", tmp, os.path.join(HERE, "map.rs")], check=True)
     else:
         mode = "-OReleaseSafe" if v == "zig-safe" else "-OReleaseFast"
         subprocess.run([ZIG, "build-exe", mode, os.path.join(HERE, "map.zig"), "-femit-bin=" + tmp,

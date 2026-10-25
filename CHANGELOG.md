@@ -1156,6 +1156,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   free slots written at once, where it pushed them one at a time: Trig
   checks ts-pattern and zod3 with 1.5% fewer instructions and 1.6% fewer
   cycles.
+- **std.hash:** `hash.Map[K, V]` and `hash.Set[K]`, hash tables in no
+  order, laid out as hashbrown's SwissTable is (a control byte a slot,
+  each key and value held in its slot, 16 control bytes compared at
+  once as a `Simd[U8, 16]`, at most 7/8 full), with the built-in Map's
+  and Set's members and ownership less `at`. `use std.hash` leaves `Map`
+  and `Set` the built-in ordered ones. On `bench/hash` a miss is 1.6 to
+  3.9 times as fast as Map's at 100,000 keys and up, and an insert 1.15
+  to 3.4 times as slow (docs/history/records/2026-10/std-hash/).
 - **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
   to 1024) inside the List value itself and allocates only once it
   holds more, when they all move to the heap, so a short-lived List of

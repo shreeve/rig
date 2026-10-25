@@ -788,10 +788,678 @@ test "hash own map", "2 0"
     s: Set[Int] = Set()
     print(m.n, s.len)
 
-fail "hash no module", "3:1: the standard library has no module `hash`"
-  # Map and Set need no import, and no module holds them.
+test "hash std map", '''
+  0 false none
+  2 uno two false
+  two none
+  dos
+  uno none 2
+  ["a=again", "b=dos", "c=tres!"]
+  ["a", "b", "c"] ["again", "dos", "tres!"]
+  false true again four
+  0 none []
+  1 five
+  666 332667 true true none
+  1000 1000
+  4 4 3 4 4
+  a b false
+  1 2 none
+  true false 1 1 0 0
+  0 false none {}
+  none 0
+'''
+  # hash.Map: every member, over owned and viewed text keys, integers,
+  # objects, and enums, through growth, taking, and clearing, with values
+  # that own memory. The entries are in no order, so each walk is sorted
+  # before it is printed.
+  use std.hash
+  use std.sort
+
+  obj Pt
+    x: Int
+    y: Int
+
+  enum Key
+    name(s: String)
+    num(n: Int)
+
+  sub bump(k: ?String, v: !Int)
+    v += k.len
+
+  obj Binder
+    ids: hash.Map[U32, U32] = hash.Map[U32, U32]()
+    seen: hash.Set[U32] = hash.Set[U32]()
+
+  fun sorted(m: ?hash.Map[String, String]) -> List[String]
+    out: List[String] = List()
+    for e in ?m.items()
+      !out.push(String(e.key, "=", e.value))
+    sort.sort(!out)
+    out
+
+  sub main()
+    m = hash.Map[String, String].new()
+    print(m.len, m.has("a"), m.get("a"))
+    !m.put(String("a"), String("one"))
+    !m.put(String("b"), String("two"))
+    !m.put(String("a"), String("uno"))
+    print(m.len, m.get("a"), m.get("b"), m.has("c"))
+    old = (!m).replace(String("b"), String("dos"))
+    print(old, (!m).replace(String("c"), String("tres")))
+    if (!m).edit("c") as v
+      !v.add("!")
+    t = String("b")
+    print(m.get(?t))
+    print((!m).take("a"), (!m).take("a"), m.len)
+    !m.put(String("a"), String("again"))
+    print(sorted(?m))
+    ks: List[String] = List()
+    for k in ?m.keys()
+      !ks.push(+k)
+    vs: List[String] = List()
+    for v in ?m.values()
+      !vs.push(+v)
+    sort.sort(!ks)
+    sort.sort(!vs)
+    print(ks, vs)
+    print((!m).put_new(String("a"), String("no")), (!m).put_new(String("d"), String("four")), m.get("a"), m.get("d"))
+    !m.clear()
+    print(m.len, m.get("b"), sorted(?m))
+    !m.put(String("e"), String("five"))
+    print(m.len, m.get("e"))
+
+    ints = hash.Map[Int, Int].new()
+    for i in 0..1000
+      !ints.put(i * 7, i)
+    for i in 0..1000
+      if i % 3 == 0
+        _ = (!ints).take(i * 7)
+    sum = 0
+    for i in 0..1000
+      if ints.get(i * 7) as v
+        sum += v
+    print(ints.len, sum, ints.has(7), ints.has(14), ints.get(6993))
+    for i in 0..1000
+      !ints.put(i * 7, 1)
+    count = 0
+    for e in ?ints.items()
+      count += e.value
+    print(ints.len, count)
+
+    counts = hash.Map[?String, Int].new()
+    words = ["to", "be", "or", "not", "to", "be"]
+    for w in words
+      if (!counts).edit(w) as c
+        c += 1
+      else
+        !counts.put(w, 1)
+    !counts.update(bump)
+    print(counts.get("to"), counts.get("be"), counts.get("or"), counts.get("not"), counts.len)
+
+    pts = hash.Map[Pt, ?String].new()
+    !pts.put(Pt(x: 1, y: 2), "a")
+    !pts.put(Pt(x: 2, y: 1), "b")
+    print(pts.get(?Pt(x: 1, y: 2)), pts.get(?Pt(x: 2, y: 1)), pts.has(?Pt(x: 1, y: 1)))
+
+    keyed = hash.Map[Key, Int].new()
+    !keyed.put(Key.name(s: String("x")), 1)
+    !keyed.put(Key.num(n: 5), 2)
+    print(keyed.get(Key.name(s: String("x"))), keyed.get(Key.num(n: 5)), keyed.get(Key.num(n: 6)))
+
+    bd = Binder()
+    other = Binder()
+    !bd.ids.put(1, 10)
+    print((!bd.seen).add(1), (!bd.seen).add(1), bd.ids.len, bd.seen.len, other.ids.len, other.seen.len)
+    e = hash.Map[Int, Int]()
+    print(e.len, e.has(1), e.get(1), e)
+    print((!e).take(1), e.len)
+
+test "hash std drops", '''
+  0 true
+  drop 2
+  a false
+  drop 3
+  b 11
+  c 11
+  make 2
+  d 200
+  e true
+  drop 11
+  drop 200
+  f
+  drop 5
+  g 0
+  drop 6
+  h 0
+  drop 8
+  i
+  drop 10
+  j
+  k 0
+  drop 9
+  l 1333 w2 none v5
+  end
+  drop 7
+'''
+  # An entry's owned key and value drop where the Map lets them go: the
+  # old value on overwrite (`put`), the key and value a write does not
+  # store (`put_new`, `ensure`, `ensure_with`), the key on `take`, an
+  # entry `retain` rejects, each entry on `clear`, and the rest with the
+  # Map. Growth and rebuilding move entries and drop none.
+  use std.hash
+
+  obj Res
+    n: Int
+
+    drop(!@)
+      print("drop", @n)
+
+  fun mk(k: ?Int) -> Res
+    print("make", k)
+    Res(n: k * 100)
+
+  sub main()
+    m = hash.Map[Int, Res].new()
+    print(m.len, (!m).put_new(1, Res(n: 1)))
+    print("a", (!m).put_new(1, Res(n: 2)))
+    c = (!m).ensure(1, Res(n: 3))
+    c.n += 10
+    print("b", c.n)
+    d = (!m).ensure_with(1, mk)
+    print("c", d.n)
+    e = (!m).ensure_with(2, mk)
+    print("d", e.n)
+    t = (!m).take(1)
+    print("e", t != none)
+    <t
+    !m.put(2, Res(n: 5))
+    print("f")
+    !m.retain(|k, r| k == 9)
+    print("g", m.len)
+    !m.put(3, Res(n: 6))
+    !m.clear()
+    print("h", m.len)
+    !m.put(4, Res(n: 7))
+    names = hash.Map[String, Res]()
+    !names.put(String("x"), Res(n: 8))
+    !names.put(String("x"), Res(n: 9))
+    print("i")
+    _ = (!names).put_new(String("x"), Res(n: 10))
+    print("j")
+    gone = (!names).take(String("x"))
+    print("k", names.len)
+    <gone
+    big = hash.Map[String, String]()
+    for i in 0..2000
+      !big.put(String(i), String("v", i))
+    for i in 0..2000
+      !big.put(String(i), String("w", i)) if i % 2 == 0
+      _ = (!big).take(String(i)) if i % 3 == 0
+    print("l", big.len, big.get("2"), big.get("3"), big.get("5"))
+    print("end")
+
+test "hash std growth", "29 0"
+  # Maps and Sets of every size from empty to 100,000 keys, grown one key
+  # at a time and with room reserved: every key is found with its value,
+  # none of the keys put in is missed, a key not put in is not found, and
+  # a walk gives each entry once.
+  use std.hash
+
+  fun check(n: Int, room: Int) -> Bool
+    m = hash.Map[Int, Int].new(capacity: room)
+    s = hash.Set[Int].new(capacity: room)
+    for i in 0..n
+      !m.put(i *% -7046029254386353131, i)
+      return false if not (!s).add(i * 3)
+    return false if m.len != n or s.len != n
+    for i in 0..n
+      return false if (m.get(i *% -7046029254386353131) ?? -1) != i
+      return false if not s.has(i * 3)
+    for i in n..n + 50
+      return false if m.has(i *% -7046029254386353131) or s.has(i * 3)
+    seen = 0
+    sum = 0
+    for e in ?m.items()
+      seen += 1
+      sum += e.value
+    members = 0
+    for k in ?s.items()
+      members += 1
+      return false if k % 3 != 0
+    seen == n and members == n and sum == n * (n - 1) / 2
+
+  sub main()
+    sizes = [0, 1, 2, 3, 4, 5, 7, 8, 9, 13, 14, 15, 16, 17, 28, 29, 31, 32, 33, 56, 57, 100, 112, 113, 1000, 1792, 1793, 4096, 100000]
+    bad = 0
+    for n in sizes
+      bad += 1 if not check(n, 0)
+      bad += 1 if not check(n, n)
+      bad += 1 if not check(n, n / 2)
+    print(sizes.len, bad)
+
+test "hash std collisions", '''
+  true true true true true
+  true true
+'''
+  # Keys whose own hash collides: every key of `Same` hashes alike, so each
+  # shares one home group and one tag, and the keys of `Few` hash to three
+  # values. Puts, lookups, takes, and puts again past the tombstones they
+  # leave stay correct when every probe runs through many groups.
+  use std.hash
+
+  obj Same: Hash
+    k: Int
+
+    sub hash_into(?@, h: !Hasher)
+      !h.add(7)
+
+  obj Few: Hash
+    k: Int
+
+    sub hash_into(?@, h: !Hasher)
+      !h.add(@k % 3)
+
+  fun same(n: Int) -> Bool
+    m = hash.Map[Same, Int]()
+    s = hash.Set[Same]()
+    for i in 0..n
+      !m.put(Same(k: i), i)
+      _ = (!s).add(Same(k: i))
+    for i in 0..n
+      return false if (m.get(Same(k: i)) ?? -1) != i or not s.has(Same(k: i))
+    return false if m.has(Same(k: n)) or s.has(Same(k: n))
+    for i in 0..n
+      if i % 2 == 0
+        return false if (!m).take(Same(k: i)) != i
+        return false if (!s).take(Same(k: i)) == none
+    for i in 0..n
+      want = -1 if i % 2 == 0 else i
+      return false if (m.get(Same(k: i)) ?? -1) != want or s.has(Same(k: i)) != (i % 2 == 1)
+    for i in 0..n
+      if i % 2 == 0
+        !m.put(Same(k: i), i + 1)
+    for i in 0..n
+      want = i + 1 if i % 2 == 0 else i
+      return false if (m.get(Same(k: i)) ?? -1) != want
+    count = 0
+    for e in ?m.items()
+      count += 1 if e.key.k < n
+    m.len == n and count == n and s.len == n / 2
+
+  fun few(n: Int) -> Bool
+    m = hash.Map[Few, Int]()
+    for round in 0..4
+      for i in 0..n
+        !m.put(Few(k: i), i + round)
+      for i in 0..n
+        return false if (m.get(Few(k: i)) ?? -1) != i + round
+      for i in 0..n
+        _ = (!m).take(Few(k: i)) if (i + round) % 3 != 0
+    m.len <= n
+
+  sub main()
+    print(same(1), same(15), same(16), same(17), same(300))
+    print(few(10), few(200))
+
+test "hash std churn", '''
+  true true true true
+  true true
+  true true true
+  true true true true
+'''
+  # hash.Map and hash.Set against a plain reference, a List of pairs
+  # searched in turn, over a long pseudo-random run of puts, takes, gets,
+  # edits, `put_new`s, `ensure`s, `retain`s, and clears, with room
+  # reserved and not: takes leave tombstones, which later puts fill and
+  # rebuilds clear. After every step the two agree on the length and on
+  # every key, and a walk gives each live entry once.
+  use std.hash
+
+  obj Pair
+    key: Int
+    value: Int
+    live: Bool
+
+  obj Model
+    pairs: List[Pair] = List()
+    len: Int = 0
+
+    fun find(?@, k: Int) -> Int?
+      for p, i in ?@pairs
+        return i if p.live and p.key == k
+      none
+
+    sub put(!@, k: Int, v: Int)
+      if @find(k) as i
+        @pairs[i].value = v
+      else
+        !@pairs.push(Pair(key: k, value: v, live: true))
+        @len += 1
+
+    fun take(!@, k: Int) -> Int?
+      if @find(k) as i
+        @pairs[i].live = false
+        @len -= 1
+        return @pairs[i].value
+      none
+
+    sub bump(!@, k: Int)
+      if @find(k) as i
+        @pairs[i].value += 1
+
+    sub clear(!@)
+      !@pairs.clear()
+      @len = 0
+
+    sub retain(!@, raise: Int)
+      kept: List[Pair] = List()
+      for p in ?@pairs
+        if p.live and kept_after(p.key, p.value + raise)
+          !kept.push(Pair(key: p.key, value: p.value + raise, live: true))
+      @len = kept.len
+      @pairs = <kept
+
+  fun kept_after(k: Int, v: Int) -> Bool
+    (k / 1024 + v) % 3 != 0
+
+  fun raise_and_keep(k: ?Int, v: !Int) -> Bool
+    v += 2
+    kept_after(k, v)
+
+  obj Rand
+    s: U64
+
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
+
+  fun agree(m: ?hash.Map[Int, Int], ref: ?Model, span: Int) -> Bool
+    return false if m.len != ref.len
+    for x in 0..span
+      k = x * 1024
+      want: Int? = none
+      if ref.find(k) as i
+        want = ref.pairs[i].value
+      got: Int? = none
+      if m.get(k) as v
+        got = v
+      return false if got != want
+    walked = 0
+    for e in ?m.items()
+      walked += 1
+      if ref.find(e.key) as i
+        return false if ref.pairs[i].value != e.value
+      else
+        return false
+    walked == ref.len
+
+  fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
+    r = Rand(s: seed)
+    m = hash.Map[Int, Int].new(capacity: reserve)
+    ref = Model()
+    for step in 0..steps
+      op = (!r).next(20)
+      k = (!r).next(span) * 1024
+      if op < 9
+        !m.put(k, step)
+        !ref.put(k, step)
+      else if op < 14
+        return false if (!m).take(k) != (!ref).take(k)
+      else if op < 15
+        if (!m).edit(k) as v
+          v += 1
+          !ref.bump(k)
+      else if op < 16
+        return false if (!m).put_new(k, step) != (ref.find(k) == none)
+        !ref.put(k, step) if ref.find(k) == none
+      else if op < 18
+        c = (!m).ensure(k, step)
+        c += 1
+        !ref.put(k, step) if ref.find(k) == none
+        !ref.bump(k)
+      else if op < 19
+        if (!r).next(10) == 0
+          !m.retain(|key, val| raise_and_keep(key, !val))
+          !ref.retain(2)
+      else if (!r).next(25) == 0
+        !m.clear()
+        !ref.clear()
+      return false if not agree(?m, ?ref, span)
+    true
+
+  fun set_agrees(s: ?hash.Set[Int], ref: ?Model, span: Int) -> Bool
+    return false if s.len != ref.len
+    for x in 0..span
+      return false if s.has(x * 1024) != (ref.find(x * 1024) != none)
+    walked = 0
+    for k in ?s.items()
+      walked += 1
+      return false if ref.find(k) == none
+    walked == ref.len
+
+  fun run_set(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
+    r = Rand(s: seed)
+    s = hash.Set[Int].new(capacity: reserve)
+    ref = Model()
+    for _ in 0..steps
+      op = (!r).next(10)
+      k = (!r).next(span) * 1024
+      if op < 6
+        return false if (!s).add(k) != (ref.find(k) == none)
+        !ref.put(k, 0)
+      else if op < 9
+        got = (!s).take(k)
+        return false if (got != none) != ((!ref).take(k) != none)
+      else if (!r).next(10) == 0
+        !s.retain(|key| kept_after(key, 0))
+        !ref.retain(0)
+      else if (!r).next(50) == 0
+        !s.clear()
+        !ref.clear()
+      return false if not set_agrees(?s, ?ref, span)
+    true
+
+  # A Map held near one size while 40,000 new keys go in and come out:
+  # the tombstones they leave fill the table, which is rebuilt in place,
+  # and every live key stays found.
+  fun steady(live: Int) -> Bool
+    m = hash.Map[Int, String]()
+    for i in 0..40000
+      !m.put(i, String(i))
+      if i >= live
+        return false if (!m).take(i - live) == none
+      if i % 997 == 0
+        lo = 0 if i < live else i - live + 1
+        for j in lo..i + 1
+          return false if m.get(j) == none
+        return false if m.has(lo - 1)
+    m.len == live
+
+  sub main()
+    print(run(1, 6, 400, 0), run(2, 12, 2000, 0), run(3, 40, 4000, 0), run(4, 300, 6000, 0))
+    print(run(5, 40, 3000, 100), run(6, 9, 3000, 9))
+    print(run_set(7, 6, 400, 0), run_set(8, 40, 4000, 0), run_set(9, 300, 6000, 50))
+    print(steady(3), steady(10), steady(100), steady(900))
+
+test "hash std views", '''
+  [5, 6, 7] 5 [3] 1
+  true true 2
+'''
+  use std.hash
+
+  sub main()
+    m = hash.Map[String, List[Int]]()
+    (!m).ensure(String("a"), List()).push(5)
+    (!m).ensure(String("a"), List()).push(6)
+    if (!m).edit("a") as l
+      !l.push(7)
+    first = 0
+    if m.get("a") as l
+      first = l[0]
+    kept: List[Int] = List()
+    for e in ?m.items()
+      keep = e.value
+      !kept.push(keep.len)
+    print(m.get("a"), first, kept, m.len)
+    s = hash.Set[?String]()
+    t = String("x")
+    _ = (!s).add(?t)
+    _ = (!s).add("y")
+    print(s.has("x"), s.has(?t), s.len)
+
+test "hash std iterate after takes", "500 250000 500 250000 500 true"
+  # A walk after takes gives each entry left once: `items`, `keys`, and
+  # `values` skip the slots taken, emptied or tombstones, and a Set's
+  # `items` the same.
 
   use std.hash
 
   sub main()
-    print(1)
+    m = hash.Map[Int, Int]()
+    s = hash.Set[Int]()
+    for i in 0..1000
+      !m.put(i * 7, i)
+      _ = (!s).add(i)
+    for i in 0..1000
+      if i % 2 == 0
+        _ = (!m).take(i * 7)
+        _ = (!s).take(i)
+    n = 0
+    sum = 0
+    for e in ?m.items()
+      n += 1
+      sum += e.value
+    keys = 0
+    for k in ?m.keys()
+      keys += 1 if k % 14 == 7
+    total = 0
+    for v in ?m.values()
+      total += v
+    odd = true
+    members = 0
+    for k in ?s.items()
+      members += 1
+      odd = odd and k % 2 == 1
+    print(n, sum, keys, total, members, odd)
+
+test "hash std print", '''
+  {} {"a": 1} {} {"x"} {2: [1, 2]}
+  m: {"a": 1}
+  1 ["a=1", "b=2"]
+'''
+  # `print` writes a hash.Map as the built-in Map is written, `{"a": 1}`,
+  # and a hash.Set as `{"x"}`, in table order, which is unspecified, so
+  # a Map of several entries is printed here by its sorted entries.
+  # `String(m)` writes the same text, and `+m` is a clone.
+
+  use std.hash
+  use std.sort
+
+  sub main()
+    m = hash.Map[String, Int]()
+    e = hash.Map[String, Int]()
+    !m.put(String("a"), 1)
+    s = hash.Set[String]()
+    es = hash.Set[Int]()
+    _ = (!s).add(String("x"))
+    l = hash.Map[Int, List[Int]]()
+    !l.put(2, List[Int]([1, 2]))
+    print(e, m, es, s, l)
+    print(String("m: ", m))
+    c = +m
+    !c.put(String("b"), 2)
+    out: List[String] = List()
+    for x in ?c.items()
+      !out.push(String(x.key, "=", x.value))
+    sort.sort(!out)
+    print(m.len, out)
+
+test "hash std leaves Map ordered", '''
+  {"c": 1, "a": 2, "b": 3} {3, 1, 2}
+  Map[String, Int] hash.Map[String, Int] hash.Set[Int]
+  3 3
+'''
+  # `use std.hash` names the module `hash`; plain `Map` and `Set` stay the
+  # built-in ordered ones, and the unordered ones are written `hash.Map`
+  # and `hash.Set`.
+
+  use std.hash
+
+  sub main()
+    m = Map[String, Int]()
+    s = Set[Int]()
+    h = hash.Map[String, Int]()
+    for w, i in ["c", "a", "b"]
+      !m.put(String(w), i + 1)
+      !h.put(String(w), i + 1)
+      _ = (!s).add(3 - i if i == 0 else i)
+    print(m, s)
+    print($name(Map[String, Int]), $name(hash.Map[String, Int]), $name(hash.Set[Int]))
+    print(m.len, h.len)
+
+fail "hash std get keeps lent", "cannot lend `m` to write while a read loan is live"
+  # The view `get` returns is `from @`, as the built-in Map's is: it keeps
+  # the Map lent to read while it lives.
+
+  use std.hash
+
+  sub main()
+    m = hash.Map[String, Int]()
+    r = ?m.get("a")
+    !m.put(String("b"), 1)
+    print(r)
+
+fail "hash std edit keeps lent", "use of `m.len` while a write loan on `m` is live"
+  # The view `edit` returns keeps the Map lent to write.
+
+  use std.hash
+
+  sub main()
+    m = hash.Map[Int, Int]()
+    !m.put(1, 1)
+    if (!m).edit(1) as v
+      print(m.len)
+      v += 1
+
+fail "hash std ensure keeps lent", "use of `m.len` while a write loan on `m` is live"
+  # The view `ensure` returns keeps the Map lent to write.
+
+  use std.hash
+
+  sub main()
+    m = hash.Map[Int, Int]()
+    c = (!m).ensure(1, 0)
+    print(m.len)
+    c += 1
+
+fail "hash std items then put", "cannot lend `m` to write while a read loan is live"
+  # The iterator `items` returns views the Map, and an item kept past its
+  # step keeps it lent to read.
+
+  use std.hash
+
+  sub main()
+    m = hash.Map[String, Int]()
+    !m.put(String("a"), 1)
+    for e in ?m.items()
+      !m.put(String("c"), 2)
+
+fail "hash std retain no map", "cannot lend `m` to write while a read loan is live"
+  # `retain` holds the Map lent to write while its closure runs.
+
+  use std.hash
+
+  sub main()
+    m = hash.Map[Int, Int]()
+    !m.put(1, 1)
+    !m.retain(|?m, k, v| m.len > 1)
+    print(m.len)
+
+fail "hash std key no hash", "cannot use `K = Float`"
+  # A key is a value `.hash()` takes, as for the built-in Map.
+
+  use std.hash
+
+  sub main()
+    m = hash.Map[Float, Int]()
+    print(m.len)

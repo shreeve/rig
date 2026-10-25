@@ -2,20 +2,31 @@
 # lookup, and iterate, each over N keys; insert, hit and miss on keys of
 # two words; hits in Maps of 4 and 8 keys;
 # interning N words; and writing a value whether or not its key is new,
-# three ways, on misses and on hits. Each loop walks its keys as
-# map.zig's does: a range of Ints, or a List's elements in order.
-# Prints `KEYS OP NS CHECK` per line (bench/hash/bench-hash). Each group
-# is `called`, a function of its own as a program's would be, so what
-# one group keeps in registers does not depend on what the compiler
-# inlines into `main` around it.
+# three ways, on misses and on hits; then insert, hit, miss, remove, and
+# iterate on Int keys at sizes 16, 1,000, 100,000, and 4,000,000. Each
+# loop walks its keys as map.zig's does: a range of Ints, or a List's
+# elements in order. Prints `KEYS OP NS CHECK` per line
+# (bench/hash/bench-hash). Each group is `called`, a function of its own
+# as a program's would be, so what one group keeps in registers does not
+# depend on what the compiler inlines into `main` around it.
+#
+# Every Map is named by one of the aliases below, which bench-hash
+# rewrites to `hash.Map` (and `hash.Set`) for its `rig-hash` variants,
+# so std.hash is timed by the same program.
 
 use std.time
 use std.text
+use std.hash
 
 N = 1000000
 
+type IntMap = Map[Int, Int]
+type StringMap = Map[String, Int]
+type PairMap = Map[Pair, Int]
+type TextMap = Map[String, String]
+
 called sub ints(n: Int)
-  m = Map[Int, Int].new()
+  m = IntMap.new()
   t = time.now()
   for i in 0..n
     !m.put(i *% -7046029254386353131, i)
@@ -46,7 +57,7 @@ called sub strings(n: Int)
     !put.push(String("key", i))
     !look.push(String("key", i))
     !miss.push(String("key", n + i))
-  m = Map[String, Int].new()
+  m = StringMap.new()
   t = time.now()
   for k, i in <put
     !m.put(<k, i)
@@ -80,7 +91,7 @@ fun pair(i: Int) -> Pair
   Pair(lo: (U64(i >> 10) << 32) | U64(i & 1023), hi: 0xA5C4000000000000)
 
 called sub pairs(n: Int)
-  m = Map[Pair, Int].new()
+  m = PairMap.new()
   t = time.now()
   for i in 0..n
     !m.put(pair(i), i)
@@ -101,7 +112,7 @@ called sub pairs(n: Int)
 # N hit lookups in a Map of `size` Int keys: the symbol tables most
 # programs hold are this small.
 called sub small(n: Int, size: Int)
-  m = Map[Int, Int].new()
+  m = IntMap.new()
   for i in 0..size
     !m.put(i *% -7046029254386353131, i)
   sum = 0
@@ -142,7 +153,7 @@ fun keys(n: Int) -> List[String]
   ks
 
 called sub int_ensure(n: Int)
-  m = Map[Int, Int].new()
+  m = IntMap.new()
   t = time.now()
   for i in 0..n
     w = (!m).ensure(i *% -7046029254386353131, 0)
@@ -155,7 +166,7 @@ called sub int_ensure(n: Int)
   print("int ensure-hit", t.elapsed(), m.get(0))
 
 called sub int_ensure_with(n: Int)
-  m = Map[Int, Int].new()
+  m = IntMap.new()
   t = time.now()
   for i in 0..n
     w = (!m).ensure_with(i *% -7046029254386353131, one)
@@ -168,7 +179,7 @@ called sub int_ensure_with(n: Int)
   print("int ensure_with-hit", t.elapsed(), m.get(0))
 
 called sub int_edit_put(n: Int)
-  m = Map[Int, Int].new()
+  m = IntMap.new()
   t = time.now()
   for i in 0..n
     k = i *% -7046029254386353131
@@ -189,7 +200,7 @@ called sub int_edit_put(n: Int)
 called sub string_ensure(n: Int)
   put = keys(n)
   look = keys(n)
-  m = Map[String, Int].new()
+  m = StringMap.new()
   t = time.now()
   for k in <put
     w = (!m).ensure(<k, 0)
@@ -204,7 +215,7 @@ called sub string_ensure(n: Int)
 called sub string_ensure_with(n: Int)
   put = keys(n)
   look = keys(n)
-  m = Map[String, Int].new()
+  m = StringMap.new()
   t = time.now()
   for k in <put
     w = (!m).ensure_with(<k, one_of)
@@ -219,7 +230,7 @@ called sub string_ensure_with(n: Int)
 called sub string_edit_put(n: Int)
   put = keys(n)
   look = keys(n)
-  m = Map[String, Int].new()
+  m = StringMap.new()
   t = time.now()
   for k in <put
     if (!m).edit(k) as w
@@ -235,7 +246,69 @@ called sub string_edit_put(n: Int)
       !m.put(<k, 1)
   print("string edit_put-hit", t.elapsed(), m.get("key0"))
 
+# The ops at one size `s`, each over 4,000,000 operations, printed as
+# `intS OP NS CHECK` with NS scaled to N operations: insert puts `s`
+# keys into each of `k` empty Maps (a million keys a batch, or `s`),
+# remove takes each key back out, both over 4,000,000 keys in all; hit
+# and miss look 4,000,000 keys up in one Map of `s`; iterate walks it
+# until 4,000,000 entries are seen.
+called sub sized(s: Int)
+  total = 4 * N
+  k = N / s if s < N else 1
+  reps = total / (k * s)
+  name = String("int", s)
+  ins = 0
+  rem = 0
+  check = 0
+  for _ in 0..reps
+    maps: List[IntMap] = List(capacity: k)
+    for _ in 0..k
+      !maps.push(IntMap())
+    t = time.now()
+    for j in 0..k
+      m = !maps[j]
+      base = j * s
+      for i in 0..s
+        !m.put((base + i) *% -7046029254386353131, i)
+    ins += t.elapsed()
+    t = time.now()
+    for j in 0..k
+      m = !maps[j]
+      base = j * s
+      for i in 0..s
+        check += (!m).take((base + i) *% -7046029254386353131) ?? 0
+    rem += t.elapsed()
+  print(name, "insert", ins * N / total, reps * k * s)
+  print(name, "remove", rem * N / total, check)
+  m = IntMap()
+  for i in 0..s
+    !m.put(i *% -7046029254386353131, i)
+  rounds = total / s
+  sum = 0
+  t = time.now()
+  for _ in 0..rounds
+    for i in 0..s
+      if m.get(i *% -7046029254386353131) as v
+        sum += v
+  print(name, "hit", t.elapsed() * N / total, sum)
+  found = 0
+  t = time.now()
+  for _ in 0..rounds
+    for i in s..2 * s
+      found += 1 if m.has(i *% -7046029254386353131)
+  print(name, "miss", t.elapsed() * N / total, found)
+  sum = 0
+  t = time.now()
+  for _ in 0..rounds
+    for e in ?m.items()
+      sum += e.value
+  print(name, "iterate", t.elapsed() * N / total, sum)
+
 sub main()
+  sized(16)
+  sized(1000)
+  sized(100000)
+  sized(4000000)
   ints(N)
   strings(N)
   pairs(N)
