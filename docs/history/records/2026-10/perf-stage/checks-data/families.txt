@@ -1,0 +1,65 @@
+samples 356958; on check branches and their compare 15677 (4.39%)
+
+by kind (share of all samples):
+  index       10464   2.93%
+  overflow     2746   0.77%
+  cast         1686   0.47%
+  bounds        528   0.15%
+  union         132   0.04%
+  other         121   0.03%
+
+by family (share of check samples; of all samples):
+  symbol and id accessors                  4917   31.4%   1.38%   (index 4393, overflow 313, cast 211)
+  Map/Set/Table probing (std builtin)      3081   19.7%   0.86%   (index 1747, overflow 811, cast 513, bounds 10)
+  checker, other                           2356   15.0%   0.66%   (index 1714, overflow 319, cast 144, bounds 131, union 35, other 13)
+  AST records (ast.Ast)                    1807   11.5%   0.51%   (index 1354, overflow 308, cast 70, union 65, other 10)
+  store accessors                          1725   11.0%   0.48%   (index 781, overflow 502, cast 442)
+  other                                    1047    6.7%   0.29%   (overflow 428, cast 297, index 129, bounds 82, other 80, union 31)
+  allocator                                 352    2.2%   0.10%   (bounds 305, overflow 39, other 8)
+  text.Interner                             277    1.8%   0.08%   (index 265, overflow 8, cast 4)
+  parser/binder/lexer                       115    0.7%   0.03%   (index 81, overflow 18, other 10, cast 5, union 1)
+
+top 40 sites:
+    293  0.08%  bounds   rig.alloc.Heap.freeSmall                                     alloc.zig:242
+    274  0.08%  index    checker.Checker.symbol_declaration_count                     checker.zig:2724
+    251  0.07%  overflow checker.Checker.type_at                                      checker.zig:77599
+    205  0.06%  index    __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find    __rig_std___rig_builtin.zig:551
+    184  0.05%  index    checker.Checker.symbol_declaration                           checker.zig:2738
+    182  0.05%  cast     rig.runtime.reallocSlice__func_1502                          runtime.zig:4838
+    170  0.05%  index    __rig_std_text.Interner.text                                 __rig_std_text.zig:675 (discriminator 2)
+    159  0.04%  index    __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find    __rig_std___rig_builtin.zig:551
+    151  0.04%  index    checker.Checker.conditional_flow_step                        checker.zig:6636
+    144  0.04%  overflow checker.KeyBuilder.write_uint32                              checker.zig:89990
+    142  0.04%  cast     __rig_std___rig_builtin.Map(u32,ast.Node).find               __rig_std___rig_builtin.zig:535 (discriminator 4)
+    141  0.04%  index    checker.Checker.instantiate_type_with_alias                  checker.zig:47467
+    140  0.04%  index    checker.Checker.symbol_flags                                 checker.zig:2625
+    139  0.04%  index    checker.Checker.instantiate_type_with_alias                  checker.zig:47478
+    121  0.03%  index    __rig_std___rig_builtin.Map(checker.CacheKey,u32).find       __rig_std___rig_builtin.zig:551
+    108  0.03%  index    checker.Checker.type_at                                      checker.zig:77599
+    108  0.03%  index    checker.Checker.data_place                                   checker.zig:2582
+    107  0.03%  overflow ast.SymbolRec.declaration_count                              ast.zig:18418 (discriminator 10)
+    105  0.03%  overflow __rig_std___rig_builtin.Map(checker.CacheKey,u32).insert     __rig_std___rig_builtin.zig:584
+    105  0.03%  index    checker.Checker.data_place                                   checker.zig:2582
+    104  0.03%  index    checker.Checker.get_type_from_type_node_worker               checker.zig:43868
+     99  0.03%  index    __rig_std___rig_builtin.Set(checker.CacheKey).find           __rig_std___rig_builtin.zig:864
+     95  0.03%  overflow __rig_std___rig_builtin.Map(checker.FlowLoopKey,u32).find    __rig_std___rig_builtin.zig:535
+     91  0.03%  index    ast.Ast.pos                                                  ast.zig:194
+     87  0.02%  index    checker.Checker.find_active_mapper                           checker.zig:47572
+     80  0.02%  index    checker.Checker.data_place                                   checker.zig:2582
+     79  0.02%  index    checker.Ids.node_id                                          checker.zig:93451
+     78  0.02%  index    checker.Checker.type_at                                      checker.zig:77599
+     78  0.02%  index    checker.Checker.symbol_value_declaration                     checker.zig:2709
+     76  0.02%  index    __rig_std___rig_builtin.Map(checker.AssignmentReducedKey,u32 __rig_std___rig_builtin.zig:551
+     76  0.02%  index    checker.Checker.data_place                                   checker.zig:2582
+     74  0.02%  index    ast.Ast.mapped_type_node                                     ast.zig:6517
+     74  0.02%  overflow ast.SymbolRec.declaration_count                              ast.zig:18418 (discriminator 2)
+     69  0.02%  cast     checker.node_ref                                             checker.zig:93340 (discriminator 22)
+     68  0.02%  overflow __rig_std___rig_builtin.Map(checker.AssignmentReducedKey,u32 __rig_std___rig_builtin.zig:535
+     68  0.02%  index    checker.Checker.symbol_flags                                 checker.zig:2623
+     67  0.02%  index    checker.Checker.symbol_check_flags                           checker.zig:2634
+     64  0.02%  index    checker.Checker.instantiate_type_with_alias                  checker.zig:47478
+     63  0.02%  cast     __rig_std___rig_builtin.Table.place                          __rig_std___rig_builtin.zig:37 (discriminator 6)
+     63  0.02%  index    checker.Checker.symbol_value_declaration                     checker.zig:2709
+
+sites 122497 [('index', 65680), ('cast', 23805), ('overflow', 22655), ('other', 6562), ('bounds', 2217), ('union', 1343), ('unwrap', 235)]
+total samples 356958 on sites 15677
