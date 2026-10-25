@@ -3481,13 +3481,15 @@ inline fn provenOffset(i: Int, count: usize, width: usize, comptime p: Proven) ?
         if (p == .upper) return null;
         if (verify_proofs) proofPanic();
     }
-    // `0 <= i` here, so the conversion is exact.
-    const u: u64 = @intCast(i);
+    // `0 <= i` here, tested or proven, so its bits are its value: a bit
+    // cast, which leaves LLVM no assumption to trust.
+    const u: u64 = @bitCast(i);
     if (u > count or count - u < width) {
         if (p == .lower) return null;
         if (verify_proofs) proofPanic();
     }
-    return @intCast(u);
+    // `u <= count` here, so it fits a `usize`.
+    return @truncate(u);
 }
 
 /// `s[i]` with the tests `p` proves omitted: the element is read through
