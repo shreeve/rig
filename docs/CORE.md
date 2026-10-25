@@ -491,7 +491,12 @@ call returns unless the call keeps it: after `head(!v)`, in its own
 statement or through `r = head(!v)`, `v` may be read, but not written,
 while the result lives. A view reached through a
 read view that a value holds carries that view's loans, not a loan on
-the holder. What a call stores in what a write view lent to it sees
+the holder. A view reached through a write view that a binding holds
+(`!s.value`, `s: !Slot`) carries that view's loans, path for path, and
+a loan on the binding that ends with the binding's scope. So `if
+!@slots[j] as s` may `return !s.value` `from @`, but nothing in that
+scope, its defers included, may use `s` while the view lives.
+*(built)* What a call stores in what a write view lent to it sees
 carries, in the same way, the loans of the arguments whose types could
 hold it; for a lent parameter (a view, an optional of one, or
 self), a declared function narrows this to the parameters its
@@ -623,6 +628,55 @@ sub main()
 
 ```error
 cannot lend `v` to write while a read loan is live
+```
+
+`edit` hands out a view of a slot's value, lent through `s`, which views
+the slot; the view outlives `s` and keeps `@slots` lent:
+
+```rig
+obj Slot
+  key: Int
+  value: Int
+
+obj Table
+  slots: List[Slot?]
+
+  fun edit(!@, j: Int) -> (!Int)? from @
+    if !@slots[j] as s
+      return !s.value
+    none
+
+sub main()
+  t = Table(slots: List())
+  !t.slots.push(Slot(key: 1, value: 2))
+  if (!t).edit(0) as v
+    v += 40
+  if t.slots[0] as s
+    print(s.value)
+```
+
+```output
+42
+```
+
+```rig reject
+obj Slot
+  key: Int
+  value: Int
+
+obj Table
+  slots: List[Slot?]
+
+  fun edit(!@, j: Int) -> (!Int)? from @
+    if !@slots[j] as s
+      v = !s.value
+      @slots[j] = none
+      return v
+    none
+```
+
+```error
+cannot assign to `@slots[j]` while `@slots` is lent
 ```
 
 ```rig
@@ -1898,8 +1952,9 @@ sub main()
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may
 read and write what is live there; they never extend a loan past it.
-No failure leaves one: a fallible call in it is caught there, so the
-error a failing scope is leaving with is never replaced. *(built)*
+What their scope gives back is live while they run. No failure leaves
+one: a fallible call in it is caught there, so the error a failing
+scope is leaving with is never replaced. *(built)*
 
 ```rig
 sub main()

@@ -4868,6 +4868,7 @@ test/reject/types/apis_object_a_view_of_a_type_parameter's_value_does_not_leave_
 test/reject/types/apis_object_a_read_loan_lasts_while_the_object_is_used.rig main
 doc/SPEC/86d585e18b14 pick
 doc/CORE/89c4a4a2aec8 main
+doc/CORE/ee564dca2d23 Table.edit
 test/reject/ownership/apis_object_box_keeps_a_loan_to_its_drop.rig main
 test/reject/ownership/apis_object_box_made_from_a_view_keeps_it.rig main
 test/reject/ownership/apis_object_box_a_drop_that_reads_a_view.rig main
@@ -4895,6 +4896,17 @@ test/reject/ownership/origin_from_self_returns_no_key.rig Box.bad2
 test/reject/ownership/write_a_view_of_self_into_a_field_that_holds_views.rig V.selfview
 test/reject/ownership/write_a_view_of_self_into_a_field_that_holds_views.rig viewparam
 test/reject/ownership/write_a_call's_write_view_kept_past_a_write.rig main
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.reset
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.swap
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.deferred
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.called
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.waited
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.tail
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.earlier
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.last
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.inner
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig local
+test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig walked
 test/reject/ownership/a_view_through_an_owned_field_of_self_is_a_loan_on_self.rig Checker.look
 test/reject/ownership/a_view_through_a_held_read_view_is_a_loan_on_what_it_views.rig main
 test/reject/ownership/a_read_through_a_read-view_field_of_self_while_self_is_lent_to_write.rig Checker.look
