@@ -813,3 +813,28 @@ test "the heap that does the work faults in ahead, beside a thread that takes li
     try std.testing.expect(!led_first);
     try std.testing.expect(!leads(me));
 }
+
+test "heaps that have each taken prefault_big fault in ahead, though neither leads, and a smaller one that does not lead faults lazily" {
+    const a = allocator;
+    const me = heapForTest();
+    const mine = try a.alloc(u8, prefault_big);
+    defer a.free(mine);
+    try std.testing.expect(me.taken >= prefault_big);
+    // A second thread that takes as much: neither leads, both fault in ahead.
+    const Checker = struct {
+        fn run(n: usize, first: *const Heap, out: *[4]bool) void {
+            const got = allocator.alloc(u8, n) catch unreachable;
+            const h = heapForTest();
+            out.* = .{ leads(h), faultsAhead(h), leads(first), faultsAhead(first) };
+            allocator.free(got);
+            threadExit();
+        }
+    };
+    var out: [4]bool = undefined;
+    (try std.Thread.spawn(.{}, Checker.run, .{ me.taken, me, &out })).join();
+    try std.testing.expectEqual([4]bool{ false, true, false, true }, out);
+    // A heap of half that, beside them, neither leads nor faults in ahead.
+    var small: Heap = .{ .taken = prefault_big / 2 };
+    try std.testing.expect(!leads(&small));
+    try std.testing.expect(!faultsAhead(&small));
+}
