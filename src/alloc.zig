@@ -16,12 +16,20 @@
 //! A thread that ends gives its heap back (`threadExit`), and the next
 //! thread to start takes it, with what it holds.
 //!
-//! Each heap counts the bytes and blocks its thread takes and gives back,
-//! and adds them to the program's totals in batches (`os.memory`). Debug builds keep the
-//! leak checker's path (`runtime.zig`, `defaultAllocator`).
+//! In a program that reads `os.memory` (`counts`), each heap counts the
+//! bytes and blocks its thread takes and gives back, and adds them to the
+//! program's totals in batches. Debug builds keep the leak checker's path
+//! (`runtime.zig`, `defaultAllocator`).
 
 const std = @import("std");
 const builtin = @import("builtin");
+const root = @import("root");
+
+/// Whether the heaps count what they hand out: only in a program that
+/// names `os.memory`, whose root declares `__rig_memory` (and in this
+/// file's tests). Any other program's allocator is the same code without
+/// the counting, so the counts cost it nothing.
+pub const counts = builtin.is_test or (@hasDecl(root, "__rig_memory") and root.__rig_memory);
 
 /// A segment: `segment_size` bytes, aligned to their size, so a block's
 /// segment is its address rounded down. Its first page holds its header.
@@ -160,11 +168,9 @@ pub const Heap = struct {
     /// for the next, and how many bytes they hold.
     large: [large_buckets]?*LargeFree = @splat(null),
     large_bytes: usize = 0,
-    /// The bytes of blocks this thread took less those it gave back, and
-    /// the blocks it took, not yet added to the program's totals
-    /// (`count`).
-    pending_bytes: isize = 0,
-    pending_allocs: u32 = 0,
+    /// What this thread counted and has not yet added to the program's
+    /// totals (`count`); nothing in a program that does not count.
+    pending: Pending = .{},
     /// The next heap given back by a thread that ended (`threadExit`).
     next_free: ?*Heap = null,
     /// In a safe build, the thread that owns it (`threadToken`).
@@ -213,19 +219,18 @@ pub const Heap = struct {
     /// program's totals once the heap is `flush_bytes` or `flush_allocs`
     /// from them.
     inline fn count(h: *Heap, bytes: isize, allocs: u32) void {
-        h.pending_bytes += bytes;
-        h.pending_allocs += allocs;
-        if (h.pending_bytes >= flush_bytes or h.pending_bytes <= -flush_bytes or h.pending_allocs >= flush_allocs) h.flush();
+        h.pending.bytes += bytes;
+        h.pending.allocs += allocs;
+        if (h.pending.bytes >= flush_bytes or h.pending.bytes <= -flush_bytes or h.pending.allocs >= flush_allocs) h.flush();
     }
 
     /// Add what this heap counted to the program's totals, and raise the
     /// peak to what the program now holds.
     fn flush(h: *Heap) void {
         @branchHint(.cold);
-        const now = total_live.fetchAdd(h.pending_bytes, .monotonic) + h.pending_bytes;
-        _ = total_allocs.fetchAdd(h.pending_allocs, .monotonic);
-        h.pending_bytes = 0;
-        h.pending_allocs = 0;
+        const now = total_live.fetchAdd(h.pending.bytes, .monotonic) + h.pending.bytes;
+        _ = total_allocs.fetchAdd(h.pending.allocs, .monotonic);
+        h.pending = .{};
         _ = total_peak.fetchMax(now, .monotonic);
     }
 
@@ -385,11 +390,16 @@ var total_allocs: std.atomic.Value(u64) align(128) = .init(0);
 const flush_bytes: isize = 64 << 10;
 const flush_allocs: u32 = 1024;
 
+/// The bytes of blocks a thread took less those it gave back, and the
+/// blocks it took.
+const Pending = if (counts) struct { bytes: isize = 0, allocs: u32 = 0 } else struct {};
+
 pub const Totals = struct { live: i64, peak: i64, allocs: i64 };
 
 /// The program's totals (`os.memory`), after adding the running thread's
 /// own count, so a program on one thread reads them exactly.
 pub fn totals() Totals {
+    if (!counts) @compileError("os.memory in a program whose root does not declare __rig_memory");
     if (heap()) |h| h.flush();
     return .{
         .live = @intCast(total_live.load(.monotonic)),
@@ -485,7 +495,7 @@ fn newHeap() ?*Heap {
 /// again.
 pub noinline fn threadExit() void {
     const h = my_heap orelse return;
-    h.flush();
+    if (counts) h.flush();
     my_heap = null;
     while (spare_lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
     h.next_free = spare_heaps.load(.monotonic);
@@ -504,13 +514,13 @@ const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .r
 fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
     const h = heap() orelse return null;
     if (classOf(len, alignment)) |c| {
-        const p = h.alloc(c) orelse return null;
-        h.count(@intCast(classSize(c)), 1);
+        const p = h.alloc(c);
+        if (counts) if (p != null) h.count(@intCast(classSize(c)), 1);
         return p;
     }
     if (alignment.toByteUnits() > std.heap.pageSize()) return null;
-    const p = allocLarge(h, len) orelse return null;
-    h.count(@intCast(largeSize(len)), 1);
+    const p = allocLarge(h, len);
+    if (counts) if (p != null) h.count(@intCast(largeSize(len)), 1);
     return p;
 }
 
@@ -535,17 +545,17 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
     prefault(rc + old_size, likelyFilled((new_size - old_size) / 2));
-    if (heap()) |h| h.count(@intCast(new_size - old_size), 0);
+    if (counts) if (heap()) |h| h.count(@intCast(new_size - old_size), 0);
     return @ptrFromInt(rc);
 }
 
 fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
     const h = heap() orelse return;
     if (classOf(memory.len, alignment)) |c| {
-        h.count(-@as(isize, @intCast(classSize(c))), 0);
+        if (counts) h.count(-@as(isize, @intCast(classSize(c))), 0);
         return h.freeSmall(memory.ptr, c);
     }
-    h.count(-@as(isize, @intCast(largeSize(memory.len))), 0);
+    if (counts) h.count(-@as(isize, @intCast(largeSize(memory.len))), 0);
     freeLarge(h, memory.ptr, memory.len);
 }
 

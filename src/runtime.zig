@@ -5215,8 +5215,10 @@ const LeakChecker = struct {
         const ptr = backing().rawAlloc(n, alignment, ret_addr) orelse return null;
         self.live.put(table_allocator, @intFromPtr(ptr), n) catch oom();
         self.bytes += n;
-        self.peak = @max(self.peak, self.bytes);
-        self.allocs += 1;
+        if (fast_alloc.counts) {
+            self.peak = @max(self.peak, self.bytes);
+            self.allocs += 1;
+        }
         const iso = isolateHere();
         if (iso != 0) self.tags.put(table_allocator, @intFromPtr(ptr), iso) catch oom();
         return ptr;
@@ -5237,7 +5239,7 @@ const LeakChecker = struct {
         const size = self.entry(memory);
         if (!backing().rawResize(memory, alignment, new_len, ret_addr)) return false;
         self.bytes = self.bytes - size.* + new_len;
-        self.peak = @max(self.peak, self.bytes);
+        if (fast_alloc.counts) self.peak = @max(self.peak, self.bytes);
         if (self.tags.get(@intFromPtr(memory.ptr)) == left) self.left_bytes = self.left_bytes - size.* + new_len;
         size.* = new_len;
         return true;
@@ -5252,7 +5254,7 @@ const LeakChecker = struct {
         _ = self.live.remove(@intFromPtr(memory.ptr));
         self.live.put(table_allocator, @intFromPtr(ptr), new_len) catch oom();
         self.bytes = self.bytes - memory.len + new_len;
-        self.peak = @max(self.peak, self.bytes);
+        if (fast_alloc.counts) self.peak = @max(self.peak, self.bytes);
         if (self.tags.fetchRemove(@intFromPtr(memory.ptr))) |kv| {
             if (kv.value == left) self.left_bytes = self.left_bytes - memory.len + new_len;
             self.tags.put(table_allocator, @intFromPtr(ptr), kv.value) catch oom();
@@ -5491,7 +5493,9 @@ fn usage() Usage {
 /// they have come to, and how many allocations it has made. A debug
 /// build counts each allocation's own length, under the leak checker's
 /// lock; a release build, each block's size, as `alloc.zig` counts it.
+/// Only a program that names `os.memory` counts (`fast_alloc.counts`).
 pub fn memoryTotals() fast_alloc.Totals {
+    if (!fast_alloc.counts) @compileError("os.memory in a program whose root does not declare __rig_memory");
     if (!leak_checked) return fast_alloc.totals();
     LeakChecker.lock();
     defer LeakChecker.unlock();
@@ -5841,12 +5845,18 @@ fn faultAddress(info: *const std.posix.siginfo_t) usize {
     };
 }
 
+/// Whether `start` reads the clock: only in a program that names
+/// `time.since_start`, whose root declares `__rig_since_start` (and in
+/// the runtime's tests), so no other program pays for the reading.
+const reads_start = builtin.is_test or (@hasDecl(root, "__rig_since_start") and root.__rig_since_start);
+
 /// The monotonic clock's reading as `start` ran (`sinceStartNs`).
 var started_ns: i96 = 0;
 
 /// `time.since_start()`: nanoseconds on the monotonic clock since the
 /// program started.
 pub fn sinceStartNs() i64 {
+    if (!reads_start) @compileError("time.since_start in a program whose root does not declare __rig_since_start");
     return @intCast(sched.nowNs() - started_ns);
 }
 
@@ -5887,7 +5897,7 @@ pub fn start(init: std.process.Init.Minimal) void {
     }
     // The clock's reading as the program starts, on the virtual clock in
     // a deterministic run (`time.since_start`).
-    started_ns = sched.nowNs();
+    if (reads_start) started_ns = sched.nowNs();
     // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
     // panics on purpose: Linux passes its death to no crash handler
     // (apport). It still dies by its signal, its report on stderr

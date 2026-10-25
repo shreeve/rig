@@ -31,6 +31,32 @@ here=$PWD
 (cd "$RIG_OUT_DIR" && ${ZIG:-zig} build-exe __rig_main.zig -femit-bin="$here/prog") || fail "the package does not build on its own"
 expect_eq "$(./prog)" "6" "package built with zig build-exe"
 
+# Only a program that names `time.since_start` or `os.memory` asks the
+# runtime for the clock's reading at its start or the allocator's counts;
+# any other compiles to the runtime without them.
+cat >clock.rig <<'EOF'
+use std.os
+use std.time
+
+sub main()
+  t = time.now()
+  print(os.args().len > 0, t.elapsed() >= 0)
+EOF
+cat >reads.rig <<'EOF'
+use std.os
+use std.time
+
+sub main()
+  read: fun() -> Int = time.since_start
+  print(read() >= 0, os.memory().allocs >= 0)
+EOF
+"$RIG" emit clock.rig >clock.zig 2>/dev/null || fail "rig emit clock.rig"
+grep -qE "__rig_since_start|__rig_memory" clock.zig && fail "a program naming neither asks for them: $(grep __rig_ clock.zig)"
+"$RIG" emit reads.rig >reads.zig 2>/dev/null || fail "rig emit reads.rig"
+expect_has "$(cat reads.zig)" "pub const __rig_since_start = true;" "a program naming time.since_start"
+expect_has "$(cat reads.zig)" "pub const __rig_memory = true;" "a program naming os.memory"
+expect_eq "$("$RIG" run --release reads.rig 2>&1)" "true true" "since_start and memory in a release build"
+
 cat >bad.rig <<'EOF'
 sub main()
   print(missing)

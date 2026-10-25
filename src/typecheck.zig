@@ -8464,6 +8464,7 @@ const Checker = struct {
             try sema.notPublic(self.ctx, pos, module_name, name, found.ctx);
             return null;
         }
+        sema.noteRuntimeRead(self.ctx, found.ctx, name);
         return found;
     }
 
