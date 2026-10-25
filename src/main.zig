@@ -24,6 +24,7 @@ const sema = @import("sema.zig");
 const proofs = @import("proofs.zig");
 const lsp = @import("lsp.zig");
 const frames = @import("frames.zig");
+const map_trace = @import("map_trace.zig");
 
 const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
@@ -141,6 +142,12 @@ const usage =
     \\                   bytes by the type allocated (slower); set to
     \\                   `sites` to add the calls that held the most,
     \\                   as short stacks (much slower)
+    \\  RIG_MAP_TRACE    Set to 1 when building to record every operation
+    \\                   on a built-in Map or Set, 48 bytes each, in
+    \\                   $RIG_MAP_TRACE_FILE (default rig-map-trace.bin)
+    \\                   as the program runs, and each one's types in
+    \\                   that file's name and `.types`; tools/map-trace.py
+    \\                   reads them
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
     \\                   any use of freed memory crash where it happens
     \\                   (much slower; the test suite sets it)
@@ -237,6 +244,10 @@ const Env = struct {
         return std.mem.eql(u8, value, "sites");
     }
 
+    fn mapTrace(env: Env) bool {
+        return env.flag("RIG_MAP_TRACE");
+    }
+
     fn sanitize(env: Env) bool {
         return env.flag("RIG_SANITIZE");
     }
@@ -274,6 +285,7 @@ const Env = struct {
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.heapProfile()) try w.writeAll("pub const __rig_heap_profile = true;\n");
         if (env.heapSites()) try w.writeAll("pub const __rig_heap_sites = true;\n");
+        if (env.mapTrace()) try w.writeAll("pub const __rig_map_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
         if (env.tableFallback()) try w.writeAll("pub const __rig_table_fallback = true;\n");
@@ -1675,7 +1687,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks or reads.any())) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.heapProfile() or env.mapTrace() or env.sanitize() or env.verifyProofs() or env.tableFallback() or hook or tasks or reads.any())) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook, task_guard, makesActors(graph), reads);
         }
@@ -1689,6 +1701,14 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
             try files.append(allocator, .{ .path = try std.fs.path.join(allocator, &.{ "rig", "std", shim.name }), .contents = contents });
         }
         if (i == 0) root_source = file_buffer.written();
+        if (env.mapTrace() and m.is_std and std.mem.eql(u8, m.name, "std." ++ rig.builtin_module_name)) {
+            const at = files.items.len - 1 - m.shims.items.len;
+            var what: []const u8 = "";
+            files.items[at].contents = map_trace.instrument(allocator, files.items[at].contents, &what) catch |err| switch (err) {
+                error.MapTraceDrift => fatal("internal error: RIG_MAP_TRACE cannot trace the built-in Map and Set: `{s}` is not where it expects", .{what}),
+                else => |e| return e,
+            };
+        }
     }
     // The program's error glue (`emit.writeErrorGlue`).
     if (glue) {
@@ -2483,6 +2503,7 @@ test {
     _ = proofs;
     _ = lsp;
     _ = frames;
+    _ = map_trace;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");
