@@ -1,0 +1,67 @@
+== tasks main round 1
+        rig-fast          vs rig-fast
+spawn   65 ns/task        
+chain   94 ns/task        
+fanout  322.4 ms/run      
+yield   25 ns/yield       
+hog     144.00 us/step    
+memory  4.6 KiB/task      
+== tasks fix round 1
+        rig-fast          vs rig-fast
+spawn   69 ns/task        
+chain   95 ns/task        
+fanout  340.2 ms/run      
+yield   25 ns/yield       
+hog     143.28 us/step    
+memory  4.6 KiB/task      
+== tasks main round 2
+        rig-fast          vs rig-fast
+spawn   66 ns/task        
+chain   93 ns/task        
+fanout  321.8 ms/run      
+yield   25 ns/yield       
+hog     142.72 us/step    
+memory  4.6 KiB/task      
+== tasks fix round 2
+        rig-fast          vs rig-fast
+spawn   65 ns/task        
+chain   92 ns/task        
+fanout  325.8 ms/run      
+yield   25 ns/yield       
+hog     142.06 us/step    
+memory  4.6 KiB/task      
+== tasks main round 3
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   92 ns/task        
+fanout  330.4 ms/run      
+yield   25 ns/yield       
+hog     143.35 us/step    
+memory  4.6 KiB/task      
+== tasks fix round 3
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   92 ns/task        
+fanout  325.6 ms/run      
+yield   25 ns/yield       
+hog     142.07 us/step    
+memory  4.6 KiB/task      
+== http main round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        186013     223 us    3490 us       8.6 KiB
+== http fix round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        181707     208 us    3501 us       8.6 KiB
+== http main round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        173199     241 us    3512 us       8.6 KiB
+== http fix round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        176715     237 us    3497 us       8.6 KiB
+== http main round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        174937     238 us    3546 us       8.6 KiB
+== http fix round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        175248     231 us    3502 us       8.6 KiB
+DONE
