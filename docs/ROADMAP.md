@@ -45,7 +45,7 @@ items, with their probe cases, are in
   and move std/terminal.zig's `widen` back into std/terminal.rig.
 - **Checker-proved check elimination** through handles into stores (`@store.lists[Int(list.start) + k]`), which no local fact bounds; locals, Lists, field paths, `for` ranges, and flags are built ([internals/INTERNALS](internals/INTERNALS.md), "Proven checks").
 - **A frame-size guard** for every function.
-- **Bounds proofs from a guard's false edge** (`return 0 if i >= s.len` before `s[i]`) and constant indexes after a length test (`xs[0]` inside `if xs.len >= 2`): measured on Trig at about 0.1% (121 constant indexes after a test, beside 437 proven; `RIG_NO_PROOFS=1` costs ts-pattern 0.5% and zod3 0.7%), so they wait for a program they pay for.
+- **Bounds proofs from constant indexes after a length test** (`xs[0]` inside `if xs.len >= 2`; a guard's false edge is built): measured on Trig at about 0.1% (121 constant indexes after a test), so they wait for a program they pay for.
 
 ## Concurrency
 

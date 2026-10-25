@@ -156,6 +156,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **Proven checks from a guard's false edge:** a comparison that fails
+  shows the one it negates (`i >= s.len` fails as `i < s.len`, `i < 0`
+  as `0 <= i`, an `or` as each of its operands), so an `else` starts
+  from it, and so does what follows an `if` with no `else` whose `then`
+  always leaves: after `return 0 if i >= s.len`, `s[i]` makes no upper
+  test. Trig gains 111 proven tests; its time on pup is unchanged. A
+  proven index's offset is converted by bit cast and truncation, so no
+  `llvm.assume` is left behind even for a proven fact.
 - **A view lent through a write-view binding may outlive it:**
   `if !@slots[j] as s` / `return !s.value` in a method `-> (!Int)? from
   @` is accepted, as are the same through `s = !@a`, a `for s in !@xs`
