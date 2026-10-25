@@ -74,3 +74,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-10-24 | #621: os.memory counts each allocation (pup cores 8,9) | rig-fast | 64 ns | 86 ns | 309.6 ms | 22 ns | 130.11 us | 4.6 KiB |
 | 2026-10-24 | main before #624, interleaved (pup cores 6,7) | rig-fast | 64 ns | 91 ns | 310.8 ms | 24 ns | 134.49 us | 4.6 KiB |
 | 2026-10-24 | #624: the blocking pool keeps a few threads busy (pup cores 6,7) | rig-fast | 64 ns | 90 ns | 311.0 ms | 24 ns | 134.76 us | 4.6 KiB |
+| 2026-10-25 | main before #677, interleaved (pup cores 6,7) | rig-fast | 66 ns | 92 ns | 331.0 ms | 24 ns | 140.85 us | 4.6 KiB |
+| 2026-10-25 | #677: fewer yield checks (pup cores 6,7) | rig-fast | 66 ns | 93 ns | 333.6 ms | 25 ns | 140.56 us | 4.6 KiB |
