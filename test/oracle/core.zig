@@ -102,6 +102,9 @@ pub const Hole = struct {
     path: []const Step,
 };
 
+/// A path of a var (`Op.paths`).
+pub const PathOf = struct { v: VarId, path: []const Step };
+
 /// The record of one lend. A loan on a write view's referent (`!w` or
 /// `?w` with `w: !T`, a lend on) is `deref`: it limits `w`'s uses, but
 /// `w` going out of scope does not end what it views.
@@ -216,6 +219,11 @@ pub const Op = struct {
     /// by what its target holds, and the caller's loan on a write-view
     /// parameter that path reaches by its `held` twin.
     untake: bool = false,
+    /// The part of a var in `reads` the op reaches when it reaches less
+    /// than all of it and has no access saying so: the places `swap`
+    /// exchanges, read through the lends the call was given (Core §5:
+    /// "A use touches the path it names").
+    paths: []const PathOf = &.{},
     /// A take of a field that leaves it moved out (`Func.holes`), not
     /// `none`: an object's field that is not optional.
     hole: ?u32 = null,

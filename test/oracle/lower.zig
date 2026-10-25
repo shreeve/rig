@@ -3406,6 +3406,9 @@ const Lowerer = struct {
         var stored_value: std.ArrayList(VarId) = .empty;
         // The root of the place a swap with a value takes its result out of.
         var taken: ?VarId = null;
+        // The places `swap` exchanges, which the call reaches through
+        // its lends of them (`core.Op.paths`).
+        var swapped: std.ArrayList(core.PathOf) = .empty;
 
         // A generic function or type at type arguments of plain data is
         // checked by its signature here; at others, whether the body
@@ -3702,6 +3705,7 @@ const Lowerer = struct {
                 try self.emit(.{ .pos = self.posOf(val), .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
                 try uses.append(self.a, t);
                 try reads.append(self.a, p.root);
+                if (p.via == .own) try swapped.append(self.a, .{ .v = p.root, .path = p.loanPath() });
                 if (try self.storesViews(p)) try exchanged.append(self.a, p.root);
                 if (shapes.len == 2 and i == 0) taken = p.root;
                 continue;
@@ -3785,7 +3789,7 @@ const Lowerer = struct {
         // taken out of the place before the store, and carries what the
         // place's value held, no view of the place.
         if (taken) |root| if (result) |r| {
-            try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(root), .def = r, .untake = true });
+            try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(root), .def = r, .untake = true, .paths = swapped.items });
         };
         if (stored_value.items.len > 0) for (exchanged.items) |root| {
             try self.emit(.{ .pos = pos, .what = .assign, .reads = stored_value.items, .weak = root });
@@ -3825,6 +3829,7 @@ const Lowerer = struct {
             .store_loan = store_loan or sig == null,
             .recv_view = recv_view,
             .recv_root = recv_root,
+            .paths = swapped.items,
         });
         if (elem_from) |from| if (result) |r| {
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(from), .def = r });
@@ -3843,7 +3848,7 @@ const Lowerer = struct {
                 others[n] = o;
                 n += 1;
             };
-            if (n > 0) try self.emit(.{ .pos = pos, .what = .assign, .reads = others[0..n], .weak = root });
+            if (n > 0) try self.emit(.{ .pos = pos, .what = .assign, .reads = others[0..n], .weak = root, .paths = swapped.items });
         }
         return result;
     }

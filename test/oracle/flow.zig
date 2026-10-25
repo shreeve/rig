@@ -327,6 +327,19 @@ const Checker = struct {
         return &.{};
     }
 
+    /// Whether `op` touches a path of `v` that overlaps `hole`: the path
+    /// its access names, or each of the places it reaches (`Op.paths`),
+    /// or else all of `v`.
+    fn touchesHole(op: core.Op, v: VarId, hole: []const core.Step) bool {
+        if (op.access) |acc| if (acc.root == v and !acc.deref) return !disjoint(hole, acc.path);
+        var any = false;
+        for (op.paths) |p| if (p.v == v) {
+            any = true;
+            if (!disjoint(hole, p.path)) return true;
+        };
+        return !any;
+    }
+
     /// Whether `op` assigns the path of `v` it touches (`p.f = x`), which
     /// makes a field moved out there, or below, usable again.
     fn assigns(op: core.Op, v: VarId) bool {
@@ -535,7 +548,7 @@ const Checker = struct {
             const path = touched(op, v);
             const refills = assigns(op, v);
             for (self.f.holes.items, 0..) |h, i| {
-                if (h.root != v or !st.gone.has(i) or disjoint(h.path, path)) continue;
+                if (h.root != v or !st.gone.has(i) or !touchesHole(op, v, h.path)) continue;
                 if (refills and within(path, h.path)) continue;
                 const moved = try self.pathText(v, h.path);
                 if (path.len >= h.path.len) {

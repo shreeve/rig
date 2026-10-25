@@ -406,5 +406,6 @@ test/reject/probes/review-move-done-p54_match_subject.rig s4 prod-rejects prod-s
 test/reject/probes/review-sc4-f1.rig main prod-rejects prod-strict `<h.s` of a field of an owned local
 test/reject/probes/review-seam2-c13_move_part_named_plain.rig main prod-rejects prod-strict `<s.items` of a field of an owned local
 test/reject/probes/review-step45-e07_arrayiter_field.rig main prod-rejects prod-strict `for x in <s.arr` of an owned local
+test/reject/probes/review-take-p34.rig main prod-rejects prod-strict `swap(!s.a, <s.b)` of an owned local
 doc/CORE/15eeed1dd4e0 value_of prod-rejects prod-strict `<e.value` of an owned parameter
 doc/CORE/15eeed1dd4e0 main prod-rejects prod-strict `<e.value`, then `e.value` assigned again
