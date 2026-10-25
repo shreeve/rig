@@ -1,0 +1,396 @@
+== tasks base round 1
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   92 ns/task        
+fanout  321.3 ms/run      
+yield   25 ns/yield       
+hog     142.08 us/step    
+memory  4.6 KiB/task      
+== tasks i1 round 1
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   95 ns/task        
+fanout  324.0 ms/run      
+yield   25 ns/yield       
+hog     142.87 us/step    
+memory  4.6 KiB/task      
+== tasks i2 round 1
+        rig-fast          vs rig-fast
+spawn   69 ns/task        
+chain   95 ns/task        
+fanout  340.1 ms/run      
+yield   25 ns/yield       
+hog     145.68 us/step    
+memory  4.6 KiB/task      
+== tasks both round 1
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   95 ns/task        
+fanout  325.7 ms/run      
+yield   25 ns/yield       
+hog     143.52 us/step    
+memory  4.6 KiB/task      
+== actors base round 1
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors i1 round 1
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   12 ns/call  
+== actors i2 round 1
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors both round 1
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== net base round 1
+         rig-fast      vs rig-fast
+pingpong 5.58 us/trip  
+echo     4.15 us/trip  
+connect  32.00 us/conn 
+== net i1 round 1
+         rig-fast      vs rig-fast
+pingpong 5.66 us/trip  
+echo     4.14 us/trip  
+connect  31.18 us/conn 
+== net i2 round 1
+         rig-fast      vs rig-fast
+pingpong 5.68 us/trip  
+echo     4.16 us/trip  
+connect  31.76 us/conn 
+== net both round 1
+         rig-fast      vs rig-fast
+pingpong 5.58 us/trip  
+echo     4.13 us/trip  
+connect  31.75 us/conn 
+== http base round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        183751     204 us    3495 us       8.6 KiB
+== http i1 round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        182944     251 us    3479 us       8.6 KiB
+== http i2 round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        183010     223 us    3486 us       8.6 KiB
+== http both round 1
+                 req/s       p50       p99 per idle conn
+rig-fast        184605     217 us    3480 us       8.6 KiB
+== json base round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2703 | 2864 |
+| twitterescaped | 562408 | 2277 | 2421 |
+| canada | 2251051 | 1186 | 1314 |
+| citm_catalog | 1727204 | 2727 | 2796 |
+| gsoc-2018 | 3327831 | 5259 | 5695 |
+| github_events | 65132 | 3116 | 3348 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json i1 round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2723 | 2844 |
+| twitterescaped | 562408 | 2289 | 2433 |
+| canada | 2251051 | 1189 | 1310 |
+| citm_catalog | 1727204 | 2696 | 2799 |
+| gsoc-2018 | 3327831 | 5345 | 5790 |
+| github_events | 65132 | 3054 | 3279 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json i2 round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2712 | 2854 |
+| twitterescaped | 562408 | 2250 | 2433 |
+| canada | 2251051 | 1181 | 1312 |
+| citm_catalog | 1727204 | 2678 | 2803 |
+| gsoc-2018 | 3327831 | 5280 | 5702 |
+| github_events | 65132 | 3114 | 3323 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json both round 1
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2663 | 2768 |
+| twitterescaped | 562408 | 2188 | 2433 |
+| canada | 2251051 | 1191 | 1311 |
+| citm_catalog | 1727204 | 2744 | 2842 |
+| gsoc-2018 | 3327831 | 5248 | 5689 |
+| github_events | 65132 | 3107 | 3303 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== tasks both round 2
+        rig-fast          vs rig-fast
+spawn   68 ns/task        
+chain   95 ns/task        
+fanout  332.6 ms/run      
+yield   25 ns/yield       
+hog     141.92 us/step    
+memory  4.6 KiB/task      
+== tasks i2 round 2
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   95 ns/task        
+fanout  342.0 ms/run      
+yield   25 ns/yield       
+hog     145.83 us/step    
+memory  4.6 KiB/task      
+== tasks i1 round 2
+        rig-fast          vs rig-fast
+spawn   66 ns/task        
+chain   93 ns/task        
+fanout  332.4 ms/run      
+yield   25 ns/yield       
+hog     141.98 us/step    
+memory  4.6 KiB/task      
+== tasks base round 2
+        rig-fast          vs rig-fast
+spawn   67 ns/task        
+chain   93 ns/task        
+fanout  330.0 ms/run      
+yield   25 ns/yield       
+hog     141.92 us/step    
+memory  4.6 KiB/task      
+== actors both round 2
+         rig-fast    vs rig-fast
+solo     12 ns/call  
+contend  15 ns/call  
+spread   11 ns/call  
+== actors i2 round 2
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors i1 round 2
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== actors base round 2
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  16 ns/call  
+spread   11 ns/call  
+== net both round 2
+         rig-fast      vs rig-fast
+pingpong 5.35 us/trip  
+echo     4.09 us/trip  
+connect  31.46 us/conn 
+== net i2 round 2
+         rig-fast      vs rig-fast
+pingpong 5.67 us/trip  
+echo     4.11 us/trip  
+connect  32.02 us/conn 
+== net i1 round 2
+         rig-fast      vs rig-fast
+pingpong 5.59 us/trip  
+echo     4.06 us/trip  
+connect  30.96 us/conn 
+== net base round 2
+         rig-fast      vs rig-fast
+pingpong 5.65 us/trip  
+echo     4.16 us/trip  
+connect  31.80 us/conn 
+== http both round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        184045     212 us    3548 us       8.6 KiB
+== http i2 round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        182317     211 us    3512 us       8.6 KiB
+== http i1 round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        185600     207 us    3492 us       8.6 KiB
+== http base round 2
+                 req/s       p50       p99 per idle conn
+rig-fast        182585     217 us    3517 us       8.6 KiB
+== json both round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2637 | 2792 |
+| twitterescaped | 562408 | 2183 | 2431 |
+| canada | 2251051 | 1158 | 1268 |
+| citm_catalog | 1727204 | 2721 | 2815 |
+| gsoc-2018 | 3327831 | 5216 | 5725 |
+| github_events | 65132 | 3145 | 3234 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json i2 round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2707 | 2861 |
+| twitterescaped | 562408 | 2260 | 2436 |
+| canada | 2251051 | 1183 | 1301 |
+| citm_catalog | 1727204 | 2698 | 2821 |
+| gsoc-2018 | 3327831 | 5344 | 5809 |
+| github_events | 65132 | 3131 | 3314 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json i1 round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2699 | 2816 |
+| twitterescaped | 562408 | 2250 | 2419 |
+| canada | 2251051 | 1135 | 1276 |
+| citm_catalog | 1727204 | 2516 | 2618 |
+| gsoc-2018 | 3327831 | 5156 | 5501 |
+| github_events | 65132 | 2917 | 3130 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json base round 2
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2666 | 2876 |
+| twitterescaped | 562408 | 2261 | 2328 |
+| canada | 2251051 | 1110 | 1270 |
+| citm_catalog | 1727204 | 2709 | 2705 |
+| gsoc-2018 | 3327831 | 5289 | 5723 |
+| github_events | 65132 | 3011 | 3285 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== tasks base round 3
+        rig-fast          vs rig-fast
+spawn   72 ns/task        
+chain   99 ns/task        
+fanout  358.4 ms/run      
+yield   26 ns/yield       
+hog     148.91 us/step    
+memory  4.6 KiB/task      
+== tasks i1 round 3
+        rig-fast          vs rig-fast
+spawn   68 ns/task        
+chain   99 ns/task        
+fanout  354.2 ms/run      
+yield   26 ns/yield       
+hog     148.61 us/step    
+memory  4.6 KiB/task      
+== tasks i2 round 3
+        rig-fast          vs rig-fast
+spawn   69 ns/task        
+chain   97 ns/task        
+fanout  357.0 ms/run      
+yield   25 ns/yield       
+hog     148.60 us/step    
+memory  4.6 KiB/task      
+== tasks both round 3
+        rig-fast          vs rig-fast
+spawn   68 ns/task        
+chain   98 ns/task        
+fanout  353.6 ms/run      
+yield   26 ns/yield       
+hog     148.80 us/step    
+memory  4.6 KiB/task      
+== actors base round 3
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  17 ns/call  
+spread   12 ns/call  
+== actors i1 round 3
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  17 ns/call  
+spread   12 ns/call  
+== actors i2 round 3
+         rig-fast    vs rig-fast
+solo     13 ns/call  
+contend  17 ns/call  
+spread   12 ns/call  
+== actors both round 3
+         rig-fast    vs rig-fast
+solo     14 ns/call  
+contend  17 ns/call  
+spread   12 ns/call  
+== net base round 3
+         rig-fast      vs rig-fast
+pingpong 6.12 us/trip  
+echo     4.39 us/trip  
+connect  36.08 us/conn 
+== net i1 round 3
+         rig-fast      vs rig-fast
+pingpong 6.31 us/trip  
+echo     4.53 us/trip  
+connect  35.72 us/conn 
+== net i2 round 3
+         rig-fast      vs rig-fast
+pingpong 6.09 us/trip  
+echo     4.34 us/trip  
+connect  34.56 us/conn 
+== net both round 3
+         rig-fast      vs rig-fast
+pingpong 6.02 us/trip  
+echo     4.32 us/trip  
+connect  33.02 us/conn 
+== http base round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        172502     227 us    3536 us       8.6 KiB
+== http i1 round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        172362     231 us    3541 us       8.6 KiB
+== http i2 round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        170867     240 us    3526 us       8.6 KiB
+== http both round 3
+                 req/s       p50       p99 per idle conn
+rig-fast        173872     220 us    3532 us       8.6 KiB
+== json base round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2637 | 2837 |
+| twitterescaped | 562408 | 2187 | 2332 |
+| canada | 2251051 | 1114 | 1235 |
+| citm_catalog | 1727204 | 2628 | 2722 |
+| gsoc-2018 | 3327831 | 5068 | 5366 |
+| github_events | 65132 | 3038 | 3171 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json i1 round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2623 | 2824 |
+| twitterescaped | 562408 | 2288 | 2436 |
+| canada | 2251051 | 1189 | 1303 |
+| citm_catalog | 1727204 | 2703 | 2769 |
+| gsoc-2018 | 3327831 | 5280 | 5693 |
+| github_events | 65132 | 3027 | 3298 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json i2 round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2686 | 2833 |
+| twitterescaped | 562408 | 2241 | 2405 |
+| canada | 2251051 | 1183 | 1299 |
+| citm_catalog | 1727204 | 2718 | 2813 |
+| gsoc-2018 | 3327831 | 5246 | 5706 |
+| github_events | 65132 | 3057 | 3302 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.
+== json both round 3
+note: not under cpuq; see the usage line
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 2667 | 2762 |
+| twitterescaped | 562408 | 2180 | 2429 |
+| canada | 2251051 | 1187 | 1302 |
+| citm_catalog | 1727204 | 2731 | 2823 |
+| gsoc-2018 | 3327831 | 5215 | 5639 |
+| github_events | 65132 | 3103 | 3300 |
+
+MB/s (10^6 bytes per second), the fastest of 5 interleaved runs of about 400 ms.

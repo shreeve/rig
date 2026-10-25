@@ -1059,6 +1059,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   3% faster (zod3 4 to 7%), for 4 to 6% more peak memory: ts-pattern
   peaks at 342 MB rather than 328, since memory faulted in ahead is
   resident before it is filled. At four checkers both are unchanged.
+- **Release allocator:** a small block of up to 1 KiB, aligned to 8 or
+  less, is taken and given back with no call: 23 instructions to
+  allocate and 26 to free on x86-64, where each took about 50. Trig checks ts-pattern
+  at one checker with 1.8% fewer instructions (zod3 2.0%); its time
+  moves within the run-to-run spread.
 
 - **Map and Set growth:** a table that grows is made anew with its
   free slots written at once, where it pushed them one at a time: Trig

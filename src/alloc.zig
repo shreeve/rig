@@ -144,10 +144,11 @@ fn classAligned(len: usize, a: usize) ?usize {
     return if (k < class_count) k else null;
 }
 
-/// The classes of sizes up to `small_table_max`, by size in eighths.
+/// The classes of sizes up to `small_table_max`, by size in eighths. A
+/// `Class`, so an entry indexes `Heap.free` with no bounds check.
 const small_table_max = 1024;
-const small_table: [small_table_max / 8 + 1]u8 = blk: {
-    var t: [small_table_max / 8 + 1]u8 = undefined;
+const small_table: [small_table_max / 8 + 1]Class = blk: {
+    var t: [small_table_max / 8 + 1]Class = undefined;
     for (&t, 0..) |*e, i| {
         const n = @max(i * 8, 8);
         e.* = if (n <= 64) (n - 1) / 8 else classAbove(n);
@@ -155,8 +156,14 @@ const small_table: [small_table_max / 8 + 1]u8 = blk: {
     break :blk t;
 };
 
+/// A class, as the fast paths carry it: its type bounds it below
+/// `free_slots`.
+const Class = u6;
+const free_slots = 1 << @bitSizeOf(Class);
+
 comptime {
     std.debug.assert(classSize(class_count - 1) == max_small);
+    std.debug.assert(class_count <= free_slots);
 }
 
 const Block = struct { next: ?*Block };
@@ -171,7 +178,9 @@ const Segment = struct {
 
 /// What a thread allocates from.
 pub const Heap = struct {
-    free: [class_count]?*Block = @splat(null),
+    /// A free list per class: `free_slots` of them, so a `Class` indexes
+    /// it with no bounds check; those past `class_count` stay empty.
+    free: [free_slots]?*Block = @splat(null),
     /// Blocks other threads freed, which this heap takes back when its
     /// own list of their class runs out.
     remote: [class_count]std.atomic.Value(?*Block) = @splat(.init(null)),
@@ -474,7 +483,7 @@ pub fn heapForTest() *Heap {
     return heap().?;
 }
 
-/// Test only: the check a heap's fast paths make first (`mustOwn`).
+/// Test only: the check a heap's paths make first (`mustOwn`).
 pub fn checkOwnForTest(h: *const Heap) void {
     mustOwn(h);
 }
@@ -490,7 +499,8 @@ var spare_lock: std.atomic.Value(bool) = .init(false);
 /// inlined: a fiber may resume on another thread after any switch, and
 /// a compiler may reuse a thread-local's address within a function, so
 /// a caller that allocated before a switch would go on with the heap of
-/// the thread it left (`sched.me`).
+/// the thread it left (`sched.me`). The fast paths, `alloc` and `free`,
+/// read `my_heap` themselves for the same reason never inlined.
 noinline fn heap() ?*Heap {
     if (my_heap) |h| return h;
     return newHeap();
@@ -538,7 +548,63 @@ pub const allocator: std.mem.Allocator = .{ .ptr = undefined, .vtable = &vtable 
 
 const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .remap = remap, .free = free };
 
-fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
+// The fast paths. `alloc` and `free` serve a small block of the common
+// sizes, up to `small_table_max` bytes aligned to 8 or less, from and to
+// the running thread's own free list, with no call, and leave the rest to
+// `allocSlow` and `freeSlow`. They read the thread's heap (`my_heap`)
+// themselves, which is safe because neither is ever inlined: the read is
+// made in their own frame, never one a caller shares across a fiber
+// switch (`heap`), and between it and their last use of the heap they
+// call nothing that could switch.
+//
+// They skip two checks the slow paths make, each always true here:
+//
+// - The owner check (`mustOwn`): `my_heap` is written only by `newHeap`,
+//   which sets the heap's `owner` to the running thread in the same call,
+//   and by `threadExit`, to null, and `owner` is written nowhere else; so
+//   a heap read from `my_heap`, on the thread that runs on until the read
+//   is used, is that thread's. The runtime's own tests keep the check, so
+//   the scheduler's test of fibers that move between threads would catch
+//   a fast path that used a stale heap.
+// - The bounds check on `free[c]`: `c` is a `Class`, whose type bounds it
+//   below `free_slots`, the length of `free`.
+
+/// A block of `len` bytes aligned to `alignment`.
+noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
+    if (fastClass(len, alignment)) |c| if (my_heap) |h| if (h.free[c]) |b| {
+        if (builtin.is_test) mustOwn(h);
+        h.free[c] = b.next;
+        if (counts) h.count(@intCast(classSize(c)), 1);
+        return @ptrCast(b);
+    };
+    return allocSlow(len, alignment);
+}
+
+/// Give back `memory`, a block `alloc` made with `alignment`.
+noinline fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
+    if (fastClass(memory.len, alignment)) |c| if (my_heap) |h| {
+        const seg: *const Segment = @ptrFromInt(@intFromPtr(memory.ptr) & ~(segment_size - 1));
+        if (seg.heap == h) {
+            if (builtin.is_test) mustOwn(h);
+            const b: *Block = @ptrCast(@alignCast(memory.ptr));
+            b.next = h.free[c];
+            h.free[c] = b;
+            if (counts) h.count(-@as(isize, @intCast(classSize(c))), 0);
+            return;
+        }
+    };
+    freeSlow(memory, alignment);
+}
+
+/// The class of a block the fast paths serve, or null.
+inline fn fastClass(len: usize, alignment: std.mem.Alignment) ?Class {
+    if (alignment.toByteUnits() > 8 or len > small_table_max) return null;
+    return small_table[(len + 7) >> 3];
+}
+
+/// What `alloc`'s fast path leaves: a class whose free list is empty, a
+/// larger or more aligned block, or a thread with no heap yet.
+noinline fn allocSlow(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
     const h = heap() orelse return null;
     if (classOf(len, alignment)) |c| {
         const p = h.alloc(c);
@@ -578,7 +644,9 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     return @ptrFromInt(rc);
 }
 
-fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
+/// What `free`'s fast path leaves: a block of another thread's heap, a
+/// larger or more aligned one, or a thread with no heap yet.
+noinline fn freeSlow(memory: []u8, alignment: std.mem.Alignment) void {
     const h = heap() orelse return;
     if (classOf(memory.len, alignment)) |c| {
         if (counts) h.count(-@as(isize, @intCast(classSize(c))), 0);

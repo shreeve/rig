@@ -1,0 +1,180 @@
+== base round 1 2.55 3.70 6.38
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3702 | 3770 |
+| twitterescaped | 562408 | 3283 | 3320 |
+| canada | 2251051 | 2100 | 2250 |
+| citm_catalog | 1727204 | 4384 | 4437 |
+| gsoc-2018 | 3327831 | 8522 | 8307 |
+| github_events | 65132 | 4358 | 4353 |
+== i1 round 1 2.51 3.68 6.35
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3634 | 3736 |
+| twitterescaped | 562408 | 3248 | 3267 |
+| canada | 2251051 | 2079 | 2174 |
+| citm_catalog | 1727204 | 4221 | 4236 |
+| gsoc-2018 | 3327831 | 8459 | 8265 |
+| github_events | 65132 | 4256 | 4323 |
+== i2 round 1 2.91 3.72 6.34
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3601 | 3620 |
+| twitterescaped | 562408 | 3213 | 3217 |
+| canada | 2251051 | 2058 | 2173 |
+| citm_catalog | 1727204 | 4231 | 4221 |
+| gsoc-2018 | 3327831 | 8379 | 8163 |
+| github_events | 65132 | 4202 | 4216 |
+== both round 1 3.16 3.74 6.32
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3597 | 3611 |
+| twitterescaped | 562408 | 3201 | 3232 |
+| canada | 2251051 | 2055 | 2185 |
+| citm_catalog | 1727204 | 4300 | 4180 |
+| gsoc-2018 | 3327831 | 8307 | 8162 |
+| github_events | 65132 | 4248 | 4209 |
+== both round 2 3.22 3.74 6.28
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3541 | 3620 |
+| twitterescaped | 562408 | 3202 | 3233 |
+| canada | 2251051 | 2059 | 2183 |
+| citm_catalog | 1727204 | 4124 | 4188 |
+| gsoc-2018 | 3327831 | 8355 | 8168 |
+| github_events | 65132 | 4263 | 4205 |
+== i2 round 2 3.44 3.76 6.25
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3631 | 3669 |
+| twitterescaped | 562408 | 3200 | 3224 |
+| canada | 2251051 | 2052 | 2176 |
+| citm_catalog | 1727204 | 4249 | 4151 |
+| gsoc-2018 | 3327831 | 8351 | 8153 |
+| github_events | 65132 | 4195 | 4198 |
+== i1 round 2 3.75 3.82 6.24
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3571 | 3636 |
+| twitterescaped | 562408 | 3197 | 3221 |
+| canada | 2251051 | 2032 | 2174 |
+| citm_catalog | 1727204 | 4247 | 4259 |
+| gsoc-2018 | 3327831 | 8393 | 8195 |
+| github_events | 65132 | 4214 | 4229 |
+== base round 2 3.71 3.81 6.21
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3630 | 3648 |
+| twitterescaped | 562408 | 3206 | 3259 |
+| canada | 2251051 | 2067 | 2217 |
+| citm_catalog | 1727204 | 4290 | 4240 |
+| gsoc-2018 | 3327831 | 8494 | 8228 |
+| github_events | 65132 | 4251 | 4276 |
+== base round 3 3.53 3.77 6.16
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3607 | 3696 |
+| twitterescaped | 562408 | 3243 | 3260 |
+| canada | 2251051 | 2051 | 2215 |
+| citm_catalog | 1727204 | 4303 | 4318 |
+| gsoc-2018 | 3327831 | 8496 | 8274 |
+| github_events | 65132 | 4261 | 4305 |
+== i1 round 3 3.99 3.86 6.17
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3598 | 3711 |
+| twitterescaped | 562408 | 3239 | 3258 |
+| canada | 2251051 | 2054 | 2218 |
+| citm_catalog | 1727204 | 4342 | 4357 |
+| gsoc-2018 | 3327831 | 8495 | 8269 |
+| github_events | 65132 | 4242 | 4294 |
+== i2 round 3 3.70 3.80 6.10
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3594 | 3634 |
+| twitterescaped | 562408 | 3196 | 3223 |
+| canada | 2251051 | 2049 | 2179 |
+| citm_catalog | 1727204 | 4234 | 4153 |
+| gsoc-2018 | 3327831 | 8367 | 8131 |
+| github_events | 65132 | 4205 | 4216 |
+== both round 3 3.66 3.79 6.07
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3581 | 3634 |
+| twitterescaped | 562408 | 3183 | 3221 |
+| canada | 2251051 | 2063 | 2173 |
+| citm_catalog | 1727204 | 4332 | 4267 |
+| gsoc-2018 | 3327831 | 8353 | 8183 |
+| github_events | 65132 | 4274 | 4247 |
+== both round 4 3.72 3.79 6.05
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3557 | 3628 |
+| twitterescaped | 562408 | 3200 | 3220 |
+| canada | 2251051 | 2045 | 2150 |
+| citm_catalog | 1727204 | 4237 | 4226 |
+| gsoc-2018 | 3327831 | 8340 | 8158 |
+| github_events | 65132 | 4258 | 4211 |
+== i2 round 4 3.85 3.82 6.03
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3642 | 3626 |
+| twitterescaped | 562408 | 3189 | 3231 |
+| canada | 2251051 | 2035 | 2138 |
+| citm_catalog | 1727204 | 4314 | 4210 |
+| gsoc-2018 | 3327831 | 8423 | 8158 |
+| github_events | 65132 | 4247 | 4248 |
+== i1 round 4 4.27 3.90 6.03
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3579 | 3614 |
+| twitterescaped | 562408 | 3153 | 3233 |
+| canada | 2251051 | 2000 | 2114 |
+| citm_catalog | 1727204 | 4202 | 4246 |
+| gsoc-2018 | 3327831 | 8403 | 8050 |
+| github_events | 65132 | 4228 | 4243 |
+== base round 4 4.42 3.96 6.02
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3537 | 3634 |
+| twitterescaped | 562408 | 3109 | 3117 |
+| canada | 2251051 | 1971 | 2085 |
+| citm_catalog | 1727204 | 4162 | 4247 |
+| gsoc-2018 | 3327831 | 8174 | 7941 |
+| github_events | 65132 | 4130 | 4147 |
+== base round 5 4.42 3.97 6.00
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3520 | 3592 |
+| twitterescaped | 562408 | 3104 | 3094 |
+| canada | 2251051 | 1969 | 2079 |
+| citm_catalog | 1727204 | 4141 | 4185 |
+| gsoc-2018 | 3327831 | 8064 | 7840 |
+| github_events | 65132 | 4103 | 4128 |
+== i1 round 5 4.28 3.96 5.97
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3523 | 3596 |
+| twitterescaped | 562408 | 3090 | 3076 |
+| canada | 2251051 | 1954 | 2091 |
+| citm_catalog | 1727204 | 4114 | 4191 |
+| gsoc-2018 | 3327831 | 8082 | 8014 |
+| github_events | 65132 | 4158 | 4209 |
+== i2 round 5 4.40 3.99 5.96
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3585 | 3610 |
+| twitterescaped | 562408 | 3110 | 3120 |
+| canada | 2251051 | 1962 | 2092 |
+| citm_catalog | 1727204 | 4162 | 4184 |
+| gsoc-2018 | 3327831 | 8201 | 7889 |
+| github_events | 65132 | 4237 | 4216 |
+== both round 5 4.57 4.04 5.95
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3530 | 3594 |
+| twitterescaped | 562408 | 3122 | 3091 |
+| canada | 2251051 | 1960 | 2094 |
+| citm_catalog | 1727204 | 4124 | 4186 |
+| gsoc-2018 | 3327831 | 8110 | 7889 |
+| github_events | 65132 | 4197 | 4125 |

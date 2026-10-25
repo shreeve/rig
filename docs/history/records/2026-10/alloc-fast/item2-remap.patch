@@ -1,0 +1,52 @@
+diff --git a/src/alloc.zig b/src/alloc.zig
+index ac1f89afa..e516487c0 100644
+--- a/src/alloc.zig
++++ b/src/alloc.zig
+@@ -578,6 +578,18 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
+     return @ptrFromInt(rc);
+ }
+ 
++/// What `remap` does with a block of `len` bytes asked to become
++/// `new_len`, when either length is small: true when the class stays,
++/// and the block keeps its place; false when it changes, and the block
++/// must move. For two large lengths, null: only `remap` knows. A List
++/// that doubles, or text that grows by half, always changes class, so
++/// `reallocSlice` judges with this, with no call, before asking.
++pub inline fn smallInPlace(len: usize, new_len: usize, alignment: std.mem.Alignment) ?bool {
++    const new = classOf(new_len, alignment);
++    if (classOf(len, alignment)) |c| return new != null and new.? == c;
++    return if (new != null) false else null;
++}
++
+ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
+     const h = heap() orelse return;
+     if (classOf(memory.len, alignment)) |c| {
+diff --git a/src/runtime.zig b/src/runtime.zig
+index 612d42c91..420a9e6ea 100644
+--- a/src/runtime.zig
++++ b/src/runtime.zig
+@@ -4852,6 +4852,9 @@ fn ownAllocator() std.mem.Allocator {
+ /// The allocator of release builds (`alloc.zig`).
+ pub const fast_alloc = @import("alloc.zig");
+ 
++/// Whether every runtime allocation goes to `fast_alloc` itself.
++const own_fast = !leak_checked and !heap_profile;
++
+ // Rig's own allocations skip the fill Zig's safe builds write over every
+ // new, moved, and freed buffer (`std.mem.Allocator.alloc`, `realloc`,
+ // `free`, `create`, `destroy` set the bytes to `undefined`, 0xAA): bounds
+@@ -4887,7 +4890,13 @@ pub fn reallocSlice(comptime T: type, old: []T, n: usize) []T {
+     const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
+     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
+     const old_bytes = std.mem.sliceAsBytes(old);
+-    if (a.rawRemap(old_bytes, alignment, bytes, @returnAddress())) |p| return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
++    // Rig's own allocator keeps a small block in place only within its
++    // class, which a growing List or String always leaves: judged here,
++    // not by asking it (`fast_alloc.smallInPlace`).
++    const small = if (own_fast) fast_alloc.smallInPlace(old_bytes.len, bytes, alignment) else null;
++    if (small) |in_place| {
++        if (in_place) return old.ptr[0..n];
++    } else if (a.rawRemap(old_bytes, alignment, bytes, @returnAddress())) |p| return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+     const p = a.rawAlloc(bytes, alignment, @returnAddress()) orelse oom();
+     const kept = @min(bytes, old_bytes.len);
+     @memcpy(p[0..kept], old_bytes[0..kept]);

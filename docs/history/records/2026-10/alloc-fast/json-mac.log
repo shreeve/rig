@@ -1,0 +1,360 @@
+== base round 1 3.58 3.90 5.48
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3572 | 3635 |
+| twitterescaped | 562408 | 3192 | 3226 |
+| canada | 2251051 | 2050 | 2189 |
+| citm_catalog | 1727204 | 4253 | 4299 |
+| gsoc-2018 | 3327831 | 8378 | 8153 |
+| github_events | 65132 | 4219 | 4234 |
+== i1 round 1 3.72 3.92 5.46
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3558 | 3635 |
+| twitterescaped | 562408 | 3206 | 3214 |
+| canada | 2251051 | 2052 | 2174 |
+| citm_catalog | 1727204 | 4222 | 4238 |
+| gsoc-2018 | 3327831 | 8416 | 8156 |
+| github_events | 65132 | 4254 | 4226 |
+== i2 round 1 3.95 3.95 5.43
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3618 | 3645 |
+| twitterescaped | 562408 | 3191 | 3213 |
+| canada | 2251051 | 2057 | 2119 |
+| citm_catalog | 1727204 | 4222 | 4143 |
+| gsoc-2018 | 3327831 | 8368 | 8139 |
+| github_events | 65132 | 4243 | 4209 |
+== both round 1 4.08 3.99 5.42
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3605 | 3629 |
+| twitterescaped | 562408 | 3150 | 3166 |
+| canada | 2251051 | 1990 | 2098 |
+| citm_catalog | 1727204 | 4086 | 4164 |
+| gsoc-2018 | 3327831 | 8206 | 8054 |
+| github_events | 65132 | 4264 | 4194 |
+== both round 2 4.30 4.04 5.40
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3587 | 3619 |
+| twitterescaped | 562408 | 3102 | 3160 |
+| canada | 2251051 | 2008 | 2112 |
+| citm_catalog | 1727204 | 4093 | 4141 |
+| gsoc-2018 | 3327831 | 8136 | 7907 |
+| github_events | 65132 | 4170 | 4204 |
+== i2 round 2 4.20 4.03 5.37
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3553 | 3547 |
+| twitterescaped | 562408 | 3130 | 3128 |
+| canada | 2251051 | 1970 | 2083 |
+| citm_catalog | 1727204 | 4174 | 4103 |
+| gsoc-2018 | 3327831 | 8130 | 7880 |
+| github_events | 65132 | 4099 | 4156 |
+== i1 round 2 4.08 4.01 5.33
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3545 | 3609 |
+| twitterescaped | 562408 | 3084 | 3108 |
+| canada | 2251051 | 1965 | 2094 |
+| citm_catalog | 1727204 | 4127 | 4121 |
+| gsoc-2018 | 3327831 | 8057 | 7988 |
+| github_events | 65132 | 4181 | 4186 |
+== base round 2 4.33 4.08 5.33
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3632 | 3692 |
+| twitterescaped | 562408 | 3243 | 3271 |
+| canada | 2251051 | 2054 | 2195 |
+| citm_catalog | 1727204 | 4324 | 4286 |
+| gsoc-2018 | 3327831 | 8495 | 8267 |
+| github_events | 65132 | 4306 | 4289 |
+== base round 3 5.00 4.22 5.35
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3626 | 3665 |
+| twitterescaped | 562408 | 3234 | 3271 |
+| canada | 2251051 | 2072 | 2214 |
+| citm_catalog | 1727204 | 4299 | 4354 |
+| gsoc-2018 | 3327831 | 8525 | 8278 |
+| github_events | 65132 | 4309 | 4302 |
+== i1 round 3 5.49 4.37 5.38
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3588 | 3699 |
+| twitterescaped | 562408 | 3251 | 3265 |
+| canada | 2251051 | 2081 | 2209 |
+| citm_catalog | 1727204 | 4299 | 4364 |
+| gsoc-2018 | 3327831 | 8536 | 8287 |
+| github_events | 65132 | 4256 | 4312 |
+== i2 round 3 5.97 4.54 5.42
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3684 | 3706 |
+| twitterescaped | 562408 | 3246 | 3280 |
+| canada | 2251051 | 2098 | 2204 |
+| citm_catalog | 1727204 | 4353 | 4314 |
+| gsoc-2018 | 3327831 | 8520 | 8257 |
+| github_events | 65132 | 4318 | 4301 |
+== both round 3 5.07 4.43 5.36
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3675 | 3688 |
+| twitterescaped | 562408 | 3247 | 3264 |
+| canada | 2251051 | 2086 | 2211 |
+| citm_catalog | 1727204 | 4370 | 4291 |
+| gsoc-2018 | 3327831 | 8446 | 8295 |
+| github_events | 65132 | 4332 | 4280 |
+== both round 4 4.69 4.37 5.32
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3647 | 3687 |
+| twitterescaped | 562408 | 3246 | 3256 |
+| canada | 2251051 | 2080 | 2214 |
+| citm_catalog | 1727204 | 4269 | 4292 |
+| gsoc-2018 | 3327831 | 8472 | 8272 |
+| github_events | 65132 | 4305 | 4275 |
+== i2 round 4 3.92 4.22 5.24
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3678 | 3696 |
+| twitterescaped | 562408 | 3255 | 3266 |
+| canada | 2251051 | 2089 | 2203 |
+| citm_catalog | 1727204 | 4353 | 4345 |
+| gsoc-2018 | 3327831 | 8545 | 8272 |
+| github_events | 65132 | 4285 | 4295 |
+== i1 round 4 4.28 4.30 5.25
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3602 | 3702 |
+| twitterescaped | 562408 | 3246 | 3272 |
+| canada | 2251051 | 2067 | 2223 |
+| citm_catalog | 1727204 | 4286 | 4312 |
+| gsoc-2018 | 3327831 | 8485 | 8282 |
+| github_events | 65132 | 4305 | 4299 |
+== base round 4 4.05 4.25 5.21
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3627 | 3678 |
+| twitterescaped | 562408 | 3247 | 3265 |
+| canada | 2251051 | 2066 | 2229 |
+| citm_catalog | 1727204 | 4328 | 4329 |
+| gsoc-2018 | 3327831 | 8512 | 8283 |
+| github_events | 65132 | 4275 | 4298 |
+== base round 5 4.07 4.24 5.19
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3620 | 3705 |
+| twitterescaped | 562408 | 3247 | 3268 |
+| canada | 2251051 | 2076 | 2229 |
+| citm_catalog | 1727204 | 4288 | 4338 |
+| gsoc-2018 | 3327831 | 8506 | 8274 |
+| github_events | 65132 | 4271 | 4304 |
+== i1 round 5 3.94 4.21 5.15
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3625 | 3699 |
+| twitterescaped | 562408 | 3244 | 3267 |
+| canada | 2251051 | 2050 | 2226 |
+| citm_catalog | 1727204 | 4295 | 4332 |
+| gsoc-2018 | 3327831 | 8516 | 8283 |
+| github_events | 65132 | 4270 | 4283 |
+== i2 round 5 4.03 4.22 5.14
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3642 | 3688 |
+| twitterescaped | 562408 | 3246 | 3263 |
+| canada | 2251051 | 2078 | 2219 |
+| citm_catalog | 1727204 | 4321 | 4281 |
+| gsoc-2018 | 3327831 | 8514 | 8259 |
+| github_events | 65132 | 4307 | 4280 |
+== both round 5 3.83 4.15 5.09
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3672 | 3686 |
+| twitterescaped | 562408 | 3233 | 3258 |
+| canada | 2251051 | 2084 | 2217 |
+| citm_catalog | 1727204 | 4309 | 4280 |
+| gsoc-2018 | 3327831 | 8461 | 8293 |
+| github_events | 65132 | 4337 | 4302 |
+== both round 6 3.74 4.11 5.06
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3679 | 3685 |
+| twitterescaped | 562408 | 3243 | 3257 |
+| canada | 2251051 | 2083 | 2208 |
+| citm_catalog | 1727204 | 4325 | 4352 |
+| gsoc-2018 | 3327831 | 8470 | 8282 |
+| github_events | 65132 | 4302 | 4273 |
+== i2 round 6 3.78 4.10 5.04
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3656 | 3690 |
+| twitterescaped | 562408 | 3239 | 3264 |
+| canada | 2251051 | 2082 | 2199 |
+| citm_catalog | 1727204 | 4332 | 4313 |
+| gsoc-2018 | 3327831 | 8503 | 8273 |
+| github_events | 65132 | 4297 | 4297 |
+== i1 round 6 4.41 4.22 5.06
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3582 | 3668 |
+| twitterescaped | 562408 | 3230 | 3233 |
+| canada | 2251051 | 2051 | 2198 |
+| citm_catalog | 1727204 | 4208 | 4244 |
+| gsoc-2018 | 3327831 | 8420 | 8158 |
+| github_events | 65132 | 4197 | 4212 |
+== base round 6 4.50 4.27 5.06
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3573 | 3651 |
+| twitterescaped | 562408 | 3204 | 3221 |
+| canada | 2251051 | 2031 | 2202 |
+| citm_catalog | 1727204 | 4205 | 4322 |
+| gsoc-2018 | 3327831 | 8408 | 8182 |
+| github_events | 65132 | 4214 | 4246 |
+== base round 7 4.08 4.19 5.01
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3583 | 3644 |
+| twitterescaped | 562408 | 3172 | 3220 |
+| canada | 2251051 | 2025 | 2204 |
+| citm_catalog | 1727204 | 4181 | 4272 |
+| gsoc-2018 | 3327831 | 8413 | 8166 |
+| github_events | 65132 | 4247 | 4235 |
+== i1 round 7 3.70 4.10 4.96
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3637 | 3682 |
+| twitterescaped | 562408 | 3233 | 3256 |
+| canada | 2251051 | 2067 | 2228 |
+| citm_catalog | 1727204 | 4300 | 4337 |
+| gsoc-2018 | 3327831 | 8486 | 8274 |
+| github_events | 65132 | 4278 | 4291 |
+== i2 round 7 3.39 4.01 4.91
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3419 | 3491 |
+| twitterescaped | 562408 | 3038 | 3059 |
+| canada | 2251051 | 1947 | 2038 |
+| citm_catalog | 1727204 | 4023 | 3991 |
+| gsoc-2018 | 3327831 | 8050 | 7804 |
+| github_events | 65132 | 4034 | 4042 |
+== both round 7 3.69 4.04 4.90
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3368 | 3410 |
+| twitterescaped | 562408 | 2945 | 2990 |
+| canada | 2251051 | 1867 | 1980 |
+| citm_catalog | 1727204 | 3981 | 3959 |
+| gsoc-2018 | 3327831 | 7819 | 7532 |
+| github_events | 65132 | 3988 | 3991 |
+== both round 8 3.65 4.00 4.87
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3578 | 3575 |
+| twitterescaped | 562408 | 3083 | 3074 |
+| canada | 2251051 | 1973 | 2064 |
+| citm_catalog | 1727204 | 4070 | 4117 |
+| gsoc-2018 | 3327831 | 8036 | 7888 |
+| github_events | 65132 | 4139 | 4134 |
+== i2 round 8 3.59 3.97 4.84
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3603 | 3602 |
+| twitterescaped | 562408 | 3116 | 3165 |
+| canada | 2251051 | 1980 | 2108 |
+| citm_catalog | 1727204 | 4226 | 4090 |
+| gsoc-2018 | 3327831 | 8191 | 7928 |
+| github_events | 65132 | 4161 | 4205 |
+== i1 round 8 3.36 3.89 4.79
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3596 | 3698 |
+| twitterescaped | 562408 | 3230 | 3258 |
+| canada | 2251051 | 2066 | 2209 |
+| citm_catalog | 1727204 | 4310 | 4342 |
+| gsoc-2018 | 3327831 | 8459 | 8237 |
+| github_events | 65132 | 4267 | 4285 |
+== base round 8 3.09 3.80 4.74
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3565 | 3660 |
+| twitterescaped | 562408 | 3218 | 3255 |
+| canada | 2251051 | 2070 | 2195 |
+| citm_catalog | 1727204 | 4315 | 4354 |
+| gsoc-2018 | 3327831 | 8493 | 8280 |
+| github_events | 65132 | 4261 | 4300 |
+== base round 9 2.92 3.73 4.70
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3629 | 3693 |
+| twitterescaped | 562408 | 3240 | 3258 |
+| canada | 2251051 | 2077 | 2211 |
+| citm_catalog | 1727204 | 4298 | 4338 |
+| gsoc-2018 | 3327831 | 8517 | 8274 |
+| github_events | 65132 | 4318 | 4289 |
+== i1 round 9 2.37 3.55 4.61
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3606 | 3691 |
+| twitterescaped | 562408 | 3233 | 3260 |
+| canada | 2251051 | 2070 | 2204 |
+| citm_catalog | 1727204 | 4318 | 4348 |
+| gsoc-2018 | 3327831 | 8492 | 8257 |
+| github_events | 65132 | 4263 | 4293 |
+== i2 round 9 2.22 3.43 4.54
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3672 | 3678 |
+| twitterescaped | 562408 | 3247 | 3256 |
+| canada | 2251051 | 2090 | 2225 |
+| citm_catalog | 1727204 | 4368 | 4263 |
+| gsoc-2018 | 3327831 | 8513 | 8257 |
+| github_events | 65132 | 4323 | 4293 |
+== both round 9 2.10 3.35 4.49
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3667 | 3696 |
+| twitterescaped | 562408 | 3246 | 3256 |
+| canada | 2251051 | 2081 | 2206 |
+| citm_catalog | 1727204 | 4359 | 4305 |
+| gsoc-2018 | 3327831 | 8455 | 8276 |
+| github_events | 65132 | 4347 | 4293 |
+== both round 10 1.85 3.21 4.41
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3690 | 3672 |
+| twitterescaped | 562408 | 3246 | 3259 |
+| canada | 2251051 | 2080 | 2211 |
+| citm_catalog | 1727204 | 4323 | 4314 |
+| gsoc-2018 | 3327831 | 8470 | 8306 |
+| github_events | 65132 | 4293 | 4279 |
+== i2 round 10 1.67 3.08 4.34
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3669 | 3655 |
+| twitterescaped | 562408 | 3245 | 3259 |
+| canada | 2251051 | 2083 | 2211 |
+| citm_catalog | 1727204 | 4323 | 4254 |
+| gsoc-2018 | 3327831 | 8498 | 8236 |
+| github_events | 65132 | 4292 | 4280 |
+== i1 round 10 1.68 3.01 4.29
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3628 | 3694 |
+| twitterescaped | 562408 | 3238 | 3265 |
+| canada | 2251051 | 2074 | 2224 |
+| citm_catalog | 1727204 | 4317 | 4344 |
+| gsoc-2018 | 3327831 | 8518 | 8269 |
+| github_events | 65132 | 4277 | 4307 |
+== base round 10 1.69 2.93 4.23
+| file | bytes | rig-safe | rig-fast |
+|---|---:|---:|---:|
+| twitter | 631514 | 3592 | 3684 |
+| twitterescaped | 562408 | 3241 | 3262 |
+| canada | 2251051 | 2069 | 2242 |
+| citm_catalog | 1727204 | 4365 | 4340 |
+| gsoc-2018 | 3327831 | 8505 | 8272 |
+| github_events | 65132 | 4255 | 4302 |
