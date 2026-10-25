@@ -13916,6 +13916,7 @@ const Checker = struct {
         const origin = self.ctx.module_refs.get(module_sym) orelse return null;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
         if (!std.mem.eql(u8, foreign.name, "std.par")) return null;
+        if (std.mem.eql(u8, name, "workers")) return try self.parWorkers(pos, args);
         const kind: sema.ParCall = if (std.mem.eql(u8, name, "map")) .map else if (std.mem.eql(u8, name, "each")) .each else return null;
         const shown = if (kind == .map) "par.map" else "par.each";
         const example = if (kind == .map) "par.map(?xs, |x| x * 2)" else "par.each(!xs, |x| x *= 2)";
@@ -13946,7 +13947,7 @@ const Checker = struct {
         const slice = try self.ctx.intern(.{ .slice = .{ .elem = elem } });
         const xs_param = if (kind == .map) slice else try self.ctx.intern(.{ .write_view = slice });
         const each_param = try self.ctx.intern(if (kind == .map) Type{ .read_view = elem } else Type{ .write_view = elem });
-        var fn_ty = (try self.parFunction(kind, f, each_param, shown)) orelse return try self.skipCall(args);
+        var fn_ty = (try self.parFunction(kind, f, &.{each_param}, shown)) orelse return try self.skipCall(args);
         const returns = self.ctx.types.get(fn_ty).function.returns;
         const fails = self.ctx.types.get(returns) == .fallible;
         // A closure that gives a view of a value that copies gives the
@@ -13963,6 +13964,7 @@ const Checker = struct {
                 break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = list, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else list;
             },
             .each => if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else self.t().void_id,
+            .workers => unreachable,
         };
         const params: []const TypeId = &.{ xs_param, try sema.callableOfFn(self.ctx, fn_ty), self.t().int_id };
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = result, .is_sub = kind == .each };
@@ -13989,6 +13991,90 @@ const Checker = struct {
             try self.requireTask(value, .moves, self.startOf(f), "is given back by a task", false);
         }
         if (self.current_call) |c| try self.ctx.recordParCall(c, kind);
+        self.ctx.makes_tasks = true;
+        return result;
+    }
+
+    /// `par.workers(!states, ?items, f)` of `std.par`: one task for each
+    /// state, each calling `f(!s, x)` with its own state on the next item
+    /// it takes, in the order of `items`, until none is left. It gives each
+    /// call's value in the order of the items, or nothing when `f` gives
+    /// nothing; when `f` can fail, so can the call. Typed here, as
+    /// `parCall` types `map` and `each`: each state goes to one task to
+    /// write, so it must be sendable, as `each`'s elements; every task
+    /// reads the items and what `f` captures, so these must sync, as
+    /// `map`'s; and the values come from other tasks, so they must be
+    /// sendable.
+    fn parWorkers(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
+        const shown = "par.workers";
+        const example = "par.workers(!states, ?items, |s, x| ...)";
+        for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`par.workers` runs one task for each state, and takes the states, the items, and a function: `{s}`", .{example});
+        if (args.len != 3) return try self.badCall(args, pos, "`par.workers` takes the states, the items, and a function, `{s}`", .{example});
+        const states = args[0];
+        const items = args[1];
+        const f = args[2];
+        const states_ty = try self.argType(states);
+        if (self.isPoison(states_ty)) return try self.skipCall(args);
+        const state = sema.writeSliceElem(self.ctx, states_ty) orelse sema.lentElem(self.ctx, states_ty) orelse switch (self.ctx.types.get(states_ty)) {
+            .slice => |sl| sl.elem,
+            else => return try self.badCall(args, states, "`par.workers` gives each task one of the states, the elements of a List, an array, or a slice; `{s}` is a `{s}`", .{ self.sourceText(states), try self.tyName(states_ty) }),
+        };
+        if (!states.isKind(.write) and self.ctx.types.get(states_ty) != .write_view) {
+            const place = try self.plainText(stripSigil(states));
+            return try self.badCall(args, states, "`par.workers` lends each task one state to write: lend the states so, `par.workers(!{s}, ...)`", .{place});
+        }
+        const items_ty = try self.argType(items);
+        if (self.isPoison(items_ty)) return try self.skipCall(args);
+        const item = sema.lentElem(self.ctx, items_ty) orelse switch (self.ctx.types.get(items_ty)) {
+            .slice => |sl| sl.elem,
+            else => return try self.badCall(args, items, "`par.workers` takes the items from a List, an array, or a slice; `{s}` is a `{s}`", .{ self.sourceText(items), try self.tyName(items_ty) }),
+        };
+        const states_param = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .slice = .{ .elem = state } }) });
+        const items_param = try self.ctx.intern(.{ .slice = .{ .elem = item } });
+        const state_param = try self.ctx.intern(.{ .write_view = state });
+        const item_param = try self.ctx.intern(.{ .read_view = item });
+        var fn_ty = (try self.parFunction(.workers, f, &.{ state_param, item_param }, shown)) orelse return try self.skipCall(args);
+        const returns = self.ctx.types.get(fn_ty).function.returns;
+        const fails = self.ctx.types.get(returns) == .fallible;
+        // A closure that gives a view of a value that copies gives the
+        // value, as a generic call's result binds it (`readValue`).
+        const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
+        const none = value == self.t().void_id;
+        if (f.isKind(.lambda)) {
+            const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
+            fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ state_param, item_param }), .returns = gives, .is_sub = none } });
+        }
+        const ok = if (none) value else try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
+        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = ok, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else ok;
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(&.{ states_param, items_param, try sema.callableOfFn(self.ctx, fn_ty) }), .returns = result, .is_sub = none };
+        try self.noteCallee(call);
+        try self.checkArgs(args, call, .{ .names = &.{ "states", "items", "f" } }, shown, pos, .{ .declared = call.params });
+        // Every task reads what `f` captures and the items; each state
+        // goes to one task, and each value comes from one.
+        if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
+            if (!try self.parCapture(cap, shown)) return self.t().invalid_id;
+        };
+        if (try sema.crossingBlocker(self.ctx, state, .moves)) |blocker| {
+            if (try self.statedCrossing(blocker, .moves, self.startOf(states))) return self.t().invalid_id;
+            try self.errAt(states, "`par.workers` hands each of `{s}` to a task that may run on another core, to write, and `{s}` {s}", .{ self.sourceText(states), try self.tyName(state), try self.blockerReason(blocker, false, if (blocker == state) "is" else null) });
+            return self.t().invalid_id;
+        }
+        try self.requireTask(state, .moves, self.startOf(states), "is lent to a task to write", false);
+        if (try sema.crossingBlocker(self.ctx, item, .shares)) |blocker| {
+            if (try self.statedCrossing(blocker, .shares, self.startOf(items))) return self.t().invalid_id;
+            try self.errAt(items, "`par.workers` hands the items of `{s}` to tasks that may run on other cores, to read, and `{s}` {s}", .{ self.sourceText(items), try self.tyName(item), try self.blockerReason(blocker, true, if (blocker == item) "is" else null) });
+            return self.t().invalid_id;
+        }
+        try self.requireTask(item, .shares, self.startOf(items), "is lent to tasks to read", false);
+        if (!none) {
+            if (try sema.crossingBlocker(self.ctx, value, .moves)) |blocker| {
+                if (try self.statedCrossing(blocker, .moves, self.startOf(f))) return self.t().invalid_id;
+                try self.errAt(f, "`par.workers` gathers the values that tasks on other cores make, and `{s}` {s}", .{ try self.tyName(value), try self.blockerReason(blocker, false, if (blocker == value) "is" else null) });
+                return self.t().invalid_id;
+            }
+            try self.requireTask(value, .moves, self.startOf(f), "is given back by a task", false);
+        }
+        if (self.current_call) |c| try self.ctx.recordParCall(c, .workers);
         self.ctx.makes_tasks = true;
         return result;
     }
@@ -14302,17 +14388,18 @@ const Checker = struct {
         return .{ .ty = ty, .clean = self.ctx.diagnostics.items.len == mark };
     }
 
-    /// The function type of `f`, the function `par.map` or `par.each`
-    /// calls on each element, lent as `each_param`: a closure written in
-    /// the call, which fails when its body propagates a failure, or a
+    /// The function type of `f`, the function `par.map`, `par.each`, or
+    /// `par.workers` calls on each element, which takes `params` (the
+    /// element, or a task's state and the item): a closure written in the
+    /// call, which fails when its body propagates a failure, or a
     /// function's name. Null after a diagnostic.
-    fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, each_param: TypeId, shown: []const u8) Error!?TypeId {
+    fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const TypeId, shown: []const u8) Error!?TypeId {
         if (f.isKind(.lambda)) {
             // Checked quietly first as a closure that cannot fail: one
             // whose body needs to fail is checked as one that can.
-            const quiet = try self.parLambdaType(kind, f, each_param, false);
+            const quiet = try self.parLambdaType(kind, f, params, false);
             if (quiet.clean) return quiet.ty;
-            const failing = try self.parLambdaType(kind, f, each_param, true);
+            const failing = try self.parLambdaType(kind, f, params, true);
             return if (failing.clean) failing.ty else quiet.ty;
         }
         const ty = try self.argType(f);
@@ -14320,10 +14407,27 @@ const Checker = struct {
         switch (self.fnArg(f, ty)) {
             .named => {
                 const got = self.ctx.types.get(ty).function;
-                if (got.params.len == 1) return ty;
-                try self.errAt(f, "`{s}` calls `{s}` with one element at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
+                if (got.params.len == params.len) {
+                    // Each parameter takes what the runtime passes: the
+                    // view itself, or the value of a scalar's read view.
+                    const fits = for (got.params, params) |have, given| {
+                        if (have != given and have != readValue(self.ctx, given)) break false;
+                    } else true;
+                    if (fits) return ty;
+                    if (kind == .workers) {
+                        try self.errAt(f, "`par.workers` calls `{s}` with a task's state as `{s}` and each item as `{s}`, and `{s}` takes `{s}` and `{s}`", .{ self.sourceText(f), try self.tyName(params[0]), try self.tyName(params[1]), self.sourceText(f), try self.tyName(got.params[0]), try self.tyName(got.params[1]) });
+                    } else try self.errAt(f, "`{s}` calls `{s}` with each element as `{s}`, and `{s}` takes `{s}`", .{ shown, self.sourceText(f), try self.tyName(params[0]), self.sourceText(f), try self.tyName(got.params[0]) });
+                    return null;
+                }
+                if (kind == .workers) {
+                    try self.errAt(f, "`{s}` calls `{s}` with a task's state and one item at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
+                } else try self.errAt(f, "`{s}` calls `{s}` with one element at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
             },
-            .binding, .view => try self.manyTasksClosure(f, shown, if (kind == .map) "par.map(?xs, |x| ...)" else "par.each(!xs, |x| ...)"),
+            .binding, .view => try self.manyTasksClosure(f, shown, switch (kind) {
+                .map => "par.map(?xs, |x| ...)",
+                .each => "par.each(!xs, |x| ...)",
+                .workers => "par.workers(!states, ?items, |s, x| ...)",
+            }),
             .literal, .other => try self.errAt(f, "`{s}` calls a function on each element, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ shown, self.sourceText(f), try self.tyName(ty) }),
         }
         return null;
@@ -14340,10 +14444,10 @@ const Checker = struct {
         try self.errAt(f, "`{s}` calls `{s}` on several tasks at once, and every task reads what a closure captures, which its type does not show: write the closure in the call, `{s}`", .{ shown, self.sourceText(f), example });
     }
 
-    /// The type closure literal `f` has where `par.map` or `par.each` lends
-    /// it each element as `each_param`, checked quietly; one that `fails`
+    /// The type closure literal `f` has where `par.map`, `par.each`, or
+    /// `par.workers` lends it `params`, checked quietly; one that `fails`
     /// may propagate with `!`. Whether it checked with no diagnostic.
-    fn parLambdaType(self: *Checker, kind: sema.ParCall, f: Sexp, each_param: TypeId, fails: bool) Error!ParLambda {
+    fn parLambdaType(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const TypeId, fails: bool) Error!ParLambda {
         const mark = self.ctx.diagnostics.items.len;
         self.ctx.quiet += 1;
         self.tentative += 1;
@@ -14353,24 +14457,26 @@ const Checker = struct {
             self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         }
         const ty = switch (kind) {
-            .map => try self.checkLambdaGiven(f, null, &.{each_param}, fails),
+            .map, .workers => try self.checkLambdaGiven(f, null, params, fails),
             .each => blk: {
                 const returns = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id;
-                break :blk try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{each_param}), .returns = returns, .is_sub = true } }));
+                break :blk try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = true } }));
             },
         };
         return .{ .ty = ty, .clean = self.ctx.diagnostics.items.len == mark };
     }
 
-    /// Whether capture `cap` of the closure `par.map` or `par.each` calls
-    /// (`shown`) may be read by several tasks at once: not a write view,
-    /// and of a type that shares. Reports why not.
+    /// Whether capture `cap` of the closure `par.map`, `par.each`, or
+    /// `par.workers` calls (`shown`) may be read by several tasks at
+    /// once: not a write view, and of a type that shares. Reports why not.
     fn parCapture(self: *Checker, cap: Sexp, shown: []const u8) Error!bool {
         const mode = sema.captureModeOf(cap) orelse return true;
         const name_node = sema.captureNameNode(cap) orelse return true;
         const name = self.text(name_node);
         if (mode == .cap_write) {
-            try self.errAt(name_node, "`{s}` calls the closure on several tasks at once, and `|!{s}|` lends `{s}` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+{s}|`", .{ shown, name, name, name });
+            if (std.mem.eql(u8, shown, "par.workers")) {
+                try self.errAt(name_node, "`par.workers` calls the closure on several tasks at once, and `|!{s}|` lends `{s}` to write, which no two tasks may hold at once: keep what each task writes in its state, or gather what each call gives", .{ name, name });
+            } else try self.errAt(name_node, "`{s}` calls the closure on several tasks at once, and `|!{s}|` lends `{s}` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+{s}|`", .{ shown, name, name, name });
             return false;
         }
         const id = self.ctx.symbolOf(name_node) orelse return true;

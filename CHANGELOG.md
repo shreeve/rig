@@ -156,6 +156,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A function's name given to `par.map` or `par.each` is checked
+  against what they pass:** each element's view, or the value of a
+  scalar's. `par.map(?xs, f)` with `xs: List[Int]` and `fun f(s:
+  ?String)` was accepted and failed in Zig; it is "`par.map` calls `f`
+  with each element as `?Int`, and `f` takes `?String`".
 - **A view lent through a write-view binding may outlive it:**
   `if !@slots[j] as s` / `return !s.value` in a method `-> (!Int)? from
   @` is accepted, as are the same through `s = !@a`, a `for s in !@xs`
@@ -1227,6 +1232,12 @@ first step is on `main` (SPEC §18):
   gives a deadline to a task, or a set, started before it. `par.map`
   and `par.each` (`std.par`), typed by the checker as `task.all` is,
   with chunks taken in turn by a task per worker.
+- **Workers with state:** `par.workers(!states, ?items, |s, x| ...)`
+  runs one task for each state, which it holds to write, and each task
+  takes the next item, in the caller's order, until none is left; the
+  values come back in the order of the items, whichever task made each
+  (`typecheck.parWorkers`, `tasks.parWorkers`). A caller that puts the
+  heavy items first balances an uneven load, as a checker per task does.
 - **Closures called once:** a parameter written `f: once ?fun() -> T`
   is called at most once, and a closure literal passed to one owns
   what it moves in, so its call may move it out

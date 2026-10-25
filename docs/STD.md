@@ -593,18 +593,25 @@ Stop.canceled
 
 Calling a function on each element of a List, an array, or a slice, on
 several tasks at once ([SPEC §18](../SPEC.md#each-element-on-several-tasks)).
-The tasks take chunks of the elements in turn. `f` is a closure written
+The tasks of `map` and `each` take chunks of the elements in turn. `f` is a closure written
 in the call, whose captures must sync, or a function's name.
 
 | Member | Result |
 |---|---|
 | `map(?xs, f, limit: n)` | a `List` of `f(x)` for each element, in the order of `xs`; `f` takes each as `?T` |
 | `each(!xs, f, limit: n)` | call `f` on each element, as `!T`, which it may write |
+| `workers(!states, ?items, f)` | one task for each state; each calls `f(!s, x)` with its own state on the next item it takes, in the order of `items`, until none is left: a `List` of the values in the order of the items, or nothing when `f` gives nothing |
 
 `limit` is how many tasks run at once, by default one per worker; it
 comes after `f`, or before a closure written last. When
 `f` can fail, so can the call: the first failure cancels the rest, and
 the call fails with its error.
+
+`workers` is for work whose tasks each keep something of their own, a
+cache or a checker, that the calls build on. The items are taken one at
+a time, so a caller that puts the heaviest first gets an even load. The
+states stay the caller's, so it reads them afterwards; each goes to one
+task, so it must be sendable.
 
 ```rig
 use std.par
@@ -619,6 +626,27 @@ sub main()
 ```output
 [1, 4, 9, 16]
 100
+```
+
+```rig
+use std.par
+
+obj Seen
+  count: Int = 0
+
+sub main()
+  states = List([Seen(), Seen()])
+  words = List(["tasks", "share", "a", "queue"])
+  print(par.workers(!states, ?words, |s, w|
+    s.count += 1
+    w.len
+  ))
+  print(states[0].count + states[1].count)
+```
+
+```output
+[5, 5, 1, 5]
+4
 ```
 
 ## std.net

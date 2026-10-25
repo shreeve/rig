@@ -2742,7 +2742,7 @@ captures are checked where it goes), a function's name (`named`), a
 closure binding (`binding`, which goes nowhere; its view does), a
 closure's view or an owned closure (`view`, whose type does not show
 what it captures), or none. Task and actor calls (through
-`crossingTypeOf`), `par.map` and `par.each`, `http.serve`,
+`crossingTypeOf`), `par.map`, `par.each`, and `par.workers`, `http.serve`,
 `task.isolate` and `task.supervise`, and `task.select`'s arms all ask
 it. A call that runs the function on several tasks at once takes only a
 literal or a name (`manyTasksClosure` reports the rest); `task.isolate`

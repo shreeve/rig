@@ -8691,7 +8691,7 @@ pub const Emitter = struct {
         }
         // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
         // by the runtime, with no limit but the workers' count when none
-        // is given.
+        // is given; `par.workers(!states, ?items, f)`, one task a state.
         // `c.m(args)` through an actor's handle: a message the runtime
         // sends, which waits for the answer.
         if (self.facts.isActorCall(sexp)) {
@@ -8779,10 +8779,14 @@ pub const Emitter = struct {
         }
         if (self.facts.parCallOf(sexp)) |kind| {
             const out = self.takeFailSlot(sexp);
-            try self.w.writeAll(if (kind == .map) "rig.parMap" else "rig.parEach");
+            try self.w.writeAll(switch (kind) {
+                .map => "rig.parMap",
+                .each => "rig.parEach",
+                .workers => "rig.parWorkers",
+            });
             try self.w.writeAll(if (out != null) "Into(" else "(");
             try self.emitArgs(sexp);
-            if (args.len == 2) try self.w.writeAll(", 0");
+            if (kind != .workers and args.len == 2) try self.w.writeAll(", 0");
             if (out) |o| try self.w.print(", {s}", .{o});
             return self.w.writeAll(")");
         }
