@@ -255,10 +255,11 @@ pub const Facts = struct {
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }
-    /// Whether the function or method whose name leaf is `name` is on a
-    /// cycle of calls (`inlining.decide`).
-    pub fn isRecursive(f: Facts, name: Sexp) bool {
-        return f.c().recursive.contains(f.c().startOf(name));
+    /// Whether the function or method whose name leaf is `name` checks
+    /// for work left waiting at its entry: one of a set every cycle of
+    /// calls passes through (`inlining.decide`).
+    pub fn hasEntryCheck(f: Facts, name: Sexp) bool {
+        return f.c().entry_checks.contains(f.c().startOf(name));
     }
     /// Whether the function or method whose name leaf is `name` has a
     /// large frame, emitted `noinline` (`sema.SemContext.large_frames`).

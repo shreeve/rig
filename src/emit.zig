@@ -320,9 +320,10 @@ const FunState = struct {
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
-    /// The function is on a cycle of calls: its body starts with a yield
-    /// check (`Emitter.yield_checks`).
-    recursive: bool = false,
+    /// The function is one every cycle of calls passes through some
+    /// one of: its body starts with a yield check
+    /// (`Emitter.yield_checks`, `Facts.hasEntryCheck`).
+    entry_check: bool = false,
     /// How many loops the code being emitted is inside.
     loops: u32 = 0,
     /// The count of turns of the outermost loop the code being emitted is
@@ -494,7 +495,7 @@ pub const Emitter = struct {
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
     strict_optionals: bool = false,
     /// The program makes tasks: its loops count their turns toward a
-    /// yield check (`rig.turn`), and its recursive functions
+    /// yield check (`rig.turn`), and every cycle of its calls passes a
     /// check for work left waiting (`rig.tickCall`), so no task keeps
     /// the others waiting for long.
     yield_checks: bool = false,
@@ -1706,11 +1707,11 @@ pub const Emitter = struct {
         const tparams = facts.syntax.tparamsOf(node);
         const inlined = self.facts.isInlined(name_node);
         const marker = self.facts.markerOf(node);
-        const recursive = self.yield_checks and self.facts.isRecursive(name_node);
+        const entry_check = self.yield_checks and self.facts.hasEntryCheck(name_node);
         // A function that always panics is cold, as a `rarely` one is,
         // so a call of it is laid out off the path that does not.
         const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .recursive = recursive };
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .entry_check = entry_check };
         // `main` holds the slot its failure's fields go in.
         // (A `main` that declares no failure but uses `!` fails with any
         // error.)
@@ -1868,7 +1869,7 @@ pub const Emitter = struct {
             self.fun.quota = false;
             if (self.fun.cold) try self.line("@branchHint(.cold);", .{});
             if (!self.fun.inlined) try self.line("@setEvalBranchQuota(rig.eval_quota);", .{});
-            if (self.fun.recursive) try self.line("rig.tickCall();", .{});
+            if (self.fun.entry_check) try self.line("rig.tickCall();", .{});
         }
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
@@ -3768,9 +3769,13 @@ pub const Emitter = struct {
         /// until the loop is entered.
         source_unit: bool = false,
         /// The count of turns of the outermost loop it is in, or its own
-        /// (`Emitter.yield_checks`), which each turn's body starts by
-        /// counting down.
+        /// (`Emitter.yield_checks`), which it counts down as each turn
+        /// ends and the next begins: in a Zig `while`, in its continue
+        /// expression, so a turn that leaves the loop counts nothing;
+        /// in Zig's own `for`, which has none, as each turn's body
+        /// starts (`top_turn`).
         turns: ?[]const u8 = null,
+        top_turn: bool = false,
     };
 
     /// `while` and every form of `for` (docs/internals/INTERNALS.md, "Loops"):
@@ -3867,8 +3872,22 @@ pub const Emitter = struct {
         self.targets.items[lp.index].part = .body;
         const l = try self.openLabeled(lp.body);
         try self.openBrace();
-        if (lp.turns) |n| try self.line("rig.turn(&{s});", .{n});
+        if (lp.turns) |n| if (lp.top_turn) try self.line("rig.turn(&{s});", .{n});
         return l;
+    }
+
+    /// The continue expression of loop `lp`'s Zig `while`: the loop's
+    /// turn counted, then `step`, Zig statements (none, or one `x += 1`
+    /// with no `;`, or several, each with its own).
+    fn writeStep(self: *Emitter, lp: *const Loop, step: []const u8) Error!void {
+        const one = std.mem.indexOfScalar(u8, step, ';') == null;
+        if (lp.turns) |n| {
+            if (step.len == 0) return self.w.print(": (rig.turn(&{s})) ", .{n});
+            return self.w.print(": ({{ rig.turn(&{s}); {s}{s} }}) ", .{ n, step, if (one) ";" else "" });
+        }
+        if (step.len == 0) return;
+        if (one) return self.w.print(": ({s}) ", .{step});
+        try self.w.print(": ({{ {s} }}) ", .{step});
     }
 
     /// The body's statements and the end of its block.
@@ -3901,11 +3920,13 @@ pub const Emitter = struct {
         const trace = self.unit_trace;
         if (step != .nil and !step_inside) {
             try self.w.writeAll(": (");
+            if (lp.turns) |n| try self.w.print("{{ rig.turn(&{s}); ", .{n});
             if (trace != null) self.unit_trace = &step_trace;
             defer self.unit_trace = trace;
             try self.emitStep(step, lp);
+            if (lp.turns != null) try self.w.writeAll(" }");
             try self.w.writeAll(") ");
-        }
+        } else try self.writeStep(lp, "");
         try self.openBrace();
         // `while true` has no condition to fail.
         const always = cond == .src and std.mem.eql(u8, self.srcText(cond), "true");
@@ -4086,6 +4107,9 @@ pub const Emitter = struct {
         try self.startLoopLine(lp);
         try self.pushScope();
         const l = try self.openLabeled(lp.loop);
+        // Zig's `for` has no continue expression: each turn's body
+        // counts it.
+        lp.top_turn = true;
         try self.w.writeAll("for (");
         // Writing an array's elements in place iterates through a pointer.
         const array_ptr = by_ptr and !is_list and src_ty != null and self.facts.types.get(self.peelViews(src_ty.?)) == .array;
@@ -4156,7 +4180,7 @@ pub const Emitter = struct {
         if (elem != null and self.routesPayload(elem.?)) {
             try self.w.print("while (rig.some({s}.next())) |{s}| ", .{ it, tmp });
         } else try self.w.print("while ({s}.next()) |{s}| ", .{ it, tmp });
-        if (indexed) try self.w.print(": ({s} += 1) ", .{counter});
+        try self.writeStep(lp, if (indexed) try self.fmt("{s} += 1", .{counter}) else "");
         const body = try self.openLoopBody(lp);
         const sym = self.facts.symbolOf(binding);
         const ty: ?TypeId = if (sym) |s| self.symType(s) else null;
@@ -4197,10 +4221,13 @@ pub const Emitter = struct {
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
-        if (more.len > 0)
-            try self.w.print("while ({s}) : ({{ {s} = {s} < {s}; {s} +%= 1; }}) ", .{ more, more, counter, end, counter })
-        else
-            try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
+        if (more.len > 0) {
+            try self.w.print("while ({s}) ", .{more});
+            try self.writeStep(lp, try self.fmt("{s} = {s} < {s}; {s} +%= 1;", .{ more, counter, end, counter }));
+        } else {
+            try self.w.print("while ({s} < {s}) ", .{ counter, end });
+            try self.writeStep(lp, try self.fmt("{s} += 1", .{counter}));
+        }
         const body = try self.openLoopBody(lp);
         if (sym) |s| if (self.usage.used.contains(s)) {
             const stored = try self.declare(.{ .sym = s, .ty = int_ty }, self.srcText(binding));
