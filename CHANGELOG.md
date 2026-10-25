@@ -1059,6 +1059,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   3% faster (zod3 4 to 7%), for 4 to 6% more peak memory: ts-pattern
   peaks at 342 MB rather than 328, since memory faulted in ahead is
   resident before it is filled. At four checkers both are unchanged.
+
+- **Map and Set growth:** a table that grows is made anew with its
+  free slots written at once, where it pushed them one at a time: Trig
+  checks ts-pattern and zod3 with 1.5% fewer instructions and 1.6% fewer
+  cycles.
 - **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
   to 1024) inside the List value itself and allocates only once it
   holds more, when they all move to the heap, so a short-lived List of

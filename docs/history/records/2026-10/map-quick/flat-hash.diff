@@ -1,0 +1,124 @@
+diff --git a/src/runtime.zig b/src/runtime.zig
+index 96bf94558..f3963379c 100644
+--- a/src/runtime.zig
++++ b/src/runtime.zig
+@@ -1592,6 +1592,7 @@ pub fn hashAs(comptime T: type, x: T) u64 {
+             return h;
+         },
+         .@"struct" => |st| {
++            if (comptime isFlat(T)) return hashFlat(T, x);
+             var h: u64 = hash_seed;
+             inline for (st.field_names, st.field_types) |name, F| h = hashMix(h, if (comptime outOfLine(F)) @call(.never_inline, hashAs, .{ F, @field(x, name) }) else hashAs(F, @field(x, name)));
+             return h;
+@@ -1652,6 +1653,111 @@ inline fn hashMix(h: u64, part: u64) u64 {
+     return @as(u64, @truncate(p)) ^ @as(u64, @truncate(p >> 64));
+ }
+ 
++/// The bits of a flat object's field that is an integer of 64 bits or
++/// fewer, a Bool, or an enum value (`isFlat`), or null for any other
++/// field: an object whose own fields may be flat, or anything else.
++fn leafBits(comptime F: type) ?u16 {
++    if (ownsApi(F, "__rig_own_hash")) return null;
++    return switch (@typeInfo(F)) {
++        .int => |i| if (i.bits <= 64) i.bits else null,
++        .bool => 1,
++        .@"enum" => |e| leafBits(e.tag_type),
++        .void => 0,
++        else => null,
++    };
++}
++
++/// Whether `T` is an object hashed as packed words (`hashFlat`): one whose
++/// fields, and its objects' fields in turn, are integers of 64 bits or
++/// fewer, Bools, and enum values, none hashed its own way.
++fn isFlat(comptime T: type) bool {
++    if (ownsApi(T, "__rig_own_hash") or isString(T) or isOptStruct(T)) return false;
++    const st = switch (@typeInfo(T)) {
++        .@"struct" => |st| st,
++        else => return false,
++    };
++    for (st.field_types) |F| if (leafBits(F) == null and !isFlat(F)) return false;
++    return true;
++}
++
++/// Where a leaf of `bits` bits goes in the packed words of a flat object,
++/// the bits before it taking `pos`: there, or at the next word when it
++/// would straddle one.
++fn flatPlace(comptime pos: u32, comptime bits: u16) u32 {
++    return if (pos % 64 + bits > 64) std.mem.alignForward(u32, pos, 64) else pos;
++}
++
++/// The bits a flat object `T`'s leaves take, packed after `pos`.
++fn flatEnd(comptime T: type, comptime pos: u32) u32 {
++    var p = pos;
++    for (@typeInfo(T).@"struct".field_types) |F| {
++        if (leafBits(F)) |b| p = flatPlace(p, b) + b else p = flatEnd(F, p);
++    }
++    return p;
++}
++
++/// Pack the leaves of the flat object `x` into `words`, in field order
++/// from bit `pos`, each one's bits as an unsigned number; a leaf never
++/// straddles two words.
++inline fn flatPack(comptime T: type, x: T, words: []u64, comptime pos: u32) void {
++    comptime var p = pos;
++    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |name, F| {
++        if (comptime leafBits(F)) |b| {
++            if (b > 0) {
++                p = comptime flatPlace(p, b);
++                const v = @field(x, name);
++                const U = @Int(.unsigned, b);
++                const bits: U = switch (@typeInfo(F)) {
++                    .bool => @intFromBool(v),
++                    .@"enum" => @bitCast(@intFromEnum(v)),
++                    else => @bitCast(v),
++                };
++                words[p / 64] |= @as(u64, bits) << @intCast(p % 64);
++                p += b;
++            }
++        } else {
++            flatPack(F, @field(x, name), words, p);
++            p = comptime flatEnd(F, p);
++        }
++    }
++}
++
++/// The seed of word `i` of a flat object (`hashFlat`): SplitMix64's
++/// output for `i`, so no two words share one.
++fn flatSeed(comptime i: u64) u64 {
++    var z = 0x9e3779b97f4a7c15 *% (i + 1);
++    z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9;
++    z = (z ^ (z >> 27)) *% 0x94d049bb133111eb;
++    return z ^ (z >> 31);
++}
++
++/// The hash of a flat object (`isFlat`): its leaves packed into 64-bit
++/// words, each pair of words folded by one multiply (each word xored with
++/// a seed of its place), the pairs xored, then one more folded multiply,
++/// which spreads every bit to the low bits that pick a slot and the top
++/// bits that make a tag. Two or three multiplies for an object of up to
++/// four words, against one and a mix per field.
++inline fn hashFlat(comptime T: type, x: T) u64 {
++    const n = comptime (flatEnd(T, 0) + 63) / 64;
++    if (n == 0) return hash_seed;
++    var words: [n]u64 = @splat(0);
++    flatPack(T, x, &words, 0);
++    var acc: u64 = 0;
++    inline for (0..(n + 1) / 2) |i| {
++        const even_seed = comptime flatSeed(2 * i);
++        const odd_seed = comptime flatSeed(2 * i + 1);
++        const odd: u64 = if (2 * i + 1 < n) words[2 * i + 1] else 0;
++        acc ^= fold(words[2 * i] ^ even_seed, odd ^ odd_seed);
++    }
++    return fold(acc ^ hash_seed, hash_mul);
++}
++
++/// The high and low halves of the 128-bit product of `a` and `b`, xored.
++inline fn fold(a: u64, b: u64) u64 {
++    const p = @as(u128, a) * b;
++    return @as(u64, @truncate(p)) ^ @as(u64, @truncate(p >> 64));
++}
++
+ /// `x == .tag` for a tagged union, or an optional of one: whether `x`
+ /// holds that variant, whatever its payload.
+ pub fn isVariant(x: anytype, comptime tag: @EnumLiteral()) bool {
