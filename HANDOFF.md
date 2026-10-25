@@ -50,6 +50,13 @@ newest entry summarizes the latest rounds.
   Emit decides nothing itself (`Pending` is gone), and no case is
   `known: true`. Open: the owner's decisions it lists, and the oracle's
   model of the hidden `E?`.
+- **Partial moves** (CORE §5, "A field of an owned object moves like a
+  name", approved 2026-10-24): built in two PRs, the oracle first
+  (#668), then the compiler; records in
+  [partial-moves/](docs/history/records/2026-10/partial-moves/). Trig
+  can drop about 82 of its 111 `swap(!x.f, empty)` sites and 3
+  optional fields kept only to be taken (its NEEDS 26). λRig has no
+  fields, a gap formal/README.md records.
 - **Trig's stores on `Table`/`Slot`:** Trig's migration; the same reads
   without a test, measured in a stand-in build, made ts-pattern about 3%
   faster.
@@ -168,8 +175,8 @@ memory. Trig's needs from Rig, in the owner's order:
 4. **Two limits of the ownership checker** that make std code clumsy,
    each a Core question for the owner first: a write view bound by
    `if !@slots[j] as s` cannot be returned `from @`, though the read
-   form can; and an object's field cannot be moved out of it alone (no
-   partial moves). Together they keep a Map slot at 40 bytes rather
+   form can; and an object's field could not be moved out of it alone, which
+   partial moves now allow. Together they kept a Map slot at 40 bytes rather
    than 24 (backlog, "The Map's entries in its table slots"). The same
    first limit keeps `find` from handing back the entry, which is what
    the rest of Map's and Set's checks wait on: a 1.3-1.9% ceiling on

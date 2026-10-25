@@ -1305,6 +1305,42 @@ pub fn dropFields(ptr: anytype) void {
     }
 }
 
+/// Drop what the object `ptr` points to still holds, when fields may
+/// have moved out of it (Core §5): each of `paths` (`a`, `a.b`, below
+/// the object; `""` for the object itself) only while its flag in `held`
+/// is set, and every other field as `dropFields` does, last field first.
+/// No type on a path has a `drop` body, which would expect every field.
+pub fn dropParts(ptr: anytype, comptime paths: []const []const u8, held: []const bool) void {
+    dropPartsAt(@TypeOf(ptr.*), ptr, "", paths, held);
+}
+
+fn dropPartsAt(comptime T: type, ptr: *T, comptime here: []const u8, comptime paths: []const []const u8, held: []const bool) void {
+    const below = comptime blk: {
+        for (paths) |p| {
+            if (here.len == 0 and p.len > 0) break :blk true;
+            if (p.len > here.len and std.mem.startsWith(u8, p, here) and p[here.len] == '.') break :blk true;
+        }
+        break :blk false;
+    };
+    // A path moved out drops nothing while its flag is clear; held again
+    // (assigned after the move), it drops what it holds, the fields moved
+    // out below it each by its own flag.
+    inline for (paths, 0..) |p, i| {
+        if (comptime std.mem.eql(u8, p, here)) {
+            if (!held[i]) return;
+            if (!below) return dropElement(T, ptr);
+        }
+    }
+    if (!below) return dropElement(T, ptr);
+    const s = @typeInfo(T).@"struct";
+    comptime var i = s.field_names.len;
+    inline while (i > 0) {
+        i -= 1;
+        const name = s.field_names[i];
+        dropPartsAt(s.field_types[i], &@field(ptr, name), if (here.len == 0) name else here ++ "." ++ name, paths, held);
+    }
+}
+
 /// `old = swap(!place, value)`: the old value, with `value` in its place.
 pub fn swapValue(place: anytype, value: @TypeOf(place.*)) @TypeOf(place.*) {
     const old = place.*;

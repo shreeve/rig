@@ -659,13 +659,14 @@ fail "move part of made value", "44:3: cannot move a part out of the temporary `
   print(through_handle(~h))
   print(made_leaf_value(true).len, made_optional())
 
-fail "move part that copies", "40:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "41:8: cannot move out of `s.p`: it copies", "42:8: cannot move out of `s.p.x`: it copies", "43:8: cannot move out of `s.r`: it copies", "44:8: cannot move out of `s.name`: it copies", "54:8: cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "55:8: cannot move out of `ps[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "56:8: cannot move out of `ps[0].x`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "57:8: cannot move out of `arr[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "58:8: cannot move out of `sl[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "62:4: cannot move out of `s.n`: it copies", "65:4: cannot move out of `s.p.x`: it copies", "70:8: cannot move out of `rv(?s).n`: it copies", "71:8: cannot move out of `wv(!s).n`: it copies", "77:8: cannot move out of `h.n`: it copies", "81:11: cannot move out of `s.n`: it copies", "86:9: cannot move out of `s.n`: it copies", "87:10: cannot move out of `s.n`: it copies", "90:13: cannot move out of `s.n`: it copies", "90:22: cannot move out of `s.p`: it copies", "90:52: cannot move out of `s.n`: it copies", "93:12: cannot move out of `s.n`: it copies", "96:10: cannot move out of `s.p`: it copies", "101:13: cannot move out of `s.arr`: it copies", "108:4: cannot move out of `g.f`: `g` would still drop it", errors: 25
+fail "move part that copies", "41:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "42:8: cannot move out of `s.p`: it copies", "43:8: cannot move out of `s.p.x`: it copies", "44:8: cannot move out of `s.r`: it copies", "45:8: cannot move out of `s.name`: it copies", "55:8: cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "56:8: cannot move out of `ps[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "57:8: cannot move out of `ps[0].x`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "58:8: cannot move out of `arr[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "59:8: cannot move out of `sl[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "63:4: cannot move out of `s.n`: it copies", "66:4: cannot move out of `s.p.x`: it copies", "71:8: cannot move out of `rv(?s).n`: it copies", "72:8: cannot move out of `wv(!s).n`: it copies", "78:8: cannot move out of `h.n`: it copies", "82:11: cannot move out of `s.n`: it copies", "87:9: cannot move out of `s.n`: it copies", "88:10: cannot move out of `s.n`: it copies", "91:13: cannot move out of `s.n`: it copies", "91:22: cannot move out of `s.p`: it copies", "91:52: cannot move out of `s.n`: it copies", "94:12: cannot move out of `s.n`: it copies", "97:10: cannot move out of `s.p`: it copies", "102:13: cannot move out of `s.arr`: it copies", errors: 24
   # `<` always leaves its source done: a name is ended, an optional field
   # or element is emptied to `none`, and any other place is rejected. A
   # field or element whose value copies can be neither, so `<` on it is
   # rejected, however the place is reached and whatever form carries the
-  # move; dropping the `<` copies it. In a generic body a `T` part is
-  # judged by `T`, whatever it is instantiated with, as a part that moves.
+  # move; dropping the `<` copies it. In a generic body a `T` field of an
+  # owned object moves out as any field that moves does, whatever `T` is
+  # instantiated with.
   # oracle: fields reject C3
   # oracle: elements reject C3
   # oracle: read_part reject C3
@@ -968,9 +969,10 @@ fail "move through lent handle", "8:6: cannot move out of `h.items`: it is reach
   x = <h.items
   print(x)
 
-fail "move unique element", "12:6: cannot move out of `a[0]`: elements cannot be moved out of their container", "14:6: cannot move out of `h.s`: `h` would still drop it"
-  # A unique element stays in its array, and a field in its struct: `<`
-  # cannot take one out while the container still holds it.
+fail "move unique element", "13:6: cannot move out of `a[0]`: elements cannot be moved out of their container", errors: 1
+  # A unique element stays in its array: `<` cannot take one out while
+  # the container still holds it. A field of an owned object moves out
+  # as a name does (`<h.s`), unique or not.
 
   obj Seed unique
     n: Int

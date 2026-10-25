@@ -101,7 +101,7 @@ test "audit-ownership-j08 generic struct owning", '''
     print("pop", t.n)
   print("end")
 
-fail "audit-ownership-j10 generic box list", "cannot move out of `n.v`: `n` would still drop it (partial moves are not supported); move `n` whole, or exchange the field: `old = swap(!n.v, v)`"
+fail "audit-ownership-j10 generic box list", "cannot move out of `n.v`: a box frees what it holds as one; take the box's value with `<n.unbox()` first"
   obj Tok
     n: Int
 

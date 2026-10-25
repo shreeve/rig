@@ -340,7 +340,7 @@ sub main()
 
 **3. Drop points.** An owner that is not moved is dropped where its
 scope ends. *(built)* A partly moved name drops only the fields it
-still holds ([§5](#5-containers-and-fields-hold-values)). *(planned)*
+still holds ([§5](#5-containers-and-fields-hold-values)). *(built)*
 A value no name holds is dropped where its
 statement ends ([§3](#3-temporaries)). *(built)*
 
@@ -1489,7 +1489,8 @@ object field may hold a `Cell`. Each field and element is a place:
 
 - `p.f` and `v[i]` read it (sentence 1);
 - `?p.f`, `!p.f`, `?v[i]`, and `!v[i]` lend it;
-- `<p.f` and `<v[i]` take an optional one, leaving `none`;
+- `<p.f` and `<v[i]` take an optional one, leaving `none`, and `<p.f`
+  moves any other field of an object a local owns;
 - assigning to it drops the old value.
 
 **A field is a place of its own.** A path is a name and the fields
@@ -1572,8 +1573,9 @@ A function type's parameters and result are not parts of a value of
 that type: `List[*sub(!Checker)]` holds no write view. *(built)*
 
 `<` always leaves its source done: a name is ended, an optional place
-is emptied to `none`, and any other place is rejected, a part of a
-value made there too, so a field or element that copies is copied with
+is emptied to `none`, a field of an owned object moves like a name
+(below), and any other place is rejected, a part of a value made there
+too, so a field or element that copies is copied with
 no `<` (`m = p.n`). `<`'s operand is a place or a made value:
 `<(a if c else b)` is written `<a if c else <b`. *(built)*
 
@@ -1599,9 +1601,9 @@ down, unless a type on the way has a `drop` body. `<p.f` moves `p.f`
 as `<x` moves `x`, and a field that copies takes no `<`. `p.f = x`
 makes a local's field usable again. Where `p`'s scope ends, only the
 fields it still holds drop. Until every moved field is assigned again
-on every path, no use touches all of `p` except `p = x`. *(planned)*
+on every path, no use touches all of `p` except `p = x`. *(built)*
 
-```rig pending
+```rig
 obj Entry
   key: String
   value: String
@@ -1620,6 +1622,39 @@ sub main()
 ```output
 k v
 w
+```
+
+```rig reject
+obj Entry
+  key: String
+  value: String
+
+sub main()
+  e = Entry(key: String("k"), value: String("v"))
+  v = <e.value
+  f = <e
+  print(v, f.key)
+```
+
+```error
+`e` is partly moved: `e.value` was moved out; assign it first
+```
+
+```rig reject
+obj File
+  name: String
+
+  drop(!@)
+    print("close", @name)
+
+sub main()
+  f = File(name: String("a.txt"))
+  n = <f.name
+  print(n)
+```
+
+```error
+`File` has a `drop` body, which expects every field
 ```
 
 **A list of owners works as a list of plain data does.** `List[String]`, `List[List[Int]]`, and a `List` of objects that each own a string take their elements by move and drop each one once. `swap` and `sort_by` only move elements, so they work for any element; `sort` also needs `<`. *(built)*

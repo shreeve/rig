@@ -3525,6 +3525,13 @@ pub const SemContext = struct {
     /// recorded by `storage.plan`): emit arms such a binding's drop
     /// behind an alive flag, and the ownership checker moves no other.
     consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// The fields a use may move out of a binding (`fieldMoves`,
+    /// recorded by `storage.plan` with `consumed`, under its contract):
+    /// each a path of field names below the binding, `a.b` for `<p.a.b`.
+    /// Emit gives each a drop flag, and the ownership checker moves no
+    /// other field out (Core §5, "A field of an owned object moves like
+    /// a name").
+    field_moves: std.AutoHashMapUnmanaged(SymbolId, std.ArrayList([]const u8)) = .empty,
     /// The several results a `destructure` takes, or a `return a, b`
     /// makes into storage one by one (`storage.hoistsResults`): how each
     /// part is held (`resourceKind` of its type), recorded by the storage
@@ -3790,6 +3797,12 @@ pub const SemContext = struct {
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
         self.consumed.deinit(self.allocator);
+        var fm = self.field_moves.valueIterator();
+        while (fm.next()) |paths| {
+            for (paths.items) |path| self.allocator.free(path);
+            paths.deinit(self.allocator);
+        }
+        self.field_moves.deinit(self.allocator);
         self.part_drops.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
@@ -4526,6 +4539,13 @@ pub const SemContext = struct {
     /// Whether a use may move binding `sym` out (`consumed`).
     pub fn consumes(self: *const SemContext, sym: SymbolId) bool {
         return self.consumed.contains(sym);
+    }
+
+    /// The field paths a use may move out of binding `sym`
+    /// (`field_moves`), in the order they are first met; empty for most.
+    pub fn fieldMoves(self: *const SemContext, sym: SymbolId) []const []const u8 {
+        const paths = self.field_moves.getPtr(sym) orelse return &.{};
+        return paths.items;
     }
 
     /// Record how each part of the results `node` holds is held

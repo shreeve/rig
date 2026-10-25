@@ -156,6 +156,19 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 
 ### Language and compiler
 
+- **A field of an owned object moves like a name (CORE §5):** `<p.f`
+  of a field that is neither optional nor copies, from an object a
+  local or parameter owns, moves the field and leaves `p` partly moved.
+  Its other fields stay usable, `p.f = x` makes a local's field usable
+  again, and only the fields still held drop, at the scope's end and at
+  every exit, each behind a drop flag of its own. Until every moved
+  field is assigned again on every path, no use touches all of `p`
+  except `p = x`. No field moves through a view, a handle, a box, an
+  element, or an optional's value, nor out of a type on its path with a
+  `drop` body. Owned bindings (`if <o as s`, `match <x`, `for x in <v`,
+  `<@`) are names too. Nothing accepted before is rejected; the
+  programs that moved a field out of an owned object, rejected before,
+  now run.
 - **A public generic states the `Print` of what its callees print:**
   `pub sub show[T](x: ?T)` passing `x` to a private generic that prints
   it is rejected, `` `pub sub show[T]` prints a `T`: write `[T:

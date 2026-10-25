@@ -1451,15 +1451,24 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
         return;
     };
     switch (head) {
-        .move => try consumeName(ctx, ir.Move.operand(e)),
-        .drop => try consumeName(ctx, ir.Drop.target(e)),
+        .move => {
+            try consumeName(ctx, ir.Move.operand(e));
+            try consumeField(ctx, ir.Move.operand(e));
+        },
+        .drop => {
+            try consumeName(ctx, ir.Drop.target(e));
+            try consumeField(ctx, ir.Drop.target(e));
+        },
         // `return a, b` takes each part as `return x` takes `x`.
         .@"return" => if (ir.Return.value(e).isKind(.results)) {
             for (ir.Results.values(ir.Return.value(e))) |part| try consumeTail(ctx, part);
         } else try consumeTail(ctx, ir.Return.value(e)),
         .@"break" => try consumeTail(ctx, ir.Break.value(e)),
         .@"for" => {
-            if (ir.For.mode(e).tag == .move) try consumeName(ctx, ir.For.source(e));
+            if (ir.For.mode(e).tag == .move) {
+                try consumeName(ctx, ir.For.source(e));
+                try consumeField(ctx, ir.For.source(e));
+            }
             try consumeTail(ctx, e);
         },
         .@"if" => if (ir.If.@"else"(e) != .nil) try consumeTail(ctx, e),
@@ -1476,6 +1485,39 @@ fn consumeName(ctx: *SemContext, node: Sexp) !void {
     if (node != .src) return;
     const sym = ctx.symbolOf(node) orelse return;
     try ctx.consumed.put(ctx.allocator, sym, {});
+}
+
+/// Record the field `<p.a.b` may move out of binding `p`
+/// (`SemContext.field_moves`): a path of fields from a binding, whose
+/// value is not optional (`<p.o` takes it, leaving `none`). Whether it
+/// moves is the ownership checker's decision.
+fn consumeField(ctx: *SemContext, node: Sexp) !void {
+    if (!node.isKind(.member)) return;
+    if (typeOf(ctx, node)) |t| if (ctx.types.get(t) == .optional) return;
+    var fields: std.ArrayList([]const u8) = .empty;
+    defer fields.deinit(ctx.allocator);
+    var e = node;
+    while (e.isKind(.member)) : (e = ir.Member.object(e)) {
+        const name = ir.Member.name(e);
+        if (name != .src) return;
+        try fields.append(ctx.allocator, rig.leafText(ctx.source, name.src));
+    }
+    if (e != .src) return;
+    const sym = ctx.symbolOf(e) orelse return;
+    switch (ctx.symbols.items[sym].kind) {
+        .local, .param, .capture => {},
+        else => return,
+    }
+    if (ctx.symbols.items[sym].scope == sema.module_scope) return;
+    std.mem.reverse([]const u8, fields.items);
+    const path = try std.mem.join(ctx.allocator, ".", fields.items);
+    const gop = try ctx.field_moves.getOrPut(ctx.allocator, sym);
+    if (!gop.found_existing) gop.value_ptr.* = .empty;
+    for (gop.value_ptr.items) |have| if (std.mem.eql(u8, have, path)) {
+        ctx.allocator.free(path);
+        return;
+    };
+    try gop.value_ptr.append(ctx.allocator, path);
 }
 
 fn consumeTail(ctx: *SemContext, value: Sexp) std.mem.Allocator.Error!void {

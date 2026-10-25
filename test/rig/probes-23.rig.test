@@ -3380,7 +3380,7 @@ fail "review-move-done-p53 loops", "cannot move out of `x.n`: it copies, so `<` 
   # oracle: l7 accept
   # oracle: main accept
 
-fail "review-move-done-p54 match subject", "cannot move out of `s.e`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.e, v)`"
+fail "review-move-done-p54 match subject", "cannot move out of `(a if c else b).e`: `a if c else b` reads a binding where it stands, which would still drop it", errors: 1
   enum E
     full(v: List[Int])
     empty

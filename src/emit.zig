@@ -14,7 +14,10 @@
 //! - A resource binding (`*T`, `~T`, a value with drop glue, or an
 //!   optional of one) is dropped at scope exit by a `defer`. When the
 //!   binding may be moved, dropped, or returned, the defer tests a
-//!   `__rig_alive_<name>` flag, and the consuming site clears it.
+//!   `__rig_alive_<name>` flag, and the consuming site clears it. A
+//!   field a use may move out of it (`Facts.fieldMoves`) has a flag of
+//!   its own, and the drop takes only the fields still held
+//!   (`rig.dropParts`).
 //! - `!T` parameters, `!@` receivers, and write-view bindings are
 //!   pointers; reads go through `.*`.
 //! - Every Rig name is written with `rig.writeZigIdent` (`ident`), the
@@ -173,6 +176,11 @@ const Local = struct {
     /// A parameter of an inlined function, bound through `rig.rt`
     /// (`emitFunPrologue`).
     launder: bool = false,
+    /// The fields a use may move out of it (`Facts.fieldMoves`), each a
+    /// path of Rig field names, and the flag that says it is still held,
+    /// which its move clears and its assignment sets (Core §5).
+    parts: []const []const u8 = &.{},
+    part_flags: []const []const u8 = &.{},
 };
 
 const LocalRef = struct { scope: u32, index: u32 };
@@ -1973,6 +1981,17 @@ pub const Emitter = struct {
             // shares, or by a number no name of the program's can be.
             l.flag = if (isPlainIdent(l.zig_name)) try self.fmt("__rig_alive_{s}", .{l.zig_name}) else try self.fmt("__rig_alive_{d}", .{self.nextId()});
         }
+        // A field moved out of the local is dropped behind a flag of its
+        // own, numbered as no name of the program's can be.
+        if (l.kind != null and l.parts.len == 0) {
+            const parts = self.facts.fieldMoves(l.sym);
+            if (parts.len > 0) {
+                const flags = try self.arena.allocator().alloc([]const u8, parts.len);
+                for (flags) |*f| f.* = try self.fmt("__rig_part_{d}", .{self.nextId()});
+                l.parts = parts;
+                l.part_flags = flags;
+            }
+        }
         const scope: u32 = @intCast(self.scopes.items.len - 1);
         const top = &self.scopes.items[scope];
         const ref: LocalRef = .{ .scope = scope, .index = @intCast(top.locals.items.len) };
@@ -2122,11 +2141,17 @@ pub const Emitter = struct {
     /// `defer ...` that drops `local` at scope exit.
     fn emitGuard(self: *Emitter, local: *const Local) Error!void {
         const kind = local.kind orelse return;
+        // A flag for each field a use may move out, which its move
+        // clears; set again where the field is assigned.
+        for (local.part_flags) |f| {
+            try self.w.print("var {s} = true;\n", .{f});
+            try self.writeIndent(self.indent);
+        }
         switch (local.guard) {
-            .none => {},
+            .none => for (local.part_flags) |f| try self.w.print("_ = &{s};", .{f}),
             .scope => {
                 try self.w.writeAll("defer ");
-                try self.writeDrop(local.zig_name, kind);
+                try self.writeLocalDrop(local, kind);
                 try self.w.writeAll(";");
             },
             .flag => {
@@ -2135,10 +2160,87 @@ pub const Emitter = struct {
                 try self.w.print("var {s} = true;\n", .{local.flag});
                 try self.writeIndent(self.indent);
                 try self.w.print("defer if ({s}) {{ {s} = false; ", .{ local.flag, local.flag });
-                try self.writeDrop(local.zig_name, kind);
+                try self.writeLocalDrop(local, kind);
                 try self.w.writeAll("; };");
             },
         }
+    }
+
+    /// Drop `local`'s value: only the fields it still holds when a use
+    /// may move some out (`Local.parts`), each behind its flag.
+    fn writeLocalDrop(self: *Emitter, local: *const Local, kind: ResourceKind) Error!void {
+        if (local.parts.len == 0) return self.writeDrop(local.zig_name, kind);
+        try self.w.print("rig.dropParts(&{s}, ", .{local.zig_name});
+        try self.writeParts(local, "", local.parts.len);
+        try self.w.writeAll(")");
+    }
+
+    /// Whether a field of `local` a use may move out is at or below `path`.
+    fn partsBelow(_: *Emitter, local: *const Local, path: []const u8) bool {
+        for (local.parts) |p| if (partUnder(p, path) != null) return true;
+        return false;
+    }
+
+    /// `&.{ "a", "a.b" }, &.{ f1, f2 }`: the paths of `local`'s fields
+    /// moved out at or below `under` (`""` for all of them), relative to
+    /// it, and their flags.
+    fn writeParts(self: *Emitter, local: *const Local, under: []const u8, _: usize) Error!void {
+        try self.w.writeAll("&.{");
+        var n: usize = 0;
+        for (local.parts) |p| if (partUnder(p, under)) |rel| {
+            try self.w.print("{s} \"", .{if (n > 0) "," else ""});
+            try writeZigPath(self.w, rel);
+            try self.w.writeAll("\"");
+            n += 1;
+        };
+        try self.w.writeAll(" }, &.{");
+        n = 0;
+        for (local.parts, local.part_flags) |p, f| if (partUnder(p, under) != null) {
+            try self.w.print("{s} {s}", .{ if (n > 0) "," else "", f });
+            n += 1;
+        };
+        try self.w.writeAll(" }");
+    }
+
+    /// A path of Rig field names as the Zig struct names those fields
+    /// (`rig.writeZigIdent`), which `rig.dropParts` compares with them: a
+    /// field Zig would take for its own is renamed `debug'`.
+    fn writeZigPath(w: *Writer, path: []const u8) Error!void {
+        var it = std.mem.splitScalar(u8, path, '.');
+        var first = true;
+        while (it.next()) |name| {
+            if (!first) try w.writeAll(".");
+            first = false;
+            try w.writeAll(name);
+            if (rig.zigRenames(name)) try w.writeAll("'");
+        }
+    }
+
+    /// Path `p` relative to `under`: `""` for `under` itself, `b` for
+    /// `a.b` under `a`; null when `p` is not at or below `under`.
+    fn partUnder(p: []const u8, under: []const u8) ?[]const u8 {
+        if (under.len == 0) return p;
+        if (std.mem.eql(u8, p, under)) return "";
+        if (p.len > under.len and std.mem.startsWith(u8, p, under) and p[under.len] == '.') return p[under.len + 1 ..];
+        return null;
+    }
+
+    /// The local a field path names, `p` of `p.a.b`, and the path below
+    /// it, `a.b`, when the local has fields a use may move out.
+    fn partsOf(self: *Emitter, e: Sexp) Error!?struct { local: *Local, path: []const u8 } {
+        if (!e.isKind(.member)) return null;
+        var fields: std.ArrayList([]const u8) = .empty;
+        var p = e;
+        while (p.isKind(.member)) : (p = ir.Member.object(p)) {
+            const name = ir.Member.name(p);
+            if (name != .src) return null;
+            try fields.append(self.arena.allocator(), self.srcText(name));
+        }
+        if (p != .src) return null;
+        const local = self.localOf(p) orelse return null;
+        if (local.parts.len == 0) return null;
+        std.mem.reverse([]const u8, fields.items);
+        return .{ .local = local, .path = try std.mem.join(self.arena.allocator(), ".", fields.items) };
     }
 
     /// How a resource binding's drop is armed: behind an alive flag when
@@ -2788,9 +2890,10 @@ pub const Emitter = struct {
         const new = try self.openNewValue(local.ty, value);
         try self.w.writeAll("; ");
         if (local.guard == .flag) try self.w.print("if ({s}) ", .{local.flag});
-        try self.writeDrop(local.zig_name, kind);
+        try self.writeLocalDrop(&local, kind);
         try self.w.print("; {s} = {s};", .{ local.zig_name, new.name });
         if (local.guard == .flag) try self.w.print(" {s} = true;", .{local.flag});
+        for (local.part_flags) |f| try self.w.print(" {s} = true;", .{f});
         try self.w.writeAll(" }");
     }
 
@@ -2888,6 +2991,10 @@ pub const Emitter = struct {
             try self.w.writeAll(" = ");
             try self.emitBareAs(value, place_ty);
             try self.w.writeAll(";");
+            // A field moved out at or below the target is held again.
+            if (try self.partsOf(target)) |at| for (at.local.parts, at.local.part_flags) |p, f| if (partUnder(p, at.path) != null) {
+                try self.w.print(" {s} = true;", .{f});
+            };
             return self.closeAssign(order);
         }
         const new = try self.openSetValue(set, place_ty, .value);
@@ -2897,6 +3004,19 @@ pub const Emitter = struct {
         try self.w.print("const {s} = &", .{slot});
         try self.emitTarget(target);
         self.hoisted.shrinkRetainingCapacity(first);
+        // A field moved out, or one holding fields moved out, drops only
+        // what is still held, and holds all of the new value after.
+        if (try self.partsOf(target)) |at| if (self.partsBelow(at.local, at.path)) {
+            try self.w.print("; rig.dropParts({s}, ", .{slot});
+            try self.writeParts(at.local, at.path, 0);
+            try self.w.print("); {s}.* = ", .{slot});
+            try self.writeNewValue(new);
+            try self.w.writeAll(";");
+            for (at.local.parts, at.local.part_flags) |p, f| if (partUnder(p, at.path) != null) {
+                try self.w.print(" {s} = true;", .{f});
+            };
+            return self.w.writeAll(" }");
+        };
         try self.w.print("; rig.drop({s}); {s}.* = ", .{ slot, slot });
         try self.writeNewValue(new);
         try self.w.writeAll("; }");
@@ -3162,6 +3282,14 @@ pub const Emitter = struct {
     /// what it takes, as `_ = <e` does.
     fn emitDrop(self: *Emitter, sexp: Sexp) Error!void {
         const target = ir.Drop.target(sexp);
+        // `<p.f` of a field a use may move out: dropped now, its flag
+        // cleared.
+        if (try self.partsOf(target)) |at| for (at.local.parts, at.local.part_flags) |p, f| {
+            if (!std.mem.eql(u8, p, at.path)) continue;
+            try self.w.print("{s} = false; rig.drop(&", .{f});
+            try self.emitPlace(target);
+            return self.w.writeAll(");");
+        };
         if (target != .src) return self.emitDiscard(target);
         const local = self.localOf(target) orelse return self.unsupported(sexp, "this drop");
         if (local.kind) |kind| {
@@ -6129,6 +6257,13 @@ pub const Emitter = struct {
     fn emitMoved(self: *Emitter, inner: Sexp) Error!void {
         if (inner == .src) if (self.localOf(inner)) |local| {
             if (consumeFlag(local) != null) return self.writeTake(local);
+        };
+        // A field moved out of a local clears the flag its drop waits on.
+        if (try self.partsOf(inner)) |at| for (at.local.parts, at.local.part_flags) |p, f| {
+            if (!std.mem.eql(u8, p, at.path)) continue;
+            try self.w.print("rig.take(&{s}, ", .{f});
+            try self.emitBare(inner);
+            return self.w.writeAll(")");
         };
         try self.emitBare(inner);
     }

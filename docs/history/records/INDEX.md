@@ -58,6 +58,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | CORE's "An API object hides its value's type, never its loans" (Stage 4, phase 0) | §1's and §4's rows and a paragraph with its list: the object may hold anything, so its loans end at its last use or, for a box, its drop; a copy decided by kind, local to its block; only `^{A}` has `+`; it meets only the bounds its braces or API name; no default, never a type argument; a panel of four (H1 to H13), and the owner's approval | [apis-stage4/core-panel/](2026-10/apis-stage4/core-panel/) |
 | APIs Stage 5's design (2026-10-23) | `*{A}`, a counted handle to an API object whose count operations live in its table, atomic as the hidden allocation is; `~{A}` its weak handle; `Sends` and `Syncs` in the braces as facts of the hidden value checked at erasure, each form crossing by its own row of SPEC §18; `*{A + Syncs}` only of a frozen value; owned closures as objects of one method if measured faster; two holes of Stage 4's boxes (an owned closure hidden from a local task, a task hidden from `task.isolate`); a build plan, 22 questions with defaults, and a draft CORE paragraph for the panel and the owner | [apis-stage5/](2026-10/apis-stage5/) |
 | CORE's "A shared API object counts a value of hidden type" (Stage 5, phase 0) | §1's handle row, §4's `*T` row, a clause each to sentences 8 and 9, Stage 4's list's last line, and a paragraph with a list of five: the holding follows from the braces (`*{A}` a `*T`'s, `*{A + Syncs}` a frozen value's, no `~`, no `Owned`), erasure only moves or counts a handle, `~{A}` carries its loans, an object crosses only by a bound it names and without it goes to no task, a local one included, and no object or owned closure holds a task; a panel of three (compiler, adversary, reviewer) and the owner's approval with the reviewer's three fixes | [apis-stage5/core-panel/](2026-10/apis-stage5/core-panel/) |
+| CORE's "A field of an owned object moves like a name" (partial moves, 2026-10-24) | `<p.f` of a field of an object a local or parameter owns moves it as a name, leaving `p` partly moved until it is assigned again; only the fields still held drop, each behind a flag; never through a view, a handle, a box, an element, or an optional's value, nor out of a type with a `drop` body; a designer, an adversary (13 holes, each a sanitizer case), a reviewer's four fixes, Trig's census (82 of 111 `swap` workarounds), and the owner's approval; built oracle first (#668) | [partial-moves/](2026-10/partial-moves/) |
 
 ## Every record
 
@@ -186,6 +187,15 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [presize-ab-mac.txt](2026-10/memory/presize-ab-mac.txt)
 - [presize-ab-pup.txt](2026-10/memory/presize-ab-pup.txt)
+
+### 2026-10/partial-moves/
+
+- [approved.md](2026-10/partial-moves/approved.md): the owner's approval, quoted
+- [5-final.md](2026-10/partial-moves/5-final.md): the CORE text, its desugaring, examples, and build
+- [3-draft.md](2026-10/partial-moves/3-draft.md): the combined draft, each rule with the hole it closes
+- [1-design.md](2026-10/partial-moves/1-design.md), [2-adversary.md](2026-10/partial-moves/2-adversary.md), [4-review.md](2026-10/partial-moves/4-review.md): the panel's reports
+- [4-census.txt](2026-10/partial-moves/4-census.txt): Trig's `swap(!x.f, empty)` sites by binding kind
+- [review.md](2026-10/partial-moves/review.md): the adversarial review of the build: a parent and a child both moved out, and fields Zig renames, fixed in the drops
 
 ### 2026-10/safety-checks/
 
