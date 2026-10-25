@@ -1009,6 +1009,11 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   release) reports at exit what owned its memory at its peak: live bytes
   by the type each block holds, largest first; `RIG_HEAP_PROFILE=sites`
   adds the calls that held the most, each as a short stack.
+- **Map trace:** a program built with `RIG_MAP_TRACE=1` records every
+  operation on a built-in Map or Set, 48 bytes each, in
+  `$RIG_MAP_TRACE_FILE` (default `rig-map-trace.bin`), with each Map's
+  key and value types beside it; `tools/map-trace.py` summarizes a
+  trace. A build without the flag is unchanged.
 - **Map and Set:** a key of 8 bytes or fewer keeps no stored hash, so
   such a Map takes 8 bytes an entry fewer; Trig's ts-pattern peaks at
   403 MB rather than 425.
