@@ -23,6 +23,7 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 | Map and Set internal checks | a 1.3-1.9% ceiling on ts-pattern; the restructure that let proofs cover the probes gained nothing (0.2% slower), so it was not landed; the rest needs a typed entry index or `find` returning the entry (an ownership-checker limit) | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md), [map-set-patches/](2026-10/safety-checks/map-set-patches/) |
 | List length invariant (#538) | a List's length is below 2^62 by construction, so reading it makes no test: Trig 0.8-2.9% faster | [safety-checks/len-and-map-notes.md](2026-10/safety-checks/len-and-map-notes.md) |
 | Table and Slot (#536) | indexes with no bounds test; about 3% on Trig's stores in a stand-in build (store indexes treated as proven; Trig has not migrated yet); two adversarial reviews | [table-slot/](2026-10/table-slot/) |
+| Proving away Rig's checks (2026-10-24) | the ceiling measured again after #538 and Trig's Table migration (7.4% on ts-pattern, index tests 5.9%); most of what is left is lookups by stored ids, which only index types remove; a ranked plan (`Span[n]` and more slot-typed stores first, then length arithmetic from `fits`), what LLVM folds by itself, and a build order | [perf-stage/checks.md](2026-10/perf-stage/checks.md) |
 | Scheduler ping-pong (#541) | a regression bisected to one line of #451, and its fix | [scheduler/](2026-10/scheduler/) |
 | Allocator with tasks (Trig G9) | no change needed; prefault per heap gains nothing | [allocator-g9/](2026-10/allocator-g9/) |
 | Memory: List growth slack | exact presizing saves 4% on Linux, nothing on the Mac; not pursued | [memory/](2026-10/memory/) |
@@ -188,6 +189,26 @@ Bulk data (profiles, build trees, source snapshots, probe programs) is not kept 
 
 - [presize-ab-mac.txt](2026-10/memory/presize-ab-mac.txt)
 - [presize-ab-pup.txt](2026-10/memory/presize-ab-pup.txt)
+
+### 2026-10/perf-stage/
+
+- [checks.md](2026-10/perf-stage/checks.md): Proving away Rig's checks: a survey and plan (2026-10-24)
+
+### 2026-10/perf-stage/checks-data/
+
+- [build.sh](2026-10/perf-stage/checks-data/build.sh)
+- [ceiling-2.txt](2026-10/perf-stage/checks-data/ceiling-2.txt)
+- [ceiling.txt](2026-10/perf-stage/checks-data/ceiling.txt)
+- [families.txt](2026-10/perf-stage/checks-data/families.txt)
+- [family.py](2026-10/perf-stage/checks-data/family.py)
+- [mac-standin.tsv](2026-10/perf-stage/checks-data/mac-standin.tsv)
+- [mactime.py](2026-10/perf-stage/checks-data/mactime.py)
+- [shapes.zig](2026-10/perf-stage/checks-data/shapes.zig)
+- [sites.py](2026-10/perf-stage/checks-data/sites.py)
+- [span.zig](2026-10/perf-stage/checks-data/span.zig)
+- [stand.sh](2026-10/perf-stage/checks-data/stand.sh)
+- [summ.py](2026-10/perf-stage/checks-data/summ.py)
+- [timeit.py](2026-10/perf-stage/checks-data/timeit.py)
 
 ### 2026-10/safety-checks/
 
