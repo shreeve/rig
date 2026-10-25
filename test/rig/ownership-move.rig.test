@@ -675,7 +675,7 @@ fail "move part that copies", "40:8: cannot move out of `s.n`: it copies, so `<`
   # oracle: ret reject C3
   # oracle: forms reject C3
   # oracle: for_part reject C3
-  # oracle: generic_part reject C3
+  # oracle: generic_part accept
 
   obj P
     x: Int

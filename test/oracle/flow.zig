@@ -56,26 +56,29 @@ const Bits = struct {
     }
 };
 
-/// What is known before an op: the vars that may be empty, and the
-/// loans each var may carry.
+/// What is known before an op: the vars that may be empty, the fields
+/// moved out of a var that may be (`core.Func.holes`), and the loans
+/// each var may carry.
 const State = struct {
     empty: Bits,
+    gone: Bits,
     holds: []Bits,
 
-    fn init(a: std.mem.Allocator, nv: usize, nl: usize) !State {
+    fn init(a: std.mem.Allocator, nv: usize, nl: usize, nh: usize) !State {
         const holds = try a.alloc(Bits, nv);
         for (holds) |*h| h.* = try Bits.init(a, nl);
-        return .{ .empty = try Bits.init(a, nv), .holds = holds };
+        return .{ .empty = try Bits.init(a, nv), .gone = try Bits.init(a, nh), .holds = holds };
     }
 
     fn clone(self: State, a: std.mem.Allocator) !State {
         const holds = try a.alloc(Bits, self.holds.len);
         for (holds, self.holds) |*h, s| h.* = try s.clone(a);
-        return .{ .empty = try self.empty.clone(a), .holds = holds };
+        return .{ .empty = try self.empty.clone(a), .gone = try self.gone.clone(a), .holds = holds };
     }
 
     fn merge(self: State, other: State) bool {
         var changed = self.empty.merge(other.empty);
+        changed = self.gone.merge(other.gone) or changed;
         for (self.holds, other.holds) |h, o| changed = h.merge(o) or changed;
         return changed;
     }
@@ -315,8 +318,80 @@ const Checker = struct {
         }
     }
 
+    // ---- holes ----------------------------------------------------------
+
+    /// The path of `v` an op touches (Core §5: "A use touches the path it
+    /// names"): what its access names, or else all of `v`.
+    fn touched(op: core.Op, v: VarId) []const core.Step {
+        if (op.access) |acc| if (acc.root == v and !acc.deref) return acc.path;
+        return &.{};
+    }
+
+    /// Whether `op` touches a path of `v` that overlaps `hole`: the path
+    /// its access names, or each of the places it reaches (`Op.paths`),
+    /// or else all of `v`.
+    fn touchesHole(op: core.Op, v: VarId, hole: []const core.Step) bool {
+        if (op.access) |acc| if (acc.root == v and !acc.deref) return !disjoint(hole, acc.path);
+        var any = false;
+        for (op.paths) |p| if (p.v == v) {
+            any = true;
+            if (!disjoint(hole, p.path)) return true;
+        };
+        return !any;
+    }
+
+    /// Whether `op` assigns the path of `v` it touches (`p.f = x`), which
+    /// makes a field moved out there, or below, usable again.
+    fn assigns(op: core.Op, v: VarId) bool {
+        if (op.what != .assign or op.weak == null or op.weak.? != v) return false;
+        const acc = op.access orelse return false;
+        return acc.root == v and !acc.deref and acc.kind == .write and acc.path.len > 0;
+    }
+
+    /// Whether `path` starts with `prefix`.
+    fn within(prefix: []const core.Step, path: []const core.Step) bool {
+        if (prefix.len > path.len) return false;
+        for (prefix, path[0..prefix.len]) |s, t| {
+            if (s == .elem or t == .elem) {
+                if (!(s == .elem and t == .elem)) return false;
+            } else if (!std.mem.eql(u8, s.field, t.field)) return false;
+        }
+        return true;
+    }
+
+    /// `v` holds a whole value from here (a definition, a drop, or a
+    /// move of all of it): no field of it is moved out.
+    fn fillHoles(self: *Checker, v: VarId, st: State) void {
+        for (self.f.holes.items, 0..) |h, i| if (h.root == v) st.gone.unset(i);
+    }
+
+    fn pathText(self: *Checker, v: VarId, path: []const core.Step) ![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        try out.appendSlice(self.a, self.name(v));
+        for (path) |s| switch (s) {
+            .field => |f| {
+                try out.append(self.a, '.');
+                try out.appendSlice(self.a, f);
+            },
+            .elem => try out.appendSlice(self.a, "[_]"),
+        };
+        return out.items;
+    }
+
     /// Apply an op to the state (after its checks).
     fn transfer(self: *Checker, op: core.Op, st: State, flow: Bits) void {
+        // A field assigned again is usable, and so is all below it.
+        if (op.weak) |w| if (assigns(op, w)) {
+            const path = touched(op, w);
+            for (self.f.holes.items, 0..) |h, i| {
+                if (h.root == w and within(path, h.path)) st.gone.unset(i);
+            }
+        };
+        if (op.def) |d| self.fillHoles(d, st);
+        for (op.parts) |p| self.fillHoles(p.v, st);
+        for (op.moves) |v| self.fillHoles(v, st);
+        if (op.kill) |k| self.fillHoles(k, st);
+        if (op.hole) |h| st.gone.set(h);
         if (op.def) |d| self.widen(d, st);
         self.flowOf(op, st, flow, op.no_result, op.result_loan);
         const stored = self.stored;
@@ -463,6 +538,22 @@ const Checker = struct {
                 if (vr.hidden) {
                     try self.report(.C1, op.pos, "use of a value that was moved", .{});
                 } else try self.report(.C1, op.pos, "use of `{s}` after move", .{vr.name});
+                return;
+            }
+        };
+        // C1 (§5): a field moved out of a name is used only once assigned
+        // again, and no use but assigning it touches all of the name
+        // while a field is moved out (Core §5).
+        if (self.f.holes.items.len > 0) for (groups) |g| for (g) |v| {
+            const path = touched(op, v);
+            const refills = assigns(op, v);
+            for (self.f.holes.items, 0..) |h, i| {
+                if (h.root != v or !st.gone.has(i) or !touchesHole(op, v, h.path)) continue;
+                if (refills and within(path, h.path)) continue;
+                const moved = try self.pathText(v, h.path);
+                if (path.len >= h.path.len) {
+                    try self.report(.C1, op.pos, "use of `{s}` after move", .{try self.pathText(v, path)});
+                } else try self.report(.C1, op.pos, "`{s}` is partly moved: `{s}` was moved out; assign it first", .{ try self.pathText(v, path), moved });
                 return;
             }
         };
@@ -762,7 +853,7 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
     const blocks = f.blocks.items;
     const in_states = try a.alloc(?State, blocks.len);
     @memset(in_states, null);
-    var entry = try State.init(a, c.nv, c.nl);
+    var entry = try State.init(a, c.nv, c.nl, f.holes.items.len);
     for (0..c.nv) |v| entry.empty.set(v);
     for (f.params.items) |p| entry.empty.unset(p);
     for (entry_loans.items) |pl| entry.holds[pl[0]].set(pl[1]);
