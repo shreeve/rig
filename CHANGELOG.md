@@ -190,8 +190,8 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   `<@`) are names too. Nothing accepted before is rejected; the
   programs that moved a field out of an owned object, rejected before,
   now run.
-- **An optional field of a binding that cannot be assigned moves like a
-  name (CORE §5):** `<p.tags` of a parameter, a capture, or a `=!`
+- **An optional field of a binding whose fields cannot be assigned
+  moves like a name (CORE §5):** `<p.tags` of a parameter, a capture, or a `=!`
   local moves the field and leaves `p` partly moved, where it was
   rejected as a take no one could write (``cannot take parameter `p` ``).
   A local that can be assigned, and a write view, keep the take, which

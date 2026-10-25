@@ -101,7 +101,7 @@
 //!   binding, and `<p.f` or `<v[i]` of an optional empties it to `none`
 //!   where its binding can be assigned. `<p.a` of any other field of an
 //!   object a local or parameter owns, an optional one among them where
-//!   the binding cannot be assigned (a parameter, a capture, a `=!`
+//!   its fields cannot be assigned (a parameter, a capture, a `=!`
 //!   local), moves it as a name (Core §5): the var stays live, partly moved
 //!   (`Flow.parts`), and a use overlapping a moved path is rejected until
 //!   the path is assigned again; `p = x` assigns them all. Any other

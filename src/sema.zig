@@ -11485,9 +11485,11 @@ pub fn resourceKind(ctx: *const SemContext, ty: TypeId) ?ResourceKind {
 /// copy clones it instead (`cloneable`).
 pub fn copies(ctx: *const SemContext, ty: TypeId) Answer {
     if (ctx.holds(ty).views.write) return .no;
-    // A type parameter whose bounds name `Copy` copies in every instance.
+    // A type parameter whose bounds name `Copy` copies in every instance,
+    // and so does an optional of one.
     switch (ctx.types.get(ty)) {
         .type_var => |param| if (boundApis(ctx, ctx.symbols.items[param]).contains(.Copy)) return .yes,
+        .optional => |inner| if (copies(ctx, inner) == .yes) return .yes,
         else => {},
     }
     return switch (moves(ctx, ty)) {
@@ -13344,7 +13346,7 @@ pub const MoveSource = enum {
     capture,
     /// A field or element holding an optional, of a place (`<p.f`,
     /// `<v[i]`, `<(!p).f`): it is emptied to `none`. Not a field of a
-    /// binding that cannot be assigned (`fixedOwner`), which is a `part`.
+    /// binding whose fields cannot be assigned (`fixedOwner`): a `part`.
     optional_part,
     /// Any other field or element of a place: a field of an object a
     /// binding owns moves like a name (the ownership checker decides
@@ -13492,7 +13494,7 @@ fn partSource(ctx: *const SemContext, e: Sexp) MoveSource {
 }
 
 /// `<e` of a field path from binding `sym`: an optional field is taken,
-/// leaving `none`, unless `sym` owns its object and cannot be assigned
+/// leaving `none`, unless `sym` owns its object and its fields cannot be assigned
 /// (`fixedOwner`). Then nothing could write the field, so it moves like
 /// a name, as any other field does (Core §5).
 fn fieldSource(ctx: *const SemContext, e: Sexp, sym: Symbol) MoveSource {
@@ -13504,9 +13506,10 @@ fn fieldSource(ctx: *const SemContext, e: Sexp, sym: Symbol) MoveSource {
 /// Whether `e`, an optional field path from binding `sym` whose value
 /// moves, is one a take could never empty, because the binding cannot be
 /// assigned: a parameter or capture that is not a write view, or a
-/// fixed local (`=!`) that is not a pattern's. Every step is a field of
-/// a value held by value, no view, handle, or slice, and no field a
-/// take could not write (read-only, or a type's named none). Decided
+/// fixed local (`=!`) that is not a pattern's: one whose fields cannot
+/// be assigned. Every step is a field of a value held by value, no view,
+/// handle, box, or slice, and no field a take could not write
+/// (read-only, or a type's named none). Decided
 /// here, once: such a `<e` moves the field (`moveSource`).
 fn fixedOwner(ctx: *const SemContext, e: Sexp, sym: Symbol) bool {
     switch (sym.kind) {
@@ -13527,7 +13530,9 @@ fn fixedOwner(ctx: *const SemContext, e: Sexp, sym: Symbol) bool {
             .read_view, .write_view, .shared, .weak, .slice, .string_view, .optional => return false,
             else => {},
         }
-        if (accessThroughShared(ctx, obj)) return false;
+        // A box frees what it holds as one, so a field is not moved out
+        // of it alone.
+        if (accessThroughShared(ctx, obj) or boxedType(ctx, obj) != null) return false;
         if (namedNoneOf(ctx, obj)) |n| if (std.mem.eql(u8, n.field, field)) return false;
     }
     return p == .src;

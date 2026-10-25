@@ -3183,8 +3183,8 @@ const Lowerer = struct {
         }
         const p = try self.place(operand) orelse return try self.eval(operand, how, null);
         const info = try self.kinds.of(p.ty);
-        // Of a binding that cannot be assigned, nothing could see the
-        // `none` a take leaves, so an optional field moves like a name.
+        // Of a binding whose fields cannot be assigned, a take could not
+        // write its `none`, so an optional field moves like a name.
         if (self.ctx.types.get(p.ty) == .optional and !info.kind.copies() and p.via == .own and !p.handle and self.unassignable(operand)) return try self.moveField(p, pos);
         if (self.ctx.types.get(p.ty) == .optional) {
             if (p.via == .read) return self.found(.C7, pos, "nothing is taken out through a read view", .{});
@@ -3200,9 +3200,9 @@ const Lowerer = struct {
         return try self.moveField(p, pos);
     }
 
-    /// Whether the binding field path `e` starts from cannot be assigned
-    /// (Core §6): a parameter, a capture, or a fixed binding that no
-    /// pattern binds.
+    /// Whether the fields of the binding path `e` starts from cannot be
+    /// assigned (Core §5, §6): a parameter, a capture, or a fixed binding
+    /// that no pattern binds.
     fn unassignable(self: *Lowerer, e: Sexp) bool {
         var r = e;
         while (r.isKind(.member)) r = ir.Member.object(r);

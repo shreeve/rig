@@ -6739,9 +6739,9 @@ container, or an optional's value, and none out of a type on its path
 with a `drop` body, which expects every field: move the object whole,
 or exchange the field with `swap` ([Places](#places)). An optional
 field keeps its take, which leaves `none` and the object whole. Of a
-binding that cannot be assigned (a parameter, a capture, or a `=!`
-local), nothing could see that `none`, so an optional field moves like
-any other, and the binding stays partly moved. Owned
+binding whose fields cannot be assigned (a parameter, a capture, or a
+`=!` local), a take could not write that `none`, so an optional field
+moves like any other, and the binding stays partly moved. Owned
 bindings are names: `if <o as s`, `match <x`, and `for x in <v` each
 give their fields up. Closures and deferred code move no field, as they
 move no name, and a `defer` body neither moves nor assigns one.
