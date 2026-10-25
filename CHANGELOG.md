@@ -1017,6 +1017,14 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
 - **Map and Set:** a key of 8 bytes or fewer keeps no stored hash, so
   such a Map takes 8 bytes an entry fewer; Trig's ts-pattern peaks at
   403 MB rather than 425.
+- **Release allocator:** on Linux, the heap that does the program's
+  work faults in ahead the memory it is about to fill: one that has
+  taken from the system at least four times what every other heap has
+  together. A thread beside it that takes little, as the blocking pool's
+  reading a file, no longer turns faulting ahead off, and a program of
+  several busy threads still faults lazily. Trig's ts-pattern at one
+  checker on pup takes 37.8K page faults rather than 81.0K and runs 2 to
+  3% faster, with 4% more memory.
 - **Inline room:** `List[T, inline: n]` keeps its first `n` elements (1
   to 1024) inside the List value itself and allocates only once it
   holds more, when they all move to the heap, so a short-lived List of

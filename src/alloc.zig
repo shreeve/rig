@@ -10,7 +10,8 @@
 //! for the next, up to `keep_large` bytes, so a list that grows and a
 //! buffer used again do not map and unmap memory each time. Segments are
 //! never returned to the system: memory freed stays for reuse. On Linux,
-//! while a program has one heap, the heap faults in at once the memory it
+//! the heap that does the program's work, one that has taken from the
+//! system most of what every heap has, faults in at once the memory it
 //! is about to fill (`prefault`).
 //!
 //! A thread that ends gives its heap back (`threadExit`), and the next
@@ -46,9 +47,12 @@ const pages_per_prefault = prefault_size / page_size;
 /// `std.os.linux.MADV` does not name.
 const madv_populate_write: u32 = 23;
 
-/// How many heaps the program has made: one until a second thread
-/// allocates, as a program that starts no task never does.
-var heaps_made: std.atomic.Value(u32) = .init(0);
+/// What every heap has taken from the system together (`Heap.taken`).
+var taken_all: std.atomic.Value(usize) = .init(0);
+
+/// A heap faults in ahead while it has taken from the system at least
+/// this many times what every other heap has together (`leads`).
+const prefault_lead: usize = 4;
 
 /// Of a large block's pages, how many bytes to fault in at once: a List
 /// that doubles into a block fills, on average, its old elements and
@@ -63,24 +67,36 @@ fn likelyFilled(len: usize) usize {
 /// The most of a large block faulted in at once.
 const prefault_large: usize = 8 << 20;
 
-/// Faults in the `len` bytes at `p` in one call, on Linux, while the
-/// program has one heap (`heaps_made`), as writing them would, page by
-/// page, with one trap each: a stretch of a segment the heap is about to
-/// carve blocks from, or the part of a large block a List growing into
-/// it is likely to fill (`likelyFilled`). It saves a trap per page, and
-/// the cycles a program stalls after each, and commits little a program
+/// Faults in the `len` bytes at `p` in one call, on Linux, while `h`
+/// leads the heaps (`leads`), as writing them would, page by page, with
+/// one trap each: a stretch of a segment the heap is about to carve
+/// blocks from, or the part of a large block a List growing into it is
+/// likely to fill (`likelyFilled`). It saves a trap per page, and the
+/// cycles a program stalls after each, and commits little a program
 /// never writes. Elsewhere, or where the system cannot (an older kernel),
 /// the pages fault as they are touched.
-fn prefault(p: usize, len: usize) void {
+fn prefault(h: *const Heap, p: usize, len: usize) void {
     if (len == 0) return;
-    // A program of many threads faults lazily: each would fault in its
-    // first stretch as it starts, and a server's buffers are written
-    // sparsely, so faulting in ahead slowed both.
-    if (heaps_made.load(.monotonic) > 1) return;
+    if (!leads(h)) return;
     if (builtin.os.tag == .linux) {
         const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
         std.posix.madvise(at, len, madv_populate_write) catch {};
     }
+}
+
+/// Whether `h` does the program's work: it has taken from the system at
+/// least `prefault_lead` times what every other heap has together. A
+/// program on one thread always leads, and so does one whose other
+/// threads take little, as a blocking-pool thread that reads a file
+/// does. In a program of several busy threads, as a server's workers or
+/// parallel checkers, none leads, and each faults lazily: each would
+/// fault in its first stretch as it starts, and a server's buffers are
+/// written sparsely, so faulting in ahead slowed both. A new heap's first
+/// segment counts before it asks, so it leads only a program whose other
+/// heaps have taken a quarter of it or less.
+fn leads(h: *const Heap) bool {
+    const others = taken_all.load(.monotonic) -| h.taken;
+    return others * prefault_lead <= h.taken;
 }
 
 /// The largest small block.
@@ -175,6 +191,16 @@ pub const Heap = struct {
     next_free: ?*Heap = null,
     /// In a safe build, the thread that owns it (`threadToken`).
     owner: usize = 0,
+    /// The bytes this heap has taken from the system: its segments, and
+    /// the large blocks it mapped and the growth it moved them by, never
+    /// less for those given back (`leads`).
+    taken: usize = 0,
+
+    /// `n` more bytes taken from the system.
+    fn took(h: *Heap, n: usize) void {
+        h.taken += n;
+        _ = taken_all.fetchAdd(n, .monotonic);
+    }
 
     fn alloc(h: *Heap, c: usize) ?[*]u8 {
         mustOwn(h);
@@ -202,13 +228,14 @@ pub const Heap = struct {
     fn newPage(h: *Heap) ?usize {
         if (h.segment) |s| if (s.used < pages_per_segment) {
             const p = @intFromPtr(s) + s.used * page_size;
-            if (s.used % pages_per_prefault == 0) prefault(p, prefault_size);
+            if (s.used % pages_per_prefault == 0) prefault(h, p, prefault_size);
             s.used += 1;
             return p;
         };
         const s = mapSegment() orelse return null;
+        h.took(segment_size);
         // The header's page, and the first stretch the heap carves from.
-        prefault(@intFromPtr(s), prefault_size);
+        prefault(h, @intFromPtr(s), prefault_size);
         s.* = .{ .heap = h, .used = 2 };
         h.segment = s;
         return @intFromPtr(s) + page_size;
@@ -303,7 +330,8 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
         }
     }
     const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
-    prefault(@intFromPtr(got.ptr), likelyFilled(size - size / 4));
+    h.took(size);
+    prefault(h, @intFromPtr(got.ptr), likelyFilled(size - size / 4));
     return got.ptr;
 }
 
@@ -484,7 +512,6 @@ fn newHeap() ?*Heap {
     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
     h.* = .{};
-    _ = heaps_made.fetchAdd(1, .monotonic);
     if (check_owner) h.owner = threadToken();
     my_heap = h;
     return h;
@@ -537,6 +564,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     if (builtin.os.tag != .linux) return null;
     if (classOf(memory.len, alignment) != null or classOf(new_len, alignment) != null) return null;
     if (memory.len < move_large or new_len < memory.len) return null;
+    const h = heap() orelse return null;
     const old_size = largeSize(memory.len);
     const new_size = largeSize(new_len);
     const linux = std.os.linux;
@@ -544,8 +572,9 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) return null;
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
-    prefault(rc + old_size, likelyFilled((new_size - old_size) / 2));
-    if (counts) if (heap()) |h| h.count(@intCast(new_size - old_size), 0);
+    h.took(new_size - old_size);
+    prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 2));
+    if (counts) h.count(@intCast(new_size - old_size), 0);
     return @ptrFromInt(rc);
 }
 
@@ -616,4 +645,44 @@ test "blocks are reused, large ones kept, and a block freed on another thread go
     }
     for (held[0..n]) |p| a.free(p);
     try std.testing.expect(got);
+}
+
+test "the heap that does the work faults in ahead, beside a thread that takes little, and two busy heaps fault lazily" {
+    const a = allocator;
+    // This thread's heap does the program's work: four times what every
+    // heap has taken so far, and more.
+    const work = try a.alloc(u8, 4 * taken_all.load(.monotonic) + (16 << 20));
+    defer a.free(work);
+    const me = heapForTest();
+    try std.testing.expect(leads(me));
+    // A thread that reads a file, as the blocking pool does: its buffer
+    // makes a heap, which does not lead, and the first still does.
+    const Reader = struct {
+        fn run(buf: *[]u8, led: *bool) void {
+            buf.* = allocator.alloc(u8, 1 << 20) catch unreachable;
+            led.* = leads(heapForTest());
+            threadExit();
+        }
+    };
+    var buf: []u8 = undefined;
+    var led = true;
+    (try std.Thread.spawn(.{}, Reader.run, .{ &buf, &led })).join();
+    a.free(buf);
+    try std.testing.expect(!led);
+    try std.testing.expect(leads(me));
+    // A second thread that takes as much as the first: neither leads.
+    const Worker = struct {
+        fn run(n: usize, led_w: *bool, led_first: *bool, first: *const Heap) void {
+            const got = allocator.alloc(u8, n) catch unreachable;
+            led_w.* = leads(heapForTest());
+            led_first.* = leads(first);
+            allocator.free(got);
+            threadExit();
+        }
+    };
+    var led_first = true;
+    (try std.Thread.spawn(.{}, Worker.run, .{ me.taken, &led, &led_first, me })).join();
+    try std.testing.expect(!led);
+    try std.testing.expect(!led_first);
+    try std.testing.expect(!leads(me));
 }
