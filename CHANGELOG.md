@@ -1153,6 +1153,12 @@ reported where it is declared (#647). MIGRATING-0.3 lists each.
   is forwarded from that store; on x86, writing them apart stalled such
   reads (Trig's binder binds 7% faster on an x86 core). Its type and
   layout are Zig's `?T`, as before.
+- **Frame pointers:** release builds (`--release`, `--release=fast`)
+  omit them, which frees a register in every function: Trig checks
+  ts-pattern and zod3 on an x86 core with 2.5-2.9% fewer instructions
+  and 1-2% faster. Debug builds keep them. A profiler that walks them
+  (`perf record -g`, macOS's `sample`) sees no callers in a release
+  build unless `RIG_FRAME_POINTERS=1` was set when it was built.
 - **BOLT:** `rig build --release --bolt -- WORKLOAD` lays the
   executable out again with LLVM's BOLT, by a `perf` profile of the
   workload (Linux), and `--bolt-profile=FILE` keeps that profile or
